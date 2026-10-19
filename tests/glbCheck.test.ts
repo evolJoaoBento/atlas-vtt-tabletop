@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { checkGlb } from '../.test-build/glbCheck.mjs';
+import { checkGlb } from '../src/glbCheck';
 
 /** A GLB holding only a JSON chunk with `json`. */
 function glb(json) {

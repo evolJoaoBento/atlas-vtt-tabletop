@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Assignments, readAssignments } from '../.test-build/assignments.mjs';
+import { Assignments, readAssignments } from '../src/assignments';
 
 test('readAssignments drops malformed entries and clamps values', () => {
   const data = readAssignments({ 'm.md': { a: { mini: 'x.glb', scale: 99, turn: -90 }, b: { mini: '' }, c: null }, bad: 3 });
