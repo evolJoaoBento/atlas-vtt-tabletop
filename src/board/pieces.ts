@@ -100,7 +100,7 @@ export class TokenPiece {
   }
 
   /** The height of the disc's top face over the board, where a mini stands. */
-  private get top(): number {
+  get top(): number {
     return this.diameter * (DISC_LIFT + DISC_THICKNESS);
   }
 
@@ -119,7 +119,7 @@ export class TokenPiece {
   }
 
   update(token: BoardToken): void {
-    const rebuild = token.size !== this.token.size || token.showRing !== this.token.showRing || token.ringColor !== this.token.ringColor || token.hidden !== this.token.hidden;
+    const rebuild = token.size !== this.token.size || token.rotation !== this.token.rotation || token.showRing !== this.token.showRing || token.ringColor !== this.token.ringColor || token.hidden !== this.token.hidden;
     this.token = token;
     if (rebuild) this.build();
   }
