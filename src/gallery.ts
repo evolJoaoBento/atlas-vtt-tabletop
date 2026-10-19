@@ -1,7 +1,8 @@
 /**
- * The minis gallery (a view of its own, opened by the "Open minis gallery" command) and the picker "Place mini…" opens
- * from a token's menu. Both show the GLBs in the minis folder as cards with a drawn thumbnail, and both import more:
- * by the Import button or by dropping .glb files on them.
+ * The gallery (a view of its own, opened by the "Open minis gallery" command) with two tabs, Minis and Props, and the
+ * picker "Assign mini…" opens from a token's menu on the 3D board. They show a library's GLBs as cards with a drawn
+ * thumbnail, and import more: by the Import button or by dropping .glb files on them. Clicking a prop puts it on the
+ * 3D board last used.
  */
 import { ItemView, Menu, Modal, Notice, setIcon, type App, type TFile, type WorkspaceLeaf } from 'obsidian';
 import type { MiniLibrary } from './library';
@@ -12,7 +13,8 @@ export const GALLERY_VIEW_TYPE = 'atlas-tabletop-gallery';
 export async function importWithNotice(library: MiniLibrary, files: readonly File[]): Promise<string[]> {
   if (files.length === 0) return [];
   const { added, failed } = await library.import(files);
-  if (added.length > 0) new Notice(`Tabletop: imported ${added.length} mini${added.length === 1 ? '' : 's'} into ${library.folderPath}.`);
+  const { one, many } = library.kind;
+  if (added.length > 0) new Notice(`Tabletop: imported ${added.length} ${added.length === 1 ? one : many} into ${library.folderPath}.`);
   for (const { name, reason } of failed) new Notice(`Tabletop: could not import ${name}: ${reason}`, 8000);
   return added;
 }
@@ -54,7 +56,7 @@ interface GridOptions {
   onMenu?(file: TFile, event: MouseEvent): void;
 }
 
-/** Draws the cards of the minis into `grid`. */
+/** Draws the cards of a library's GLBs into `grid`. */
 function drawGrid(grid: HTMLElement, library: MiniLibrary, options: GridOptions): void {
   grid.empty();
   const needle = options.filter.trim().toLowerCase();
@@ -62,7 +64,7 @@ function drawGrid(grid: HTMLElement, library: MiniLibrary, options: GridOptions)
   if (files.length === 0) {
     grid.createDiv({
       cls: 'atlas-tabletop-empty',
-      text: library.list().length === 0 ? `No minis yet. Import .glb files, or drop them here or in ${library.folderPath}.` : 'No mini matches.',
+      text: library.list().length === 0 ? `No ${library.kind.many} yet. Import .glb files, or drop them here or in ${library.folderPath}.` : `No ${library.kind.one} matches.`,
     });
     return;
   }
@@ -89,52 +91,88 @@ function drawGrid(grid: HTMLElement, library: MiniLibrary, options: GridOptions)
   }
 }
 
-export class GalleryView extends ItemView {
-  private filter = '';
-  private grid: HTMLElement | null = null;
-  private stop: (() => void) | null = null;
+type GalleryTab = 'minis' | 'props';
 
-  constructor(leaf: WorkspaceLeaf, private readonly library: MiniLibrary) {
+export class GalleryView extends ItemView {
+  private tab: GalleryTab = 'minis';
+  private filter = '';
+  private body: HTMLElement | null = null;
+  private stops: Array<() => void> = [];
+
+  constructor(leaf: WorkspaceLeaf, private readonly minis: MiniLibrary, private readonly props: MiniLibrary, private readonly placeProp: (glb: string) => void) {
     super(leaf);
   }
 
   getViewType(): string { return GALLERY_VIEW_TYPE; }
-  getDisplayText(): string { return 'Minis gallery'; }
+  getDisplayText(): string { return 'Tabletop gallery'; }
   getIcon(): string { return 'box'; }
 
   async onOpen(): Promise<void> {
     const root = this.contentEl;
     root.empty();
     root.addClass('atlas-tabletop-gallery');
-    const bar = root.createDiv({ cls: 'atlas-tabletop-bar' });
-    const search = bar.createEl('input', { type: 'search', placeholder: 'Search minis…', cls: 'atlas-tabletop-search' });
-    search.addEventListener('input', () => { this.filter = search.value; this.redraw(); });
-    const button = bar.createEl('button', { cls: 'mod-cta', text: 'Import GLB' });
-    button.addEventListener('click', async () => importWithNotice(this.library, await pickFiles(root.ownerDocument)));
-    root.createDiv({ cls: 'atlas-tabletop-hint', text: `Drop .glb files here. Minis live in ${this.library.folderPath}. Right-click a token on a map and choose "Place mini…".` });
-    this.grid = root.createDiv({ cls: 'atlas-tabletop-grid' });
-    acceptDrops(root, this.library);
-    this.stop = this.library.onChange(() => this.redraw());
-    this.redraw();
+    const tabs = root.createDiv({ cls: 'atlas-tabletop-tabs' });
+    const buttons = (['minis', 'props'] as const).map((tab) => {
+      const button = tabs.createEl('button', { cls: 'atlas-tabletop-tab', text: tab === 'minis' ? 'Minis' : 'Props' });
+      button.addEventListener('click', () => { this.tab = tab; this.filter = ''; this.draw(); sync(); });
+      return { tab, button };
+    });
+    const sync = (): void => { for (const { tab, button } of buttons) button.toggleClass('is-active', tab === this.tab); };
+    sync();
+    this.body = root.createDiv({ cls: 'atlas-tabletop-gallery-body' });
+    this.stops.push(this.minis.onChange(() => { if (this.tab === 'minis') this.redraw(); }));
+    this.stops.push(this.props.onChange(() => { if (this.tab === 'props') this.redraw(); }));
+    this.draw();
   }
 
   async onClose(): Promise<void> {
-    this.stop?.();
-    this.stop = null;
+    for (const stop of this.stops) stop();
+    this.stops = [];
+  }
+
+  private get library(): MiniLibrary {
+    return this.tab === 'minis' ? this.minis : this.props;
+  }
+
+  private grid: HTMLElement | null = null;
+
+  /** Builds the open tab: its search, its import button, its hint and its cards. */
+  private draw(): void {
+    const body = this.body;
+    if (!body) return;
+    body.empty();
+    const library = this.library;
+    const bar = body.createDiv({ cls: 'atlas-tabletop-bar' });
+    const search = bar.createEl('input', { type: 'search', placeholder: `Search ${library.kind.many}…`, cls: 'atlas-tabletop-search' });
+    search.addEventListener('input', () => { this.filter = search.value; this.redraw(); });
+    const button = bar.createEl('button', { cls: 'mod-cta', text: 'Import GLB' });
+    button.addEventListener('click', async () => importWithNotice(library, await pickFiles(body.ownerDocument)));
+    const hint = this.tab === 'minis'
+      ? `Drop .glb files here. Minis live in ${library.folderPath}. On a 3D board, right-click a token and choose "Assign mini…".`
+      : `Drop .glb files here. Props live in ${library.folderPath}. Click a prop, then click the 3D board to put it there; Ctrl + drag moves it.`;
+    body.createDiv({ cls: 'atlas-tabletop-hint', text: hint });
+    this.grid = body.createDiv({ cls: 'atlas-tabletop-grid' });
+    acceptDrops(body, library);
+    this.redraw();
   }
 
   private redraw(): void {
     if (!this.grid) return;
-    drawGrid(this.grid, this.library, {
+    const library = this.library;
+    drawGrid(this.grid, library, {
       filter: this.filter,
+      ...(this.tab === 'props' ? { onPick: (file: TFile) => this.placeProp(file.path) } : {}),
       onMenu: (file, event) => {
         const menu = new Menu();
+        if (this.tab === 'props') menu.addItem((item) => item.setTitle('Place on board').setIcon('map-pin').onClick(() => this.placeProp(file.path)));
         menu.addItem((item) => item.setTitle('Reveal in navigation').setIcon('folder-open').onClick(() => {
           const explorer = this.app.workspace.getLeavesOfType('file-explorer')[0]?.view as { revealInFolder?(file: TFile): void } | undefined;
           explorer?.revealInFolder?.(file);
         }));
-        menu.addItem((item) => item.setTitle('Delete mini').setIcon('trash').setWarning(true).onClick(() => {
-          new ConfirmModal(this.app, `Delete ${file.name}? Tokens using it lose their mini. The file goes to the trash.`, () => {
+        const { one } = library.kind;
+        const warning = this.tab === 'minis' ? 'Tokens using it lose their mini.' : 'Boards using it lose the prop.';
+        menu.addItem((item) => item.setTitle(`Delete ${one}`).setIcon('trash').setWarning(true).onClick(() => {
+          new ConfirmModal(this.app, `Delete ${file.name}? ${warning} The file goes to the trash.`, () => {
             void this.app.fileManager.trashFile(file);
           }).open();
         }));
@@ -163,7 +201,7 @@ export interface PickResult {
   turn: number;
 }
 
-/** "Place mini…": picks a mini for a token, with its size and turn. */
+/** "Assign mini…": picks a mini for a token, with its size and turn. */
 export class MiniPicker extends Modal {
   private filter = '';
   private selected: string | null;
@@ -186,7 +224,7 @@ export class MiniPicker extends Modal {
 
   onOpen(): void {
     this.modalEl.addClass('atlas-tabletop-picker');
-    this.setTitle(`Place mini on ${this.tokenName}`);
+    this.setTitle(`Mini for ${this.tokenName}`);
     const root = this.contentEl;
     const bar = root.createDiv({ cls: 'atlas-tabletop-bar' });
     const search = bar.createEl('input', { type: 'search', placeholder: 'Search minis…', cls: 'atlas-tabletop-search' });
@@ -213,7 +251,7 @@ export class MiniPicker extends Modal {
     slider('Turn', 0, 345, 15, this.turn, (v) => `${v}°`, (v) => { this.turn = v; });
 
     const buttons = root.createDiv({ cls: 'modal-button-container' });
-    const place = buttons.createEl('button', { cls: 'mod-cta', text: 'Place' });
+    const place = buttons.createEl('button', { cls: 'mod-cta', text: 'Assign' });
     buttons.createEl('button', { text: 'Cancel' }).addEventListener('click', () => this.close());
     place.addEventListener('click', () => this.finish());
 

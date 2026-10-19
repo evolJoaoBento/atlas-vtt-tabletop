@@ -122,3 +122,48 @@
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
+
+/* The 3D board's tab: the board fills it, with a tooltip for condition rings and stat badges. */
+.atlas-tabletop-board-view {
+  position: relative;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.atlas-tabletop-board {
+  display: block;
+  width: 100%;
+  height: 100%;
+  outline: none;
+  touch-action: none;
+}
+
+.atlas-tabletop-tooltip {
+  position: absolute;
+  pointer-events: none;
+  padding: var(--size-4-1) var(--size-4-2);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+  font-size: var(--font-ui-smaller);
+  white-space: nowrap;
+  box-shadow: var(--shadow-s);
+}
+
+.atlas-tabletop-tabs {
+  display: flex;
+  gap: var(--size-4-1);
+}
+
+.atlas-tabletop-tab.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.atlas-tabletop-gallery-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  min-height: 0;
+}

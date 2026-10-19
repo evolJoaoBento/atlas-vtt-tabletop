@@ -92,7 +92,7 @@ async function main(): Promise<void> {
   const props: PropPlacement[] = [{ id: 'barrel', glb: 'props/barrel.glb', x: 910, y: 805, rotation: 0, scale: 1 }];
   const record = {
     moves: [] as Array<[string, number, number]>, propMoves: [] as Array<[string, number, number]>, added: [] as Array<[string, number, number]>,
-    notes: [] as string[], menus: [] as string[], warnings: [] as string[],
+    notes: [] as string[], menus: [] as string[], propMenus: [] as string[], warnings: [] as string[],
   };
   const rules = emptyRules();
   rules.conditions.set('c-poisoned', { name: 'Poisoned', color: '#16a34a', valued: false });
@@ -111,6 +111,7 @@ async function main(): Promise<void> {
     addProp: (glb, x, y) => { record.added.push([glb, x, y]); },
     openNote: (path) => { record.notes.push(path); },
     tokenMenu: (id) => { record.menus.push(id); },
+    propMenu: (id) => { record.propMenus.push(id); },
     warn: (message) => { if (!record.warnings.includes(message)) record.warnings.push(message); },
   };
   const container = document.getElementById('board')!;

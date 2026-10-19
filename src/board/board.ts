@@ -5,7 +5,8 @@
  * - Left-drag on a token carries it (its mini leans and walks the way Tabletop's minis always have); on release it
  *   snaps to the grid like Atlas, glides there, and the move is saved once.
  * - Ctrl + left-drag on a prop carries the prop.
- * - A click on a pin opens its note; a right-click on a token opens its menu; a click on a token wobbles its mini.
+ * - A click on a pin opens its note; a right-click on a token or a prop opens its menu; a click on a token wobbles
+ *   its mini.
  * - Any other drag moves the camera: left or middle orbits, right pans. The wheel zooms. WASD or the arrow keys pan,
  *   Q and E turn, Home frames the map.
  *
@@ -39,6 +40,7 @@ export interface BoardHost {
   addProp(glb: string, x: number, y: number): void;
   openNote(path: string): void;
   tokenMenu(id: string, event: MouseEvent): void;
+  propMenu(id: string, event: MouseEvent): void;
   /** Shown once per message. */
   warn(message: string): void;
 }
@@ -71,7 +73,7 @@ interface TokenEntry {
 }
 
 type Press =
-  | { kind: 'camera'; button: number; x: number; y: number; lastX: number; lastY: number; moved: boolean; token: string | null; pin: string | null }
+  | { kind: 'camera'; button: number; x: number; y: number; lastX: number; lastY: number; moved: boolean; token: string | null; prop: string | null; pin: string | null }
   | { kind: 'token'; id: string; x: number; y: number; moved: boolean; grab: { dx: number; dy: number } }
   | { kind: 'prop'; id: string; x: number; y: number; moved: boolean; grab: { dx: number; dy: number } };
 
@@ -496,8 +498,9 @@ export class Board {
       }
     }
     const token = event.button === 2 ? this.tokenAt(x, y) : null;
+    const prop = event.button === 2 && !token ? this.propAt(x, y) : null;
     const pin = event.button === 0 ? this.pinAt(x, y) : null;
-    this.press = { kind: 'camera', button: event.button, x, y, lastX: x, lastY: y, moved: false, token, pin };
+    this.press = { kind: 'camera', button: event.button, x, y, lastX: x, lastY: y, moved: false, token, prop, pin };
   }
 
   private move(event: PointerEvent): void {
@@ -568,6 +571,7 @@ export class Board {
     }
     if (press.moved) return;
     if (press.button === 2 && press.token) this.host.tokenMenu(press.token, event);
+    else if (press.button === 2 && press.prop) this.host.propMenu(press.prop, event);
     else if (press.button === 0 && press.pin) {
       const pin = this.pins.find((piece) => piece.pin.id === press.pin);
       if (pin?.pin.notePath) this.host.openNote(pin.pin.notePath);

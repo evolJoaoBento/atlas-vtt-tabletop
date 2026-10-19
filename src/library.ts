@@ -1,6 +1,7 @@
 /**
- * The minis: GLB files in one vault folder (`atlas-vtt/assets/minis` by default). Imports copy files into it; GLBs put
- * there by hand are listed too. Each GLB is parsed once and shared; thumbnails are drawn once per file and kept in memory.
+ * A library of GLBs in one vault folder: the minis (`atlas-vtt/assets/minis` by default) that stand on tokens, or the
+ * props (`atlas-vtt/assets/props`) that stand on the board. Imports copy files into it; GLBs put there by hand are
+ * listed too. Each GLB is parsed once and shared; thumbnails are drawn once per file and kept in memory.
  */
 import { normalizePath, TFile, TFolder, type App } from 'obsidian';
 import * as THREE from 'three';
@@ -9,6 +10,17 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
 import { checkGlb } from './glbCheck';
 
 export const DEFAULT_MINIS_FOLDER = 'atlas-vtt/assets/minis';
+export const DEFAULT_PROPS_FOLDER = 'atlas-vtt/assets/props';
+
+/** What a library holds, for its wording: minis (on tokens) or props (on the board). */
+export interface LibraryKind {
+  readonly one: string;
+  readonly many: string;
+  readonly fallback: string;
+}
+
+export const MINIS: LibraryKind = { one: 'mini', many: 'minis', fallback: DEFAULT_MINIS_FOLDER };
+export const PROPS: LibraryKind = { one: 'prop', many: 'props', fallback: DEFAULT_PROPS_FOLDER };
 const THUMB_PX = 192;
 
 export interface LoadedMini {
@@ -71,13 +83,13 @@ export class MiniLibrary {
   private thumbRenderer: THREE.WebGLRenderer | null = null;
   private thumbQueue: Promise<unknown> = Promise.resolve();
 
-  constructor(private readonly app: App, private readonly folder: () => string) {}
+  constructor(private readonly app: App, private readonly folder: () => string, readonly kind: LibraryKind = MINIS) {}
 
   get folderPath(): string {
-    return normalizePath(this.folder() || DEFAULT_MINIS_FOLDER);
+    return normalizePath(this.folder() || this.kind.fallback);
   }
 
-  /** The GLBs in the minis folder (and its subfolders), by name. */
+  /** The GLBs in the library's folder (and its subfolders), by name. */
   list(): TFile[] {
     const root = `${this.folderPath}/`;
     return this.app.vault.getFiles().filter((file) => file.path.startsWith(root) && file.extension.toLowerCase() === 'glb')

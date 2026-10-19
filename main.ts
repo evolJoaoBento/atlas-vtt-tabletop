@@ -1,20 +1,31 @@
-import { Plugin, PluginSettingTab, Setting, TFile, debounce, type App } from 'obsidian';
+import { Notice, Plugin, PluginSettingTab, Setting, TFile, debounce, type App } from 'obsidian';
 import { Assignments, readAssignments, type AssignmentData, type MiniPlacement } from './src/assignments';
+import { mapViews } from './src/atlas';
+import { BOARD_VIEW_TYPE, BoardView } from './src/board/BoardView';
+import { BoardData, readBoardData, type BoardDataJSON } from './src/board/boardData';
+import { TokenWriter } from './src/board/tokenWriter';
 import { GALLERY_VIEW_TYPE, GalleryView, importWithNotice, pickFiles } from './src/gallery';
-import { DEFAULT_MINIS_FOLDER, MiniLibrary } from './src/library';
+import { DEFAULT_MINIS_FOLDER, DEFAULT_PROPS_FOLDER, MiniLibrary, PROPS } from './src/library';
 import { playerMiniPainter, type PlayerMiniPainter } from './src/playerMinis';
 
 export const API_READY_EVENT = 'atlas-vtt-tabletop:api-ready';
 export const API_UNLOAD_EVENT = 'atlas-vtt-tabletop:api-unload';
 
 interface TabletopSettings {
+  /** The minis folder (the key keeps its old name so saved settings still read). */
   folder: string;
+  propsFolder: string;
 }
+
+const DEFAULT_SETTINGS: TabletopSettings = { folder: DEFAULT_MINIS_FOLDER, propsFolder: DEFAULT_PROPS_FOLDER };
 
 interface SavedData {
   settings?: Partial<TabletopSettings>;
   assignments?: AssignmentData;
+  board?: BoardDataJSON;
 }
+
+const isMapPath = (path: string): boolean => path.toLowerCase().endsWith('.atlasmap');
 
 /**
  * What other plugins (Atlas VTT Connect) read of Tabletop: `app.plugins.plugins['atlas-vtt-tabletop'].api`, announced
@@ -33,22 +44,40 @@ export interface TabletopApi {
 }
 
 export default class TabletopPlugin extends Plugin {
-  settings: TabletopSettings = { folder: DEFAULT_MINIS_FOLDER };
+  settings: TabletopSettings = { ...DEFAULT_SETTINGS };
   assignments = new Assignments();
+  boardData = new BoardData();
   library!: MiniLibrary;
+  props!: MiniLibrary;
   api: TabletopApi | null = null;
   private players: ReturnType<typeof playerMiniPainter> | null = null;
-  private readonly save = debounce(() => { void this.saveData({ settings: this.settings, assignments: this.assignments.toJSON() } satisfies SavedData); }, 500, true);
+  /** The 3D board used last: props from the gallery go to it. */
+  private lastBoard: BoardView | null = null;
+  private readonly save = debounce(() => {
+    void this.saveData({ settings: this.settings, assignments: this.assignments.toJSON(), board: this.boardData.toJSON() } satisfies SavedData);
+  }, 500, true);
 
   async onload(): Promise<void> {
     const saved = ((await this.loadData()) ?? {}) as SavedData;
-    this.settings = { folder: DEFAULT_MINIS_FOLDER, ...(saved.settings ?? {}) };
+    this.settings = { ...DEFAULT_SETTINGS, ...(saved.settings ?? {}) };
     this.assignments = new Assignments(readAssignments(saved.assignments));
-    this.register(this.assignments.onChange(() => this.save()));
+    this.boardData = new BoardData(readBoardData(saved.board));
+    this.register(this.assignments.onChange(() => { this.save(); this.refreshBoards(); }));
+    this.register(this.boardData.onChange(() => { this.save(); this.refreshBoards(); }));
     this.library = new MiniLibrary(this.app, () => this.settings.folder);
-    this.register(() => this.library.dispose());
+    this.props = new MiniLibrary(this.app, () => this.settings.propsFolder, PROPS);
+    this.register(() => { this.library.dispose(); this.props.dispose(); });
+    const writer = new TokenWriter({ views: () => mapViews(this.app), process: (path, edit) => this.processFile(path, edit) });
 
-    this.registerView(GALLERY_VIEW_TYPE, (leaf) => new GalleryView(leaf, this.library));
+    this.registerView(GALLERY_VIEW_TYPE, (leaf) => new GalleryView(leaf, this.library, this.props, (glb) => this.placeProp(glb)));
+    this.registerView(BOARD_VIEW_TYPE, (leaf) => new BoardView(leaf, {
+      assignments: this.assignments,
+      boardData: this.boardData,
+      minis: this.library,
+      props: this.props,
+      writer,
+      focused: (view) => { this.lastBoard = view; },
+    }));
     this.addRibbonIcon('box', 'Open minis gallery', () => { void this.openGallery(); });
     this.addCommand({ id: 'open-gallery', name: 'Open minis gallery', callback: () => { void this.openGallery(); } });
     this.addCommand({
@@ -56,20 +85,39 @@ export default class TabletopPlugin extends Plugin {
       name: 'Import GLB minis',
       callback: async () => { await importWithNotice(this.library, await pickFiles(document)); },
     });
+    this.addCommand({
+      id: 'open-board',
+      name: 'Open map in 3D',
+      checkCallback: (checking) => {
+        const path = this.currentMap();
+        if (!path) return false;
+        if (!checking) void this.openBoard(path);
+        return true;
+      },
+    });
+    this.registerEvent(this.app.workspace.on('file-menu', (menu, file) => {
+      if (!(file instanceof TFile) || !isMapPath(file.path)) return;
+      menu.addItem((item) => item.setTitle('Open in 3D').setIcon('cuboid').onClick(() => { void this.openBoard(file.path); }));
+    }));
     this.addSettingTab(new TabletopSettingTab(this.app, this));
 
     this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
       this.assignments.rename(oldPath, file.path);
+      this.boardData.rename(oldPath, file.path);
       this.library.fileChanged(file.path, oldPath);
+      this.props.fileChanged(file.path, oldPath);
     }));
     this.registerEvent(this.app.vault.on('delete', (file) => {
       this.assignments.deleted(file.path);
+      this.boardData.deleted(file.path);
       this.library.fileChanged(file.path);
+      this.props.fileChanged(file.path);
     }));
-    this.registerEvent(this.app.vault.on('create', (file) => this.library.fileChanged(file.path)));
-    this.registerEvent(this.app.vault.on('modify', (file) => this.library.fileChanged(file.path)));
+    const changed = (file: { path: string }): void => { this.library.fileChanged(file.path); this.props.fileChanged(file.path); };
+    this.registerEvent(this.app.vault.on('create', changed));
+    this.registerEvent(this.app.vault.on('modify', changed));
 
-    this.app.workspace.onLayoutReady(() => this.library.emit());
+    this.app.workspace.onLayoutReady(() => { this.library.emit(); this.props.emit(); });
 
     this.players = playerMiniPainter();
     this.api = Object.freeze({
@@ -102,10 +150,56 @@ export default class TabletopPlugin extends Plugin {
     await this.app.workspace.revealLeaf(leaf);
   }
 
-  async setFolder(folder: string): Promise<void> {
-    this.settings.folder = folder.trim().replace(/^\/+|\/+$/g, '') || DEFAULT_MINIS_FOLDER;
+  async setFolder(key: 'folder' | 'propsFolder', folder: string): Promise<void> {
+    this.settings[key] = folder.trim().replace(/^\/+|\/+$/g, '') || DEFAULT_SETTINGS[key];
     this.save();
-    this.library.emit();
+    (key === 'folder' ? this.library : this.props).emit();
+  }
+
+  /** The map to open in 3D: the open `.atlasmap` file, else the map of the Atlas view used last. */
+  private currentMap(): string | null {
+    const file = this.app.workspace.getActiveFile();
+    if (file && isMapPath(file.path)) return file.path;
+    const recent = this.app.workspace.getMostRecentLeaf()?.view as unknown as { viewId?: unknown } | undefined;
+    const views = mapViews(this.app);
+    const view = views.find((candidate) => candidate.viewId === recent?.viewId) ?? views[0];
+    return view?.atlasStore.getState().mapPath ?? null;
+  }
+
+  /** Opens a map in 3D in a new tab (or shows the tab it is already open in). */
+  async openBoard(path: string): Promise<void> {
+    const open = this.app.workspace.getLeavesOfType(BOARD_VIEW_TYPE).find((leaf) => (leaf.view as BoardView).mapPath === path);
+    const leaf = open ?? this.app.workspace.getLeaf('tab');
+    if (!open) await leaf.setViewState({ type: BOARD_VIEW_TYPE, state: { file: path }, active: true });
+    await this.app.workspace.revealLeaf(leaf);
+    if (leaf.view instanceof BoardView) this.lastBoard = leaf.view;
+  }
+
+  private boards(): BoardView[] {
+    return this.app.workspace.getLeavesOfType(BOARD_VIEW_TYPE).map((leaf) => leaf.view).filter((view): view is BoardView => view instanceof BoardView);
+  }
+
+  private refreshBoards(): void {
+    for (const view of this.boards()) view.refresh();
+  }
+
+  /** A prop picked in the gallery goes to the 3D board used last: the next click on it puts the prop there. */
+  private placeProp(glb: string): void {
+    const open = this.boards();
+    const view = this.lastBoard && open.includes(this.lastBoard) ? this.lastBoard : open[0];
+    if (!view) {
+      new Notice('Tabletop: open a map in 3D first, then click a prop to put it on the board.');
+      return;
+    }
+    void this.app.workspace.revealLeaf(view.leaf);
+    view.placeProp(glb);
+    new Notice('Tabletop: click the board where the prop goes (Esc to cancel).');
+  }
+
+  private async processFile(path: string, edit: (text: string) => string): Promise<void> {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) throw new Error(`the map ${path} is missing`);
+    await this.app.vault.process(file, edit);
   }
 }
 
@@ -120,6 +214,10 @@ class TabletopSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName('Minis folder')
       .setDesc('Where imported GLB minis are kept. GLB files put in this folder by hand are listed too.')
-      .addText((text) => text.setPlaceholder(DEFAULT_MINIS_FOLDER).setValue(this.plugin.settings.folder).onChange((value) => { void this.plugin.setFolder(value); }));
+      .addText((text) => text.setPlaceholder(DEFAULT_MINIS_FOLDER).setValue(this.plugin.settings.folder).onChange((value) => { void this.plugin.setFolder('folder', value); }));
+    new Setting(containerEl)
+      .setName('Props folder')
+      .setDesc('Where imported GLB props (furniture, scenery) are kept. GLB files put in this folder by hand are listed too.')
+      .addText((text) => text.setPlaceholder(DEFAULT_PROPS_FOLDER).setValue(this.plugin.settings.propsFolder).onChange((value) => { void this.plugin.setFolder('propsFolder', value); }));
   }
 }

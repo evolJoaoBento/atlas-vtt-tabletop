@@ -97,6 +97,14 @@ server.listen(0, async () => {
     check('ctrl-drag moves the prop', r.propMoves.length === 1 && r.propMoves[0][0] === 'barrel', r.propMoves);
     check('ctrl-drag on a prop moves no token', r.moves.length === 1, r.moves);
 
+    // 7b. A right-click on a prop opens its menu.
+    await wait(400);
+    const barrelNow = await project(r.propMoves[0][1], r.propMoves[0][2], 20);
+    await page.mouse.click(barrelNow.x, barrelNow.y, { button: 'right' });
+    await wait(200);
+    r = await record();
+    check('right-click on a prop opens its menu', r.propMenus[0] === 'barrel', r.propMenus);
+
     // 8. Placing a prop from the gallery: the next click drops it there.
     await page.evaluate(() => window.boardTest.board.placeProp('props/crate.glb'));
     const spot = await project(300, 850, 0);
