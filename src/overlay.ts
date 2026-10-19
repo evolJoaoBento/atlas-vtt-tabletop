@@ -11,6 +11,7 @@ import {
 } from './atlas';
 import type { Assignments, MiniPlacement } from './assignments';
 import { MiniFigure } from './figure';
+import { Table } from './table';
 import type { MiniLibrary } from './library';
 
 /** A press that travels further than this (CSS px) or lasts longer than this is a drag, not a click. */
@@ -35,6 +36,10 @@ export class MiniOverlay {
   private disposed = false;
   private press: { id: string; x: number; y: number; at: number } | null = null;
   private readonly stops: Array<() => void> = [];
+  private readonly sun: THREE.DirectionalLight;
+  /** The 3D table (`table.ts`), made when first asked for. */
+  private table: Table | null = null;
+  private tableOn = false;
 
   constructor(
     private readonly view: AtlasView,
@@ -56,6 +61,7 @@ export class MiniOverlay {
     this.camera.lookAt(0, 0, 0);
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x3a4250, 2.1));
     const sun = new THREE.DirectionalLight(0xffffff, 1.8);
+    this.sun = sun;
     // From the top left of the screen, high up.
     sun.position.set(-0.6, 1, -0.8);
     this.scene.add(sun);
@@ -140,9 +146,50 @@ export class MiniOverlay {
     instance.figure.dispose();
   }
 
+  /** Whether the map is shown as a 3D table. */
+  get tableShown(): boolean {
+    return this.tableOn;
+  }
+
+  /** Shows the map as a 3D table, or flat again. */
+  setTable(on: boolean): void {
+    this.tableOn = on;
+    if (!on) this.table?.deactivate();
+  }
+
+  /** The table back at its starting angle. */
+  resetTable(): void {
+    this.table?.reset();
+  }
+
   private hide(): void {
+    // Atlas's map is never left hidden under a table that is not drawn.
+    this.table?.deactivate();
     if (this.canvas.style.display !== 'none') this.canvas.style.display = 'none';
   }
+
+  /** The table over `target`, or null when it cannot be (the notice is the caller's). */
+  private tableOver(target: HTMLCanvasElement, rect: DOMRect): Table | null {
+    if (!this.tableOn) {
+      this.table?.deactivate();
+      return null;
+    }
+    try {
+      this.table ??= new Table(this.view, this.canvas, this.renderer, this.scene, this.sun);
+      this.table.activate(target);
+      this.table.layout(rect.width, rect.height);
+      return this.table;
+    } catch (error) {
+      console.error('[Tabletop] The 3D table could not be shown:', error);
+      this.tableOn = false;
+      this.table?.deactivate();
+      this.onTableFailed?.(error);
+      return null;
+    }
+  }
+
+  /** Told when the table could not be shown, and the map was put back flat. */
+  onTableFailed: ((error: unknown) => void) | null = null;
 
   private draw(): void {
     const dt = Math.min(this.clock.getDelta(), 1 / 15);
@@ -158,7 +205,7 @@ export class MiniOverlay {
     this.sync(mapPath, tokens);
     const target = mapCanvas(this.view);
     const port = viewport(this.view);
-    if (this.instances.size === 0 || !target || !port?.toScreen) {
+    if ((this.instances.size === 0 && !this.tableOn) || !target || !port?.toScreen) {
       this.hide();
       return;
     }
@@ -168,6 +215,7 @@ export class MiniOverlay {
       return;
     }
     this.place(target, rect);
+    const table = this.tableOver(target, rect);
     const zoom = port.scale?.x && port.scale.x > 0 ? port.scale.x : 1;
     const sprites = tokenSprites(this.view);
     const grid = gridSize(this.view);
@@ -190,7 +238,7 @@ export class MiniOverlay {
       // A token only the GM sees is drawn faded, and so is its mini.
       figure.fade(Math.min(1, sprite.alpha));
     }
-    this.renderer.render(this.scene, this.camera);
+    this.renderer.render(this.scene, table?.camera ?? this.camera);
   }
 
   /** Lays the overlay exactly over the map canvas, at the window's pixel ratio. */
@@ -217,6 +265,8 @@ export class MiniOverlay {
   }
 
   dispose(): void {
+    this.table?.dispose();
+    this.table = null;
     if (this.disposed) return;
     this.disposed = true;
     if (this.frame !== null) this.win.cancelAnimationFrame(this.frame);

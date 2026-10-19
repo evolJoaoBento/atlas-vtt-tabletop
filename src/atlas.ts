@@ -67,7 +67,17 @@ export interface AtlasView {
     getViewportInstance?(): ViewportLike | null;
     getGridOptions?(): { size?: number } | null;
     laserPointerRenderer?: { canvasEl?: unknown };
+    getAppInstance?(): unknown;
   } | null;
+}
+
+/** Atlas's PIXI application (PIXI 7), as far as the 3D table uses it. */
+export interface PixiAppLike {
+  render?(): void;
+  readonly renderer: {
+    render(...args: unknown[]): unknown;
+    readonly events?: { readonly domElement?: unknown; setTargetElement?(element: unknown): void };
+  };
 }
 
 const isObj = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
@@ -105,6 +115,17 @@ export function viewport(view: AtlasView): ViewportLike | null {
   try {
     const port = view.renderer?.getViewportInstance?.() ?? null;
     return isObj(port) && port.destroyed !== true ? port : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The view's PIXI application, or null when it is not there or not the shape Tabletop knows. */
+export function pixiApp(view: AtlasView): PixiAppLike | null {
+  try {
+    const found = view.renderer?.getAppInstance?.();
+    if (!isObj(found) || !isObj(found.renderer) || typeof found.renderer.render !== 'function') return null;
+    return found as unknown as PixiAppLike;
   } catch {
     return null;
   }

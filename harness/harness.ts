@@ -59,6 +59,7 @@ async function main(): Promise<void> {
     containerEl: container,
     atlasStore: { getState: () => state, subscribe: (l) => { listeners.add(l); return () => listeners.delete(l); } },
     renderer: {
+      getAppInstance: () => pixi,
       getViewportInstance: () => port,
       getGridOptions: () => ({ size: 70 }),
       getTokenRenderer: () => ({
@@ -72,9 +73,12 @@ async function main(): Promise<void> {
   const overlay = new MiniOverlay(view, assignments, library, (m, e) => console.error('failed', m, e));
   for (const id of ['t1', 't2', 't3']) assignments.set('maps/test.md', id, { mini: 'minis/hero.glb', scale: 1, turn: 0 });
 
-  const drawMap = (): void => {
+  // Like Atlas's PIXI: draws only when asked to, and keeps no picture (the table must copy it at once).
+  let renders = 0;
+  const paint = (): void => {
+    renders++;
     const rect = container.getBoundingClientRect();
-    map.width = rect.width; map.height = rect.height;
+    if (map.width !== rect.width || map.height !== rect.height) { map.width = rect.width; map.height = rect.height; }
     const g = map.getContext('2d')!;
     g.fillStyle = '#2d3a2e'; g.fillRect(0, 0, map.width, map.height);
     g.strokeStyle = 'rgba(255,255,255,0.15)';
@@ -86,24 +90,69 @@ async function main(): Promise<void> {
       g.fillStyle = '#ddd'; g.beginPath(); g.arc(s.x, s.y, 31 * (2 * (t.size ?? 1) - 1) * cam.zoom, 0, Math.PI * 2); g.fill();
       g.globalAlpha = 1;
     }
-    requestAnimationFrame(drawMap);
   };
-  drawMap();
+  const pixi = {
+    renderer: { render: (_stage: unknown, _options?: unknown): void => paint(), events: { domElement: map, setTargetElement: (el: unknown) => { void el; listenLikePixi(); } } },
+    render(): void { this.renderer.render({}); },
+  };
+  let dirty = true;
+  const loop = (): void => { if (dirty) { dirty = false; pixi.render(); } requestAnimationFrame(loop); };
+  const changed = (): void => { dirty = true; };
+
+  // Like PIXI's event system: down on the canvas, moves on the whole document, up on the window; Atlas drags tokens.
+  const heard: Array<{ type: string; trusted: boolean; x: number; y: number }> = [];
+  let dragging: string | null = null;
+  const worldAt = (e: PointerEvent): { x: number; y: number } => { const r = map.getBoundingClientRect(); return port.toWorld({ x: e.clientX - r.left, y: e.clientY - r.top }); };
+  const down = (e: PointerEvent): void => {
+    heard.push({ type: e.type, trusted: e.isTrusted, x: e.clientX, y: e.clientY });
+    const w = worldAt(e);
+    dragging = Object.values(tokens).find((t) => Math.hypot(t.x - w.x, t.y - w.y) < 33 * (2 * (t.size ?? 1) - 1))?.id ?? null;
+  };
+  const move = (e: PointerEvent): void => {
+    heard.push({ type: e.type, trusted: e.isTrusted, x: e.clientX, y: e.clientY });
+    if (!dragging) return;
+    const w = worldAt(e);
+    sprites[dragging]!.x = w.x; sprites[dragging]!.y = w.y; changed();
+  };
+  const up = (e: PointerEvent): void => {
+    heard.push({ type: e.type, trusted: e.isTrusted, x: e.clientX, y: e.clientY });
+    if (!dragging) return;
+    const w = worldAt(e);
+    tokens[dragging]!.x = w.x; tokens[dragging]!.y = w.y; sprites[dragging]!.x = w.x; sprites[dragging]!.y = w.y;
+    dragging = null; changed();
+  };
+  const listenLikePixi = (): void => {
+    map.removeEventListener('pointerdown', down); document.removeEventListener('pointermove', move, true); window.removeEventListener('pointerup', up, true);
+    map.addEventListener('pointerdown', down); document.addEventListener('pointermove', move, true); window.addEventListener('pointerup', up, true);
+  };
+  listenLikePixi();
+  loop();
 
   // A drag of t1 along a path, as Atlas moves the sprite while dragging.
   const drag = (to: { x: number; y: number }, ms = 700): Promise<void> => new Promise((done) => {
+    changed();
     const from = { ...sprites.t1! };
     const start = performance.now();
     const tick = (): void => {
       const k = Math.min(1, (performance.now() - start) / ms);
       sprites.t1!.x = from.x + (to.x - from.x) * k;
       sprites.t1!.y = from.y + (to.y - from.y) * k;
+      changed();
       if (k < 1) requestAnimationFrame(tick);
       else { tokens.t1!.x = to.x; tokens.t1!.y = to.y; done(); }
     };
     tick();
   });
-  Object.assign(window, { harness: { cam, sprites, tokens, assignments, overlay, drag, shake: (id: string) => overlay.shake(id), mini } });
+  /** Where a world point of the map shows in the window, on the table or flat. */
+  const project = (x: number, y: number): { x: number; y: number } => {
+    const s = port.toScreen(x, y);
+    const r = map.getBoundingClientRect();
+    const table = (overlay as unknown as { table: { active: boolean; camera: THREE.Camera } | null }).table;
+    if (!table?.active) return { x: r.left + s.x, y: r.top + s.y };
+    const p = new THREE.Vector3(s.x, 0, s.y).project(table.camera);
+    return { x: r.left + (p.x + 1) / 2 * r.width, y: r.top + (1 - p.y) / 2 * r.height };
+  };
+  Object.assign(window, { harness: { cam, sprites, tokens, assignments, overlay, drag, shake: (id: string) => overlay.shake(id), mini, project, heard, renders: () => renders, map } });
   document.getElementById('status')!.textContent = `ready: footprint ${mini.footprint.toFixed(2)}, height ${mini.height.toFixed(2)}, clips ${mini.animations.map((c) => c.name).join(',')}`;
 }
 

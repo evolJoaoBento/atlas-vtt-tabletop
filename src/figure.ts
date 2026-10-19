@@ -92,6 +92,8 @@ export class MiniFigure {
       const mesh = node as THREE.Mesh;
       if (!mesh.isMesh) return;
       mesh.frustumCulled = false;
+      // Seen only on the 3D table, which turns shadows on.
+      mesh.castShadow = true;
       const own = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).map((material) => material.clone());
       this.materials.push(...own);
       mesh.material = Array.isArray(mesh.material) ? own : own[0]!;

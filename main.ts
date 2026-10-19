@@ -40,6 +40,19 @@ interface Tracked {
   view: AtlasView;
   overlay: MiniOverlay;
   stops: Array<() => void>;
+  /** The view's header button that turns the 3D table on and off. */
+  button: HTMLElement | null;
+}
+
+/** An Obsidian view's header button, when the view is one (Atlas's map view is an ItemView). */
+function addHeaderButton(view: AtlasView, icon: string, title: string, onClick: () => void): HTMLElement | null {
+  const add = (view as unknown as { addAction?: (icon: string, title: string, callback: (event: MouseEvent) => unknown) => HTMLElement }).addAction;
+  if (typeof add !== 'function') return null;
+  try {
+    return add.call(view, icon, title, onClick);
+  } catch {
+    return null;
+  }
 }
 
 export default class TabletopPlugin extends Plugin {
@@ -67,6 +80,26 @@ export default class TabletopPlugin extends Plugin {
       id: 'import-minis',
       name: 'Import GLB minis',
       callback: async () => { await importWithNotice(this.library, await pickFiles(document)); },
+    });
+    this.addCommand({
+      id: 'toggle-3d-table',
+      name: 'Toggle 3D table',
+      checkCallback: (checking) => {
+        const entry = this.activeTracked();
+        if (!entry) return false;
+        if (!checking) this.toggleTable(entry);
+        return true;
+      },
+    });
+    this.addCommand({
+      id: 'reset-3d-table',
+      name: 'Reset 3D table angle',
+      checkCallback: (checking) => {
+        const entry = this.activeTracked();
+        if (!entry?.overlay.tableShown) return false;
+        if (!checking) entry.overlay.resetTable();
+        return true;
+      },
     });
     this.addSettingTab(new TabletopSettingTab(this.app, this));
 
@@ -133,9 +166,15 @@ export default class TabletopPlugin extends Plugin {
       this.warned.add(mini);
       new Notice(`Tabletop: cannot show ${mini}: ${explainLoadError(error)}`, 8000);
     });
+    overlay.onTableFailed = (error) => {
+      new Notice(`Tabletop: the 3D table cannot be shown on this map: ${error instanceof Error ? error.message : String(error)}`, 8000);
+      this.syncButton(entry);
+    };
     const stops: Array<() => void> = [];
     stops.push(watchTokenMenu(view, (tokenId) => this.menuEntries(view, tokenId)));
-    this.tracked.set(view.viewId, { view, overlay, stops });
+    const entry: Tracked = { view, overlay, stops, button: null };
+    entry.button = addHeaderButton(view, 'cuboid', '3D table (Alt + drag to tilt)', () => this.toggleTable(entry));
+    this.tracked.set(view.viewId, entry);
   }
 
   private untrack(viewId: string): void {
@@ -143,7 +182,27 @@ export default class TabletopPlugin extends Plugin {
     if (!entry) return;
     this.tracked.delete(viewId);
     for (const stop of entry.stops) stop();
+    entry.button?.remove();
     entry.overlay.dispose();
+  }
+
+  /** The map view in focus, else the only one open. */
+  private activeTracked(): Tracked | null {
+    const active = this.app.workspace.getMostRecentLeaf()?.view as unknown as { viewId?: unknown } | undefined;
+    if (typeof active?.viewId === 'string') {
+      const found = this.tracked.get(active.viewId);
+      if (found) return found;
+    }
+    return this.tracked.size === 1 ? [...this.tracked.values()][0]! : null;
+  }
+
+  private toggleTable(entry: Tracked): void {
+    entry.overlay.setTable(!entry.overlay.tableShown);
+    this.syncButton(entry);
+  }
+
+  private syncButton(entry: Tracked): void {
+    entry.button?.toggleClass('is-active', entry.overlay.tableShown);
   }
 
   /** The token, and the other selected tokens when it is one of a selection. */
