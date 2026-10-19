@@ -338,6 +338,11 @@ export class Table {
       const holder = menu.closest<HTMLElement>('[data-radix-popper-content-wrapper]') ?? menu;
       // `translate` adds to the `transform` the menu's own placement sets, so neither undoes the other.
       holder.style.translate = `${Math.round(dx)}px ${Math.round(dy)}px`;
+      // Taken off once the menu closes, should Atlas use the same element for a later menu on the flat map.
+      const clear = (): void => { holder.style.translate = ''; };
+      const closed = new win.MutationObserver(() => { if (!menu.isConnected) { closed.disconnect(); clear(); } });
+      closed.observe(doc.body, { childList: true, subtree: true });
+      this.stops.push(() => { closed.disconnect(); clear(); });
       return true;
     };
     if (move()) return;
