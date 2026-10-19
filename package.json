@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "tsc --noEmit && node esbuild.config.mjs production",
-    "test": "esbuild src/assignments.ts --format=esm --outfile=.test-build/assignments.mjs --log-level=warning && node --test tests/assignments.test.mjs",
+    "test": "esbuild src/assignments.ts --format=esm --outfile=.test-build/assignments.mjs --log-level=warning && esbuild src/glbCheck.ts --format=esm --outfile=.test-build/glbCheck.mjs --log-level=warning && node --test tests/assignments.test.mjs tests/glbCheck.test.mjs",
     "deploy": "node esbuild.config.mjs production && node scripts/deploy.mjs"
   },
   "devDependencies": {

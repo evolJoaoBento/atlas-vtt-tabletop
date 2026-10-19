@@ -7,6 +7,7 @@ import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { Assignments } from '../src/assignments';
 import { parseMini, type LoadedMini, type MiniLibrary } from '../src/library';
 import { MiniOverlay } from '../src/overlay';
+import { makeRichGlb } from './richGlb';
 import type { AtlasSceneState, AtlasView, SpriteLike } from '../src/atlas';
 
 async function makeGlb(): Promise<ArrayBuffer> {
@@ -30,8 +31,10 @@ async function makeGlb(): Promise<ArrayBuffer> {
 type Sprite = { x: number; y: number; visible: boolean; alpha: number };
 
 async function main(): Promise<void> {
-  const glb = await makeGlb();
+  const glb = new URLSearchParams(location.search).has('rich') ? await makeRichGlb() : await makeGlb();
   const mini: LoadedMini = await parseMini(glb.slice(0));
+  const thumb = await (async () => { const lib = Object.create((await import('../src/library')).MiniLibrary.prototype); lib.thumbs = new Map(); lib.models = new Map([['x', Promise.resolve(mini)]]); lib.thumbQueue = Promise.resolve(); lib.thumbRenderer = null; return lib.thumbnail('x'); })();
+  if (thumb) { const img = document.createElement('img'); img.src = thumb; img.id = 'thumb'; img.style.cssText = 'width:96px;height:96px;background:#333'; document.body.appendChild(img); }
   const container = document.getElementById('view')!;
   const map = document.createElement('canvas');
   map.className = 'map';

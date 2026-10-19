@@ -5,8 +5,8 @@
 import { normalizePath, TFile, TFolder, type App } from 'obsidian';
 import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { checkGlb } from './glbCheck';
 
 export const DEFAULT_MINIS_FOLDER = 'atlas-vtt/assets/minis';
 const THUMB_PX = 192;
@@ -25,15 +25,18 @@ export const isGlbPath = (path: string): boolean => /\.glb$/i.test(path);
 /** Why a GLB cannot be used, in words for the user. */
 export function explainLoadError(error: unknown): string {
   const text = error instanceof Error ? error.message : String(error);
-  if (/draco/i.test(text)) return 'it is Draco-compressed, which Tabletop does not read. Re-export it without Draco (Meshopt is fine).';
+  if (/draco|meshopt/i.test(text)) return 'it is compressed (Draco or Meshopt), which Tabletop does not read. Re-export it without mesh compression.';
   if (/ktx2|basisu/i.test(text)) return 'it uses KTX2 textures, which Tabletop does not read.';
   if (/magic|json|unexpected token/i.test(text)) return 'it is not a valid binary glTF (.glb) file.';
   return text;
 }
 
 function parse(data: ArrayBuffer): Promise<GLTF> {
-  const loader = new GLTFLoader();
-  loader.setMeshoptDecoder(MeshoptDecoder);
+  checkGlb(data);
+  // Nothing outside the file is ever fetched.
+  const manager = new THREE.LoadingManager();
+  manager.setURLModifier((url) => (/^(data|blob):/i.test(url) ? url : 'data:,'));
+  const loader = new GLTFLoader(manager);
   return new Promise((resolve, reject) => loader.parse(data, '', resolve, reject));
 }
 
