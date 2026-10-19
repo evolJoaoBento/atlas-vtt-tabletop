@@ -6,62 +6,22 @@
  * or run clip while it moves) and wobbles when its token is clicked.
  */
 import * as THREE from 'three';
-import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import {
   gridSize, isLoaded, mapCanvas, tokenAt, tokenPixelSize, tokenSprites, viewport, type AtlasView,
 } from './atlas';
 import type { Assignments, MiniPlacement } from './assignments';
-import type { LoadedMini, MiniLibrary } from './library';
+import { MiniFigure } from './figure';
+import type { MiniLibrary } from './library';
 
-/** Share of the token's diameter the mini's footprint fills at scale 1. */
-const FILL = 0.9;
-/** Lean per screen pixel per second of movement, and the most it leans. */
-const LEAN_PER_SPEED = 0.0009;
-const MAX_LEAN = THREE.MathUtils.degToRad(32);
-/** Spring of the lean and the lift: stiffness and damping. */
-const SPRING_K = 140;
-const SPRING_D = 16;
-/** How much bigger a mini looks while it is carried. */
-const LIFT = 0.08;
-/** Below this speed (screen px/s) a mini is standing still. */
-const MOVING_SPEED = 25;
-const SHAKE_SECONDS = 0.9;
 /** A press that travels further than this (CSS px) or lasts longer than this is a drag, not a click. */
 const CLICK_SLOP_PX = 6;
 const CLICK_MS = 450;
 const CAMERA_HEIGHT = 100_000;
 
-interface Spring { value: number; velocity: number }
-
-function step(spring: Spring, target: number, dt: number): void {
-  const force = SPRING_K * (target - spring.value) - SPRING_D * spring.velocity;
-  spring.velocity += force * dt;
-  spring.value += spring.velocity * dt;
-}
-
 interface Instance {
-  readonly tokenId: string;
   readonly mini: string;
-  readonly anchor: THREE.Group;
-  readonly lean: THREE.Group;
-  readonly yaw: THREE.Group;
-  readonly materials: THREE.Material[];
-  model: LoadedMini | null;
-  mixer: THREE.AnimationMixer | null;
-  idle: THREE.AnimationAction | null;
-  move: THREE.AnimationAction | null;
-  moving: boolean;
-  opacity: number;
-  /** Last place of the token in world units, for its speed. */
-  last: { x: number; y: number } | null;
-  leanX: Spring;
-  leanZ: Spring;
-  lift: Spring;
-  shakeAt: number | null;
-  failed: boolean;
+  readonly figure: MiniFigure;
 }
-
-const findClip = (clips: readonly THREE.AnimationClip[], pattern: RegExp): THREE.AnimationClip | null => clips.find((clip) => pattern.test(clip.name)) ?? null;
 
 export class MiniOverlay {
   private readonly win: Window;
@@ -117,8 +77,7 @@ export class MiniOverlay {
 
   /** Wobbles the mini on `tokenId`, if it has one. */
   shake(tokenId: string): void {
-    const instance = this.instances.get(tokenId);
-    if (instance) instance.shakeAt = this.clock.elapsedTime;
+    this.instances.get(tokenId)?.figure.shake(this.clock.elapsedTime);
   }
 
   private pointerDown(event: PointerEvent): void {
@@ -160,44 +119,16 @@ export class MiniOverlay {
   }
 
   private add(tokenId: string, placement: MiniPlacement): void {
-    const anchor = new THREE.Group();
-    const lean = new THREE.Group();
-    const yaw = new THREE.Group();
-    anchor.add(lean);
-    lean.add(yaw);
-    anchor.visible = false;
-    this.scene.add(anchor);
-    const instance: Instance = {
-      tokenId, mini: placement.mini, anchor, lean, yaw, materials: [], model: null, mixer: null, idle: null, move: null, moving: false,
-      opacity: 1, last: null, leanX: { value: 0, velocity: 0 }, leanZ: { value: 0, velocity: 0 }, lift: { value: 0, velocity: 0 }, shakeAt: null, failed: false,
-    };
+    const figure = new MiniFigure();
+    figure.hide();
+    this.scene.add(figure.anchor);
+    const instance: Instance = { mini: placement.mini, figure };
     this.instances.set(tokenId, instance);
     this.library.load(placement.mini).then((model) => {
       if (this.instances.get(tokenId) !== instance || this.disposed) return;
-      const copy = cloneSkinned(model.scene);
-      // Own materials, so a hidden token's mini can be faded without fading every copy of the GLB.
-      copy.traverse((node) => {
-        const mesh = node as THREE.Mesh;
-        if (!mesh.isMesh) return;
-        mesh.frustumCulled = false;
-        const own = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).map((material) => material.clone());
-        instance.materials.push(...own);
-        mesh.material = Array.isArray(mesh.material) ? own : own[0]!;
-      });
-      yaw.add(copy);
-      instance.model = model;
-      if (model.animations.length > 0) {
-        const mixer = new THREE.AnimationMixer(copy);
-        const idleClip = findClip(model.animations, /idle|stand|breath/i) ?? (findClip(model.animations, /walk|run|move/i) ? null : model.animations[0]!);
-        const moveClip = findClip(model.animations, /walk|run|move|jog/i);
-        instance.mixer = mixer;
-        instance.idle = idleClip ? mixer.clipAction(idleClip) : null;
-        instance.move = moveClip ? mixer.clipAction(moveClip) : null;
-        instance.idle?.play();
-      }
+      figure.attach(model);
     }, (error: unknown) => {
       if (this.instances.get(tokenId) !== instance) return;
-      instance.failed = true;
       this.onFailed(placement.mini, error);
     });
   }
@@ -206,10 +137,7 @@ export class MiniOverlay {
     const instance = this.instances.get(tokenId);
     if (!instance) return;
     this.instances.delete(tokenId);
-    instance.mixer?.stopAllAction();
-    this.scene.remove(instance.anchor);
-    // Geometry and textures are the shared GLB's; only the materials are this copy's.
-    for (const material of instance.materials) material.dispose();
+    instance.figure.dispose();
   }
 
   private hide(): void {
@@ -245,77 +173,22 @@ export class MiniOverlay {
     const grid = gridSize(this.view);
     const placements = this.assignments.forMap(mapPath);
 
-    for (const instance of this.instances.values()) {
-      const token = tokens[instance.tokenId];
-      const sprite = sprites[instance.tokenId];
-      const placement = placements[instance.tokenId];
-      const shown = instance.model && token && placement && sprite && sprite.destroyed !== true && sprite.visible && sprite.worldVisible !== false && sprite.alpha > 0.01;
-      if (!shown) {
-        instance.anchor.visible = false;
-        instance.last = null;
+    for (const [id, { figure }] of this.instances) {
+      const token = tokens[id];
+      const sprite = sprites[id];
+      const placement = placements[id];
+      if (!figure.ready || !token || !placement || !sprite || sprite.destroyed === true || !sprite.visible || sprite.worldVisible === false || sprite.alpha <= 0.01) {
+        figure.hide();
         continue;
       }
-      const model = instance.model!;
       const at = port.toScreen(sprite.x, sprite.y);
-      instance.anchor.visible = true;
-      instance.anchor.position.set(at.x, 0, at.y);
-
-      // Speed in screen pixels, from the token's place in the world: panning the camera does not lean anything.
-      let vx = 0;
-      let vz = 0;
-      if (instance.last && dt > 0) {
-        vx = ((sprite.x - instance.last.x) * zoom) / dt;
-        vz = ((sprite.y - instance.last.y) * zoom) / dt;
-      }
-      instance.last = { x: sprite.x, y: sprite.y };
-      const speed = Math.hypot(vx, vz);
-      const leanAngle = Math.min(MAX_LEAN, speed * LEAN_PER_SPEED);
-      // Leans back from the way it goes: about the axis across the movement, so its top trails.
-      const ax = speed > 1 ? (-vz / speed) * leanAngle : 0;
-      const az = speed > 1 ? (vx / speed) * leanAngle : 0;
-      step(instance.leanX, ax, dt);
-      step(instance.leanZ, az, dt);
-      step(instance.lift, speed > MOVING_SPEED ? LIFT : 0, dt);
-      const tilt = Math.hypot(instance.leanX.value, instance.leanZ.value);
-      if (tilt > 1e-4) instance.lean.quaternion.setFromAxisAngle(new THREE.Vector3(instance.leanX.value / tilt, 0, instance.leanZ.value / tilt), tilt);
-      else instance.lean.quaternion.identity();
-
-      let wobble = 0;
-      let squash = 0;
-      if (instance.shakeAt !== null) {
-        const t = now - instance.shakeAt;
-        if (t > SHAKE_SECONDS) instance.shakeAt = null;
-        else {
-          const fade = Math.exp(-t * 5);
-          wobble = 0.45 * Math.sin(t * 32) * fade;
-          squash = 0.12 * Math.sin(t * 24) * fade;
-        }
-      }
-      // Atlas turns tokens clockwise on screen; about +y that is a negative turn here.
-      instance.yaw.rotation.y = -THREE.MathUtils.degToRad((token.rotation ?? 0) + placement.turn) + wobble;
-      const size = tokenPixelSize(grid, token.size) * zoom * placement.scale * FILL * (1 + instance.lift.value);
-      const base = size / model.footprint;
-      instance.yaw.scale.set(base * (1 - squash / 2), base * (1 + squash), base * (1 - squash / 2));
-
-      const opacity = Math.min(1, sprite.alpha);
-      if (Math.abs(opacity - instance.opacity) > 0.01) {
-        instance.opacity = opacity;
-        for (const material of instance.materials) {
-          material.transparent = opacity < 1;
-          material.opacity = opacity;
-          material.needsUpdate = true;
-        }
-      }
-
-      const moving = speed > MOVING_SPEED;
-      if (moving !== instance.moving && instance.move) {
-        const [from, to] = moving ? [instance.idle, instance.move] : [instance.move, instance.idle];
-        to?.reset().play();
-        if (from && to) from.crossFadeTo(to, 0.25, false);
-        else from?.fadeOut(0.25);
-      }
-      instance.moving = moving;
-      instance.mixer?.update(dt);
+      figure.pose({
+        x: at.x, y: at.y, worldX: sprite.x, worldY: sprite.y, zoom,
+        size: tokenPixelSize(grid, token.size) * zoom, scale: placement.scale, turn: (token.rotation ?? 0) + placement.turn,
+        dt, now,
+      });
+      // A token only the GM sees is drawn faded, and so is its mini.
+      figure.fade(Math.min(1, sprite.alpha));
     }
     this.renderer.render(this.scene, this.camera);
   }

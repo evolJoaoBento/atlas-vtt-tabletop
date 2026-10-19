@@ -5,6 +5,7 @@ import { watchTokenMenu, type TokenMenuEntry } from './src/contextMenu';
 import { GALLERY_VIEW_TYPE, GalleryView, MiniPicker, importWithNotice, pickFiles } from './src/gallery';
 import { DEFAULT_MINIS_FOLDER, MiniLibrary, explainLoadError } from './src/library';
 import { MiniOverlay } from './src/overlay';
+import { playerMiniPainter, type PlayerMiniPainter } from './src/playerMinis';
 
 const VIEW_POLL_MS = 1000;
 export const API_READY_EVENT = 'atlas-vtt-tabletop:api-ready';
@@ -31,6 +32,8 @@ export interface TabletopApi {
   onChange(listener: (mapPath: string | null) => void): () => void;
   /** The bytes of a mini's GLB, read from the vault. */
   readMini(path: string): Promise<ArrayBuffer>;
+  /** Draws the minis in a joined player's view: without Tabletop a player sees none. */
+  readonly playerMinis: PlayerMiniPainter;
 }
 
 interface Tracked {
@@ -45,6 +48,7 @@ export default class TabletopPlugin extends Plugin {
   library!: MiniLibrary;
   api: TabletopApi | null = null;
   private readonly tracked = new Map<string, Tracked>();
+  private players: ReturnType<typeof playerMiniPainter> | null = null;
   private readonly warned = new Set<string>();
   private readonly save = debounce(() => { void this.saveData({ settings: this.settings, assignments: this.assignments.toJSON() } satisfies SavedData); }, 500, true);
 
@@ -84,8 +88,10 @@ export default class TabletopPlugin extends Plugin {
       this.library.emit();
     });
 
+    this.players = playerMiniPainter();
     this.api = Object.freeze({
       version: 1 as const,
+      playerMinis: this.players.painter,
       placementsFor: (mapPath: string) => this.assignments.forMap(mapPath),
       onChange: (listener: (mapPath: string | null) => void) => this.assignments.onChange(listener),
       readMini: async (path: string): Promise<ArrayBuffer> => {
@@ -100,6 +106,9 @@ export default class TabletopPlugin extends Plugin {
   onunload(): void {
     this.app.workspace.trigger(API_UNLOAD_EVENT);
     this.api = null;
+    // Connect lets go of a painter that is gone on its next frame; its views are freed here at once.
+    this.players?.dispose();
+    this.players = null;
     for (const viewId of [...this.tracked.keys()]) this.untrack(viewId);
     this.save.run();
   }
