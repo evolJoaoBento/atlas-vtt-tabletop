@@ -1,0 +1,369 @@
+/**
+ * What stands on the board: tokens, pins and props.
+ *
+ * A token floats a little above its spot. Without a mini it is a disc (its art on top of a thick coin, Atlas's ring
+ * around it) or a standee (its art upright on a round base, turned to face the camera); with a mini, the mini
+ * stands on the disc and moves the way Tabletop's minis always have (`MiniFigure`). A hidden token is half
+ * transparent with Atlas's crossed-out eye over it, as the GM sees it in Atlas.
+ *
+ * A pin is Atlas's pin, kept one size on screen like Atlas's, with its title over it. A prop is a GLB standing on the
+ * board, sized to a grid cell.
+ */
+import * as THREE from 'three';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import type { MiniPlacement } from '../assignments';
+import { MiniFigure } from '../figure';
+import type { LoadedMini } from '../library';
+import type { TokenStyle, PropPlacement } from './boardData';
+import { hexCenter, ringDiameter, tokenDiameter } from './geometry';
+import type { BoardGrid, BoardPin, BoardToken } from './mapModel';
+import { pinTitle } from './pinIcons';
+import { hiddenMarkerTexture, pinTexture, plateTexture } from './textures';
+
+/** How far a token floats over the board, and how thick its disc is, as shares of its diameter. */
+const DISC_LIFT = 0.15;
+const DISC_THICKNESS = 0.12;
+/** The standee's base, as a share of the diameter. */
+const STANDEE_BASE = 0.9;
+const STANDEE_BASE_THICKNESS = 0.06;
+const HIDDEN_OPACITY = 0.5;
+/** A pin's size on screen (Atlas: a 20 px radius), and its title's. */
+const PIN_PX = 40;
+const TITLE_PX = 22;
+/** How far a pin floats over the board, in grid cells. */
+const PIN_LIFT = 0.6;
+/** A prop at scale 1 fills this share of a cell. */
+const PROP_FILL = 0.9;
+
+const EDGE_COLOR = 0x2b2118;
+
+/** What a piece needs from the board each frame. */
+export interface PoseContext {
+  dt: number;
+  now: number;
+  /** Screen pixels per world unit at the camera's target, for the minis' lean. */
+  zoom: number;
+  /** The camera's yaw, which standees turn to face. */
+  yaw: number;
+  /** The sprite scale of one screen pixel (see `screenScale`). */
+  pixel: number;
+}
+
+/**
+ * Frees a piece's own geometry and materials. Textures are freed only with `ownMaps`: token art and a GLB's textures
+ * are shared and outlive the piece, while a pin's drawn canvases are its own. A copy of a GLB shares its geometry
+ * too, so it is freed without `ownGeometry`.
+ */
+function disposeTree(root: THREE.Object3D, ownMaps = false, ownGeometry = true): void {
+  root.traverse((node) => {
+    const mesh = node as THREE.Mesh;
+    if (ownGeometry) mesh.geometry?.dispose();
+    const materials = mesh.material ? (Array.isArray(mesh.material) ? mesh.material : [mesh.material]) : [];
+    for (const material of materials) {
+      if (ownMaps) (material as THREE.MeshBasicMaterial).map?.dispose();
+      material.dispose();
+    }
+  });
+}
+
+export class TokenPiece {
+  /** At the token's spot on the board; everything of the token hangs from it. */
+  readonly object3d = new THREE.Group();
+  /** An invisible column over the token that the pointer hits, mini or not. */
+  readonly hitTarget: THREE.Mesh;
+  private readonly body = new THREE.Group();
+  private readonly materials: THREE.Material[] = [];
+  private art: THREE.Texture | null = null;
+  private style: TokenStyle = 'disc';
+  private figure: MiniFigure | null = null;
+  private model: LoadedMini | null = null;
+  private placement: MiniPlacement | null = null;
+  private standee: THREE.Group | null = null;
+  private marker: THREE.Sprite | null = null;
+  private token: BoardToken;
+
+  constructor(token: BoardToken, private readonly grid: BoardGrid) {
+    this.token = token;
+    this.object3d.add(this.body);
+    this.hitTarget = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 16), new THREE.MeshBasicMaterial({ visible: false }));
+    this.hitTarget.userData.tokenId = token.id;
+    this.object3d.add(this.hitTarget);
+    this.build();
+  }
+
+  get id(): string {
+    return this.token.id;
+  }
+
+  get diameter(): number {
+    return tokenDiameter(this.grid, this.token.size);
+  }
+
+  /** The height of the disc's top face over the board, where a mini stands. */
+  private get top(): number {
+    return this.diameter * (DISC_LIFT + DISC_THICKNESS);
+  }
+
+  /** How tall the token stands, for the labels over it. */
+  figureHeight(): number {
+    if (this.model && this.placement) {
+      const base = (this.diameter * this.placement.scale * 0.9) / this.model.footprint;
+      return this.top + this.model.height * base;
+    }
+    if (this.style === 'standee') return this.diameter * STANDEE_BASE_THICKNESS + this.standeeHeight();
+    return this.top;
+  }
+
+  get animating(): boolean {
+    return this.figure?.animating ?? false;
+  }
+
+  update(token: BoardToken): void {
+    const rebuild = token.size !== this.token.size || token.showRing !== this.token.showRing || token.ringColor !== this.token.ringColor || token.hidden !== this.token.hidden;
+    this.token = token;
+    if (rebuild) this.build();
+  }
+
+  setArt(texture: THREE.Texture | null): void {
+    if (this.art === texture) return;
+    this.art = texture;
+    this.build();
+  }
+
+  setStyle(style: TokenStyle): void {
+    if (this.style === style) return;
+    this.style = style;
+    this.build();
+  }
+
+  setMini(model: LoadedMini | null, placement: MiniPlacement | null): void {
+    if (model === this.model && placement?.mini === this.placement?.mini && placement?.scale === this.placement?.scale && placement?.turn === this.placement?.turn) return;
+    const changedModel = model !== this.model;
+    this.model = model;
+    this.placement = placement;
+    if (changedModel || !model) this.build();
+  }
+
+  /** Draws the token at (x, y) on the map this frame. */
+  pose(x: number, y: number, context: PoseContext): void {
+    this.object3d.position.set(x, 0, y);
+    if (this.standee) this.standee.rotation.y = context.yaw;
+    if (this.marker) this.marker.scale.setScalar(context.pixel * Math.min(40, this.diameter * 0.5) * 0.6);
+    if (this.figure && this.placement) {
+      this.figure.pose({
+        x: 0, y: 0, worldX: x, worldY: y, zoom: context.zoom,
+        size: this.diameter, scale: this.placement.scale, turn: this.token.rotation + this.placement.turn, dt: context.dt, now: context.now,
+      });
+    }
+    const height = this.figureHeight();
+    const radius = ringDiameter(this.grid, this.token.size) / 2;
+    this.hitTarget.scale.set(radius, height, radius);
+    this.hitTarget.position.y = height / 2;
+  }
+
+  shake(now: number): void {
+    this.figure?.shake(now);
+  }
+
+  private material(options: THREE.MeshStandardMaterialParameters): THREE.MeshStandardMaterial {
+    const hidden = this.token.hidden;
+    const material = new THREE.MeshStandardMaterial({ roughness: 0.7, metalness: 0.05, ...options, transparent: hidden || options.transparent === true, opacity: hidden ? HIDDEN_OPACITY : 1 });
+    this.materials.push(material);
+    return material;
+  }
+
+  private standeeHeight(): number {
+    const image = this.art?.image as { width?: number; height?: number } | undefined;
+    const aspect = image?.width && image.height ? image.height / image.width : 1;
+    return this.diameter * aspect;
+  }
+
+  /** Builds the token's meshes for its current style, art, mini and ring. */
+  private build(): void {
+    this.figure?.dispose();
+    this.figure = null;
+    disposeTree(this.body);
+    this.body.clear();
+    this.materials.length = 0;
+    this.standee = null;
+    if (this.marker) {
+      this.marker.removeFromParent();
+      this.marker.material.map?.dispose();
+      this.marker.material.dispose();
+      this.marker = null;
+    }
+    const d = this.diameter;
+    const ringColor = new THREE.Color(this.token.ringColor);
+    const artColor = this.art ? 0xffffff : ringColor.getHex();
+
+    if (this.style === 'standee' && !this.model) {
+      const base = new THREE.Mesh(new THREE.CylinderGeometry((d * STANDEE_BASE) / 2, (d * STANDEE_BASE) / 2, d * STANDEE_BASE_THICKNESS, 48), this.material({ color: this.token.showRing ? ringColor : EDGE_COLOR }));
+      base.position.y = (d * STANDEE_BASE_THICKNESS) / 2;
+      base.castShadow = true;
+      base.receiveShadow = true;
+      const height = this.standeeHeight();
+      const card = new THREE.Mesh(new THREE.PlaneGeometry(d, height), this.material({ map: this.art, color: artColor, side: THREE.DoubleSide, alphaTest: 0.5 }));
+      card.position.y = d * STANDEE_BASE_THICKNESS + height / 2;
+      card.castShadow = true;
+      this.standee = new THREE.Group();
+      this.standee.add(card);
+      this.body.add(base, this.standee);
+    } else {
+      const thickness = d * DISC_THICKNESS;
+      const coin = new THREE.Mesh(new THREE.CylinderGeometry(d / 2, d / 2, thickness, 64), this.material({ color: EDGE_COLOR }));
+      coin.position.y = d * DISC_LIFT + thickness / 2;
+      coin.castShadow = true;
+      coin.receiveShadow = true;
+      const face = new THREE.Mesh(new THREE.CircleGeometry(d / 2, 64).rotateX(-Math.PI / 2), this.material({ map: this.art, color: artColor, polygonOffset: true, polygonOffsetFactor: -1 }));
+      face.position.y = this.top + 0.05;
+      // Atlas turns the art clockwise on screen: about +y that is a negative turn.
+      face.rotation.y = -THREE.MathUtils.degToRad(this.token.rotation);
+      face.receiveShadow = true;
+      this.body.add(coin, face);
+      if (this.token.showRing) {
+        const outer = ringDiameter(this.grid, this.token.size) / 2;
+        const tube = Math.max(0.5, (outer - d / 2) / 2);
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(d / 2 + tube, tube, 12, 64).rotateX(Math.PI / 2), this.material({ color: ringColor, metalness: 0.3, roughness: 0.4 }));
+        ring.position.y = this.top;
+        ring.castShadow = true;
+        this.body.add(ring);
+      }
+    }
+
+    if (this.model && this.placement) {
+      const figure = new MiniFigure();
+      figure.attach(this.model);
+      const holder = new THREE.Group();
+      holder.position.y = this.top;
+      holder.add(figure.anchor);
+      this.body.add(holder);
+      if (this.token.hidden) figure.fade(HIDDEN_OPACITY);
+      this.figure = figure;
+    }
+
+    if (this.token.hidden) {
+      this.marker = new THREE.Sprite(new THREE.SpriteMaterial({ map: hiddenMarkerTexture(), sizeAttenuation: false, depthTest: false, transparent: true }));
+      this.marker.renderOrder = 10;
+      this.marker.position.y = this.top + d * 0.2;
+      this.object3d.add(this.marker);
+    }
+  }
+
+  dispose(): void {
+    this.figure?.dispose();
+    this.figure = null;
+    if (this.marker) {
+      this.marker.material.map?.dispose();
+      this.marker.material.dispose();
+    }
+    disposeTree(this.body);
+    this.hitTarget.geometry.dispose();
+    (this.hitTarget.material as THREE.Material).dispose();
+    this.object3d.removeFromParent();
+  }
+}
+
+export class PinPiece {
+  readonly object3d = new THREE.Group();
+  readonly hitTarget: THREE.Sprite;
+  private readonly title: THREE.Sprite | null;
+  private readonly titleAspect: number;
+
+  constructor(readonly pin: BoardPin, grid: BoardGrid) {
+    const at = pin.hex && grid.type !== 'square' ? hexCenter(grid, pin.x, pin.y) : { x: pin.x, y: pin.y };
+    this.object3d.position.set(at.x, grid.size * PIN_LIFT, at.y);
+    this.hitTarget = new THREE.Sprite(new THREE.SpriteMaterial({ map: pinTexture(pin), sizeAttenuation: false, transparent: true }));
+    this.hitTarget.userData.pinId = pin.id;
+    this.object3d.add(this.hitTarget);
+    const text = pinTitle(pin);
+    if (text) {
+      const plate = plateTexture(text);
+      this.title = new THREE.Sprite(new THREE.SpriteMaterial({ map: plate.texture, sizeAttenuation: false, transparent: true }));
+      this.title.center.set(0.5, 0);
+      this.titleAspect = plate.width / plate.height;
+      this.object3d.add(this.title);
+    } else {
+      this.title = null;
+      this.titleAspect = 1;
+    }
+  }
+
+  /** Keeps the pin and its title one size on screen. */
+  pose(context: PoseContext): void {
+    this.hitTarget.scale.setScalar(context.pixel * PIN_PX);
+    if (this.title) {
+      this.title.scale.set(context.pixel * TITLE_PX * this.titleAspect, context.pixel * TITLE_PX, 1);
+      // Over the pin: half the pin and a small gap up, in the sprite's own screen units.
+      this.title.center.set(0.5, -((PIN_PX / 2 + 4) / TITLE_PX));
+    }
+  }
+
+  dispose(): void {
+    disposeTree(this.object3d, true);
+    this.object3d.removeFromParent();
+  }
+}
+
+export class PropPiece {
+  readonly object3d = new THREE.Group();
+  readonly hitTarget: THREE.Mesh;
+  private model: THREE.Object3D | null = null;
+  /** Whether `model` is a copy of a GLB (whose geometry is shared) rather than the placeholder. */
+  private fromGlb = false;
+
+  constructor(public placement: PropPlacement, private readonly grid: BoardGrid) {
+    this.hitTarget = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 12), new THREE.MeshBasicMaterial({ visible: false }));
+    this.hitTarget.userData.propId = placement.id;
+    this.object3d.add(this.hitTarget);
+    this.place(placement.x, placement.y);
+    this.setModel(null);
+  }
+
+  get id(): string {
+    return this.placement.id;
+  }
+
+  /** Stands the prop's GLB on its spot, a cell across at scale 1. Null shows a placeholder box while it loads. */
+  setModel(model: LoadedMini | null): void {
+    if (this.model) {
+      this.model.removeFromParent();
+      disposeTree(this.model, false, !this.fromGlb);
+    }
+    this.fromGlb = model !== null;
+    const cell = this.grid.size * PROP_FILL * this.placement.scale;
+    let height = cell * 0.5;
+    if (model) {
+      const copy = cloneSkinned(model.scene);
+      const scale = cell / model.footprint;
+      copy.scale.setScalar(scale);
+      // Materials are cloned so disposing this copy never touches the shared GLB.
+      copy.traverse((node) => {
+        const mesh = node as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        mesh.material = Array.isArray(mesh.material) ? mesh.material.map((material) => material.clone()) : mesh.material.clone();
+      });
+      height = model.height * scale;
+      this.model = copy;
+    } else {
+      this.model = new THREE.Mesh(new THREE.BoxGeometry(cell, height, cell), new THREE.MeshStandardMaterial({ color: 0x8a7a66, transparent: true, opacity: 0.5 }));
+      this.model.position.y = height / 2;
+    }
+    this.model.rotation.y = -THREE.MathUtils.degToRad(this.placement.rotation);
+    this.object3d.add(this.model);
+    this.hitTarget.scale.set(cell / 2, height, cell / 2);
+    this.hitTarget.position.y = height / 2;
+  }
+
+  place(x: number, y: number): void {
+    this.object3d.position.set(x, 0, y);
+  }
+
+  dispose(): void {
+    if (this.model) disposeTree(this.model, false, !this.fromGlb);
+    this.hitTarget.geometry.dispose();
+    (this.hitTarget.material as THREE.Material).dispose();
+    this.object3d.removeFromParent();
+  }
+}
