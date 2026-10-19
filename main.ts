@@ -1,4 +1,4 @@
-import { Notice, Plugin, PluginSettingTab, Setting, TFile, debounce, type App } from 'obsidian';
+import { Notice, Plugin, PluginSettingTab, Setting, TFile, debounce, setIcon, type App } from 'obsidian';
 import { mapViews, tokenLabel, type AtlasView } from './src/atlas';
 import { Assignments, readAssignments, type AssignmentData, type MiniPlacement } from './src/assignments';
 import { watchTokenMenu, type TokenMenuEntry } from './src/contextMenu';
@@ -40,19 +40,28 @@ interface Tracked {
   view: AtlasView;
   overlay: MiniOverlay;
   stops: Array<() => void>;
-  /** The view's header button that turns the 3D table on and off. */
+  /** The button on the map that turns the 3D table on and off. */
   button: HTMLElement | null;
 }
 
-/** An Obsidian view's header button, when the view is one (Atlas's map view is an ItemView). */
-function addHeaderButton(view: AtlasView, icon: string, title: string, onClick: () => void): HTMLElement | null {
-  const add = (view as unknown as { addAction?: (icon: string, title: string, callback: (event: MouseEvent) => unknown) => HTMLElement }).addAction;
-  if (typeof add !== 'function') return null;
-  try {
-    return add.call(view, icon, title, onClick);
-  } catch {
-    return null;
-  }
+/**
+ * A button on the map itself, under Atlas's scene tabs: Atlas hides Obsidian's view header on its map tabs, so a header
+ * action would never be seen.
+ */
+function addMapButton(view: AtlasView, icon: string, title: string, onClick: () => void): HTMLElement | null {
+  const root = view.containerEl;
+  if (!root) return null;
+  const button = root.ownerDocument.createElement('button');
+  button.className = 'atlas-tabletop-table-button clickable-icon';
+  button.setAttribute('aria-label', title);
+  button.setAttribute('data-tooltip-position', 'right');
+  setIcon(button, icon);
+  button.addEventListener('click', (event) => {
+    event.preventDefault();
+    onClick();
+  });
+  root.appendChild(button);
+  return button;
 }
 
 export default class TabletopPlugin extends Plugin {
@@ -173,7 +182,7 @@ export default class TabletopPlugin extends Plugin {
     const stops: Array<() => void> = [];
     stops.push(watchTokenMenu(view, (tokenId) => this.menuEntries(view, tokenId)));
     const entry: Tracked = { view, overlay, stops, button: null };
-    entry.button = addHeaderButton(view, 'cuboid', '3D table (Alt + drag to tilt)', () => this.toggleTable(entry));
+    entry.button = addMapButton(view, 'cuboid', '3D table (Alt + drag to tilt, right-drag to pan)', () => this.toggleTable(entry));
     this.tracked.set(view.viewId, entry);
   }
 
