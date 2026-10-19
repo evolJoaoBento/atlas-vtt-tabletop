@@ -1,0 +1,114 @@
+<h2>How should tokens and notes look on the 3D board?</h2>
+<p class="subtitle">Each picture shows the board tilted, the way you'd look at it in play. A token with a mini always shows the mini standing on its token disc. The question is tokens <em>without</em> a mini, and notes.</p>
+
+<div class="section">
+<h3>Tokens without a mini</h3>
+<div class="cards">
+
+  <div class="card" data-choice="token-disc" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <svg viewBox="0 0 320 200" width="100%">
+        <defs>
+          <linearGradient id="b1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6b5236"/><stop offset="1" stop-color="#a5835a"/></linearGradient>
+          <clipPath id="c1"><ellipse cx="160" cy="112" rx="34" ry="14"/></clipPath>
+        </defs>
+        <polygon points="60,40 260,40 310,190 10,190" fill="url(#b1)"/>
+        <g stroke="#00000030"><line x1="110" y1="40" x2="85" y2="190"/><line x1="160" y1="40" x2="160" y2="190"/><line x1="210" y1="40" x2="235" y2="190"/><line x1="40" y1="100" x2="280" y2="100"/><line x1="25" y1="145" x2="295" y2="145"/></g>
+        <ellipse cx="160" cy="132" rx="36" ry="12" fill="#00000055"/>
+        <ellipse cx="160" cy="116" rx="36" ry="15" fill="#3a2a1a"/>
+        <ellipse cx="160" cy="112" rx="34" ry="14" fill="#c9a26b"/>
+        <g clip-path="url(#c1)"><circle cx="160" cy="108" r="9" fill="#5a3b2a"/><rect x="146" y="113" width="28" height="14" rx="6" fill="#7a2f2f"/></g>
+        <ellipse cx="160" cy="112" rx="34" ry="14" fill="none" stroke="#e8d3a8" stroke-width="2"/>
+      </svg>
+    </div>
+    <div class="card-body"><h3>A. Floating disc</h3><p>The token's art as a thick coin, lying flat a little above the board, with a shadow under it. Closest to Atlas.</p></div>
+  </div>
+
+  <div class="card" data-choice="token-standee" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <svg viewBox="0 0 320 200" width="100%">
+        <defs><linearGradient id="b2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6b5236"/><stop offset="1" stop-color="#a5835a"/></linearGradient></defs>
+        <polygon points="60,40 260,40 310,190 10,190" fill="url(#b2)"/>
+        <g stroke="#00000030"><line x1="110" y1="40" x2="85" y2="190"/><line x1="160" y1="40" x2="160" y2="190"/><line x1="210" y1="40" x2="235" y2="190"/><line x1="40" y1="100" x2="280" y2="100"/><line x1="25" y1="145" x2="295" y2="145"/></g>
+        <ellipse cx="172" cy="134" rx="30" ry="9" fill="#00000055"/>
+        <ellipse cx="160" cy="130" rx="30" ry="11" fill="#2b2b2b"/>
+        <ellipse cx="160" cy="127" rx="28" ry="10" fill="#444"/>
+        <rect x="134" y="62" width="52" height="66" rx="4" fill="#f1e6cf" stroke="#3a2a1a" stroke-width="2"/>
+        <circle cx="160" cy="84" r="11" fill="#5a3b2a"/>
+        <rect x="143" y="96" width="34" height="28" rx="8" fill="#7a2f2f"/>
+      </svg>
+    </div>
+    <div class="card-body"><h3>B. Standee</h3><p>The token's art as an upright cardboard cut-out on a round base, like a paper mini. Reads as a figure from low angles.</p></div>
+  </div>
+
+  <div class="card" data-choice="token-billboard" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <svg viewBox="0 0 320 200" width="100%">
+        <defs>
+          <linearGradient id="b3" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6b5236"/><stop offset="1" stop-color="#a5835a"/></linearGradient>
+          <clipPath id="c3"><circle cx="160" cy="88" r="26"/></clipPath>
+        </defs>
+        <polygon points="60,40 260,40 310,190 10,190" fill="url(#b3)"/>
+        <g stroke="#00000030"><line x1="110" y1="40" x2="85" y2="190"/><line x1="160" y1="40" x2="160" y2="190"/><line x1="210" y1="40" x2="235" y2="190"/><line x1="40" y1="100" x2="280" y2="100"/><line x1="25" y1="145" x2="295" y2="145"/></g>
+        <ellipse cx="160" cy="134" rx="22" ry="7" fill="#00000055"/>
+        <line x1="160" y1="114" x2="160" y2="132" stroke="#e8d3a8" stroke-width="2" stroke-dasharray="3 3"/>
+        <circle cx="160" cy="88" r="28" fill="#e8d3a8"/>
+        <circle cx="160" cy="88" r="26" fill="#c9a26b"/>
+        <g clip-path="url(#c3)"><circle cx="160" cy="82" r="10" fill="#5a3b2a"/><rect x="144" y="94" width="32" height="22" rx="8" fill="#7a2f2f"/></g>
+      </svg>
+    </div>
+    <div class="card-body"><h3>C. Floating badge</h3><p>The round token art always turned to face you, hovering over its spot with a shadow dot below. Easiest to read from any angle.</p></div>
+  </div>
+
+</div>
+</div>
+
+<div class="section">
+<h3>Notes</h3>
+<div class="cards">
+
+  <div class="card" data-choice="note-pin" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <svg viewBox="0 0 320 160" width="100%">
+        <defs><linearGradient id="b4" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6b5236"/><stop offset="1" stop-color="#a5835a"/></linearGradient></defs>
+        <polygon points="60,30 260,30 310,155 10,155" fill="url(#b4)"/>
+        <ellipse cx="160" cy="122" rx="10" ry="4" fill="#00000055"/>
+        <path d="M160 116 C 148 96, 140 88, 140 76 A 20 20 0 1 1 180 76 C 180 88, 172 96, 160 116 Z" fill="#d9534f" stroke="#7a1f1c" stroke-width="2"/>
+        <circle cx="160" cy="75" r="7" fill="#fff"/>
+        <rect x="118" y="36" width="84" height="18" rx="9" fill="#000000aa"/>
+        <text x="160" y="49" font-size="11" text-anchor="middle" fill="#fff" font-family="sans-serif">GM Secrets</text>
+      </svg>
+    </div>
+    <div class="card-body"><h3>A. Map pin with label</h3><p>A floating pin over the note's spot, its title above. Click opens the note in a new tab.</p></div>
+  </div>
+
+  <div class="card" data-choice="note-paper" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <svg viewBox="0 0 320 160" width="100%">
+        <defs><linearGradient id="b5" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6b5236"/><stop offset="1" stop-color="#a5835a"/></linearGradient></defs>
+        <polygon points="60,30 260,30 310,155 10,155" fill="url(#b5)"/>
+        <ellipse cx="160" cy="126" rx="34" ry="7" fill="#00000055"/>
+        <polygon points="128,60 198,56 196,112 126,116" fill="#f4ecd8" stroke="#8a7350" stroke-width="2"/>
+        <line x1="136" y1="72" x2="186" y2="69" stroke="#8a7350"/><line x1="136" y1="82" x2="186" y2="79" stroke="#8a7350"/><line x1="136" y1="92" x2="176" y2="90" stroke="#8a7350"/>
+        <text x="162" y="50" font-size="11" text-anchor="middle" fill="#fff" font-family="sans-serif" style="paint-order:stroke" stroke="#000" stroke-width="3">GM Secrets</text>
+      </svg>
+    </div>
+    <div class="card-body"><h3>B. Floating paper</h3><p>A small sheet of parchment hovering over the spot, slightly turned to you, title on top.</p></div>
+  </div>
+
+  <div class="card" data-choice="note-atlas" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <svg viewBox="0 0 320 160" width="100%">
+        <defs><linearGradient id="b6" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6b5236"/><stop offset="1" stop-color="#a5835a"/></linearGradient></defs>
+        <polygon points="60,30 260,30 310,155 10,155" fill="url(#b6)"/>
+        <ellipse cx="160" cy="122" rx="16" ry="5" fill="#00000055"/>
+        <circle cx="160" cy="84" r="22" fill="#fff" stroke="#7c5cff" stroke-width="3"/>
+        <path d="M151 74 h14 l5 5 v16 h-19 z" fill="none" stroke="#7c5cff" stroke-width="2.5" stroke-linejoin="round"/>
+        <line x1="155" y1="85" x2="166" y2="85" stroke="#7c5cff" stroke-width="2"/><line x1="155" y1="90" x2="163" y2="90" stroke="#7c5cff" stroke-width="2"/>
+      </svg>
+    </div>
+    <div class="card-body"><h3>C. Atlas's own icon</h3><p>The same note icon Atlas draws, floating and facing you, title on hover. Looks like Atlas, just lifted.</p></div>
+  </div>
+
+</div>
+</div>
