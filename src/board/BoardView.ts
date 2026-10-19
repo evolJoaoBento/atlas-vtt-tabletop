@@ -64,6 +64,7 @@ export class BoardView extends ItemView {
       this.map = null;
       this.board?.dispose();
       this.board = null;
+      this.retitle();
       await this.read();
     }
     await super.setState(state, result);
@@ -79,7 +80,7 @@ export class BoardView extends ItemView {
     this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
       if (oldPath !== this.path) return;
       this.path = file.path;
-      (this.leaf as unknown as { updateHeader?(): void }).updateHeader?.();
+      this.retitle();
       this.reload();
     }));
     this.registerEvent(this.app.vault.on('delete', (file) => { if (file.path === this.path) this.leaf.detach(); }));
@@ -89,6 +90,12 @@ export class BoardView extends ItemView {
   async onClose(): Promise<void> {
     this.board?.dispose();
     this.board = null;
+  }
+
+  /** Shows the map's name on the tab and in the view's header (Obsidian refreshes only the tab by itself). */
+  private retitle(): void {
+    (this.leaf as unknown as { updateHeader?(): void }).updateHeader?.();
+    (this as unknown as { titleEl?: HTMLElement }).titleEl?.setText(this.getDisplayText());
   }
 
   /** The minis, styles or props changed: the board draws them again. */
