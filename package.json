@@ -1,0 +1,23 @@
+{
+  "name": "atlas-vtt-tabletop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Atlas VTT extension: stand 3D GLB minis on tokens, with a gallery to import them; shared with players over Atlas VTT Connect.",
+  "main": "main.js",
+  "license": "MIT",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc --noEmit && node esbuild.config.mjs production",
+    "test": "esbuild src/assignments.ts --format=esm --outfile=.test-build/assignments.mjs --log-level=warning && node --test tests/assignments.test.mjs",
+    "deploy": "node esbuild.config.mjs production && node scripts/deploy.mjs"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.0",
+    "esbuild": "^0.25.0",
+    "obsidian": "^1.8.7",
+    "typescript": "~5.8.3"
+  },
+  "dependencies": {
+    "three": "^0.185.1"
+  }
+}

@@ -1,0 +1,129 @@
+/* Atlas VTT Extension - Tabletop */
+.atlas-tabletop-overlay {
+  pointer-events: none;
+  display: none;
+}
+
+.atlas-tabletop-gallery,
+.atlas-tabletop-picker .modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.atlas-tabletop-gallery.is-dropping,
+.atlas-tabletop-picker .modal-content.is-dropping {
+  outline: 2px dashed var(--interactive-accent);
+  outline-offset: -4px;
+}
+
+.atlas-tabletop-picker {
+  width: min(760px, 92vw);
+}
+
+.atlas-tabletop-bar {
+  display: flex;
+  gap: var(--size-4-2);
+  align-items: center;
+}
+
+.atlas-tabletop-search {
+  flex: 1;
+  min-width: 0;
+}
+
+.atlas-tabletop-hint {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.atlas-tabletop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: var(--size-4-2);
+  overflow-y: auto;
+  max-height: 60vh;
+  padding: 2px;
+}
+
+.atlas-tabletop-gallery .atlas-tabletop-grid {
+  max-height: none;
+}
+
+.atlas-tabletop-empty {
+  grid-column: 1 / -1;
+  color: var(--text-muted);
+  padding: var(--size-4-4);
+  text-align: center;
+}
+
+.atlas-tabletop-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-2-2);
+  padding: var(--size-2-3);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  cursor: pointer;
+}
+
+.atlas-tabletop-card:hover,
+.atlas-tabletop-card:focus-visible {
+  border-color: var(--interactive-accent);
+}
+
+.atlas-tabletop-card.is-selected {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px var(--interactive-accent);
+}
+
+.atlas-tabletop-thumb {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-s);
+  background: radial-gradient(circle at 50% 40%, var(--background-primary), var(--background-secondary-alt));
+  color: var(--text-faint);
+}
+
+.atlas-tabletop-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.atlas-tabletop-thumb.is-loading {
+  animation: atlas-tabletop-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes atlas-tabletop-pulse {
+  50% { opacity: 0.5; }
+}
+
+.atlas-tabletop-name {
+  font-size: var(--font-ui-smaller);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atlas-tabletop-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-2) var(--size-4-6);
+}
+
+.atlas-tabletop-slider {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+
+.atlas-tabletop-slider-value {
+  min-width: 3.5em;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
