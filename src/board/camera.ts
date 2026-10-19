@@ -33,12 +33,13 @@ export interface CameraPosition {
 const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
 
 /**
- * The limits for a map `width` × `height` pixels across. TacticalEngine's angles as they are; its distances (6 to 80
- * for a room of about 30 units) keep their ratio, scaled to the map.
+ * The limits for a map `width` × `height` pixels across: TacticalEngine's, loosened a little (the GM asked for more
+ * freedom, not much): a flatter low angle, nearly straight down at the top, closer in and farther out, and less of a
+ * push toward looking down when pulled back. Distances scale with the map.
  */
 export function limitsFor(width: number, height: number): CameraLimits {
   const span = Math.max(width, height, 1);
-  return { minPitch: 0.35, maxPitch: 1.45, farPitch: 1.3, minDistance: span * 0.08, maxDistance: span * 2.5 };
+  return { minPitch: 0.22, maxPitch: 1.5, farPitch: 1.12, minDistance: span * 0.04, maxDistance: span * 3 };
 }
 
 /**
@@ -126,7 +127,10 @@ export class OrbitCamera {
     this.goal.target = { ...target };
   }
 
-  /** Jumps the drawn pose to the goal, skipping the easing. */
+  /**
+   * Jumps the drawn pose to the goal, skipping the easing. A drag does this so the view stays under the pointer; the
+   * easing is for the wheel, the keys and framing.
+   */
   snap(): void {
     Object.assign(this.pose, this.goal, { target: { ...this.goal.target } });
   }

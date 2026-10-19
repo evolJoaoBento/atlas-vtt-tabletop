@@ -74,6 +74,19 @@ server.listen(0, async () => {
     check('right-drag pans the camera', Math.hypot(after.target.x - before.target.x, after.target.z - before.target.z) > 1, { before: before.target, after: after.target });
     check('right-drag moves no token', r.moves.length === 1, r.moves);
 
+    // 4b. A drag moves the view at once: the drawn camera is where the drag put it, with no easing left.
+    await page.mouse.move(empty.x, empty.y);
+    await page.mouse.down({ button: 'right' });
+    for (let i = 1; i <= 6; i++) await page.mouse.move(empty.x + i * 15, empty.y);
+    const lagging = await page.evaluate(() => { const c = window.boardTest.board.camera; return Math.hypot(c.goal.target.x - c.pose.target.x, c.goal.target.z - c.pose.target.z); });
+    await page.mouse.up({ button: 'right' });
+    check('camera drag follows the pointer with no lag', lagging < 1e-6, lagging);
+
+    // 4c. A token with a mini stands on the board; one without floats.
+    const heights = await page.evaluate(() => { const t = window.boardTest.board.tokens; return { hero: t.get('hero').piece.top, gob2: t.get('gob2').piece.top, d: t.get('hero').piece.diameter }; });
+    check('a mini stands on the board', heights.hero <= heights.d * 0.07, heights);
+    check('a token without a mini floats', heights.gob2 > heights.d * 0.2, heights);
+
     // 5. A left-drag on empty board orbits.
     before = await goal();
     await drag(empty, { x: empty.x - 150, y: empty.y + 40 });
@@ -140,6 +153,19 @@ server.listen(0, async () => {
     await page.screenshot({ path: `${shots}/board-3-home.png` });
     const corners = await Promise.all([[0, 0], [1400, 0], [0, 1000], [1400, 1000]].map(([x, y]) => project(x, y, 0)));
     check('Home frames the whole map', corners.every((c) => c.x >= 0 && c.x <= 1000 && c.y >= 0 && c.y <= 640), corners);
+
+    // 11b. A drag whose pointer is lost (Alt-Tab, a dialog) ends: the token goes back, nothing keeps dragging.
+    const gob2 = await project(875, 385, 6);
+    await page.mouse.move(gob2.x, gob2.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 6; i++) await page.mouse.move(gob2.x + i * 12, gob2.y);
+    await page.evaluate(() => window.boardTest.board.canvas.dispatchEvent(new PointerEvent('lostpointercapture', { pointerId: 1 })));
+    const lost = await page.evaluate(() => ({ press: window.boardTest.board.press, at: window.boardTest.board.tokens.get('gob2').goal }));
+    await page.mouse.up();
+    check('a lost pointer ends the drag', lost.press === null, lost.press);
+    check('a lost drag puts the token back', lost.at.x === 875 && lost.at.y === 385, lost.at);
+    const movesAfterLost = (await record()).moves.length;
+    check('a lost drag saves nothing', movesAfterLost === 1, movesAfterLost);
 
     // 12. A close look at the hero's labels.
     await page.evaluate(() => { const b = window.boardTest.board; b.camera.lookAt({ x: 245, y: 0, z: 245 }); b.camera.zoom(0.15); b.camera.orbit(0, -0.3); b.wake(); });

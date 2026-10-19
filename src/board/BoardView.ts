@@ -36,6 +36,8 @@ export class BoardView extends ItemView {
   private map: BoardMap | null = null;
   private rules: CollectionRules = emptyRules();
   private readonly warned = new Set<string>();
+  /** Closed: a read still on its way must not build a board on a tab that is gone. */
+  private closed = false;
   private readonly reload = debounce(() => { void this.read(); }, RELOAD_MS, true);
 
   constructor(leaf: WorkspaceLeaf, private readonly services: BoardServices) {
@@ -88,6 +90,8 @@ export class BoardView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    this.closed = true;
+    this.reload.cancel();
     this.board?.dispose();
     this.board = null;
   }
@@ -118,13 +122,16 @@ export class BoardView extends ItemView {
     }
     let map: BoardMap;
     try {
-      map = readMap(path, await this.app.vault.read(file));
+      const text = await this.app.vault.read(file);
+      if (this.closed) return;
+      map = readMap(path, text);
     } catch (error) {
       this.warn(`Tabletop: cannot open ${path} in 3D: ${error instanceof Error ? error.message : String(error)}.`);
       return;
     }
-    this.rules = await this.readRules(path);
-    if (path !== this.path) return;
+    const rules = await this.readRules(path);
+    if (this.closed || path !== this.path) return;
+    this.rules = rules;
     this.map = map;
     if (!this.board) this.board = new Board(this.contentEl, this.host());
     await this.board.load(map);

@@ -59,6 +59,9 @@ const GLIDE = 14;
 /** The longest frame anything steps by, so a hidden tab does not fling a mini. */
 const LONGEST_STEP = 1 / 15;
 const FALLBACK_SIZE = 2000;
+const MAX_PIXEL_RATIO = 1.5;
+/** How often a playing clip redraws the shadows, in seconds. */
+const CLIP_SHADOW_STEP = 1 / 15;
 /** Room left around the map when it is framed, for the tilt's perspective. */
 const FRAME_MARGIN = 1.1;
 
@@ -92,6 +95,7 @@ export class Board {
   private surface: BoardSurface | null = null;
   private map: BoardMap | null = null;
   private size = { width: 0, height: 0 };
+  private hasImage = false;
   private readonly tokens = new Map<string, TokenEntry>();
   private pins: PinPiece[] = [];
   private readonly props = new Map<string, PropPiece>();
@@ -104,6 +108,9 @@ export class Board {
   private last = 0;
   private clock = 0;
   private disposed = false;
+  /** Something on the board changed since the shadows were last drawn. */
+  private shadowsDirty = true;
+  private shadowedAt = 0;
 
   constructor(private readonly container: HTMLElement, private readonly host: BoardHost) {
     const doc = container.ownerDocument;
@@ -120,7 +127,10 @@ export class Board {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.renderer.setPixelRatio(doc.defaultView?.devicePixelRatio ?? 1);
+    // A 4K screen at its full ratio, antialiased and shadowed, costs far more than it shows.
+    this.renderer.setPixelRatio(Math.min(MAX_PIXEL_RATIO, doc.defaultView?.devicePixelRatio ?? 1));
+    // Shadows are redrawn only when something on the board moves, not when only the camera does.
+    this.renderer.shadowMap.autoUpdate = false;
     this.scene.background = new THREE.Color(0x0f0c0a);
     this.scene.add(new THREE.HemisphereLight(0xfff4e6, 0x2a2430, 1.5));
     this.sun.castShadow = true;
@@ -203,6 +213,7 @@ export class Board {
     this.surface.setImage(texture);
     this.scene.add(this.surface.object3d);
     this.size = { width, height };
+    this.hasImage = texture !== null;
     this.lastGrid = JSON.stringify(map.grid);
     const span = Math.max(width, height);
     this.sun.position.set(width / 2 - span * 0.5, span * 1.2, height / 2 - span * 0.7);
@@ -282,10 +293,10 @@ export class Board {
       void this.model(prop.glb).then((model) => {
         if (this.props.get(prop.id) !== piece || !model) return;
         piece.setModel(model);
-        this.wake();
+        this.wake(true);
       });
     }
-    this.wake();
+    this.wake(true);
   }
 
   private applyArt(entry: TokenEntry): void {
@@ -300,7 +311,7 @@ export class Board {
       if (this.tokens.get(entry.token.id) !== entry || entry.token.imagePath !== path) return;
       if (!texture) this.host.warn(`Tabletop: cannot show the token art ${path}.`);
       entry.piece.setArt(texture);
-      this.wake();
+      this.wake(true);
     });
   }
 
@@ -315,7 +326,7 @@ export class Board {
     void this.model(placement.mini).then((model) => {
       if (this.tokens.get(entry.token.id) !== entry || entry.mini !== placement.mini) return;
       entry.piece.setMini(model, model ? placement : null);
-      this.wake();
+      this.wake(true);
     });
   }
 
@@ -342,8 +353,9 @@ export class Board {
     this.wake();
   }
 
-  /** Asks for a frame; frames keep coming while anything moves. */
-  wake(): void {
+  /** Asks for a frame; frames keep coming while anything moves. `changed` says the board itself changed (shadows). */
+  wake(changed = false): void {
+    if (changed) this.shadowsDirty = true;
     if (this.disposed || this.frameId !== 0) return;
     const win = this.container.ownerDocument.defaultView ?? window;
     this.frameId = win.requestAnimationFrame((time) => this.frame(time));
@@ -370,6 +382,8 @@ export class Board {
       pixel: screenScale(1, viewHeight, FOV),
     };
     const glide = 1 - Math.exp(-GLIDE * dt);
+    let changed = this.shadowsDirty || this.press?.kind === 'token' || this.press?.kind === 'prop';
+    let moving = false;
     for (const entry of this.tokens.values()) {
       const dx = entry.goal.x - entry.at.x;
       const dy = entry.goal.y - entry.at.y;
@@ -377,6 +391,8 @@ export class Board {
         entry.at.x += dx * glide;
         entry.at.y += dy * glide;
         busy = true;
+        changed = true;
+        moving = true;
       } else {
         entry.at.x = entry.goal.x;
         entry.at.y = entry.goal.y;
@@ -384,9 +400,19 @@ export class Board {
       entry.piece.pose(entry.at.x, entry.at.y, context);
       entry.labels.place(entry.piece.figureHeight(), ringDiameter(this.map!.grid, entry.token.size) / 2, entry.piece.top);
       entry.labels.pose(context);
-      if (entry.piece.animating) busy = true;
+      if (entry.piece.animating) {
+        busy = true;
+        changed = true;
+      }
     }
     for (const pin of this.pins) pin.pose(context);
+    // A mini's clip alone redraws the shadows a few times a second, not every frame.
+    const clipsOnly = changed && !this.shadowsDirty && this.press === null && !moving;
+    if (changed && (!clipsOnly || this.clock - this.shadowedAt >= CLIP_SHADOW_STEP)) {
+      this.renderer.shadowMap.needsUpdate = true;
+      this.shadowedAt = this.clock;
+    }
+    this.shadowsDirty = false;
     this.renderer.render(this.scene, this.view);
     if (busy || this.held.size > 0 || this.press !== null) this.wake();
   }
@@ -452,6 +478,9 @@ export class Board {
     on('pointermove', (event) => this.move(event));
     on('pointerup', (event) => this.up(event));
     on('pointercancel', () => this.cancel());
+    // The pointer was taken away mid-drag (Alt-Tab, a dialog): no pointerup will come, so the drag ends here. After a
+    // normal release `press` is already cleared.
+    on('lostpointercapture', () => { if (this.press) this.cancel(); });
     on('pointerleave', () => { this.tooltip.hidden = true; });
     on('wheel', (event) => {
       event.preventDefault();
@@ -506,6 +535,8 @@ export class Board {
   private move(event: PointerEvent): void {
     const press = this.press;
     if (!press) { this.hover(event); return; }
+    // Moving with no button held: the release was missed.
+    if (event.buttons === 0) { this.cancel(); return; }
     const { clientX: x, clientY: y } = event;
     if (!press.moved && Math.hypot(x - press.x, y - press.y) >= DRAG_PX) press.moved = true;
     if (!press.moved) return;
@@ -520,6 +551,8 @@ export class Board {
         const scale = this.camera.goal.distance * PAN_PER_PX;
         this.camera.pan(-dx * scale, dy * scale);
       }
+      // A drag moves the view at once: easing it would leave the board trailing the pointer.
+      this.camera.snap();
       this.wake();
       return;
     }
@@ -555,18 +588,19 @@ export class Board {
       if (!entry) return;
       if (!press.moved) {
         entry.piece.shake(this.clock);
-        this.wake();
+        this.wake(true);
         return;
       }
       const snapped = snapPoint(this.map!.grid, entry.at.x, entry.at.y);
       entry.goal = snapped;
       this.host.moveToken(press.id, snapped.x, snapped.y);
-      this.wake();
+      this.wake(true);
       return;
     }
     if (press.kind === 'prop') {
       const piece = this.props.get(press.id);
       if (piece && press.moved) this.host.moveProp(press.id, piece.object3d.position.x, piece.object3d.position.z);
+      this.wake(true);
       return;
     }
     if (press.moved) return;
@@ -588,7 +622,7 @@ export class Board {
       const piece = this.props.get(press.id);
       if (piece) piece.place(piece.placement.x, piece.placement.y);
     }
-    this.wake();
+    this.wake(true);
   }
 
   private stopPlacing(): void {
@@ -596,7 +630,9 @@ export class Board {
     this.canvas.style.cursor = '';
   }
 
+  /** Keeps a carried piece on the map image; a map without one has no edge to keep to. */
   private clampToBoard(x: number, y: number): { x: number; y: number } {
+    if (!this.hasImage) return { x, y };
     return { x: THREE.MathUtils.clamp(x, 0, this.size.width), y: THREE.MathUtils.clamp(y, 0, this.size.height) };
   }
 

@@ -20,9 +20,13 @@ import type { BoardGrid, BoardPin, BoardToken } from './mapModel';
 import { pinTitle } from './pinIcons';
 import { hiddenMarkerTexture, pinTexture, plateTexture } from './textures';
 
-/** How far a token floats over the board, and how thick its disc is, as shares of its diameter. */
+/**
+ * How far a token floats over the board, and how thick its disc is, as shares of its diameter. A token with a mini
+ * stands on the board on a thinner base.
+ */
 const DISC_LIFT = 0.15;
 const DISC_THICKNESS = 0.12;
+const MINI_BASE_THICKNESS = 0.06;
 /** The standee's base, as a share of the diameter. */
 const STANDEE_BASE = 0.9;
 const STANDEE_BASE_THICKNESS = 0.06;
@@ -99,9 +103,18 @@ export class TokenPiece {
     return tokenDiameter(this.grid, this.token.size);
   }
 
+  /** How high the disc floats: a token with a mini stands on the board. */
+  private get lift(): number {
+    return this.model ? 0 : this.diameter * DISC_LIFT;
+  }
+
+  private get thickness(): number {
+    return this.diameter * (this.model ? MINI_BASE_THICKNESS : DISC_THICKNESS);
+  }
+
   /** The height of the disc's top face over the board, where a mini stands. */
   get top(): number {
-    return this.diameter * (DISC_LIFT + DISC_THICKNESS);
+    return this.lift + this.thickness;
   }
 
   /** How tall the token stands, for the labels over it. */
@@ -209,9 +222,9 @@ export class TokenPiece {
       this.standee.add(card);
       this.body.add(base, this.standee);
     } else {
-      const thickness = d * DISC_THICKNESS;
+      const { thickness } = this;
       const coin = new THREE.Mesh(new THREE.CylinderGeometry(d / 2, d / 2, thickness, 64), this.material({ color: EDGE_COLOR }));
-      coin.position.y = d * DISC_LIFT + thickness / 2;
+      coin.position.y = this.lift + thickness / 2;
       coin.castShadow = true;
       coin.receiveShadow = true;
       const face = new THREE.Mesh(new THREE.CircleGeometry(d / 2, 64).rotateX(-Math.PI / 2), this.material({ map: this.art, color: artColor, polygonOffset: true, polygonOffsetFactor: -1 }));

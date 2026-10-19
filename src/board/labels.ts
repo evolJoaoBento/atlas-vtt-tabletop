@@ -139,6 +139,8 @@ export class TokenLabels {
   private rings: THREE.Mesh[] = [];
   private hover: HoverTarget[] = [];
   private sideRadius = 0;
+  /** What the labels were last placed for. */
+  private placed = '';
 
   constructor(token: BoardToken, settings: TokenSettings, rules: CollectionRules, sharedArt: boolean) {
     this.object3d.add(this.top, this.side);
@@ -196,6 +198,10 @@ export class TokenLabels {
 
   /** Places the labels around a token `figureHeight` tall, its ring `baseRadius` across, its base's top at `baseY`. */
   place(figureHeight: number, baseRadius: number, baseY: number): void {
+    // Called every frame: the rings are rebuilt only when the token's shape changed.
+    const key = `${figureHeight}|${baseRadius}|${baseY}|${this.rings.length}`;
+    if (key === this.placed) return;
+    this.placed = key;
     this.top.position.y = figureHeight + baseRadius * 0.15;
     this.side.position.y = Math.max(baseY, figureHeight * 0.55);
     this.sideRadius = baseRadius * 1.15;
@@ -243,6 +249,7 @@ export class TokenLabels {
     this.badges = [];
     this.rings = [];
     this.hover = [];
+    this.placed = '';
   }
 
   private disposeSprite(made: THREE.Sprite): void {

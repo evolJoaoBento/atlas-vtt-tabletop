@@ -6,11 +6,20 @@ const limits = limitsFor(1000, 800);
 const close = (actual: number, expected: number, digits = 6): void => assert.ok(Math.abs(actual - expected) < 10 ** -digits, `${actual} ≉ ${expected}`);
 
 test('limitsFor keeps TacticalEngine\'s angles and scales the distances with the map', () => {
-  assert.equal(limits.minPitch, 0.35);
-  assert.equal(limits.maxPitch, 1.45);
-  assert.equal(limits.farPitch, 1.3);
-  close(limits.minDistance, 80);
-  close(limits.maxDistance, 2500);
+  assert.equal(limits.minPitch, 0.22);
+  assert.equal(limits.maxPitch, 1.5);
+  assert.equal(limits.farPitch, 1.12);
+  close(limits.minDistance, 40);
+  close(limits.maxDistance, 3000);
+});
+
+test('snap jumps the drawn pose to the goal: a drag moves the camera at once', () => {
+  const cam = new OrbitCamera({ distance: 500 }, limits);
+  cam.orbit(0.5, 0.1);
+  cam.pan(30, 0);
+  cam.snap();
+  assert.deepEqual(cam.pose, cam.goal);
+  assert.equal(cam.update(1 / 60), false);
 });
 
 test('the pitch floor rises as the camera pulls back', () => {

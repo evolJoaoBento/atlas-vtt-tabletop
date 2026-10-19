@@ -30,7 +30,10 @@ export class TokenWriter {
   async move(path: string, id: string, x: number, y: number): Promise<'atlas' | 'file'> {
     for (const view of this.deps.views()) {
       const state = view.atlasStore.getState();
-      if (state.mapPath === path && typeof state.updateToken === 'function') {
+      // While Atlas is still reading the map in it saves nothing, and a token it does not hold it cannot move: the
+      // file is written instead, so the move is never dropped.
+      const ready = state.mapLoaded !== false && state.isMapLoading !== true && Object.hasOwn(state.objects?.tokens ?? {}, id);
+      if (state.mapPath === path && ready && typeof state.updateToken === 'function') {
         state.updateToken(id, { x, y });
         return 'atlas';
       }

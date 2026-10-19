@@ -24,10 +24,13 @@ test('a missing token throws', () => {
   assert.throws(() => moveTokenInText(text, 'nope', 0, 0), /no token nope/);
 });
 
-const fakeView = (mapPath: string, calls: unknown[]): AtlasView => ({
+const fakeView = (mapPath: string, calls: unknown[], over: Partial<AtlasSceneState> = {}): AtlasView => ({
   viewId: 'v',
   atlasStore: {
-    getState: (): AtlasSceneState => ({ mapPath, objects: { tokens: {} }, updateToken: (id, updates) => { calls.push([id, updates]); } }),
+    getState: (): AtlasSceneState => ({
+      mapPath, mapLoaded: true, isMapLoading: false, objects: { tokens: { t: { id: 't', x: 0, y: 0 } } },
+      updateToken: (id, updates) => { calls.push([id, updates]); }, ...over,
+    }),
     subscribe: () => () => {},
   },
 });
@@ -47,4 +50,15 @@ test('writes the file when no Atlas view has the map', async () => {
   assert.equal(await writer.move('m.atlasmap', ID, 7, 8), 'file');
   assert.equal(edits[0]![0], 'm.atlasmap');
   assert.equal(JSON.parse(edits[0]![1]).state.objects.tokens[ID].x, 7);
+});
+
+test('a map Atlas is still loading, or a token it does not hold, is written to the file', async () => {
+  for (const over of [{ isMapLoading: true }, { mapLoaded: false }, { objects: { tokens: {} } }]) {
+    const calls: unknown[] = [];
+    let processed = 0;
+    const writer = new TokenWriter({ views: () => [fakeView('m.atlasmap', calls, over)], process: async () => { processed++; } });
+    assert.equal(await writer.move('m.atlasmap', 't', 1, 2), 'file', JSON.stringify(over));
+    assert.equal(calls.length, 0);
+    assert.equal(processed, 1);
+  }
 });

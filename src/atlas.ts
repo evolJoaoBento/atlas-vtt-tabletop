@@ -19,6 +19,9 @@ export interface AtlasToken {
 
 export interface AtlasSceneState {
   mapPath: string | null;
+  /** False, or loading, while Atlas reads a map in: it is not saving then. */
+  mapLoaded?: boolean;
+  isMapLoading?: boolean;
   objects: { tokens: Readonly<Record<string, AtlasToken>> };
   remoteView?: unknown;
   /** Atlas's own action: changes a token and saves the map. */
