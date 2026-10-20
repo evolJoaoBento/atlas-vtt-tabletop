@@ -101,6 +101,9 @@ export interface BoardHost {
   wallMaterial(id: string): string | null;
   /** A wall's or door's own height in grid squares; null stands it as tall as the fog. */
   wallHeight(id: string): number | null;
+  /** Keeps a wall's height (Ctrl + drag), with Shift the whole wall's; and a light's. In grid squares. */
+  setWallHeight(id: string, squares: number, whole: boolean): void;
+  setLightHeight(id: string, squares: number): void;
   doorProp(id: string): string | null;
   /** Loads a material of the gallery; null when it cannot be read. */
   readMaterial(path: string): Promise<LoadedMaterial | null>;
@@ -205,6 +208,8 @@ type Press =
     waypoints: Array<{ x: number; y: number }>;
   }
   | { kind: 'prop'; id: string; x: number; y: number; moved: boolean; grab: { dx: number; dy: number } }
+  /** Ctrl + drag on a wall or a light: up raises it, down lowers it; `start` is its height when the drag began, in squares. */
+  | { kind: 'height'; target: 'wall' | 'light'; id: string; x: number; y: number; moved: boolean; start: number }
   /** The laser drawing its beam. */
   | { kind: 'laser'; x: number; y: number; moved: boolean };
 
@@ -267,6 +272,8 @@ export class Board {
   private readonly rig = new LightRig();
   private readonly hemisphere = new THREE.HemisphereLight(0xfff4e6, 0x2a2430, DAY_SKY);
   private ambientShown: number | null = null;
+  /** The height being dragged (Ctrl + drag), shown before it is kept. */
+  private heightDrag: { target: 'wall' | 'light'; id: string; value: number } | null = null;
   /** Where the camera was when the shadow-casting lights were last chosen. */
   private castersAt = { x: Number.POSITIVE_INFINITY, z: Number.POSITIVE_INFINITY };
   private flickerTimer = 0;
@@ -302,7 +309,7 @@ export class Board {
     this.walls = new WallSet({
       look: (path, door) => this.wallLook(path, door),
       materialOf: (id) => this.host.wallMaterial(id),
-      heightOf: (id) => this.host.wallHeight(id),
+      heightOf: (id) => (this.heightDrag?.target === 'wall' && this.heightDrag.id === id ? this.heightDrag.value : this.host.wallHeight(id)),
       propOf: (id) => this.host.doorProp(id),
       prop: (glb) => this.model(glb),
     });
@@ -480,13 +487,7 @@ export class Board {
       this.host.warn(`Tabletop: cannot show this map's fog of war: ${error instanceof Error ? error.message : String(error)}`);
     }
     // Walls stand as tall as the fog (never quite flat, so a map with flat fog still shows them).
-    const fog = this.fog.areas;
-    this.walls.update(map.walls, {
-      height: Math.max(MIN_WALL_SQUARES, this.host.fogHeight()) * map.grid.size,
-      tile: map.grid.size,
-      fogged: (x, y) => insideFog(fog, { x, y }),
-      fogKey: map.fog.map((operation) => operation.id).join(','),
-    });
+    this.updateWalls();
     this.applyLighting();
     // Players count copies among the tokens they see, ordered by the GM's numbers (Atlas's player window).
     this.playerNumbers = numberTokensInView(this.playerNumbers, map.tokens
@@ -865,6 +866,33 @@ export class Board {
     return (hit?.userData.pinId as string | undefined) ?? null;
   }
 
+  /** Stands the map's walls: as tall as the fog, or each at its own height (or the one being dragged). */
+  private updateWalls(): void {
+    const map = this.map;
+    if (!map) return;
+    const fog = this.fog.areas;
+    this.walls.update(map.walls, {
+      height: Math.max(MIN_WALL_SQUARES, this.host.fogHeight()) * map.grid.size,
+      tile: map.grid.size,
+      fogged: (x, y) => insideFog(fog, { x, y }),
+      fogKey: map.fog.map((operation) => operation.id).join(','),
+    });
+  }
+
+  /** A wall's height as it stands now, in squares: its own, else the fog's (half for a low wall). */
+  private wallSquares(id: string): number {
+    const wall = this.map?.walls.find((candidate) => candidate.id === id);
+    const fog = Math.max(MIN_WALL_SQUARES, this.host.fogHeight());
+    return this.host.wallHeight(id) ?? (wall?.limited ? fog / 2 : fog);
+  }
+
+  /** How many grid squares one pixel of the screen spans where the camera looks. */
+  private squaresPerPixel(): number {
+    const height = this.renderer.domElement.clientHeight || 1;
+    const span = 2 * this.camera.pose.distance * Math.tan(THREE.MathUtils.degToRad(FOV) / 2);
+    return span / height / (this.map?.grid.size ?? 70);
+  }
+
   /** The light whose bulb is under a point of the screen. */
   private lightAt(clientX: number, clientY: number): string | null {
     this.ray(clientX, clientY);
@@ -890,7 +918,7 @@ export class Board {
       cell: map.grid.size,
       ambient,
       litThreshold: LIT_THRESHOLD,
-      heightOf: (light) => this.host.lightHeight(light) * map.grid.size,
+      heightOf: (light) => (this.heightDrag?.target === 'light' && this.heightDrag.id === light.id ? this.heightDrag.value : this.host.lightHeight(light)) * map.grid.size,
     });
     // Token lights stand where their tokens are drawn now.
     for (const entry of this.tokens.values()) this.rig.place(entry.token.id, entry.at.x, entry.at.y);
@@ -1052,6 +1080,19 @@ export class Board {
         this.press = { kind: 'prop', id, x, y, moved: false, grab: { dx: piece.object3d.position.x - at.x, dy: piece.object3d.position.z - at.y } };
         return;
       }
+      // Ctrl + drag on a light's bulb or a wall changes its height.
+      const light = this.lightAt(x, y);
+      const wall = light ? null : this.wallAt(x, y);
+      if (light) {
+        const found = this.map?.lights.find((candidate) => candidate.id === light);
+        const start = found ? this.host.lightHeight(found) : 1;
+        this.press = { kind: 'height', target: 'light', id: light, x, y, moved: false, start };
+        return;
+      }
+      if (wall) {
+        this.press = { kind: 'height', target: 'wall', id: wall, x, y, moved: false, start: this.wallSquares(wall) };
+        return;
+      }
     }
     if (event.button === 0) {
       const id = this.tokenAt(x, y);
@@ -1096,6 +1137,16 @@ export class Board {
       // A drag moves the view at once: easing it would leave the board trailing the pointer.
       this.camera.snap();
       this.wake();
+      return;
+    }
+    if (press.kind === 'height') {
+      // Up raises it, down lowers it, by what the pointer covers on the board; to a twentieth of a square.
+      const value = Math.max(0, Math.round((press.start + (press.y - y) * this.squaresPerPixel()) * 20) / 20);
+      this.heightDrag = { target: press.target, id: press.id, value };
+      if (press.target === 'wall') this.updateWalls();
+      else this.applyLighting();
+      this.showTip(x, y, `Height ${value} sq${press.target === 'wall' ? ' (Shift: the whole wall)' : ''}`);
+      this.wake(true);
       return;
     }
     const at = this.boardPoint(x, y);
@@ -1160,6 +1211,18 @@ export class Board {
       this.wake(true);
       return;
     }
+    if (press.kind === 'height') {
+      const drag = this.heightDrag;
+      this.heightDrag = null;
+      this.tooltip.hidden = true;
+      if (press.moved && drag) {
+        if (drag.target === 'wall') this.host.setWallHeight(drag.id, drag.value, event.shiftKey);
+        else this.host.setLightHeight(drag.id, drag.value);
+      }
+      this.updateWalls();
+      this.applyLighting();
+      return;
+    }
     if (press.moved) return;
     if (press.button === 0 && press.door) {
       this.toggleDoor(press.door);
@@ -1189,6 +1252,12 @@ export class Board {
     } else if (press?.kind === 'prop') {
       const piece = this.props.get(press.id);
       if (piece) piece.place(piece.placement.x, piece.placement.y);
+    } else if (press?.kind === 'height') {
+      // A lost drag leaves the height as it was.
+      this.heightDrag = null;
+      this.tooltip.hidden = true;
+      this.updateWalls();
+      this.applyLighting();
     }
     this.wake(true);
   }

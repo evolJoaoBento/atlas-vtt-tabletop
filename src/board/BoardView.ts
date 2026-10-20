@@ -329,6 +329,8 @@ export class BoardView extends ItemView {
       toggleInitiative: () => this.initiative?.setOpen(!this.initiative.isOpen),
       wallMaterial: (id) => boardData.wallMaterial(mapPath(), id),
       wallHeight: (id) => boardData.wallHeight(mapPath(), id),
+      setWallHeight: (id, squares, whole) => boardData.setWallHeight(mapPath(), whole ? wholeWall(this.map?.walls ?? [], id) : [id], squares),
+      setLightHeight: (id, squares) => boardData.setLightHeight(mapPath(), id, squares),
       doorProp: (id) => boardData.doorProp(mapPath(), id),
       readMaterial: (path) => this.services.materials.load(path).catch((error: unknown) => {
         this.warn(`Tabletop: cannot read the material ${path}: ${error instanceof Error ? error.message : String(error)}`);

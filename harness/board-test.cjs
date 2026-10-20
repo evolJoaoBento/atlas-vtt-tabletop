@@ -1080,6 +1080,32 @@ server.listen(0, async () => {
       const carrierRows = await page.evaluate(() => [...document.querySelectorAll('.atlas-ctx-menu .atlas-ctx-item')].map((row) => row.textContent));
       check('a token carrying a light has a Light height row', carrierRows.some((text) => text.startsWith('Light height') && text.includes('1 sq')), carrierRows);
       await page.keyboard.press('Escape');
+
+      // Ctrl + drag up on a wall raises it, on a light's bulb raises the light; the drag shows its height as it goes.
+      const ctrlDrag = async (from, dy) => {
+        await page.keyboard.down('Control');
+        await page.mouse.move(from.x, from.y);
+        await page.mouse.down();
+        for (let i = 1; i <= 8; i++) await page.mouse.move(from.x, from.y - (dy * i) / 8);
+        const tip = await page.evaluate(() => document.querySelector('.atlas-tabletop-tooltip').textContent);
+        await page.mouse.up();
+        await page.keyboard.up('Control');
+        await wait(150);
+        return tip;
+      };
+      await page.evaluate(() => { const b = window.boardTest.board; b.camera.frame({ x: 560, y: 0, z: 910 }, 260); b.camera.orbit(0, 5); b.camera.snap(); b.wake(true); });
+      await wait(500);
+      const eastNow = await project(665, 910, 35);
+      const wallTip = await ctrlDrag(eastNow, 80);
+      const raised = (await record()).heights.at(-1);
+      check('Ctrl + drag up on a wall raises it and keeps its height', raised && raised[0] === 'wall' && raised[1] === 'e' && raised[2] > walls.fog && wallTip.startsWith('Height '), { raised, wallTip, fog: walls.fog });
+      await page.evaluate(() => { window.boardTest.wallHeights.delete('e'); window.boardTest.board.refresh(); });
+      const lamp = await project(490, 875, 70);
+      await ctrlDrag(lamp, 60);
+      await wait(200);
+      const lifted = (await record()).heights.at(-1);
+      const lampY = await page.evaluate(() => window.boardTest.board.rig.entries.get('torch').lamp.position.y);
+      check('Ctrl + drag up on a light\'s bulb raises the light', lifted && lifted[0] === 'light' && lifted[1] === 'torch' && lifted[2] > 1 && Math.abs(lampY - lifted[2] * 70) < 0.01, { lifted, lampY });
       // A door replaced by a prop from the gallery: fitted to the opening, it swings like the plain door.
       await page.evaluate(() => { window.boardTest.doorProps.set('door', 'props/barrel.glb'); window.boardTest.board.refresh(); });
       await page.waitForFunction(() => window.boardTest.board.walls.doors.get('door').leaf.userData.depth !== undefined, null, { timeout: 10000 });

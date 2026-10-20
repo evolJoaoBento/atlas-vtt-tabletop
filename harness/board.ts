@@ -177,7 +177,7 @@ async function main(): Promise<void> {
     moves: [] as Array<[string, number, number]>, propMoves: [] as Array<[string, number, number]>, added: [] as Array<[string, number, number]>,
     notes: [] as string[], menus: [] as string[], propMenus: [] as string[], previews: [] as string[], warnings: [] as string[],
     copies: [] as Array<[string, string, number, number]>, menuActions: [] as unknown[][], initiative: [] as unknown[], shown: [] as string[],
-    doors: [] as string[], wallMenus: [] as string[], paints: [] as Array<[string, string, boolean]>, lightMenus: [] as string[], ambients: [] as number[], lasers: [] as Array<Record<string, unknown>>, fogHeights: [] as number[],
+    heights: [] as unknown[][], doors: [] as string[], wallMenus: [] as string[], paints: [] as Array<[string, string, boolean]>, lightMenus: [] as string[], ambients: [] as number[], lasers: [] as Array<Record<string, unknown>>, fogHeights: [] as number[],
     /** Resource edits as the host saved them: token, key, the value it held, the value written, max edited. */
     edits: [] as Array<[string, string, ResourceValue, ResourceValue, boolean]>,
   };
@@ -199,6 +199,7 @@ async function main(): Promise<void> {
   const wallPaint = new Map<string, string>();
   const doorProps = new Map<string, string>();
   const wallHeights = new Map<string, number>();
+  const lightHeights = new Map<string, number>();
   let ambientLevel = 1;
   let menu: AtlasMenu | null = null;
   const initiative = new Set<string>();
@@ -284,6 +285,8 @@ async function main(): Promise<void> {
     toggleInitiative: () => panel.setOpen(!panel.isOpen),
     wallMaterial: (id) => wallPaint.get(id) ?? null,
     wallHeight: (id) => wallHeights.get(id) ?? null,
+    setWallHeight: (id, squares, whole) => { record.heights.push(['wall', id, squares, whole]); wallHeights.set(id, squares); board.refresh(); },
+    setLightHeight: (id, squares) => { record.heights.push(['light', id, squares]); lightHeights.set(id, squares); board.refresh(); },
     doorProp: (id) => doorProps.get(id) ?? null,
     readMaterial: async () => brickMaterial(),
     toggleDoor: (id) => { record.doors.push(id); },
@@ -297,7 +300,7 @@ async function main(): Promise<void> {
     },
     ambient: () => ambientLevel,
     setAmbient: (level) => { ambientLevel = level; record.ambients.push(level); board.refresh(); },
-    lightHeight: () => 1,
+    lightHeight: (light) => lightHeights.get(light.id) ?? 1,
     lightMenu: (id) => { record.lightMenus.push(id); },
   };
   const container = document.getElementById('board')!;
