@@ -111,11 +111,32 @@ server.listen(0, async () => {
     check('a mini stands on the board', heights.hero === 0, heights);
     const heroParts = await page.evaluate(() => {
       const kinds = [];
-      window.boardTest.board.tokens.get('hero').piece.object3d.traverse((node) => { if (node.isMesh && node.visible !== false && node.material?.visible !== false) kinds.push(node.geometry.type); });
+      window.boardTest.board.tokens.get('hero').piece.object3d.traverse((node) => { if (node.isMesh && !node.userData.blobShadow && node.visible !== false && node.material?.visible !== false) kinds.push(node.geometry.type); });
       return kinds;
     });
     check('a mini has only its ring under it, no disc', heroParts.includes('TorusGeometry') && !heroParts.includes('CylinderGeometry') && !heroParts.includes('CircleGeometry'), heroParts);
     check('a token without a mini floats', heights.gob2 > heights.d * 0.2, heights);
+
+    // 4d. Shadows of minis: a soft blob at medium quality (the default), the model's own shadow at high.
+    const shadows = () => page.evaluate(() => {
+      const piece = window.boardTest.board.tokens.get('hero').piece;
+      let blob = false, casting = false;
+      piece.object3d.traverse((node) => {
+        if (node.userData.blobShadow) blob = node.visible;
+        if (node.isSkinnedMesh || (node.isMesh && node.parent && node.userData.fromMini)) casting = casting || node.castShadow;
+      });
+      return { blob, casting };
+    });
+    const medium = await shadows();
+    check('at medium a mini has a blob shadow and casts none', medium.blob && !medium.casting, medium);
+    const swapped = await page.evaluate(() => window.boardTest.board.setQuality(window.boardTest.QUALITY.high));
+    await wait(200);
+    const high = await shadows();
+    check('at high a mini casts its own shadow, no blob', !high.blob && high.casting, high);
+    check('switching medium to high keeps the board (same antialiasing)', swapped === true, swapped);
+    await page.evaluate(() => window.boardTest.board.setQuality(window.boardTest.QUALITY.medium));
+    const ratio = await page.evaluate(() => window.boardTest.board.pixelRatio);
+    check('medium draws at no more than 1.5× the screen', ratio <= 1.5, ratio);
 
     // 5. A left-drag on empty board orbits.
     before = await goal();

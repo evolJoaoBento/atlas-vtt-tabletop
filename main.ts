@@ -3,6 +3,7 @@ import { Assignments, readAssignments, type AssignmentData, type MiniPlacement }
 import { mapViews } from './src/atlas';
 import { BOARD_VIEW_TYPE, BoardView } from './src/board/BoardView';
 import { BoardData, readBoardData, type BoardDataJSON } from './src/board/boardData';
+import { DEFAULT_QUALITY, readQuality, type Quality } from './src/board/quality';
 import { TokenWriter } from './src/board/tokenWriter';
 import { GALLERY_VIEW_TYPE, GalleryView, importWithNotice, pickFiles } from './src/gallery';
 import { DEFAULT_MINIS_FOLDER, DEFAULT_PROPS_FOLDER, MiniLibrary, PROPS } from './src/library';
@@ -15,9 +16,11 @@ interface TabletopSettings {
   /** The minis folder (the key keeps its old name so saved settings still read). */
   folder: string;
   propsFolder: string;
+  /** How hard the 3D board works to look good. */
+  quality: Quality;
 }
 
-const DEFAULT_SETTINGS: TabletopSettings = { folder: DEFAULT_MINIS_FOLDER, propsFolder: DEFAULT_PROPS_FOLDER };
+const DEFAULT_SETTINGS: TabletopSettings = { folder: DEFAULT_MINIS_FOLDER, propsFolder: DEFAULT_PROPS_FOLDER, quality: DEFAULT_QUALITY };
 
 interface SavedData {
   settings?: Partial<TabletopSettings>;
@@ -60,6 +63,7 @@ export default class TabletopPlugin extends Plugin {
   async onload(): Promise<void> {
     const saved = ((await this.loadData()) ?? {}) as SavedData;
     this.settings = { ...DEFAULT_SETTINGS, ...(saved.settings ?? {}) };
+    this.settings.quality = readQuality(this.settings.quality);
     this.assignments = new Assignments(readAssignments(saved.assignments));
     this.boardData = new BoardData(readBoardData(saved.board));
     this.register(this.assignments.onChange(() => { this.save(); this.refreshBoards(); }));
@@ -76,6 +80,7 @@ export default class TabletopPlugin extends Plugin {
       minis: this.library,
       props: this.props,
       writer,
+      quality: () => this.settings.quality,
       focused: (view) => { this.lastBoard = view; },
     }));
     this.addRibbonIcon('box', 'Open minis gallery', () => { void this.openGallery(); });
@@ -156,6 +161,12 @@ export default class TabletopPlugin extends Plugin {
     (key === 'folder' ? this.library : this.props).emit();
   }
 
+  async setQuality(quality: Quality): Promise<void> {
+    this.settings.quality = quality;
+    this.save();
+    for (const view of this.boards()) await view.applyQuality();
+  }
+
   /** The map to open in 3D: the open `.atlasmap` file, else the map of the Atlas view used last. */
   private currentMap(): string | null {
     const file = this.app.workspace.getActiveFile();
@@ -219,5 +230,12 @@ class TabletopSettingTab extends PluginSettingTab {
       .setName('Props folder')
       .setDesc('Where imported GLB props (furniture, scenery) are kept. GLB files put in this folder by hand are listed too.')
       .addText((text) => text.setPlaceholder(DEFAULT_PROPS_FOLDER).setValue(this.plugin.settings.propsFolder).onChange((value) => { void this.plugin.setFolder('propsFolder', value); }));
+    new Setting(containerEl)
+      .setName('3D board quality')
+      .setDesc('Low draws fastest (no antialiasing, soft blob shadows). Medium is sharper. High gives minis their real shadows and draws at full resolution. On all of them the resolution drops a little while the board cannot keep up.')
+      .addDropdown((dropdown) => dropdown
+        .addOptions({ low: 'Low', medium: 'Medium', high: 'High' })
+        .setValue(this.plugin.settings.quality)
+        .onChange((value) => { void this.plugin.setQuality(readQuality(value)); }));
   }
 }

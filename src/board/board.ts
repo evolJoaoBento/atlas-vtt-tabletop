@@ -23,6 +23,7 @@ import { ringDiameter, snapPoint } from './geometry';
 import { TokenLabels, type HoverTarget } from './labels';
 import type { BoardMap, BoardToken } from './mapModel';
 import { PinPiece, PropPiece, TokenPiece, type PoseContext } from './pieces';
+import { ResolutionGovernor, type QualityPreset } from './quality';
 import { BoardSurface } from './surface';
 import { loadImageTexture, screenScale } from './textures';
 
@@ -59,7 +60,6 @@ const GLIDE = 14;
 /** The longest frame anything steps by, so a hidden tab does not fling a mini. */
 const LONGEST_STEP = 1 / 15;
 const FALLBACK_SIZE = 2000;
-const MAX_PIXEL_RATIO = 1.5;
 /** How often a playing clip redraws the shadows, in seconds. */
 const CLIP_SHADOW_STEP = 1 / 15;
 /** Room left around the map when it is framed, for the tilt's perspective. */
@@ -113,11 +113,14 @@ export class Board {
   private last = 0;
   private clock = 0;
   private disposed = false;
+  private governor: ResolutionGovernor;
+  /** The last frame asked for the next one: the time between them is a real frame time, not a rest. */
+  private continuing = false;
   /** Something on the board changed since the shadows were last drawn. */
   private shadowsDirty = true;
   private shadowedAt = 0;
 
-  constructor(private readonly container: HTMLElement, private readonly host: BoardHost) {
+  constructor(private readonly container: HTMLElement, private readonly host: BoardHost, private quality: QualityPreset) {
     const doc = container.ownerDocument;
     this.canvas = doc.createElement('canvas');
     this.canvas.className = 'atlas-tabletop-board';
@@ -128,18 +131,19 @@ export class Board {
     this.tooltip.hidden = true;
     container.appendChild(this.tooltip);
 
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: quality.antialias });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    // A 4K screen at its full ratio, antialiased and shadowed, costs far more than it shows.
-    this.renderer.setPixelRatio(Math.min(MAX_PIXEL_RATIO, doc.defaultView?.devicePixelRatio ?? 1));
+    // The resolution follows the quality setting, and drops while the board cannot keep up (adaptive resolution).
+    this.governor = new ResolutionGovernor(quality, doc.defaultView?.devicePixelRatio ?? 1);
+    this.renderer.setPixelRatio(this.governor.ratio);
     // Shadows are redrawn only when something on the board moves, not when only the camera does.
     this.renderer.shadowMap.autoUpdate = false;
     this.scene.background = new THREE.Color(0x0f0c0a);
     this.scene.add(new THREE.HemisphereLight(0xfff4e6, 0x2a2430, 1.5));
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
     this.sun.shadow.bias = -0.0005;
     this.scene.add(this.sun, this.sun.target);
 
@@ -162,6 +166,31 @@ export class Board {
       this.camera.snap();
     }
     this.sync();
+  }
+
+  /** The drawing resolution now, as a share of the screen's pixels. */
+  get pixelRatio(): number {
+    return this.renderer.getPixelRatio();
+  }
+
+  /**
+   * Applies a quality preset. Antialiasing is fixed when the board is made, so a preset that changes it returns false:
+   * the board must be made again.
+   */
+  setQuality(preset: QualityPreset): boolean {
+    if (preset.antialias !== this.quality.antialias) return false;
+    this.quality = preset;
+    this.governor = new ResolutionGovernor(preset, this.container.ownerDocument.defaultView?.devicePixelRatio ?? 1);
+    this.renderer.setPixelRatio(this.governor.ratio);
+    this.fit();
+    if (this.sun.shadow.mapSize.x !== preset.shadowMapSize) {
+      this.sun.shadow.mapSize.set(preset.shadowMapSize, preset.shadowMapSize);
+      this.sun.shadow.map?.dispose();
+      this.sun.shadow.map = null;
+    }
+    for (const entry of this.tokens.values()) entry.piece.setMiniShadows(preset.miniShadows);
+    this.wake(true);
+    return true;
   }
 
   /** Re-reads the minis, styles, props and rules from the host (they changed outside the map file). */
@@ -249,6 +278,7 @@ export class Board {
       let entry = this.tokens.get(token.id);
       if (!entry) {
         const piece = new TokenPiece(token, map.grid);
+        piece.setMiniShadows(this.quality.miniShadows);
         const labels = new TokenLabels(token, map.tokenSettings, rules, shared);
         piece.object3d.add(labels.object3d);
         this.scene.add(piece.object3d);
@@ -369,8 +399,16 @@ export class Board {
   private frame(time: number): void {
     this.frameId = 0;
     if (this.disposed) return;
-    const dt = this.last === 0 ? 0 : Math.min(LONGEST_STEP, (time - this.last) / 1000);
+    const interval = this.last === 0 ? 0 : (time - this.last) / 1000;
+    const dt = Math.min(LONGEST_STEP, interval);
     this.last = time;
+    if (this.continuing) {
+      const ratio = this.governor.sample(interval);
+      if (ratio !== null) {
+        this.renderer.setPixelRatio(ratio);
+        this.fit();
+      }
+    }
     this.clock += dt;
     this.steer(dt);
     let busy = this.camera.update(dt);
@@ -416,7 +454,8 @@ export class Board {
     }
     this.shadowsDirty = false;
     this.renderer.render(this.scene, this.view);
-    if (busy || this.held.size > 0 || this.press !== null) this.wake();
+    this.continuing = busy || this.held.size > 0 || this.press !== null;
+    if (this.continuing) this.wake();
   }
 
   private steer(dt: number): void {

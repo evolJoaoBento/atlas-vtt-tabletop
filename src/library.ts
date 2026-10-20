@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { checkGlb } from './glbCheck';
+import { simplifyModel } from './simplify';
 
 export const DEFAULT_MINIS_FOLDER = 'atlas-vtt/assets/minis';
 export const DEFAULT_PROPS_FOLDER = 'atlas-vtt/assets/props';
@@ -30,7 +31,13 @@ export interface LoadedMini {
   /** The widest side of the model's footprint (x or z), in model units. */
   readonly footprint: number;
   readonly height: number;
+  /** Its triangles as drawn, and as the file has them when it was thinned to `TRIANGLE_BUDGET` (null otherwise). */
+  readonly triangles: number;
+  readonly simplifiedFrom: number | null;
 }
+
+/** The most triangles a mini or prop is drawn with; a heavier GLB is thinned when it is read. */
+export const TRIANGLE_BUDGET = 30_000;
 
 export const isGlbPath = (path: string): boolean => /\.glb$/i.test(path);
 
@@ -52,7 +59,7 @@ function parse(data: ArrayBuffer): Promise<GLTF> {
   return new Promise((resolve, reject) => loader.parse(data, '', resolve, reject));
 }
 
-function normalise(gltf: GLTF): LoadedMini {
+function normalise(gltf: GLTF, counts: { before: number; after: number }): LoadedMini {
   const root = new THREE.Group();
   const model = gltf.scene;
   model.updateMatrixWorld(true);
@@ -68,12 +75,16 @@ function normalise(gltf: GLTF): LoadedMini {
   model.position.sub(new THREE.Vector3(stand.x, box.min.y, stand.z));
   root.add(model);
   root.updateMatrixWorld(true);
-  return { scene: root, animations: gltf.animations, footprint: Math.max(size.x, size.z, 1e-6), height: size.y };
+  return {
+    scene: root, animations: gltf.animations, footprint: Math.max(size.x, size.z, 1e-6), height: size.y,
+    triangles: counts.after, simplifiedFrom: counts.after < counts.before ? counts.before : null,
+  };
 }
 
 /** Reads a GLB into a model Tabletop can draw; throws with the reason when it cannot. */
 export async function parseMini(data: ArrayBuffer): Promise<LoadedMini> {
-  return normalise(await parse(data));
+  const gltf = await parse(data);
+  return normalise(gltf, await simplifyModel(gltf.scene, TRIANGLE_BUDGET));
 }
 
 export class MiniLibrary {

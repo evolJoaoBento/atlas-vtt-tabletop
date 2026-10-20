@@ -8,6 +8,7 @@ import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { Board, type BoardHost } from '../src/board/board';
 import type { PropPlacement } from '../src/board/boardData';
 import { emptyRules } from '../src/board/conditions';
+import { QUALITY } from '../src/board/quality';
 import type { BoardMap, BoardToken } from '../src/board/mapModel';
 import { parseMini, type LoadedMini } from '../src/library';
 
@@ -115,7 +116,7 @@ async function main(): Promise<void> {
     warn: (message) => { if (!record.warnings.includes(message)) record.warnings.push(message); },
   };
   const container = document.getElementById('board')!;
-  const board = new Board(container, host);
+  const board = new Board(container, host, QUALITY.medium);
   await board.load(map);
   const view = (board as unknown as { view: THREE.PerspectiveCamera }).view;
   /** Where a point of the map (`height` above the board) is on the page. */
@@ -124,7 +125,7 @@ async function main(): Promise<void> {
     const rect = board.canvas.getBoundingClientRect();
     return { x: rect.left + ((point.x + 1) / 2) * rect.width, y: rect.top + ((1 - point.y) / 2) * rect.height };
   };
-  Object.assign(window, { boardTest: { board, map, record, project, hero, ready: true } });
+  Object.assign(window, { boardTest: { board, map, record, project, hero, QUALITY, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

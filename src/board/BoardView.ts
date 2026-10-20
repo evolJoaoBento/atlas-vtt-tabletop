@@ -12,6 +12,7 @@ import { Board, type BoardHost } from './board';
 import type { BoardData } from './boardData';
 import { ASSETS_METADATA_PATH, collectionOf, emptyRules, readCollectionRules, type CollectionRules } from './conditions';
 import { readMap, type BoardMap, type BoardToken } from './mapModel';
+import { QUALITY, type Quality } from './quality';
 import type { TokenWriter } from './tokenWriter';
 
 export const BOARD_VIEW_TYPE = 'atlas-tabletop-board';
@@ -24,6 +25,8 @@ export interface BoardServices {
   minis: MiniLibrary;
   props: MiniLibrary;
   writer: TokenWriter;
+  /** The quality setting the board draws with. */
+  quality(): Quality;
   /** This tab was used last: props from the gallery go to it. */
   focused(view: BoardView): void;
 }
@@ -102,6 +105,20 @@ export class BoardView extends ItemView {
     (this as unknown as { titleEl?: HTMLElement }).titleEl?.setText(this.getDisplayText());
   }
 
+  /** The quality setting changed. A change of antialiasing needs a new board; the camera stays where it was. */
+  async applyQuality(): Promise<void> {
+    const board = this.board;
+    if (!board || !this.map) return;
+    const preset = QUALITY[this.services.quality()];
+    if (board.setQuality(preset)) return;
+    const camera = board.camera;
+    board.dispose();
+    this.board = new Board(this.contentEl, this.host(), preset);
+    await this.board.load(this.map);
+    this.board.camera = camera;
+    this.board.wake(true);
+  }
+
   /** The minis, styles or props changed: the board draws them again. */
   refresh(): void {
     this.board?.refresh();
@@ -133,7 +150,7 @@ export class BoardView extends ItemView {
     if (this.closed || path !== this.path) return;
     this.rules = rules;
     this.map = map;
-    if (!this.board) this.board = new Board(this.contentEl, this.host());
+    if (!this.board) this.board = new Board(this.contentEl, this.host(), QUALITY[this.services.quality()]);
     await this.board.load(map);
   }
 

@@ -75,7 +75,18 @@ function drawGrid(grid: HTMLElement, library: MiniLibrary, options: GridOptions)
     card.createDiv({ cls: 'atlas-tabletop-name', text: file.basename });
     void library.thumbnail(file.path).then((url) => {
       thumb.removeClass('is-loading');
-      if (url) thumb.createEl('img', { attr: { src: url, alt: file.basename, draggable: 'false' } });
+      if (url) {
+        thumb.createEl('img', { attr: { src: url, alt: file.basename, draggable: 'false' } });
+        // A heavy GLB is drawn thinned: say so, so it can be re-exported lighter.
+        void library.load(file.path).then((model) => {
+          if (model.simplifiedFrom === null) return;
+          const k = (n: number): string => `${Math.round(n / 1000)}k`;
+          card.addClass('is-heavy');
+          card.createDiv({ cls: 'atlas-tabletop-heavy', text: `${k(model.simplifiedFrom)} → ${k(model.triangles)} triangles` });
+          card.setAttr('title', `${file.path}
+This model has ${model.simplifiedFrom.toLocaleString()} triangles; Tabletop draws it thinned to ${model.triangles.toLocaleString()}. Export it lighter for the best look.`);
+        }, () => undefined);
+      }
       else {
         thumb.addClass('is-broken');
         setIcon(thumb, 'file-warning');

@@ -43,6 +43,32 @@ const PIN_LIFT = 0.6;
 const PROP_FILL = 0.9;
 
 const EDGE_COLOR = 0x2b2118;
+/**
+ * A mini's blob shadow: its radius as a share of the token's diameter, how far it falls away from the sun (which
+ * shines from the map's top left), and how dark it is.
+ */
+const BLOB_RADIUS = 0.9;
+const BLOB_OFFSET = 0.18;
+const BLOB_OPACITY = 0.7;
+
+let blobTexture: THREE.Texture | null = null;
+
+/** A soft round shadow, drawn once and shared by every mini (never freed with a piece). */
+function blob(): THREE.Texture {
+  if (blobTexture) return blobTexture;
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const context = canvas.getContext('2d')!;
+  const gradient = context.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gradient.addColorStop(0, 'rgba(0,0,0,1)');
+  gradient.addColorStop(0.55, 'rgba(0,0,0,0.75)');
+  gradient.addColorStop(1, 'rgba(0,0,0,0)');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 128, 128);
+  blobTexture = new THREE.CanvasTexture(canvas);
+  return blobTexture;
+}
 
 /** What a piece needs from the board each frame. */
 export interface PoseContext {
@@ -90,6 +116,9 @@ export class TokenPiece {
   private token: BoardToken;
   /** Being carried: it rises off the board, and sets down when let go. */
   carried = false;
+  /** Whether a mini casts its own shadow or has a soft blob under it (the board's quality). */
+  private miniShadows: 'real' | 'blob' = 'blob';
+  private blobShadow: THREE.Mesh | null = null;
   private carry = 0;
 
   constructor(token: BoardToken, private readonly grid: BoardGrid) {
@@ -187,6 +216,18 @@ export class TokenPiece {
     this.figure?.shake(now);
   }
 
+  /** A mini's shadow: the model's own (sharp, costs a second drawing of it) or a soft blob under it. */
+  setMiniShadows(mode: 'real' | 'blob'): void {
+    this.miniShadows = mode;
+    if (this.blobShadow) this.blobShadow.visible = mode === 'blob';
+    this.figure?.anchor.traverse((node) => {
+      const mesh = node as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.userData.fromMini = true;
+      mesh.castShadow = mode === 'real';
+    });
+  }
+
   private material(options: THREE.MeshStandardMaterialParameters): THREE.MeshStandardMaterial {
     const hidden = this.token.hidden;
     const material = new THREE.MeshStandardMaterial({ roughness: 0.7, metalness: 0.05, ...options, transparent: hidden || options.transparent === true, opacity: hidden ? HIDDEN_OPACITY : 1 });
@@ -208,6 +249,7 @@ export class TokenPiece {
     this.body.clear();
     this.materials.length = 0;
     this.standee = null;
+    this.blobShadow = null;
     if (this.marker) {
       this.marker.removeFromParent();
       this.marker.material.map?.dispose();
@@ -264,6 +306,20 @@ export class TokenPiece {
       this.body.add(holder);
       if (this.token.hidden) figure.fade(HIDDEN_OPACITY);
       this.figure = figure;
+      const shadow = new THREE.Mesh(
+        new THREE.CircleGeometry(d * BLOB_RADIUS, 32).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({
+          map: blob(), transparent: true, opacity: BLOB_OPACITY * (this.token.hidden ? HIDDEN_OPACITY : 1), depthWrite: false,
+          polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
+        }),
+      );
+      shadow.userData.blobShadow = true;
+      // A hair over the board: depth is coarse this far from the camera, so it is also pulled forward when drawn.
+      shadow.position.set(d * BLOB_OFFSET, d * 0.01, d * BLOB_OFFSET);
+      shadow.renderOrder = -1;
+      this.blobShadow = shadow;
+      this.body.add(shadow);
+      this.setMiniShadows(this.miniShadows);
     }
 
     if (this.token.hidden) {
