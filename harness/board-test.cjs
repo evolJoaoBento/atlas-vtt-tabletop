@@ -322,7 +322,7 @@ server.listen(0, async () => {
       await page.mouse.click(button.x, button.y);
       await wait(150);
       const panel = await page.evaluate(() => {
-        const p = document.querySelector('.atlas-tabletop-palette');
+        const p = document.querySelector('.atlas-tabletop-palette:not(.atlas-tabletop-laser-options)');
         const input = p.querySelector('input');
         return { open: !p.hidden, value: input.value, focused: document.activeElement === input, text: p.textContent };
       });
@@ -344,18 +344,18 @@ server.listen(0, async () => {
       check('typing in the settings does not move the camera', JSON.stringify(after.target) === JSON.stringify(camera.target), { camera: camera.target, after: after.target });
       await page.keyboard.type('x');
       await page.keyboard.press('Enter');
-      const invalid = await page.evaluate(() => document.querySelector('.atlas-tabletop-palette input').hasAttribute('aria-invalid'));
+      const invalid = await page.evaluate(() => document.querySelector('.atlas-tabletop-palette:not(.atlas-tabletop-laser-options) input').hasAttribute('aria-invalid'));
       check('a height that is not a number is refused', invalid && (await record()).fogHeights.length === 1, invalid);
       await page.keyboard.press('Escape');
       await wait(100);
-      check('Escape closes the settings', await page.evaluate(() => document.querySelector('.atlas-tabletop-palette').hidden));
+      check('Escape closes the settings', await page.evaluate(() => document.querySelector('.atlas-tabletop-palette:not(.atlas-tabletop-laser-options)').hidden));
       check('the toolbar takes no press from the board', (await page.evaluate(() => window.boardTest.board.selected)) === selBefore);
       await page.mouse.click(button.x, button.y);
       await wait(100);
       const empty = await project(560, 760, 0);
       await page.mouse.click(empty.x, empty.y);
       await wait(100);
-      check('a click on the board closes the settings', await page.evaluate(() => document.querySelector('.atlas-tabletop-palette').hidden));
+      check('a click on the board closes the settings', await page.evaluate(() => document.querySelector('.atlas-tabletop-palette:not(.atlas-tabletop-laser-options)').hidden));
     }
 
     // 1k. The local player view: a second window drawing the scene as players see it.
@@ -417,6 +417,62 @@ server.listen(0, async () => {
       await wait(300);
       const after = await page.evaluate(() => ({ player: window.boardTest.board.player, labels: [...document.querySelectorAll('.atlas-tabletop-tool-button')].map((b) => [b.getAttribute('aria-label'), b.hidden]) }));
       check('closing it stops the second drawing and hides the freeze button', after.player === null && after.labels.some(([l]) => l === 'Open the player view'), after);
+    }
+
+    // 1l. Atlas's laser pointer: a glowing dot while on, a beam while pressed that fades; its colour and size options.
+    {
+      const tools = () => page.evaluate(() => Object.fromEntries([...document.querySelectorAll('.atlas-tabletop-tool-button')].map((b) => {
+        const r = b.getBoundingClientRect();
+        return [b.getAttribute('aria-label'), { x: r.left + r.width / 2, y: r.top + r.height / 2, active: b.classList.contains('is-active') }];
+      })));
+      const beam = () => page.evaluate(() => { const b = window.boardTest.board.beam.object3d; return { visible: b.visible, indices: b.geometry.drawRange.count }; });
+      let list = await tools();
+      await page.mouse.click(list['Laser pointer'].x, list['Laser pointer'].y);
+      await wait(100);
+      check('the laser button turns the laser on, the cursor becomes its dot', await page.evaluate(() => window.boardTest.board.laser && window.boardTest.board.canvas.style.cursor === 'none'));
+      const from = await project(400, 500, 0);
+      const to = await project(700, 650, 0);
+      await page.mouse.move(from.x, from.y);
+      await wait(150);
+      let b = await beam();
+      check('hovering, the laser is a dot', b.visible && b.indices === 6, b);
+      const camera = await goal();
+      const before = await page.evaluate(() => window.boardTest.board.selected);
+      await page.mouse.down();
+      for (let i = 1; i <= 12; i++) { await page.mouse.move(from.x + ((to.x - from.x) * i) / 12, from.y + ((to.y - from.y) * i) / 12 + Math.sin(i) * 20); await wait(16); }
+      b = await beam();
+      check('pressed, the laser draws a beam behind the pointer', b.visible && b.indices > 60, b);
+      await page.screenshot({ path: `${shots}/board-14-laser.png` });
+      await page.mouse.up();
+      await wait(50);
+      check('drawing with the laser moves no camera and selects nothing', JSON.stringify((await goal()).target) === JSON.stringify(camera.target) && (await page.evaluate(() => window.boardTest.board.selected)) === before);
+      await wait(1000);
+      b = await beam();
+      check('let go, the beam fades away and the dot stays', b.visible && b.indices === 6, b);
+
+      list = await tools();
+      await page.mouse.click(list['Laser options'].x, list['Laser options'].y);
+      await wait(150);
+      const options = await page.evaluate(() => {
+        const panel = document.querySelector('.atlas-tabletop-laser-options');
+        return { open: !panel.hidden, swatches: [...panel.querySelectorAll('.atlas-tabletop-swatch')].map((s) => [s.title, s.classList.contains('is-active')]), text: panel.textContent, size: panel.querySelector('input[type=range]').value };
+      });
+      check('the laser options are Atlas\'s: eight colours with their hint, and the size', options.open && options.swatches.length === 8 && options.swatches[0][1] && options.text.includes('colour-blind') && options.text.includes('Laser size') && options.size === '16', options);
+      const sky = await page.evaluate(() => { const r = document.querySelector('.atlas-tabletop-swatch[title="Sky blue"]').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+      await page.mouse.click(sky.x, sky.y);
+      await page.evaluate(() => { const range = document.querySelector('.atlas-tabletop-laser-options input[type=range]'); range.value = '40'; range.dispatchEvent(new Event('input', { bubbles: true })); });
+      await wait(100);
+      r = await record();
+      check('choosing a colour and a size saves them', JSON.stringify(r.lasers) === JSON.stringify([{ color: '#00a9ff' }, { size: 40 }]), r.lasers);
+      const ticked = await page.evaluate(() => document.querySelector('.atlas-tabletop-swatch.is-active')?.title);
+      check('the chosen colour is ticked', ticked === 'Sky blue', ticked);
+      await page.keyboard.press('Escape');
+      await page.mouse.move(from.x, from.y);
+      await page.evaluate(() => window.boardTest.board.canvas.focus());
+      await page.keyboard.press('Escape');
+      await wait(150);
+      b = await beam();
+      check('Escape turns the laser off', !(await page.evaluate(() => window.boardTest.board.laser)) && !b.visible && (await page.evaluate(() => window.boardTest.board.canvas.style.cursor)) === '', b);
     }
 
     // 2. A click on a pin opens its note.

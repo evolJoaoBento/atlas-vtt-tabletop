@@ -9,6 +9,8 @@
  *   (and wobbles its mini), a click on the empty board or Escape lets it go. The selected token gets Atlas's resource
  *   controls: − / + beside each bar and wheel, and a click on one opens Atlas's editor for it.
  * - Atlas's fog of war stands on the map as a see-through block, as tall as the toolbar's settings say.
+ * - The laser pointer (Atlas's): while it is on, the pointer is a glowing dot, and a press draws a beam that fades
+ *   behind it. Players see it too. Right-drag still pans and the wheel zooms; Escape or its button turns it off.
  * - The local player view (a second window, for a screen the players look at) draws the same scene as players see it:
  *   no hidden tokens, nothing under the fog (which is solid), no pins, only the resources shown to players. It follows
  *   the GM's camera, live, unless the GM froze it.
@@ -36,6 +38,8 @@ import { stripGeometry } from './surface';
 import { ResolutionGovernor, type QualityPreset } from './quality';
 import { BoardSurface } from './surface';
 import { FogVolume } from './fogVolume';
+import { LaserBeam } from './laserBeam';
+import { LaserTrail, beamWidth, smoothBeam, type LaserSettings } from './laser';
 import { BoardToolbar } from './toolbar';
 import { pinTitle } from './pinIcons';
 import { NO_INSTANCE_NUMBERS, badgeNumberInView, insideFog, numberTokensInView, playerSees } from './playerView';
@@ -82,6 +86,9 @@ export interface BoardHost {
   /** Opens or closes the local player view of this map; whether it is open. */
   togglePlayerView(): void;
   playerViewOpen(): boolean;
+  /** The laser's colour and size, kept for every map; and saving a change. */
+  laser(): LaserSettings;
+  setLaser(changes: Partial<LaserSettings>): void;
 }
 
 const FOV = 35;
@@ -153,7 +160,9 @@ type Press =
     start: { x: number; y: number };
     waypoints: Array<{ x: number; y: number }>;
   }
-  | { kind: 'prop'; id: string; x: number; y: number; moved: boolean; grab: { dx: number; dy: number } };
+  | { kind: 'prop'; id: string; x: number; y: number; moved: boolean; grab: { dx: number; dy: number } }
+  /** The laser drawing its beam. */
+  | { kind: 'laser'; x: number; y: number; moved: boolean };
 
 export class Board {
   readonly canvas: HTMLCanvasElement;
@@ -211,6 +220,12 @@ export class Board {
   private playerNumbers = NO_INSTANCE_NUMBERS;
   /** The window whose animation frame is asked for: the GM's, or the players' while the GM's is hidden. */
   private frameWin: Window | null = null;
+  /** The laser: whether it is on, the beam's trail, where the pointer is (on the screen and on the map). */
+  private laserOn = false;
+  private readonly laserTrail = new LaserTrail();
+  private readonly beam = new LaserBeam();
+  private laserClient: { x: number; y: number } | null = null;
+  private laserPoint: { x: number; y: number } | null = null;
   /** The open resource editor: whose, which resource, the value it opened on. */
   private editor: { tokenId: string; key: string; value: ResourceValue; view: ValueEditor } | null = null;
   /** How the last frame sized things on screen, to size what a reload rebuilds before the next frame. */
@@ -228,11 +243,15 @@ export class Board {
     this.tooltip.className = 'atlas-tabletop-tooltip';
     this.tooltip.hidden = true;
     container.appendChild(this.tooltip);
-    this.scene.add(this.fog.object3d);
+    this.scene.add(this.fog.object3d, this.beam.object3d);
     this.toolbar = new BoardToolbar(container, {
       fogHeight: () => this.host.fogHeight(),
       setFogHeight: (height) => this.host.setFogHeight(height),
       playerViewOpen: () => this.host.playerViewOpen(),
+      laserOn: () => this.laserOn,
+      toggleLaser: () => this.setLaser(!this.laserOn),
+      laser: () => this.host.laser(),
+      setLaser: (changes) => { this.host.setLaser(changes); this.wake(); },
       togglePlayerView: () => this.host.togglePlayerView(),
       playerFrozen: () => this.player?.frozen != null,
       togglePlayerFreeze: () => this.setPlayerFrozen(this.player?.frozen == null),
@@ -618,6 +637,7 @@ export class Board {
       pixel: screenScale(1, viewHeight, FOV),
     };
     this.lastPose = context;
+    if (this.drawLaser()) busy = true;
     const glide = 1 - Math.exp(-GLIDE * dt);
     let changed = this.shadowsDirty || this.press?.kind === 'token' || this.press?.kind === 'prop';
     let moving = false;
@@ -763,7 +783,13 @@ export class Board {
     // The pointer was taken away mid-drag (Alt-Tab, a dialog): no pointerup will come, so the drag ends here. After a
     // normal release `press` is already cleared.
     on('lostpointercapture', () => { if (this.press) this.cancel(); });
-    on('pointerleave', () => { this.tooltip.hidden = true; this.showCell(null); });
+    on('pointerleave', () => {
+      this.tooltip.hidden = true;
+      this.showCell(null);
+      this.laserClient = null;
+      this.laserPoint = null;
+      this.wake();
+    });
     on('wheel', (event) => {
       event.preventDefault();
       this.camera.zoom(Math.exp(event.deltaY * WHEEL));
@@ -772,6 +798,7 @@ export class Board {
     on('keydown', (event) => {
       const key = event.key.toLowerCase();
       if (key === 'escape' && this.placing) { this.stopPlacing(); return; }
+      if (key === 'escape' && this.laserOn) { this.setLaser(false); return; }
       if (key === 'escape' && this.selectedId !== null) { this.select(null); return; }
       if (key === 'escape' && this.toolbar.isOpen) { this.toolbar.close(); return; }
       if (key === 'home') { this.frameMap(); event.preventDefault(); return; }
@@ -798,6 +825,11 @@ export class Board {
     this.tooltip.hidden = true;
     const { clientX: x, clientY: y } = event;
     if (event.button === 0 && this.placing) return;
+    if (event.button === 0 && this.laserOn) {
+      this.press = { kind: 'laser', x, y, moved: false };
+      this.trackLaser(x, y);
+      return;
+    }
     if (event.button === 0 && (event.ctrlKey || event.metaKey)) {
       const id = this.propAt(x, y);
       const piece = id ? this.props.get(id) : null;
@@ -829,7 +861,9 @@ export class Board {
 
   private move(event: PointerEvent): void {
     const press = this.press;
-    if (!press) { this.hover(event); return; }
+    if (this.laserOn) this.trackLaser(event.clientX, event.clientY);
+    if (press?.kind === 'laser') return;
+    if (!press) { if (!this.laserOn) this.hover(event); return; }
     // Moving with no button held: the release was missed.
     if (event.buttons === 0) { this.cancel(); return; }
     const { clientX: x, clientY: y } = event;
@@ -875,6 +909,7 @@ export class Board {
       return;
     }
     if (!press) return;
+    if (press.kind === 'laser') { this.wake(); return; }
     if (press.kind === 'token') {
       this.clearRuler();
       const entry = this.tokens.get(press.id);
@@ -1342,7 +1377,63 @@ export class Board {
 
   private stopPlacing(): void {
     this.placing = null;
-    this.canvas.style.cursor = '';
+    this.canvas.style.cursor = this.laserOn ? 'none' : '';
+  }
+
+  // ── The laser pointer ─────────────────────────────────────────────────────
+
+  /** Whether the laser is on. */
+  get laser(): boolean {
+    return this.laserOn;
+  }
+
+  /** Turns the laser on (the pointer becomes its dot) or off (its trail fades). */
+  setLaser(on: boolean): void {
+    if (on === this.laserOn) return;
+    this.laserOn = on;
+    if (on) this.showCell(null);
+    if (!on && this.press?.kind === 'laser') this.press = null;
+    if (!this.placing) this.canvas.style.cursor = on ? 'none' : '';
+    this.toolbar.refresh();
+    this.wake();
+  }
+
+  /** Map pixels per screen pixel where the laser points, so its size is in screen pixels at any zoom (as in Atlas). */
+  private laserScale(at: { x: number; y: number } | null): number {
+    const height = this.canvas.clientHeight || 1;
+    const eye = this.view.position;
+    const distance = at ? Math.hypot(at.x - eye.x, eye.y, at.y - eye.z) : this.camera.pose.distance;
+    return (2 * distance * Math.tan(THREE.MathUtils.degToRad(FOV) / 2)) / height;
+  }
+
+  /** The pointer moved (or was pressed) with the laser on: where it is on the map, and the beam's trail while pressed. */
+  private trackLaser(clientX: number, clientY: number): void {
+    this.laserClient = { x: clientX, y: clientY };
+    this.laserPoint = this.boardPoint(clientX, clientY);
+    if (this.press?.kind === 'laser' && this.laserPoint) {
+      const scale = this.laserScale(this.laserPoint);
+      const halfWidth = beamWidth(this.host.laser().size).halfWidth * scale;
+      this.laserTrail.add(this.laserPoint.x, this.laserPoint.y, performance.now(), Math.max(3 * scale, halfWidth * 0.15));
+    }
+    this.wake();
+  }
+
+  /** Draws the laser for this frame; true while its trail still fades (more frames are needed). */
+  private drawLaser(): boolean {
+    // The camera may have moved under a still pointer: the laser stays under the pointer.
+    if (this.laserOn && this.laserClient) this.laserPoint = this.boardPoint(this.laserClient.x, this.laserClient.y);
+    const now = performance.now();
+    const settings = this.host.laser();
+    const scale = this.laserScale(this.laserPoint);
+    const { halfWidth, bodyShare } = beamWidth(settings.size);
+    const pointing = this.press?.kind === 'laser';
+    const trail = this.laserTrail.points(now);
+    // While drawing, the beam runs up to the pointer, which stays at full strength.
+    if (pointing && this.laserPoint) trail.push({ ...this.laserPoint, life: 1 });
+    const spacing = Math.max(3 * scale, halfWidth * scale * 0.25);
+    const dot = this.laserOn && !pointing ? this.laserPoint : null;
+    this.beam.draw(smoothBeam(trail, spacing), dot, this.laserOn ? this.laserPoint : null, settings.color, halfWidth * scale, bodyShare);
+    return this.laserTrail.alive(now) || pointing;
   }
 
   /** Keeps a carried piece on the map image; a map without one has no edge to keep to. */
@@ -1392,6 +1483,7 @@ export class Board {
     this.editor?.view.close();
     this.controls.dispose();
     this.toolbar.dispose();
+    this.beam.dispose();
     this.fog.dispose();
     for (const piece of this.props.values()) piece.dispose();
     this.surface?.dispose();

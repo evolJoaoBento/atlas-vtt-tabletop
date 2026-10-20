@@ -119,7 +119,7 @@ async function main(): Promise<void> {
   const record = {
     moves: [] as Array<[string, number, number]>, propMoves: [] as Array<[string, number, number]>, added: [] as Array<[string, number, number]>,
     notes: [] as string[], menus: [] as string[], propMenus: [] as string[], previews: [] as string[], warnings: [] as string[],
-    copies: [] as Array<[string, string, number, number]>, fogHeights: [] as number[],
+    copies: [] as Array<[string, string, number, number]>, lasers: [] as Array<Record<string, unknown>>, fogHeights: [] as number[],
     /** Resource edits as the host saved them: token, key, the value it held, the value written, max edited. */
     edits: [] as Array<[string, string, ResourceValue, ResourceValue, boolean]>,
   };
@@ -138,6 +138,7 @@ async function main(): Promise<void> {
   rules.definitions = definitions;
   let fogHeight = 1;
   let players: Window | null = null;
+  let laser = { color: '#ff0059', size: 16 };
   const host: BoardHost = {
     readImage: async (path) => images[path] ?? null,
     readMini: async (path) => (path.includes('barrel') ? barrel : hero),
@@ -182,6 +183,8 @@ async function main(): Promise<void> {
       board.refreshToolbar();
     },
     playerViewOpen: () => !!players && !players.closed,
+    laser: () => laser,
+    setLaser: (changes) => { laser = { ...laser, ...changes }; record.lasers.push(changes); },
   };
   const container = document.getElementById('board')!;
   const board = new Board(container, host, QUALITY.medium);

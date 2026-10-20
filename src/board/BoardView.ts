@@ -14,6 +14,7 @@ import { ASSETS_METADATA_PATH, collectionOf, emptyRules, readCollectionRules, ty
 import { readMap, type BoardMap, type BoardToken } from './mapModel';
 import { readMeasurement } from './measure';
 import { defeatedResources, isKillable } from './resources';
+import type { LaserSettings } from './laser';
 import type { PlayerView } from './PlayerWindow';
 import { QUALITY, type Quality } from './quality';
 import type { TokenWriter } from './tokenWriter';
@@ -32,6 +33,9 @@ export interface BoardServices {
   writer: TokenWriter;
   /** The quality setting the board draws with. */
   quality(): Quality;
+  /** The laser's colour and size, kept for every map; and saving a change. */
+  laser(): LaserSettings;
+  setLaser(changes: Partial<LaserSettings>): void;
   /** This tab was used last: props from the gallery go to it. */
   focused(view: BoardView): void;
   /** The local player view: open, switch to or close it for this board's map; whether one shows its map. */
@@ -273,6 +277,8 @@ export class BoardView extends ItemView {
       },
       warn: (message) => this.warn(message),
       togglePlayerView: () => this.services.togglePlayerView(this),
+      laser: () => this.services.laser(),
+      setLaser: (changes) => this.services.setLaser(changes),
       playerViewOpen: () => this.services.playerViewOpen(mapPath()),
     };
   }

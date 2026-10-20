@@ -5,6 +5,7 @@ import { BOARD_VIEW_TYPE, BoardView, HOVER_SOURCE } from './src/board/BoardView'
 import { PLAYER_VIEW_TYPE, PlayerView } from './src/board/PlayerWindow';
 import { BoardData, readBoardData, type BoardDataJSON } from './src/board/boardData';
 import { DEFAULT_QUALITY, readQuality, type Quality } from './src/board/quality';
+import { resolveLaser, type LaserSettings } from './src/board/laser';
 import { TokenWriter } from './src/board/tokenWriter';
 import { GALLERY_VIEW_TYPE, GalleryView, importWithNotice, pickFiles } from './src/gallery';
 import { DEFAULT_MINIS_FOLDER, DEFAULT_PROPS_FOLDER, MiniLibrary, PROPS } from './src/library';
@@ -20,6 +21,8 @@ interface TabletopSettings {
   propsFolder: string;
   /** How hard the 3D board works to look good. */
   quality: Quality;
+  /** The laser pointer's colour and size (Atlas's options), for every map. */
+  laser?: Partial<LaserSettings>;
 }
 
 const DEFAULT_SETTINGS: TabletopSettings = { folder: DEFAULT_MINIS_FOLDER, propsFolder: DEFAULT_PROPS_FOLDER, quality: DEFAULT_QUALITY };
@@ -83,6 +86,11 @@ export default class TabletopPlugin extends Plugin {
       props: this.props,
       writer,
       quality: () => this.settings.quality,
+      laser: () => resolveLaser(this.settings.laser),
+      setLaser: (changes) => {
+        this.settings.laser = resolveLaser({ ...resolveLaser(this.settings.laser), ...changes });
+        this.save();
+      },
       focused: (view) => { this.lastBoard = view; },
       togglePlayerView: (view) => { void this.togglePlayerView(view); },
       playerViewOpen: (path) => this.playerLeaves().some((leaf) => fileOf(leaf) === path),
