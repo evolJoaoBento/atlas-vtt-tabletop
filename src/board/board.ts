@@ -178,6 +178,8 @@ interface PlayerScreen {
   frozen: { eye: { x: number; y: number; z: number }; target: { x: number; y: number; z: number }; yaw: number; distance: number } | null;
   /** Its shadows are drawn on its next frame (it just opened, or it was resized). */
   shadowsDirty: boolean;
+  /** Its camera is inside the fog: the picture is black. */
+  blind: boolean;
 }
 
 /** The cell under the pointer: where it is and what it is called. */
@@ -769,6 +771,7 @@ export class Board {
       this.shadowedAt = this.clock;
     }
     this.shadowsDirty = false;
+    this.fog.face(this.view.position);
     this.renderer.render(this.scene, this.view);
     this.layoutControls();
     this.drawPlayers(shadows, context);
@@ -1391,7 +1394,7 @@ export class Board {
     });
     resize.observe(container);
     renderer.setSize(Math.max(1, container.clientWidth), Math.max(1, container.clientHeight), false);
-    this.player = { container, canvas, renderer, view, resize, frozen: null, shadowsDirty: true };
+    this.player = { container, canvas, renderer, view, resize, frozen: null, shadowsDirty: true, blind: false };
     this.toolbar.refresh();
     this.wake(true);
   }
@@ -1480,7 +1483,15 @@ export class Board {
       for (const entry of this.tokens.values()) entry.playerLabels.pose(context);
       player.renderer.shadowMap.needsUpdate = shadows || player.shadowsDirty;
       player.shadowsDirty = false;
-      player.renderer.render(this.scene, player.view);
+      // A camera inside the fog sees nothing at all: the players' picture is black.
+      player.blind = this.fog.hides(player.view.position, (point) => insideFog(this.fog.areas, point));
+      if (player.blind) {
+        player.renderer.setClearColor(0x000000, 1);
+        player.renderer.clear();
+      } else {
+        this.fog.face(player.view.position);
+        player.renderer.render(this.scene, player.view);
+      }
     } catch (error) {
       console.error('[Tabletop] The player view could not be drawn:', error);
     } finally {

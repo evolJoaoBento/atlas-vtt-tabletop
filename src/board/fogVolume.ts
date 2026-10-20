@@ -8,6 +8,10 @@
  * itself the map is covered completely for players (so the cloud's soft edge never shows them what is under the fog);
  * the GM sees through it at half strength, as Atlas shows fog to the GM (`show`). Rebuilt only when the fog or its
  * height changes.
+ *
+ * The box is drawn by its outside faces; a camera inside it would see none of them, so while one is inside, its
+ * inside faces are drawn instead (`face`). A camera inside the cloud itself sees nothing: `hides` tells the board,
+ * which blacks the players' picture out.
  */
 import * as THREE from 'three';
 import { fogAreas, type FogArea, type FogOperation } from './fog';
@@ -91,6 +95,9 @@ export class FogVolume {
   /** The fog's areas, for what players cannot see under it. */
   areas: FogArea[] = [];
   private cloud: THREE.Mesh | null = null;
+  /** The box the rays march through, and how tall the cloud stands in it. */
+  private readonly box = new THREE.Box3();
+  private top = 0;
   private shapeTexture: THREE.CanvasTexture | null = null;
   private readonly noise: THREE.DataTexture;
   private readonly material: THREE.ShaderMaterial;
@@ -121,6 +128,7 @@ export class FogVolume {
       },
       transparent: true,
       depthWrite: false,
+      side: THREE.FrontSide,
     });
   }
 
@@ -146,6 +154,11 @@ export class FogVolume {
     const boxHeight = tall + cellSize * 0.5;
     const geometry = new THREE.BoxGeometry(frame.width, boxHeight, frame.height);
     geometry.translate(frame.minX + frame.width / 2, FLOOR + boxHeight / 2, frame.minY + frame.height / 2);
+    this.box.set(
+      new THREE.Vector3(frame.minX, FLOOR, frame.minY),
+      new THREE.Vector3(frame.minX + frame.width, FLOOR + boxHeight, frame.minY + frame.height),
+    );
+    this.top = FLOOR + tall;
     this.cloud = new THREE.Mesh(geometry, this.material);
     this.cloud.renderOrder = 5;
     this.object3d.add(this.cloud);
@@ -154,6 +167,21 @@ export class FogVolume {
   /** Dresses the fog for whose picture is drawn next: the GM sees through it at half strength, players not at all. */
   show(viewer: 'gm' | 'player'): void {
     this.material.uniforms.uStrength!.value = viewer === 'gm' ? GM_STRENGTH : 1;
+  }
+
+  /** Draws the box's outside faces for a camera at `eye` outside it, its inside faces for one inside. */
+  face(eye: THREE.Vector3): void {
+    if (!this.cloud) return;
+    const side = this.box.containsPoint(eye) ? THREE.BackSide : THREE.FrontSide;
+    if (this.material.side !== side) {
+      this.material.side = side;
+      this.material.needsUpdate = true;
+    }
+  }
+
+  /** Whether a camera at `eye` is inside the cloud: over the fog (not a hole in it) and below its top. */
+  hides(eye: THREE.Vector3, inside: (point: { x: number; y: number }) => boolean): boolean {
+    return this.cloud !== null && eye.y < this.top && inside({ x: eye.x, y: eye.z });
   }
 
   /** Whether there is any fog on the map. */

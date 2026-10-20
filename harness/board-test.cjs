@@ -412,6 +412,23 @@ server.listen(0, async () => {
       await wait(300);
       check('unfrozen, it follows the GM\'s again', JSON.stringify(await playerEye()) === JSON.stringify(await gmEye()), { p: await playerEye(), g: await gmEye() });
 
+      // The players' camera inside the fog sees black; inside the fog's box but in a hole of it, the fog around it shows.
+      const inFog = async (x, z) => {
+        await page.evaluate(([x, z]) => {
+          const b = window.boardTest.board;
+          b.player.frozen = { eye: { x, y: 30, z }, target: { x: x + 200, y: 0, z }, yaw: 0, distance: 200 };
+          b.wake(true);
+        }, [x, z]);
+        await wait(400);
+        return page.evaluate(() => ({ blind: window.boardTest.board.player.blind, side: window.boardTest.board.fog.material.side }));
+      };
+      const deep = await inFog(1015, 805);
+      const black = await popup.screenshot({ path: `${shots}/board-10b-players-in-fog.png` });
+      const hole = await inFog(1150, 870);
+      check('a players\' camera inside the fog sees only black', deep.blind === true, deep);
+      check('in a hole of the fog, inside its box, the fog around still shows (drawn from inside)', hole.blind === false && hole.side === 1, hole);
+      await page.evaluate(() => { const b = window.boardTest.board; b.player.frozen = null; b.wake(true); });
+      await wait(300);
       const close = (await tools()).find((t) => t.label === 'Close the player view');
       await page.mouse.click(close.x, close.y);
       await wait(300);
