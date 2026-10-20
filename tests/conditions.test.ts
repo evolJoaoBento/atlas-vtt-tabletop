@@ -35,3 +35,9 @@ test('a valued condition shows its number, 1 when unset', () => {
   assert.equal(conditionLabel({ name: 'Exhaustion', color: '#000', valued: true }, undefined), 'Exhaustion 1');
   assert.equal(conditionLabel({ name: 'Poisoned', color: '#000', valued: false }, 3), 'Poisoned');
 });
+
+test('the collection measuring rules are kept for the ruler', () => {
+  const rules = readCollectionRules({ collections: { C: { settings: { gridDefaults: { unitType: 'meters', unitDistance: 1.5 } } } } }, 'C');
+  assert.deepEqual(rules.gridDefaults, { unitType: 'meters', unitDistance: 1.5 });
+  assert.equal(readCollectionRules(null, 'C').gridDefaults, null);
+});

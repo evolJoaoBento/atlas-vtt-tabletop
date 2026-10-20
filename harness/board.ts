@@ -82,6 +82,7 @@ const map: BoardMap = {
     token({ id: 'fallen', x: 1155, y: 525, imagePath: 'red.png', name: 'Fallen', hp: { current: 0, max: 9 } }),
     token({ id: 'fallenDisc', x: 1225, y: 525, imagePath: 'green.png', name: 'Fallen disc', hp: { current: 0, max: 9 } }),
   ],
+  rawGrid: null,
   icons: [
     { id: 'i1', icon: 'flame', x: 630, y: 700, color: '#ff8800', size: 70, opacity: 1 },
     { id: 'i2', icon: 'door-closed', x: 770, y: 700, color: '#ffffff', size: 70, opacity: 0.9 },
@@ -100,6 +101,7 @@ async function main(): Promise<void> {
   const record = {
     moves: [] as Array<[string, number, number]>, propMoves: [] as Array<[string, number, number]>, added: [] as Array<[string, number, number]>,
     notes: [] as string[], menus: [] as string[], propMenus: [] as string[], previews: [] as string[], warnings: [] as string[],
+    copies: [] as Array<[string, string, number, number]>, meters: [] as Array<[string, string, { current: number; max: number }]>,
   };
   const rules = emptyRules();
   rules.conditions.set('c-poisoned', { name: 'Poisoned', color: '#16a34a', valued: false });
@@ -120,6 +122,9 @@ async function main(): Promise<void> {
     tokenMenu: (id) => { record.menus.push(id); },
     propMenu: (id) => { record.propMenus.push(id); },
     statblockPreview: (id) => { record.previews.push(id); },
+    copyToken: (id, newId, x, y) => { record.copies.push([id, newId, x, y]); },
+    editMeter: (id, field, meter) => { record.meters.push([id, field, meter]); },
+    measurement: () => ({ mode: 'metric', unitType: 'feet', unitDistance: 5, diagonalRule: 'equidistant', bands: [] }),
     warn: (message) => { if (!record.warnings.includes(message)) record.warnings.push(message); },
   };
   const container = document.getElementById('board')!;

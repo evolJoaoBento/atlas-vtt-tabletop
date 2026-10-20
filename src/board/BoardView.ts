@@ -12,6 +12,7 @@ import { Board, type BoardHost } from './board';
 import type { BoardData } from './boardData';
 import { ASSETS_METADATA_PATH, collectionOf, emptyRules, readCollectionRules, type CollectionRules } from './conditions';
 import { readMap, type BoardMap, type BoardToken } from './mapModel';
+import { readMeasurement } from './measure';
 import { QUALITY, type Quality } from './quality';
 import type { TokenWriter } from './tokenWriter';
 
@@ -167,6 +168,12 @@ export class BoardView extends ItemView {
     }
   }
 
+  /** A change the board showed could not be saved: say so, and show the map as it is. */
+  private unsaved(what: string, error: unknown): void {
+    new Notice(`Tabletop: the ${what} was not saved: ${error instanceof Error ? error.message : String(error)}`, 8000);
+    this.reload();
+  }
+
   private warn(message: string): void {
     if (this.warned.has(message)) return;
     this.warned.add(message);
@@ -192,10 +199,7 @@ export class BoardView extends ItemView {
       props: () => boardData.props(mapPath()),
       rules: () => this.rules,
       moveToken: (id, x, y) => {
-        writer.move(mapPath(), id, x, y).catch((error: unknown) => {
-          new Notice(`Tabletop: the move was not saved: ${error instanceof Error ? error.message : String(error)}`, 8000);
-          this.reload();
-        });
+        writer.move(mapPath(), id, x, y).catch((error: unknown) => this.unsaved('move', error));
       },
       moveProp: (id, x, y) => boardData.moveProp(mapPath(), id, x, y),
       addProp: (glb, x, y) => { boardData.addProp(mapPath(), { glb, x, y, rotation: 0, scale: 1 }); },
@@ -206,6 +210,13 @@ export class BoardView extends ItemView {
         menu.addItem((item) => item.setTitle('Remove prop').setIcon('trash').onClick(() => boardData.removeProp(mapPath(), id)));
         menu.showAtMouseEvent(event);
       },
+      copyToken: (id, newId, x, y) => {
+        writer.copy(mapPath(), id, newId, x, y).catch((error: unknown) => this.unsaved('copy', error));
+      },
+      editMeter: (id, field, meter) => {
+        writer.meter(mapPath(), id, field, meter).catch((error: unknown) => this.unsaved(field === 'hp' ? 'HP' : 'stress', error));
+      },
+      measurement: () => readMeasurement(this.rules.gridDefaults, this.map?.rawGrid),
       statblockPreview: (id, event) => {
         const path = this.map?.tokens.find((token) => token.id === id)?.statblockPath;
         if (!path || !this.board) return;

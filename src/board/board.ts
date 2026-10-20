@@ -19,9 +19,11 @@ import type { LoadedMini } from '../library';
 import type { PropPlacement, TokenStyle } from './boardData';
 import { OrbitCamera, limitsFor } from './camera';
 import type { CollectionRules } from './conditions';
+import { formatDistance, pathLengthInCells, type Measurement } from './measure';
+import { applyMeterEdit, stepMeterText } from './meterEdit';
 import { hexCenter, ringDiameter, snapPoint } from './geometry';
 import { TokenLabels, type HoverTarget } from './labels';
-import type { BoardMap, BoardToken } from './mapModel';
+import type { BoardMap, BoardToken, Meter } from './mapModel';
 import { IconPiece, PinPiece, PropPiece, TokenPiece, type PoseContext } from './pieces';
 import { numberCells, type CellNumbers } from './cellNumbers';
 import { stripGeometry } from './surface';
@@ -53,6 +55,12 @@ export interface BoardHost {
   propMenu(id: string, event: MouseEvent): void;
   /** Shows a token's stat block (Ctrl/Cmd + hover). */
   statblockPreview(id: string, event: MouseEvent): void;
+  /** Saves a copy of a token (Alt + drag) under `newId` at (x, y). */
+  copyToken(id: string, newId: string, x: number, y: number): void;
+  /** Saves a token's HP or stress, edited from its bar. */
+  editMeter(id: string, field: 'hp' | 'stress', meter: Meter): void;
+  /** How distances are measured and labelled on this map. */
+  measurement(): Measurement;
   /** Shown once per message. */
   warn(message: string): void;
 }
@@ -103,7 +111,14 @@ type Press =
     /** The spot of the board a pan holds under the pointer. */
     grab: { x: number; y: number } | null;
   }
-  | { kind: 'token'; id: string; x: number; y: number; moved: boolean; grab: { dx: number; dy: number } }
+  | {
+    kind: 'token'; id: string; x: number; y: number; moved: boolean; grab: { dx: number; dy: number };
+    /** Alt was held: the drop makes a copy and the token goes back. */
+    copy: boolean;
+    /** The ruler: where the drag began (snapped), and the waypoints Space dropped. */
+    start: { x: number; y: number };
+    waypoints: Array<{ x: number; y: number }>;
+  }
   | { kind: 'prop'; id: string; x: number; y: number; moved: boolean; grab: { dx: number; dy: number } };
 
 export class Board {
@@ -147,6 +162,10 @@ export class Board {
   /** Something on the board changed since the shadows were last drawn. */
   private shadowsDirty = true;
   private shadowedAt = 0;
+  private ruler: THREE.Group | null = null;
+  /** The ruler being shown: its points (start, waypoints, landing) and its label. */
+  rulerState: { points: Array<{ x: number; y: number }>; label: string } | null = null;
+  private meterEditor: { element: HTMLElement; close: (commit: boolean) => void } | null = null;
   /** The token whose stat block was last shown, so a hover shows it once. */
   private previewed: string | null = null;
 
@@ -484,6 +503,11 @@ export class Board {
       }
     }
     for (const pin of this.pins) pin.pose(context);
+    this.ruler?.traverse((node) => {
+      if (!(node as THREE.Sprite).isSprite) return;
+      const aspect = (node.userData.aspect as number | undefined) ?? 1;
+      node.scale.set(context.pixel * 22 * aspect, context.pixel * 22, 1);
+    });
     if (this.cellLabel) this.cellLabel.scale.set(context.pixel * CELL_LABEL_PX * this.cellLabelAspect, context.pixel * CELL_LABEL_PX, 1);
     // A mini's clip alone redraws the shadows a few times a second, not every frame.
     const clipsOnly = changed && !this.shadowsDirty && this.press === null && !moving;
@@ -597,6 +621,12 @@ export class Board {
       const key = event.key.toLowerCase();
       if (key === 'escape' && this.placing) { this.stopPlacing(); return; }
       if (key === 'home') { this.frameMap(); event.preventDefault(); return; }
+      // Space while carrying a token drops a waypoint on its ruler.
+      if (key === ' ' && this.press?.kind === 'token') {
+        event.preventDefault();
+        if (!event.repeat) this.addWaypoint();
+        return;
+      }
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (['w', 'a', 's', 'd', 'q', 'e', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(key)) {
         this.held.add(key);
@@ -623,12 +653,16 @@ export class Board {
         return;
       }
     }
+    if (event.button === 0 && !event.altKey && this.editMeterAt(event)) return;
     if (event.button === 0) {
       const id = this.tokenAt(x, y);
       const entry = id ? this.tokens.get(id) : null;
       const at = this.boardPoint(x, y);
       if (id && entry && at) {
-        this.press = { kind: 'token', id, x, y, moved: false, grab: { dx: entry.at.x - at.x, dy: entry.at.y - at.y } };
+        this.press = {
+          kind: 'token', id, x, y, moved: false, grab: { dx: entry.at.x - at.x, dy: entry.at.y - at.y },
+          copy: event.altKey, start: snapPoint(this.map!.grid, entry.token.x, entry.token.y), waypoints: [],
+        };
         entry.piece.carried = true;
         return;
       }
@@ -669,6 +703,7 @@ export class Board {
         entry.goal = point;
         entry.at = { ...point };
       }
+      this.drawRuler();
     } else {
       this.props.get(press.id)?.place(point.x, point.y);
     }
@@ -688,9 +723,14 @@ export class Board {
     }
     if (!press) return;
     if (press.kind === 'token') {
+      this.clearRuler();
       const entry = this.tokens.get(press.id);
       if (!entry) return;
       entry.piece.carried = false;
+      if (press.moved && press.copy) {
+        this.copyToken(entry, snapPoint(this.map!.grid, entry.at.x, entry.at.y));
+        return;
+      }
       if (!press.moved) {
         entry.piece.shake(this.clock);
         this.wake(true);
@@ -721,6 +761,7 @@ export class Board {
     const press = this.press;
     this.press = null;
     if (press?.kind === 'token') {
+      this.clearRuler();
       const entry = this.tokens.get(press.id);
       if (entry) {
         entry.goal = { x: entry.token.x, y: entry.token.y };
@@ -799,6 +840,191 @@ export class Board {
     this.wake();
   }
 
+  /** The carried token's ruler path: start, waypoints, and where it would land now. */
+  private rulerPoints(): Array<{ x: number; y: number }> | null {
+    const press = this.press;
+    if (press?.kind !== 'token' || !this.map) return null;
+    const entry = this.tokens.get(press.id);
+    if (!entry) return null;
+    const landing = snapPoint(this.map.grid, entry.at.x, entry.at.y);
+    const points = [press.start, ...press.waypoints];
+    const last = points[points.length - 1]!;
+    if (Math.hypot(landing.x - last.x, landing.y - last.y) > 0.5) points.push(landing);
+    return points.length > 1 ? points : null;
+  }
+
+  private addWaypoint(): void {
+    const press = this.press;
+    if (press?.kind !== 'token' || !this.map) return;
+    const entry = this.tokens.get(press.id);
+    if (!entry) return;
+    const landing = snapPoint(this.map.grid, entry.at.x, entry.at.y);
+    const last = press.waypoints[press.waypoints.length - 1] ?? press.start;
+    if (Math.hypot(landing.x - last.x, landing.y - last.y) <= 0.5) return;
+    press.waypoints.push(landing);
+    this.drawRuler();
+  }
+
+  private clearRuler(): void {
+    if (this.ruler) {
+      this.ruler.traverse((node) => {
+        const object = node as THREE.Mesh | THREE.Sprite;
+        if (!('material' in object) || !object.material) return;
+        (object as THREE.Mesh).geometry?.dispose();
+        const material = object.material as THREE.SpriteMaterial;
+        material.map?.dispose();
+        material.dispose();
+      });
+      this.ruler.removeFromParent();
+      this.ruler = null;
+    }
+    this.rulerState = null;
+  }
+
+  /** Atlas's drag ruler: the path in the accent colour over a dark edge, dots at the start and waypoints, the distance at its middle. */
+  private drawRuler(): void {
+    const points = this.rulerPoints();
+    const map = this.map;
+    this.clearRuler();
+    if (!points || !map) { this.wake(); return; }
+    const measurement = this.host.measurement();
+    const label = formatDistance(pathLengthInCells(points, map.grid, measurement.diagonalRule), measurement);
+    this.rulerState = { points, label };
+    const group = new THREE.Group();
+    group.position.y = 1.2;
+    const segments: number[] = [];
+    for (let i = 1; i < points.length; i++) segments.push(points[i - 1]!.x, points[i - 1]!.y, points[i]!.x, points[i]!.y);
+    const color = accent(this.container);
+    const edge = new THREE.Mesh(stripGeometry(segments, map.grid.size * 0.09), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide }));
+    const line = new THREE.Mesh(stripGeometry(segments, map.grid.size * 0.05), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide }));
+    line.position.y = 0.2;
+    group.add(edge, line);
+    for (const point of points.slice(0, -1)) {
+      const dot = new THREE.Mesh(new THREE.CircleGeometry(map.grid.size * 0.11, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false }));
+      dot.position.set(point.x, 0.4, point.y);
+      group.add(dot);
+    }
+    // The label sits halfway along the path.
+    let total = 0;
+    for (let i = 1; i < points.length; i++) total += Math.hypot(points[i]!.x - points[i - 1]!.x, points[i]!.y - points[i - 1]!.y);
+    let rest = total / 2;
+    let middle = points[0]!;
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1]!;
+      const b = points[i]!;
+      const length = Math.hypot(b.x - a.x, b.y - a.y);
+      if (rest <= length) {
+        const t = length === 0 ? 0 : rest / length;
+        middle = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+        break;
+      }
+      rest -= length;
+    }
+    const plate = plateTexture(label, 24);
+    const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: plate.texture, sizeAttenuation: false, transparent: true, depthTest: false }));
+    tag.renderOrder = 40;
+    tag.center.set(0.5, -0.3);
+    tag.position.set(middle.x, map.grid.size * 0.2, middle.y);
+    tag.userData.aspect = plate.width / plate.height;
+    group.add(tag);
+    this.ruler = group;
+    this.scene.add(group);
+    this.wake();
+  }
+
+  /** Alt + drag let go: the token goes back, and a copy (shown at once) is saved where it was dropped. */
+  private copyToken(entry: TokenEntry, at: { x: number; y: number }): void {
+    const map = this.map!;
+    entry.goal = { x: entry.token.x, y: entry.token.y };
+    entry.at = { ...entry.goal };
+    const newId = `tok_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+    const taken = new Set(map.tokens.filter((token) => token.imagePath === entry.token.imagePath).map((token) => token.instanceNumber));
+    let instance = 1;
+    while (taken.has(instance)) instance++;
+    map.tokens = [...map.tokens, { ...entry.token, id: newId, x: at.x, y: at.y, instanceNumber: instance }];
+    this.sync();
+    this.host.copyToken(entry.token.id, newId, at.x, at.y);
+  }
+
+  /** A click on an HP or stress bar opens Atlas's editor for it. Returns whether one was hit. */
+  private editMeterAt(event: PointerEvent): boolean {
+    const targets: Array<{ object: THREE.Sprite; field: 'hp' | 'stress'; entry: TokenEntry }> = [];
+    for (const entry of this.tokens.values()) for (const target of entry.labels.meterTargets) targets.push({ ...target, entry });
+    const hit = this.hit(event.clientX, event.clientY, targets.map((target) => target.object));
+    const found = hit ? targets.find((target) => target.object === hit) : undefined;
+    if (!found) return false;
+    const meter = found.field === 'hp' ? found.entry.token.hp : found.entry.token.stress;
+    if (!meter) return false;
+    this.openMeterEditor(found.entry, found.field, meter, event);
+    return true;
+  }
+
+  private openMeterEditor(entry: TokenEntry, field: 'hp' | 'stress', meter: Meter, event: PointerEvent): void {
+    this.meterEditor?.close(false);
+    const doc = this.container.ownerDocument;
+    const element = doc.createElement('div');
+    element.className = 'atlas-tabletop-meter';
+    const rect = this.container.getBoundingClientRect();
+    element.style.left = `${event.clientX - rect.left + 8}px`;
+    element.style.top = `${event.clientY - rect.top + 8}px`;
+    const field$ = (name: string, value: number): HTMLInputElement => {
+      const row = doc.createElement('label');
+      row.textContent = name;
+      const input = doc.createElement('input');
+      input.type = 'text';
+      input.inputMode = 'numeric';
+      input.value = String(value);
+      row.appendChild(input);
+      element.appendChild(row);
+      return input;
+    };
+    const current = field$(field === 'hp' ? 'HP' : 'Stress', meter.current);
+    const max = field$('Max', meter.max);
+    const close = (commit: boolean): void => {
+      if (this.meterEditor?.element !== element) return;
+      if (commit) {
+        const result = applyMeterEdit(current.value, max.value, meter);
+        if ('error' in result) {
+          (result.error === 'current' ? current : max).focus();
+          return;
+        }
+        if (result.current !== meter.current || result.max !== meter.max) {
+          // Shown at once; the map file catches up.
+          const map = this.map!;
+          map.tokens = map.tokens.map((token) => (token.id === entry.token.id ? { ...token, [field]: result } : token));
+          this.sync();
+          this.host.editMeter(entry.token.id, field, result);
+        }
+      }
+      this.meterEditor = null;
+      element.remove();
+      doc.removeEventListener('pointerdown', outside, true);
+    };
+    const outside = (pointer: PointerEvent): void => {
+      if (!element.contains(pointer.target as Node)) close(true);
+    };
+    for (const input of [current, max]) {
+      input.addEventListener('keydown', (key) => {
+        key.stopPropagation();
+        if (key.key === 'Enter') { key.preventDefault(); close(true); }
+        else if (key.key === 'Escape') { key.preventDefault(); close(false); }
+        else if (key.key === 'ArrowUp' || key.key === 'ArrowDown') {
+          key.preventDefault();
+          input.value = stepMeterText(input.value, (key.key === 'ArrowUp' ? 1 : -1) * (key.shiftKey ? 10 : 1));
+        }
+      });
+    }
+    this.container.appendChild(element);
+    this.meterEditor = { element, close };
+    // After this press: the click that opened it must not close it, and the browser focuses the board on mousedown,
+    // after this handler, which would take the focus from the field.
+    setTimeout(() => {
+      doc.addEventListener('pointerdown', outside, true);
+      current.focus();
+      current.select();
+    }, 0);
+  }
+
   private stopPlacing(): void {
     this.placing = null;
     this.canvas.style.cursor = '';
@@ -844,6 +1070,8 @@ export class Board {
     for (const pin of this.pins) pin.dispose();
     for (const icon of this.icons) icon.dispose();
     this.showCell(null);
+    this.clearRuler();
+    this.meterEditor?.close(false);
     for (const piece of this.props.values()) piece.dispose();
     this.surface?.dispose();
     for (const art of this.arts.values()) void art.then((texture) => texture?.dispose());

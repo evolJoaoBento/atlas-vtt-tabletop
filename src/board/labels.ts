@@ -138,6 +138,7 @@ export class TokenLabels {
   private badges: THREE.Sprite[] = [];
   private rings: THREE.Mesh[] = [];
   private hover: HoverTarget[] = [];
+  private meters: Array<{ object: THREE.Sprite; field: 'hp' | 'stress' }> = [];
   private sideRadius = 0;
   /** What the labels were last placed for. */
   private placed = '';
@@ -145,6 +146,11 @@ export class TokenLabels {
   constructor(token: BoardToken, settings: TokenSettings, rules: CollectionRules, sharedArt: boolean) {
     this.object3d.add(this.top, this.side);
     this.update(token, settings, rules, sharedArt);
+  }
+
+  /** The HP and stress bars, which a click edits. */
+  get meterTargets(): ReadonlyArray<{ object: THREE.Sprite; field: 'hp' | 'stress' }> {
+    return this.meters;
   }
 
   get hoverTargets(): readonly HoverTarget[] {
@@ -159,8 +165,16 @@ export class TokenLabels {
       const plate = plateTexture(token.name);
       this.stack.push({ sprite: sprite(plate.texture), width: NAME_PX * (plate.width / plate.height), height: NAME_PX });
     }
-    if (character && settings.showHPBars && token.hp) this.stack.push({ sprite: sprite(barTexture(token.hp, hpColor(token.hp))), width: BAR_PX.width, height: BAR_PX.height });
-    if (character && settings.showStressBars && token.stress) this.stack.push({ sprite: sprite(barTexture(token.stress, STRESS_COLOR)), width: BAR_PX.width, height: BAR_PX.height });
+    if (character && settings.showHPBars && token.hp) {
+      const bar = sprite(barTexture(token.hp, hpColor(token.hp)));
+      this.stack.push({ sprite: bar, width: BAR_PX.width, height: BAR_PX.height });
+      this.meters.push({ object: bar, field: 'hp' });
+    }
+    if (character && settings.showStressBars && token.stress) {
+      const bar = sprite(barTexture(token.stress, STRESS_COLOR));
+      this.stack.push({ sprite: bar, width: BAR_PX.width, height: BAR_PX.height });
+      this.meters.push({ object: bar, field: 'stress' });
+    }
     for (const entry of this.stack) {
       entry.sprite.center.set(0.5, 0);
       this.top.add(entry.sprite);
@@ -249,6 +263,7 @@ export class TokenLabels {
     this.badges = [];
     this.rings = [];
     this.hover = [];
+    this.meters = [];
     this.placed = '';
   }
 

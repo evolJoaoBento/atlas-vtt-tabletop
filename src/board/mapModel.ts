@@ -105,6 +105,8 @@ export interface BoardMap {
   tokens: BoardToken[];
   pins: BoardPin[];
   icons: BoardIcon[];
+  /** Atlas's grid object as stored, for the measuring fields read when the map has no collection rules. */
+  rawGrid: unknown;
 }
 
 type Raw = Record<string, unknown>;
@@ -254,5 +256,6 @@ export function readMap(path: string, text: string): BoardMap {
     tokens: items(objects.tokens).map(readToken).filter((token): token is BoardToken => token !== null),
     pins: items(objects.pins).map(readPin).filter((pin): pin is BoardPin => pin !== null),
     icons: items(objects.drawings).map(readIcon).filter((icon): icon is BoardIcon => icon !== null),
+    rawGrid: state.grid ?? null,
   };
 }

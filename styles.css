@@ -174,3 +174,28 @@
   font-size: var(--font-ui-smaller);
   text-align: center;
 }
+
+/* The HP / stress editor that opens from a token's bar on the 3D board. */
+.atlas-tabletop-meter {
+  position: absolute;
+  z-index: 10;
+  display: flex;
+  gap: var(--size-4-2);
+  padding: var(--size-4-2);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  box-shadow: var(--shadow-s);
+}
+
+.atlas-tabletop-meter label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-1);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.atlas-tabletop-meter input {
+  width: 4.5em;
+}

@@ -98,6 +98,79 @@ server.listen(0, async () => {
     const left = await page.evaluate(() => window.boardTest.board.hoveredCell);
     check('the number goes when the pointer leaves the board', left === null, left);
 
+    // 1g. Dragging shows Atlas's ruler: Space drops a waypoint, the distance runs along the path.
+    {
+      const from = await project(875, 385, 6);
+      const right = await project(945, 385, 6);
+      const down = await project(945, 455, 6);
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      for (let i = 1; i <= 6; i++) { await page.mouse.move(from.x + ((right.x - from.x) * i) / 6, from.y + ((right.y - from.y) * i) / 6); await wait(20); }
+      await page.keyboard.press(' ');
+      for (let i = 1; i <= 6; i++) { await page.mouse.move(right.x + ((down.x - right.x) * i) / 6, right.y + ((down.y - right.y) * i) / 6); await wait(20); }
+      const ruler = await page.evaluate(() => window.boardTest.board.rulerState);
+      await wait(200);
+      await page.screenshot({ path: `${shots}/board-6-ruler.png` });
+      await page.mouse.up();
+      await wait(300);
+      check('the ruler measures along the path', ruler && ruler.label === '10ft', ruler);
+      check('Space drops a waypoint', ruler && ruler.points.length === 3, ruler);
+      const gone = await page.evaluate(() => window.boardTest.board.rulerState);
+      check('the ruler goes on release', gone === null, gone);
+      r = await record();
+      const last = r.moves.at(-1);
+      check('the dragged token lands at the path end', last && last[0] === 'gob2' && last[1] === 945 && last[2] === 455, last);
+    }
+
+    // 1h. Alt + drag copies the token: the original stays, the copy lands where it is let go.
+    {
+      const from = await project(385, 665, 6);
+      const to = await project(455, 665, 6);
+      await page.keyboard.down('Alt');
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      for (let i = 1; i <= 8; i++) { await page.mouse.move(from.x + ((to.x - from.x) * i) / 8, from.y + ((to.y - from.y) * i) / 8); await wait(20); }
+      await page.mouse.up();
+      await page.keyboard.up('Alt');
+      await wait(400);
+      r = await record();
+      const copy = r.copies[0];
+      check('alt-drag copies the token where it is let go', copy && copy[0] === 'noart' && copy[2] === 455 && copy[3] === 665, r.copies);
+      const state = await page.evaluate((id) => {
+        const tokens = window.boardTest.board.tokens;
+        return { original: tokens.get('noart').goal, copy: id ? tokens.get(id)?.goal ?? null : null };
+      }, copy ? copy[1] : null);
+      check('the original stays where it was', state.original.x === 385 && state.original.y === 665, state);
+      check('the copy is on the board at once', state.copy && state.copy.x === 455 && state.copy.y === 665, state);
+      check('a copy is not a move', !r.moves.some((m) => m[0] === 'noart'), r.moves);
+    }
+
+    // 1i. A click on a character's HP bar edits it: "-5" then Enter.
+    {
+      const bar = await page.evaluate(() => {
+        const labels = window.boardTest.board.tokens.get('hero').labels;
+        const target = labels.meterTargets.find((t) => t.field === 'hp');
+        const v = target.object.getWorldPosition(new target.object.position.constructor());
+        return { x: v.x, y: v.y, z: v.z };
+      });
+      const at = await page.evaluate(([x, y, z]) => window.boardTest.project(x, z, y), [bar.x, bar.y, bar.z]);
+      // The bar stands on its anchor, 14 px tall: click its middle.
+      await page.mouse.click(at.x, at.y - 7);
+      await wait(150);
+      const open = await page.evaluate(() => !!document.querySelector('.atlas-tabletop-meter'));
+      check('clicking the HP bar opens the editor', open, open);
+      await page.keyboard.press('Control+A');
+      await page.keyboard.type('-5');
+      await page.keyboard.press('Enter');
+      await wait(150);
+      r = await record();
+      check('the HP edit is saved', JSON.stringify(r.meters[0]) === JSON.stringify(['hero', 'hp', { current: 15, max: 27 }]), r.meters);
+      const closed = await page.evaluate(() => !document.querySelector('.atlas-tabletop-meter'));
+      check('Enter closes the editor', closed, closed);
+      const shown = await page.evaluate(() => window.boardTest.board.tokens.get('hero').token.hp);
+      check('the bar shows the new HP at once', shown.current === 15, shown);
+    }
+
     // 2. A click on a pin opens its note.
     const pin = await project(1050, 300, 42);
     await page.mouse.click(pin.x, pin.y);
@@ -113,13 +186,14 @@ server.listen(0, async () => {
     check('right-click on a token opens its menu', r.menus[0] === 'hero', r.menus);
 
     // 4. A right-drag on empty board pans and moves nothing.
+    const movesBefore = (await record()).moves.length;
     let before = await goal();
     const empty = await project(560, 760, 0);
     await drag(empty, { x: empty.x + 120, y: empty.y - 60 }, 'right');
     let after = await goal();
     r = await record();
     check('right-drag pans the camera', Math.hypot(after.target.x - before.target.x, after.target.z - before.target.z) > 1, { before: before.target, after: after.target });
-    check('right-drag moves no token', r.moves.length === 1, r.moves);
+    check('right-drag moves no token', r.moves.length === movesBefore, r.moves);
 
     // 4a. Panning grabs the board: the spot under the pointer when the drag began stays under it.
     const grabFrom = await project(560, 760, 0);
@@ -191,7 +265,7 @@ server.listen(0, async () => {
     await drag(barrel, barrelTo, 'left', ['Control']);
     r = await record();
     check('ctrl-drag moves the prop', r.propMoves.length === 1 && r.propMoves[0][0] === 'barrel', r.propMoves);
-    check('ctrl-drag on a prop moves no token', r.moves.length === 1, r.moves);
+    check('ctrl-drag on a prop moves no token', r.moves.length === movesBefore, r.moves);
 
     // 7b. A right-click on a prop opens its menu.
     await wait(400);
@@ -248,7 +322,7 @@ server.listen(0, async () => {
     check('a lost pointer ends the drag', lost.press === null, lost.press);
     check('a lost drag puts the token back', lost.at.x === 875 && lost.at.y === 385, lost.at);
     const movesAfterLost = (await record()).moves.length;
-    check('a lost drag saves nothing', movesAfterLost === 1, movesAfterLost);
+    check('a lost drag saves nothing', movesAfterLost === movesBefore, movesAfterLost);
 
     // 12. A close look at the hero's labels.
     await page.evaluate(() => { const b = window.boardTest.board; b.camera.lookAt({ x: 245, y: 0, z: 245 }); b.camera.zoom(0.15); b.camera.orbit(0, -0.3); b.wake(); });

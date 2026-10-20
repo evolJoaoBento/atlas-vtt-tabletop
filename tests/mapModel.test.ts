@@ -66,6 +66,7 @@ test('grid', () => {
   assert.equal(oldHex.numbers, 'column-row');
   assert.equal(oldHex.numberOpacity, 0.8);
   assert.equal(readMap('m', wrap({ grid: { cellNumbers: 'roman' } })).grid.numbers, null);
+  assert.deepEqual(readMap('m', wrap({ grid: { unitType: 'yards', unitDistance: 10 } })).rawGrid, { unitType: 'yards', unitDistance: 10 });
   const none = readMap('m', wrap({})).grid;
   assert.equal(none.size, 70);
   assert.equal(none.snap, true);

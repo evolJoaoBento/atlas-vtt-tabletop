@@ -24,8 +24,9 @@ export interface AtlasSceneState {
   isMapLoading?: boolean;
   objects: { tokens: Readonly<Record<string, AtlasToken>> };
   remoteView?: unknown;
-  /** Atlas's own action: changes a token and saves the map. */
-  updateToken?: (id: string, updates: { x?: number; y?: number }) => void;
+  /** Atlas's own actions: change a token, or add one (Atlas numbers it); Atlas saves the map. */
+  updateToken?: (id: string, updates: Record<string, unknown>) => void;
+  addToken?: (data: Record<string, unknown>) => string;
 }
 
 interface Store<T> {

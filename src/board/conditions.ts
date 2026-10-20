@@ -19,6 +19,8 @@ export interface ResourceDefinition {
 export interface CollectionRules {
   conditions: Map<string, ConditionDefinition>;
   resources: Map<string, ResourceDefinition>;
+  /** The collection's measuring rules (`settings.gridDefaults`), as Atlas stores them; null when none. */
+  gridDefaults: unknown;
 }
 
 export const ASSETS_METADATA_PATH = 'atlas-vtt/.atlas-data/assets-metadata.json';
@@ -34,7 +36,7 @@ export function collectionOf(mapPath: string): string | null {
 }
 
 export function emptyRules(): CollectionRules {
-  return { conditions: new Map(), resources: new Map() };
+  return { conditions: new Map(), resources: new Map(), gridDefaults: null };
 }
 
 /** Reads a collection's conditions and resource names from Atlas's asset index. */
@@ -42,6 +44,7 @@ export function readCollectionRules(metadata: unknown, collection: string): Coll
   const rules = emptyRules();
   const settings = isObj(metadata) && isObj(metadata.collections) && isObj(metadata.collections[collection]) ? metadata.collections[collection].settings : null;
   if (!isObj(settings)) return rules;
+  rules.gridDefaults = isObj(settings.gridDefaults) ? settings.gridDefaults : null;
   if (Array.isArray(settings.conditions)) {
     for (const entry of settings.conditions) {
       if (!isObj(entry) || typeof entry.id !== 'string' || typeof entry.name !== 'string') continue;
