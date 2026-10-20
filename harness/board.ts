@@ -93,6 +93,10 @@ const map: BoardMap = {
     { id: 'f2', type: 'rectangle', timestamp: 2, isErasing: true, offsetX: 0, offsetY: 0, x: 1085, y: 840, width: 140, height: 70 },
     { id: 'f3', type: 'brush', timestamp: 3, isErasing: false, offsetX: 0, offsetY: 0, points: [{ x: 70, y: 900 }, { x: 280, y: 940 }], brushRadius: 35 },
   ],
+  texts: [
+    { id: 't1', x: 560, y: 560, text: 'The Common Room', fontSize: 28, fontFamily: 'Georgia', color: '#ffe8b0', backgroundColor: '#000000', padding: 8, borderRadius: 6, opacity: 0.55, align: 'center', bold: true, italic: false, rotation: 0, scale: 1 },
+    { id: 't2', x: 300, y: 450, text: 'To the\ndocks', fontSize: 22, fontFamily: 'Arial', color: '#ffffff', backgroundColor: null, padding: 8, borderRadius: 0, opacity: 1, align: 'left', bold: false, italic: true, rotation: -30, scale: 1.5 },
+  ],
   icons: [
     { id: 'i1', icon: 'flame', x: 630, y: 700, color: '#ff8800', size: 70, opacity: 1 },
     { id: 'i2', icon: 'door-closed', x: 770, y: 700, color: '#ffffff', size: 70, opacity: 0.9 },

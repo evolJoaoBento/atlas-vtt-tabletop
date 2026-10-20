@@ -16,11 +16,11 @@ import { MiniFigure } from '../figure';
 import type { LoadedMini } from '../library';
 import type { TokenStyle, PropPlacement } from './boardData';
 import { hexCenter, ringDiameter, tokenDiameter } from './geometry';
-import { isDowned, type BoardGrid, type BoardIcon, type BoardPin, type BoardToken } from './mapModel';
+import { isDowned, type BoardGrid, type BoardIcon, type BoardPin, type BoardText, type BoardToken } from './mapModel';
 import type { ResourceDefinition } from './resources';
 import { mapIconSvg } from './mapIcons';
 import { pinTitle } from './pinIcons';
-import { downedMarkerTexture, hiddenMarkerTexture, loadImageTexture, pinTexture, plateTexture } from './textures';
+import { canvasTexture, downedMarkerTexture, hiddenMarkerTexture, loadImageTexture, pinTexture, plateTexture } from './textures';
 
 /**
  * How far a token floats over the board, and how thick its disc is, as shares of its diameter. A token with a mini has
@@ -575,6 +575,63 @@ export class IconPiece {
   dispose(): void {
     this.disposed = true;
     disposeTree(this.object3d, true);
+    this.object3d.removeFromParent();
+  }
+}
+
+/** The pixels a text's texture holds per map pixel: sharp when the camera comes close, within a GPU's limits. */
+const TEXT_SHARPNESS = 4;
+const MAX_TEXT_TEXELS = 2048;
+
+/**
+ * A text label lying on the map, as Atlas draws it: its lines in its font and colour, centred on its place, on its box
+ * when it has one (the box at the text's opacity, the letters solid), turned clockwise and scaled. Read-only.
+ */
+export class TextPiece {
+  readonly object3d: THREE.Mesh;
+
+  constructor(readonly label: BoardText) {
+    const family = /[\s,]/.test(label.fontFamily) && !/["']/.test(label.fontFamily) ? `"${label.fontFamily}"` : label.fontFamily;
+    const font = `${label.italic ? 'italic ' : ''}${label.bold ? 'bold ' : ''}${label.fontSize}px ${family}, sans-serif`;
+    const measure = document.createElement('canvas').getContext('2d')!;
+    measure.font = font;
+    const lines = label.text.split('\n');
+    const lineHeight = label.fontSize * 1.25;
+    const textWidth = Math.max(1, ...lines.map((line) => measure.measureText(line).width));
+    const textHeight = lines.length * lineHeight;
+    const pad = label.backgroundColor ? label.padding : 2;
+    const width = textWidth + pad * 2;
+    const height = textHeight + pad * 2;
+    const sharp = Math.min(TEXT_SHARPNESS, MAX_TEXT_TEXELS / width, MAX_TEXT_TEXELS / height);
+    const texture = canvasTexture(Math.ceil(width * sharp), Math.ceil(height * sharp), (context) => {
+      context.scale(sharp, sharp);
+      if (label.backgroundColor) {
+        context.globalAlpha = label.opacity;
+        context.fillStyle = label.backgroundColor;
+        context.beginPath();
+        context.roundRect(0, 0, width, height, label.borderRadius);
+        context.fill();
+        context.globalAlpha = 1;
+      }
+      context.font = font;
+      context.fillStyle = label.color;
+      context.textBaseline = 'middle';
+      context.textAlign = label.align;
+      const x = label.align === 'left' ? pad : label.align === 'right' ? width - pad : width / 2;
+      lines.forEach((line, i) => context.fillText(line, x, pad + lineHeight * (i + 0.5)));
+    });
+    const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 });
+    this.object3d = new THREE.Mesh(new THREE.PlaneGeometry(width * label.scale, height * label.scale).rotateX(-Math.PI / 2), material);
+    this.object3d.position.set(label.x, 0.6, label.y);
+    this.object3d.rotation.y = -THREE.MathUtils.degToRad(label.rotation);
+    this.object3d.renderOrder = 3;
+  }
+
+  dispose(): void {
+    const material = this.object3d.material as THREE.MeshBasicMaterial;
+    material.map?.dispose();
+    material.dispose();
+    this.object3d.geometry.dispose();
     this.object3d.removeFromParent();
   }
 }

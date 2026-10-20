@@ -264,6 +264,25 @@ server.listen(0, async () => {
       check('a deleted token leaves the board, and its selection', fate.copy && !fate.still && fate.selected === null, fate);
     }
 
+    // 1i2. Text labels lie flat on the map, read-only, centred, turned and scaled as Atlas draws them.
+    {
+      const texts = await page.evaluate(() => window.boardTest.board.texts.map((piece) => {
+        const o = piece.object3d;
+        o.geometry.computeBoundingBox();
+        const b = o.geometry.boundingBox;
+        return { id: piece.label.id, x: o.position.x, z: o.position.z, y: o.position.y, turn: Math.round(o.rotation.y * 180 / Math.PI), width: Math.round(b.max.x - b.min.x), depth: Math.round(b.max.z - b.min.z), flat: Math.round(b.max.y - b.min.y) };
+      }));
+      const room = texts.find((t) => t.id === 't1');
+      const docks = texts.find((t) => t.id === 't2');
+      check('text labels lie flat on the map at their place', texts.length === 2 && room.x === 560 && room.z === 560 && room.flat === 0 && room.y < 1, texts);
+      check('a text is turned clockwise and scaled as in Atlas', docks.turn === 30 && docks.depth > room.depth, texts);
+      const hit = await page.evaluate(() => { const at = window.boardTest.project(560, 560, 0); return { x: at.x, y: at.y }; });
+      await page.mouse.click(hit.x, hit.y, { button: 'right' });
+      await wait(150);
+      check('a text takes no clicks (read-only)', !(await record()).menus.includes('t1'), (await record()).menus);
+      await page.screenshot({ path: `${shots}/board-13-texts.png` });
+    }
+
     // 1j. Atlas's fog of war stands on the map; the toolbar's settings set its height.
     {
       const fog = () => page.evaluate(() => {

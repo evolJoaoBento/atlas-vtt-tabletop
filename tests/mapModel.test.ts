@@ -112,3 +112,15 @@ test('older hex numbers only number hex grids; a stress max of 0 reads as 10 lik
   const map = readMap('m', wrap({ objects: { pins: {}, tokens: { a: { id: 'a', x: 0, y: 0, kind: 'character', stress: 2, maxStress: 0 } } } }));
   assert.deepEqual(map.tokens[0]!.resources.stress, { current: 2, max: 10 });
 });
+
+test('text labels are read as Atlas draws them, with its defaults; empty ones left out', () => {
+  const map = readMap('m', wrap({ objects: { tokens: {}, pins: {}, texts: {
+    a: { id: 'a', kind: 'text', x: 100, y: 50, text: 'Throne Room', fontSize: 24, fontFamily: 'Georgia', color: '#ffcc00', backgroundColor: '#000000', opacity: 0.6, borderRadius: 4, bold: true, rotation: 30, scale: 2 },
+    b: { id: 'b', kind: 'text', x: 0, y: 0, text: 'Plain' },
+    c: { id: 'c', kind: 'text', x: 0, y: 0, text: '' },
+  } } }));
+  assert.deepEqual(map.texts, [
+    { id: 'a', x: 100, y: 50, text: 'Throne Room', fontSize: 24, fontFamily: 'Georgia', color: '#ffcc00', backgroundColor: '#000000', padding: 8, borderRadius: 4, opacity: 0.6, align: 'center', bold: true, italic: false, rotation: 30, scale: 2 },
+    { id: 'b', x: 0, y: 0, text: 'Plain', fontSize: 24, fontFamily: 'Arial', color: '#ffffff', backgroundColor: null, padding: 8, borderRadius: 0, opacity: 1, align: 'center', bold: false, italic: false, rotation: 0, scale: 1 },
+  ]);
+});

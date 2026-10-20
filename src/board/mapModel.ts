@@ -87,6 +87,29 @@ export interface BoardIcon {
   opacity: number;
 }
 
+/** A text label on the map, as Atlas draws it: centred on its place, turned and scaled; read-only on the board. */
+export interface BoardText {
+  id: string;
+  x: number;
+  y: number;
+  text: string;
+  fontSize: number;
+  fontFamily: string;
+  color: string;
+  /** The box behind it, or null for none. */
+  backgroundColor: string | null;
+  padding: number;
+  borderRadius: number;
+  /** How strongly the box shows (Atlas applies it to the box, not the letters). */
+  opacity: number;
+  align: 'left' | 'center' | 'right';
+  bold: boolean;
+  italic: boolean;
+  /** Degrees, clockwise on screen. */
+  rotation: number;
+  scale: number;
+}
+
 export interface TokenSettings {
   showNameplates: boolean;
   showInstanceBadges: boolean;
@@ -102,6 +125,7 @@ export interface BoardMap {
   tokens: BoardToken[];
   pins: BoardPin[];
   icons: BoardIcon[];
+  texts: BoardText[];
   /** The fog of war's strokes, as Atlas stores them (`fog.ts` replays them). */
   fog: FogOperation[];
   /** Atlas's grid object as stored, for the measuring fields read when the map has no collection rules. */
@@ -216,6 +240,29 @@ function readIcon(drawing: Raw): BoardIcon | null {
   };
 }
 
+/** Atlas's defaults for a text: 24 px, centred, a box padded by 8 when it has one. */
+function readText(raw: Raw): BoardText | null {
+  const id = str(raw.id);
+  const text = str(raw.text);
+  if (!id || !text) return null;
+  return {
+    id, x: num(raw.x, 0), y: num(raw.y, 0), text,
+    fontSize: num(raw.fontSize, 24) > 0 ? num(raw.fontSize, 24) : 24,
+    fontFamily: str(raw.fontFamily) ?? 'Arial',
+    color: str(raw.color) ?? '#ffffff',
+    backgroundColor: str(raw.backgroundColor),
+    // Atlas reads 0 as unset for these two (`padding || 8`, `opacity || 1`).
+    padding: num(raw.padding, 0) || 8,
+    borderRadius: num(raw.borderRadius, 0),
+    opacity: num(raw.opacity, 0) || 1,
+    align: raw.align === 'left' || raw.align === 'right' ? raw.align : 'center',
+    bold: raw.bold === true,
+    italic: raw.italic === true,
+    rotation: num(raw.rotation, 0),
+    scale: num(raw.scale, 0) || 1,
+  };
+}
+
 function readTokenSettings(raw: unknown): TokenSettings {
   const settings = isObj(raw) ? raw : {};
   return {
@@ -252,6 +299,7 @@ export function readMap(path: string, text: string): BoardMap {
     tokens: items(objects.tokens).map(readToken).filter((token): token is BoardToken => token !== null),
     pins: items(objects.pins).map(readPin).filter((pin): pin is BoardPin => pin !== null),
     icons: items(objects.drawings).map(readIcon).filter((icon): icon is BoardIcon => icon !== null),
+    texts: items(objects.texts).map(readText).filter((text): text is BoardText => text !== null),
     fog: readFog(objects.fog),
     rawGrid: state.grid ?? null,
   };

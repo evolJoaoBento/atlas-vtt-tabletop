@@ -30,7 +30,7 @@ import { TokenLabels, type HoverTarget } from './labels';
 import type { BoardMap, BoardToken } from './mapModel';
 import { ResourceControls, openValueEditor, type ControlSpec, type EditorAnchor, type ScreenRect, type ValueEditor } from './resourceControls';
 import { resourceUpdate, withCurrent, type ResourceValue } from './resources';
-import { IconPiece, PinPiece, PropPiece, TokenPiece, type PoseContext } from './pieces';
+import { IconPiece, PinPiece, PropPiece, TextPiece, TokenPiece, type PoseContext } from './pieces';
 import { numberCells, type CellNumbers } from './cellNumbers';
 import { stripGeometry } from './surface';
 import { ResolutionGovernor, type QualityPreset } from './quality';
@@ -174,6 +174,7 @@ export class Board {
   private readonly tokens = new Map<string, TokenEntry>();
   private pins: PinPiece[] = [];
   private icons: IconPiece[] = [];
+  private texts: TextPiece[] = [];
   /** The grid's numbered cells, and the cell under the pointer with its highlight and label. */
   private cells: CellNumbers = { at: () => null };
   hoveredCell: string | null = null;
@@ -451,6 +452,21 @@ export class Board {
       return piece;
     });
     for (const piece of kept.values()) piece.dispose();
+
+    // Text labels, kept like the icons when nothing about them changed: each one paints its letters.
+    const textKey = (text: BoardMap['texts'][number]): string => JSON.stringify(text);
+    const keptTexts = new Map(this.texts.map((piece) => [textKey(piece.label), piece]));
+    this.texts = map.texts.map((text) => {
+      const old = keptTexts.get(textKey(text));
+      if (old) {
+        keptTexts.delete(textKey(text));
+        return old;
+      }
+      const piece = new TextPiece(text);
+      this.scene.add(piece.object3d);
+      return piece;
+    });
+    for (const piece of keptTexts.values()) piece.dispose();
 
     for (const pin of this.pins) pin.dispose();
     this.pins = map.pins.map((pin) => {
@@ -1353,6 +1369,7 @@ export class Board {
     this.tokens.clear();
     for (const pin of this.pins) pin.dispose();
     for (const icon of this.icons) icon.dispose();
+    for (const text of this.texts) text.dispose();
     this.showCell(null);
     this.clearRuler();
     this.editor?.view.close();
