@@ -295,3 +295,10 @@
   margin-top: var(--size-4-1);
   color: var(--text-normal);
 }
+
+/* What the GM has to do about the graphics card: restart, or pick the fast card. */
+.atlas-tabletop-gpu-alert {
+  margin-top: var(--size-4-1);
+  color: var(--text-error);
+  font-weight: var(--font-semibold);
+}

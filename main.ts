@@ -276,17 +276,28 @@ class TabletopSettingTab extends PluginSettingTab {
       windows: 'Let Windows decide',
     };
     const preferenceOf = (key: string): GpuPreference => (key === 'performance' ? 2 : key === 'power' ? 1 : 0);
-    const describe = (): string => {
+    const same = (a: string, b: string): boolean => a.toLowerCase().includes(b.toLowerCase()) || b.toLowerCase().includes(a.toLowerCase());
+    /** Which card is in use, and, in red, what the GM has to do: restart for a saved change, or pick the fast card. */
+    const describe = (): { using: string; warning: string } => {
       const using = now ? `Obsidian is drawing on ${now} now.` : '';
       const wanted = cardFor[saved];
-      const pending = wanted && now && !now.toLowerCase().includes(wanted.toLowerCase()) && !wanted.toLowerCase().includes(now.toLowerCase());
-      return pending ? `${using} Restart Obsidian to switch to ${wanted}.` : using;
+      if (wanted && now && !same(now, wanted)) return { using, warning: `Restart Obsidian to switch to ${wanted}.` };
+      if (now && same(now, choices.power) && saved !== 2) return { using, warning: `This is the slower built-in chip: choose ${choices.performance} and save for a faster 3D board.` };
+      return { using, warning: '' };
+    };
+    const show = (): void => {
+      const { using, warning } = describe();
+      note.setText(using);
+      alert.setText(warning);
+      alert.toggle(warning !== '');
     };
     // The card names are long: the choice gets its own row under the text.
     status.settingEl.addClass('atlas-tabletop-gpu-setting');
     status.setName('Card Obsidian draws on')
       .setDesc('The 3D board runs much faster on a dedicated graphics card. This is the same setting as Windows Settings → System → Display → Graphics, for Obsidian; it takes effect after you restart Obsidian.');
-    const note = status.descEl.createDiv({ cls: 'atlas-tabletop-gpu-status', text: describe() });
+    const note = status.descEl.createDiv({ cls: 'atlas-tabletop-gpu-status' });
+    const alert = status.descEl.createDiv({ cls: 'atlas-tabletop-gpu-alert' });
+    show();
     let chosen: GpuPreference = saved;
     status.addDropdown((dropdown) => dropdown.addOptions(options).setValue(keys[saved]).onChange((value) => {
       chosen = preferenceOf(value);
@@ -299,7 +310,7 @@ class TabletopSettingTab extends PluginSettingTab {
         try {
           await gpu.save(chosen);
           saved = chosen;
-          note.setText(describe());
+          show();
           const card = cardFor[chosen];
           new Notice(card ? `Tabletop: saved. Restart Obsidian to draw on ${card}.` : 'Tabletop: saved. Restart Obsidian to let Windows choose the card.', 10000);
         } catch (error) {
