@@ -4,6 +4,11 @@
  * strong as Atlas says, its flame flickering as Atlas animates it (torch, candle, pulse, magic). A light a token
  * carries goes where the token goes. The few lights nearest the camera's target cast shadows (walls, minis), as many
  * as the quality allows; the GM sees a small bulb on each placed light, which players do not.
+ *
+ * Atlas's light is full inside its bright radius and dim (half) out to its dim radius. three.js lights fall off by
+ * distance instead, so its falloff is replaced once (`getDistanceAttenuation`, before anything is drawn): Atlas's
+ * lights are the only point and spot lights on the board, and each carries its bright radius, as a share of its dim
+ * one, in `decay`, which nothing else reads.
  */
 import * as THREE from 'three';
 import { flicker, seedOf, unitsToPx, type BoardLight } from './walls';
@@ -17,6 +22,28 @@ export interface LightLayout {
   /** The board's ambient light (0–1): a light kept for the dark shines only at or below its level. */
   ambient: number;
 }
+
+/** How strong dim light is against bright. */
+const DIM_SHARE = 0.5;
+
+/** Atlas's falloff: full inside the bright share (`decayExponent`), dim in the band beyond, fading out at each edge. */
+const ATLAS_FALLOFF = `float getDistanceAttenuation( const in float lightDistance, const in float cutoffDistance, const in float decayExponent ) {
+	if ( cutoffDistance <= 0.0 ) return 1.0;
+	float t = lightDistance / cutoffDistance;
+	float bright = 1.0 - smoothstep( decayExponent * 0.85, decayExponent + 0.04, t );
+	float edge = 1.0 - smoothstep( 0.88, 1.0, t );
+	return mix( ${DIM_SHARE.toFixed(2)}, 1.0, bright ) * edge;
+}
+
+`;
+
+(function replaceFalloff(): void {
+  const chunk = THREE.ShaderChunk.lights_pars_begin;
+  const start = chunk.indexOf('float getDistanceAttenuation(');
+  const end = chunk.indexOf('float getSpotAttenuation(');
+  if (start < 0 || end < start) return;
+  THREE.ShaderChunk.lights_pars_begin = chunk.slice(0, start) + ATLAS_FALLOFF + chunk.slice(end);
+})();
 
 /** A light's strength on the board for Atlas's intensity 1, against the board's daylight. */
 const STRENGTH = 2.6;
@@ -37,19 +64,23 @@ export class LightRig {
   readonly object3d = new THREE.Group();
   private readonly entries = new Map<string, Entry>();
   private signature = '';
+  /** Below the lit threshold: only then do flames flicker (in daylight nobody sees it, and it would cost frames). */
+  private dark = false;
 
   constructor() {
     this.object3d.name = 'lights';
   }
 
-  /** Whether any light flickers: the board then keeps drawing. */
+  /** Whether any light flickers: the board then redraws a few times a second. */
   get animated(): boolean {
+    if (!this.dark) return false;
     for (const entry of this.entries.values()) if (entry.lamp.visible && entry.light.animation !== 'none') return true;
     return false;
   }
 
   /** Puts up the map's lights; a light whose look did not change keeps its lamp. */
-  update(lights: readonly BoardLight[], layout: LightLayout): void {
+  update(lights: readonly BoardLight[], layout: LightLayout & { litThreshold: number }): void {
+    this.dark = layout.ambient < layout.litThreshold;
     const signature = JSON.stringify(lights.map((light) => [light.id, light.bright, light.dim, light.color, light.angle, light.darkness, light.tokenId]));
     if (signature !== this.signature) {
       this.clear();
@@ -75,9 +106,11 @@ export class LightRig {
   private add(light: BoardLight, layout: LightLayout): void {
     const reach = unitsToPx(light.dim, layout.unitDistance, layout.cell);
     const color = new THREE.Color(light.color);
+    // `decay` carries the bright radius's share of the dim one (see the falloff above).
+    const brightShare = light.dim > 0 ? light.bright / light.dim : 0;
     const lamp = light.angle === null
-      ? new THREE.PointLight(color, 0, reach, 0)
-      : new THREE.SpotLight(color, 0, reach, THREE.MathUtils.degToRad(light.angle / 2), 0.35, 0);
+      ? new THREE.PointLight(color, 0, reach, brightShare)
+      : new THREE.SpotLight(color, 0, reach, THREE.MathUtils.degToRad(light.angle / 2), 0.35, brightShare);
     lamp.shadow.mapSize.set(SHADOW_PX, SHADOW_PX);
     lamp.shadow.bias = -0.002;
     lamp.shadow.camera.near = layout.cell * 0.05;
@@ -116,7 +149,7 @@ export class LightRig {
   step(t: number): void {
     for (const entry of this.entries.values()) {
       if (!entry.lamp.visible) continue;
-      entry.lamp.intensity = STRENGTH * entry.light.intensity * flicker(entry.light.animation, t, entry.seed);
+      entry.lamp.intensity = STRENGTH * entry.light.intensity * (this.dark ? flicker(entry.light.animation, t, entry.seed) : 1);
     }
   }
 

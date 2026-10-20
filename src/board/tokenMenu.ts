@@ -19,6 +19,8 @@ export interface TokenMenuActions {
   assignMini(): void;
   removeMini(): void;
   setStandee(standee: boolean): void;
+  /** How high the light the token carries hangs, in grid squares. */
+  setLightHeight(height: number): void;
   reset(): void;
   kill(): void;
   remove(): void;
@@ -32,12 +34,16 @@ export interface TokenMenuContext {
   inInitiative(): boolean;
   hasMini(): boolean;
   standee(): boolean;
+  /** How high the light the token carries hangs, in squares; null when it carries none. */
+  lightHeight(): number | null;
   actions: TokenMenuActions;
   /** Draws an Obsidian (Lucide) icon into an element. */
   icon(element: HTMLElement, name: string): void;
 }
 
 const BADGE_SIZE = 16;
+/** The light height steps a quarter square. */
+const LIGHT_STEP = 0.25;
 
 /** Whether a colour is light enough that a dark glyph reads better on it (Atlas's `isLightBadgeColor`). */
 export function isLightBadgeColor(hex: string): boolean {
@@ -126,6 +132,13 @@ export function tokenMenuEntries(context: TokenMenuContext): MenuEntry[] {
   if (hasMini) entries.push({ type: 'item', label: 'Remove mini', onClick: () => actions.removeMini() });
   const standee = context.standee();
   entries.push({ type: 'item', label: standee ? 'Show as disc' : 'Show as standee', onClick: () => actions.setStandee(!standee) });
+  const height = context.lightHeight();
+  if (height !== null) {
+    entries.push({
+      type: 'item', label: 'Light height', keepOpen: true, onClick: () => undefined,
+      stepper: { value: `${height} sq`, label: 'Light height', canDecrement: height > 0, onDecrement: () => actions.setLightHeight(height - LIGHT_STEP), onIncrement: () => actions.setLightHeight(height + LIGHT_STEP) },
+    });
+  }
 
   const tracked = token.kind === 'character' && visibleResources(token, rules.definitions, context.settings().hiddenResources).length > 0;
   if (tracked) entries.push({ type: 'item', label: resetLabel(rules.definitions), onClick: () => actions.reset() });

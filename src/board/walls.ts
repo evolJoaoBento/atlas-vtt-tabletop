@@ -18,7 +18,10 @@ export interface BoardWall {
   type: WallType;
   p1: Point;
   p2: Point;
-  /** A one-way wall: the side light and sight pass from (Atlas's `direction`); null blocks both ways. */
+  /**
+   * A one-way wall (Atlas's `direction`): light and sight coming from that side (`left` is the side of the normal
+   * (−dy, dx) of p1 → p2) are stopped, from the other side they pass; null stops both ways.
+   */
   direction: 'left' | 'right' | null;
   /** A door: shut (the default) or open. */
   closed: boolean;
@@ -156,11 +159,44 @@ export function segmentFrame(p1: Point, p2: Point): { cx: number; cy: number; le
 export const DOOR_SWING = Math.PI / 2;
 
 /**
- * Which way a door swings on its hinge (at `p1`): +1 turns its far end toward the left of p1 → p2 (on the map, as
- * drawn), −1 toward the right. A one-way door opens away from the side that sees through it.
+ * Which way a door swings on its hinge (at `p1`): +1 turns its far end toward heading − 90° on the map (the left of
+ * p1 → p2 as drawn, y down), −1 toward heading + 90°. A one-way door opens the way light passes through it, away
+ * from the side it stops.
  */
 export function swingSide(wall: Pick<BoardWall, 'direction'>): 1 | -1 {
   return wall.direction === 'left' ? -1 : 1;
+}
+
+/** The heading (radians on the map) light passes a one-way wall in: away from the side it stops. */
+export function passHeading(wall: Pick<BoardWall, 'p1' | 'p2' | 'direction'>): number | null {
+  if (!wall.direction) return null;
+  // Atlas's stopping side for `left` is the normal (−dy, dx), heading + 90°; light passes toward it.
+  return segmentFrame(wall.p1, wall.p2).heading + (wall.direction === 'left' ? 1 : -1) * (Math.PI / 2);
+}
+
+/**
+ * The whole wall a segment belongs to: the segments drawn with it in one stroke (its chain), or, for a wall drawn
+ * without one, the run of segments joined end to end with it, up to where three or more meet or a door stands.
+ */
+export function wholeWall(walls: readonly BoardWall[], id: string): string[] {
+  const start = walls.find((wall) => wall.id === id);
+  if (!start || isDoor(start)) return start ? [start.id] : [];
+  if (start.chain) return walls.filter((wall) => wall.chain === start.chain && !isDoor(wall)).map((wall) => wall.id);
+  const key = (point: Point): string => `${Math.round(point.x)},${Math.round(point.y)}`;
+  const at = new Map<string, BoardWall[]>();
+  for (const wall of walls) for (const end of [wall.p1, wall.p2]) at.set(key(end), [...(at.get(key(end)) ?? []), wall]);
+  const run = new Set<string>([start.id]);
+  const queue: BoardWall[] = [start];
+  while (queue.length > 0) {
+    const wall = queue.shift()!;
+    for (const end of [wall.p1, wall.p2]) {
+      const meeting = at.get(key(end)) ?? [];
+      // A junction, or a door, ends the run.
+      if (meeting.length !== 2 || meeting.some(isDoor)) continue;
+      for (const next of meeting) if (!run.has(next.id)) { run.add(next.id); queue.push(next); }
+    }
+  }
+  return walls.filter((wall) => run.has(wall.id)).map((wall) => wall.id);
 }
 
 /**

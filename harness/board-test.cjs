@@ -920,9 +920,22 @@ server.listen(0, async () => {
       await wait(600);
       const walls = await page.evaluate(() => {
         const set = window.boardTest.board.walls;
-        return { fog: window.boardTest.board.host.fogHeight(), meshes: set.meshes.length, boxes: set.meshes.reduce((n, m) => n + m.ids.length, 0), doors: set.doors.size, height: set.meshes[0].mesh.geometry.boundingSphere ? Math.max(...set.meshes[0].mesh.geometry.attributes.position.array.filter((_, i) => i % 3 === 1)) : 0, gmOnly: set.gmOnly.children.length };
+        const open = set.meshes.filter((m) => !m.mesh.userData.fogged);
+        const arrow = set.gmOnly.children[0].geometry.attributes.position.array;
+        return { fog: window.boardTest.board.host.fogHeight(), meshes: open.length, boxes: open.reduce((n, m) => n + m.ids.length, 0), doors: set.doors.size, height: Math.max(...open[0].mesh.geometry.attributes.position.array.filter((_, i) => i % 3 === 1)), gmOnly: set.gmOnly.children.length, arrowTipX: arrow[0] };
       });
-      check('the walls stand as one mesh of six segments, as tall as the fog; two doors; the one-way arrow', walls.meshes === 1 && walls.boxes === 6 && walls.doors === 2 && Math.abs(walls.height - 70 * walls.fog) < 0.01 && walls.gmOnly === 1, walls);
+      check('the walls stand as one mesh of six segments, as tall as the fog; three doors; the one-way arrow', walls.meshes === 1 && walls.boxes === 6 && walls.doors === 3 && Math.abs(walls.height - 70 * walls.fog) < 0.01 && walls.gmOnly === 1, walls);
+      // The west wall runs north; Atlas's `left` stops light from the east side of… its normal (−dy, dx) points east: light passes eastward.
+      check('the one-way arrow points the way Atlas lets light through', walls.arrowTipX > 455, walls.arrowTipX);
+      const fogged = await page.evaluate(() => {
+        const b = window.boardTest.board;
+        const seen = () => ({ wall: b.walls.meshes.filter((m) => m.mesh.userData.fogged).map((m) => m.mesh.visible), door: b.walls.doors.get('fogdoor').pivot.visible, room: b.walls.doors.get('door').pivot.visible });
+        b.showFor('player');
+        const player = seen();
+        b.showFor('gm');
+        return { player, gm: seen() };
+      });
+      check('walls and doors under the fog are hidden from players, not from the GM', JSON.stringify(fogged) === JSON.stringify({ player: { wall: [false], door: false, room: true }, gm: { wall: [true], door: true, room: true } }), fogged);
       const doorTurn = () => page.evaluate(() => window.boardTest.board.walls.doors.get('door').pivot.rotation.y);
       const shutTurn = await doorTurn();
       const doorAt = await project(560, 840, 35);
@@ -951,17 +964,19 @@ server.listen(0, async () => {
         return tip;
       }, [at.x, at.y, shift]);
       const tip = await drop(east, false);
-      let meshes = await page.evaluate(() => window.boardTest.board.walls.meshes.map((m) => m.ids.length));
+      let meshes = await page.evaluate(() => window.boardTest.board.walls.meshes.filter((m) => !m.mesh.userData.fogged).map((m) => m.ids.length));
       check('a material dropped on a wall paints that segment alone (the tip says so)', JSON.stringify((await record()).paints.at(-1)) === JSON.stringify(['e', 'atlas-vtt/assets/materials/Bricks', false]) && tip.startsWith('Paint this segment') && JSON.stringify(meshes.sort()) === JSON.stringify([1, 5]), { tip, meshes });
       await drop(east, true);
       await wait(300);
-      meshes = await page.evaluate(() => window.boardTest.board.walls.meshes.map((m) => [m.ids.length, !!m.mesh.material.map]));
+      meshes = await page.evaluate(() => window.boardTest.board.walls.meshes.filter((m) => !m.mesh.userData.fogged).map((m) => [m.ids.length, !!m.mesh.material.map]));
       check('with Shift it paints the whole wall drawn with it, its texture on', (await record()).paints.at(-1)[2] === true && meshes.length === 1 && meshes[0][0] === 6 && meshes[0][1], meshes);
 
       const lights = await page.evaluate(() => {
         const rig = window.boardTest.board.rig;
-        return [...rig.entries.values()].map((e) => ({ id: e.light.id, kind: e.lamp.type, reach: e.lamp.distance, y: e.lamp.position.y, x: e.lamp.position.x, bulb: !!e.bulb }));
+        return [...rig.entries.values()].map((e) => ({ id: e.light.id, kind: e.lamp.type, reach: e.lamp.distance, y: e.lamp.position.y, x: e.lamp.position.x, bulb: !!e.bulb, bright: e.lamp.decay }));
       });
+      check('Atlas\'s bright radius is carried to the falloff: the torch is bright to half its reach, the magic light only dim', lights[0].bright === 0.5 && lights[1].bright === 0, lights.map((l) => [l.id, l.bright]));
+      check('in daylight no flame flickers, so the board rests', !(await page.evaluate(() => window.boardTest.board.rig.animated)));
       check('each light hangs a square up and reaches its dim radius (40 ft = 8 squares); a token\'s has no bulb', lights.length === 3 && lights[0].reach === 560 && lights[0].y === 70 && lights[0].bulb && !lights[2].bulb && lights[2].x === 875, lights);
       await page.evaluate(() => { window.boardTest.board.toolbar.actions.setAmbient(0.12, true); });
       await wait(400);
@@ -970,11 +985,26 @@ server.listen(0, async () => {
       const intensities = [];
       for (let i = 0; i < 3; i++) { intensities.push(await page.evaluate(() => window.boardTest.board.rig.entries.get('torch').lamp.intensity)); await wait(120); }
       check('the torch flickers', new Set(intensities.map((v) => v.toFixed(3))).size > 1, intensities);
+      await wait(300);
+      // The hero's mini plays its idle clip, which keeps frames coming by itself: stopped, the board rests between flickers.
+      const resting = await page.evaluate(async () => {
+        const b = window.boardTest.board;
+        const pieces = [...b.tokens.values()].map((entry) => entry.piece);
+        const kept = pieces.map((piece) => Object.getOwnPropertyDescriptor(piece, 'animating'));
+        pieces.forEach((piece) => Object.defineProperty(piece, 'animating', { value: false, configurable: true }));
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        const seen = { continuing: b.continuing, timer: b.flickerTimer !== 0 };
+        pieces.forEach((piece, i) => { if (kept[i]) Object.defineProperty(piece, 'animating', kept[i]); else delete piece.animating; });
+        b.wake();
+        return seen;
+      });
+      check('flames flicker on a timer while nothing moves, not on a frame loop', !resting.continuing && resting.timer, resting);
       await page.screenshot({ path: `${shots}/board-21-dark.png` });
       const bulb = await project(490, 875, 70);
       await page.mouse.click(bulb.x, bulb.y, { button: 'right' });
       await wait(100);
       check('a right-click on a light\'s bulb opens its menu', (await record()).lightMenus.at(-1) === 'torch', (await record()).lightMenus);
+      await page.keyboard.press('Escape');
       const gmOnly = await page.evaluate(() => {
         const b = window.boardTest.board;
         b.showFor('player');
@@ -983,6 +1013,17 @@ server.listen(0, async () => {
         return seen;
       });
       check('players see no bulb, no one-way arrow and no secret door\'s accent', !gmOnly.arrows && !gmOnly.bulbs && !gmOnly.accent, gmOnly);
+
+      // A token carrying a light has its height in its menu.
+      await page.keyboard.press('Escape');
+      await page.evaluate(() => { const b = window.boardTest.board; b.camera.frame({ x: 875, y: 0, z: 385 }, 300); b.camera.snap(); b.wake(true); });
+      await wait(500);
+      const carrier = await project(875, 385, 20);
+      await page.mouse.click(carrier.x, carrier.y, { button: 'right' });
+      await wait(150);
+      const carrierRows = await page.evaluate(() => [...document.querySelectorAll('.atlas-ctx-menu .atlas-ctx-item')].map((row) => row.textContent));
+      check('a token carrying a light has a Light height row', carrierRows.some((text) => text.startsWith('Light height') && text.includes('1 sq')), carrierRows);
+      await page.keyboard.press('Escape');
       // A door replaced by a prop from the gallery: fitted to the opening, it swings like the plain door.
       await page.evaluate(() => { window.boardTest.doorProps.set('door', 'props/barrel.glb'); window.boardTest.board.refresh(); });
       await page.waitForFunction(() => window.boardTest.board.walls.doors.get('door').leaf.userData.depth !== undefined, null, { timeout: 10000 });

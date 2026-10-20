@@ -24,13 +24,17 @@ through Atlas VTT Connect see the minis too, if they have Tabletop installed.
 - **Walls and doors:** Atlas's walls stand on the board as tall as the fog (a low wall half that). Click a door to
   open or shut it; it swings on its hinge and is saved through Atlas (or the map file). Right-click a door to lock it,
   or to replace it with a prop from the gallery, which is fitted to the opening and swings the same way. A secret door
-  looks like the walls around it; the GM sees a thin line on it and an arrow on one-way walls, which players do not.
+  looks like the walls around it; the GM sees a thin line on it, and on a one-way wall an arrow the way light passes,
+  which players do not. Walls and doors under the fog of war are hidden from players.
 - **Materials:** the gallery's **Materials** tab imports texture sets as Poly Haven gives them (the zip, its maps, or a
   folder of them), kept in `atlas-vtt/assets/materials`. Drag one onto a wall or door to paint that segment; hold
-  **Shift** to paint the whole wall drawn with it. Right-click a wall to take its material off.
-- **Lights:** Atlas's lights (placed, and carried by tokens) shine on the board with their colour, reach and flicker.
-  The board settings (⌘) have an ambient light slider: lower it and the map goes dark. Right-click a light's bulb to
-  set how high it hangs. The lights nearest the camera cast shadows (none on Low quality, 2 on Medium, 4 on High).
+  **Shift** to paint the whole wall (the segments drawn in one stroke, or else those joined end to end up to a
+  junction or a door). Right-click a wall to take its material off.
+- **Lights:** Atlas's lights (placed, and carried by tokens) shine on the board with their colour, bright and dim
+  radii, and flicker (in the dark). The board settings (⌘) have an ambient light slider: lower it and the map goes
+  dark; it starts at Atlas's ambient light when the map has Atlas's lighting on. Right-click a light's bulb, or a
+  token carrying one, to set how high it hangs. The lights nearest where the camera rests cast shadows (none on Low
+  quality, 2 on Medium, 4 on High).
 - **Notes:** click a pin to open its note in a new tab.
 - **Props:** open the gallery (**Open minis gallery**) and go to the **Props** tab. Click a prop, then click the board
   where it should go. **Ctrl + drag** moves a prop, and right-clicking one removes it.

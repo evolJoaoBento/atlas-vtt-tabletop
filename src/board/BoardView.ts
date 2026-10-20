@@ -23,6 +23,7 @@ import { tokenMenuEntries } from './tokenMenu';
 import { addToInitiative, conditionChange, conditionStep, initiativeEntryFor, initiativeId, removeFromInitiative, resetChange, type ConditionFields } from './tokenEdits';
 import { applyInitiative, emptyInitiative, ownModifier, readInitiative, statblockModifier, type InitiativeAction, type InitiativeState } from './initiative';
 import { InitiativePanel, type InitiativePanelHost } from './initiativePanel';
+import { wholeWall } from './walls';
 import type { TokenChange } from './tokenWriter';
 import type { LaserSettings } from './laser';
 import type { PlayerView } from './PlayerWindow';
@@ -338,8 +339,8 @@ export class BoardView extends ItemView {
         const walls = this.map?.walls ?? [];
         const wall = walls.find((candidate) => candidate.id === id);
         if (!wall) return;
-        // Shift paints every segment drawn in the same stroke; a door is always painted alone.
-        const ids = whole && wall.chain && wall.type === 'solid' ? walls.filter((other) => other.chain === wall.chain && other.type === 'solid').map((other) => other.id) : [id];
+        // Shift paints the whole wall (`wholeWall`); a door is always painted alone.
+        const ids = whole ? wholeWall(walls, id) : [id];
         boardData.setWallMaterial(mapPath(), ids, material);
       },
     };
@@ -377,7 +378,7 @@ export class BoardView extends ItemView {
       const door = wall.type !== 'solid';
       const prop = door ? boardData.doorProp(path, id) : null;
       const paint = boardData.wallMaterial(path, id);
-      const painted = wall.chain ? (this.map?.walls ?? []).filter((other) => other.chain === wall.chain && other.type === 'solid' && boardData.wallMaterial(path, other.id) !== null).map((other) => other.id) : [];
+      const painted = door ? [] : wholeWall(this.map?.walls ?? [], id).filter((other) => boardData.wallMaterial(path, other) !== null);
       const list: MenuEntry[] = [];
       if (door) {
         list.push({ type: 'item', label: wall.closed ? 'Open' : 'Close', disabled: wall.locked, onClick: () => this.board?.toggleDoor(id) });
@@ -561,6 +562,7 @@ export class BoardView extends ItemView {
       inInitiative: () => this.liveInitiative().entries.some((entry) => entry.tokenId === id),
       hasMini: () => assignments.get(map.path, id) !== null,
       standee: () => boardData.style(map.path, id) === 'standee',
+      lightHeight: () => (this.map?.lights.some((light) => light.tokenId === id) ? boardData.lightHeight(map.path, id) ?? DEFAULT_LIGHT_SQUARES : null),
       icon: (element, name) => setIcon(element, name),
       actions: {
         setCondition: (condition, active) => this.changeConditions(id, (now) => conditionChange(now, condition, active), 'condition'),
@@ -573,6 +575,7 @@ export class BoardView extends ItemView {
         },
         removeMini: () => assignments.remove(map.path, id),
         setStandee: (standee) => boardData.setStyle(map.path, id, standee ? 'standee' : 'disc'),
+        setLightHeight: (height) => boardData.setLightHeight(map.path, id, Math.max(0, Math.round(height * 4) / 4)),
         reset: () => this.resetToken(id),
         kill: () => this.killToken(id),
         remove: () => this.deleteToken(id),

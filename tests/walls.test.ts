@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  flicker, leafHeading, readLights, readSceneLighting, readWalls, segmentFrame, seedOf, stepOpenness, swingSide, unitsToPx,
+  flicker, leafHeading, passHeading, readLights, readSceneLighting, readWalls, segmentFrame, seedOf, stepOpenness, swingSide, unitsToPx, wholeWall,
 } from '../src/board/walls';
 
 test('walls and doors are read as Atlas stores them; a segment of no length is left out', () => {
@@ -58,4 +58,28 @@ test('a light\'s reach in map pixels, and flames that flicker within bounds, eac
   }
   assert.equal(flicker('none', 3, 1), 1);
   assert.notEqual(seedOf('light_a'), seedOf('light_b'));
+});
+
+test('the whole wall: its chain, else the segments joined end to end up to a junction or a door', () => {
+  const w = (id: string, x1: number, y1: number, x2: number, y2: number, over = {}) => ({ id, type: 'solid' as const, p1: { x: x1, y: y1 }, p2: { x: x2, y: y2 }, direction: null, closed: true, locked: false, blocks: null, limited: false, chain: null, ...over });
+  const walls = [
+    w('a', 0, 0, 70, 0), w('b', 70, 0, 70, 70), w('c', 70, 70, 140, 70.4),
+    // A junction at (140, 70): c, d and e meet.
+    w('d', 140, 70, 210, 70), w('e', 140, 70, 140, 140),
+    // A door ends a run.
+    w('f', 0, 0, 0, 70), w('door', 0, 70, 0, 140, { type: 'door' }), w('g', 0, 140, 0, 210),
+    w('x', 500, 0, 570, 0, { chain: 'k' }), w('y', 900, 0, 970, 0, { chain: 'k' }),
+  ];
+  assert.deepEqual(wholeWall(walls, 'b'), ['a', 'b', 'c', 'f']);
+  assert.deepEqual(wholeWall(walls, 'd'), ['d']);
+  assert.deepEqual(wholeWall(walls, 'door'), ['door']);
+  assert.deepEqual(wholeWall(walls, 'x'), ['x', 'y']);
+});
+
+test('light passes a one-way wall away from the side Atlas says it stops', () => {
+  const east = { p1: { x: 0, y: 0 }, p2: { x: 70, y: 0 } };
+  // `left` stops light coming from the side of (−dy, dx), the south of the map: light from the north passes, heading south (+90°).
+  assert.ok(Math.abs(passHeading({ ...east, direction: 'left' })! - Math.PI / 2) < 1e-9);
+  assert.ok(Math.abs(passHeading({ ...east, direction: 'right' })! + Math.PI / 2) < 1e-9);
+  assert.equal(passHeading({ ...east, direction: null }), null);
 });

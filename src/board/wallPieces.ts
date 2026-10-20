@@ -11,7 +11,7 @@
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { LoadedMini } from '../library';
-import { easeSwing, isDoor, leafHeading, segmentFrame, stepOpenness, swingSide, type BoardWall } from './walls';
+import { easeSwing, isDoor, leafHeading, passHeading, segmentFrame, stepOpenness, swingSide, type BoardWall } from './walls';
 
 export interface WallLookup {
   /** The material of a wall painted with `path` (null: the plain look of a wall, or of a door). */
@@ -28,6 +28,10 @@ export interface WallShape {
   /** How tall a full wall stands, and the size of a grid square (a texture tile), in map pixels. */
   height: number;
   tile: number;
+  /** Whether a point of the map is under the fog of war: walls there are hidden from players. */
+  fogged(x: number, y: number): boolean;
+  /** Changes when the fog does, so walls are sorted again. */
+  fogKey: string;
 }
 
 /** A wall is this share of a grid square thick; a door's leaf a little thinner, so it never flickers in the wall. */
@@ -120,7 +124,7 @@ export class WallSet {
    * opened or shut swings to its new place.
    */
   update(walls: readonly BoardWall[], shape: WallShape): void {
-    const signature = JSON.stringify([shape, walls.map((wall) => [wall.id, wall.type, wall.p1, wall.p2, wall.direction, wall.blocks, wall.limited, wall.chain, this.lookup.materialOf(wall.id), isDoor(wall) ? this.lookup.propOf(wall.id) : null])]);
+    const signature = JSON.stringify([shape.height, shape.tile, shape.fogKey, walls.map((wall) => [wall.id, wall.type, wall.p1, wall.p2, wall.direction, wall.blocks, wall.limited, wall.chain, this.lookup.materialOf(wall.id), isDoor(wall) ? this.lookup.propOf(wall.id) : null])]);
     if (signature !== this.signature) {
       const openness = new Map([...this.doors].map(([id, door]) => [id, door.openness]));
       this.clear();
@@ -136,21 +140,24 @@ export class WallSet {
   private build(walls: readonly BoardWall[], shape: WallShape, openness: Map<string, number>): void {
     const generation = ++this.generation;
     const thick = shape.tile * THICKNESS;
-    const groups = new Map<string, { material: THREE.Material; data: { positions: number[]; normals: number[]; uvs: number[] }; ids: string[]; shadow: boolean }>();
+    const groups = new Map<string, { material: THREE.Material; data: { positions: number[]; normals: number[]; uvs: number[] }; ids: string[]; shadow: boolean; fogged: boolean }>();
     for (const wall of walls) {
       const height = wall.limited ? shape.height / 2 : shape.height;
       const frame = segmentFrame(wall.p1, wall.p2);
       if (wall.type === 'door' || wall.type === 'secret-door') {
         this.addDoor(wall, shape, height, thick, openness.get(wall.id) ?? (wall.closed ? 0 : 1), generation);
+        this.doors.get(wall.id)!.pivot.userData.fogged = shape.fogged(frame.cx, frame.cy);
         continue;
       }
       const glass = wall.blocks === 'light';
       const paint = this.lookup.materialOf(wall.id);
-      const key = glass ? 'glass' : wall.blocks === 'sight' ? `curtain|${paint ?? ''}` : `wall|${paint ?? ''}`;
+      // Walls under the fog (by their middle, as tokens are) go in meshes of their own, which players do not see.
+      const fogged = shape.fogged(frame.cx, frame.cy);
+      const key = `${glass ? 'glass' : wall.blocks === 'sight' ? `curtain|${paint ?? ''}` : `wall|${paint ?? ''}`}|${fogged ? 'fog' : ''}`;
       let group = groups.get(key);
       if (!group) {
         // A curtain lets light through: it casts no shadow.
-        group = { material: glass ? GLASS : this.lookup.look(paint, false), data: { positions: [], normals: [], uvs: [] }, ids: [], shadow: wall.blocks !== 'sight' };
+        group = { material: glass ? GLASS : this.lookup.look(paint, false), data: { positions: [], normals: [], uvs: [] }, ids: [], shadow: wall.blocks !== 'sight', fogged };
         groups.set(key, group);
       }
       // A little longer than the segment, so corners meet without a gap.
@@ -163,6 +170,7 @@ export class WallSet {
       mesh.castShadow = group.shadow;
       mesh.receiveShadow = true;
       mesh.userData.walls = true;
+      mesh.userData.fogged = group.fogged;
       this.object3d.add(mesh);
       this.meshes.push({ mesh, ids: group.ids });
     }
@@ -209,11 +217,10 @@ export class WallSet {
     }
   }
 
-  /** A one-way wall's arrow, on its top, pointing to the side that sees through it (its left or right as drawn). */
+  /** A one-way wall's arrow, on its top, pointing the way light passes it (away from the side it stops). */
   private addArrow(wall: BoardWall, frame: ReturnType<typeof segmentFrame>, height: number, thick: number): void {
     const size = Math.min(frame.length * 0.3, thick * 1.6);
-    // On the map (y down) a heading's left is a turn of −90°.
-    const toward = frame.heading + (wall.direction === 'left' ? -1 : 1) * (Math.PI / 2);
+    const toward = passHeading(wall) ?? frame.heading;
     const dx = Math.cos(toward);
     const dz = Math.sin(toward);
     const ux = Math.cos(frame.heading);
@@ -257,7 +264,11 @@ export class WallSet {
   show(viewer: 'gm' | 'player'): void {
     const gm = viewer === 'gm';
     this.gmOnly.visible = gm;
-    for (const door of this.doors.values()) door.pivot.traverse((node) => { if (node.userData.gmOnly) node.visible = gm; });
+    for (const { mesh } of this.meshes) mesh.visible = gm || mesh.userData.fogged !== true;
+    for (const door of this.doors.values()) {
+      door.pivot.visible = gm || door.pivot.userData.fogged !== true;
+      door.pivot.traverse((node) => { if (node.userData.gmOnly) node.visible = gm; });
+    }
   }
 
   /** The door a ray hits first, by id. */

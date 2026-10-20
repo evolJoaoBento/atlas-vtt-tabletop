@@ -136,6 +136,10 @@ const CELL_LABEL_PX = 20;
 const ACCENT = '#7c5cff';
 /** How often a playing clip redraws the shadows, in seconds. */
 const CLIP_SHADOW_STEP = 1 / 15;
+/** How often a flame flickers when nothing else moves, in milliseconds (about 15 times a second). */
+const FLICKER_MS = 66;
+/** The camera settles this many squares from where the shadow-casting lights were chosen: they are chosen again. */
+const CASTER_STEP_SQUARES = 3;
 /** Atlas's default lit threshold: below this ambient light a scene is dark. */
 const LIT_THRESHOLD = 0.25;
 /** The board's daylight at full ambient light: the sky's and the sun's strength. */
@@ -257,6 +261,9 @@ export class Board {
   private readonly rig = new LightRig();
   private readonly hemisphere = new THREE.HemisphereLight(0xfff4e6, 0x2a2430, DAY_SKY);
   private ambientShown: number | null = null;
+  /** Where the camera was when the shadow-casting lights were last chosen. */
+  private castersAt = { x: Number.POSITIVE_INFINITY, z: Number.POSITIVE_INFINITY };
+  private flickerTimer = 0;
   private readonly toolbar: BoardToolbar;
   private player: PlayerScreen | null = null;
   /** Copy numbers as players see them, kept from sync to sync so a token keeps its number. */
@@ -466,7 +473,13 @@ export class Board {
       this.host.warn(`Tabletop: cannot show this map's fog of war: ${error instanceof Error ? error.message : String(error)}`);
     }
     // Walls stand as tall as the fog (never quite flat, so a map with flat fog still shows them).
-    this.walls.update(map.walls, { height: Math.max(MIN_WALL_SQUARES, this.host.fogHeight()) * map.grid.size, tile: map.grid.size });
+    const fog = this.fog.areas;
+    this.walls.update(map.walls, {
+      height: Math.max(MIN_WALL_SQUARES, this.host.fogHeight()) * map.grid.size,
+      tile: map.grid.size,
+      fogged: (x, y) => insideFog(fog, { x, y }),
+      fogKey: map.fog.map((operation) => operation.id).join(','),
+    });
     this.applyLighting();
     // Players count copies among the tokens they see, ordered by the GM's numbers (Atlas's player window).
     this.playerNumbers = numberTokensInView(this.playerNumbers, map.tokens
@@ -687,7 +700,14 @@ export class Board {
     }
     this.clock += dt;
     this.steer(dt);
-    let busy = this.camera.update(dt);
+    const cameraMoving = this.camera.update(dt);
+    let busy = cameraMoving;
+    // Settled somewhere new: the lights nearest it cast the shadows now.
+    const target = this.camera.goal.target;
+    if (!cameraMoving && this.map && Math.hypot(target.x - this.castersAt.x, target.z - this.castersAt.z) > this.map.grid.size * CASTER_STEP_SQUARES) {
+      this.castersAt = { x: target.x, z: target.z };
+      if (this.rig.castShadows(this.quality.lightShadows, this.castersAt)) this.shadowsDirty = true;
+    }
     this.applyView();
     const viewHeight = this.renderer.domElement.clientHeight || 1;
     const context: PoseContext = {
@@ -702,7 +722,6 @@ export class Board {
     const doorsMoving = this.walls.step(dt);
     if (doorsMoving) busy = true;
     this.rig.step(this.clock);
-    if (this.rig.animated) busy = true;
     const glide = 1 - Math.exp(-GLIDE * dt);
     let changed = this.shadowsDirty || this.press?.kind === 'token' || this.press?.kind === 'prop' || doorsMoving;
     let moving = false;
@@ -750,6 +769,12 @@ export class Board {
     this.drawPlayers(shadows, context);
     this.continuing = busy || this.held.size > 0 || this.press !== null;
     if (this.continuing) this.wake();
+    // Flames flicker on a timer, a few times a second, not on every frame the screen can draw; those frames are
+    // rests to the resolution governor.
+    else if (this.rig.animated && this.flickerTimer === 0) {
+      const win = this.frameWin ?? this.container.ownerDocument.defaultView ?? window;
+      this.flickerTimer = win.setTimeout(() => { this.flickerTimer = 0; this.wake(); }, FLICKER_MS);
+    }
   }
 
   private steer(dt: number): void {
@@ -856,12 +881,14 @@ export class Board {
       unitDistance: measurement.unitDistance > 0 ? measurement.unitDistance : 5,
       cell: map.grid.size,
       ambient,
+      litThreshold: LIT_THRESHOLD,
       heightOf: (light) => this.host.lightHeight(light) * map.grid.size,
     });
     // Token lights stand where their tokens are drawn now.
     for (const entry of this.tokens.values()) this.rig.place(entry.token.id, entry.at.x, entry.at.y);
     const target = this.camera.goal.target;
-    if (this.rig.castShadows(this.quality.lightShadows, { x: target.x, z: target.z })) this.shadowsDirty = true;
+    this.castersAt = { x: target.x, z: target.z };
+    if (this.rig.castShadows(this.quality.lightShadows, this.castersAt)) this.shadowsDirty = true;
     this.wake(true);
   }
 
@@ -1656,6 +1683,7 @@ export class Board {
 
   dispose(): void {
     this.disposed = true;
+    if (this.flickerTimer !== 0) (this.frameWin ?? this.container.ownerDocument.defaultView ?? window).clearTimeout(this.flickerTimer);
     if (this.frameId !== 0) (this.frameWin ?? this.container.ownerDocument.defaultView ?? window).cancelAnimationFrame(this.frameId);
     this.detachPlayer();
     for (const stop of this.stops) stop();

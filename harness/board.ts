@@ -124,6 +124,8 @@ const map: BoardMap = {
     wall('e', 665, 840, 665, 980, { chain: 'room' }),
     wall('s1', 665, 980, 595, 980, { chain: 'room' }), wall('secret', 595, 980, 525, 980, { type: 'secret-door' }), wall('s2', 525, 980, 455, 980, { chain: 'room' }),
     wall('w', 455, 980, 455, 840, { chain: 'room', direction: 'left' }),
+    // Inside the fogged room: players must not see these.
+    wall('fogwall', 1000, 800, 1070, 800), wall('fogdoor', 1260, 800, 1300, 800, { type: 'door' }),
   ],
   // A torch and a magic light in the room, and a candle the second goblin carries.
   lights: [
@@ -226,6 +228,7 @@ async function main(): Promise<void> {
       menu = new AtlasMenu(document, () => tokenMenuEntries({
         token, rules, settings: () => shown().tokenSettings,
         inInitiative: () => initiative.has(id), hasMini: () => id === 'hero' || id === 'fallen', standee: () => id === 'gob',
+        lightHeight: () => (id === 'gob2' ? 1 : null),
         icon: (element, name) => { element.dataset.icon = name; },
         actions: {
           setCondition: (condition, active) => { record.menuActions.push(['condition', condition, active]); conditions(conditionChange(token()!, condition, active)); },
@@ -235,6 +238,7 @@ async function main(): Promise<void> {
           assignMini: () => record.menuActions.push(['assignMini']),
           removeMini: () => record.menuActions.push(['removeMini']),
           setStandee: (standee) => record.menuActions.push(['standee', standee]),
+          setLightHeight: (height) => record.menuActions.push(['lightHeight', height]),
           reset: () => { record.menuActions.push(['reset']); const r = resetChange(token()!, rules.definitions); change({ resources: r.resources ?? token()!.resources, conditions: [], conditionValues: {} }); },
           kill: () => { record.menuActions.push(['kill']); change({ resources: defeatedResources(token()!, rules.definitions) ?? token()!.resources }); },
           remove: () => { record.menuActions.push(['delete']); board.changeToken(id, null); },
