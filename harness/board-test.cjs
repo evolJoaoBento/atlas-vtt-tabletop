@@ -427,9 +427,24 @@ server.listen(0, async () => {
       })));
       const beam = () => page.evaluate(() => { const b = window.boardTest.board.beam.object3d; return { visible: b.visible, indices: b.geometry.drawRange.count }; });
       let list = await tools();
-      await page.mouse.click(list['Laser pointer'].x, list['Laser pointer'].y);
+      check('the Move/Select group shows the hand while moving', !!list['Move/Select'] && !list['Laser Pointer'], Object.keys(list));
+      await page.mouse.click(list['Move options'].x, list['Move options'].y);
+      await wait(150);
+      const items = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-laser-options .atlas-dropdown-menu-item')].map((b) => ({ text: b.textContent, checked: !!b.querySelector('.atlas-dropdown-menu-item__check svg') })));
+      check('its menu has Atlas\'s two tools, Move/Select checked, each with its key', items.length === 2 && items[0].text === 'Move/SelectV' && items[0].checked && items[1].text === 'Laser PointerV' && !items[1].checked, items);
+      const laserItem = await page.evaluate(() => { const r = document.querySelectorAll('.atlas-tabletop-laser-options .atlas-dropdown-menu-item')[1].getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+      await page.mouse.click(laserItem.x, laserItem.y);
       await wait(100);
-      check('the laser button turns the laser on, the cursor becomes its dot', await page.evaluate(() => window.boardTest.board.laser && window.boardTest.board.canvas.style.cursor === 'none'));
+      check('choosing Laser Pointer turns it on and closes the menu, the cursor becomes its dot', await page.evaluate(() => window.boardTest.board.laser && window.boardTest.board.canvas.style.cursor === 'none' && document.querySelector('.atlas-tabletop-laser-options').hidden));
+      list = await tools();
+      check('the group\'s face is now the flashlight', !!list['Laser Pointer'] && !list['Move/Select'], Object.keys(list));
+      await page.evaluate(() => window.boardTest.board.canvas.focus());
+      await page.keyboard.press('v');
+      await wait(50);
+      check('V switches back to Move/Select', !(await page.evaluate(() => window.boardTest.board.laser)));
+      await page.keyboard.press('v');
+      await wait(50);
+      check('and V again to the laser', await page.evaluate(() => window.boardTest.board.laser));
       const from = await project(400, 500, 0);
       const to = await project(700, 650, 0);
       await page.mouse.move(from.x, from.y);
@@ -451,7 +466,7 @@ server.listen(0, async () => {
       check('let go, the beam fades away and the dot stays', b.visible && b.indices === 6, b);
 
       list = await tools();
-      await page.mouse.click(list['Laser options'].x, list['Laser options'].y);
+      await page.mouse.click(list['Move options'].x, list['Move options'].y);
       await wait(150);
       const options = await page.evaluate(() => {
         const panel = document.querySelector('.atlas-tabletop-laser-options');

@@ -10,7 +10,8 @@
  *   controls: − / + beside each bar and wheel, and a click on one opens Atlas's editor for it.
  * - Atlas's fog of war stands on the map as a see-through block, as tall as the toolbar's settings say.
  * - The laser pointer (Atlas's): while it is on, the pointer is a glowing dot, and a press draws a beam that fades
- *   behind it. Players see it too. Right-drag still pans and the wheel zooms; Escape or its button turns it off.
+ *   behind it. Players see it too. Right-drag still pans and the wheel zooms. V switches between it and moving (Atlas's
+ *   Move/Select key), as the toolbar's Move/Select menu does; Escape turns it off.
  * - The local player view (a second window, for a screen the players look at) draws the same scene as players see it:
  *   no hidden tokens, nothing under the fog (which is solid), no pins, only the resources shown to players. It follows
  *   the GM's camera, live, unless the GM froze it.
@@ -249,7 +250,7 @@ export class Board {
       setFogHeight: (height) => this.host.setFogHeight(height),
       playerViewOpen: () => this.host.playerViewOpen(),
       laserOn: () => this.laserOn,
-      toggleLaser: () => this.setLaser(!this.laserOn),
+      selectTool: (tool) => this.setLaser(tool === 'laser'),
       laser: () => this.host.laser(),
       setLaser: (changes) => { this.host.setLaser(changes); this.wake(); },
       togglePlayerView: () => this.host.togglePlayerView(),
@@ -799,6 +800,8 @@ export class Board {
       const key = event.key.toLowerCase();
       if (key === 'escape' && this.placing) { this.stopPlacing(); return; }
       if (key === 'escape' && this.laserOn) { this.setLaser(false); return; }
+      // Atlas's Move/Select key switches between moving and the laser pointer.
+      if (key === 'v' && !event.ctrlKey && !event.metaKey && !event.altKey) { this.setLaser(!this.laserOn); return; }
       if (key === 'escape' && this.selectedId !== null) { this.select(null); return; }
       if (key === 'escape' && this.toolbar.isOpen) { this.toolbar.close(); return; }
       if (key === 'home') { this.frameMap(); event.preventDefault(); return; }

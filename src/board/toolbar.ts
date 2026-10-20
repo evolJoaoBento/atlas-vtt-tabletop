@@ -1,6 +1,7 @@
 /**
- * The 3D board's toolbar, at the bottom of the board in Atlas's look: the laser pointer, with Atlas's options for it
- * (its colour and size) beside it; the local player view (open or close it, and
+ * The 3D board's toolbar, at the bottom of the board in Atlas's look: Atlas's Move/Select group (its button shows the
+ * hand, or the flashlight while the laser pointer is on; its menu chooses between the two and holds the laser's
+ * colour and size); the local player view (open or close it, and
  * freeze the players' camera while it is open), and the command button, which opens the board's settings in a panel
  * above it, as Atlas's opens its command palette. The panel has the fog of war's height. Plain HTML over the board;
  * keys typed in it stay out of the board's camera keys.
@@ -17,9 +18,9 @@ export interface ToolbarActions {
   /** Whether the players' camera is frozen; freezing it, or letting it follow again. */
   playerFrozen(): boolean;
   togglePlayerFreeze(): void;
-  /** Whether the laser is on; turning it on or off; its colour and size, and changing them. */
+  /** Whether the laser is on; choosing Move/Select or the laser pointer; the laser's colour and size, and changing them. */
   laserOn(): boolean;
-  toggleLaser(): void;
+  selectTool(tool: 'move' | 'laser'): void;
   laser(): LaserSettings;
   setLaser(changes: Partial<LaserSettings>): void;
 }
@@ -29,6 +30,10 @@ const COMMAND_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
 
 /** Lucide's `flashlight`, `chevron-down` and `check` icons (ISC): Atlas's laser pointer, its options' chevron, a chosen swatch. */
 const LASER_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6c0 2-2 2-2 4v10a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2V10c0-2-2-2-2-4V2h12z"/><line x1="6" x2="18" y1="6" y2="6"/><line x1="12" x2="12" y1="12" y2="12"/></svg>';
+/** Lucide's `hand` (ISC): Atlas's Move/Select. */
+const HAND_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>';
+/** Atlas's Move/Select key, which also switches to the laser pointer and back. */
+const MOVE_KEY = 'V';
 const CHEVRON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:1rem;height:1rem"><path d="m6 9 6 6 6-6"/></svg>';
 const CHECK_SVG = '<svg class="atlas-swatch-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
 /** Atlas's slider thumb is a rem across: it stays within the track at either end. */
@@ -50,6 +55,8 @@ export class BoardToolbar {
   private readonly button: HTMLButtonElement;
   private readonly playerButton: HTMLButtonElement;
   private readonly laserButton: HTMLButtonElement;
+  private readonly moveItem: HTMLButtonElement;
+  private readonly laserItem: HTMLButtonElement;
   private readonly laserMenuButton: HTMLButtonElement;
   private readonly laserPanel: HTMLElement;
   private readonly swatches: HTMLButtonElement[] = [];
@@ -86,24 +93,38 @@ export class BoardToolbar {
       made.addEventListener('click', onClick);
       return made;
     };
-    // The laser and its options, as Atlas's tool group: the tool, and a chevron opening its options above it.
+    // Atlas's Move/Select group: its face is the tool in use (the hand, or the flashlight while the laser is on), and a
+    // click on it keeps that tool; the chevron opens the group's menu above it.
     const laserGroup = el('div', 'atlas-tool-group', bar);
     this.laserButton = el('button', 'atlas-tabletop-tool-button', laserGroup);
     this.laserButton.type = 'button';
-    this.laserButton.innerHTML = LASER_SVG;
-    this.laserButton.addEventListener('click', () => this.actions.toggleLaser());
+    this.laserButton.addEventListener('click', () => this.actions.selectTool(this.actions.laserOn() ? 'laser' : 'move'));
     const menu = el('div', 'atlas-dropdown-menu', laserGroup);
     this.laserMenuButton = el('button', 'atlas-dropdown-trigger btn--toolbar', menu);
     this.laserMenuButton.type = 'button';
     this.laserMenuButton.innerHTML = CHEVRON_SVG;
-    this.laserMenuButton.setAttribute('aria-label', 'Laser options');
+    this.laserMenuButton.setAttribute('aria-label', 'Move options');
     this.laserMenuButton.setAttribute('aria-expanded', 'false');
-    this.laserMenuButton.title = 'Laser options';
+    this.laserMenuButton.title = 'Move options';
     this.laserMenuButton.addEventListener('click', () => (this.laserPanel.hidden ? this.openLaser() : this.closeLaser()));
 
     // Atlas's laser options (`LaserPointerOptions`): the colour swatches with their hint, and the size slider.
     this.laserPanel = el('div', 'atlas-dropdown-content atlas-dropdown-content--top atlas-dropdown-content--left atlas-tabletop-laser-options', menu);
     this.laserPanel.hidden = true;
+    // Atlas's two tools of the group, as its menu items: a check on the one in use, its icon, its name and key.
+    const tools = el('div', 'atlas-dropdown-section', this.laserPanel);
+    const item = (svg: string, label: string, choose: () => void): HTMLButtonElement => {
+      const made = el('button', 'btn btn--ghost btn--sm atlas-dropdown-menu-item', tools);
+      made.type = 'button';
+      el('span', 'atlas-dropdown-menu-item__check', made);
+      made.insertAdjacentHTML('beforeend', svg);
+      el('span', '', made, label);
+      el('span', 'atlas-dropdown-menu-item__shortcut', made, MOVE_KEY);
+      made.addEventListener('click', () => { choose(); this.closeLaser(); });
+      return made;
+    };
+    this.moveItem = item(HAND_SVG, 'Move/Select', () => this.actions.selectTool('move'));
+    this.laserItem = item(LASER_SVG, 'Laser Pointer', () => this.actions.selectTool('laser'));
     const section = el('div', 'atlas-dropdown-section', this.laserPanel);
     const swatchGroup = el('div', 'atlas-dropdown-swatches', section);
     swatchGroup.setAttribute('role', 'group');
@@ -212,10 +233,16 @@ export class BoardToolbar {
   /** Shows the player view's state: open or not, its camera frozen or not (the freeze button only while it is open). */
   refresh(): void {
     const laser = this.actions.laserOn();
-    this.laserButton.classList.toggle('is-active', laser);
-    this.laserButton.setAttribute('aria-pressed', String(laser));
-    this.laserButton.setAttribute('aria-label', laser ? 'Turn the laser pointer off' : 'Laser pointer');
-    this.laserButton.title = laser ? 'Turn the laser pointer off (Esc)' : 'Laser pointer';
+    // The group's face is always the tool in use, as Atlas's is while one of its tools is.
+    this.laserButton.innerHTML = laser ? LASER_SVG : HAND_SVG;
+    this.laserButton.classList.add('is-active');
+    this.laserButton.setAttribute('aria-label', laser ? 'Laser Pointer' : 'Move/Select');
+    this.laserButton.title = `${laser ? 'Laser Pointer' : 'Move/Select'} (${MOVE_KEY})`;
+    for (const [entry, chosen] of [[this.moveItem, !laser], [this.laserItem, laser]] as const) {
+      const check = entry.querySelector('.atlas-dropdown-menu-item__check')!;
+      check.innerHTML = chosen ? CHECK_SVG.replace('class="atlas-swatch-check"', 'class="atlas-dropdown-menu-item__tick"') : '';
+      entry.setAttribute('aria-checked', String(chosen));
+    }
     const open = this.actions.playerViewOpen();
     const frozen = open && this.actions.playerFrozen();
     const label = (button: HTMLButtonElement, text: string): void => {
