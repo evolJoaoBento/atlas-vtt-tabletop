@@ -30,7 +30,7 @@ import { TokenLabels, type HoverTarget } from './labels';
 import type { BoardMap, BoardToken } from './mapModel';
 import { ResourceControls, openValueEditor, type ControlSpec, type EditorAnchor, type ScreenRect, type ValueEditor } from './resourceControls';
 import { resourceUpdate, withCurrent, type ResourceValue } from './resources';
-import { IconPiece, PinPiece, PropPiece, TextPiece, TokenPiece, type PoseContext } from './pieces';
+import { IconPiece, InkPiece, PinPiece, PropPiece, TextPiece, TokenPiece, type PoseContext } from './pieces';
 import { numberCells, type CellNumbers } from './cellNumbers';
 import { stripGeometry } from './surface';
 import { ResolutionGovernor, type QualityPreset } from './quality';
@@ -175,6 +175,7 @@ export class Board {
   private pins: PinPiece[] = [];
   private icons: IconPiece[] = [];
   private texts: TextPiece[] = [];
+  private inks: InkPiece[] = [];
   /** The grid's numbered cells, and the cell under the pointer with its highlight and label. */
   private cells: CellNumbers = { at: () => null };
   hoveredCell: string | null = null;
@@ -452,6 +453,21 @@ export class Board {
       return piece;
     });
     for (const piece of kept.values()) piece.dispose();
+
+    // Pen strokes, kept when they and their place in the order are unchanged.
+    const inkKey = (ink: BoardMap['inks'][number], order: number): string => `${order}|${JSON.stringify(ink)}`;
+    const keptInks = new Map(this.inks.map((piece, order) => [inkKey(piece.ink, order), piece]));
+    this.inks = map.inks.map((ink, order) => {
+      const old = keptInks.get(inkKey(ink, order));
+      if (old) {
+        keptInks.delete(inkKey(ink, order));
+        return old;
+      }
+      const piece = new InkPiece(ink, order);
+      this.scene.add(piece.object3d);
+      return piece;
+    });
+    for (const piece of keptInks.values()) piece.dispose();
 
     // Text labels, kept like the icons when nothing about them changed: each one paints its letters.
     const textKey = (text: BoardMap['texts'][number]): string => JSON.stringify(text);
@@ -1370,6 +1386,7 @@ export class Board {
     for (const pin of this.pins) pin.dispose();
     for (const icon of this.icons) icon.dispose();
     for (const text of this.texts) text.dispose();
+    for (const ink of this.inks) ink.dispose();
     this.showCell(null);
     this.clearRuler();
     this.editor?.view.close();

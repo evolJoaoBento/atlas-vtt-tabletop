@@ -281,6 +281,14 @@ server.listen(0, async () => {
       await wait(150);
       check('a text takes no clicks (read-only)', !(await record()).menus.includes('t1'), (await record()).menus);
       await page.screenshot({ path: `${shots}/board-13-texts.png` });
+      const inks = await page.evaluate(() => window.boardTest.board.inks.map((piece) => {
+        const o = piece.object3d;
+        o.geometry.computeBoundingBox();
+        const b = o.geometry.boundingBox;
+        return { id: piece.ink.id, color: o.material.color.getHexString(), opacity: o.material.opacity, minX: Math.round(b.min.x), maxX: Math.round(b.max.x), flat: Math.round(b.max.y - b.min.y), order: o.renderOrder };
+      }));
+      check('pen strokes lie flat on the map in their colour, as wide as the pen', inks.length === 2 && inks[0].color === 'd13b3b' && inks[0].minX === 156 && inks[0].maxX === 424 && inks[0].flat === 0 && inks[1].opacity === 0.6, inks);
+      check('a later stroke lies over an earlier one', inks[1].order > inks[0].order, inks);
     }
 
     // 1j. Atlas's fog of war stands on the map; the toolbar's settings set its height.

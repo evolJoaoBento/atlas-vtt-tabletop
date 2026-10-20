@@ -16,7 +16,8 @@ import { MiniFigure } from '../figure';
 import type { LoadedMini } from '../library';
 import type { TokenStyle, PropPlacement } from './boardData';
 import { hexCenter, ringDiameter, tokenDiameter } from './geometry';
-import { isDowned, type BoardGrid, type BoardIcon, type BoardPin, type BoardText, type BoardToken } from './mapModel';
+import { isDowned, type BoardGrid, type BoardIcon, type BoardInk, type BoardPin, type BoardText, type BoardToken } from './mapModel';
+import { inkTriangles } from './ink';
 import type { ResourceDefinition } from './resources';
 import { mapIconSvg } from './mapIcons';
 import { pinTitle } from './pinIcons';
@@ -631,6 +632,41 @@ export class TextPiece {
     const material = this.object3d.material as THREE.MeshBasicMaterial;
     material.map?.dispose();
     material.dispose();
+    this.object3d.geometry.dispose();
+    this.object3d.removeFromParent();
+  }
+}
+
+/** Ink lies just over the map and the grid, under texts (Atlas draws its texts above its drawings). */
+const INK_LIFT = 0.55;
+
+/**
+ * A pen stroke lying on the map, as Atlas draws it: a line through its points in its colour and width, round at its
+ * ends and corners. `order` is its place among the map's strokes: a later one lies over an earlier one. Read-only.
+ */
+export class InkPiece {
+  readonly object3d: THREE.Mesh;
+
+  constructor(readonly ink: BoardInk, order: number) {
+    const flat = inkTriangles(ink.points, ink.width);
+    const positions = new Float32Array((flat.length / 2) * 3);
+    for (let i = 0, j = 0; i < flat.length; i += 2, j += 3) {
+      positions[j] = flat[i]!;
+      positions[j + 1] = INK_LIFT;
+      positions[j + 2] = flat[i + 1]!;
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    const material = new THREE.MeshBasicMaterial({
+      color: ink.color, opacity: ink.opacity, transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3,
+    });
+    this.object3d = new THREE.Mesh(geometry, material);
+    // Drawn in the map's order, after the map and its icons, before its texts.
+    this.object3d.renderOrder = 2 + order * 1e-4;
+  }
+
+  dispose(): void {
+    (this.object3d.material as THREE.Material).dispose();
     this.object3d.geometry.dispose();
     this.object3d.removeFromParent();
   }

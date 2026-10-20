@@ -87,6 +87,15 @@ export interface BoardIcon {
   opacity: number;
 }
 
+/** A pen stroke (or line, rectangle, circle) of Atlas's draw tool: a line through its points, round at ends and corners. */
+export interface BoardInk {
+  id: string;
+  points: Array<{ x: number; y: number }>;
+  color: string;
+  width: number;
+  opacity: number;
+}
+
 /** A text label on the map, as Atlas draws it: centred on its place, turned and scaled; read-only on the board. */
 export interface BoardText {
   id: string;
@@ -126,6 +135,8 @@ export interface BoardMap {
   pins: BoardPin[];
   icons: BoardIcon[];
   texts: BoardText[];
+  /** The drawings that are ink (not icon stamps), in the map's order: later ones lie over earlier ones. */
+  inks: BoardInk[];
   /** The fog of war's strokes, as Atlas stores them (`fog.ts` replays them). */
   fog: FogOperation[];
   /** Atlas's grid object as stored, for the measuring fields read when the map has no collection rules. */
@@ -240,6 +251,15 @@ function readIcon(drawing: Raw): BoardIcon | null {
   };
 }
 
+function readInk(drawing: Raw): BoardInk | null {
+  const id = str(drawing.id);
+  if (!id || drawing.type === 'icon' || !Array.isArray(drawing.points)) return null;
+  const points = drawing.points.filter(isObj).map((point) => ({ x: num(point.x, NaN), y: num(point.y, NaN) }))
+    .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
+  if (points.length === 0) return null;
+  return { id, points, color: str(drawing.color) ?? '#ffffff', width: num(drawing.width, 4) > 0 ? num(drawing.width, 4) : 4, opacity: num(drawing.opacity, 1) };
+}
+
 /** Atlas's defaults for a text: 24 px, centred, a box padded by 8 when it has one. */
 function readText(raw: Raw): BoardText | null {
   const id = str(raw.id);
@@ -300,6 +320,7 @@ export function readMap(path: string, text: string): BoardMap {
     pins: items(objects.pins).map(readPin).filter((pin): pin is BoardPin => pin !== null),
     icons: items(objects.drawings).map(readIcon).filter((icon): icon is BoardIcon => icon !== null),
     texts: items(objects.texts).map(readText).filter((text): text is BoardText => text !== null),
+    inks: items(objects.drawings).map(readInk).filter((ink): ink is BoardInk => ink !== null),
     fog: readFog(objects.fog),
     rawGrid: state.grid ?? null,
   };

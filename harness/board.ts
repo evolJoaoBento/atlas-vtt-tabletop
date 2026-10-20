@@ -93,6 +93,10 @@ const map: BoardMap = {
     { id: 'f2', type: 'rectangle', timestamp: 2, isErasing: true, offsetX: 0, offsetY: 0, x: 1085, y: 840, width: 140, height: 70 },
     { id: 'f3', type: 'brush', timestamp: 3, isErasing: false, offsetX: 0, offsetY: 0, points: [{ x: 70, y: 900 }, { x: 280, y: 940 }], brushRadius: 35 },
   ],
+  inks: [
+    { id: 'd1', points: [{ x: 160, y: 520 }, { x: 260, y: 560 }, { x: 330, y: 520 }, { x: 420, y: 600 }], color: '#d13b3b', width: 8, opacity: 1 },
+    { id: 'd2', points: [{ x: 600, y: 120 }, { x: 760, y: 120 }, { x: 760, y: 220 }, { x: 600, y: 220 }, { x: 600, y: 120 }], color: '#3b7dd1', width: 5, opacity: 0.6 },
+  ],
   texts: [
     { id: 't1', x: 560, y: 560, text: 'The Common Room', fontSize: 28, fontFamily: 'Georgia', color: '#ffe8b0', backgroundColor: '#000000', padding: 8, borderRadius: 6, opacity: 0.55, align: 'center', bold: true, italic: false, rotation: 0, scale: 1 },
     { id: 't2', x: 300, y: 450, text: 'To the\ndocks', fontSize: 22, fontFamily: 'Arial', color: '#ffffff', backgroundColor: null, padding: 8, borderRadius: 0, opacity: 1, align: 'left', bold: false, italic: true, rotation: -30, scale: 1.5 },
