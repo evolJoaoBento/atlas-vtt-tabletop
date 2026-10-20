@@ -1,6 +1,7 @@
 /**
  * Saves what the board changes on a map: a token moved, copied (Alt-drag), killed, reset, hidden or shown, given or
- * relieved of a condition, deleted, put in or taken out of the initiative; a resource stepped or edited.
+ * relieved of a condition, deleted, put in or taken out of the initiative; a resource stepped or edited; and what the
+ * initiative tracker does (turns, rolls, the order, a fight started or ended).
  * Atlas never re-reads a map file it has open: its next save writes what it holds, which would undo a change written
  * to the file behind its back. So while an Atlas view has the map open (and has it loaded), the change goes through
  * Atlas's own store actions, which Atlas shows and saves; otherwise the file is edited, changing only what changed
@@ -16,6 +17,7 @@ import {
   type ResourceDefinition, type ResourceHolder, type ResourceValue,
 } from './resources';
 import { addToInitiative, initiativeEntryFor, initiativeId, removeFromInitiative, type InitiativeState } from './tokenEdits';
+import { applyInitiative, readInitiative, type InitiativeAction } from './initiative';
 
 type RawToken = Record<string, unknown> & { x?: number; y?: number; imagePath?: string; instanceNumber?: number };
 type MapFile = { state?: { objects?: { tokens?: Record<string, RawToken> }; initiative?: InitiativeState } };
@@ -130,12 +132,48 @@ export function initiativeInText(text: string, id: string, join: boolean, entryI
   return JSON.stringify(file);
 }
 
-/** The map file's text without a token. */
+/** The map file's text without a token, nor its place in the initiative (Atlas's tracker drops it too). */
 export function deleteTokenInText(text: string, id: string): string {
   const file = JSON.parse(text) as MapFile;
   tokenOf(file, id);
   delete tokensOf(file)[id];
+  if (file.state?.initiative) file.state.initiative = removeFromInitiative(file.state.initiative, id);
   return JSON.stringify(file);
+}
+
+/** The map file's text with the initiative tracker changed as `action` says; `random` rolls the dice. */
+export function initiativeActionInText(text: string, action: InitiativeAction, random: () => number = Math.random): string {
+  const file = JSON.parse(text) as MapFile;
+  if (!file.state) throw new Error('not an Atlas map');
+  file.state.initiative = applyInitiative(readInitiative(file.state.initiative), action, random) as unknown as InitiativeState;
+  return JSON.stringify(file);
+}
+
+/** Sends a tracker change to Atlas's store, the action Atlas's own tracker calls; false when Atlas offers none. */
+function sendToAtlas(state: AtlasSceneState, action: InitiativeAction): boolean {
+  switch (action.type) {
+    case 'roll': {
+      if (action.entryId !== undefined) {
+        if (!state.rollEntryInitiative) return false;
+        state.rollEntryInitiative(action.entryId, action.roll, action.statblockModifiers[action.entryId] ?? null);
+      } else {
+        if (!state.rollAllInitiative) return false;
+        state.rollAllInitiative(action.roll, new Map(Object.entries(action.statblockModifiers)));
+      }
+      return true;
+    }
+    case 'next': return state.nextTurn ? (state.nextTurn(), true) : false;
+    case 'previous': return state.previousTurn ? (state.previousTurn(), true) : false;
+    case 'reorder': return state.reorderInitiative ? (state.reorderInitiative(action.from, action.to), true) : false;
+    case 'front': return state.moveToFront ? (state.moveToFront(action.id), true) : false;
+    case 'back': return state.moveToBack ? (state.moveToBack(action.id), true) : false;
+    case 'start': return state.startCombat ? (state.startCombat(action.rules), true) : false;
+    case 'end': return state.endCombat ? (state.endCombat(), true) : false;
+    case 'sitsOut': return state.setInitiativeSitsOut ? (state.setInitiativeSitsOut(action.id, action.sitsOut), true) : false;
+    case 'reset': return state.resetInitiative ? (state.resetInitiative(), true) : false;
+    case 'edit': return state.updateInitiativeEntry ? (state.updateInitiativeEntry(action.id, action.changes), true) : false;
+    case 'remove': return state.removeFromInitiative ? (state.removeFromInitiative(action.id), true) : false;
+  }
 }
 
 export interface TokenWriterDeps {
@@ -157,6 +195,15 @@ export class TokenWriter {
       const state = view.atlasStore.getState();
       const ready = state.mapLoaded !== false && state.isMapLoading !== true && Object.hasOwn(state.objects?.tokens ?? {}, id);
       if (state.mapPath === path && ready) return state;
+    }
+    return null;
+  }
+
+  /** The Atlas view holding the map, loaded; null when none does. */
+  holder(path: string): AtlasView | null {
+    for (const view of this.deps.views()) {
+      const state = view.atlasStore.getState();
+      if (state.mapPath === path && state.mapLoaded !== false && state.isMapLoading !== true) return view;
     }
     return null;
   }
@@ -255,6 +302,27 @@ export class TokenWriter {
     const entryId = initiativeId();
     await this.deps.process(path, (text) => initiativeInText(text, id, join, entryId));
     return 'file';
+  }
+
+  /**
+   * Changes the initiative tracker as `action` says: through Atlas's own tracker actions (Atlas rolls its own dice), or
+   * in the file with `random`'s.
+   */
+  async initiativeAction(path: string, action: InitiativeAction, random: () => number = Math.random): Promise<'atlas' | 'file'> {
+    const view = this.holder(path);
+    if (view) {
+      if (!sendToAtlas(view.atlasStore.getState(), action)) throw TokenWriter.missing('such initiative action');
+      return 'atlas';
+    }
+    await this.deps.process(path, (text) => initiativeActionInText(text, action, random));
+    return 'file';
+  }
+
+  /** Whether the tracker can do `action` on this map: always in the file; through Atlas, when Atlas offers it. */
+  offers(path: string, action: 'reset' | 'sitsOut'): boolean {
+    const state = this.holder(path)?.atlasStore.getState();
+    if (!state) return true;
+    return action === 'reset' ? typeof state.resetInitiative === 'function' : typeof state.setInitiativeSitsOut === 'function';
   }
 
   /** Kills the token, as Atlas's Kill does: every resource that defeats it spent. */

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type { AtlasSceneState, AtlasView } from '../src/atlas';
 import { HP_RESOURCE, STRESS_RESOURCE } from '../src/board/resources';
-import { TokenWriter, copyTokenInText, deleteTokenInText, initiativeInText, killTokenInText, moveTokenInText, setResourceInText } from '../src/board/tokenWriter';
+import { TokenWriter, copyTokenInText, deleteTokenInText, initiativeActionInText, initiativeInText, killTokenInText, moveTokenInText, setResourceInText } from '../src/board/tokenWriter';
 import { conditionChange, resetChange } from '../src/board/tokenEdits';
 
 const text = readFileSync('tests/fixtures/dungeon.atlasmap', 'utf8');
@@ -227,4 +227,40 @@ test('with Atlas holding the map, initiative goes through its tracker, which ope
   writer = new TokenWriter({ views: () => [state([{ id: 'init_9', tokenId: 't' }])], process: async () => { throw new Error('no file write'); } });
   await writer.initiative('m.atlasmap', 't', false);
   assert.deepEqual(removed, ['init_9']);
+});
+
+test('a tracker change is written to the file as Atlas makes it; a deleted token leaves the tracker too', () => {
+  let file = initiativeInText(text, KESTREL, true, 'init_1');
+  file = initiativeInText(file, BUGBEAR, true, 'init_2');
+  file = initiativeActionInText(file, { type: 'start', rules: { mode: 'turn-order', roll: '1d20', firstSide: 'players' } });
+  file = initiativeActionInText(file, { type: 'next' });
+  let initiative = JSON.parse(file).state.initiative;
+  assert.deepEqual([initiative.isActive, initiative.round, initiative.currentIndex], [true, 1, 1]);
+  assert.deepEqual(initiative.entries.map((entry: { tokenId: string; isActive: boolean }) => [entry.tokenId, entry.isActive]), [[KESTREL, false], [BUGBEAR, true]]);
+  file = initiativeActionInText(file, { type: 'roll', roll: '1d20', statblockModifiers: {} }, () => 0.5);
+  assert.deepEqual(JSON.parse(file).state.initiative.entries.map((entry: { initiative: number }) => entry.initiative), [11, 11]);
+  file = deleteTokenInText(file, BUGBEAR);
+  initiative = JSON.parse(file).state.initiative;
+  assert.deepEqual(initiative.entries.map((entry: { tokenId: string; isActive: boolean }) => [entry.tokenId, entry.isActive]), [[KESTREL, true]]);
+});
+
+test('with Atlas holding the map, a tracker change goes to its own tracker action', async () => {
+  const calls: unknown[][] = [];
+  const view = fakeView('m.atlasmap', [], {
+    objects: { tokens: {} },
+    nextTurn: () => calls.push(['next']),
+    rollAllInitiative: (roll, from) => calls.push(['rollAll', roll, [...(from ?? new Map())]]),
+    rollEntryInitiative: (id, roll, from) => calls.push(['rollOne', id, roll, from]),
+    updateInitiativeEntry: (id, changes) => calls.push(['edit', id, changes]),
+  });
+  const writer = new TokenWriter({ views: () => [view], process: async () => { throw new Error('no file write'); } });
+  assert.equal(await writer.initiativeAction('m.atlasmap', { type: 'next' }), 'atlas');
+  await writer.initiativeAction('m.atlasmap', { type: 'roll', roll: '1d10', statblockModifiers: { a: 3 } });
+  await writer.initiativeAction('m.atlasmap', { type: 'roll', entryId: 'a', roll: '1d10', statblockModifiers: {} });
+  await writer.initiativeAction('m.atlasmap', { type: 'edit', id: 'a', changes: { initiative: 4 } });
+  assert.deepEqual(calls, [['next'], ['rollAll', '1d10', [['a', 3]]], ['rollOne', 'a', '1d10', null], ['edit', 'a', { initiative: 4 }]]);
+  // An older Atlas without the action: nothing is written behind its back.
+  await assert.rejects(writer.initiativeAction('m.atlasmap', { type: 'reset' }), /offers no such initiative action/);
+  assert.equal(writer.offers('m.atlasmap', 'reset'), false);
+  assert.equal(writer.offers('other.atlasmap', 'reset'), true);
 });

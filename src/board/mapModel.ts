@@ -5,6 +5,7 @@
  * would draw it. Pure, so it is tested without Obsidian.
  */
 import { readFog, type FogOperation } from './fog';
+import { readInitiative, type InitiativeSide, type InitiativeState } from './initiative';
 import { hiddenResourcesOf, isDefeated, tokenFromFile, type ResourceDefinition, type ResourceValue } from './resources';
 
 export type GridType = 'square' | 'hex-vertical' | 'hex-horizontal';
@@ -59,6 +60,9 @@ export interface BoardToken {
   instanceNumber: number | null;
   /** The note holding the token's stat block, when it is linked to one. */
   statblockPath: string | null;
+  /** The side the GM put it on for a fight by sides, and whether it sees (Atlas takes those for the party). */
+  side: InitiativeSide | null;
+  sees: boolean;
 }
 
 export interface BoardPin {
@@ -135,8 +139,8 @@ export interface BoardMap {
   pins: BoardPin[];
   icons: BoardIcon[];
   texts: BoardText[];
-  /** The tokens in Atlas's initiative tracker. */
-  initiativeTokens: string[];
+  /** Atlas's initiative tracker as the file holds it. */
+  initiative: InitiativeState;
   /** The drawings that are ink (not icon stamps), in the map's order: later ones lie over earlier ones. */
   inks: BoardInk[];
   /** The fog of war's strokes, as Atlas stores them (`fog.ts` replays them). */
@@ -222,6 +226,8 @@ function readToken(token: Raw): BoardToken | null {
     overriddenMax: Array.isArray(held.overriddenMax) ? held.overriddenMax.filter((key): key is string => typeof key === 'string') : [],
     instanceNumber: typeof token.instanceNumber === 'number' ? token.instanceNumber : null,
     statblockPath: str(token.statblockPath),
+    side: token.side === 'players' || token.side === 'opponents' ? token.side : null,
+    sees: isObj(token.vision) && token.vision.enabled === true,
   };
 }
 
@@ -322,9 +328,7 @@ export function readMap(path: string, text: string): BoardMap {
     pins: items(objects.pins).map(readPin).filter((pin): pin is BoardPin => pin !== null),
     icons: items(objects.drawings).map(readIcon).filter((icon): icon is BoardIcon => icon !== null),
     texts: items(objects.texts).map(readText).filter((text): text is BoardText => text !== null),
-    initiativeTokens: isObj(state.initiative) && Array.isArray(state.initiative.entries)
-      ? state.initiative.entries.filter(isObj).map((entry) => str(entry.tokenId)).filter((id): id is string => id !== null)
-      : [],
+    initiative: readInitiative(state.initiative),
     inks: items(objects.drawings).map(readInk).filter((ink): ink is BoardInk => ink !== null),
     fog: readFog(objects.fog),
     rawGrid: state.grid ?? null,

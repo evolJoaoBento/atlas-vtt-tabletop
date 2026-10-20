@@ -18,6 +18,9 @@ through Atlas VTT Connect see the minis too, if they have Tabletop installed.
   - Drag a token to move it. It snaps to the grid like in Atlas and is saved to the map. When Atlas has the same map
     open, the move goes through Atlas.
   - Right-click a token to assign a mini, or to show it as a disc or a standee.
+- **Initiative:** Atlas's initiative tracker stands at the board's right edge. **I** shows or hides it (or the board
+  settings, ⌘). Add tokens from their right-click menu. While a fight runs, the up and down arrows pass the turn
+  instead of moving the camera. When Atlas has the map open, the tracker is Atlas's own, changed through Atlas.
 - **Notes:** click a pin to open its note in a new tab.
 - **Props:** open the gallery (**Open minis gallery**) and go to the **Props** tab. Click a prop, then click the board
   where it should go. **Ctrl + drag** moves a prop, and right-clicking one removes it.
@@ -45,5 +48,5 @@ node harness/board-test.cjs <dir> <screenshot dir>
 
 ## Credits
 
-The pin and condition icons are from [game-icons.net](https://game-icons.net) (CC BY 3.0), by Lorc, Delapouite and contributors.
+The pin and condition icons, and the End combat flag, are from [game-icons.net](https://game-icons.net) (CC BY 3.0), by Lorc, Delapouite and contributors.
 They are the same icons Atlas VTT uses, and pins show the same colours as in Atlas.

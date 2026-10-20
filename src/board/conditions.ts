@@ -1,8 +1,10 @@
 /**
  * A map's rules from its collection, as Atlas keeps them in `atlas-vtt/.atlas-data/assets-metadata.json`: the
- * conditions a token may carry (name, colour, whether it takes a number), the resources its tokens track, and how it
- * measures. A map belongs to the collection whose folder (`atlas-vtt/collections/<id>/`) holds it. Pure.
+ * conditions a token may carry (name, colour, whether it takes a number), the resources its tokens track, how it
+ * measures, and how it runs a fight. A map belongs to the collection whose folder (`atlas-vtt/collections/<id>/`)
+ * holds it. Pure.
  */
+import { collectionInitiativeRules, type InitiativeRules } from './initiative';
 import { mapDefinitions, type ResourceDefinition } from './resources';
 
 export interface ConditionDefinition {
@@ -20,6 +22,8 @@ export interface CollectionRules {
   definitions: ResourceDefinition[];
   /** The collection's measuring rules (`settings.gridDefaults`), as Atlas stores them; null when none. */
   gridDefaults: unknown;
+  /** How it runs a fight in the initiative tracker (`initiative.ts`). */
+  initiative: InitiativeRules;
 }
 
 export const ASSETS_METADATA_PATH = 'atlas-vtt/.atlas-data/assets-metadata.json';
@@ -36,7 +40,7 @@ export function collectionOf(mapPath: string): string | null {
 
 /** The rules of a map Atlas knows nothing about: no conditions, and the resources Atlas gives such a map. */
 export function emptyRules(inCollection = false): CollectionRules {
-  return { conditions: new Map(), definitions: mapDefinitions(null, inCollection), gridDefaults: null };
+  return { conditions: new Map(), definitions: mapDefinitions(null, inCollection), gridDefaults: null, initiative: collectionInitiativeRules(null) };
 }
 
 /** Reads a collection's rules from Atlas's asset index; `collection` is null for a map outside every collection. */
@@ -47,6 +51,7 @@ export function readCollectionRules(metadata: unknown, collection: string | null
   if (!isObj(settings)) return rules;
   rules.definitions = mapDefinitions(settings, true);
   rules.gridDefaults = isObj(settings.gridDefaults) ? settings.gridDefaults : null;
+  rules.initiative = collectionInitiativeRules(settings);
   if (Array.isArray(settings.conditions)) {
     for (const entry of settings.conditions) {
       if (!isObj(entry) || typeof entry.id !== 'string' || typeof entry.name !== 'string') continue;

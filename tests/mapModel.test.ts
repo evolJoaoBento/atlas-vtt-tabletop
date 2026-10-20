@@ -127,6 +127,13 @@ test('text labels are read as Atlas draws them, with its defaults; empty ones le
 
 test('the tokens in Atlas\'s initiative tracker are read', () => {
   const map = readMap('m', JSON.stringify({ state: { objects: { tokens: {}, pins: {} }, initiative: { entries: [{ id: 'i1', tokenId: 'a' }, { id: 'i2', tokenId: 'b' }, { id: 'i3' }] } } }));
-  assert.deepEqual(map.initiativeTokens, ['a', 'b']);
-  assert.deepEqual(readMap('m', JSON.stringify({ state: { objects: { tokens: {}, pins: {} } } })).initiativeTokens, []);
+  assert.deepEqual(map.initiative.entries.map((entry) => entry.tokenId), ['a', 'b']);
+  assert.deepEqual(readMap('m', JSON.stringify({ state: { objects: { tokens: {}, pins: {} } } })).initiative.entries, []);
+});
+
+test('a token\'s side and whether it sees are read for a fight by sides', () => {
+  const map = readMap('m', JSON.stringify({ state: { objects: { tokens: {
+    a: { id: 'a', side: 'opponents', vision: { enabled: true } }, b: { id: 'b', side: 'nobody' },
+  }, pins: {} } } }));
+  assert.deepEqual(map.tokens.map((token) => [token.side, token.sees]), [['opponents', true], [null, false]]);
 });

@@ -2,9 +2,12 @@
  * The 3D board's tab: an Atlas map (`.atlasmap`) opened in 3D. It reads the map, follows the file as it changes (Atlas
  * saving it, a sync tool), follows a rename and closes when the map is deleted. What the board asks of Obsidian (images,
  * GLBs, the minis and props kept by Tabletop, saving a token's move or resources, opening a note, the token menu with
- * Atlas's Kill and Delete) goes through the plugin's `BoardServices`.
+ * Atlas's Kill and Delete) goes through the plugin's `BoardServices`. Atlas's initiative tracker stands at the board's
+ * right edge (`initiativePanel.ts`): it shows the tracker Atlas holds while Atlas has the map open, following its
+ * store as it changes, else the one in the file.
  */
-import { ItemView, Menu, Notice, TFile, debounce, setIcon, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
+import { ItemView, Menu, Notice, TFile, debounce, parseYaml, setIcon, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
+import type { AtlasView } from '../atlas';
 import type { Assignments } from '../assignments';
 import { MiniPicker } from '../gallery';
 import type { LoadedMini, MiniLibrary } from '../library';
@@ -16,7 +19,9 @@ import { readMeasurement } from './measure';
 import { defeatedResources } from './resources';
 import { AtlasMenu } from './atlasMenu';
 import { tokenMenuEntries } from './tokenMenu';
-import { conditionChange, conditionStep, resetChange, type ConditionFields } from './tokenEdits';
+import { addToInitiative, conditionChange, conditionStep, initiativeEntryFor, initiativeId, removeFromInitiative, resetChange, type ConditionFields } from './tokenEdits';
+import { applyInitiative, emptyInitiative, ownModifier, readInitiative, statblockModifier, type InitiativeAction, type InitiativeState } from './initiative';
+import { InitiativePanel, type InitiativePanelHost } from './initiativePanel';
 import type { TokenChange } from './tokenWriter';
 import type { LaserSettings } from './laser';
 import type { PlayerView } from './PlayerWindow';
@@ -64,6 +69,10 @@ export class BoardView extends ItemView {
   private playerWindow: PlayerView | null = null;
   /** The token menu while it is open: it follows the map as it changes. */
   private menu: AtlasMenu | null = null;
+  /** Atlas's initiative tracker on the board. */
+  private initiative: InitiativePanel | null = null;
+  /** The Atlas view holding this map, whose store is followed so its tracker shows each change at once. */
+  private watched: { view: AtlasView; stop: () => void } | null = null;
 
   constructor(leaf: WorkspaceLeaf, private readonly services: BoardServices) {
     super(leaf);
@@ -115,11 +124,19 @@ export class BoardView extends ItemView {
     }));
     this.registerEvent(this.app.vault.on('delete', (file) => { if (file.path === this.path) this.leaf.detach(); }));
     this.registerDomEvent(this.contentEl, 'pointerdown', () => this.services.focused(this), true);
+    this.initiative = new InitiativePanel(this.contentEl, this.initiativeHost());
+    // Atlas's keys for its tracker, taken before the board's (whose arrows move the camera).
+    this.registerDomEvent(this.contentEl, 'keydown', (event) => this.initiativeKey(event), { capture: true });
+    this.registerEvent(this.app.workspace.on('layout-change', () => this.watchAtlas()));
   }
 
   async onClose(): Promise<void> {
     this.closed = true;
     this.menu?.close();
+    this.watched?.stop();
+    this.watched = null;
+    this.initiative?.dispose();
+    this.initiative = null;
     this.reload.cancel();
     this.board?.dispose();
     this.board = null;
@@ -208,6 +225,10 @@ export class BoardView extends ItemView {
     if (!this.board) this.board = new Board(this.contentEl, this.host(), QUALITY[this.services.quality()]);
     await this.board.load(map);
     this.menu?.refresh();
+    this.watchAtlas();
+    // The tracker shows when the map has combatants; the I key or the board settings show or hide it.
+    if (fresh) this.initiative?.setOpen(this.liveInitiative().entries.length > 0);
+    this.initiative?.render();
     if (fresh && !this.closed) this.services.boardReady(this);
   }
 
@@ -288,6 +309,141 @@ export class BoardView extends ItemView {
       laser: () => this.services.laser(),
       setLaser: (changes) => this.services.setLaser(changes),
       playerViewOpen: () => this.services.playerViewOpen(mapPath()),
+      initiativeOpen: () => this.initiative?.isOpen ?? false,
+      toggleInitiative: () => this.initiative?.setOpen(!this.initiative.isOpen),
+    };
+  }
+
+  // ── Initiative ────────────────────────────────────────────────────────────
+
+  /** Follows the store of the Atlas view holding this map, if one does; the tracker shows what it holds. */
+  private watchAtlas(): void {
+    const view = this.path && !this.closed ? this.services.writer.holder(this.path) : null;
+    if (this.watched?.view === view) return;
+    this.watched?.stop();
+    this.watched = null;
+    if (view) {
+      let held = view.atlasStore.getState().initiative;
+      const stop = view.atlasStore.subscribe(() => {
+        const state = view.atlasStore.getState();
+        // Atlas moved to another map in that view: the file is this map's tracker again.
+        if (state.mapPath !== this.path) { this.watchAtlas(); return; }
+        if (state.initiative === held) return;
+        held = state.initiative;
+        this.initiative?.render();
+        this.menu?.refresh();
+      });
+      this.watched = { view, stop };
+    }
+    this.initiative?.render();
+  }
+
+  /** The tracker as Atlas holds it while it has the map open, else as the file has it. */
+  private liveInitiative(): InitiativeState {
+    const state = this.watched?.view.atlasStore.getState();
+    if (state && state.mapPath === this.path && state.initiative) return readInitiative(state.initiative);
+    return this.map?.initiative ?? emptyInitiative();
+  }
+
+  /**
+   * A change of the tracker. Through Atlas, its store changes and the tracker follows it; in the file, the board shows
+   * the change at once, with the same dice the file is written with.
+   */
+  private initiativeAct(action: InitiativeAction): void {
+    const map = this.map;
+    if (!map) return;
+    this.watchAtlas();
+    const draws: number[] = [];
+    let next = 0;
+    if (!this.watched) {
+      map.initiative = applyInitiative(map.initiative, action, () => { const draw = Math.random(); draws.push(draw); return draw; });
+      this.initiative?.render();
+    }
+    this.services.writer.initiativeAction(map.path, action, () => draws[next++] ?? Math.random())
+      .catch((error: unknown) => this.unsaved('initiative change', error));
+  }
+
+  /** Atlas's Roll: everyone, or one combatant, each adding its own modifier, else the one its statblock holds. */
+  private async rollInitiative(entryId?: string): Promise<void> {
+    const rules = this.rules.initiative;
+    const statblockModifiers: Record<string, number> = {};
+    for (const entry of this.liveInitiative().entries) {
+      if ((entryId !== undefined && entry.id !== entryId) || ownModifier(entry) !== undefined) continue;
+      const path = this.map?.tokens.find((token) => token.id === entry.tokenId)?.statblockPath ?? entry.statblockPath;
+      const fields = path ? await this.statblockFields(path) : null;
+      const modifier = fields ? statblockModifier(fields, rules) : null;
+      if (modifier !== null) statblockModifiers[entry.id] = modifier;
+    }
+    if (this.closed) return;
+    this.initiativeAct({ type: 'roll', roll: rules.roll, statblockModifiers, ...(entryId !== undefined && { entryId }) });
+  }
+
+  /** A statblock note's fields: its `statblock` block's, with its frontmatter laid over them, as Atlas reads them. */
+  private async statblockFields(path: string): Promise<Record<string, unknown> | null> {
+    const file = this.app.vault.getAbstractFileByPath(path.split('#')[0]!);
+    if (!(file instanceof TFile)) return null;
+    const front = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+    let block: Record<string, unknown> | undefined;
+    const match = /```statblock[^\n]*\n([\s\S]*?)```/.exec(await this.app.vault.cachedRead(file));
+    if (match) {
+      try {
+        const parsed: unknown = parseYaml(match[1]!);
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) block = parsed as Record<string, unknown>;
+      } catch {
+        // A block that is not YAML holds no fields.
+      }
+    }
+    return front || block ? { ...block, ...front } : null;
+  }
+
+  /** Atlas's tracker keys: I shows or hides it; the up and down arrows step the turns while it shows a running fight. */
+  private initiativeKey(event: KeyboardEvent): void {
+    const panel = this.initiative;
+    const target = event.target as HTMLElement | null;
+    if (!panel || this.menu?.isOpen || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+    let handled = false;
+    if (event.key.toLowerCase() === 'i') {
+      if (!event.repeat) panel.setOpen(!panel.isOpen);
+      handled = true;
+    } else if (panel.isOpen && (event.key === 'ArrowUp' || event.key === 'ArrowDown') && this.liveInitiative().isActive) {
+      const previous = event.key === 'ArrowUp';
+      this.initiativeAct({ type: previous ? 'previous' : 'next' });
+      panel.press(previous ? 'prev' : 'next');
+      handled = true;
+    }
+    if (!handled) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  private initiativeHost(): InitiativePanelHost {
+    const mapPath = (): string => this.path ?? '';
+    return {
+      state: () => this.liveInitiative(),
+      rules: () => this.rules.initiative,
+      tokens: () => this.map?.tokens ?? [],
+      tokenSettings: () => this.map?.tokenSettings ?? { showNameplates: false, showInstanceBadges: true, hiddenResources: [] },
+      definitions: () => this.rules.definitions,
+      imageUrl: (path) => {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        return file instanceof TFile ? this.app.vault.getResourcePath(file) : '';
+      },
+      icon: (element, name) => setIcon(element, name),
+      roll: (entryId) => { void this.rollInitiative(entryId); },
+      act: (action) => this.initiativeAct(action),
+      offers: (action) => this.services.writer.offers(mapPath(), action),
+      setHidden: (id, hidden) => this.changeToken(id, { hidden }, () => ({ isHidden: hidden }), hidden ? 'hiding' : 'showing'),
+      // A token moved to the players' side sees, as Atlas switches its vision on then (and never off).
+      setSide: (id, side) => this.changeToken(id, { side, ...(side === 'players' && { sees: true }) }, (held) => {
+        const vision = held.vision as Record<string, unknown> | undefined;
+        return side === 'players' && vision?.enabled !== true ? { side, vision: { ...vision, enabled: true } } : { side };
+      }, 'side change'),
+      showToken: (id) => this.board?.showToken(id),
+      menu: (entries, at) => {
+        this.menu?.close();
+        this.menu = new AtlasMenu(this.contentEl.ownerDocument, entries, at, (element, name) => setIcon(element, name), () => { this.menu = null; });
+      },
     };
   }
 
@@ -302,7 +458,7 @@ export class BoardView extends ItemView {
       token,
       rules: this.rules,
       settings: () => this.map!.tokenSettings,
-      inInitiative: () => this.map?.initiativeTokens.includes(id) ?? false,
+      inInitiative: () => this.liveInitiative().entries.some((entry) => entry.tokenId === id),
       hasMini: () => assignments.get(map.path, id) !== null,
       standee: () => boardData.style(map.path, id) === 'standee',
       icon: (element, name) => setIcon(element, name),
@@ -333,6 +489,7 @@ export class BoardView extends ItemView {
     const token = this.map?.tokens.find((candidate) => candidate.id === id);
     if (!token) return;
     this.board?.changeToken(id, { ...token, ...shown });
+    this.initiative?.render();
     this.services.writer.update(this.path ?? '', id, change).catch((error: unknown) => this.unsaved(what, error));
   }
 
@@ -359,7 +516,15 @@ export class BoardView extends ItemView {
   private setInitiative(id: string, join: boolean): void {
     const map = this.map;
     if (!map) return;
-    map.initiativeTokens = join ? [...map.initiativeTokens.filter((other) => other !== id), id] : map.initiativeTokens.filter((other) => other !== id);
+    this.watchAtlas();
+    // As Atlas: adding a token opens the tracker.
+    if (join) this.initiative?.setOpen(true);
+    if (!this.watched) {
+      const token = map.tokens.find((candidate) => candidate.id === id);
+      const held = map.initiative as unknown as Parameters<typeof removeFromInitiative>[0];
+      map.initiative = readInitiative(join && token ? addToInitiative(held, initiativeEntryFor(token), initiativeId()) : removeFromInitiative(held, id));
+      this.initiative?.render();
+    }
     this.services.writer.initiative(map.path, id, join).catch((error: unknown) => this.unsaved('initiative change', error));
   }
 

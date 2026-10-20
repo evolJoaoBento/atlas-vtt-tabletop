@@ -23,6 +23,9 @@ export interface ToolbarActions {
   selectTool(tool: 'move' | 'laser'): void;
   laser(): LaserSettings;
   setLaser(changes: Partial<LaserSettings>): void;
+  /** Whether the initiative tracker shows on the board; showing or hiding it. */
+  initiativeOpen(): boolean;
+  toggleInitiative(): void;
 }
 
 /** Lucide's `command` icon (ISC), the glyph of Atlas's command palette button. */
@@ -66,6 +69,7 @@ export class BoardToolbar {
   private readonly sizeValue: HTMLElement;
   private readonly freezeButton: HTMLButtonElement;
   private readonly heightInput: HTMLInputElement;
+  private readonly initiativeToggle: HTMLInputElement;
   private readonly onOutside = (event: PointerEvent): void => {
     const target = event.target as Node;
     if (!this.panel.contains(target) && !this.button.contains(target)) this.close();
@@ -213,6 +217,16 @@ export class BoardToolbar {
     this.heightInput.setAttribute('aria-label', 'Fog height in squares');
     el('span', 'atlas-tabletop-palette__unit', field, 'squares');
     el('div', 'atlas-tabletop-palette__hint', fog, 'The fog painted in Atlas stands this many grid squares tall. 0 lays it flat on the map.');
+    // Atlas's command palette shows or hides its initiative tracker; so does this, and its I key.
+    const initiative = el('div', 'atlas-tabletop-palette__section', this.panel);
+    el('div', 'atlas-tabletop-palette__heading', initiative, 'Initiative tracker');
+    const toggle = el('label', 'atlas-tabletop-palette__field', initiative);
+    this.initiativeToggle = el('input', 'atlas-tabletop-palette__check', toggle);
+    this.initiativeToggle.type = 'checkbox';
+    el('span', 'atlas-tabletop-palette__label', toggle, 'Show initiative tracker (I)');
+    this.initiativeToggle.addEventListener('change', () => {
+      if (this.initiativeToggle.checked !== this.actions.initiativeOpen()) this.actions.toggleInitiative();
+    });
     const apply = (): void => {
       const height = readFogHeight(this.heightInput.value);
       this.heightInput.toggleAttribute('aria-invalid', height === null);
@@ -303,6 +317,7 @@ export class BoardToolbar {
     this.closeLaser();
     this.heightInput.value = String(this.actions.fogHeight());
     this.heightInput.removeAttribute('aria-invalid');
+    this.initiativeToggle.checked = this.actions.initiativeOpen();
     this.panel.hidden = false;
     this.button.classList.add('is-active');
     this.button.setAttribute('aria-expanded', 'true');

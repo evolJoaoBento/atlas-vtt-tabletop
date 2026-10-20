@@ -749,6 +749,144 @@ server.listen(0, async () => {
     const heroTop = await project(245, 245, 40);
     await page.mouse.move(heroTop.x - 60, heroTop.y);
     await wait(100);
+
+    // 13. Atlas's initiative tracker at the board's right edge: I shows it; cards, a fight, turns by the arrows, the
+    //     card's menu, the edit popup, rolling, dragging, a fight by sides, Clear.
+    {
+      const cards = () => page.evaluate(() => [...document.querySelectorAll('.atlas-initiative-card')].map((card) => {
+        const r = card.getBoundingClientRect();
+        return {
+          id: card.dataset.entry, x: r.left + r.width / 2, y: r.top + r.height / 2, cls: card.className,
+          number: card.querySelector('.atlas-initiative-card__initiative')?.textContent ?? null,
+          badge: card.querySelector('.atlas-initiative-card__instance-badge')?.textContent ?? null,
+          hidden: !!card.querySelector('.atlas-initiative-card__hidden-badge'),
+          bars: [...card.querySelectorAll('.atlas-initiative-card__hp-fill')].map((fill) => fill.style.width),
+          ring: card.querySelector('.atlas-token-ring')?.style.getPropertyValue('--atlas-token-ring-color') ?? null,
+          side: card.closest('.atlas-initiative-side')?.querySelector('.atlas-initiative-side__label')?.textContent ?? null,
+        };
+      }));
+      const tracker = () => page.evaluate(() => {
+        const panel = document.querySelector('.atlas-initiative-tracker');
+        if (!panel || panel.closest('[hidden]')) return null;
+        const buttons = [...panel.querySelectorAll('.atlas-initiative-tracker__btn')].map((button) => ({ icon: button.dataset.icon ?? (button.querySelector('svg') ? 'truce' : ''), label: button.getAttribute('aria-label'), disabled: button.disabled, pressed: button.classList.contains('atlas-initiative-tracker__btn--pressed') }));
+        return { buttons, round: panel.querySelector('.atlas-initiative-tracker__round')?.textContent, empty: panel.querySelector('.atlas-initiative-tracker__empty')?.textContent ?? null, rect: panel.getBoundingClientRect().toJSON() };
+      });
+      const click = async (selector) => {
+        const at = await page.evaluate((selector) => { const r = document.querySelector(selector).getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, selector);
+        await page.mouse.click(at.x, at.y);
+        await wait(100);
+      };
+      const ids = async () => (await cards()).map((card) => card.id.slice(2)).join(',');
+      const active = async () => (await cards()).find((card) => card.cls.includes('--active'))?.id ?? null;
+
+      await page.keyboard.press('Escape');
+      await page.evaluate(() => { window.boardTest.board.select(null); window.boardTest.board.canvas.focus(); });
+      check('the tracker is hidden until shown', (await tracker()) === null);
+      await page.keyboard.press('i');
+      await wait(100);
+      let shown = await tracker();
+      check('I shows the tracker at the board\'s right edge, centred', shown !== null && Math.abs(shown.rect.right - 988) < 2 && Math.abs((shown.rect.top + shown.rect.bottom) / 2 - 320) < 2, shown && shown.rect);
+      check('its controls are Atlas\'s: Roll, Start combat, Clear; the turn arrows idle, no round', shown && JSON.stringify(shown.buttons.map((b) => [b.icon, b.label, b.disabled])) === JSON.stringify([['dices', 'Roll initiative', false], ['swords', 'Start combat', false], ['trash-2', 'Clear initiative', false], ['chevron-up', null, true], ['chevron-down', null, true]]) && shown.round === '—', shown);
+      let list = await cards();
+      check('a card per combatant in order, with its number', list.map((c) => `${c.id}:${c.number}`).join() === 'e-hero:18,e-gob:12,e-gob2:9,e-orc:5', list);
+      check('copies show their number; the hidden orc its eye; bars of the resources that defeat; the ring in the token\'s colour', list[1].badge === '1' && list[2].badge === '2' && list[0].badge === null && list[3].hidden && list[3].cls.includes('--hidden') && list[0].bars.length === 1 && Math.abs(parseFloat(list[0].bars[0]) - 74.07) < 0.1 && list[0].ring === '#ffffff', list);
+
+      await click('[aria-label="Start combat"]');
+      shown = await tracker();
+      check('Start combat: round 1, the first combatant\'s turn, End combat in red', (await active()) === 'e-hero' && shown.round === 'R1' && shown.buttons[1].label === 'End combat' && shown.buttons[1].icon === 'truce', shown);
+      await page.evaluate(() => window.boardTest.board.canvas.focus());
+      const camBefore = await page.evaluate(() => ({ ...window.boardTest.board.camera.goal.target }));
+      await page.keyboard.press('ArrowDown');
+      await wait(30);
+      const pressed = (await tracker()).buttons[4].pressed;
+      await wait(300);
+      const camAfter = await page.evaluate(() => ({ ...window.boardTest.board.camera.goal.target }));
+      check('↓ passes the turn (the arrow shows the press) and does not move the camera in a fight', (await active()) === 'e-gob' && pressed && camBefore.x === camAfter.x && camBefore.z === camAfter.z, { pressed, camBefore, camAfter });
+      await page.keyboard.press('ArrowUp');
+      await wait(50);
+      check('↑ gives the turn back', (await active()) === 'e-hero');
+
+      list = await cards();
+      await page.mouse.click(list[2].x, list[2].y);
+      await wait(100);
+      check('a card\'s click shows its token: the camera goes to it, it is selected', (await record()).shown.at(-1) === 'gob2' && (await page.evaluate(() => window.boardTest.board.selectedId)) === 'gob2', (await record()).shown);
+      await page.evaluate(() => window.boardTest.board.select(null));
+
+      const menuRows = () => page.evaluate(() => [...document.querySelectorAll('.atlas-ctx-menu .atlas-ctx-item')].map((row) => { const r = row.getBoundingClientRect(); return { text: row.textContent, x: r.left + r.width / 2, y: r.top + r.height / 2, destructive: row.classList.contains('atlas-ctx-item--destructive') }; }));
+      const choose = async (cardId, label) => {
+        const card = (await cards()).find((c) => c.id === cardId);
+        await page.mouse.click(card.x, card.y, { button: 'right' });
+        await wait(150);
+        const rows = await menuRows();
+        const row = rows.find((r) => r.text === label);
+        if (row) await page.mouse.click(row.x, row.y);
+        await wait(150);
+        return rows;
+      };
+      const rows = await choose('e-hero', 'Move to Back');
+      check('the card\'s menu is Atlas\'s, Remove in red', JSON.stringify(rows.map((r) => r.text)) === JSON.stringify(['Roll Initiative', 'Move to Front', 'Move to Back', 'Edit Initiative', 'Hide from Players', 'Remove from Initiative']) && rows[5].destructive, rows);
+      check('Move to Back puts it last', (await ids()) === 'gob,gob2,orc,hero', await ids());
+
+      await choose('e-orc', 'Edit Initiative');
+      const popup = await page.evaluate(() => ({ inputs: [...document.querySelectorAll('.atlas-initiative-edit-popup input')].map((i) => [i.value, i.placeholder]), hint: document.querySelector('.atlas-initiative-edit-popup__hint')?.textContent, focused: document.activeElement?.className }));
+      check('Edit Initiative opens Atlas\'s popup: the total (focused) and the modifier ("auto" when none)', JSON.stringify(popup.inputs) === JSON.stringify([['5', '0'], ['', 'auto']]) && popup.hint === 'Enter to save · Esc to cancel' && popup.focused === 'atlas-initiative-edit-popup__input', popup);
+      await page.keyboard.press('Control+A');
+      await page.keyboard.type('20');
+      await page.keyboard.press('Enter');
+      await wait(100);
+      check('Enter saves the total and the list re-sorts', (await ids()).startsWith('orc') && (await cards())[0].number === '20' && (await page.evaluate(() => !document.querySelector('.atlas-initiative-edit-popup'))), await ids());
+      await page.screenshot({ path: `${shots}/board-18-initiative.png` });
+
+      await click('[aria-label="Roll initiative"]');
+      list = await cards();
+      const numbers = list.map((c) => Number(c.number));
+      const rolled = (await record()).initiative.filter((a) => a.type === 'roll');
+      check('Roll rolls everyone (the hero, last, rolls 3 and adds its +2) and sorts highest first', rolled.length === 1 && numbers.every((n, i) => i === 0 || numbers[i - 1] >= n) && list.find((c) => c.id === 'e-hero').number === '5', list.map((c) => `${c.id}:${c.number}`));
+
+      const before = await ids();
+      // The browser's own drag events, as a mouse drag sends them (Playwright's drag scrolls the list as it goes).
+      await page.evaluate(([from, to]) => {
+        const source = document.querySelector(`[data-entry="${from}"]`);
+        const target = document.querySelector(`[data-entry="${to}"]`);
+        const transfer = new DataTransfer();
+        const r = target.getBoundingClientRect();
+        source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: transfer }));
+        target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer, clientY: r.top + 2 }));
+        target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+        source.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: transfer }));
+      }, [list[3].id, list[0].id]);
+      await wait(100);
+      const reorder = (await record()).initiative.filter((a) => a.type === 'reorder').at(-1);
+      check('dragging a card onto another moves it to that place', reorder && reorder.from === 3 && reorder.to === 0 && (await ids()).split(',')[0] === before.split(',')[3], { reorder, before, after: await ids() });
+
+      // A fight by sides (Cairn): the cards under their side, no numbers, no Roll; the turn belongs to a side.
+      await click('[aria-label="End combat"]');
+      await page.evaluate(() => { window.boardTest.rules.initiative = { mode: 'sides', roll: '1d20', firstSide: 'players' }; window.boardTest.panel.render(); });
+      await choose('e-hero', 'Move to Players');
+      list = await cards();
+      shown = await tracker();
+      check('by sides: Players then Opponents, no numbers, no Roll', list.find((c) => c.id === 'e-hero').side === 'Players' && list.filter((c) => c.side === 'Opponents').length === 3 && list.every((c) => c.number === null) && shown.buttons[0].label === 'Start combat', { list, shown });
+      await click('[aria-label="Start combat"]');
+      const sideState = () => page.evaluate(() => ({ active: document.querySelector('.atlas-initiative-side--active .atlas-initiative-side__label')?.textContent, round: document.querySelector('.atlas-initiative-tracker__round')?.textContent, cards: document.querySelectorAll('.atlas-initiative-card--active').length }));
+      check('the players\' side acts first; no card has the turn by itself', JSON.stringify(await sideState()) === JSON.stringify({ active: 'Players', round: 'R1', cards: 0 }), await sideState());
+      const sitRows = await choose('e-gob', 'Sit Out This Round');
+      check('in a running fight by sides a card can sit the round out', sitRows.some((r) => r.text === 'Sit Out This Round') && (await cards()).find((c) => c.id === 'e-gob').cls.includes('--sitting-out'), sitRows.map((r) => r.text));
+      await page.evaluate(() => window.boardTest.board.canvas.focus());
+      await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('ArrowDown');
+      await wait(50);
+      check('the turns pass side to side into round 2, which clears sitting out', JSON.stringify(await sideState()) === JSON.stringify({ active: 'Players', round: 'R2', cards: 0 }) && !(await cards()).find((c) => c.id === 'e-gob').cls.includes('--sitting-out'), await sideState());
+      await page.screenshot({ path: `${shots}/board-19-initiative-sides.png` });
+
+      await click('[aria-label="Clear initiative"]');
+      shown = await tracker();
+      check('Clear empties the tracker and ends the fight', shown.empty === 'Right-click a token to add it' && shown.round === '—' && (await cards()).length === 0, shown);
+      await page.evaluate(() => window.boardTest.board.canvas.focus());
+      await page.keyboard.press('i');
+      await wait(50);
+      check('I hides it again', (await tracker()) === null);
+      await page.evaluate(() => { window.boardTest.rules.initiative = { mode: 'turn-order', roll: '1d20', firstSide: 'players' }; });
+    }
   } catch (error) {
     check('harness ran', false, String(error && error.stack || error));
   }

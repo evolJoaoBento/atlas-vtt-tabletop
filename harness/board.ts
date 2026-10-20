@@ -16,6 +16,8 @@ import { tokenMenuEntries } from '../src/board/tokenMenu';
 import { conditionChange, conditionStep, resetChange } from '../src/board/tokenEdits';
 import { defeatedResources } from '../src/board/resources';
 import { HP_RESOURCE, type ResourceDefinition, type ResourceValue } from '../src/board/resources';
+import { applyInitiative, readInitiative, type InitiativeAction } from '../src/board/initiative';
+import { InitiativePanel } from '../src/board/initiativePanel';
 import { parseMini, type LoadedMini } from '../src/library';
 
 function exportGlb(root: THREE.Object3D, animations: THREE.AnimationClip[] = []): Promise<ArrayBuffer> {
@@ -71,7 +73,7 @@ const face = (color: string): string => drawn(128, 128, (context) => {
 
 const token = (over: Partial<BoardToken> & Pick<BoardToken, 'id' | 'x' | 'y'>): BoardToken => ({
   size: 1, rotation: 0, imagePath: null, kind: 'character', name: null, hidden: false, showRing: true, ringColor: '#ffffff',
-  showNameplate: true, conditions: [], conditionValues: {}, resources: {}, overriddenMax: [], instanceNumber: null, statblockPath: null, ...over,
+  showNameplate: true, conditions: [], conditionValues: {}, resources: {}, overriddenMax: [], instanceNumber: null, statblockPath: null, side: null, sees: false, ...over,
 });
 
 const map: BoardMap = {
@@ -91,6 +93,16 @@ const map: BoardMap = {
     token({ id: 'fallenDisc', x: 1225, y: 525, imagePath: 'green.png', name: 'Fallen disc', resources: { hp: { current: 0, max: 9 } } }),
   ],
   rawGrid: null,
+  // Four combatants, not fighting yet: the hero (own modifier +2), the two goblins (copies 1 and 2), the hidden orc.
+  initiative: readInitiative({
+    entries: [
+      { id: 'e-hero', tokenId: 'hero', name: 'Hero', initiative: 18, initiativeModifier: 2, imagePath: 'red.png', isActive: false, isNPC: false, order: 0 },
+      { id: 'e-gob', tokenId: 'gob', name: 'Goblin', initiative: 12, initiativeModifier: 0, imagePath: 'green.png', isActive: false, isNPC: true, order: 1 },
+      { id: 'e-gob2', tokenId: 'gob2', name: 'Goblin', initiative: 9, initiativeModifier: 0, imagePath: 'green.png', isActive: false, isNPC: true, order: 2 },
+      { id: 'e-orc', tokenId: 'orc', name: 'Orc', initiative: 5, initiativeModifier: 0, imagePath: 'red.png', isActive: false, isNPC: true, order: 3 },
+    ],
+    currentIndex: -1, round: 0, isActive: false, config: { autoSort: true },
+  }),
   // A fogged room with a corridor erased through it, and a brush stroke beside it.
   fog: [
     { id: 'f1', type: 'rectangle', timestamp: 1, isErasing: false, offsetX: 0, offsetY: 0, x: 980, y: 770, width: 350, height: 210 },
@@ -123,7 +135,7 @@ async function main(): Promise<void> {
   const record = {
     moves: [] as Array<[string, number, number]>, propMoves: [] as Array<[string, number, number]>, added: [] as Array<[string, number, number]>,
     notes: [] as string[], menus: [] as string[], propMenus: [] as string[], previews: [] as string[], warnings: [] as string[],
-    copies: [] as Array<[string, string, number, number]>, menuActions: [] as unknown[][], lasers: [] as Array<Record<string, unknown>>, fogHeights: [] as number[],
+    copies: [] as Array<[string, string, number, number]>, menuActions: [] as unknown[][], initiative: [] as unknown[], shown: [] as string[], lasers: [] as Array<Record<string, unknown>>, fogHeights: [] as number[],
     /** Resource edits as the host saved them: token, key, the value it held, the value written, max edited. */
     edits: [] as Array<[string, string, ResourceValue, ResourceValue, boolean]>,
   };
@@ -220,10 +232,59 @@ async function main(): Promise<void> {
     playerViewOpen: () => !!players && !players.closed,
     laser: () => laser,
     setLaser: (changes) => { laser = { ...laser, ...changes }; record.lasers.push(changes); },
+    initiativeOpen: () => panel.isOpen,
+    toggleInitiative: () => panel.setOpen(!panel.isOpen),
   };
   const container = document.getElementById('board')!;
   const board = new Board(container, host, QUALITY.medium);
   await board.load(map);
+
+  // Atlas's initiative tracker, as the board's tab runs it on a map in the file: each change shown at once.
+  const shownMap = (): BoardMap => (board as unknown as { map: BoardMap }).map;
+  /** The dice land on these, in turn: the rolls are known. */
+  const landings = [0.9, 0.1, 0.5, 0.3, 0.7];
+  let landing = 0;
+  const act = (action: InitiativeAction): void => {
+    record.initiative.push(action);
+    const now = shownMap();
+    now.initiative = applyInitiative(now.initiative, action, () => landings[landing++ % landings.length]!);
+    panel.render();
+  };
+  const changeShown = (id: string, fields: Partial<BoardToken>): void => {
+    const now = shownMap().tokens.find((t) => t.id === id);
+    if (now) board.changeToken(id, { ...now, ...fields });
+    panel.render();
+  };
+  const panel = new InitiativePanel(container, {
+    state: () => shownMap().initiative,
+    rules: () => rules.initiative,
+    tokens: () => shownMap().tokens,
+    tokenSettings: () => shownMap().tokenSettings,
+    definitions: () => rules.definitions,
+    imageUrl: (path) => images[path] ?? '',
+    icon: (element, name) => { element.dataset.icon = name; },
+    roll: (entryId) => act({ type: 'roll', roll: rules.initiative.roll, statblockModifiers: {}, ...(entryId !== undefined && { entryId }) }),
+    act,
+    offers: () => true,
+    setHidden: (id, hidden) => { record.initiative.push(['hidden', id, hidden]); changeShown(id, { hidden }); },
+    setSide: (id, side) => { record.initiative.push(['side', id, side]); changeShown(id, { side }); },
+    showToken: (id) => { record.shown.push(id); board.showToken(id); },
+    menu: (entries, at) => {
+      menu?.close();
+      menu = new AtlasMenu(document, entries, at, (element, name) => { element.dataset.icon = name; }, () => { menu = null; });
+    },
+  });
+  // The tab's keys: I shows or hides the tracker; the arrows step the turns while it shows a running fight.
+  container.addEventListener('keydown', (event) => {
+    if (menu?.isOpen || event.ctrlKey || event.metaKey || event.altKey || (event.target as HTMLElement).tagName === 'INPUT') return;
+    if (event.key.toLowerCase() === 'i') panel.setOpen(!panel.isOpen);
+    else if (panel.isOpen && shownMap().initiative.isActive && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      act({ type: event.key === 'ArrowUp' ? 'previous' : 'next' });
+      panel.press(event.key === 'ArrowUp' ? 'prev' : 'next');
+    } else return;
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
   const view = (board as unknown as { view: THREE.PerspectiveCamera }).view;
   /** Where a point of the map (`height` above the board) is on the page. */
   const project = (x: number, y: number, height = 0): { x: number; y: number } => {
@@ -231,7 +292,7 @@ async function main(): Promise<void> {
     const rect = board.canvas.getBoundingClientRect();
     return { x: rect.left + ((point.x + 1) / 2) * rect.width, y: rect.top + ((1 - point.y) / 2) * rect.height };
   };
-  Object.assign(window, { boardTest: { board, map, record, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, insideFog, ready: true } });
+  Object.assign(window, { boardTest: { board, map, record, panel, rules, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, insideFog, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

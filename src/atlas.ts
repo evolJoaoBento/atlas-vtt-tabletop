@@ -28,12 +28,24 @@ export interface AtlasSceneState {
   updateToken?: (id: string, updates: Record<string, unknown>) => void;
   addToken?: (data: Record<string, unknown>) => string;
   deleteTokens?: (ids: string[]) => void;
-  /** Atlas's initiative tracker: its combatants, opening it, and adding or removing one. */
+  /** Atlas's initiative tracker: its state, opening it, and its actions (0.8.0's; an older Atlas lacks some). */
   initiative?: { entries: Array<{ id: string; tokenId: string }> };
   initiativeTrackerOpen?: boolean;
   setInitiativeTrackerOpen?: (open: boolean) => void;
   addToInitiative?: (entry: Record<string, unknown>) => string;
   removeFromInitiative?: (id: string) => void;
+  updateInitiativeEntry?: (id: string, updates: Record<string, unknown>) => void;
+  rollAllInitiative?: (roll?: string, fromStatblocks?: ReadonlyMap<string, number>) => void;
+  rollEntryInitiative?: (id: string, roll?: string, fromStatblock?: number | null) => void;
+  nextTurn?: () => void;
+  previousTurn?: () => void;
+  reorderInitiative?: (fromIndex: number, toIndex: number) => void;
+  moveToFront?: (id: string) => void;
+  moveToBack?: (id: string) => void;
+  startCombat?: (rules?: unknown) => void;
+  endCombat?: () => void;
+  setInitiativeSitsOut?: (id: string, sitsOut: boolean) => void;
+  resetInitiative?: () => void;
 }
 
 interface Store<T> {

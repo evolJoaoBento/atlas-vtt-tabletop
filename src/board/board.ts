@@ -90,6 +90,9 @@ export interface BoardHost {
   /** The laser's colour and size, kept for every map; and saving a change. */
   laser(): LaserSettings;
   setLaser(changes: Partial<LaserSettings>): void;
+  /** Whether the initiative tracker shows on the board; showing or hiding it. */
+  initiativeOpen(): boolean;
+  toggleInitiative(): void;
 }
 
 const FOV = 35;
@@ -256,6 +259,8 @@ export class Board {
       togglePlayerView: () => this.host.togglePlayerView(),
       playerFrozen: () => this.player?.frozen != null,
       togglePlayerFreeze: () => this.setPlayerFrozen(this.player?.frozen == null),
+      initiativeOpen: () => this.host.initiativeOpen(),
+      toggleInitiative: () => this.host.toggleInitiative(),
     });
     this.controls = new ResourceControls(container, {
       step: (key, delta) => this.stepResource(key, delta),
@@ -1270,6 +1275,15 @@ export class Board {
   }
 
   /** Selects a token (null lets it go): it gets the resource controls; an editor open on another closes. */
+  /** Atlas's initiative card click: the camera goes to the token, which is selected. */
+  showToken(id: string): void {
+    const entry = this.tokens.get(id);
+    if (!entry) return;
+    this.camera.lookAt({ x: entry.goal.x, y: 0, z: entry.goal.y });
+    this.select(id);
+    this.wake();
+  }
+
   select(id: string | null): void {
     if (id === this.selectedId) return;
     this.selectedId = id;
