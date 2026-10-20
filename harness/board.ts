@@ -71,7 +71,7 @@ const token = (over: Partial<BoardToken> & Pick<BoardToken, 'id' | 'x' | 'y'>): 
 const map: BoardMap = {
   path: 'harness.atlasmap',
   background: 'bg.png',
-  grid: { enabled: true, visible: true, snap: true, type: 'square', size: 70, offsetX: 0, offsetY: 0, opacity: 0.4, lineWidth: 1, color: null },
+  grid: { enabled: true, visible: true, snap: true, type: 'square', size: 70, offsetX: 0, offsetY: 0, opacity: 0.5, lineWidth: 2, color: null, lineType: 'dashed', numbers: 'letter-number', numberOpacity: 0.8 },
   tokenSettings: { showNameplates: false, showHPBars: true, showStressBars: false, showInstanceBadges: true, hiddenResources: [] },
   tokens: [
     token({ id: 'hero', x: 245, y: 245, imagePath: 'red.png', name: 'Hero', statblockPath: 'Bestiary/Hero.md', hp: { current: 20, max: 27 }, conditions: ['c-poisoned', 'c-frightened'], resources: [{ key: 'ac', current: 15, max: 15 }, { key: 'slots', current: 2, max: 4 }, { key: 'ki', current: 3, max: 5 }] }),
@@ -81,6 +81,10 @@ const map: BoardMap = {
     token({ id: 'noart', x: 385, y: 665, imagePath: 'missing.png', kind: 'token' }),
     token({ id: 'fallen', x: 1155, y: 525, imagePath: 'red.png', name: 'Fallen', hp: { current: 0, max: 9 } }),
     token({ id: 'fallenDisc', x: 1225, y: 525, imagePath: 'green.png', name: 'Fallen disc', hp: { current: 0, max: 9 } }),
+  ],
+  icons: [
+    { id: 'i1', icon: 'flame', x: 630, y: 700, color: '#ff8800', size: 70, opacity: 1 },
+    { id: 'i2', icon: 'door-closed', x: 770, y: 700, color: '#ffffff', size: 70, opacity: 0.9 },
   ],
   pins: [
     { id: 'p1', x: 1050, y: 300, notePath: 'Notes/Tavern.md', icon: 'treasure', label: null, hex: false },

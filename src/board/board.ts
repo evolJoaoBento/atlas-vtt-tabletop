@@ -19,13 +19,22 @@ import type { LoadedMini } from '../library';
 import type { PropPlacement, TokenStyle } from './boardData';
 import { OrbitCamera, limitsFor } from './camera';
 import type { CollectionRules } from './conditions';
-import { ringDiameter, snapPoint } from './geometry';
+import { hexCenter, ringDiameter, snapPoint } from './geometry';
 import { TokenLabels, type HoverTarget } from './labels';
 import type { BoardMap, BoardToken } from './mapModel';
-import { PinPiece, PropPiece, TokenPiece, type PoseContext } from './pieces';
+import { IconPiece, PinPiece, PropPiece, TokenPiece, type PoseContext } from './pieces';
+import { numberCells, type CellNumbers } from './cellNumbers';
+import { stripGeometry } from './surface';
 import { ResolutionGovernor, type QualityPreset } from './quality';
 import { BoardSurface } from './surface';
-import { loadImageTexture, screenScale } from './textures';
+import { pinTitle } from './pinIcons';
+import { loadImageTexture, plateTexture, screenScale } from './textures';
+
+/** Obsidian's accent colour, for highlights; Atlas's purple outside Obsidian. */
+function accent(element: HTMLElement): string {
+  const value = element.ownerDocument.defaultView?.getComputedStyle(element).getPropertyValue('--interactive-accent').trim();
+  return value || ACCENT;
+}
 
 export interface BoardHost {
   /** A URL for a vault image, or null when it is missing. */
@@ -62,6 +71,9 @@ const GLIDE = 14;
 /** The longest frame anything steps by, so a hidden tab does not fling a mini. */
 const LONGEST_STEP = 1 / 15;
 const FALLBACK_SIZE = 2000;
+/** The hovered cell's label height on screen, in pixels. */
+const CELL_LABEL_PX = 20;
+const ACCENT = '#7c5cff';
 /** How often a playing clip redraws the shadows, in seconds. */
 const CLIP_SHADOW_STEP = 1 / 15;
 /** Room left around the map when it is framed, for the tilt's perspective. */
@@ -75,6 +87,13 @@ interface TokenEntry {
   at: { x: number; y: number };
   goal: { x: number; y: number };
   mini: string | null;
+}
+
+/** The cell under the pointer: where it is and what it is called. */
+interface HoveredCell {
+  key: string;
+  label: string;
+  center: { x: number; y: number };
 }
 
 type Press =
@@ -105,6 +124,13 @@ export class Board {
   private hasImage = false;
   private readonly tokens = new Map<string, TokenEntry>();
   private pins: PinPiece[] = [];
+  private icons: IconPiece[] = [];
+  /** The grid's numbered cells, and the cell under the pointer with its highlight and label. */
+  private cells: CellNumbers = { at: () => null };
+  hoveredCell: string | null = null;
+  private cellOutline: THREE.Mesh | null = null;
+  private cellLabel: THREE.Sprite | null = null;
+  private cellLabelAspect = 1;
   private readonly props = new Map<string, PropPiece>();
   private readonly arts = new Map<string, Promise<THREE.Texture | null>>();
   private readonly models = new Map<string, Promise<LoadedMini | null>>();
@@ -252,6 +278,7 @@ export class Board {
     this.scene.add(this.surface.object3d);
     this.size = { width, height };
     this.hasImage = texture !== null;
+    this.cells = numberCells(map.grid, width, height);
     this.lastGrid = JSON.stringify(map.grid);
     const span = Math.max(width, height);
     this.sun.position.set(width / 2 - span * 0.5, span * 1.2, height / 2 - span * 0.7);
@@ -305,6 +332,13 @@ export class Board {
       entry.piece.dispose();
       this.tokens.delete(id);
     }
+
+    for (const icon of this.icons) icon.dispose();
+    this.icons = map.icons.map((icon) => {
+      const piece = new IconPiece(icon, () => this.wake(true));
+      this.scene.add(piece.object3d);
+      return piece;
+    });
 
     for (const pin of this.pins) pin.dispose();
     this.pins = map.pins.map((pin) => {
@@ -450,6 +484,7 @@ export class Board {
       }
     }
     for (const pin of this.pins) pin.pose(context);
+    if (this.cellLabel) this.cellLabel.scale.set(context.pixel * CELL_LABEL_PX * this.cellLabelAspect, context.pixel * CELL_LABEL_PX, 1);
     // A mini's clip alone redraws the shadows a few times a second, not every frame.
     const clipsOnly = changed && !this.shadowsDirty && this.press === null && !moving;
     if (changed && (!clipsOnly || this.clock - this.shadowedAt >= CLIP_SHADOW_STEP)) {
@@ -552,7 +587,7 @@ export class Board {
     // The pointer was taken away mid-drag (Alt-Tab, a dialog): no pointerup will come, so the drag ends here. After a
     // normal release `press` is already cleared.
     on('lostpointercapture', () => { if (this.press) this.cancel(); });
-    on('pointerleave', () => { this.tooltip.hidden = true; });
+    on('pointerleave', () => { this.tooltip.hidden = true; this.showCell(null); });
     on('wheel', (event) => {
       event.preventDefault();
       this.camera.zoom(Math.exp(event.deltaY * WHEEL));
@@ -698,6 +733,72 @@ export class Board {
     this.wake(true);
   }
 
+  /** The cell under a point: its number (when the map numbers its cells) and the note a hex-linked pin gives it. */
+  private cellAt(x: number, y: number): HoveredCell | null {
+    const map = this.map;
+    if (!map || !map.grid.enabled) return null;
+    const cell = this.cells.at(x, y);
+    const hex = map.grid.type !== 'square';
+    const center = cell?.center ?? (hex ? hexCenter(map.grid, x, y) : null);
+    if (!center) return null;
+    const linked = hex ? map.pins.find((pin) => {
+      if (!pin.hex || !pin.notePath) return false;
+      const at = hexCenter(map.grid, pin.x, pin.y);
+      return Math.hypot(at.x - center.x, at.y - center.y) < 1;
+    }) : undefined;
+    const label = [cell?.label ?? '', linked ? pinTitle(linked) : ''].filter(Boolean).join(' · ');
+    if (!label) return null;
+    return { key: `${center.x.toFixed(1)},${center.y.toFixed(1)}|${label}`, label, center };
+  }
+
+  /** Outlines the hovered cell and floats its number (and linked note) over it; null clears it. */
+  private showCell(cell: HoveredCell | null): void {
+    if (cell && this.cellOutline?.userData.key === cell.key) return;
+    if (!cell && !this.cellOutline) return;
+    if (this.cellOutline) {
+      this.cellOutline.removeFromParent();
+      this.cellOutline.geometry.dispose();
+      (this.cellOutline.material as THREE.Material).dispose();
+      this.cellOutline = null;
+    }
+    if (this.cellLabel) {
+      this.cellLabel.removeFromParent();
+      this.cellLabel.material.map?.dispose();
+      this.cellLabel.material.dispose();
+      this.cellLabel = null;
+    }
+    this.hoveredCell = cell?.label ?? null;
+    const map = this.map;
+    if (!cell || !map) { this.wake(); return; }
+    const grid = map.grid;
+    const corners: Array<{ x: number; y: number }> = [];
+    if (grid.type === 'square') {
+      const h = grid.size / 2;
+      corners.push({ x: -h, y: -h }, { x: h, y: -h }, { x: h, y: h }, { x: -h, y: h });
+    } else {
+      const radius = grid.size / Math.sqrt(3);
+      const start = grid.type === 'hex-vertical' ? -Math.PI / 2 : 0;
+      for (let i = 0; i < 6; i++) corners.push({ x: radius * Math.cos(start + (Math.PI / 3) * i), y: radius * Math.sin(start + (Math.PI / 3) * i) });
+    }
+    const segments: number[] = [];
+    corners.forEach((corner, i) => {
+      const next = corners[(i + 1) % corners.length]!;
+      segments.push(cell.center.x + corner.x, cell.center.y + corner.y, cell.center.x + next.x, cell.center.y + next.y);
+    });
+    this.cellOutline = new THREE.Mesh(stripGeometry(segments, grid.size * 0.04), new THREE.MeshBasicMaterial({ color: accent(this.container), transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide }));
+    this.cellOutline.userData.key = cell.key;
+    this.cellOutline.position.y = 0.3;
+    this.scene.add(this.cellOutline);
+    const plate = plateTexture(cell.label, 22);
+    this.cellLabel = new THREE.Sprite(new THREE.SpriteMaterial({ map: plate.texture, sizeAttenuation: false, transparent: true, depthTest: false, opacity: grid.numberOpacity }));
+    this.cellLabel.renderOrder = 30;
+    this.cellLabelAspect = plate.width / plate.height;
+    this.cellLabel.center.set(0.5, 0);
+    this.cellLabel.position.set(cell.center.x, grid.size * 0.1, cell.center.y - grid.size * 0.37);
+    this.scene.add(this.cellLabel);
+    this.wake();
+  }
+
   private stopPlacing(): void {
     this.placing = null;
     this.canvas.style.cursor = '';
@@ -718,6 +819,9 @@ export class Board {
     } else {
       this.previewed = null;
     }
+    const point = this.boardPoint(event.clientX, event.clientY);
+    const inside = point !== null && point.x >= 0 && point.y >= 0 && point.x <= this.size.width && point.y <= this.size.height;
+    this.showCell(inside ? this.cellAt(point.x, point.y) : null);
     const targets: HoverTarget[] = [];
     for (const entry of this.tokens.values()) targets.push(...entry.labels.hoverTargets);
     const hit = this.hit(event.clientX, event.clientY, targets.map((target) => target.object));
@@ -738,6 +842,8 @@ export class Board {
     for (const entry of this.tokens.values()) { entry.labels.dispose(); entry.piece.dispose(); }
     this.tokens.clear();
     for (const pin of this.pins) pin.dispose();
+    for (const icon of this.icons) icon.dispose();
+    this.showCell(null);
     for (const piece of this.props.values()) piece.dispose();
     this.surface?.dispose();
     for (const art of this.arts.values()) void art.then((texture) => texture?.dispose());

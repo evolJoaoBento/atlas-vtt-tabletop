@@ -83,6 +83,21 @@ server.listen(0, async () => {
     check('a 0 HP disc is downed (grey, flat)', downed[1].downed, downed[1]);
     check('a token with HP stands', !downed[2].downed && downed[2].lying < 0.01, downed[2]);
 
+    // 1e. Icon stamps lie on the map.
+    const icons = await page.evaluate(() => window.boardTest.board.icons.map((icon) => ({ id: icon.id, ready: icon.ready })));
+    check('icon stamps are on the board', icons.length === 2 && icons.every((icon) => icon.ready), icons);
+
+    // 1f. Hovering the board names the cell under the pointer (letter-number on this map), and only then.
+    const cellD8 = await project(3 * 70 + 35, 7 * 70 + 35, 0);
+    await page.mouse.move(cellD8.x, cellD8.y);
+    await wait(100);
+    const hovered = await page.evaluate(() => window.boardTest.board.hoveredCell);
+    check('hovering a cell shows its number', hovered === 'D8', hovered);
+    await page.mouse.move(2, 2);
+    await wait(100);
+    const left = await page.evaluate(() => window.boardTest.board.hoveredCell);
+    check('the number goes when the pointer leaves the board', left === null, left);
+
     // 2. A click on a pin opens its note.
     const pin = await project(1050, 300, 42);
     await page.mouse.click(pin.x, pin.y);

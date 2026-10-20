@@ -76,3 +76,16 @@ test('rejects non-maps', () => {
   assert.throws(() => readMap('m', '{"state":{}}'), /not an Atlas map/);
   assert.throws(() => readMap('m', 'nope'), /not an Atlas map/);
 });
+
+test('icon stamps are read from the drawings; strokes are left out', () => {
+  const map = readMap('m', wrap({ objects: { tokens: {}, pins: {}, drawings: {
+    a: { id: 'a', kind: 'drawing', type: 'icon', icon: 'flame', points: [{ x: 100, y: 200 }], color: '#ff0000', width: 70, opacity: 0.8 },
+    b: { id: 'b', kind: 'drawing', type: 'pen', points: [{ x: 0, y: 0 }, { x: 5, y: 5 }], color: '#000', width: 3 },
+    c: { id: 'c', kind: 'drawing', type: 'icon', icon: 'skull', points: [] },
+    d: { id: 'd', kind: 'drawing', type: 'icon', icon: 'gem', points: [{ x: 1, y: 2 }] },
+  } } }));
+  assert.deepEqual(map.icons, [
+    { id: 'a', icon: 'flame', x: 100, y: 200, color: '#ff0000', size: 70, opacity: 0.8 },
+    { id: 'd', icon: 'gem', x: 1, y: 2, color: '#ffffff', size: 70, opacity: 1 },
+  ]);
+});

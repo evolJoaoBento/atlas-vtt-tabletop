@@ -75,6 +75,19 @@ export interface BoardPin {
   hex: boolean;
 }
 
+/** An icon stamp from Atlas's draw tool: a Lucide glyph lying on the map. */
+export interface BoardIcon {
+  id: string;
+  /** Atlas's icon id (door-open, lock, trap…). */
+  icon: string;
+  /** Its centre, in map pixels, and its width. */
+  x: number;
+  y: number;
+  color: string;
+  size: number;
+  opacity: number;
+}
+
 export interface TokenSettings {
   showNameplates: boolean;
   showHPBars: boolean;
@@ -91,6 +104,7 @@ export interface BoardMap {
   tokenSettings: TokenSettings;
   tokens: BoardToken[];
   pins: BoardPin[];
+  icons: BoardIcon[];
 }
 
 type Raw = Record<string, unknown>;
@@ -196,6 +210,20 @@ function readPin(pin: Raw): BoardPin | null {
   };
 }
 
+/** Atlas's icon stamps are one cell (70 px) across unless the drawing says otherwise. */
+const ICON_SIZE = 70;
+
+function readIcon(drawing: Raw): BoardIcon | null {
+  const id = str(drawing.id);
+  const icon = str(drawing.icon);
+  const point = Array.isArray(drawing.points) && isObj(drawing.points[0]) ? drawing.points[0] : null;
+  if (drawing.type !== 'icon' || !id || !icon || !point) return null;
+  return {
+    id, icon, x: num(point.x, 0), y: num(point.y, 0),
+    color: str(drawing.color) ?? '#ffffff', size: num(drawing.width, ICON_SIZE), opacity: num(drawing.opacity, 1),
+  };
+}
+
 function readTokenSettings(raw: unknown): TokenSettings {
   const settings = isObj(raw) ? raw : {};
   return {
@@ -225,5 +253,6 @@ export function readMap(path: string, text: string): BoardMap {
     tokenSettings: readTokenSettings(state.tokenSettings),
     tokens: items(objects.tokens).map(readToken).filter((token): token is BoardToken => token !== null),
     pins: items(objects.pins).map(readPin).filter((pin): pin is BoardPin => pin !== null),
+    icons: items(objects.drawings).map(readIcon).filter((icon): icon is BoardIcon => icon !== null),
   };
 }

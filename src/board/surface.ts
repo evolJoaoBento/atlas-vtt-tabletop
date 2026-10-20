@@ -4,13 +4,13 @@
  * (x, 0, y) here: screen right is +x, the map's top is toward -z.
  */
 import * as THREE from 'three';
+import { styledGrid } from './gridLines';
 import type { BoardGrid } from './mapModel';
 
 const FRAME_COLOR = 0x3b2a1d;
 const FLOOR_COLOR = 0x17120e;
 /** The grid sits a hair above the image so it never fights it for depth. */
 const GRID_LIFT = 0.4;
-const SQRT3 = Math.sqrt(3);
 
 /** Black or white, whichever stands out on the image, the way Atlas picks a grid colour that was not set. */
 function contrastColor(image: CanvasImageSource & { width: number; height: number }): string {
@@ -29,52 +29,32 @@ function contrastColor(image: CanvasImageSource & { width: number; height: numbe
   }
 }
 
-/** The grid's lines as segment pairs, clipped to the map. */
-export function gridSegments(grid: BoardGrid, width: number, height: number): number[] {
-  const out: number[] = [];
-  const push = (ax: number, ay: number, bx: number, by: number): void => { out.push(ax, GRID_LIFT, ay, bx, GRID_LIFT, by); };
-  if (grid.type === 'square') {
-    const first = (offset: number): number => offset - Math.floor(offset / grid.size) * grid.size;
-    for (let x = first(grid.offsetX); x <= width; x += grid.size) push(x, 0, x, height);
-    for (let y = first(grid.offsetY); y <= height; y += grid.size) push(0, y, width, y);
-    return out;
-  }
-  const radius = grid.size / SQRT3;
-  const pointy = grid.type === 'hex-vertical';
-  const origin = pointy ? { x: grid.offsetX + grid.size / 2, y: grid.offsetY + radius } : { x: grid.offsetX + radius, y: grid.offsetY + grid.size / 2 };
-  const seen = new Set<string>();
-  const key = (x: number, y: number): string => `${Math.round(x * 10)},${Math.round(y * 10)}`;
-  const inside = (x: number, y: number): boolean => x >= -1 && x <= width + 1 && y >= -1 && y <= height + 1;
-  // Enough rows and columns of axial coordinates to cover the map from the origin hex, with one to spare each way.
-  const span = Math.ceil(Math.max(width, height) / (radius * 1.5)) + 2;
-  const startAngle = pointy ? -Math.PI / 2 : 0;
-  for (let r = -span; r <= span; r++) {
-    for (let q = -2 * span; q <= 2 * span; q++) {
-      const cx = pointy ? origin.x + grid.size * (q + r / 2) : origin.x + 1.5 * radius * q;
-      const cy = pointy ? origin.y + 1.5 * radius * r : origin.y + grid.size * (r + q / 2);
-      if (cx < -grid.size || cx > width + grid.size || cy < -grid.size || cy > height + grid.size) continue;
-      for (let i = 0; i < 6; i++) {
-        const a = startAngle + (Math.PI / 3) * i;
-        const b = a + Math.PI / 3;
-        const ax = cx + radius * Math.cos(a);
-        const ay = cy + radius * Math.sin(a);
-        const bx = cx + radius * Math.cos(b);
-        const by = cy + radius * Math.sin(b);
-        if (!inside(ax, ay) || !inside(bx, by)) continue;
-        const edge = [key(ax, ay), key(bx, by)].sort().join('|');
-        if (seen.has(edge)) continue;
-        seen.add(edge);
-        push(ax, ay, bx, by);
-      }
+/** Segments (x1, y1, x2, y2 in map pixels) as flat strips `width` wide lying on the board. */
+export function stripGeometry(segments: readonly number[], width: number): THREE.BufferGeometry {
+  const positions = new Float32Array((segments.length / 4) * 18);
+  const half = width / 2;
+  let at = 0;
+  for (let i = 0; i < segments.length; i += 4) {
+    const [x1, y1, x2, y2] = [segments[i]!, segments[i + 1]!, segments[i + 2]!, segments[i + 3]!];
+    const length = Math.hypot(x2 - x1, y2 - y1) || 1;
+    const nx = (-(y2 - y1) / length) * half;
+    const ny = ((x2 - x1) / length) * half;
+    const corners = [[x1 + nx, y1 + ny], [x2 + nx, y2 + ny], [x2 - nx, y2 - ny], [x1 + nx, y1 + ny], [x2 - nx, y2 - ny], [x1 - nx, y1 - ny]];
+    for (const [x, y] of corners) {
+      positions[at++] = x!;
+      positions[at++] = GRID_LIFT;
+      positions[at++] = y!;
     }
   }
-  return out;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  return geometry;
 }
 
 export class BoardSurface {
   readonly object3d = new THREE.Group();
   private readonly image: THREE.MeshStandardMaterial;
-  private grid: THREE.LineSegments | null = null;
+  private grid: THREE.Mesh | null = null;
 
   constructor(readonly width: number, readonly height: number, private readonly gridState: BoardGrid) {
     const span = Math.max(width, height);
@@ -115,10 +95,10 @@ export class BoardSurface {
     }
     const grid = this.gridState;
     if (!grid.enabled || !grid.visible) return;
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(gridSegments(grid, this.width, this.height), 3));
     const color = grid.color ?? (image ? contrastColor(image) : '#000000');
-    this.grid = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color, transparent: true, opacity: grid.opacity, depthWrite: false }));
+    // Atlas's line width, in map pixels: a strip, since WebGL draws lines one pixel thin whatever the width.
+    const geometry = stripGeometry(styledGrid(grid, this.width, this.height).segments, Math.max(0.5, grid.lineWidth));
+    this.grid = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: grid.opacity, depthWrite: false, side: THREE.DoubleSide }));
     this.object3d.add(this.grid);
   }
 

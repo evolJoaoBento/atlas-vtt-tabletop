@@ -16,9 +16,10 @@ import { MiniFigure } from '../figure';
 import type { LoadedMini } from '../library';
 import type { TokenStyle, PropPlacement } from './boardData';
 import { hexCenter, ringDiameter, tokenDiameter } from './geometry';
-import type { BoardGrid, BoardPin, BoardToken } from './mapModel';
+import type { BoardGrid, BoardIcon, BoardPin, BoardToken } from './mapModel';
+import { mapIconSvg } from './mapIcons';
 import { pinTitle } from './pinIcons';
-import { downedMarkerTexture, hiddenMarkerTexture, pinTexture, plateTexture } from './textures';
+import { downedMarkerTexture, hiddenMarkerTexture, loadImageTexture, pinTexture, plateTexture } from './textures';
 
 /**
  * How far a token floats over the board, and how thick its disc is, as shares of its diameter. A token with a mini has
@@ -535,6 +536,41 @@ export class PropPiece {
     if (this.model) disposeTree(this.model, false, !this.fromGlb);
     this.hitTarget.geometry.dispose();
     (this.hitTarget.material as THREE.Material).dispose();
+    this.object3d.removeFromParent();
+  }
+}
+
+/** An icon stamp lying on the map, as Atlas stamps it: the glyph alone, in its colour, a cell across. */
+export class IconPiece {
+  readonly object3d: THREE.Mesh;
+  /** The glyph is drawn (it loads from an SVG). */
+  ready = false;
+  private disposed = false;
+
+  constructor(readonly icon: BoardIcon, onReady: () => void) {
+    const material = new THREE.MeshBasicMaterial({ transparent: true, opacity: icon.opacity, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3 });
+    this.object3d = new THREE.Mesh(new THREE.PlaneGeometry(icon.size, icon.size).rotateX(-Math.PI / 2), material);
+    this.object3d.position.set(icon.x, 0.5, icon.y);
+    this.object3d.visible = false;
+    const svg = mapIconSvg(icon.icon, icon.color);
+    if (!svg) return;
+    void loadImageTexture(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`).then((texture) => {
+      if (this.disposed) { texture.dispose(); return; }
+      material.map = texture;
+      material.needsUpdate = true;
+      this.object3d.visible = true;
+      this.ready = true;
+      onReady();
+    }, () => undefined);
+  }
+
+  get id(): string {
+    return this.icon.id;
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    disposeTree(this.object3d, true);
     this.object3d.removeFromParent();
   }
 }
