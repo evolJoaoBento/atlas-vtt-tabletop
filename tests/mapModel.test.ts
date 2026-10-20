@@ -16,6 +16,7 @@ test('reads tokens and pins from a real map', () => {
   assert.deepEqual(kestrel.hp, { current: 34, max: 44 });
   assert.deepEqual(kestrel.conditions, ['dnd5e-exhaustion', 'dnd5e-poisoned']);
   assert.deepEqual(kestrel.conditionValues, { 'dnd5e-exhaustion': 2 });
+  assert.equal(kestrel.statblockPath, 'DotMM Full Test/Party/Kestrel Vane.md');
   assert.equal(kestrel.kind, 'character');
   const bandit = map.tokens.find((token) => token.name === 'Bandit (spy at the peephole)')!;
   assert.equal(bandit.hidden, true);
@@ -43,6 +44,7 @@ test('token defaults', () => {
   assert.equal(b!.name, 'Goblin');
   assert.equal(c!.name, 'Unknown Creature');
   assert.equal(d!.kind, 'token');
+  assert.equal(a!.statblockPath, null);
 });
 
 test('resources keep only those with a maximum, in order', () => {
@@ -57,6 +59,13 @@ test('grid', () => {
   assert.equal(off.enabled, false);
   assert.equal(off.type, 'hex-horizontal');
   assert.equal(off.color, null);
+  const numbered = readMap('m', wrap({ grid: { type: 'square', cellNumbers: 'letter-number', cellNumberOpacity: 0.5 } })).grid;
+  assert.equal(numbered.numbers, 'letter-number');
+  assert.equal(numbered.numberOpacity, 0.5);
+  const oldHex = readMap('m', wrap({ grid: { type: 'hex-vertical', hexNumbers: 'column-row' } })).grid;
+  assert.equal(oldHex.numbers, 'column-row');
+  assert.equal(oldHex.numberOpacity, 0.8);
+  assert.equal(readMap('m', wrap({ grid: { cellNumbers: 'roman' } })).grid.numbers, null);
   const none = readMap('m', wrap({})).grid;
   assert.equal(none.size, 70);
   assert.equal(none.snap, true);

@@ -20,7 +20,14 @@ export interface BoardGrid {
   lineWidth: number;
   /** Null when Atlas picks black or white from the map's brightness. */
   color: string | null;
+  /** Atlas's lines: solid, dashed (two dashes per cell edge) or dotted (a mark at each corner). */
+  lineType: 'solid' | 'dashed' | 'dotted';
+  /** How cells are numbered (`cellNumbers`, or `hexNumbers` in older Atlas), and how strongly; null when not. */
+  numbers: CellNumbering | null;
+  numberOpacity: number;
 }
+
+export type CellNumbering = 'column-row' | 'sequential' | 'letter-number';
 
 export interface Meter {
   current: number;
@@ -51,6 +58,8 @@ export interface BoardToken {
   /** The stat block's tracked values (AC, slots, …), those with a maximum, in the file's order. */
   resources: Array<{ key: string } & Meter>;
   instanceNumber: number | null;
+  /** The note holding the token's stat block, when it is linked to one. */
+  statblockPath: string | null;
 }
 
 export interface BoardPin {
@@ -99,6 +108,10 @@ const DEFAULT_GRID_SIZE = 70;
 const BARE_HP_MAX = 100;
 const DEFAULT_MAX_STRESS = 10;
 
+function readNumbering(value: unknown): CellNumbering | null {
+  return value === 'column-row' || value === 'sequential' || value === 'letter-number' ? value : null;
+}
+
 function readGrid(raw: unknown): BoardGrid {
   const grid = isObj(raw) ? raw : {};
   const type: GridType = grid.type === 'hex-vertical' || grid.type === 'hex-horizontal' ? grid.type : 'square';
@@ -114,6 +127,9 @@ function readGrid(raw: unknown): BoardGrid {
     opacity: num(grid.opacity, 0.7),
     lineWidth: num(grid.lineWidth, 1),
     color: color && color.toLowerCase() !== LEGACY_GRID_COLOR ? color : null,
+    lineType: grid.lineType === 'dashed' || grid.lineType === 'dotted' ? grid.lineType : 'solid',
+    numbers: readNumbering(grid.cellNumbers ?? grid.hexNumbers),
+    numberOpacity: num(grid.cellNumberOpacity ?? grid.hexNumberOpacity, 0.8),
   };
 }
 
@@ -162,6 +178,7 @@ function readToken(token: Raw): BoardToken | null {
     conditionValues,
     resources,
     instanceNumber: typeof token.instanceNumber === 'number' ? token.instanceNumber : null,
+    statblockPath: str(token.statblockPath),
   };
 }
 

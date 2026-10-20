@@ -133,3 +133,24 @@ export function hiddenMarkerTexture(): THREE.CanvasTexture {
     context.stroke();
   });
 }
+
+/** Atlas's marker on a downed token: a dark disc with a white skull. */
+export function downedMarkerTexture(): THREE.CanvasTexture {
+  const px = 96;
+  return canvasTexture(px, px, (context) => {
+    const c = px / 2;
+    context.globalAlpha = 0.72;
+    context.fillStyle = '#111114';
+    context.beginPath();
+    context.arc(c, c, c - 3, 0, Math.PI * 2);
+    context.fill();
+    context.globalAlpha = 1;
+    const glyph = pinGlyph('boss');
+    if (!glyph) return;
+    const size = px * 0.6;
+    context.translate(c - size / 2, c - size / 2);
+    context.scale(size / 512, size / 512);
+    context.fillStyle = '#ffffff';
+    context.fill(new Path2D(glyph));
+  });
+}

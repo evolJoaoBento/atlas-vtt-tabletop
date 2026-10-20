@@ -16,6 +16,8 @@ import { QUALITY, type Quality } from './quality';
 import type { TokenWriter } from './tokenWriter';
 
 export const BOARD_VIEW_TYPE = 'atlas-tabletop-board';
+/** The hover source Tabletop registers, so Obsidian's page preview shows stat blocks from the board. */
+export const HOVER_SOURCE = 'atlas-vtt-tabletop';
 const RELOAD_MS = 300;
 
 /** What the board's tab uses of the plugin. */
@@ -203,6 +205,14 @@ export class BoardView extends ItemView {
         const menu = new Menu();
         menu.addItem((item) => item.setTitle('Remove prop').setIcon('trash').onClick(() => boardData.removeProp(mapPath(), id)));
         menu.showAtMouseEvent(event);
+      },
+      statblockPreview: (id, event) => {
+        const path = this.map?.tokens.find((token) => token.id === id)?.statblockPath;
+        if (!path || !this.board) return;
+        // Obsidian's page preview shows the note as it reads, the stat block drawn (Fantasy Statblocks) and its dice.
+        this.app.workspace.trigger('hover-link', {
+          event, source: HOVER_SOURCE, hoverParent: this, targetEl: this.board.canvas, linktext: path, sourcePath: mapPath(),
+        });
       },
       warn: (message) => this.warn(message),
     };

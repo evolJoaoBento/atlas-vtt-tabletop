@@ -65,7 +65,7 @@ const face = (color: string): string => drawn(128, 128, (context) => {
 
 const token = (over: Partial<BoardToken> & Pick<BoardToken, 'id' | 'x' | 'y'>): BoardToken => ({
   size: 1, rotation: 0, imagePath: null, kind: 'character', name: null, hidden: false, showRing: true, ringColor: '#ffffff',
-  showNameplate: true, hp: null, stress: null, conditions: [], conditionValues: {}, resources: [], instanceNumber: null, ...over,
+  showNameplate: true, hp: null, stress: null, conditions: [], conditionValues: {}, resources: [], instanceNumber: null, statblockPath: null, ...over,
 });
 
 const map: BoardMap = {
@@ -74,11 +74,13 @@ const map: BoardMap = {
   grid: { enabled: true, visible: true, snap: true, type: 'square', size: 70, offsetX: 0, offsetY: 0, opacity: 0.4, lineWidth: 1, color: null },
   tokenSettings: { showNameplates: false, showHPBars: true, showStressBars: false, showInstanceBadges: true, hiddenResources: [] },
   tokens: [
-    token({ id: 'hero', x: 245, y: 245, imagePath: 'red.png', name: 'Hero', hp: { current: 20, max: 27 }, conditions: ['c-poisoned', 'c-frightened'], resources: [{ key: 'ac', current: 15, max: 15 }, { key: 'slots', current: 2, max: 4 }, { key: 'ki', current: 3, max: 5 }] }),
+    token({ id: 'hero', x: 245, y: 245, imagePath: 'red.png', name: 'Hero', statblockPath: 'Bestiary/Hero.md', hp: { current: 20, max: 27 }, conditions: ['c-poisoned', 'c-frightened'], resources: [{ key: 'ac', current: 15, max: 15 }, { key: 'slots', current: 2, max: 4 }, { key: 'ki', current: 3, max: 5 }] }),
     token({ id: 'gob', x: 525, y: 385, imagePath: 'green.png', name: 'Goblin', hp: { current: 3, max: 7 }, instanceNumber: 1 }),
     token({ id: 'gob2', x: 875, y: 385, imagePath: 'green.png', name: 'Goblin', hp: { current: 7, max: 7 }, instanceNumber: 2 }),
     token({ id: 'orc', x: 735, y: 525, imagePath: 'red.png', name: 'Orc', hidden: true, hp: { current: 15, max: 15 } }),
     token({ id: 'noart', x: 385, y: 665, imagePath: 'missing.png', kind: 'token' }),
+    token({ id: 'fallen', x: 1155, y: 525, imagePath: 'red.png', name: 'Fallen', hp: { current: 0, max: 9 } }),
+    token({ id: 'fallenDisc', x: 1225, y: 525, imagePath: 'green.png', name: 'Fallen disc', hp: { current: 0, max: 9 } }),
   ],
   pins: [
     { id: 'p1', x: 1050, y: 300, notePath: 'Notes/Tavern.md', icon: 'treasure', label: null, hex: false },
@@ -93,7 +95,7 @@ async function main(): Promise<void> {
   const props: PropPlacement[] = [{ id: 'barrel', glb: 'props/barrel.glb', x: 910, y: 805, rotation: 0, scale: 1 }];
   const record = {
     moves: [] as Array<[string, number, number]>, propMoves: [] as Array<[string, number, number]>, added: [] as Array<[string, number, number]>,
-    notes: [] as string[], menus: [] as string[], propMenus: [] as string[], warnings: [] as string[],
+    notes: [] as string[], menus: [] as string[], propMenus: [] as string[], previews: [] as string[], warnings: [] as string[],
   };
   const rules = emptyRules();
   rules.conditions.set('c-poisoned', { name: 'Poisoned', color: '#16a34a', valued: false });
@@ -103,7 +105,7 @@ async function main(): Promise<void> {
   const host: BoardHost = {
     readImage: async (path) => images[path] ?? null,
     readMini: async (path) => (path.includes('barrel') ? barrel : hero),
-    placement: (id) => (id === 'hero' ? { mini: 'minis/hero.glb', scale: 1, turn: 0 } : null),
+    placement: (id) => (id === 'hero' || id === 'fallen' ? { mini: 'minis/hero.glb', scale: 1, turn: 0 } : null),
     style: (id) => (id === 'gob' ? 'standee' : 'disc'),
     props: () => props,
     rules: () => rules,
@@ -113,6 +115,7 @@ async function main(): Promise<void> {
     openNote: (path) => { record.notes.push(path); },
     tokenMenu: (id) => { record.menus.push(id); },
     propMenu: (id) => { record.propMenus.push(id); },
+    statblockPreview: (id) => { record.previews.push(id); },
     warn: (message) => { if (!record.warnings.includes(message)) record.warnings.push(message); },
   };
   const container = document.getElementById('board')!;

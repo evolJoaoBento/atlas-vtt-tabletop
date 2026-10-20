@@ -18,7 +18,7 @@ import type { TokenStyle, PropPlacement } from './boardData';
 import { hexCenter, ringDiameter, tokenDiameter } from './geometry';
 import type { BoardGrid, BoardPin, BoardToken } from './mapModel';
 import { pinTitle } from './pinIcons';
-import { hiddenMarkerTexture, pinTexture, plateTexture } from './textures';
+import { downedMarkerTexture, hiddenMarkerTexture, pinTexture, plateTexture } from './textures';
 
 /**
  * How far a token floats over the board, and how thick its disc is, as shares of its diameter. A token with a mini has
@@ -30,6 +30,36 @@ const DISC_THICKNESS = 0.12;
 const CARRY_HEIGHT = 0.35;
 /** How fast it is picked up and set down, per second. */
 const CARRY_SPEED = 12;
+/** How fast a downed figure falls over, per second. */
+const FALL_SPEED = 8;
+
+/**
+ * Greys out a material (a downed token, as Atlas greys it): a step added at the end of its shader, switched by a
+ * uniform so toggling it needs no recompile.
+ */
+function setGrey(root: THREE.Object3D, grey: boolean): void {
+  root.traverse((node) => {
+    const mesh = node as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+      material.userData.grey = grey ? 1 : 0;
+      const uniform = material.userData.greyUniform as { value: number } | undefined;
+      if (uniform) { uniform.value = material.userData.grey; continue; }
+      if (material.userData.greyHooked) continue;
+      material.userData.greyHooked = true;
+      material.onBeforeCompile = (shader) => {
+        shader.uniforms.uGrey = { value: material.userData.grey };
+        material.userData.greyUniform = shader.uniforms.uGrey;
+        shader.fragmentShader = `uniform float uGrey;\n${shader.fragmentShader}`.replace(
+          '#include <dithering_fragment>',
+          '#include <dithering_fragment>\ngl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114))), uGrey);',
+        );
+      };
+      material.customProgramCacheKey = () => 'tabletop-grey';
+      material.needsUpdate = true;
+    }
+  });
+}
 /** The standee's base, as a share of the diameter. */
 const STANDEE_BASE = 0.9;
 const STANDEE_BASE_THICKNESS = 0.06;
@@ -104,7 +134,13 @@ export class TokenPiece {
   readonly object3d = new THREE.Group();
   /** An invisible column over the token that the pointer hits, mini or not. */
   readonly hitTarget: THREE.Mesh;
+  /** Tips the token over when it is downed; the body hangs from it. */
+  readonly fall = new THREE.Group();
+  /** What stays on the board when the figure falls: the ring and the blob shadow. */
+  private readonly ground = new THREE.Group();
   private readonly body = new THREE.Group();
+  private fallen = 0;
+  private skull: THREE.Sprite | null = null;
   private readonly materials: THREE.Material[] = [];
   private art: THREE.Texture | null = null;
   private style: TokenStyle = 'disc';
@@ -123,7 +159,8 @@ export class TokenPiece {
 
   constructor(token: BoardToken, private readonly grid: BoardGrid) {
     this.token = token;
-    this.object3d.add(this.body);
+    this.fall.add(this.body);
+    this.object3d.add(this.fall, this.ground);
     this.hitTarget = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 16), new THREE.MeshBasicMaterial({ visible: false }));
     this.hitTarget.userData.tokenId = token.id;
     this.object3d.add(this.hitTarget);
@@ -152,8 +189,8 @@ export class TokenPiece {
     return this.lift + this.thickness;
   }
 
-  /** How tall the token stands, for the labels over it. */
-  figureHeight(): number {
+  /** How tall the token stands upright. */
+  private uprightHeight(): number {
     if (this.model && this.placement) {
       const base = (this.diameter * this.placement.scale * 0.9) / this.model.footprint;
       return this.top + this.model.height * base;
@@ -162,14 +199,50 @@ export class TokenPiece {
     return this.top;
   }
 
+  /** Whether a downed token tips over: a mini or a standee does; a disc already lies flat. */
+  private get tips(): boolean {
+    return this.model !== null || this.style === 'standee';
+  }
+
+  /** How tall the token is now, for the labels over it: lower as a downed figure falls. */
+  figureHeight(): number {
+    const upright = this.uprightHeight();
+    if (!this.tips) return upright;
+    return upright + (this.diameter * 0.45 - upright) * this.fallen;
+  }
+
   get animating(): boolean {
-    return (this.figure?.animating ?? false) || this.carry !== (this.carried ? 1 : 0);
+    return (this.figure?.animating ?? false) || this.carry !== (this.carried ? 1 : 0) || this.fallen !== (this.downed ? 1 : 0);
+  }
+
+  /** A character at 0 HP or less, as Atlas draws it: greyed out, with a skull, and here lying down. */
+  get downed(): boolean {
+    return this.token.kind === 'character' && this.token.hp !== null && this.token.hp.current <= 0;
   }
 
   update(token: BoardToken): void {
+    const wasDowned = this.downed;
     const rebuild = token.size !== this.token.size || token.rotation !== this.token.rotation || token.showRing !== this.token.showRing || token.ringColor !== this.token.ringColor || token.hidden !== this.token.hidden;
     this.token = token;
     if (rebuild) this.build();
+    else if (wasDowned !== this.downed) this.markDowned();
+  }
+
+  /** Greys the token and shows the skull while it is downed. */
+  private markDowned(): void {
+    setGrey(this.body, this.downed);
+    setGrey(this.ground, this.downed);
+    if (this.downed && !this.skull) {
+      this.skull = new THREE.Sprite(new THREE.SpriteMaterial({ map: downedMarkerTexture(), sizeAttenuation: false, depthTest: false, transparent: true }));
+      this.skull.renderOrder = 10;
+      this.skull.position.y = this.diameter * 0.45;
+      this.object3d.add(this.skull);
+    } else if (!this.downed && this.skull) {
+      this.skull.removeFromParent();
+      this.skull.material.map?.dispose();
+      this.skull.material.dispose();
+      this.skull = null;
+    }
   }
 
   setArt(texture: THREE.Texture | null): void {
@@ -197,6 +270,15 @@ export class TokenPiece {
     const goal = this.carried ? 1 : 0;
     this.carry += (goal - this.carry) * (1 - Math.exp(-CARRY_SPEED * context.dt));
     if (Math.abs(goal - this.carry) < 1e-3) this.carry = goal;
+    // A downed mini or standee tips over onto its side; a disc is already lying flat.
+    const fallGoal = this.downed ? 1 : 0;
+    this.fallen += (fallGoal - this.fallen) * (1 - Math.exp(-FALL_SPEED * context.dt));
+    if (Math.abs(fallGoal - this.fallen) < 1e-3) this.fallen = fallGoal;
+    // It falls toward screen right and lies centred over its own cell, raised by about its thickness.
+    const tips = this.tips;
+    this.fall.rotation.z = tips ? -this.fallen * (Math.PI / 2) : 0;
+    this.fall.position.set(tips ? -this.fallen * (this.uprightHeight() / 2) : 0, tips ? this.fallen * this.diameter * 0.2 : 0, 0);
+    if (this.skull) this.skull.scale.setScalar(context.pixel * Math.min(40, this.diameter * 0.5) * 0.6);
     this.object3d.position.set(x, this.carry * this.diameter * CARRY_HEIGHT, y);
     if (this.standee) this.standee.rotation.y = context.yaw;
     if (this.marker) this.marker.scale.setScalar(context.pixel * Math.min(40, this.diameter * 0.5) * 0.6);
@@ -247,6 +329,8 @@ export class TokenPiece {
     this.figure = null;
     disposeTree(this.body);
     this.body.clear();
+    disposeTree(this.ground);
+    this.ground.clear();
     this.materials.length = 0;
     this.standee = null;
     this.blobShadow = null;
@@ -293,7 +377,8 @@ export class TokenPiece {
         // Around the disc's top edge; with a mini, lying on the board.
         ring.position.y = this.model ? tube : this.top;
         ring.castShadow = true;
-        this.body.add(ring);
+        // On the ground: a downed figure tips over, its ring stays.
+        this.ground.add(ring);
       }
     }
 
@@ -318,10 +403,11 @@ export class TokenPiece {
       shadow.position.set(d * BLOB_OFFSET, d * 0.01, d * BLOB_OFFSET);
       shadow.renderOrder = -1;
       this.blobShadow = shadow;
-      this.body.add(shadow);
+      this.ground.add(shadow);
       this.setMiniShadows(this.miniShadows);
     }
 
+    this.markDowned();
     if (this.token.hidden) {
       this.marker = new THREE.Sprite(new THREE.SpriteMaterial({ map: hiddenMarkerTexture(), sizeAttenuation: false, depthTest: false, transparent: true }));
       this.marker.renderOrder = 10;
@@ -333,6 +419,10 @@ export class TokenPiece {
   dispose(): void {
     this.figure?.dispose();
     this.figure = null;
+    if (this.skull) {
+      this.skull.material.map?.dispose();
+      this.skull.material.dispose();
+    }
     if (this.marker) {
       this.marker.material.map?.dispose();
       this.marker.material.dispose();

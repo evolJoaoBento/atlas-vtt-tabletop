@@ -66,6 +66,23 @@ server.listen(0, async () => {
     check('a dropped token is set down', restY === 0, restY);
     await page.evaluate(() => { window.boardTest.record.moves.length = 1; });
 
+    // 1c. Ctrl + hover on a token with a stat block shows it, once per token.
+    const heroHover = await project(245, 245, 20);
+    await page.keyboard.down('Control');
+    await page.mouse.move(heroHover.x, heroHover.y);
+    await page.mouse.move(heroHover.x + 2, heroHover.y + 1);
+    await page.keyboard.up('Control');
+    await page.mouse.move(heroHover.x + 3, heroHover.y + 1);
+    r = await record();
+    check('ctrl + hover shows the stat block once', JSON.stringify(r.previews) === '["hero"]', r.previews);
+
+    // 1d. A downed character (0 HP) is greyed out and lies down; a mini and a disc alike.
+    await wait(1200);
+    const downed = await page.evaluate(() => ['fallen', 'fallenDisc', 'gob2'].map((id) => { const p = window.boardTest.board.tokens.get(id).piece; return { id, downed: p.downed, lying: Math.abs(p.fall.rotation.z) }; }));
+    check('a 0 HP mini lies down', downed[0].downed && downed[0].lying > 1.4, downed[0]);
+    check('a 0 HP disc is downed (grey, flat)', downed[1].downed, downed[1]);
+    check('a token with HP stands', !downed[2].downed && downed[2].lying < 0.01, downed[2]);
+
     // 2. A click on a pin opens its note.
     const pin = await project(1050, 300, 42);
     await page.mouse.click(pin.x, pin.y);
@@ -222,6 +239,9 @@ server.listen(0, async () => {
     await page.evaluate(() => { const b = window.boardTest.board; b.camera.lookAt({ x: 245, y: 0, z: 245 }); b.camera.zoom(0.15); b.camera.orbit(0, -0.3); b.wake(); });
     await wait(1500);
     await page.screenshot({ path: `${shots}/board-4-hero.png` });
+    await page.evaluate(() => { const b = window.boardTest.board; b.camera.lookAt({ x: 1190, y: 0, z: 525 }); b.camera.snap(); b.wake(true); });
+    await wait(1200);
+    await page.screenshot({ path: `${shots}/board-5-downed.png` });
     const heroTop = await project(245, 245, 40);
     await page.mouse.move(heroTop.x - 60, heroTop.y);
     await wait(100);

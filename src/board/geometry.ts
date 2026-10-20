@@ -25,13 +25,24 @@ export function ringDiameter(grid: BoardGrid, size: number): number {
   return tokenDiameter(grid, size) + 2 * ringStroke(grid);
 }
 
-/** The centre of the hex holding a point (cube rounding, as Atlas does). */
-export function hexCenter(grid: BoardGrid, x: number, y: number): Point {
+interface HexFrame {
+  radius: number;
+  pointy: boolean;
+  origin: Point;
+}
+
+function hexFrame(grid: BoardGrid): HexFrame {
   const radius = grid.size / SQRT3;
   const pointy = grid.type !== 'hex-horizontal';
   const origin = pointy
     ? { x: grid.offsetX + grid.size / 2, y: grid.offsetY + radius }
     : { x: grid.offsetX + radius, y: grid.offsetY + grid.size / 2 };
+  return { radius, pointy, origin };
+}
+
+/** The axial coordinates of the hex holding a point (cube rounding, as Atlas does). */
+export function hexAxial(grid: BoardGrid, x: number, y: number): { q: number; r: number } {
+  const { radius, pointy, origin } = hexFrame(grid);
   const dx = x - origin.x;
   const dy = y - origin.y;
   const fq = pointy ? ((SQRT3 / 3) * dx - dy / 3) / radius : ((2 / 3) * dx) / radius;
@@ -45,9 +56,21 @@ export function hexCenter(grid: BoardGrid, x: number, y: number): Point {
   const sDiff = Math.abs(s - fs);
   if (qDiff > rDiff && qDiff > sDiff) q = -r - s;
   else if (rDiff > sDiff) r = -q - s;
+  return { q: q + 0, r: r + 0 };
+}
+
+/** The centre of a hex given by its axial coordinates. */
+export function axialCenter(grid: BoardGrid, q: number, r: number): Point {
+  const { radius, pointy, origin } = hexFrame(grid);
   return pointy
     ? { x: origin.x + grid.size * (q + r / 2), y: origin.y + 1.5 * radius * r }
     : { x: origin.x + 1.5 * radius * q, y: origin.y + grid.size * (r + q / 2) };
+}
+
+/** The centre of the hex holding a point. */
+export function hexCenter(grid: BoardGrid, x: number, y: number): Point {
+  const { q, r } = hexAxial(grid, x, y);
+  return axialCenter(grid, q, r);
 }
 
 /** Where a token dropped at (x, y) lands: its cell's centre, or where it was dropped when the map does not snap. */

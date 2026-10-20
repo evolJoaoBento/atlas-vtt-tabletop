@@ -1,7 +1,7 @@
 import { Notice, Plugin, PluginSettingTab, Setting, TFile, debounce, type App } from 'obsidian';
 import { Assignments, readAssignments, type AssignmentData, type MiniPlacement } from './src/assignments';
 import { mapViews } from './src/atlas';
-import { BOARD_VIEW_TYPE, BoardView } from './src/board/BoardView';
+import { BOARD_VIEW_TYPE, BoardView, HOVER_SOURCE } from './src/board/BoardView';
 import { BoardData, readBoardData, type BoardDataJSON } from './src/board/boardData';
 import { DEFAULT_QUALITY, readQuality, type Quality } from './src/board/quality';
 import { TokenWriter } from './src/board/tokenWriter';
@@ -83,6 +83,7 @@ export default class TabletopPlugin extends Plugin {
       quality: () => this.settings.quality,
       focused: (view) => { this.lastBoard = view; },
     }));
+    this.registerHoverLinkSource(HOVER_SOURCE, { display: 'Tabletop 3D board', defaultMod: true });
     this.addRibbonIcon('box', 'Open minis gallery', () => { void this.openGallery(); });
     this.addCommand({ id: 'open-gallery', name: 'Open minis gallery', callback: () => { void this.openGallery(); } });
     this.addCommand({

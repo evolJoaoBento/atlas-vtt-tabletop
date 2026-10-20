@@ -42,6 +42,8 @@ export interface BoardHost {
   openNote(path: string): void;
   tokenMenu(id: string, event: MouseEvent): void;
   propMenu(id: string, event: MouseEvent): void;
+  /** Shows a token's stat block (Ctrl/Cmd + hover). */
+  statblockPreview(id: string, event: MouseEvent): void;
   /** Shown once per message. */
   warn(message: string): void;
 }
@@ -119,6 +121,8 @@ export class Board {
   /** Something on the board changed since the shadows were last drawn. */
   private shadowsDirty = true;
   private shadowedAt = 0;
+  /** The token whose stat block was last shown, so a hover shows it once. */
+  private previewed: string | null = null;
 
   constructor(private readonly container: HTMLElement, private readonly host: BoardHost, private quality: QualityPreset) {
     const doc = container.ownerDocument;
@@ -705,8 +709,15 @@ export class Board {
     return { x: THREE.MathUtils.clamp(x, 0, this.size.width), y: THREE.MathUtils.clamp(y, 0, this.size.height) };
   }
 
-  /** Names a condition ring or stat badge under the pointer. */
+  /** Names a condition ring or stat badge under the pointer; with Ctrl/Cmd held, shows a token's stat block. */
   private hover(event: PointerEvent): void {
+    if (event.ctrlKey || event.metaKey) {
+      const id = this.tokenAt(event.clientX, event.clientY);
+      if (id !== this.previewed && id && this.tokens.get(id)?.token.statblockPath) this.host.statblockPreview(id, event);
+      this.previewed = id;
+    } else {
+      this.previewed = null;
+    }
     const targets: HoverTarget[] = [];
     for (const entry of this.tokens.values()) targets.push(...entry.labels.hoverTargets);
     const hit = this.hit(event.clientX, event.clientY, targets.map((target) => target.object));
