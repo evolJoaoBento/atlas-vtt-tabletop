@@ -219,6 +219,9 @@ export class BoardView extends ItemView {
         writer.resource(mapPath(), id, key, edit, maxEdited).catch((error: unknown) => this.unsaved(`${name} change`, error));
       },
       measurement: () => readMeasurement(this.rules.gridDefaults, this.map?.rawGrid),
+      fogHeight: () => boardData.fogHeight(mapPath()),
+      // Saved with Tabletop's data; the board follows through `refresh`, as for a style change.
+      setFogHeight: (height) => boardData.setFogHeight(mapPath(), height),
       statblockPreview: (id, event) => {
         const path = this.map?.tokens.find((token) => token.id === id)?.statblockPath;
         if (!path || !this.board) return;

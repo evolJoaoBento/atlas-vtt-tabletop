@@ -47,3 +47,15 @@ test('readBoardData drops junk', () => {
   });
   assert.deepEqual(readBoardData(null), {});
 });
+
+test('fog height is one square by default, kept per map, and read back from saved data', () => {
+  const data = new BoardData();
+  assert.equal(data.fogHeight('m'), 1);
+  data.setFogHeight('m', 2.5);
+  assert.equal(data.fogHeight('m'), 2.5);
+  assert.equal(data.fogHeight('other'), 1);
+  assert.deepEqual(readBoardData(data.toJSON()), { m: { fogHeight: 2.5 } });
+  data.setFogHeight('m', 1);
+  assert.deepEqual(data.toJSON(), {});
+  assert.deepEqual(readBoardData({ a: { fogHeight: -1 }, b: { fogHeight: 'x' }, c: { fogHeight: 0 } }), { c: { fogHeight: 0 } });
+});

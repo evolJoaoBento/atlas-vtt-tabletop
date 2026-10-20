@@ -264,6 +264,76 @@ server.listen(0, async () => {
       check('a deleted token leaves the board, and its selection', fate.copy && !fate.still && fate.selected === null, fate);
     }
 
+    // 1j. Atlas's fog of war stands on the map; the toolbar's settings set its height.
+    {
+      const fog = () => page.evaluate(() => {
+        const group = window.boardTest.board.fog.object3d;
+        let minY = Infinity, maxY = -Infinity, meshes = 0, holes = 0;
+        group.traverse((node) => {
+          if (!node.isMesh) return;
+          meshes++;
+          node.geometry.computeBoundingBox();
+          minY = Math.min(minY, node.geometry.boundingBox.min.y);
+          maxY = Math.max(maxY, node.geometry.boundingBox.max.y);
+        });
+        return { meshes, minY, maxY };
+      });
+      let f = await fog();
+      check('the fog stands on the map, one block per area', f.meshes === 2, f);
+      check('the fog is one square tall by default', Math.abs(f.maxY - f.minY - 70) < 0.01, f);
+      const covered = await page.evaluate(() => {
+        // The corridor erased through the room is open: no fog over its middle, fog over the room around it.
+        const meshes = []; window.boardTest.board.fog.object3d.traverse((n) => { if (n.isMesh) meshes.push(n); });
+        const probe = (x, z) => {
+          const caster = new (window.boardTest.Raycaster)(new (window.boardTest.Vector3)(x, 500, z), new (window.boardTest.Vector3)(0, -1, 0));
+          return caster.intersectObjects(meshes, false).length > 0;
+        };
+        return { room: probe(1000, 790), corridor: probe(1155, 875), outside: probe(600, 300) };
+      });
+      check('fog covers the room, not the corridor erased through it', covered.room && !covered.corridor && !covered.outside, covered);
+      await page.screenshot({ path: `${shots}/board-8-fog.png` });
+
+      const button = await page.evaluate(() => { const b = document.querySelector('.atlas-tabletop-tool-button').getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; });
+      const selBefore = await page.evaluate(() => window.boardTest.board.selected);
+      await page.mouse.click(button.x, button.y);
+      await wait(150);
+      const panel = await page.evaluate(() => {
+        const p = document.querySelector('.atlas-tabletop-palette');
+        const input = p.querySelector('input');
+        return { open: !p.hidden, value: input.value, focused: document.activeElement === input, text: p.textContent };
+      });
+      check('the toolbar\'s button opens the board settings with the fog height', panel.open && panel.value === '1' && panel.focused && panel.text.includes('Fog of war'), panel);
+      await page.screenshot({ path: `${shots}/board-9-settings.png` });
+      const camera = await goal();
+      await page.keyboard.press('Control+A');
+      await page.keyboard.type('w2');
+      await page.keyboard.press('Backspace');
+      await page.keyboard.press('Backspace');
+      await page.keyboard.type('2');
+      await page.keyboard.press('Enter');
+      await wait(300);
+      r = await record();
+      check('typing a height and Enter sets it', JSON.stringify(r.fogHeights) === '[2]', r.fogHeights);
+      f = await fog();
+      check('the fog stands two squares tall', Math.abs(f.maxY - f.minY - 140) < 0.01, f);
+      const after = await goal();
+      check('typing in the settings does not move the camera', JSON.stringify(after.target) === JSON.stringify(camera.target), { camera: camera.target, after: after.target });
+      await page.keyboard.type('x');
+      await page.keyboard.press('Enter');
+      const invalid = await page.evaluate(() => document.querySelector('.atlas-tabletop-palette input').hasAttribute('aria-invalid'));
+      check('a height that is not a number is refused', invalid && (await record()).fogHeights.length === 1, invalid);
+      await page.keyboard.press('Escape');
+      await wait(100);
+      check('Escape closes the settings', await page.evaluate(() => document.querySelector('.atlas-tabletop-palette').hidden));
+      check('the toolbar takes no press from the board', (await page.evaluate(() => window.boardTest.board.selected)) === selBefore);
+      await page.mouse.click(button.x, button.y);
+      await wait(100);
+      const empty = await project(560, 760, 0);
+      await page.mouse.click(empty.x, empty.y);
+      await wait(100);
+      check('a click on the board closes the settings', await page.evaluate(() => document.querySelector('.atlas-tabletop-palette').hidden));
+    }
+
     // 2. A click on a pin opens its note.
     const pin = await project(1050, 300, 42);
     await page.mouse.click(pin.x, pin.y);

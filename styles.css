@@ -302,3 +302,133 @@
   color: var(--text-error);
   font-weight: var(--font-semibold);
 }
+
+/* The 3D board's toolbar, at the bottom of the board, in Atlas's look (its `.atlas-vtt-toolbar`). */
+.atlas-tabletop-toolbar-row {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.atlas-tabletop-toolbar,
+.atlas-tabletop-palette {
+  pointer-events: auto;
+  background: var(--background-primary);
+  border: 1.5px solid color-mix(in oklch, var(--mono-100, var(--text-normal)) 18%, transparent);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-l);
+}
+
+.atlas-tabletop-toolbar {
+  order: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+}
+
+.atlas-tabletop-tool-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: calc(var(--radius-xl) - 9.5px);
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: transform 0.16s ease;
+}
+
+.atlas-tabletop-tool-button:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.atlas-tabletop-tool-button.is-active {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.atlas-tabletop-tool-button:active {
+  transform: scale(0.96);
+}
+
+.atlas-tabletop-tool-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* The board's settings, above the toolbar, as Atlas's command palette opens. */
+.atlas-tabletop-palette {
+  order: 1;
+  width: min(360px, 100%);
+  padding: var(--size-4-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-3);
+}
+
+.atlas-tabletop-palette[hidden] {
+  display: none;
+}
+
+.atlas-tabletop-palette__title {
+  font-weight: var(--font-semibold);
+  color: var(--text-normal);
+}
+
+.atlas-tabletop-palette__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  padding: var(--size-4-3);
+  border-radius: var(--radius-l);
+  background: var(--background-secondary);
+}
+
+.atlas-tabletop-palette__heading {
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.atlas-tabletop-palette__field {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+}
+
+.atlas-tabletop-palette__label {
+  flex: 1;
+}
+
+.atlas-tabletop-palette__input {
+  width: 64px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.atlas-tabletop-palette__input[aria-invalid] {
+  border-color: var(--text-error);
+}
+
+.atlas-tabletop-palette__unit,
+.atlas-tabletop-palette__hint {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}

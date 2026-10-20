@@ -84,6 +84,12 @@ const map: BoardMap = {
     token({ id: 'fallenDisc', x: 1225, y: 525, imagePath: 'green.png', name: 'Fallen disc', resources: { hp: { current: 0, max: 9 } } }),
   ],
   rawGrid: null,
+  // A fogged room with a corridor erased through it, and a brush stroke beside it.
+  fog: [
+    { id: 'f1', type: 'rectangle', timestamp: 1, isErasing: false, offsetX: 0, offsetY: 0, x: 980, y: 770, width: 350, height: 210 },
+    { id: 'f2', type: 'rectangle', timestamp: 2, isErasing: true, offsetX: 0, offsetY: 0, x: 1085, y: 840, width: 140, height: 70 },
+    { id: 'f3', type: 'brush', timestamp: 3, isErasing: false, offsetX: 0, offsetY: 0, points: [{ x: 70, y: 900 }, { x: 280, y: 940 }], brushRadius: 35 },
+  ],
   icons: [
     { id: 'i1', icon: 'flame', x: 630, y: 700, color: '#ff8800', size: 70, opacity: 1 },
     { id: 'i2', icon: 'door-closed', x: 770, y: 700, color: '#ffffff', size: 70, opacity: 0.9 },
@@ -102,7 +108,7 @@ async function main(): Promise<void> {
   const record = {
     moves: [] as Array<[string, number, number]>, propMoves: [] as Array<[string, number, number]>, added: [] as Array<[string, number, number]>,
     notes: [] as string[], menus: [] as string[], propMenus: [] as string[], previews: [] as string[], warnings: [] as string[],
-    copies: [] as Array<[string, string, number, number]>,
+    copies: [] as Array<[string, string, number, number]>, fogHeights: [] as number[],
     /** Resource edits as the host saved them: token, key, the value it held, the value written, max edited. */
     edits: [] as Array<[string, string, ResourceValue, ResourceValue, boolean]>,
   };
@@ -119,6 +125,7 @@ async function main(): Promise<void> {
     { key: 'ki', name: 'Ki', field: 'ki', direction: 'fills', color: '#eab308', visibleToPlayers: true },
   ];
   rules.definitions = definitions;
+  let fogHeight = 1;
   const host: BoardHost = {
     readImage: async (path) => images[path] ?? null,
     readMini: async (path) => (path.includes('barrel') ? barrel : hero),
@@ -141,6 +148,8 @@ async function main(): Promise<void> {
       stored.get(id)![key] = next;
       record.edits.push([id, key, held, next, maxEdited]);
     },
+    fogHeight: () => fogHeight,
+    setFogHeight: (height) => { fogHeight = height; record.fogHeights.push(height); board.refresh(); },
     measurement: () => ({ mode: 'metric', unitType: 'feet', unitDistance: 5, diagonalRule: 'equidistant', bands: [] }),
     warn: (message) => { if (!record.warnings.includes(message)) record.warnings.push(message); },
   };
@@ -154,7 +163,7 @@ async function main(): Promise<void> {
     const rect = board.canvas.getBoundingClientRect();
     return { x: rect.left + ((point.x + 1) / 2) * rect.width, y: rect.top + ((1 - point.y) / 2) * rect.height };
   };
-  Object.assign(window, { boardTest: { board, map, record, stored, project, hero, QUALITY, ready: true } });
+  Object.assign(window, { boardTest: { board, map, record, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

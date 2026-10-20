@@ -8,6 +8,7 @@
  * - A click on a pin opens its note; a right-click on a token or a prop opens its menu; a click on a token selects it
  *   (and wobbles its mini), a click on the empty board or Escape lets it go. The selected token gets Atlas's resource
  *   controls: − / + beside each bar and wheel, and a click on one opens Atlas's editor for it.
+ * - Atlas's fog of war stands on the map as a see-through block, as tall as the toolbar's settings say.
  * - Any other drag moves the camera: left or middle orbits, right pans. The wheel zooms. WASD or the arrow keys pan,
  *   Q and E turn, Home frames the map.
  *
@@ -31,6 +32,8 @@ import { numberCells, type CellNumbers } from './cellNumbers';
 import { stripGeometry } from './surface';
 import { ResolutionGovernor, type QualityPreset } from './quality';
 import { BoardSurface } from './surface';
+import { FogVolume } from './fogVolume';
+import { BoardToolbar } from './toolbar';
 import { pinTitle } from './pinIcons';
 import { loadImageTexture, plateTexture, screenScale } from './textures';
 
@@ -66,6 +69,9 @@ export interface BoardHost {
   editResource(id: string, key: string, edit: (stored: ResourceValue) => ResourceValue, maxEdited: boolean): void;
   /** How distances are measured and labelled on this map. */
   measurement(): Measurement;
+  /** How tall the map's fog stands, in grid squares; and saving a new height. */
+  fogHeight(): number;
+  setFogHeight(height: number): void;
   /** Shown once per message. */
   warn(message: string): void;
 }
@@ -173,6 +179,8 @@ export class Board {
   /** The token whose resource controls show. */
   private selectedId: string | null = null;
   private readonly controls: ResourceControls;
+  private readonly fog = new FogVolume();
+  private readonly toolbar: BoardToolbar;
   /** The open resource editor: whose, which resource, the value it opened on. */
   private editor: { tokenId: string; key: string; value: ResourceValue; view: ValueEditor } | null = null;
   /** How the last frame sized things on screen, to size what a reload rebuilds before the next frame. */
@@ -190,6 +198,11 @@ export class Board {
     this.tooltip.className = 'atlas-tabletop-tooltip';
     this.tooltip.hidden = true;
     container.appendChild(this.tooltip);
+    this.scene.add(this.fog.object3d);
+    this.toolbar = new BoardToolbar(container, {
+      fogHeight: () => this.host.fogHeight(),
+      setFogHeight: (height) => this.host.setFogHeight(height),
+    });
     this.controls = new ResourceControls(container, {
       step: (key, delta) => this.stepResource(key, delta),
       edit: (key) => this.openEditor(key),
@@ -391,6 +404,12 @@ export class Board {
       return piece;
     });
     for (const piece of kept.values()) piece.dispose();
+
+    try {
+      this.fog.update(map.fog, this.host.fogHeight(), map.grid.size);
+    } catch (error) {
+      this.host.warn(`Tabletop: cannot show this map's fog of war: ${error instanceof Error ? error.message : String(error)}`);
+    }
 
     for (const pin of this.pins) pin.dispose();
     this.pins = map.pins.map((pin) => {
@@ -673,6 +692,7 @@ export class Board {
       const key = event.key.toLowerCase();
       if (key === 'escape' && this.placing) { this.stopPlacing(); return; }
       if (key === 'escape' && this.selectedId !== null) { this.select(null); return; }
+      if (key === 'escape' && this.toolbar.isOpen) { this.toolbar.close(); return; }
       if (key === 'home') { this.frameMap(); event.preventDefault(); return; }
       // Space while carrying a token drops a waypoint on its ruler.
       if (key === ' ' && this.press?.kind === 'token') {
@@ -1164,6 +1184,8 @@ export class Board {
     this.clearRuler();
     this.editor?.view.close();
     this.controls.dispose();
+    this.toolbar.dispose();
+    this.fog.dispose();
     for (const piece of this.props.values()) piece.dispose();
     this.surface?.dispose();
     for (const art of this.arts.values()) void art.then((texture) => texture?.dispose());

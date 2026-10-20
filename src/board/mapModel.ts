@@ -4,6 +4,7 @@
  * defaulted the way Atlas defaults it, so a field Atlas left out (an older map, a token never edited) reads as Atlas
  * would draw it. Pure, so it is tested without Obsidian.
  */
+import { readFog, type FogOperation } from './fog';
 import { hiddenResourcesOf, isDefeated, tokenFromFile, type ResourceDefinition, type ResourceValue } from './resources';
 
 export type GridType = 'square' | 'hex-vertical' | 'hex-horizontal';
@@ -101,6 +102,8 @@ export interface BoardMap {
   tokens: BoardToken[];
   pins: BoardPin[];
   icons: BoardIcon[];
+  /** The fog of war's strokes, as Atlas stores them (`fog.ts` replays them). */
+  fog: FogOperation[];
   /** Atlas's grid object as stored, for the measuring fields read when the map has no collection rules. */
   rawGrid: unknown;
 }
@@ -249,6 +252,7 @@ export function readMap(path: string, text: string): BoardMap {
     tokens: items(objects.tokens).map(readToken).filter((token): token is BoardToken => token !== null),
     pins: items(objects.pins).map(readPin).filter((pin): pin is BoardPin => pin !== null),
     icons: items(objects.drawings).map(readIcon).filter((icon): icon is BoardIcon => icon !== null),
+    fog: readFog(objects.fog),
     rawGrid: state.grid ?? null,
   };
 }

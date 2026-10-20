@@ -1,6 +1,6 @@
 /**
  * What the board remembers per map besides the minis: how each token without a mini is shown (a disc, the default, or
- * a standee) and the props standing on the map. Kept in Tabletop's own data, never in the map file. Follows vault
+ * a standee), the props standing on the map, and how tall its fog of war stands. Kept in Tabletop's own data, never in the map file. Follows vault
  * renames and deletions the way the mini assignments do. Pure, so it is tested without Obsidian.
  */
 
@@ -21,7 +21,12 @@ export interface PropPlacement {
 interface MapData {
   styles?: Record<string, TokenStyle>;
   props?: PropPlacement[];
+  /** How tall the fog stands, in grid squares; kept only when it is not the default. */
+  fogHeight?: number;
 }
+
+/** Fog stands one square tall unless the GM says otherwise. */
+export const DEFAULT_FOG_HEIGHT = 1;
 
 export type BoardDataJSON = Record<string, MapData>;
 
@@ -38,7 +43,8 @@ function tidy(map: MapData): MapData | null {
   const out: MapData = {};
   if (map.styles && Object.keys(map.styles).length > 0) out.styles = map.styles;
   if (map.props && map.props.length > 0) out.props = map.props;
-  return out.styles || out.props ? out : null;
+  if (map.fogHeight !== undefined && map.fogHeight !== DEFAULT_FOG_HEIGHT) out.fogHeight = map.fogHeight;
+  return out.styles || out.props || out.fogHeight !== undefined ? out : null;
 }
 
 /** Reads saved data, dropping anything malformed. Only standees are stored: a disc is the default. */
@@ -50,7 +56,8 @@ export function readBoardData(raw: unknown): BoardDataJSON {
     const styles: Record<string, TokenStyle> = {};
     if (isObj(value.styles)) for (const [id, style] of Object.entries(value.styles)) if (style === 'standee') styles[id] = style;
     const props = Array.isArray(value.props) ? value.props.map(readProp).filter((prop): prop is PropPlacement => prop !== null) : [];
-    const kept = tidy({ styles, props });
+    const fogHeight = typeof value.fogHeight === 'number' && Number.isFinite(value.fogHeight) && value.fogHeight >= 0 ? value.fogHeight : undefined;
+    const kept = tidy({ styles, props, ...(fogHeight !== undefined && { fogHeight }) });
     if (kept) out[path] = kept;
   }
   return out;
@@ -103,6 +110,16 @@ export class BoardData {
     if (style === 'disc') delete styles[tokenId];
     else styles[tokenId] = style;
     this.put(mapPath, { ...map, styles });
+  }
+
+  /** How tall the map's fog stands, in grid squares. */
+  fogHeight(mapPath: string): number {
+    return this.data[mapPath]?.fogHeight ?? DEFAULT_FOG_HEIGHT;
+  }
+
+  setFogHeight(mapPath: string, height: number): void {
+    if (!Number.isFinite(height) || height < 0 || this.fogHeight(mapPath) === height) return;
+    this.put(mapPath, { ...(this.data[mapPath] ?? {}), fogHeight: height });
   }
 
   props(mapPath: string): readonly PropPlacement[] {
