@@ -73,3 +73,28 @@ export function materialName(fileName: string): string {
   const name = (cut > 0 ? base.slice(0, cut) : base).replace(/[_-](\d+k)$/i, '');
   return name.replace(/[\\/:*?"<>|#^[\]]/g, '-').trim() || 'Material';
 }
+
+/** A material's own settings, kept beside its maps (`material.json`). */
+export interface MaterialSettings {
+  /** How many grid squares one tile of the texture covers. */
+  scale: number;
+}
+
+export const MATERIAL_SETTINGS_FILE = 'material.json';
+export const DEFAULT_MATERIAL_SETTINGS: Readonly<MaterialSettings> = { scale: 1 };
+export const MIN_TEXTURE_SCALE = 0.1;
+export const MAX_TEXTURE_SCALE = 20;
+
+/** A material's settings file read, anything missing or out of range taking its default. */
+export function readMaterialSettings(text: string | null): MaterialSettings {
+  let raw: unknown = null;
+  try {
+    raw = text ? JSON.parse(text) : null;
+  } catch {
+    raw = null;
+  }
+  const scale = typeof raw === 'object' && raw !== null ? (raw as { scale?: unknown }).scale : undefined;
+  return {
+    scale: typeof scale === 'number' && Number.isFinite(scale) ? Math.min(MAX_TEXTURE_SCALE, Math.max(MIN_TEXTURE_SCALE, scale)) : DEFAULT_MATERIAL_SETTINGS.scale,
+  };
+}

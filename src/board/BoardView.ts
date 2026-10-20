@@ -202,6 +202,16 @@ export class BoardView extends ItemView {
   }
 
   /** The next click on the board puts a prop of `glb` there. */
+  /** A material's files changed: walls painted with it are drawn again. */
+  refreshMaterials(): void {
+    this.board?.refreshMaterials();
+  }
+
+  /** Paints walls with a material on click, until Esc. */
+  paintWith(material: string): void {
+    this.board?.paintWith(material);
+  }
+
   placeProp(glb: string): void {
     this.board?.placeProp(glb);
   }
@@ -318,6 +328,7 @@ export class BoardView extends ItemView {
       initiativeOpen: () => this.initiative?.isOpen ?? false,
       toggleInitiative: () => this.initiative?.setOpen(!this.initiative.isOpen),
       wallMaterial: (id) => boardData.wallMaterial(mapPath(), id),
+      wallHeight: (id) => boardData.wallHeight(mapPath(), id),
       doorProp: (id) => boardData.doorProp(mapPath(), id),
       readMaterial: (path) => this.services.materials.load(path).catch((error: unknown) => {
         this.warn(`Tabletop: cannot read the material ${path}: ${error instanceof Error ? error.message : String(error)}`);
@@ -380,6 +391,21 @@ export class BoardView extends ItemView {
       const paint = boardData.wallMaterial(path, id);
       const painted = door ? [] : wholeWall(this.map?.walls ?? [], id).filter((other) => boardData.wallMaterial(path, other) !== null);
       const list: MenuEntry[] = [];
+      // Its own height, by quarter squares; until set, as tall as the fog (a low wall half that).
+      const own = boardData.wallHeight(path, id);
+      const fog = boardData.fogHeight(path);
+      const height = own ?? (wall.limited ? fog / 2 : fog);
+      const setHeight = (next: number): void => boardData.setWallHeight(path, [id], Math.max(0, Math.round(next * 4) / 4));
+      list.push({
+        type: 'item', label: own === null ? 'Height (fog)' : 'Height', keepOpen: true, onClick: () => undefined,
+        stepper: { value: `${height} sq`, label: 'Height', canDecrement: height > 0, onDecrement: () => setHeight(height - HEIGHT_STEP), onIncrement: () => setHeight(height + HEIGHT_STEP) },
+      });
+      const whole = door ? [id] : wholeWall(this.map?.walls ?? [], id);
+      if (whole.length > 1) list.push({ type: 'item', label: 'Give the whole wall this height', onClick: () => boardData.setWallHeight(path, whole, height) });
+      if (own !== null || whole.some((other) => boardData.wallHeight(path, other) !== null)) {
+        list.push({ type: 'item', label: 'Back to the fog\'s height', onClick: () => boardData.setWallHeight(path, whole, null) });
+      }
+      list.push({ type: 'separator' });
       if (door) {
         list.push({ type: 'item', label: wall.closed ? 'Open' : 'Close', disabled: wall.locked, onClick: () => this.board?.toggleDoor(id) });
         list.push({

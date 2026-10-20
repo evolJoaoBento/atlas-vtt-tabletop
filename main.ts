@@ -81,9 +81,10 @@ export default class TabletopPlugin extends Plugin {
     this.props = new MiniLibrary(this.app, () => this.settings.propsFolder, PROPS);
     this.materials = new MaterialLibrary(this.app, () => this.settings.materialsFolder);
     this.register(() => { this.library.dispose(); this.props.dispose(); this.materials.dispose(); });
+    this.register(this.materials.onChange(() => { for (const view of this.boards()) view.refreshMaterials(); }));
     const writer = new TokenWriter({ views: () => mapViews(this.app), process: (path, edit) => this.processFile(path, edit) });
 
-    this.registerView(GALLERY_VIEW_TYPE, (leaf) => new GalleryView(leaf, this.library, this.props, this.materials, (glb) => this.placeProp(glb)));
+    this.registerView(GALLERY_VIEW_TYPE, (leaf) => new GalleryView(leaf, this.library, this.props, this.materials, (glb) => this.placeProp(glb), (material) => this.paintWith(material)));
     this.registerView(BOARD_VIEW_TYPE, (leaf) => new BoardView(leaf, {
       assignments: this.assignments,
       boardData: this.boardData,
@@ -284,6 +285,19 @@ export default class TabletopPlugin extends Plugin {
     void this.app.workspace.revealLeaf(view.leaf);
     view.placeProp(glb);
     new Notice('Tabletop: click the board where the prop goes (Esc to cancel).');
+  }
+
+  /** A material clicked in the gallery: the 3D board used last paints walls with it on click. */
+  private paintWith(material: string): void {
+    const open = this.boards();
+    const view = this.lastBoard && open.includes(this.lastBoard) ? this.lastBoard : open[0];
+    if (!view) {
+      new Notice('Tabletop: open a map in 3D first, then click a material to paint its walls.');
+      return;
+    }
+    void this.app.workspace.revealLeaf(view.leaf);
+    view.paintWith(material);
+    new Notice(`Tabletop: click walls or doors to paint them with ${material.split('/').pop()}. Shift-click paints the whole wall. Esc stops.`, 6000);
   }
 
   private async processFile(path: string, edit: (text: string) => string): Promise<void> {

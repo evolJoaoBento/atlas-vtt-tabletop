@@ -25,11 +25,14 @@ through Atlas VTT Connect see the minis too, if they have Tabletop installed.
   open or shut it; it swings on its hinge and is saved through Atlas (or the map file). Right-click a door to lock it,
   or to replace it with a prop from the gallery, which is fitted to the opening and swings the same way. A secret door
   looks like the walls around it; the GM sees a thin line on it, and on a one-way wall an arrow the way light passes,
-  which players do not. Walls and doors under the fog of war are hidden from players.
+  which players do not. Walls and doors under the fog of war are hidden from players. Right-click a wall to set its
+  own height (or the whole wall's), in quarter squares; until set it stands as tall as the fog.
 - **Materials:** the gallery's **Materials** tab imports texture sets as Poly Haven gives them (the zip, its maps, or a
   folder of them), kept in `atlas-vtt/assets/materials`. Drag one onto a wall or door to paint that segment; hold
   **Shift** to paint the whole wall (the segments drawn in one stroke, or else those joined end to end up to a
-  junction or a door). Right-click a wall to take its material off.
+  junction or a door). Or click a material, then click walls on the board (Esc stops). Right-click a wall to take its
+  material off. Right-click a material in the gallery and choose **Edit material…** to set how many grid squares one
+  tile of its texture covers (kept in the material's folder, as `material.json`).
 - **Lights:** Atlas's lights (placed, and carried by tokens) shine on the board with their colour, bright and dim
   radii, and flicker (in the dark). The board settings (⌘) have an ambient light slider: lower it and the map goes
   dark; it starts at Atlas's ambient light when the map has Atlas's lighting on. Right-click a light's bulb, or a

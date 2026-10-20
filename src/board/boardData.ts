@@ -29,6 +29,8 @@ interface MapData {
   wallMaterials?: Record<string, string>;
   /** Door id to the vault path of the prop GLB that stands in for its leaf. */
   doorProps?: Record<string, string>;
+  /** Wall (or door) id to its own height, in grid squares; unset stands it as tall as the fog. */
+  wallHeights?: Record<string, number>;
   /** Light id (or the id of the token carrying it) to its height above the map, in grid squares. */
   lightHeights?: Record<string, number>;
   /** The board's ambient light, 0 (pitch black) to 1 (daylight); unset follows Atlas's scene light. */
@@ -57,6 +59,7 @@ function tidy(map: MapData): MapData | null {
   if (map.wallMaterials && Object.keys(map.wallMaterials).length > 0) out.wallMaterials = map.wallMaterials;
   if (map.doorProps && Object.keys(map.doorProps).length > 0) out.doorProps = map.doorProps;
   if (map.lightHeights && Object.keys(map.lightHeights).length > 0) out.lightHeights = map.lightHeights;
+  if (map.wallHeights && Object.keys(map.wallHeights).length > 0) out.wallHeights = map.wallHeights;
   if (map.ambient !== undefined) out.ambient = map.ambient;
   return Object.keys(out).length > 0 ? out : null;
 }
@@ -89,6 +92,7 @@ export function readBoardData(raw: unknown): BoardDataJSON {
     const kept = tidy({
       styles, props, ...(fogHeight !== undefined && { fogHeight }),
       wallMaterials: strings(value.wallMaterials), doorProps: strings(value.doorProps), lightHeights: heights(value.lightHeights),
+      wallHeights: heights(value.wallHeights),
       ...(ambient !== undefined && { ambient }),
     });
     if (kept) out[path] = kept;
@@ -169,6 +173,23 @@ export class BoardData {
       else delete wallMaterials[id];
     }
     this.put(mapPath, { ...map, wallMaterials });
+  }
+
+  /** A wall's or door's own height in grid squares; null when it stands as tall as the fog. */
+  wallHeight(mapPath: string, wallId: string): number | null {
+    return this.data[mapPath]?.wallHeights?.[wallId] ?? null;
+  }
+
+  /** Sets walls' own height (one segment, or a whole wall); null stands them as tall as the fog again. */
+  setWallHeight(mapPath: string, wallIds: readonly string[], height: number | null): void {
+    if (height !== null && (!Number.isFinite(height) || height < 0)) return;
+    const map = this.data[mapPath] ?? {};
+    const wallHeights = { ...(map.wallHeights ?? {}) };
+    for (const id of wallIds) {
+      if (height === null) delete wallHeights[id];
+      else wallHeights[id] = height;
+    }
+    this.put(mapPath, { ...map, wallHeights });
   }
 
   /** The prop standing in for a door's leaf, or null for the plain door. */

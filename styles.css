@@ -1367,3 +1367,18 @@ body.atlas-tabletop-player-window .view-header {
 }
 
 .atlas-tabletop-palette__check { margin: 0; }
+
+/* The material editor: a wall's worth of the texture (four squares by two) at the chosen scale. */
+.atlas-tabletop-material-preview {
+  aspect-ratio: 2 / 1;
+  width: 100%;
+  margin-bottom: var(--size-4-3);
+  border-radius: var(--radius-m);
+  border: 1px solid var(--background-modifier-border);
+  background-repeat: repeat;
+  background-color: var(--background-secondary);
+}
+
+.atlas-tabletop-material-scale {
+  width: 5em;
+}

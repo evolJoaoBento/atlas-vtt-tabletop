@@ -7,7 +7,8 @@
  */
 import { ItemView, Menu, Modal, Notice, setIcon, type App, type TFile, type TFolder, type WorkspaceLeaf } from 'obsidian';
 import type { MiniLibrary } from './library';
-import { MATERIAL_DRAG_TYPE, type MaterialLibrary } from './materials';
+import { MATERIAL_DRAG_TYPE, MATERIAL_TEXT_PREFIX, type MaterialLibrary } from './materials';
+import { MAX_TEXTURE_SCALE, MIN_TEXTURE_SCALE } from './materialMaps';
 
 export const GALLERY_VIEW_TYPE = 'atlas-tabletop-gallery';
 
@@ -139,6 +140,8 @@ export class GalleryView extends ItemView {
     private readonly props: MiniLibrary,
     private readonly materials: MaterialLibrary,
     private readonly placeProp: (glb: string) => void,
+    /** A material clicked: the board used last paints walls with it on click. */
+    private readonly paintWith: (material: string) => void = () => undefined,
   ) {
     super(leaf);
   }
@@ -210,7 +213,7 @@ export class GalleryView extends ItemView {
     bar.createEl('button', { text: 'Import folder' }).addEventListener('click', async () => importMaterials(library, await pickMaterialFiles(doc, true)));
     body.createDiv({
       cls: 'atlas-tabletop-hint',
-      text: `Import a texture set as Poly Haven gives it (the zip, or its colour, normal, roughness and AO maps). Materials live in ${library.folderPath}. Drag one onto a wall or door of a 3D board to paint that segment; hold Shift to paint the whole wall.`,
+      text: `Import a texture set as Poly Haven gives it (the zip, or its colour, normal, roughness and AO maps). Materials live in ${library.folderPath}. Drag one onto a wall or door of a 3D board to paint that segment, or click it and then click walls on the board (Esc stops); hold Shift to paint the whole wall.`,
     });
     this.grid = body.createDiv({ cls: 'atlas-tabletop-grid' });
     body.addEventListener('dragover', (event) => {
@@ -240,7 +243,7 @@ export class GalleryView extends ItemView {
       return;
     }
     for (const folder of folders) {
-      const card = grid.createDiv({ cls: 'atlas-tabletop-card atlas-tabletop-material', attr: { title: `${folder.path}\nDrag onto a wall or door (Shift: the whole wall)`, draggable: 'true' } });
+      const card = grid.createDiv({ cls: 'atlas-tabletop-card atlas-tabletop-material', attr: { title: `${folder.path}\nDrag onto a wall or door, or click it and then click walls (Shift: the whole wall)`, draggable: 'true' } });
       const thumb = card.createDiv({ cls: 'atlas-tabletop-thumb' });
       const url = library.thumbnail(folder.path);
       if (url) thumb.createEl('img', { attr: { src: url, alt: folder.name, draggable: 'false' } });
@@ -249,11 +252,12 @@ export class GalleryView extends ItemView {
       card.addEventListener('dragstart', (event) => {
         if (!event.dataTransfer) return;
         event.dataTransfer.setData(MATERIAL_DRAG_TYPE, folder.path);
-        event.dataTransfer.setData('text/plain', folder.path);
+        event.dataTransfer.setData('text/plain', MATERIAL_TEXT_PREFIX + folder.path);
         event.dataTransfer.effectAllowed = 'copy';
         const image = thumb.querySelector('img');
         if (image) event.dataTransfer.setDragImage(image, 24, 24);
       });
+      card.addEventListener('click', () => this.paintWith(folder.path));
       card.addEventListener('contextmenu', (event) => {
         event.preventDefault();
         this.materialMenu(folder, event);
@@ -263,6 +267,7 @@ export class GalleryView extends ItemView {
 
   private materialMenu(folder: TFolder, event: MouseEvent): void {
     const menu = new Menu();
+    menu.addItem((item) => item.setTitle('Edit material…').setIcon('pencil').onClick(() => { new MaterialModal(this.app, this.materials, folder).open(); }));
     menu.addItem((item) => item.setTitle('Reveal in navigation').setIcon('folder-open').onClick(() => {
       const explorer = this.app.workspace.getLeavesOfType('file-explorer')[0]?.view as { revealInFolder?(file: TFolder): void } | undefined;
       explorer?.revealInFolder?.(folder);
@@ -299,6 +304,52 @@ export class GalleryView extends ItemView {
         menu.showAtMouseEvent(event);
       },
     });
+  }
+}
+
+/** Edits a material: how many grid squares one tile of its texture covers, shown on a preview of the tile. */
+class MaterialModal extends Modal {
+  constructor(app: App, private readonly library: MaterialLibrary, private readonly folder: TFolder) {
+    super(app);
+  }
+
+  async onOpen(): Promise<void> {
+    this.setTitle(`Edit ${this.folder.name}`);
+    this.modalEl.addClass('atlas-tabletop-material-modal');
+    const root = this.contentEl;
+    let scale = (await this.library.settings(this.folder.path)).scale;
+    // A wall two squares tall and four long, as the texture lies on it.
+    const preview = root.createDiv({ cls: 'atlas-tabletop-material-preview' });
+    const url = this.library.thumbnail(this.folder.path);
+    if (url) preview.style.backgroundImage = `url("${url}")`;
+    const row = root.createDiv({ cls: 'atlas-tabletop-slider' });
+    row.createSpan({ text: 'Texture scale' });
+    const range = row.createEl('input', { type: 'range', attr: { min: String(MIN_TEXTURE_SCALE), max: '8', step: '0.05' } });
+    const number = row.createEl('input', { type: 'number', cls: 'atlas-tabletop-material-scale', attr: { min: String(MIN_TEXTURE_SCALE), max: String(MAX_TEXTURE_SCALE), step: '0.05' } });
+    row.createSpan({ cls: 'atlas-tabletop-slider-value', text: 'squares per tile' });
+    root.createDiv({ cls: 'atlas-tabletop-hint', text: 'How many grid squares one tile of the texture covers on a wall or door. Bigger stretches it, smaller repeats it more.' });
+    const show = (): void => {
+      range.value = String(Math.min(8, scale));
+      number.value = String(scale);
+      // The preview is four squares wide: a tile is a quarter of it per square.
+      preview.style.backgroundSize = `${scale * 25}% ${scale * 50}%`;
+    };
+    range.addEventListener('input', () => { scale = Number(range.value); show(); });
+    number.addEventListener('change', () => {
+      const value = Number(number.value);
+      if (Number.isFinite(value)) scale = Math.min(MAX_TEXTURE_SCALE, Math.max(MIN_TEXTURE_SCALE, value));
+      show();
+    });
+    show();
+    const buttons = root.createDiv({ cls: 'modal-button-container' });
+    buttons.createEl('button', { cls: 'mod-cta', text: 'Save' }).addEventListener('click', () => {
+      void this.library.saveSettings(this.folder.path, { scale }).then(() => this.close(), (error: unknown) => new Notice(`Tabletop: could not save ${this.folder.name}: ${error instanceof Error ? error.message : String(error)}`));
+    });
+    buttons.createEl('button', { text: 'Cancel' }).addEventListener('click', () => this.close());
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
   }
 }
 

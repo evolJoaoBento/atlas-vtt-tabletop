@@ -8,11 +8,13 @@
 import { normalizePath, TFile, TFolder, type App } from 'obsidian';
 import * as THREE from 'three';
 import { unzipSync } from 'three/examples/jsm/libs/fflate.module.js';
-import { materialName, pickMaps, roleOf, type MaterialMaps } from './materialMaps';
+import { MATERIAL_SETTINGS_FILE, materialName, pickMaps, readMaterialSettings, roleOf, type MaterialMaps, type MaterialSettings } from './materialMaps';
 
 export const DEFAULT_MATERIALS_FOLDER = 'atlas-vtt/assets/materials';
 /** What a material card carries when dragged from the gallery onto a wall: its folder. */
 export const MATERIAL_DRAG_TYPE = 'application/x-atlas-tabletop-material';
+/** The same as plain text, for where the custom type does not get through: this prefix, then the folder. */
+export const MATERIAL_TEXT_PREFIX = 'atlas-tabletop-material:';
 
 export interface LoadedMaterial {
   readonly name: string;
@@ -52,6 +54,21 @@ export class MaterialLibrary {
 
   private mapsOf(folder: TFolder): MaterialMaps | null {
     return pickMaps(folder.children.filter((child): child is TFile => child instanceof TFile).map((file) => file.path));
+  }
+
+  /** A material's own settings (its texture scale), from the file beside its maps. */
+  async settings(folderPath: string): Promise<MaterialSettings> {
+    const file = this.app.vault.getAbstractFileByPath(normalizePath(`${folderPath}/${MATERIAL_SETTINGS_FILE}`));
+    return readMaterialSettings(file instanceof TFile ? await this.app.vault.read(file) : null);
+  }
+
+  /** Keeps a material's settings beside its maps; boards painted with it are drawn again. */
+  async saveSettings(folderPath: string, settings: MaterialSettings): Promise<void> {
+    const path = normalizePath(`${folderPath}/${MATERIAL_SETTINGS_FILE}`);
+    const text = JSON.stringify(settings, null, 2);
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (file instanceof TFile) await this.app.vault.modify(file, text);
+    else await this.app.vault.create(path, text);
   }
 
   /** A picture of the material for its card: its colour map. */
@@ -103,9 +120,12 @@ export class MaterialLibrary {
       const at = url(path);
       return at ? readTexture(at, color) : null;
     };
+    const { scale } = await this.settings(folderPath);
     const [color, normal, roughness, ao, arm, metalness] = await Promise.all([
       texture(maps.color, true), texture(maps.normal), texture(maps.roughness), texture(maps.ao), texture(maps.arm), texture(maps.metalness),
     ]);
+    // Walls are mapped one tile to a grid square: a tile `scale` squares wide repeats 1 / scale times a square.
+    for (const texture of [color, normal, roughness, ao, arm, metalness]) texture?.repeat.set(1 / scale, 1 / scale);
     return {
       name: folder.name,
       apply: (material) => {

@@ -91,3 +91,15 @@ test('a renamed or deleted material folder or door prop is followed', () => {
   data.deleted('things/door.glb');
   assert.deepEqual(data.toJSON(), { m: { wallMaterials: { w: 'mats/Stone' } } });
 });
+
+test('a wall\'s own height is kept per segment, many at once, and cleared back to the fog\'s', () => {
+  const data = new BoardData();
+  data.setWallHeight('m', ['a', 'b'], 2);
+  data.setWallHeight('m', ['b'], 0.5);
+  assert.equal(data.wallHeight('m', 'a'), 2);
+  assert.equal(data.wallHeight('m', 'b'), 0.5);
+  assert.equal(data.wallHeight('m', 'c'), null);
+  assert.deepEqual(readBoardData(data.toJSON()), data.toJSON());
+  data.setWallHeight('m', ['a', 'b'], null);
+  assert.deepEqual(data.toJSON(), {});
+});

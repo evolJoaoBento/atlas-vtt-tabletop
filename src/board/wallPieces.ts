@@ -18,6 +18,8 @@ export interface WallLookup {
   look(path: string | null, door: boolean): THREE.Material;
   /** The material painted on a wall or door, by id. */
   materialOf(id: string): string | null;
+  /** A wall's own height in grid squares; null for the default (the fog's, half that for a low wall). */
+  heightOf(id: string): number | null;
   /** The prop standing in for a door, by id. */
   propOf(id: string): string | null;
   /** Loads a prop's model. */
@@ -124,7 +126,7 @@ export class WallSet {
    * opened or shut swings to its new place.
    */
   update(walls: readonly BoardWall[], shape: WallShape): void {
-    const signature = JSON.stringify([shape.height, shape.tile, shape.fogKey, walls.map((wall) => [wall.id, wall.type, wall.p1, wall.p2, wall.direction, wall.blocks, wall.limited, wall.chain, this.lookup.materialOf(wall.id), isDoor(wall) ? this.lookup.propOf(wall.id) : null])]);
+    const signature = JSON.stringify([shape.height, shape.tile, shape.fogKey, walls.map((wall) => [wall.id, wall.type, wall.p1, wall.p2, wall.direction, wall.blocks, wall.limited, wall.chain, this.lookup.materialOf(wall.id), this.lookup.heightOf(wall.id), isDoor(wall) ? this.lookup.propOf(wall.id) : null])]);
     if (signature !== this.signature) {
       const openness = new Map([...this.doors].map(([id, door]) => [id, door.openness]));
       this.clear();
@@ -142,7 +144,10 @@ export class WallSet {
     const thick = shape.tile * THICKNESS;
     const groups = new Map<string, { material: THREE.Material; data: { positions: number[]; normals: number[]; uvs: number[] }; ids: string[]; shadow: boolean; fogged: boolean }>();
     for (const wall of walls) {
-      const height = wall.limited ? shape.height / 2 : shape.height;
+      const own = this.lookup.heightOf(wall.id);
+      const height = own !== null ? own * shape.tile : wall.limited ? shape.height / 2 : shape.height;
+      // A wall set to no height stands nowhere.
+      if (height <= 0) continue;
       const frame = segmentFrame(wall.p1, wall.p2);
       if (wall.type === 'door' || wall.type === 'secret-door') {
         this.addDoor(wall, shape, height, thick, openness.get(wall.id) ?? (wall.closed ? 0 : 1), generation);
@@ -240,6 +245,11 @@ export class WallSet {
 
   private pose(door: Door): void {
     door.pivot.rotation.y = -leafHeading(door.wall, easeSwing(door.openness));
+  }
+
+  /** Builds the walls again at the next update (their materials changed). */
+  invalidate(): void {
+    this.signature = '';
   }
 
   /** Swings the doors toward their goals; returns whether one is still moving. */

@@ -971,6 +971,39 @@ server.listen(0, async () => {
       meshes = await page.evaluate(() => window.boardTest.board.walls.meshes.filter((m) => !m.mesh.userData.fogged).map((m) => [m.ids.length, !!m.mesh.material.map]));
       check('with Shift it paints the whole wall drawn with it, its texture on', (await record()).paints.at(-1)[2] === true && meshes.length === 1 && meshes[0][0] === 6 && meshes[0][1], meshes);
 
+      // Only plain text got through (another window, another app's drag handling): the drop still paints.
+      await page.evaluate(([x, y]) => {
+        const canvas = window.boardTest.board.canvas;
+        const transfer = new DataTransfer();
+        transfer.setData('text/plain', 'atlas-tabletop-material:atlas-vtt/assets/materials/Wood');
+        canvas.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer, clientX: x, clientY: y }));
+        canvas.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer, clientX: x, clientY: y }));
+      }, [east.x, east.y]);
+      check('a drop carrying only plain text paints too', JSON.stringify((await record()).paints.at(-1)) === JSON.stringify(['e', 'atlas-vtt/assets/materials/Wood', false]), (await record()).paints.at(-1));
+      // Without dragging: a material chosen in the gallery paints each wall clicked, until Esc.
+      await page.evaluate(() => window.boardTest.board.paintWith('atlas-vtt/assets/materials/Stone'));
+      await page.mouse.click(east.x, east.y);
+      await page.keyboard.down('Shift');
+      await page.mouse.click(east.x, east.y);
+      await page.keyboard.up('Shift');
+      await wait(100);
+      const painted = (await record()).paints.slice(-2);
+      await page.keyboard.press('Escape');
+      check('click-to-paint: a click paints a segment, Shift-click the whole wall; Esc stops', JSON.stringify(painted) === JSON.stringify([['e', 'atlas-vtt/assets/materials/Stone', false], ['e', 'atlas-vtt/assets/materials/Stone', true]]) && !(await page.evaluate(() => window.boardTest.board.isPainting)), painted);
+      await page.evaluate(() => window.boardTest.board.paintWith(null));
+      // A wall's own height: the east segment two squares, the rest still as tall as the fog.
+      const tops = await page.evaluate(() => {
+        const b = window.boardTest.board;
+        window.boardTest.wallHeights.set('e', 2);
+        b.refresh();
+        const top = (ids) => Math.max(...b.walls.meshes.filter((m) => !m.mesh.userData.fogged && ids(m.ids)).flatMap((m) => [...m.mesh.geometry.attributes.position.array].filter((_, i) => i % 3 === 1)));
+        // The east wall's box is the one of its mesh's segments whose top is highest.
+        const all = top(() => true);
+        window.boardTest.wallHeights.delete('e');
+        b.refresh();
+        return { raised: all, back: top(() => true), fog: b.host.fogHeight() };
+      });
+      check('a wall stands at its own height when set, and as tall as the fog again when not', tops.raised === 140 && tops.back === 70 * tops.fog, tops);
       const lights = await page.evaluate(() => {
         const rig = window.boardTest.board.rig;
         return [...rig.entries.values()].map((e) => ({ id: e.light.id, kind: e.lamp.type, reach: e.lamp.distance, y: e.lamp.position.y, x: e.lamp.position.x, bulb: !!e.bulb, bright: e.lamp.decay }));
@@ -993,7 +1026,13 @@ server.listen(0, async () => {
         const kept = pieces.map((piece) => Object.getOwnPropertyDescriptor(piece, 'animating'));
         pieces.forEach((piece) => Object.defineProperty(piece, 'animating', { value: false, configurable: true }));
         await new Promise((resolve) => setTimeout(resolve, 400));
-        const seen = { continuing: b.continuing, timer: b.flickerTimer !== 0 };
+        // Sampled over a while: between a timer firing and its frame there is a moment with neither.
+        const seen = { continuing: false, timer: false };
+        for (let i = 0; i < 20; i++) {
+          seen.continuing ||= b.continuing;
+          seen.timer ||= b.flickerTimer !== 0;
+          await new Promise((resolve) => setTimeout(resolve, 15));
+        }
         pieces.forEach((piece, i) => { if (kept[i]) Object.defineProperty(piece, 'animating', kept[i]); else delete piece.animating; });
         b.wake();
         return seen;

@@ -49,7 +49,7 @@ import { loadImageTexture, plateTexture, screenScale } from './textures';
 import { WallSet } from './wallPieces';
 import { LightRig } from './lightRig';
 import type { BoardLight } from './walls';
-import { MATERIAL_DRAG_TYPE, type LoadedMaterial } from '../materials';
+import { MATERIAL_DRAG_TYPE, MATERIAL_TEXT_PREFIX, type LoadedMaterial } from '../materials';
 
 /** Obsidian's accent colour, for highlights; Atlas's purple outside Obsidian. */
 function accent(element: HTMLElement): string {
@@ -99,6 +99,8 @@ export interface BoardHost {
   toggleInitiative(): void;
   /** The material painted on a wall or door (a materials folder), and the prop standing in for a door; null for none. */
   wallMaterial(id: string): string | null;
+  /** A wall's or door's own height in grid squares; null stands it as tall as the fog. */
+  wallHeight(id: string): number | null;
   doorProp(id: string): string | null;
   /** Loads a material of the gallery; null when it cannot be read. */
   readMaterial(path: string): Promise<LoadedMaterial | null>;
@@ -236,6 +238,8 @@ export class Board {
   private readonly models = new Map<string, Promise<LoadedMini | null>>();
   private press: Press | null = null;
   private placing: string | null = null;
+  /** The material a click paints walls with, chosen in the gallery; null when not painting. */
+  private painting: string | null = null;
   private readonly held = new Set<string>();
   private frameId = 0;
   private last = 0;
@@ -296,6 +300,7 @@ export class Board {
     this.walls = new WallSet({
       look: (path, door) => this.wallLook(path, door),
       materialOf: (id) => this.host.wallMaterial(id),
+      heightOf: (id) => this.host.wallHeight(id),
       propOf: (id) => this.host.doorProp(id),
       prop: (glb) => this.model(glb),
     });
@@ -968,6 +973,7 @@ export class Board {
     on('keydown', (event) => {
       const key = event.key.toLowerCase();
       if (key === 'escape' && this.placing) { this.stopPlacing(); return; }
+      if (key === 'escape' && this.painting) { this.paintWith(null); return; }
       if (key === 'escape' && this.laserOn) { this.setLaser(false); return; }
       // Atlas's Move/Select key switches between moving and the laser pointer.
       if (key === 'v' && !event.ctrlKey && !event.metaKey && !event.altKey) { this.setLaser(!this.laserOn); return; }
@@ -988,23 +994,37 @@ export class Board {
       }
     });
     on('keyup', (event) => { this.held.delete(event.key.toLowerCase()); });
-    // A material dragged from the gallery: the wall under the pointer is named, and painted where it is dropped.
-    const carriesMaterial = (event: DragEvent): boolean => Array.from(event.dataTransfer?.types ?? []).includes(MATERIAL_DRAG_TYPE);
-    on('dragover', (event) => {
-      if (!carriesMaterial(event)) return;
+    // A material dragged from the gallery: the wall under the pointer is named, and painted where it is dropped. Taken
+    // on the whole board (before anything over the canvas, or Obsidian's own drag handling, sees it), and as plain
+    // text too, where the custom type does not get through.
+    const types = (event: DragEvent): string[] => Array.from(event.dataTransfer?.types ?? []);
+    // Over the board itself only: the panels on it (the initiative cards) have drags of their own.
+    const mayCarry = (event: DragEvent): boolean => event.target === this.canvas
+      && (types(event).includes(MATERIAL_DRAG_TYPE) || (types(event).includes('text/plain') && !types(event).includes('Files')));
+    const take = (type: 'dragover' | 'drop' | 'dragleave', handler: (event: DragEvent) => void): void => {
+      this.container.addEventListener(type, handler, true);
+      this.stops.push(() => this.container.removeEventListener(type, handler, true));
+    };
+    take('dragover', (event) => {
+      if (!mayCarry(event)) return;
       event.preventDefault();
+      event.stopPropagation();
       if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
       const wall = this.wallAt(event.clientX, event.clientY);
       this.showTip(event.clientX, event.clientY, wall ? (event.shiftKey ? 'Paint the whole wall' : 'Paint this segment (Shift: the whole wall)') : 'Drop on a wall or door');
     });
-    on('dragleave', () => { this.tooltip.hidden = true; });
-    on('drop', (event) => {
-      if (!carriesMaterial(event)) return;
+    take('dragleave', (event) => { if (event.target === this.container || !this.container.contains(event.relatedTarget as Node | null)) this.tooltip.hidden = true; });
+    take('drop', (event) => {
+      if (!mayCarry(event)) return;
+      const text = event.dataTransfer?.getData('text/plain') ?? '';
+      const material = event.dataTransfer?.getData(MATERIAL_DRAG_TYPE) || (text.startsWith(MATERIAL_TEXT_PREFIX) ? text.slice(MATERIAL_TEXT_PREFIX.length) : '');
+      if (!material) return;
       event.preventDefault();
+      event.stopPropagation();
       this.tooltip.hidden = true;
-      const material = event.dataTransfer?.getData(MATERIAL_DRAG_TYPE) ?? '';
       const wall = this.wallAt(event.clientX, event.clientY);
-      if (material && wall) this.host.paintWall(wall, material, event.shiftKey);
+      if (wall) this.host.paintWall(wall, material, event.shiftKey);
+      else this.host.warn('Tabletop: drop the material on a wall or door.');
     });
     on('blur', () => this.held.clear());
   }
@@ -1015,6 +1035,7 @@ export class Board {
     this.tooltip.hidden = true;
     const { clientX: x, clientY: y } = event;
     if (event.button === 0 && this.placing) return;
+    if (event.button === 0 && this.painting) return;
     if (event.button === 0 && this.laserOn) {
       this.press = { kind: 'laser', x, y, moved: false };
       this.trackLaser(x, y);
@@ -1094,6 +1115,12 @@ export class Board {
     const press = this.press;
     this.press = null;
     const { clientX: x, clientY: y } = event;
+    // Painting: a click paints the wall under it (Shift: the whole wall), and painting goes on until Esc.
+    if (event.button === 0 && this.painting) {
+      const wall = this.wallAt(x, y);
+      if (wall) this.host.paintWall(wall, this.painting, event.shiftKey);
+      return;
+    }
     if (event.button === 0 && this.placing) {
       const at = this.boardPoint(x, y);
       const glb = this.placing;
@@ -1585,6 +1612,26 @@ export class Board {
     this.editor = { tokenId: id, key, value, view };
   }
 
+  /** The materials changed (one was edited or replaced): they are read again and the walls rebuilt with them. */
+  refreshMaterials(): void {
+    for (const material of this.wallMaterials.values()) material.dispose();
+    this.wallMaterials.clear();
+    this.walls.invalidate();
+    if (this.map) this.sync();
+  }
+
+  /** Paints walls with a material on click (from the gallery, without dragging); null stops. */
+  paintWith(material: string | null): void {
+    this.painting = material;
+    this.canvas.style.cursor = material ? 'copy' : this.laserOn ? 'none' : '';
+    if (!material) this.tooltip.hidden = true;
+    this.canvas.focus();
+  }
+
+  get isPainting(): boolean {
+    return this.painting !== null;
+  }
+
   private stopPlacing(): void {
     this.placing = null;
     this.canvas.style.cursor = this.laserOn ? 'none' : '';
@@ -1660,6 +1707,11 @@ export class Board {
       this.previewed = id;
     } else {
       this.previewed = null;
+    }
+    if (this.painting) {
+      const wall = this.wallAt(event.clientX, event.clientY);
+      this.showTip(event.clientX, event.clientY, wall ? (event.shiftKey ? 'Click: paint the whole wall' : 'Click: paint this segment (Shift: the whole wall)') : 'Click a wall or door to paint it · Esc to stop');
+      return;
     }
     const point = this.boardPoint(event.clientX, event.clientY);
     const inside = point !== null && point.x >= 0 && point.y >= 0 && point.x <= this.size.width && point.y <= this.size.height;

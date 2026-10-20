@@ -198,6 +198,7 @@ async function main(): Promise<void> {
   let fogHeight = 1;
   const wallPaint = new Map<string, string>();
   const doorProps = new Map<string, string>();
+  const wallHeights = new Map<string, number>();
   let ambientLevel = 1;
   let menu: AtlasMenu | null = null;
   const initiative = new Set<string>();
@@ -282,6 +283,7 @@ async function main(): Promise<void> {
     initiativeOpen: () => panel.isOpen,
     toggleInitiative: () => panel.setOpen(!panel.isOpen),
     wallMaterial: (id) => wallPaint.get(id) ?? null,
+    wallHeight: (id) => wallHeights.get(id) ?? null,
     doorProp: (id) => doorProps.get(id) ?? null,
     readMaterial: async () => brickMaterial(),
     toggleDoor: (id) => { record.doors.push(id); },
@@ -356,7 +358,7 @@ async function main(): Promise<void> {
     const rect = board.canvas.getBoundingClientRect();
     return { x: rect.left + ((point.x + 1) / 2) * rect.width, y: rect.top + ((1 - point.y) / 2) * rect.height };
   };
-  Object.assign(window, { boardTest: { board, map, record, panel, rules, doorProps, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, insideFog, ready: true } });
+  Object.assign(window, { boardTest: { board, map, record, panel, rules, doorProps, wallHeights, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, insideFog, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

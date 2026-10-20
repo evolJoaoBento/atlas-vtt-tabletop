@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { materialName, pickMaps, roleOf } from '../src/materialMaps';
+import { materialName, pickMaps, readMaterialSettings, roleOf } from '../src/materialMaps';
 
 test('a map\'s role is read from its name as Poly Haven names them; the last map word counts', () => {
   assert.deepEqual(roleOf('brick_wall_001_diff_1k.jpg'), { role: 'color', directX: false });
@@ -28,4 +28,12 @@ test('a material is named after its zip or its maps', () => {
   assert.equal(materialName('brick_wall_001_diff_1k.jpg'), 'brick_wall_001');
   assert.equal(materialName('wood_planks_nor_gl_2k.png'), 'wood_planks');
   assert.equal(materialName('Mossy Stones.zip'), 'Mossy Stones');
+});
+
+test('a material\'s settings: its texture scale, kept in range, 1 when unset or unreadable', () => {
+  assert.deepEqual(readMaterialSettings('{"scale": 2.5}'), { scale: 2.5 });
+  assert.deepEqual(readMaterialSettings('{"scale": 500}'), { scale: 20 });
+  assert.deepEqual(readMaterialSettings('{"scale": 0}'), { scale: 0.1 });
+  assert.deepEqual(readMaterialSettings('not json'), { scale: 1 });
+  assert.deepEqual(readMaterialSettings(null), { scale: 1 });
 });
