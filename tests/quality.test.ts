@@ -3,9 +3,9 @@ import { test } from 'node:test';
 import { QUALITY, ResolutionGovernor, readQuality } from '../src/board/quality';
 
 test('quality presets go from cheap to sharp', () => {
-  assert.deepEqual(QUALITY.low, { maxPixelRatio: 1, minPixelRatio: 0.6, antialias: false, shadowMapSize: 1024, miniShadows: 'blob' });
-  assert.deepEqual(QUALITY.medium, { maxPixelRatio: 1.5, minPixelRatio: 0.75, antialias: true, shadowMapSize: 2048, miniShadows: 'blob' });
-  assert.deepEqual(QUALITY.high, { maxPixelRatio: 2, minPixelRatio: 1, antialias: true, shadowMapSize: 4096, miniShadows: 'real' });
+  assert.deepEqual(QUALITY.low, { maxPixelRatio: 1, minPixelRatio: 0.6, antialias: false, shadowMapSize: 1024, miniShadows: 'blob', lightShadows: 0 });
+  assert.deepEqual(QUALITY.medium, { maxPixelRatio: 1.5, minPixelRatio: 0.75, antialias: true, shadowMapSize: 2048, miniShadows: 'blob', lightShadows: 2 });
+  assert.deepEqual(QUALITY.high, { maxPixelRatio: 2, minPixelRatio: 1, antialias: true, shadowMapSize: 4096, miniShadows: 'real', lightShadows: 4 });
   assert.equal(readQuality('high'), 'high');
   assert.equal(readQuality('ultra'), 'medium');
   assert.equal(readQuality(undefined), 'medium');
