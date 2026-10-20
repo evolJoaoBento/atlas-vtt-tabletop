@@ -195,7 +195,8 @@ export class Board {
       edit: (key) => this.openEditor(key),
     });
 
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: quality.antialias });
+    // The fast card where the browser lets a page ask (a Mac with two); on Windows, Tabletop's graphics card setting.
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: quality.antialias, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;

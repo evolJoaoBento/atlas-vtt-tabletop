@@ -1,4 +1,4 @@
-import { Notice, Plugin, PluginSettingTab, Setting, TFile, debounce, type App } from 'obsidian';
+import { Notice, Plugin, PluginSettingTab, Setting, TFile, debounce, type App, type ButtonComponent } from 'obsidian';
 import { Assignments, readAssignments, type AssignmentData, type MiniPlacement } from './src/assignments';
 import { mapViews } from './src/atlas';
 import { BOARD_VIEW_TYPE, BoardView, HOVER_SOURCE } from './src/board/BoardView';
@@ -7,6 +7,7 @@ import { DEFAULT_QUALITY, readQuality, type Quality } from './src/board/quality'
 import { TokenWriter } from './src/board/tokenWriter';
 import { GALLERY_VIEW_TYPE, GalleryView, importWithNotice, pickFiles } from './src/gallery';
 import { DEFAULT_MINIS_FOLDER, DEFAULT_PROPS_FOLDER, MiniLibrary, PROPS } from './src/library';
+import { GpuSettings, currentChip, gpuChoices, type GpuPreference } from './src/gpu';
 import { playerMiniPainter, type PlayerMiniPainter } from './src/playerMinis';
 
 export const API_READY_EVENT = 'atlas-vtt-tabletop:api-ready';
@@ -239,5 +240,71 @@ class TabletopSettingTab extends PluginSettingTab {
         .addOptions({ low: 'Low', medium: 'Medium', high: 'High' })
         .setValue(this.plugin.settings.quality)
         .onChange((value) => { void this.plugin.setQuality(readQuality(value)); }));
+    void this.graphicsCard(containerEl);
+  }
+
+  /**
+   * Windows only: which graphics card Obsidian draws on. Saving writes Windows' own per-app setting for Obsidian; it
+   * takes effect when the GM restarts Obsidian, which Tabletop leaves to them.
+   */
+  private async graphicsCard(containerEl: HTMLElement): Promise<void> {
+    const gpu = GpuSettings.here();
+    if (!gpu) return;
+    new Setting(containerEl).setName('Graphics card').setHeading();
+    const status = new Setting(containerEl).setName('Checking the graphics cards…');
+    let adapters;
+    let saved: GpuPreference;
+    try {
+      [adapters, saved] = await Promise.all([gpu.adapters(), gpu.preference()]);
+    } catch (error) {
+      status.setName('Cannot read the graphics cards').setDesc(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    if (!containerEl.isConnected) return;
+    const now = currentChip(containerEl.ownerDocument);
+    const choices = gpuChoices(adapters);
+    if (!choices) {
+      status.setName('Only one graphics card').setDesc(`Obsidian draws on ${now ?? adapters[0]?.name ?? 'the only card'}: there is no other to choose.`);
+      return;
+    }
+    const cardFor = { 2: choices.performance, 1: choices.power, 0: null } as const;
+    // Word keys keep this order: an object lists number keys smallest first.
+    const keys: Record<GpuPreference, string> = { 2: 'performance', 1: 'power', 0: 'windows' };
+    const options: Record<string, string> = {
+      performance: `High performance: ${choices.performance} (recommended)`,
+      power: `Power saving: ${choices.power}`,
+      windows: 'Let Windows decide',
+    };
+    const preferenceOf = (key: string): GpuPreference => (key === 'performance' ? 2 : key === 'power' ? 1 : 0);
+    const describe = (): string => {
+      const using = now ? `Obsidian is drawing on ${now} now.` : '';
+      const wanted = cardFor[saved];
+      const pending = wanted && now && !now.toLowerCase().includes(wanted.toLowerCase()) && !wanted.toLowerCase().includes(now.toLowerCase());
+      return pending ? `${using} Restart Obsidian to switch to ${wanted}.` : using;
+    };
+    status.setName('Card Obsidian draws on')
+      .setDesc('The 3D board runs much faster on a dedicated graphics card. This is the same setting as Windows Settings → System → Display → Graphics, for Obsidian; it takes effect after you restart Obsidian.');
+    const note = status.descEl.createDiv({ cls: 'atlas-tabletop-gpu-status', text: describe() });
+    let chosen: GpuPreference = saved;
+    status.addDropdown((dropdown) => dropdown.addOptions(options).setValue(keys[saved]).onChange((value) => {
+      chosen = preferenceOf(value);
+      save.setDisabled(chosen === saved);
+    }));
+    let save!: ButtonComponent;
+    status.addButton((button) => {
+      save = button.setButtonText('Save').setCta().setDisabled(true).onClick(async () => {
+        save.setDisabled(true);
+        try {
+          await gpu.save(chosen);
+          saved = chosen;
+          note.setText(describe());
+          const card = cardFor[chosen];
+          new Notice(card ? `Tabletop: saved. Restart Obsidian to draw on ${card}.` : 'Tabletop: saved. Restart Obsidian to let Windows choose the card.', 10000);
+        } catch (error) {
+          new Notice(`Tabletop: the graphics card setting was not saved: ${error instanceof Error ? error.message : String(error)}`, 10000);
+          save.setDisabled(chosen === saved);
+        }
+      });
+    });
   }
 }
