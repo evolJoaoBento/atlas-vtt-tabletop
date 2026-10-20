@@ -46,6 +46,10 @@ import { pinTitle } from './pinIcons';
 import { NO_INSTANCE_NUMBERS, badgeNumberInView, insideFog, numberTokensInView, playerSees } from './playerView';
 import { positionOf } from './camera';
 import { loadImageTexture, plateTexture, screenScale } from './textures';
+import { WallSet } from './wallPieces';
+import { LightRig } from './lightRig';
+import type { BoardLight } from './walls';
+import { MATERIAL_DRAG_TYPE, type LoadedMaterial } from '../materials';
 
 /** Obsidian's accent colour, for highlights; Atlas's purple outside Obsidian. */
 function accent(element: HTMLElement): string {
@@ -93,6 +97,24 @@ export interface BoardHost {
   /** Whether the initiative tracker shows on the board; showing or hiding it. */
   initiativeOpen(): boolean;
   toggleInitiative(): void;
+  /** The material painted on a wall or door (a materials folder), and the prop standing in for a door; null for none. */
+  wallMaterial(id: string): string | null;
+  doorProp(id: string): string | null;
+  /** Loads a material of the gallery; null when it cannot be read. */
+  readMaterial(path: string): Promise<LoadedMaterial | null>;
+  /** Opens or shuts a door (Atlas's `toggleDoor`); the board shows it at once unless the door is locked. */
+  toggleDoor(id: string): void;
+  /** A wall's or door's right-click menu. */
+  wallMenu(id: string, event: MouseEvent): void;
+  /** The board's ambient light (0–1), and keeping a new level. */
+  ambient(): number;
+  setAmbient(level: number): void;
+  /** How high a light hangs, in grid squares. */
+  lightHeight(light: BoardLight): number;
+  /** A light's right-click menu (on its bulb). */
+  lightMenu(id: string, event: MouseEvent): void;
+  /** A material dropped from the gallery on a wall or door: that segment, or with Shift the whole wall drawn with it. */
+  paintWall(id: string, material: string, whole: boolean): void;
 }
 
 const FOV = 35;
@@ -114,6 +136,16 @@ const CELL_LABEL_PX = 20;
 const ACCENT = '#7c5cff';
 /** How often a playing clip redraws the shadows, in seconds. */
 const CLIP_SHADOW_STEP = 1 / 15;
+/** Atlas's default lit threshold: below this ambient light a scene is dark. */
+const LIT_THRESHOLD = 0.25;
+/** The board's daylight at full ambient light: the sky's and the sun's strength. */
+const DAY_SKY = 1.5;
+const DAY_SUN = 2.2;
+/** A wall is never lower than this many squares, whatever the fog's height. */
+const MIN_WALL_SQUARES = 0.25;
+/** The plain looks of a wall (grey stone) and a door (dark wood) before a material is painted on. */
+const PLAIN_WALL = 0x8d8780;
+const PLAIN_DOOR = 0x6e4a2c;
 /** Room left around the map when it is framed, for the tilt's perspective. */
 const FRAME_MARGIN = 1.1;
 
@@ -152,7 +184,7 @@ interface HoveredCell {
 type Press =
   | {
     kind: 'camera'; button: number; x: number; y: number; lastX: number; lastY: number; moved: boolean;
-    token: string | null; prop: string | null; pin: string | null;
+    token: string | null; prop: string | null; pin: string | null; door: string | null; light: string | null;
     /** The spot of the board a pan holds under the pointer. */
     grab: { x: number; y: number } | null;
   }
@@ -218,6 +250,13 @@ export class Board {
   private selectedId: string | null = null;
   private readonly controls: ResourceControls;
   private readonly fog = new FogVolume();
+  /** Atlas's walls and doors, and the materials they are painted with, by key (a folder, or the plain looks). */
+  private readonly walls: WallSet;
+  private readonly wallMaterials = new Map<string, THREE.MeshStandardMaterial>();
+  /** Atlas's lights, and the board's daylight they shine against (a level shown while the slider moves). */
+  private readonly rig = new LightRig();
+  private readonly hemisphere = new THREE.HemisphereLight(0xfff4e6, 0x2a2430, DAY_SKY);
+  private ambientShown: number | null = null;
   private readonly toolbar: BoardToolbar;
   private player: PlayerScreen | null = null;
   /** Copy numbers as players see them, kept from sync to sync so a token keeps its number. */
@@ -247,7 +286,13 @@ export class Board {
     this.tooltip.className = 'atlas-tabletop-tooltip';
     this.tooltip.hidden = true;
     container.appendChild(this.tooltip);
-    this.scene.add(this.fog.object3d, this.beam.object3d);
+    this.walls = new WallSet({
+      look: (path, door) => this.wallLook(path, door),
+      materialOf: (id) => this.host.wallMaterial(id),
+      propOf: (id) => this.host.doorProp(id),
+      prop: (glb) => this.model(glb),
+    });
+    this.scene.add(this.fog.object3d, this.beam.object3d, this.walls.object3d, this.rig.object3d);
     this.toolbar = new BoardToolbar(container, {
       fogHeight: () => this.host.fogHeight(),
       setFogHeight: (height) => this.host.setFogHeight(height),
@@ -261,6 +306,12 @@ export class Board {
       togglePlayerFreeze: () => this.setPlayerFrozen(this.player?.frozen == null),
       initiativeOpen: () => this.host.initiativeOpen(),
       toggleInitiative: () => this.host.toggleInitiative(),
+      ambient: () => this.ambientShown ?? this.host.ambient(),
+      setAmbient: (level, keep) => {
+        this.ambientShown = keep ? null : level;
+        if (keep) this.host.setAmbient(level);
+        this.applyLighting();
+      },
     });
     this.controls = new ResourceControls(container, {
       step: (key, delta) => this.stepResource(key, delta),
@@ -278,7 +329,7 @@ export class Board {
     // Shadows are redrawn only when something on the board moves, not when only the camera does.
     this.renderer.shadowMap.autoUpdate = false;
     this.scene.background = new THREE.Color(0x0f0c0a);
-    this.scene.add(new THREE.HemisphereLight(0xfff4e6, 0x2a2430, 1.5));
+    this.scene.add(this.hemisphere);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
     this.sun.shadow.bias = -0.0005;
@@ -327,6 +378,7 @@ export class Board {
       this.sun.shadow.map = null;
     }
     for (const entry of this.tokens.values()) entry.piece.setMiniShadows(preset.miniShadows);
+    this.applyLighting();
     this.wake(true);
     return true;
   }
@@ -413,6 +465,9 @@ export class Board {
     } catch (error) {
       this.host.warn(`Tabletop: cannot show this map's fog of war: ${error instanceof Error ? error.message : String(error)}`);
     }
+    // Walls stand as tall as the fog (never quite flat, so a map with flat fog still shows them).
+    this.walls.update(map.walls, { height: Math.max(MIN_WALL_SQUARES, this.host.fogHeight()) * map.grid.size, tile: map.grid.size });
+    this.applyLighting();
     // Players count copies among the tokens they see, ordered by the GM's numbers (Atlas's player window).
     this.playerNumbers = numberTokensInView(this.playerNumbers, map.tokens
       .filter((token) => playerSees(token, this.tokens.get(token.id)?.goal ?? token, this.fog.areas))
@@ -644,8 +699,12 @@ export class Board {
     };
     this.lastPose = context;
     if (this.drawLaser()) busy = true;
+    const doorsMoving = this.walls.step(dt);
+    if (doorsMoving) busy = true;
+    this.rig.step(this.clock);
+    if (this.rig.animated) busy = true;
     const glide = 1 - Math.exp(-GLIDE * dt);
-    let changed = this.shadowsDirty || this.press?.kind === 'token' || this.press?.kind === 'prop';
+    let changed = this.shadowsDirty || this.press?.kind === 'token' || this.press?.kind === 'prop' || doorsMoving;
     let moving = false;
     for (const entry of this.tokens.values()) {
       const dx = entry.goal.x - entry.at.x;
@@ -661,6 +720,8 @@ export class Board {
         entry.at.y = entry.goal.y;
       }
       entry.piece.pose(entry.at.x, entry.at.y, context);
+      // A light the token carries goes with it.
+      this.rig.place(entry.token.id, entry.at.x, entry.at.y);
       entry.labels.place(entry.piece.figureHeight(), ringDiameter(this.map!.grid, entry.token.size) / 2, entry.piece.top);
       entry.labels.pose(context);
       entry.playerLabels.place(entry.piece.figureHeight(), ringDiameter(this.map!.grid, entry.token.size) / 2, entry.piece.top);
@@ -771,6 +832,82 @@ export class Board {
     return (hit?.userData.pinId as string | undefined) ?? null;
   }
 
+  /** The light whose bulb is under a point of the screen. */
+  private lightAt(clientX: number, clientY: number): string | null {
+    this.ray(clientX, clientY);
+    return this.rig.lightAt(this.raycaster);
+  }
+
+  /**
+   * The board's light: its daylight at the ambient level (the sun casts no shadow in the dark), and Atlas's lights
+   * against it, the nearest casting shadows as the quality allows.
+   */
+  private applyLighting(): void {
+    const map = this.map;
+    if (!map) return;
+    const ambient = this.ambientShown ?? this.host.ambient();
+    this.hemisphere.intensity = DAY_SKY * ambient;
+    this.sun.intensity = DAY_SUN * ambient;
+    // Below Atlas's lit threshold the scene is dark: the sun casts no shadow there.
+    const sunCasts = ambient >= LIT_THRESHOLD;
+    if (this.sun.castShadow !== sunCasts) { this.sun.castShadow = sunCasts; this.shadowsDirty = true; }
+    const measurement = this.host.measurement();
+    this.rig.update(map.lights, {
+      unitDistance: measurement.unitDistance > 0 ? measurement.unitDistance : 5,
+      cell: map.grid.size,
+      ambient,
+      heightOf: (light) => this.host.lightHeight(light) * map.grid.size,
+    });
+    // Token lights stand where their tokens are drawn now.
+    for (const entry of this.tokens.values()) this.rig.place(entry.token.id, entry.at.x, entry.at.y);
+    const target = this.camera.goal.target;
+    if (this.rig.castShadows(this.quality.lightShadows, { x: target.x, z: target.z })) this.shadowsDirty = true;
+    this.wake(true);
+  }
+
+  /** The door under a point of the screen. */
+  private doorAt(clientX: number, clientY: number): string | null {
+    this.ray(clientX, clientY);
+    return this.walls.doorAt(this.raycaster);
+  }
+
+  /** The wall or door under a point of the screen. */
+  wallAt(clientX: number, clientY: number): string | null {
+    this.ray(clientX, clientY);
+    return this.walls.wallAt(this.raycaster);
+  }
+
+  /** Opens or shuts a door: at once on the board (a locked one stays shut), saved by the host. */
+  toggleDoor(id: string): void {
+    const wall = this.map?.walls.find((candidate) => candidate.id === id);
+    if (!wall) return;
+    if (!wall.locked) {
+      wall.closed = !wall.closed;
+      this.walls.setOpen(id, !wall.closed);
+      this.wake(true);
+    }
+    this.host.toggleDoor(id);
+  }
+
+  /** The material of walls painted with `path` (null: plain), shared by them; its textures fill in once read. */
+  private wallLook(path: string | null, door: boolean): THREE.Material {
+    const key = path ?? (door ? ':door' : ':wall');
+    let material = this.wallMaterials.get(key);
+    if (material) return material;
+    material = new THREE.MeshStandardMaterial({ color: path ? 0xffffff : door ? PLAIN_DOOR : PLAIN_WALL, roughness: 0.9, metalness: 0 });
+    this.wallMaterials.set(key, material);
+    if (path) {
+      const made = material;
+      void this.host.readMaterial(path).then((loaded) => {
+        if (this.disposed || !loaded) { if (!loaded) made.color.set(PLAIN_WALL); return; }
+        loaded.apply(made);
+        made.needsUpdate = true;
+        this.wake(true);
+      });
+    }
+    return material;
+  }
+
   private propAt(clientX: number, clientY: number): string | null {
     const hit = this.hit(clientX, clientY, [...this.props.values()].map((piece) => piece.hitTarget));
     return (hit?.userData.propId as string | undefined) ?? null;
@@ -824,6 +961,24 @@ export class Board {
       }
     });
     on('keyup', (event) => { this.held.delete(event.key.toLowerCase()); });
+    // A material dragged from the gallery: the wall under the pointer is named, and painted where it is dropped.
+    const carriesMaterial = (event: DragEvent): boolean => Array.from(event.dataTransfer?.types ?? []).includes(MATERIAL_DRAG_TYPE);
+    on('dragover', (event) => {
+      if (!carriesMaterial(event)) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+      const wall = this.wallAt(event.clientX, event.clientY);
+      this.showTip(event.clientX, event.clientY, wall ? (event.shiftKey ? 'Paint the whole wall' : 'Paint this segment (Shift: the whole wall)') : 'Drop on a wall or door');
+    });
+    on('dragleave', () => { this.tooltip.hidden = true; });
+    on('drop', (event) => {
+      if (!carriesMaterial(event)) return;
+      event.preventDefault();
+      this.tooltip.hidden = true;
+      const material = event.dataTransfer?.getData(MATERIAL_DRAG_TYPE) ?? '';
+      const wall = this.wallAt(event.clientX, event.clientY);
+      if (material && wall) this.host.paintWall(wall, material, event.shiftKey);
+    });
     on('blur', () => this.held.clear());
   }
 
@@ -863,8 +1018,11 @@ export class Board {
     const token = event.button === 2 ? this.tokenAt(x, y) : null;
     const prop = event.button === 2 && !token ? this.propAt(x, y) : null;
     const pin = event.button === 0 ? this.pinAt(x, y) : null;
+    // A right-click on a light's bulb opens its menu; a click opens a door; a right-click on any wall opens its menu.
+    const light = event.button === 2 && !token && !prop ? this.lightAt(x, y) : null;
+    const door = event.button === 0 && !pin ? this.doorAt(x, y) : event.button === 2 && !token && !prop && !light ? this.wallAt(x, y) : null;
     const grab = event.button === 2 ? this.boardPoint(x, y) : null;
-    this.press = { kind: 'camera', button: event.button, x, y, lastX: x, lastY: y, moved: false, token, prop, pin, grab };
+    this.press = { kind: 'camera', button: event.button, x, y, lastX: x, lastY: y, moved: false, token, prop, pin, door, light, grab };
   }
 
   private move(event: PointerEvent): void {
@@ -946,9 +1104,15 @@ export class Board {
       return;
     }
     if (press.moved) return;
+    if (press.button === 0 && press.door) {
+      this.toggleDoor(press.door);
+      return;
+    }
     if (press.button === 0 && !press.pin) this.select(null);
     if (press.button === 2 && press.token) this.host.tokenMenu(press.token, event);
     else if (press.button === 2 && press.prop) this.host.propMenu(press.prop, event);
+    else if (press.button === 2 && press.light) this.host.lightMenu(press.light, event);
+    else if (press.button === 2 && press.door) this.host.wallMenu(press.door, event);
     else if (press.button === 0 && press.pin) {
       const pin = this.pins.find((piece) => piece.pin.id === press.pin);
       if (pin?.pin.notePath) this.host.openNote(pin.pin.notePath);
@@ -1228,6 +1392,8 @@ export class Board {
     if (this.cellOutline) this.cellOutline.visible = gm;
     if (this.cellLabel) this.cellLabel.visible = gm;
     this.fog.show(viewer);
+    this.walls.show(viewer);
+    this.rig.show(viewer);
   }
 
   /** The players' picture, after the GM's: the same scene through the players' camera, then back to the GM's look. */
@@ -1476,10 +1642,15 @@ export class Board {
     const hit = this.hit(event.clientX, event.clientY, targets.map((target) => target.object));
     const found = hit ? targets.find((target) => target.object === hit) : undefined;
     if (!found) { this.tooltip.hidden = true; return; }
+    this.showTip(event.clientX, event.clientY, found.label);
+  }
+
+  /** The board's tooltip, beside the pointer. */
+  private showTip(clientX: number, clientY: number, text: string): void {
     const rect = this.container.getBoundingClientRect();
-    this.tooltip.textContent = found.label;
-    this.tooltip.style.left = `${event.clientX - rect.left + 12}px`;
-    this.tooltip.style.top = `${event.clientY - rect.top + 12}px`;
+    this.tooltip.textContent = text;
+    this.tooltip.style.left = `${clientX - rect.left + 12}px`;
+    this.tooltip.style.top = `${clientY - rect.top + 12}px`;
     this.tooltip.hidden = false;
   }
 
@@ -1502,6 +1673,9 @@ export class Board {
     this.toolbar.dispose();
     this.beam.dispose();
     this.fog.dispose();
+    this.walls.dispose();
+    this.rig.dispose();
+    for (const material of this.wallMaterials.values()) material.dispose();
     for (const piece of this.props.values()) piece.dispose();
     this.surface?.dispose();
     for (const art of this.arts.values()) void art.then((texture) => texture?.dispose());

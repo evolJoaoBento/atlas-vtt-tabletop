@@ -6,6 +6,7 @@
  */
 import { readFog, type FogOperation } from './fog';
 import { readInitiative, type InitiativeSide, type InitiativeState } from './initiative';
+import { readLights, readSceneLighting, readWalls, type BoardLight, type BoardWall, type SceneLighting } from './walls';
 import { hiddenResourcesOf, isDefeated, tokenFromFile, type ResourceDefinition, type ResourceValue } from './resources';
 
 export type GridType = 'square' | 'hex-vertical' | 'hex-horizontal';
@@ -145,6 +146,10 @@ export interface BoardMap {
   inks: BoardInk[];
   /** The fog of war's strokes, as Atlas stores them (`fog.ts` replays them). */
   fog: FogOperation[];
+  /** Atlas's walls and doors, its lights (placed, and carried by tokens) and the scene's own light (`walls.ts`). */
+  walls: BoardWall[];
+  lights: BoardLight[];
+  lighting: SceneLighting;
   /** Atlas's grid object as stored, for the measuring fields read when the map has no collection rules. */
   rawGrid: unknown;
 }
@@ -331,6 +336,9 @@ export function readMap(path: string, text: string): BoardMap {
     initiative: readInitiative(state.initiative),
     inks: items(objects.drawings).map(readInk).filter((ink): ink is BoardInk => ink !== null),
     fog: readFog(objects.fog),
+    walls: readWalls(objects.walls),
+    lights: readLights(objects.lights, objects.tokens),
+    lighting: readSceneLighting(state.lighting),
     rawGrid: state.grid ?? null,
   };
 }

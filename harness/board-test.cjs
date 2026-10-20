@@ -911,6 +911,100 @@ server.listen(0, async () => {
       check('I hides it again', (await tracker()) === null);
       await page.evaluate(() => { window.boardTest.rules.initiative = { mode: 'turn-order', roll: '1d20', firstSide: 'players' }; });
     }
+
+    // 14. Atlas's walls, doors and lights: walls as tall as the fog, a door that swings open on a click, menus on a
+    //     right-click, a material dragged on (a segment, or with Shift the whole wall), the dark and the lights.
+    {
+      await page.keyboard.press('Escape');
+      await page.evaluate(() => { const b = window.boardTest.board; b.select(null); b.camera.frame({ x: 560, y: 0, z: 910 }, 260); b.camera.orbit(0, 5); b.camera.snap(); b.camera.snap(); b.wake(true); });
+      await wait(600);
+      const walls = await page.evaluate(() => {
+        const set = window.boardTest.board.walls;
+        return { fog: window.boardTest.board.host.fogHeight(), meshes: set.meshes.length, boxes: set.meshes.reduce((n, m) => n + m.ids.length, 0), doors: set.doors.size, height: set.meshes[0].mesh.geometry.boundingSphere ? Math.max(...set.meshes[0].mesh.geometry.attributes.position.array.filter((_, i) => i % 3 === 1)) : 0, gmOnly: set.gmOnly.children.length };
+      });
+      check('the walls stand as one mesh of six segments, as tall as the fog; two doors; the one-way arrow', walls.meshes === 1 && walls.boxes === 6 && walls.doors === 2 && Math.abs(walls.height - 70 * walls.fog) < 0.01 && walls.gmOnly === 1, walls);
+      const doorTurn = () => page.evaluate(() => window.boardTest.board.walls.doors.get('door').pivot.rotation.y);
+      const shutTurn = await doorTurn();
+      const doorAt = await project(560, 840, 35);
+      await page.mouse.click(doorAt.x, doorAt.y);
+      await page.waitForFunction(() => { const d = window.boardTest.board.walls.doors.get('door'); return d.openness === d.goal; }, null, { timeout: 10000 });
+      const openTurn = await doorTurn();
+      check('a click on a door opens it (saved through the host) and it swings a quarter turn', (await record()).doors.at(-1) === 'door' && Math.abs(Math.abs(openTurn - shutTurn) - Math.PI / 2) < 0.01, { shutTurn, openTurn, doors: (await record()).doors });
+      await page.screenshot({ path: `${shots}/board-20-walls.png` });
+      await page.evaluate(() => { const w = window.boardTest.board.map.walls.find((x) => x.id === 'door'); w.locked = true; });
+      await page.mouse.click(doorAt.x, doorAt.y);
+      await wait(100);
+      check('a locked door does not move on the board', Math.abs((await doorTurn()) - openTurn) < 1e-6);
+      await page.evaluate(() => { const w = window.boardTest.board.map.walls.find((x) => x.id === 'door'); w.locked = false; });
+      const east = await project(665, 910, 35);
+      await page.mouse.click(east.x, east.y, { button: 'right' });
+      await wait(100);
+      check('a right-click on a wall opens its menu', (await record()).wallMenus.at(-1) === 'e', (await record()).wallMenus);
+
+      const drop = (at, shift) => page.evaluate(([x, y, shift]) => {
+        const canvas = window.boardTest.board.canvas;
+        const transfer = new DataTransfer();
+        transfer.setData('application/x-atlas-tabletop-material', 'atlas-vtt/assets/materials/Bricks');
+        canvas.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer, clientX: x, clientY: y, shiftKey: shift }));
+        const tip = document.querySelector('.atlas-tabletop-tooltip').textContent;
+        canvas.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer, clientX: x, clientY: y, shiftKey: shift }));
+        return tip;
+      }, [at.x, at.y, shift]);
+      const tip = await drop(east, false);
+      let meshes = await page.evaluate(() => window.boardTest.board.walls.meshes.map((m) => m.ids.length));
+      check('a material dropped on a wall paints that segment alone (the tip says so)', JSON.stringify((await record()).paints.at(-1)) === JSON.stringify(['e', 'atlas-vtt/assets/materials/Bricks', false]) && tip.startsWith('Paint this segment') && JSON.stringify(meshes.sort()) === JSON.stringify([1, 5]), { tip, meshes });
+      await drop(east, true);
+      await wait(300);
+      meshes = await page.evaluate(() => window.boardTest.board.walls.meshes.map((m) => [m.ids.length, !!m.mesh.material.map]));
+      check('with Shift it paints the whole wall drawn with it, its texture on', (await record()).paints.at(-1)[2] === true && meshes.length === 1 && meshes[0][0] === 6 && meshes[0][1], meshes);
+
+      const lights = await page.evaluate(() => {
+        const rig = window.boardTest.board.rig;
+        return [...rig.entries.values()].map((e) => ({ id: e.light.id, kind: e.lamp.type, reach: e.lamp.distance, y: e.lamp.position.y, x: e.lamp.position.x, bulb: !!e.bulb }));
+      });
+      check('each light hangs a square up and reaches its dim radius (40 ft = 8 squares); a token\'s has no bulb', lights.length === 3 && lights[0].reach === 560 && lights[0].y === 70 && lights[0].bulb && !lights[2].bulb && lights[2].x === 875, lights);
+      await page.evaluate(() => { window.boardTest.board.toolbar.actions.setAmbient(0.12, true); });
+      await wait(400);
+      const dark = await page.evaluate(() => ({ sky: window.boardTest.board.hemisphere.intensity, sun: window.boardTest.board.sun.castShadow, casting: [...window.boardTest.board.rig.entries.values()].filter((e) => e.lamp.castShadow).length, animated: window.boardTest.board.rig.animated }));
+      check('the ambient slider darkens the board (the sun casts no shadow then); the nearest lights cast shadows; flames flicker', (await record()).ambients.at(-1) === 0.12 && Math.abs(dark.sky - 0.18) < 1e-6 && !dark.sun && dark.casting === 2 && dark.animated, dark);
+      const intensities = [];
+      for (let i = 0; i < 3; i++) { intensities.push(await page.evaluate(() => window.boardTest.board.rig.entries.get('torch').lamp.intensity)); await wait(120); }
+      check('the torch flickers', new Set(intensities.map((v) => v.toFixed(3))).size > 1, intensities);
+      await page.screenshot({ path: `${shots}/board-21-dark.png` });
+      const bulb = await project(490, 875, 70);
+      await page.mouse.click(bulb.x, bulb.y, { button: 'right' });
+      await wait(100);
+      check('a right-click on a light\'s bulb opens its menu', (await record()).lightMenus.at(-1) === 'torch', (await record()).lightMenus);
+      const gmOnly = await page.evaluate(() => {
+        const b = window.boardTest.board;
+        b.showFor('player');
+        const seen = { arrows: b.walls.gmOnly.visible, bulbs: [...b.rig.entries.values()].some((e) => e.bulb && e.bulb.visible), accent: b.walls.doors.get('secret').pivot.children.some((c) => c.userData.gmOnly && c.visible) };
+        b.showFor('gm');
+        return seen;
+      });
+      check('players see no bulb, no one-way arrow and no secret door\'s accent', !gmOnly.arrows && !gmOnly.bulbs && !gmOnly.accent, gmOnly);
+      // A door replaced by a prop from the gallery: fitted to the opening, it swings like the plain door.
+      await page.evaluate(() => { window.boardTest.doorProps.set('door', 'props/barrel.glb'); window.boardTest.board.refresh(); });
+      await page.waitForFunction(() => window.boardTest.board.walls.doors.get('door').leaf.userData.depth !== undefined, null, { timeout: 10000 });
+      const fitted = await page.evaluate(() => {
+        const door = window.boardTest.board.walls.doors.get('door');
+        door.pivot.updateMatrixWorld(true);
+        const THREE = window.boardTest;
+        const box = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
+        door.leaf.traverse((node) => {
+          if (!node.isMesh) return;
+          node.geometry.computeBoundingBox();
+          const b = node.geometry.boundingBox.clone().applyMatrix4(node.matrixWorld);
+          box.min = box.min.map((v, i) => Math.min(v, b.min.toArray()[i]));
+          box.max = box.max.map((v, i) => Math.max(v, b.max.toArray()[i]));
+        });
+        return { open: door.openness, x: [box.min[0], box.max[0]], y: [box.min[1], box.max[1]], z: [box.min[2], box.max[2]] };
+      });
+      // Open, its leaf turned a quarter toward the north: it runs from the hinge (525, 840) up the map, as tall as the wall.
+      check('a door prop fills the opening on the hinge and stays open', fitted.open === 1 && Math.abs(fitted.z[0] - 770) < 2 && Math.abs(fitted.z[1] - 840) < 12 && Math.abs(fitted.y[1] - 70 * (await page.evaluate(() => window.boardTest.board.host.fogHeight()))) < 1, fitted);
+      await page.screenshot({ path: `${shots}/board-22-door-prop.png` });
+      await page.evaluate(() => { window.boardTest.board.toolbar.actions.setAmbient(1, true); });
+    }
   } catch (error) {
     check('harness ran', false, String(error && error.stack || error));
   }

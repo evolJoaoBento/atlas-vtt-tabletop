@@ -18,6 +18,8 @@ import { defeatedResources } from '../src/board/resources';
 import { HP_RESOURCE, type ResourceDefinition, type ResourceValue } from '../src/board/resources';
 import { applyInitiative, readInitiative, type InitiativeAction } from '../src/board/initiative';
 import { InitiativePanel } from '../src/board/initiativePanel';
+import type { BoardWall } from '../src/board/walls';
+import type { LoadedMaterial } from '../src/materials';
 import { parseMini, type LoadedMini } from '../src/library';
 
 function exportGlb(root: THREE.Object3D, animations: THREE.AnimationClip[] = []): Promise<ArrayBuffer> {
@@ -76,6 +78,29 @@ const token = (over: Partial<BoardToken> & Pick<BoardToken, 'id' | 'x' | 'y'>): 
   showNameplate: true, conditions: [], conditionValues: {}, resources: {}, overriddenMax: [], instanceNumber: null, statblockPath: null, side: null, sees: false, ...over,
 });
 
+const wall = (id: string, x1: number, y1: number, x2: number, y2: number, over: Partial<BoardWall> = {}): BoardWall => ({
+  id, type: 'solid', p1: { x: x1, y: y1 }, p2: { x: x2, y: y2 }, direction: null, closed: true, locked: false, blocks: null, limited: false, chain: null, ...over,
+});
+
+/** A brick pattern standing in for a Poly Haven material. */
+function brickMaterial(): LoadedMaterial {
+  const texture = new THREE.CanvasTexture((() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const context = canvas.getContext('2d')!;
+    context.fillStyle = '#d9d2c5';
+    context.fillRect(0, 0, 128, 128);
+    context.fillStyle = '#a0412d';
+    for (let row = 0; row < 4; row++) for (let col = -1; col < 3; col++) context.fillRect(col * 64 + (row % 2) * 32 + 3, row * 32 + 3, 58, 26);
+    return canvas;
+  })());
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  return { name: 'Bricks', apply: (material) => { material.color.set(0xffffff); material.map = texture; } };
+}
+
 const map: BoardMap = {
   path: 'harness.atlasmap',
   background: 'bg.png',
@@ -93,6 +118,20 @@ const map: BoardMap = {
     token({ id: 'fallenDisc', x: 1225, y: 525, imagePath: 'green.png', name: 'Fallen disc', resources: { hp: { current: 0, max: 9 } } }),
   ],
   rawGrid: null,
+  // A room at the bottom of the map: a door in its north wall, a secret door in its south wall, its west wall one-way.
+  walls: [
+    wall('n1', 455, 840, 525, 840, { chain: 'room' }), wall('door', 525, 840, 595, 840, { type: 'door' }), wall('n2', 595, 840, 665, 840, { chain: 'room' }),
+    wall('e', 665, 840, 665, 980, { chain: 'room' }),
+    wall('s1', 665, 980, 595, 980, { chain: 'room' }), wall('secret', 595, 980, 525, 980, { type: 'secret-door' }), wall('s2', 525, 980, 455, 980, { chain: 'room' }),
+    wall('w', 455, 980, 455, 840, { chain: 'room', direction: 'left' }),
+  ],
+  // A torch and a magic light in the room, and a candle the second goblin carries.
+  lights: [
+    { id: 'torch', x: 490, y: 875, bright: 20, dim: 40, color: '#ff9a3c', intensity: 1, animation: 'torch', angle: null, rotation: 0, hidden: false, darkness: false, activeBelowAmbient: null, tokenId: null },
+    { id: 'magic', x: 630, y: 945, bright: 0, dim: 15, color: '#93c5fd', intensity: 0.8, animation: 'pulse', angle: null, rotation: 0, hidden: false, darkness: false, activeBelowAmbient: null, tokenId: null },
+    { id: 'gob2', x: 875, y: 385, bright: 10, dim: 20, color: '#ffd28a', intensity: 1, animation: 'candle', angle: null, rotation: 0, hidden: false, darkness: false, activeBelowAmbient: null, tokenId: 'gob2' },
+  ],
+  lighting: { enabled: false, ambient: 0.1, ambientColor: null },
   // Four combatants, not fighting yet: the hero (own modifier +2), the two goblins (copies 1 and 2), the hidden orc.
   initiative: readInitiative({
     entries: [
@@ -135,7 +174,8 @@ async function main(): Promise<void> {
   const record = {
     moves: [] as Array<[string, number, number]>, propMoves: [] as Array<[string, number, number]>, added: [] as Array<[string, number, number]>,
     notes: [] as string[], menus: [] as string[], propMenus: [] as string[], previews: [] as string[], warnings: [] as string[],
-    copies: [] as Array<[string, string, number, number]>, menuActions: [] as unknown[][], initiative: [] as unknown[], shown: [] as string[], lasers: [] as Array<Record<string, unknown>>, fogHeights: [] as number[],
+    copies: [] as Array<[string, string, number, number]>, menuActions: [] as unknown[][], initiative: [] as unknown[], shown: [] as string[],
+    doors: [] as string[], wallMenus: [] as string[], paints: [] as Array<[string, string, boolean]>, lightMenus: [] as string[], ambients: [] as number[], lasers: [] as Array<Record<string, unknown>>, fogHeights: [] as number[],
     /** Resource edits as the host saved them: token, key, the value it held, the value written, max edited. */
     edits: [] as Array<[string, string, ResourceValue, ResourceValue, boolean]>,
   };
@@ -154,6 +194,9 @@ async function main(): Promise<void> {
   ];
   rules.definitions = definitions;
   let fogHeight = 1;
+  const wallPaint = new Map<string, string>();
+  const doorProps = new Map<string, string>();
+  let ambientLevel = 1;
   let menu: AtlasMenu | null = null;
   const initiative = new Set<string>();
   let players: Window | null = null;
@@ -234,6 +277,22 @@ async function main(): Promise<void> {
     setLaser: (changes) => { laser = { ...laser, ...changes }; record.lasers.push(changes); },
     initiativeOpen: () => panel.isOpen,
     toggleInitiative: () => panel.setOpen(!panel.isOpen),
+    wallMaterial: (id) => wallPaint.get(id) ?? null,
+    doorProp: (id) => doorProps.get(id) ?? null,
+    readMaterial: async () => brickMaterial(),
+    toggleDoor: (id) => { record.doors.push(id); },
+    wallMenu: (id) => { record.wallMenus.push(id); },
+    paintWall: (id, material, whole) => {
+      record.paints.push([id, material, whole]);
+      const walls = (board as unknown as { map: BoardMap }).map.walls;
+      const chain = walls.find((w) => w.id === id)?.chain;
+      for (const w of whole && chain ? walls.filter((other) => other.chain === chain) : walls.filter((other) => other.id === id)) wallPaint.set(w.id, material);
+      board.refresh();
+    },
+    ambient: () => ambientLevel,
+    setAmbient: (level) => { ambientLevel = level; record.ambients.push(level); board.refresh(); },
+    lightHeight: () => 1,
+    lightMenu: (id) => { record.lightMenus.push(id); },
   };
   const container = document.getElementById('board')!;
   const board = new Board(container, host, QUALITY.medium);
@@ -293,7 +352,7 @@ async function main(): Promise<void> {
     const rect = board.canvas.getBoundingClientRect();
     return { x: rect.left + ((point.x + 1) / 2) * rect.width, y: rect.top + ((1 - point.y) / 2) * rect.height };
   };
-  Object.assign(window, { boardTest: { board, map, record, panel, rules, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, insideFog, ready: true } });
+  Object.assign(window, { boardTest: { board, map, record, panel, rules, doorProps, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, insideFog, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

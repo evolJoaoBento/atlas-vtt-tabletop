@@ -9,6 +9,7 @@ import { resolveLaser, type LaserSettings } from './src/board/laser';
 import { TokenWriter } from './src/board/tokenWriter';
 import { GALLERY_VIEW_TYPE, GalleryView, importWithNotice, pickFiles } from './src/gallery';
 import { DEFAULT_MINIS_FOLDER, DEFAULT_PROPS_FOLDER, MiniLibrary, PROPS } from './src/library';
+import { DEFAULT_MATERIALS_FOLDER, MaterialLibrary } from './src/materials';
 import { GpuSettings, currentChip, gpuChoices, type GpuPreference } from './src/gpu';
 import { playerMiniPainter, type PlayerMiniPainter } from './src/playerMinis';
 
@@ -19,13 +20,15 @@ interface TabletopSettings {
   /** The minis folder (the key keeps its old name so saved settings still read). */
   folder: string;
   propsFolder: string;
+  /** Where the materials walls and doors are painted with are kept. */
+  materialsFolder: string;
   /** How hard the 3D board works to look good. */
   quality: Quality;
   /** The laser pointer's colour and size (Atlas's options), for every map. */
   laser?: Partial<LaserSettings>;
 }
 
-const DEFAULT_SETTINGS: TabletopSettings = { folder: DEFAULT_MINIS_FOLDER, propsFolder: DEFAULT_PROPS_FOLDER, quality: DEFAULT_QUALITY };
+const DEFAULT_SETTINGS: TabletopSettings = { folder: DEFAULT_MINIS_FOLDER, propsFolder: DEFAULT_PROPS_FOLDER, materialsFolder: DEFAULT_MATERIALS_FOLDER, quality: DEFAULT_QUALITY };
 
 interface SavedData {
   settings?: Partial<TabletopSettings>;
@@ -57,6 +60,7 @@ export default class TabletopPlugin extends Plugin {
   boardData = new BoardData();
   library!: MiniLibrary;
   props!: MiniLibrary;
+  materials!: MaterialLibrary;
   api: TabletopApi | null = null;
   private players: ReturnType<typeof playerMiniPainter> | null = null;
   /** The 3D board used last: props from the gallery go to it. */
@@ -75,15 +79,17 @@ export default class TabletopPlugin extends Plugin {
     this.register(this.boardData.onChange(() => { this.save(); this.refreshBoards(); }));
     this.library = new MiniLibrary(this.app, () => this.settings.folder);
     this.props = new MiniLibrary(this.app, () => this.settings.propsFolder, PROPS);
-    this.register(() => { this.library.dispose(); this.props.dispose(); });
+    this.materials = new MaterialLibrary(this.app, () => this.settings.materialsFolder);
+    this.register(() => { this.library.dispose(); this.props.dispose(); this.materials.dispose(); });
     const writer = new TokenWriter({ views: () => mapViews(this.app), process: (path, edit) => this.processFile(path, edit) });
 
-    this.registerView(GALLERY_VIEW_TYPE, (leaf) => new GalleryView(leaf, this.library, this.props, (glb) => this.placeProp(glb)));
+    this.registerView(GALLERY_VIEW_TYPE, (leaf) => new GalleryView(leaf, this.library, this.props, this.materials, (glb) => this.placeProp(glb)));
     this.registerView(BOARD_VIEW_TYPE, (leaf) => new BoardView(leaf, {
       assignments: this.assignments,
       boardData: this.boardData,
       minis: this.library,
       props: this.props,
+      materials: this.materials,
       writer,
       quality: () => this.settings.quality,
       laser: () => resolveLaser(this.settings.laser),
@@ -135,14 +141,16 @@ export default class TabletopPlugin extends Plugin {
       this.boardData.rename(oldPath, file.path);
       this.library.fileChanged(file.path, oldPath);
       this.props.fileChanged(file.path, oldPath);
+      this.materials.fileChanged(file.path, oldPath);
     }));
     this.registerEvent(this.app.vault.on('delete', (file) => {
       this.assignments.deleted(file.path);
       this.boardData.deleted(file.path);
       this.library.fileChanged(file.path);
       this.props.fileChanged(file.path);
+      this.materials.fileChanged(file.path);
     }));
-    const changed = (file: { path: string }): void => { this.library.fileChanged(file.path); this.props.fileChanged(file.path); };
+    const changed = (file: { path: string }): void => { this.library.fileChanged(file.path); this.props.fileChanged(file.path); this.materials.fileChanged(file.path); };
     this.registerEvent(this.app.vault.on('create', changed));
     this.registerEvent(this.app.vault.on('modify', changed));
 
@@ -179,10 +187,11 @@ export default class TabletopPlugin extends Plugin {
     await this.app.workspace.revealLeaf(leaf);
   }
 
-  async setFolder(key: 'folder' | 'propsFolder', folder: string): Promise<void> {
+  async setFolder(key: 'folder' | 'propsFolder' | 'materialsFolder', folder: string): Promise<void> {
     this.settings[key] = folder.trim().replace(/^\/+|\/+$/g, '') || DEFAULT_SETTINGS[key];
     this.save();
-    (key === 'folder' ? this.library : this.props).emit();
+    if (key === 'materialsFolder') this.materials.fileChanged(this.materials.folderPath);
+    else (key === 'folder' ? this.library : this.props).emit();
   }
 
   async setQuality(quality: Quality): Promise<void> {
@@ -306,6 +315,10 @@ class TabletopSettingTab extends PluginSettingTab {
       .setName('Props folder')
       .setDesc('Where imported GLB props (furniture, scenery) are kept. GLB files put in this folder by hand are listed too.')
       .addText((text) => text.setPlaceholder(DEFAULT_PROPS_FOLDER).setValue(this.plugin.settings.propsFolder).onChange((value) => { void this.plugin.setFolder('propsFolder', value); }));
+    new Setting(containerEl)
+      .setName('Materials folder')
+      .setDesc('Where imported materials (Poly Haven texture sets) are kept, one folder each. Drag one from the gallery onto a wall or door on a 3D board to paint it.')
+      .addText((text) => text.setPlaceholder(DEFAULT_MATERIALS_FOLDER).setValue(this.plugin.settings.materialsFolder).onChange((value) => { void this.plugin.setFolder('materialsFolder', value); }));
     new Setting(containerEl)
       .setName('3D board quality')
       .setDesc('Low draws fastest (no antialiasing, soft blob shadows). Medium is sharper. High gives minis their real shadows and draws at full resolution. On all of them the resolution drops a little while the board cannot keep up.')

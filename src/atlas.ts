@@ -46,6 +46,9 @@ export interface AtlasSceneState {
   endCombat?: () => void;
   setInitiativeSitsOut?: (id: string, sitsOut: boolean) => void;
   resetInitiative?: () => void;
+  /** Atlas's doors: open or shut one (a locked one stays shut), lock or unlock one. */
+  toggleDoor?: (id: string) => void;
+  setDoorLocked?: (id: string, locked: boolean) => void;
 }
 
 interface Store<T> {

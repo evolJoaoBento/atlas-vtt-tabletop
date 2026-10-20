@@ -26,6 +26,9 @@ export interface ToolbarActions {
   /** Whether the initiative tracker shows on the board; showing or hiding it. */
   initiativeOpen(): boolean;
   toggleInitiative(): void;
+  /** The board's ambient light (0–1); a new level, shown while the slider moves and kept when it is let go. */
+  ambient(): number;
+  setAmbient(level: number, keep: boolean): void;
 }
 
 /** Lucide's `command` icon (ISC), the glyph of Atlas's command palette button. */
@@ -70,6 +73,8 @@ export class BoardToolbar {
   private readonly freezeButton: HTMLButtonElement;
   private readonly heightInput: HTMLInputElement;
   private readonly initiativeToggle: HTMLInputElement;
+  private readonly ambientInput: HTMLInputElement;
+  private readonly ambientValue: HTMLElement;
   private readonly onOutside = (event: PointerEvent): void => {
     const target = event.target as Node;
     if (!this.panel.contains(target) && !this.button.contains(target)) this.close();
@@ -217,6 +222,26 @@ export class BoardToolbar {
     this.heightInput.setAttribute('aria-label', 'Fog height in squares');
     el('span', 'atlas-tabletop-palette__unit', field, 'squares');
     el('div', 'atlas-tabletop-palette__hint', fog, 'The fog painted in Atlas stands this many grid squares tall. 0 lays it flat on the map.');
+    // The board's own daylight: in the dark only Atlas's lights show the map.
+    const lighting = el('div', 'atlas-tabletop-palette__section', this.panel);
+    el('div', 'atlas-tabletop-palette__heading', lighting, 'Lighting');
+    const ambient = el('label', 'atlas-tabletop-palette__field', lighting);
+    el('span', 'atlas-tabletop-palette__label', ambient, 'Ambient light');
+    this.ambientInput = el('input', 'atlas-tabletop-palette__range', ambient);
+    this.ambientInput.type = 'range';
+    this.ambientInput.min = '0';
+    this.ambientInput.max = '100';
+    this.ambientInput.step = '1';
+    this.ambientInput.setAttribute('aria-label', 'Ambient light');
+    this.ambientValue = el('span', 'atlas-tabletop-palette__unit', ambient, '');
+    el('div', 'atlas-tabletop-palette__hint', lighting, "Lower it and the map goes dark: Atlas's lights shine in it. Right-click a light's bulb to set how high it hangs.");
+    const level = (keep: boolean): void => {
+      const value = Number(this.ambientInput.value) / 100;
+      this.ambientValue.textContent = `${Math.round(value * 100)}%`;
+      this.actions.setAmbient(value, keep);
+    };
+    this.ambientInput.addEventListener('input', () => level(false));
+    this.ambientInput.addEventListener('change', () => level(true));
     // Atlas's command palette shows or hides its initiative tracker; so does this, and its I key.
     const initiative = el('div', 'atlas-tabletop-palette__section', this.panel);
     el('div', 'atlas-tabletop-palette__heading', initiative, 'Initiative tracker');
@@ -318,6 +343,8 @@ export class BoardToolbar {
     this.heightInput.value = String(this.actions.fogHeight());
     this.heightInput.removeAttribute('aria-invalid');
     this.initiativeToggle.checked = this.actions.initiativeOpen();
+    this.ambientInput.value = String(Math.round(this.actions.ambient() * 100));
+    this.ambientValue.textContent = `${this.ambientInput.value}%`;
     this.panel.hidden = false;
     this.button.classList.add('is-active');
     this.button.setAttribute('aria-expanded', 'true');

@@ -14,12 +14,14 @@ export interface QualityPreset {
   shadowMapSize: number;
   /** A real shadow drawn from the model, or a soft blob under it (much cheaper for a heavy model). */
   miniShadows: 'real' | 'blob';
+  /** How many of Atlas's lights (the nearest the camera's target) cast shadows; each costs six shadow drawings. */
+  lightShadows: number;
 }
 
 export const QUALITY: Readonly<Record<Quality, QualityPreset>> = {
-  low: { maxPixelRatio: 1, minPixelRatio: 0.6, antialias: false, shadowMapSize: 1024, miniShadows: 'blob' },
-  medium: { maxPixelRatio: 1.5, minPixelRatio: 0.75, antialias: true, shadowMapSize: 2048, miniShadows: 'blob' },
-  high: { maxPixelRatio: 2, minPixelRatio: 1, antialias: true, shadowMapSize: 4096, miniShadows: 'real' },
+  low: { maxPixelRatio: 1, minPixelRatio: 0.6, antialias: false, shadowMapSize: 1024, miniShadows: 'blob', lightShadows: 0 },
+  medium: { maxPixelRatio: 1.5, minPixelRatio: 0.75, antialias: true, shadowMapSize: 2048, miniShadows: 'blob', lightShadows: 2 },
+  high: { maxPixelRatio: 2, minPixelRatio: 1, antialias: true, shadowMapSize: 4096, miniShadows: 'real', lightShadows: 4 },
 };
 
 export const DEFAULT_QUALITY: Quality = 'medium';

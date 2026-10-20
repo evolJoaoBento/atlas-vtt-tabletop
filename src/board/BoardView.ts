@@ -11,13 +11,14 @@ import type { AtlasView } from '../atlas';
 import type { Assignments } from '../assignments';
 import { MiniPicker } from '../gallery';
 import type { LoadedMini, MiniLibrary } from '../library';
+import type { MaterialLibrary } from '../materials';
 import { Board, type BoardHost } from './board';
 import type { BoardData } from './boardData';
 import { ASSETS_METADATA_PATH, collectionOf, emptyRules, readCollectionRules, type CollectionRules } from './conditions';
 import { readMap, type BoardMap, type BoardToken } from './mapModel';
 import { readMeasurement } from './measure';
 import { defeatedResources } from './resources';
-import { AtlasMenu } from './atlasMenu';
+import { AtlasMenu, type MenuEntry } from './atlasMenu';
 import { tokenMenuEntries } from './tokenMenu';
 import { addToInitiative, conditionChange, conditionStep, initiativeEntryFor, initiativeId, removeFromInitiative, resetChange, type ConditionFields } from './tokenEdits';
 import { applyInitiative, emptyInitiative, ownModifier, readInitiative, statblockModifier, type InitiativeAction, type InitiativeState } from './initiative';
@@ -32,6 +33,9 @@ export const BOARD_VIEW_TYPE = 'atlas-tabletop-board';
 /** The hover source Tabletop registers, so Obsidian's page preview shows stat blocks from the board. */
 export const HOVER_SOURCE = 'atlas-vtt-tabletop';
 const RELOAD_MS = 300;
+/** A light hangs a square above the map until the GM sets its height; the menu steps it a quarter square. */
+const DEFAULT_LIGHT_SQUARES = 1;
+const HEIGHT_STEP = 0.25;
 
 /** What the board's tab uses of the plugin. */
 export interface BoardServices {
@@ -39,6 +43,7 @@ export interface BoardServices {
   boardData: BoardData;
   minis: MiniLibrary;
   props: MiniLibrary;
+  materials: MaterialLibrary;
   writer: TokenWriter;
   /** The quality setting the board draws with. */
   quality(): Quality;
@@ -311,7 +316,96 @@ export class BoardView extends ItemView {
       playerViewOpen: () => this.services.playerViewOpen(mapPath()),
       initiativeOpen: () => this.initiative?.isOpen ?? false,
       toggleInitiative: () => this.initiative?.setOpen(!this.initiative.isOpen),
+      wallMaterial: (id) => boardData.wallMaterial(mapPath(), id),
+      doorProp: (id) => boardData.doorProp(mapPath(), id),
+      readMaterial: (path) => this.services.materials.load(path).catch((error: unknown) => {
+        this.warn(`Tabletop: cannot read the material ${path}: ${error instanceof Error ? error.message : String(error)}`);
+        return null;
+      }),
+      toggleDoor: (id) => {
+        const wall = this.map?.walls.find((candidate) => candidate.id === id);
+        if (!wall) return;
+        if (wall.locked) { new Notice('Tabletop: this door is locked. Right-click it to unlock it.'); return; }
+        writer.toggleDoor(mapPath(), id).catch((error: unknown) => this.unsaved('door', error));
+      },
+      wallMenu: (id, event) => this.wallMenu(id, event),
+      // Until the GM moves the slider, the board is as light as Atlas's scene (daylight when Atlas's lighting is off).
+      ambient: () => boardData.ambient(mapPath()) ?? (this.map?.lighting.enabled ? this.map.lighting.ambient : 1),
+      setAmbient: (level) => boardData.setAmbient(mapPath(), level),
+      lightHeight: (light) => boardData.lightHeight(mapPath(), light.id) ?? DEFAULT_LIGHT_SQUARES,
+      lightMenu: (id, event) => this.lightMenu(id, event),
+      paintWall: (id, material, whole) => {
+        const walls = this.map?.walls ?? [];
+        const wall = walls.find((candidate) => candidate.id === id);
+        if (!wall) return;
+        // Shift paints every segment drawn in the same stroke; a door is always painted alone.
+        const ids = whole && wall.chain && wall.type === 'solid' ? walls.filter((other) => other.chain === wall.chain && other.type === 'solid').map((other) => other.id) : [id];
+        boardData.setWallMaterial(mapPath(), ids, material);
+      },
     };
+  }
+
+  /** A light's menu: how high it hangs, in quarter squares, and back to the default. */
+  private lightMenu(id: string, event: MouseEvent): void {
+    const path = this.path;
+    if (!path) return;
+    const { boardData } = this.services;
+    const entries = (): MenuEntry[] => {
+      const stored = boardData.lightHeight(path, id);
+      const height = stored ?? DEFAULT_LIGHT_SQUARES;
+      const set = (next: number): void => boardData.setLightHeight(path, id, Math.max(0, Math.round(next * 4) / 4));
+      return [
+        {
+          type: 'item', label: 'Height', keepOpen: true, onClick: () => undefined,
+          stepper: { value: `${height} sq`, label: 'Height', canDecrement: height > 0, onDecrement: () => set(height - HEIGHT_STEP), onIncrement: () => set(height + HEIGHT_STEP) },
+        },
+        { type: 'item', label: 'Reset height', disabled: stored === null, onClick: () => boardData.setLightHeight(path, id, null) },
+      ];
+    };
+    this.menu?.close();
+    this.menu = new AtlasMenu(this.contentEl.ownerDocument, entries, { x: event.clientX, y: event.clientY }, (element, name) => setIcon(element, name), () => { this.menu = null; });
+  }
+
+  /** A wall's or door's menu: a door opens, shuts, locks; any wall can lose its paint; a door can be a prop instead. */
+  private wallMenu(id: string, event: MouseEvent): void {
+    const path = this.path;
+    if (!path || !this.map?.walls.some((candidate) => candidate.id === id)) return;
+    const { boardData, props, writer } = this.services;
+    const entries = (): MenuEntry[] => {
+      const wall = this.map?.walls.find((candidate) => candidate.id === id);
+      if (!wall) return [];
+      const door = wall.type !== 'solid';
+      const prop = door ? boardData.doorProp(path, id) : null;
+      const paint = boardData.wallMaterial(path, id);
+      const painted = wall.chain ? (this.map?.walls ?? []).filter((other) => other.chain === wall.chain && other.type === 'solid' && boardData.wallMaterial(path, other.id) !== null).map((other) => other.id) : [];
+      const list: MenuEntry[] = [];
+      if (door) {
+        list.push({ type: 'item', label: wall.closed ? 'Open' : 'Close', disabled: wall.locked, onClick: () => this.board?.toggleDoor(id) });
+        list.push({
+          type: 'item', label: wall.locked ? 'Unlock' : 'Lock',
+          onClick: () => {
+            wall.locked = !wall.locked;
+            if (wall.locked) wall.closed = true;
+            this.board?.refresh();
+            writer.lockDoor(path, id, wall.locked).catch((error: unknown) => this.unsaved('door lock', error));
+          },
+        });
+        list.push({ type: 'separator' });
+        list.push({
+          type: 'item', label: prop ? 'Change door prop…' : 'Replace with prop…',
+          onClick: () => new MiniPicker(this.app, props, 'door', prop ? { mini: prop, scale: 1, turn: 0 } : null, (result) => boardData.setDoorProp(path, id, result.mini), {
+            title: wall.type === 'secret-door' ? 'Prop for this secret door' : 'Prop for this door', action: 'Use prop', fitted: true,
+          }).open(),
+        });
+        if (prop) list.push({ type: 'item', label: 'Use plain door', onClick: () => boardData.setDoorProp(path, id, null) });
+      }
+      if (paint) list.push({ type: 'item', label: door ? 'Remove material' : 'Remove material from segment', onClick: () => boardData.setWallMaterial(path, [id], null) });
+      if (!door && painted.length > 1) list.push({ type: 'item', label: 'Remove material from whole wall', onClick: () => boardData.setWallMaterial(path, painted, null) });
+      if (list.length === 0) list.push({ type: 'item', label: 'Drag a material from the gallery onto this wall', disabled: true, onClick: () => undefined });
+      return list;
+    };
+    this.menu?.close();
+    this.menu = new AtlasMenu(this.contentEl.ownerDocument, entries, { x: event.clientX, y: event.clientY }, (element, name) => setIcon(element, name), () => { this.menu = null; });
   }
 
   // ── Initiative ────────────────────────────────────────────────────────────

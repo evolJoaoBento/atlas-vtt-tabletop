@@ -1,11 +1,13 @@
 /**
- * The gallery (a view of its own, opened by the "Open minis gallery" command) with two tabs, Minis and Props, and the
- * picker "Assign mini…" opens from a token's menu on the 3D board. They show a library's GLBs as cards with a drawn
- * thumbnail, and import more: by the Import button or by dropping .glb files on them. Clicking a prop puts it on the
- * 3D board last used.
+ * The gallery (a view of its own, opened by the "Open minis gallery" command) with three tabs, Minis, Props and
+ * Materials, and the picker "Assign mini…" opens from a token's menu on the 3D board. Minis and props show a library's
+ * GLBs as cards with a drawn thumbnail, and import more: by the Import button or by dropping .glb files on them.
+ * Clicking a prop puts it on the 3D board last used. Materials show their colour map, import Poly Haven's zips (or
+ * its maps, or a folder of them), and are dragged onto a wall or door of a 3D board to paint it.
  */
-import { ItemView, Menu, Modal, Notice, setIcon, type App, type TFile, type WorkspaceLeaf } from 'obsidian';
+import { ItemView, Menu, Modal, Notice, setIcon, type App, type TFile, type TFolder, type WorkspaceLeaf } from 'obsidian';
 import type { MiniLibrary } from './library';
+import { MATERIAL_DRAG_TYPE, type MaterialLibrary } from './materials';
 
 export const GALLERY_VIEW_TYPE = 'atlas-tabletop-gallery';
 
@@ -102,7 +104,28 @@ This model has ${model.simplifiedFrom.toLocaleString()} triangles; Tabletop draw
   }
 }
 
-type GalleryTab = 'minis' | 'props';
+type GalleryTab = 'minis' | 'props' | 'materials';
+
+/** Imports materials and tells the user how it went. */
+async function importMaterials(library: MaterialLibrary, files: readonly File[]): Promise<void> {
+  if (files.length === 0) return;
+  const { added, failed } = await library.import(files);
+  if (added.length > 0) new Notice(`Tabletop: imported ${added.length} ${added.length === 1 ? 'material' : 'materials'} into ${library.folderPath}.`);
+  for (const { name, reason } of failed) new Notice(`Tabletop: could not import ${name}: ${reason}`, 8000);
+}
+
+/** Asks for material files (Poly Haven zips, or their maps), or with `folder` for a folder of maps. */
+function pickMaterialFiles(doc: Document, folder: boolean): Promise<File[]> {
+  return new Promise((resolve) => {
+    const input = doc.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    if (folder) input.webkitdirectory = true;
+    else input.accept = '.zip,.jpg,.jpeg,.png,.webp';
+    input.addEventListener('change', () => resolve(Array.from(input.files ?? [])), { once: true });
+    input.click();
+  });
+}
 
 export class GalleryView extends ItemView {
   private tab: GalleryTab = 'minis';
@@ -110,7 +133,13 @@ export class GalleryView extends ItemView {
   private body: HTMLElement | null = null;
   private stops: Array<() => void> = [];
 
-  constructor(leaf: WorkspaceLeaf, private readonly minis: MiniLibrary, private readonly props: MiniLibrary, private readonly placeProp: (glb: string) => void) {
+  constructor(
+    leaf: WorkspaceLeaf,
+    private readonly minis: MiniLibrary,
+    private readonly props: MiniLibrary,
+    private readonly materials: MaterialLibrary,
+    private readonly placeProp: (glb: string) => void,
+  ) {
     super(leaf);
   }
 
@@ -123,8 +152,9 @@ export class GalleryView extends ItemView {
     root.empty();
     root.addClass('atlas-tabletop-gallery');
     const tabs = root.createDiv({ cls: 'atlas-tabletop-tabs' });
-    const buttons = (['minis', 'props'] as const).map((tab) => {
-      const button = tabs.createEl('button', { cls: 'atlas-tabletop-tab', text: tab === 'minis' ? 'Minis' : 'Props' });
+    const names: Record<GalleryTab, string> = { minis: 'Minis', props: 'Props', materials: 'Materials' };
+    const buttons = (['minis', 'props', 'materials'] as const).map((tab) => {
+      const button = tabs.createEl('button', { cls: 'atlas-tabletop-tab', text: names[tab] });
       button.addEventListener('click', () => { this.tab = tab; this.filter = ''; this.draw(); sync(); });
       return { tab, button };
     });
@@ -133,6 +163,7 @@ export class GalleryView extends ItemView {
     this.body = root.createDiv({ cls: 'atlas-tabletop-gallery-body' });
     this.stops.push(this.minis.onChange(() => { if (this.tab === 'minis') this.redraw(); }));
     this.stops.push(this.props.onChange(() => { if (this.tab === 'props') this.redraw(); }));
+    this.stops.push(this.materials.onChange(() => { if (this.tab === 'materials') this.redraw(); }));
     this.draw();
   }
 
@@ -152,6 +183,7 @@ export class GalleryView extends ItemView {
     const body = this.body;
     if (!body) return;
     body.empty();
+    if (this.tab === 'materials') { this.drawMaterials(body); return; }
     const library = this.library;
     const bar = body.createDiv({ cls: 'atlas-tabletop-bar' });
     const search = bar.createEl('input', { type: 'search', placeholder: `Search ${library.kind.many}…`, cls: 'atlas-tabletop-search' });
@@ -167,8 +199,85 @@ export class GalleryView extends ItemView {
     this.redraw();
   }
 
+  /** The Materials tab: Poly Haven's zips or maps imported, and cards to drag onto a wall. */
+  private drawMaterials(body: HTMLElement): void {
+    const library = this.materials;
+    const bar = body.createDiv({ cls: 'atlas-tabletop-bar' });
+    const search = bar.createEl('input', { type: 'search', placeholder: 'Search materials…', cls: 'atlas-tabletop-search' });
+    search.addEventListener('input', () => { this.filter = search.value; this.redraw(); });
+    const doc = body.ownerDocument;
+    bar.createEl('button', { cls: 'mod-cta', text: 'Import zip or maps' }).addEventListener('click', async () => importMaterials(library, await pickMaterialFiles(doc, false)));
+    bar.createEl('button', { text: 'Import folder' }).addEventListener('click', async () => importMaterials(library, await pickMaterialFiles(doc, true)));
+    body.createDiv({
+      cls: 'atlas-tabletop-hint',
+      text: `Import a texture set as Poly Haven gives it (the zip, or its colour, normal, roughness and AO maps). Materials live in ${library.folderPath}. Drag one onto a wall or door of a 3D board to paint that segment; hold Shift to paint the whole wall.`,
+    });
+    this.grid = body.createDiv({ cls: 'atlas-tabletop-grid' });
+    body.addEventListener('dragover', (event) => {
+      if (!Array.from(event.dataTransfer?.items ?? []).some((item) => item.kind === 'file')) return;
+      event.preventDefault();
+      body.addClass('is-dropping');
+    });
+    body.addEventListener('dragleave', () => body.removeClass('is-dropping'));
+    body.addEventListener('drop', (event) => {
+      body.removeClass('is-dropping');
+      const files = Array.from(event.dataTransfer?.files ?? []);
+      if (files.length === 0) return;
+      event.preventDefault();
+      void importMaterials(library, files);
+    });
+    this.redraw();
+  }
+
+  private redrawMaterials(grid: HTMLElement): void {
+    grid.empty();
+    const library = this.materials;
+    const needle = this.filter.trim().toLowerCase();
+    const all = library.list();
+    const folders = all.filter((folder) => needle === '' || folder.name.toLowerCase().includes(needle));
+    if (folders.length === 0) {
+      grid.createDiv({ cls: 'atlas-tabletop-empty', text: all.length === 0 ? `No materials yet. Import a Poly Haven zip, or drop one here.` : 'No material matches.' });
+      return;
+    }
+    for (const folder of folders) {
+      const card = grid.createDiv({ cls: 'atlas-tabletop-card atlas-tabletop-material', attr: { title: `${folder.path}\nDrag onto a wall or door (Shift: the whole wall)`, draggable: 'true' } });
+      const thumb = card.createDiv({ cls: 'atlas-tabletop-thumb' });
+      const url = library.thumbnail(folder.path);
+      if (url) thumb.createEl('img', { attr: { src: url, alt: folder.name, draggable: 'false' } });
+      else setIcon(thumb, 'image-off');
+      card.createDiv({ cls: 'atlas-tabletop-name', text: folder.name });
+      card.addEventListener('dragstart', (event) => {
+        if (!event.dataTransfer) return;
+        event.dataTransfer.setData(MATERIAL_DRAG_TYPE, folder.path);
+        event.dataTransfer.setData('text/plain', folder.path);
+        event.dataTransfer.effectAllowed = 'copy';
+        const image = thumb.querySelector('img');
+        if (image) event.dataTransfer.setDragImage(image, 24, 24);
+      });
+      card.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        this.materialMenu(folder, event);
+      });
+    }
+  }
+
+  private materialMenu(folder: TFolder, event: MouseEvent): void {
+    const menu = new Menu();
+    menu.addItem((item) => item.setTitle('Reveal in navigation').setIcon('folder-open').onClick(() => {
+      const explorer = this.app.workspace.getLeavesOfType('file-explorer')[0]?.view as { revealInFolder?(file: TFolder): void } | undefined;
+      explorer?.revealInFolder?.(folder);
+    }));
+    menu.addItem((item) => item.setTitle('Delete material').setIcon('trash').setWarning(true).onClick(() => {
+      new ConfirmModal(this.app, `Delete ${folder.name}? Walls painted with it lose their paint. The folder goes to the trash.`, () => {
+        void this.app.fileManager.trashFile(folder);
+      }).open();
+    }));
+    menu.showAtMouseEvent(event);
+  }
+
   private redraw(): void {
     if (!this.grid) return;
+    if (this.tab === 'materials') { this.redrawMaterials(this.grid); return; }
     const library = this.library;
     drawGrid(this.grid, library, {
       filter: this.filter,
@@ -226,6 +335,8 @@ export class MiniPicker extends Modal {
     private readonly tokenName: string,
     current: PickResult | null,
     private readonly done: (result: PickResult) => void,
+    /** A picker for something else than a token's mini (a door's prop): its title and button, and no size or turn. */
+    private readonly options: { title?: string; action?: string; fitted?: boolean } = {},
   ) {
     super(app);
     this.selected = current?.mini ?? null;
@@ -235,10 +346,10 @@ export class MiniPicker extends Modal {
 
   onOpen(): void {
     this.modalEl.addClass('atlas-tabletop-picker');
-    this.setTitle(`Mini for ${this.tokenName}`);
+    this.setTitle(this.options.title ?? `Mini for ${this.tokenName}`);
     const root = this.contentEl;
     const bar = root.createDiv({ cls: 'atlas-tabletop-bar' });
-    const search = bar.createEl('input', { type: 'search', placeholder: 'Search minis…', cls: 'atlas-tabletop-search' });
+    const search = bar.createEl('input', { type: 'search', placeholder: `Search ${this.library.kind.many}…`, cls: 'atlas-tabletop-search' });
     search.addEventListener('input', () => { this.filter = search.value; redraw(); });
     const importButton = bar.createEl('button', { text: 'Import GLB' });
     importButton.addEventListener('click', async () => {
@@ -258,11 +369,14 @@ export class MiniPicker extends Modal {
       const out = row.createSpan({ cls: 'atlas-tabletop-slider-value', text: show(value) });
       input.addEventListener('input', () => { const v = Number(input.value); set(v); out.setText(show(v)); });
     };
-    slider('Size', 0.3, 3, 0.05, this.scale, (v) => `${Math.round(v * 100)}%`, (v) => { this.scale = v; });
-    slider('Turn', 0, 345, 15, this.turn, (v) => `${v}°`, (v) => { this.turn = v; });
+    // A fitted prop takes its size and turn from what it fits.
+    if (!this.options.fitted) {
+      slider('Size', 0.3, 3, 0.05, this.scale, (v) => `${Math.round(v * 100)}%`, (v) => { this.scale = v; });
+      slider('Turn', 0, 345, 15, this.turn, (v) => `${v}°`, (v) => { this.turn = v; });
+    }
 
     const buttons = root.createDiv({ cls: 'modal-button-container' });
-    const place = buttons.createEl('button', { cls: 'mod-cta', text: 'Assign' });
+    const place = buttons.createEl('button', { cls: 'mod-cta', text: this.options.action ?? 'Assign' });
     buttons.createEl('button', { text: 'Cancel' }).addEventListener('click', () => this.close());
     place.addEventListener('click', () => this.finish());
 

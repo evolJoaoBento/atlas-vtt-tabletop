@@ -20,7 +20,8 @@ import { addToInitiative, initiativeEntryFor, initiativeId, removeFromInitiative
 import { applyInitiative, readInitiative, type InitiativeAction } from './initiative';
 
 type RawToken = Record<string, unknown> & { x?: number; y?: number; imagePath?: string; instanceNumber?: number };
-type MapFile = { state?: { objects?: { tokens?: Record<string, RawToken> }; initiative?: InitiativeState } };
+type RawWall = Record<string, unknown> & { type?: string; closed?: boolean; locked?: boolean };
+type MapFile = { state?: { objects?: { tokens?: Record<string, RawToken>; walls?: Record<string, RawWall> }; initiative?: InitiativeState } };
 /**
  * What a change does to a token, given it as Atlas holds it in memory (its resources as `resources`): the fields it
  * sets, `undefined` for one it deletes; null when it changes nothing. `resources` and `overriddenMax` are written in
@@ -146,6 +147,35 @@ export function initiativeActionInText(text: string, action: InitiativeAction, r
   const file = JSON.parse(text) as MapFile;
   if (!file.state) throw new Error('not an Atlas map');
   file.state.initiative = applyInitiative(readInitiative(file.state.initiative), action, random) as unknown as InitiativeState;
+  return JSON.stringify(file);
+}
+
+/** The map file's door, or an error when there is none by that id. */
+function doorOf(file: MapFile, id: string): RawWall {
+  const wall = file.state?.objects?.walls?.[id];
+  if (!wall || (wall.type !== 'door' && wall.type !== 'secret-door')) throw new Error(`no door ${id} on this map`);
+  return wall;
+}
+
+/** The map file's text with a door opened or shut, as Atlas's `toggleDoor` does: a locked door stays shut. */
+export function toggleDoorInText(text: string, id: string): string {
+  const file = JSON.parse(text) as MapFile;
+  const door = doorOf(file, id);
+  if (door.locked === true) return text;
+  door.closed = !(door.closed ?? true);
+  return JSON.stringify(file);
+}
+
+/** The map file's text with a door locked (and so shut) or unlocked, as Atlas's `setDoorLocked` does. */
+export function lockDoorInText(text: string, id: string, locked: boolean): string {
+  const file = JSON.parse(text) as MapFile;
+  const door = doorOf(file, id);
+  if (locked) {
+    door.locked = true;
+    door.closed = true;
+  } else {
+    delete door.locked;
+  }
   return JSON.stringify(file);
 }
 
@@ -323,6 +353,32 @@ export class TokenWriter {
     const state = this.holder(path)?.atlasStore.getState();
     if (!state) return true;
     return action === 'reset' ? typeof state.resetInitiative === 'function' : typeof state.setInitiativeSitsOut === 'function';
+  }
+
+  /** Opens or shuts a door (a locked one stays shut): through Atlas, or in the file. */
+  async toggleDoor(path: string, id: string): Promise<'atlas' | 'file'> {
+    const view = this.holder(path);
+    if (view) {
+      const state = view.atlasStore.getState();
+      if (!state.toggleDoor) throw TokenWriter.missing('door action');
+      state.toggleDoor(id);
+      return 'atlas';
+    }
+    await this.deps.process(path, (text) => toggleDoorInText(text, id));
+    return 'file';
+  }
+
+  /** Locks a door (shutting it) or unlocks it. */
+  async lockDoor(path: string, id: string, locked: boolean): Promise<'atlas' | 'file'> {
+    const view = this.holder(path);
+    if (view) {
+      const state = view.atlasStore.getState();
+      if (!state.setDoorLocked) throw TokenWriter.missing('door lock');
+      state.setDoorLocked(id, locked);
+      return 'atlas';
+    }
+    await this.deps.process(path, (text) => lockDoorInText(text, id, locked));
+    return 'file';
   }
 
   /** Kills the token, as Atlas's Kill does: every resource that defeats it spent. */

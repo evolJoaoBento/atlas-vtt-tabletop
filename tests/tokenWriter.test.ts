@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type { AtlasSceneState, AtlasView } from '../src/atlas';
 import { HP_RESOURCE, STRESS_RESOURCE } from '../src/board/resources';
-import { TokenWriter, copyTokenInText, deleteTokenInText, initiativeActionInText, initiativeInText, killTokenInText, moveTokenInText, setResourceInText } from '../src/board/tokenWriter';
+import { TokenWriter, copyTokenInText, deleteTokenInText, initiativeActionInText, initiativeInText, lockDoorInText, toggleDoorInText, killTokenInText, moveTokenInText, setResourceInText } from '../src/board/tokenWriter';
 import { conditionChange, resetChange } from '../src/board/tokenEdits';
 
 const text = readFileSync('tests/fixtures/dungeon.atlasmap', 'utf8');
@@ -263,4 +263,24 @@ test('with Atlas holding the map, a tracker change goes to its own tracker actio
   await assert.rejects(writer.initiativeAction('m.atlasmap', { type: 'reset' }), /offers no such initiative action/);
   assert.equal(writer.offers('m.atlasmap', 'reset'), false);
   assert.equal(writer.offers('other.atlasmap', 'reset'), true);
+});
+
+test('a door opens and shuts in the file as Atlas toggles it; a locked one stays shut, and locking shuts it', async () => {
+  const map = JSON.stringify({ state: { objects: { tokens: {}, walls: {
+    d: { id: 'd', kind: 'wall', type: 'door', p1: { x: 0, y: 0 }, p2: { x: 70, y: 0 } },
+    w: { id: 'w', kind: 'wall', type: 'solid', p1: { x: 0, y: 0 }, p2: { x: 70, y: 0 } },
+  } } } });
+  let file = toggleDoorInText(map, 'd');
+  assert.equal(JSON.parse(file).state.objects.walls.d.closed, false);
+  file = lockDoorInText(file, 'd', true);
+  assert.deepEqual([JSON.parse(file).state.objects.walls.d.closed, JSON.parse(file).state.objects.walls.d.locked], [true, true]);
+  assert.equal(toggleDoorInText(file, 'd'), file);
+  file = lockDoorInText(file, 'd', false);
+  assert.equal('locked' in JSON.parse(file).state.objects.walls.d, false);
+  assert.throws(() => toggleDoorInText(map, 'w'), /no door w/);
+  const calls: unknown[] = [];
+  const writer = new TokenWriter({ views: () => [fakeView('m.atlasmap', [], { toggleDoor: (id) => calls.push(['toggle', id]), setDoorLocked: (id, locked) => calls.push(['lock', id, locked]) })], process: async () => { throw new Error('no file write'); } });
+  await writer.toggleDoor('m.atlasmap', 'd');
+  await writer.lockDoor('m.atlasmap', 'd', true);
+  assert.deepEqual(calls, [['toggle', 'd'], ['lock', 'd', true]]);
 });

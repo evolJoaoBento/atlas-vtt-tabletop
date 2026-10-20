@@ -59,3 +59,35 @@ test('fog height is one square by default, kept per map, and read back from save
   assert.deepEqual(data.toJSON(), {});
   assert.deepEqual(readBoardData({ a: { fogHeight: -1 }, b: { fogHeight: 'x' }, c: { fogHeight: 0 } }), { c: { fogHeight: 0 } });
 });
+
+test('wall materials (one segment or many), door props, light heights and ambient are kept per map, and read back', () => {
+  const data = new BoardData();
+  data.setWallMaterial('m', ['w1', 'w2'], 'atlas-vtt/assets/materials/Bricks');
+  data.setWallMaterial('m', ['w2'], 'atlas-vtt/assets/materials/Wood');
+  data.setDoorProp('m', 'd1', 'props/door.glb');
+  data.setLightHeight('m', 'l1', 1.5);
+  data.setAmbient('m', 0.2);
+  assert.equal(data.wallMaterial('m', 'w1'), 'atlas-vtt/assets/materials/Bricks');
+  assert.equal(data.wallMaterial('m', 'w2'), 'atlas-vtt/assets/materials/Wood');
+  assert.equal(data.wallMaterial('m', 'w3'), null);
+  assert.equal(data.lightHeight('m', 'l1'), 1.5);
+  assert.equal(data.lightHeight('m', 'l2'), null);
+  assert.equal(data.ambient('m'), 0.2);
+  assert.equal(data.ambient('other'), null);
+  assert.deepEqual(readBoardData(data.toJSON()), data.toJSON());
+  data.setWallMaterial('m', ['w1', 'w2'], null);
+  data.setDoorProp('m', 'd1', null);
+  data.setLightHeight('m', 'l1', null);
+  assert.deepEqual(data.toJSON(), { m: { ambient: 0.2 } });
+  assert.deepEqual(readBoardData({ m: { ambient: 2, lightHeights: { a: -1, b: 2 }, wallMaterials: { w: 5 } } }), { m: { lightHeights: { b: 2 } } });
+});
+
+test('a renamed or deleted material folder or door prop is followed', () => {
+  const data = new BoardData({ m: { wallMaterials: { w: 'mats/Bricks', v: 'mats/Wood' }, doorProps: { d: 'props/door.glb' } } });
+  data.rename('mats/Bricks', 'mats/Stone');
+  data.rename('props', 'things');
+  assert.deepEqual(data.toJSON(), { m: { wallMaterials: { w: 'mats/Stone', v: 'mats/Wood' }, doorProps: { d: 'things/door.glb' } } });
+  data.deleted('mats/Wood');
+  data.deleted('things/door.glb');
+  assert.deepEqual(data.toJSON(), { m: { wallMaterials: { w: 'mats/Stone' } } });
+});
