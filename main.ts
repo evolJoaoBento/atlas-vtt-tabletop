@@ -282,6 +282,8 @@ class TabletopSettingTab extends PluginSettingTab {
       const pending = wanted && now && !now.toLowerCase().includes(wanted.toLowerCase()) && !wanted.toLowerCase().includes(now.toLowerCase());
       return pending ? `${using} Restart Obsidian to switch to ${wanted}.` : using;
     };
+    // The card names are long: the choice gets its own row under the text.
+    status.settingEl.addClass('atlas-tabletop-gpu-setting');
     status.setName('Card Obsidian draws on')
       .setDesc('The 3D board runs much faster on a dedicated graphics card. This is the same setting as Windows Settings → System → Display → Graphics, for Obsidian; it takes effect after you restart Obsidian.');
     const note = status.descEl.createDiv({ cls: 'atlas-tabletop-gpu-status', text: describe() });

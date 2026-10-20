@@ -269,3 +269,29 @@
 .atlas-tabletop-danger-row > .menu-item {
   flex: 1;
 }
+
+/* The graphics card setting: its long card names get a row of their own, under the text. */
+.atlas-tabletop-gpu-setting {
+  flex-wrap: wrap;
+}
+
+.atlas-tabletop-gpu-setting .setting-item-info {
+  flex-basis: 100%;
+  margin-inline-end: 0;
+}
+
+.atlas-tabletop-gpu-setting .setting-item-control {
+  flex-basis: 100%;
+  justify-content: flex-start;
+  padding-top: var(--size-4-2);
+}
+
+.atlas-tabletop-gpu-setting .setting-item-control select {
+  flex: 1;
+  max-width: none;
+}
+
+.atlas-tabletop-gpu-status {
+  margin-top: var(--size-4-1);
+  color: var(--text-normal);
+}
