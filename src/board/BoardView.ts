@@ -14,7 +14,6 @@ import { ASSETS_METADATA_PATH, collectionOf, emptyRules, readCollectionRules, ty
 import { readMap, type BoardMap, type BoardToken } from './mapModel';
 import { readMeasurement } from './measure';
 import { defeatedResources, isKillable } from './resources';
-import type { FogMotion } from './fogMotion';
 import type { PlayerView } from './PlayerWindow';
 import { QUALITY, type Quality } from './quality';
 import type { TokenWriter } from './tokenWriter';
@@ -33,9 +32,6 @@ export interface BoardServices {
   writer: TokenWriter;
   /** The quality setting the board draws with. */
   quality(): Quality;
-  /** How much the fog moves, on every board; and saving a new choice. */
-  fogMotion(): FogMotion;
-  setFogMotion(motion: FogMotion): void;
   /** This tab was used last: props from the gallery go to it. */
   focused(view: BoardView): void;
   /** The local player view: open, switch to or close it for this board's map; whether one shows its map. */
@@ -267,8 +263,6 @@ export class BoardView extends ItemView {
       fogHeight: () => boardData.fogHeight(mapPath()),
       // Saved with Tabletop's data; the board follows through `refresh`, as for a style change.
       setFogHeight: (height) => boardData.setFogHeight(mapPath(), height),
-      fogMotion: () => this.services.fogMotion(),
-      setFogMotion: (motion) => this.services.setFogMotion(motion),
       statblockPreview: (id, event) => {
         const path = this.map?.tokens.find((token) => token.id === id)?.statblockPath;
         if (!path || !this.board) return;

@@ -328,55 +328,10 @@ server.listen(0, async () => {
       check('the toolbar takes no press from the board', (await page.evaluate(() => window.boardTest.board.selected)) === selBefore);
       await page.mouse.click(button.x, button.y);
       await wait(100);
-      // A corner of the board, clear of the panel.
-      const empty = await project(140, 140, 0);
+      const empty = await project(560, 760, 0);
       await page.mouse.click(empty.x, empty.y);
       await wait(100);
       check('a click on the board closes the settings', await page.evaluate(() => document.querySelector('.atlas-tabletop-palette').hidden));
-    }
-
-    // 1j2. Moving fog: off by default here; subtle and full redraw it about 20 times a second, and off lets the board rest.
-    {
-      const frames = async (ms) => page.evaluate((ms) => new Promise((resolve) => {
-        const b = window.boardTest.board;
-        const render = b.renderer.render.bind(b.renderer);
-        let count = 0;
-        b.renderer.render = (...args) => { count++; return render(...args); };
-        setTimeout(() => { b.renderer.render = render; resolve(count); }, ms);
-      }), ms);
-      // The test minis play an idle clip, which keeps a board drawing: still them, to see what the fog alone does.
-      await page.evaluate(() => { for (const e of window.boardTest.board.tokens.values()) Object.defineProperty(e.piece, 'animating', { get: () => false, configurable: true }); });
-      await page.evaluate(() => window.boardTest.board.wake());
-      await wait(600);
-      const restingOff = await frames(1000);
-      check('with fog still, an idle board draws nothing', restingOff <= 1, restingOff);
-      const settings = await page.evaluate(() => { const b = document.querySelector('.atlas-tabletop-tool-button[aria-label="Board settings"]').getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; });
-      await page.mouse.click(settings.x, settings.y);
-      await wait(150);
-      await page.selectOption('.atlas-tabletop-palette select', 'full');
-      await page.keyboard.press('Escape');
-      await wait(500);
-      const moving = await frames(1000);
-      check('moving fog redraws about 20 times a second, not every display frame', moving >= 12 && moving <= 26, moving);
-      const state = await page.evaluate(() => {
-        const fog = window.boardTest.board.fog;
-        const wisps = fog.object3d.children.find((c) => c.isPoints);
-        return { animated: fog.animated, wisps: wisps ? wisps.geometry.attributes.position.count : 0, time: fog.uniforms.uFogTime.value };
-      });
-      check('at full, wisps drift over the fog', state.animated && state.wisps > 0, state);
-      await page.screenshot({ path: `${shots}/board-12-fog-full.png` });
-      await page.mouse.click(settings.x, settings.y);
-      await wait(150);
-      await page.selectOption('.atlas-tabletop-palette select', 'subtle');
-      await wait(300);
-      const subtle = await page.evaluate(() => window.boardTest.board.fog.object3d.children.some((c) => c.isPoints));
-      check('subtle has no wisps', !subtle, subtle);
-      await page.selectOption('.atlas-tabletop-palette select', 'off');
-      await page.keyboard.press('Escape');
-      await wait(600);
-      const restingAgain = await frames(1000);
-      check('switched off, the board rests again', restingAgain <= 1, restingAgain);
-      await page.evaluate(() => { for (const e of window.boardTest.board.tokens.values()) delete e.piece.animating; window.boardTest.board.wake(); });
     }
 
     // 1k. The local player view: a second window drawing the scene as players see it.

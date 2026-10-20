@@ -5,7 +5,6 @@ import { BOARD_VIEW_TYPE, BoardView, HOVER_SOURCE } from './src/board/BoardView'
 import { PLAYER_VIEW_TYPE, PlayerView } from './src/board/PlayerWindow';
 import { BoardData, readBoardData, type BoardDataJSON } from './src/board/boardData';
 import { DEFAULT_QUALITY, readQuality, type Quality } from './src/board/quality';
-import { defaultFogMotion, readFogMotion, type FogMotion } from './src/board/fogMotion';
 import { TokenWriter } from './src/board/tokenWriter';
 import { GALLERY_VIEW_TYPE, GalleryView, importWithNotice, pickFiles } from './src/gallery';
 import { DEFAULT_MINIS_FOLDER, DEFAULT_PROPS_FOLDER, MiniLibrary, PROPS } from './src/library';
@@ -21,8 +20,6 @@ interface TabletopSettings {
   propsFolder: string;
   /** How hard the 3D board works to look good. */
   quality: Quality;
-  /** How much the fog moves; unset, what the quality can afford. */
-  fogMotion?: FogMotion;
 }
 
 const DEFAULT_SETTINGS: TabletopSettings = { folder: DEFAULT_MINIS_FOLDER, propsFolder: DEFAULT_PROPS_FOLDER, quality: DEFAULT_QUALITY };
@@ -86,12 +83,6 @@ export default class TabletopPlugin extends Plugin {
       props: this.props,
       writer,
       quality: () => this.settings.quality,
-      fogMotion: () => readFogMotion(this.settings.fogMotion) ?? defaultFogMotion(this.settings.quality),
-      setFogMotion: (motion) => {
-        this.settings.fogMotion = motion;
-        this.save();
-        this.refreshBoards();
-      },
       focused: (view) => { this.lastBoard = view; },
       togglePlayerView: (view) => { void this.togglePlayerView(view); },
       playerViewOpen: (path) => this.playerLeaves().some((leaf) => fileOf(leaf) === path),

@@ -36,7 +36,6 @@ import { stripGeometry } from './surface';
 import { ResolutionGovernor, type QualityPreset } from './quality';
 import { BoardSurface } from './surface';
 import { FogVolume } from './fogVolume';
-import type { FogMotion } from './fogMotion';
 import { BoardToolbar } from './toolbar';
 import { pinTitle } from './pinIcons';
 import { NO_INSTANCE_NUMBERS, badgeNumberInView, insideFog, numberTokensInView, playerSees } from './playerView';
@@ -78,9 +77,6 @@ export interface BoardHost {
   /** How tall the map's fog stands, in grid squares; and saving a new height. */
   fogHeight(): number;
   setFogHeight(height: number): void;
-  /** How much the fog moves (off, subtle, full); and saving a new choice. */
-  fogMotion(): FogMotion;
-  setFogMotion(motion: FogMotion): void;
   /** Shown once per message. */
   warn(message: string): void;
   /** Opens or closes the local player view of this map; whether it is open. */
@@ -107,8 +103,6 @@ const CELL_LABEL_PX = 20;
 const ACCENT = '#7c5cff';
 /** How often a playing clip redraws the shadows, in seconds. */
 const CLIP_SHADOW_STEP = 1 / 15;
-/** How often moving fog alone redraws the board, in seconds: it drifts slowly, so 20 a second looks smooth. */
-const FOG_STEP = 1 / 20;
 /** Room left around the map when it is framed, for the tilt's perspective. */
 const FRAME_MARGIN = 1.1;
 
@@ -215,8 +209,6 @@ export class Board {
   private playerNumbers = NO_INSTANCE_NUMBERS;
   /** The window whose animation frame is asked for: the GM's, or the players' while the GM's is hidden. */
   private frameWin: Window | null = null;
-  /** The timer that brings the next frame of moving fog while nothing else moves. */
-  private fogTimer = 0;
   /** The open resource editor: whose, which resource, the value it opened on. */
   private editor: { tokenId: string; key: string; value: ResourceValue; view: ValueEditor } | null = null;
   /** How the last frame sized things on screen, to size what a reload rebuilds before the next frame. */
@@ -238,8 +230,6 @@ export class Board {
     this.toolbar = new BoardToolbar(container, {
       fogHeight: () => this.host.fogHeight(),
       setFogHeight: (height) => this.host.setFogHeight(height),
-      fogMotion: () => this.host.fogMotion(),
-      setFogMotion: (motion) => this.host.setFogMotion(motion),
       playerViewOpen: () => this.host.playerViewOpen(),
       togglePlayerView: () => this.host.togglePlayerView(),
       playerFrozen: () => this.player?.frozen != null,
@@ -393,7 +383,6 @@ export class Board {
     const rules = this.host.rules();
     try {
       this.fog.update(map.fog, this.host.fogHeight(), map.grid.size);
-      this.fog.setMotion(this.host.fogMotion());
     } catch (error) {
       this.host.warn(`Tabletop: cannot show this map's fog of war: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -585,7 +574,6 @@ export class Board {
       }
     }
     this.clock += dt;
-    this.fog.tick(this.clock);
     this.steer(dt);
     let busy = this.camera.update(dt);
     this.applyView();
@@ -643,20 +631,6 @@ export class Board {
     this.drawPlayers(shadows, context);
     this.continuing = busy || this.held.size > 0 || this.press !== null;
     if (this.continuing) this.wake();
-    else if (this.fog.animated) this.wakeForFog();
-  }
-
-  /**
-   * Moving fog alone redraws the board at `FOG_STEP`, not every display frame. Those frames do not count as the board
-   * being busy, so the resolution is not lowered for the pauses between them.
-   */
-  private wakeForFog(): void {
-    if (this.fogTimer !== 0 || this.disposed) return;
-    const win = this.container.ownerDocument.defaultView ?? window;
-    this.fogTimer = win.setTimeout(() => {
-      this.fogTimer = 0;
-      this.wake();
-    }, FOG_STEP * 1000);
   }
 
   private steer(dt: number): void {
@@ -1102,7 +1076,6 @@ export class Board {
   /** Draws the scene in the local player view's window too, from now on; `container` is that window's board area. */
   attachPlayer(container: HTMLElement): void {
     this.detachPlayer();
-    if (this.fogTimer !== 0) (this.container.ownerDocument.defaultView ?? window).clearTimeout(this.fogTimer);
     const doc = container.ownerDocument;
     const win = doc.defaultView ?? window;
     const canvas = doc.createElement('canvas');
@@ -1374,7 +1347,6 @@ export class Board {
     this.disposed = true;
     if (this.frameId !== 0) (this.frameWin ?? this.container.ownerDocument.defaultView ?? window).cancelAnimationFrame(this.frameId);
     this.detachPlayer();
-    if (this.fogTimer !== 0) (this.container.ownerDocument.defaultView ?? window).clearTimeout(this.fogTimer);
     for (const stop of this.stops) stop();
     this.resize.disconnect();
     for (const entry of this.tokens.values()) { entry.labels.dispose(); entry.playerLabels.dispose(); entry.piece.dispose(); }
