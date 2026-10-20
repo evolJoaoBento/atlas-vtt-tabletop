@@ -180,7 +180,8 @@ export default class TabletopPlugin extends Plugin {
 
   /** Opens a map in 3D in a new tab (or shows the tab it is already open in). */
   async openBoard(path: string): Promise<void> {
-    const open = this.app.workspace.getLeavesOfType(BOARD_VIEW_TYPE).find((leaf) => (leaf.view as BoardView).mapPath === path);
+    // By the tab's saved state: a tab Obsidian restored but has not shown yet holds no loaded view to ask.
+    const open = this.app.workspace.getLeavesOfType(BOARD_VIEW_TYPE).find((leaf) => (leaf.getViewState().state as { file?: unknown } | undefined)?.file === path);
     const leaf = open ?? this.app.workspace.getLeaf('tab');
     if (!open) await leaf.setViewState({ type: BOARD_VIEW_TYPE, state: { file: path }, active: true });
     await this.app.workspace.revealLeaf(leaf);
