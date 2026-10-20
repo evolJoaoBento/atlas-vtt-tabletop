@@ -86,6 +86,13 @@ server.listen(0, async () => {
     // 1e. Icon stamps lie on the map.
     const icons = await page.evaluate(() => window.boardTest.board.icons.map((icon) => ({ id: icon.id, ready: icon.ready })));
     check('icon stamps are on the board', icons.length === 2 && icons.every((icon) => icon.ready), icons);
+    const iconIds = await page.evaluate(async () => {
+      const before = window.boardTest.board.icons.map((icon) => icon.object3d.uuid);
+      await window.boardTest.board.load({ ...window.boardTest.map });
+      const after = window.boardTest.board.icons.map((icon) => icon.object3d.uuid);
+      return { before, after };
+    });
+    check('a reload keeps the icons (no flicker)', JSON.stringify(iconIds.before) === JSON.stringify(iconIds.after), iconIds);
 
     // 1f. Hovering the board names the cell under the pointer (letter-number on this map), and only then.
     const cellD8 = await project(3 * 70 + 35, 7 * 70 + 35, 0);
@@ -106,6 +113,10 @@ server.listen(0, async () => {
       await page.mouse.move(from.x, from.y);
       await page.mouse.down();
       for (let i = 1; i <= 6; i++) { await page.mouse.move(from.x + ((right.x - from.x) * i) / 6, from.y + ((right.y - from.y) * i) / 6); await wait(20); }
+      const rulerA = await page.evaluate(() => window.boardTest.board.ruler?.uuid);
+      await page.mouse.move(right.x + 3, right.y + 2);
+      const rulerB = await page.evaluate(() => window.boardTest.board.ruler?.uuid);
+      check('the ruler is not rebuilt while the landing cell is the same', rulerA && rulerA === rulerB, { rulerA, rulerB });
       await page.keyboard.press(' ');
       for (let i = 1; i <= 6; i++) { await page.mouse.move(right.x + ((down.x - right.x) * i) / 6, right.y + ((down.y - right.y) * i) / 6); await wait(20); }
       const ruler = await page.evaluate(() => window.boardTest.board.rulerState);

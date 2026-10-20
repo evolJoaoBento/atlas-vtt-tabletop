@@ -30,6 +30,14 @@ test('arrow keys step the number, never below 0', () => {
   assert.equal(stepMeterText('12', 1), '13');
   assert.equal(stepMeterText('12', -10), '2');
   assert.equal(stepMeterText('3', -10), '0');
-  assert.equal(stepMeterText('+5', 1), '6');
   assert.equal(stepMeterText('', 1), '1');
+});
+
+test('arrow keys leave a relative edit alone, as Atlas does', () => {
+  assert.equal(stepMeterText('-5', 1), '-5');
+  assert.equal(stepMeterText('+3', -1), '+3');
+});
+
+test('a relative current applies to the value already held within the new max', () => {
+  assert.deepEqual(applyMeterEdit('-5', '20', { current: 30, max: 40 }), { current: 15, max: 20 });
 });

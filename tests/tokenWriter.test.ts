@@ -97,3 +97,18 @@ test('copies and meter edits go through Atlas when it has the map', async () => 
   assert.equal(await writer.meter('m.atlasmap', 't', 'hp', { current: 1, max: 9 }), 'atlas');
   assert.deepEqual(calls.at(-1), ['t', { hp: { current: 1, max: 9 } }]);
 });
+
+test('when Atlas holds the map but lacks the action, nothing is written behind its back', async () => {
+  let processed = 0;
+  const view = fakeView('m.atlasmap', [], { updateToken: undefined, addToken: undefined });
+  const writer = new TokenWriter({ views: () => [view], process: async () => { processed++; } });
+  await assert.rejects(writer.move('m.atlasmap', 't', 1, 2), /Atlas/);
+  await assert.rejects(writer.copy('m.atlasmap', 't', 'n', 1, 2), /Atlas/);
+  assert.equal(processed, 0);
+});
+
+test('stress with a max of 0 counts as 10, as Atlas reads it', () => {
+  const file = JSON.stringify({ state: { objects: { tokens: { t: { id: 't', stress: 2, maxStress: 0 } } } } });
+  const out = JSON.parse(setMeterInText(file, 't', 'stress', { current: 3, max: 10 }));
+  assert.equal(out.state.objects.tokens.t.maxStressOverridden, undefined);
+});

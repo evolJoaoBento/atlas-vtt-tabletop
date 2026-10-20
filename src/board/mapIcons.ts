@@ -22,5 +22,7 @@ const MAP_ICON_SVG: Record<string, string> = {
 export function mapIconSvg(icon: string, color: string): string | null {
   const inner = MAP_ICON_SVG[icon];
   if (!inner) return null;
+  // A colour from the file goes into an attribute: anything but a plain colour value falls back to white.
+  if (!/^[#\w(),.%\s-]+$/.test(color)) color = '#ffffff';
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="96" height="96" fill="none" color="${color}" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
 }

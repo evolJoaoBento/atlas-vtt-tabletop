@@ -62,7 +62,7 @@ function meterUpdates(token: RawToken, field: MeterField, meter: Meter): Record<
   if (typeof old === 'object' && old !== null) {
     return { stress: { current: meter.current, max: meter.max }, ...(meter.max !== (old as Meter).max ? { maxStressOverridden: true } : {}) };
   }
-  const max = typeof token.maxStress === 'number' ? token.maxStress : 10;
+  const max = typeof token.maxStress === 'number' && token.maxStress > 0 ? token.maxStress : 10;
   return { stress: meter.current, maxStress: meter.max, ...(meter.max !== max ? { maxStressOverridden: true } : {}) };
 }
 
@@ -97,10 +97,16 @@ export class TokenWriter {
     return null;
   }
 
+  /** Atlas holds the map but not the action needed: writing the file would be undone by its next save. */
+  private static missing(action: string): Error {
+    return new Error(`Atlas has this map open but offers no ${action} here; change it in Atlas`);
+  }
+
   /** Moves the token; says whether Atlas took the move or the file was written. */
   async move(path: string, id: string, x: number, y: number): Promise<'atlas' | 'file'> {
     const state = this.atlas(path, id);
-    if (state?.updateToken) {
+    if (state) {
+      if (!state.updateToken) throw TokenWriter.missing('token update');
       state.updateToken(id, { x, y });
       return 'atlas';
     }
@@ -111,7 +117,8 @@ export class TokenWriter {
   /** Copies the token to (x, y) under `newId` (Atlas numbers the copy). */
   async copy(path: string, id: string, newId: string, x: number, y: number): Promise<'atlas' | 'file'> {
     const state = this.atlas(path, id);
-    if (state?.addToken) {
+    if (state) {
+      if (!state.addToken) throw TokenWriter.missing('way to add a token');
       const source = structuredClone(state.objects.tokens[id]) as unknown as RawToken;
       delete source.instanceNumber;
       state.addToken({ ...source, id: newId, x, y });
@@ -124,7 +131,8 @@ export class TokenWriter {
   /** Sets the token's HP or stress. */
   async meter(path: string, id: string, field: MeterField, meter: Meter): Promise<'atlas' | 'file'> {
     const state = this.atlas(path, id);
-    if (state?.updateToken) {
+    if (state) {
+      if (!state.updateToken) throw TokenWriter.missing('token update');
       state.updateToken(id, meterUpdates(state.objects.tokens[id] as unknown as RawToken, field, meter));
       return 'atlas';
     }

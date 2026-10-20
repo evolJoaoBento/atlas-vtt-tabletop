@@ -20,13 +20,14 @@ export function parseMeterInput(text: string, value: number): number | null {
 export function applyMeterEdit(currentText: string, maxText: string, meter: Meter): Meter | { error: 'current' | 'max' } {
   const max = parseMeterInput(maxText, meter.max);
   if (max === null || max <= 0) return { error: 'max' };
-  const current = parseMeterInput(currentText, meter.current);
+  // A relative current applies to the value as the new max already holds it (Atlas).
+  const current = parseMeterInput(currentText, Math.min(meter.current, max));
   if (current === null) return { error: 'current' };
   return { current: Math.min(max, Math.max(0, current)), max };
 }
 
-/** A field's text stepped by `delta` (an arrow key), as plain digits, never below 0. */
+/** A field's text stepped by `delta` (an arrow key), never below 0; a relative edit (`+5`, `-3`) is left alone. */
 export function stepMeterText(text: string, delta: number): string {
-  const digits = Number(text.replace(/[^\d]/g, '')) || 0;
-  return String(Math.max(0, digits + delta));
+  if (!/^\d*$/.test(text.trim())) return text;
+  return String(Math.max(0, (Number(text.trim()) || 0) + delta));
 }

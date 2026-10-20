@@ -204,6 +204,8 @@ export class Board {
 
   /** Shows a map: the first load frames it, later loads (the file changed) keep the camera where it is. */
   async load(map: BoardMap): Promise<void> {
+    this.meterEditor?.close(false);
+    this.showCell(null);
     const first = this.map === null;
     const sameImage = this.map?.background === map.background;
     this.map = map;
@@ -352,12 +354,21 @@ export class Board {
       this.tokens.delete(id);
     }
 
-    for (const icon of this.icons) icon.dispose();
+    // Icons are kept across reloads when nothing about them changed: each one loads its glyph, so a rebuilt one
+    // would blink out.
+    const iconKey = (icon: BoardMap['icons'][number]): string => JSON.stringify(icon);
+    const kept = new Map(this.icons.map((piece) => [iconKey(piece.icon), piece]));
     this.icons = map.icons.map((icon) => {
+      const old = kept.get(iconKey(icon));
+      if (old) {
+        kept.delete(iconKey(icon));
+        return old;
+      }
       const piece = new IconPiece(icon, () => this.wake(true));
       this.scene.add(piece.object3d);
       return piece;
     });
+    for (const piece of kept.values()) piece.dispose();
 
     for (const pin of this.pins) pin.dispose();
     this.pins = map.pins.map((pin) => {
@@ -885,6 +896,8 @@ export class Board {
   private drawRuler(): void {
     const points = this.rulerPoints();
     const map = this.map;
+    // Pointer moves inside one cell change nothing: the path runs between cell centres.
+    if (points && this.ruler && JSON.stringify(points) === JSON.stringify(this.rulerState?.points)) return;
     this.clearRuler();
     if (!points || !map) { this.wake(); return; }
     const measurement = this.host.measurement();
@@ -1019,10 +1032,15 @@ export class Board {
     // After this press: the click that opened it must not close it, and the browser focuses the board on mousedown,
     // after this handler, which would take the focus from the field.
     setTimeout(() => {
+      if (this.meterEditor?.element !== element) return;
       doc.addEventListener('pointerdown', outside, true);
       current.focus();
       current.select();
     }, 0);
+    // Tabbing out of it saves and closes it, as clicking away does.
+    element.addEventListener('focusout', (focus) => {
+      if (!element.contains(focus.relatedTarget as Node | null)) close(true);
+    });
   }
 
   private stopPlacing(): void {

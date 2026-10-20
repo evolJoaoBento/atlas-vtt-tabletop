@@ -144,13 +144,15 @@ function readGrid(raw: unknown): BoardGrid {
     lineWidth: num(grid.lineWidth, 1),
     color: color && color.toLowerCase() !== LEGACY_GRID_COLOR ? color : null,
     lineType: grid.lineType === 'dashed' || grid.lineType === 'dotted' ? grid.lineType : 'solid',
-    numbers: readNumbering(grid.cellNumbers ?? grid.hexNumbers),
+    // Older Atlas numbered hex grids only (`hexNumbers`); newer Atlas numbers any grid (`cellNumbers`).
+    numbers: readNumbering(grid.cellNumbers ?? (type === 'square' ? undefined : grid.hexNumbers)),
     numberOpacity: num(grid.cellNumberOpacity ?? grid.hexNumberOpacity, 0.8),
   };
 }
 
 function readMeter(raw: unknown, bareMax: number, maxFallback?: unknown): Meter | null {
-  if (typeof raw === 'number' && Number.isFinite(raw)) return { current: raw, max: num(maxFallback, bareMax) };
+  // `maxStress: 0` reads as the default, as Atlas reads it (`maxStress || 10`).
+  if (typeof raw === 'number' && Number.isFinite(raw)) return { current: raw, max: num(maxFallback, 0) || bareMax };
   if (!isObj(raw)) return null;
   return { current: num(raw.current, 0), max: num(raw.max, bareMax) };
 }
@@ -235,6 +237,14 @@ function readTokenSettings(raw: unknown): TokenSettings {
     showInstanceBadges: settings.showInstanceBadges !== false,
     hiddenResources: Array.isArray(settings.hiddenResources) ? settings.hiddenResources.filter((value): value is string => typeof value === 'string') : [],
   };
+}
+
+/**
+ * A character at 0 HP or less, as Atlas reads it: greyed out with a skull. 0/0 is a stat block without hit points,
+ * not a dead creature.
+ */
+export function isDowned(token: BoardToken): boolean {
+  return token.kind === 'character' && token.hp !== null && token.hp.max > 0 && token.hp.current <= 0;
 }
 
 /** Reads an `.atlasmap` file's text. Throws when it is not an Atlas map. */

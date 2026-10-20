@@ -16,7 +16,7 @@ import { MiniFigure } from '../figure';
 import type { LoadedMini } from '../library';
 import type { TokenStyle, PropPlacement } from './boardData';
 import { hexCenter, ringDiameter, tokenDiameter } from './geometry';
-import type { BoardGrid, BoardIcon, BoardPin, BoardToken } from './mapModel';
+import { isDowned, type BoardGrid, type BoardIcon, type BoardPin, type BoardToken } from './mapModel';
 import { mapIconSvg } from './mapIcons';
 import { pinTitle } from './pinIcons';
 import { downedMarkerTexture, hiddenMarkerTexture, loadImageTexture, pinTexture, plateTexture } from './textures';
@@ -46,7 +46,8 @@ function setGrey(root: THREE.Object3D, grey: boolean): void {
       material.userData.grey = grey ? 1 : 0;
       const uniform = material.userData.greyUniform as { value: number } | undefined;
       if (uniform) { uniform.value = material.userData.grey; continue; }
-      if (material.userData.greyHooked) continue;
+      // Hooked the first time it is greyed: a token never downed costs no shader recompile.
+      if (material.userData.greyHooked || !grey) continue;
       material.userData.greyHooked = true;
       material.onBeforeCompile = (shader) => {
         shader.uniforms.uGrey = { value: material.userData.grey };
@@ -218,7 +219,7 @@ export class TokenPiece {
 
   /** A character at 0 HP or less, as Atlas draws it: greyed out, with a skull, and here lying down. */
   get downed(): boolean {
-    return this.token.kind === 'character' && this.token.hp !== null && this.token.hp.current <= 0;
+    return isDowned(this.token);
   }
 
   update(token: BoardToken): void {
@@ -281,7 +282,8 @@ export class TokenPiece {
     this.fall.position.set(tips ? -this.fallen * (this.uprightHeight() / 2) : 0, tips ? this.fallen * this.diameter * 0.2 : 0, 0);
     if (this.skull) this.skull.scale.setScalar(context.pixel * Math.min(40, this.diameter * 0.5) * 0.6);
     this.object3d.position.set(x, this.carry * this.diameter * CARRY_HEIGHT, y);
-    if (this.standee) this.standee.rotation.y = context.yaw;
+    // A standee faces the camera while it stands; once it has fallen it stays as it lies.
+    if (this.standee && this.fallen === 0) this.standee.rotation.y = context.yaw;
     if (this.marker) this.marker.scale.setScalar(context.pixel * Math.min(40, this.diameter * 0.5) * 0.6);
     if (this.figure && this.placement) {
       this.figure.pose({

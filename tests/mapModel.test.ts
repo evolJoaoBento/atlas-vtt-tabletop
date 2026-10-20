@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { readMap } from '../src/board/mapModel';
+import { isDowned, readMap } from '../src/board/mapModel';
 
 const fixture = (name: string): string => readFileSync(`tests/fixtures/${name}`, 'utf8');
 const wrap = (state: Record<string, unknown>): string => JSON.stringify({ version: 1, state: { objects: { tokens: {}, pins: {} }, ...state } });
@@ -89,4 +89,21 @@ test('icon stamps are read from the drawings; strokes are left out', () => {
     { id: 'a', icon: 'flame', x: 100, y: 200, color: '#ff0000', size: 70, opacity: 0.8 },
     { id: 'd', icon: 'gem', x: 1, y: 2, color: '#ffffff', size: 70, opacity: 1 },
   ]);
+});
+
+test('downed: a character at 0 HP or less, but 0/0 is no HP at all (Atlas)', () => {
+  const map = readMap('m', wrap({ objects: { pins: {}, tokens: {
+    a: { id: 'a', x: 0, y: 0, kind: 'character', hp: { current: 0, max: 9 } },
+    b: { id: 'b', x: 0, y: 0, kind: 'character', hp: { current: 0, max: 0 } },
+    c: { id: 'c', x: 0, y: 0, kind: 'character', hp: 0 },
+    d: { id: 'd', x: 0, y: 0, kind: 'token', hp: { current: 0, max: 9 } },
+    e: { id: 'e', x: 0, y: 0, kind: 'character', hp: { current: 3, max: 9 } },
+  } } }));
+  assert.deepEqual(map.tokens.map(isDowned), [true, false, true, false, false]);
+});
+
+test('older hex numbers only number hex grids; a stress max of 0 reads as 10 like Atlas', () => {
+  assert.equal(readMap('m', wrap({ grid: { type: 'square', hexNumbers: 'column-row' } })).grid.numbers, null);
+  const map = readMap('m', wrap({ objects: { pins: {}, tokens: { a: { id: 'a', x: 0, y: 0, kind: 'character', stress: 2, maxStress: 0 } } } }));
+  assert.deepEqual(map.tokens[0]!.stress, { current: 2, max: 10 });
 });
