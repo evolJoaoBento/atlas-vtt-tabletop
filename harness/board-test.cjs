@@ -156,30 +156,112 @@ server.listen(0, async () => {
       check('a copy is not a move', !r.moves.some((m) => m[0] === 'noart'), r.moves);
     }
 
-    // 1i. A click on a character's HP bar edits it: "-5" then Enter.
+    // 1i. Atlas's resource controls: a click selects a token; its bars and wheels get − / + and click-to-edit.
     {
-      const bar = await page.evaluate(() => {
-        const labels = window.boardTest.board.tokens.get('hero').labels;
-        const target = labels.meterTargets.find((t) => t.field === 'hp');
-        const v = target.object.getWorldPosition(new target.object.position.constructor());
-        return { x: v.x, y: v.y, z: v.z };
-      });
-      const at = await page.evaluate(([x, y, z]) => window.boardTest.project(x, z, y), [bar.x, bar.y, bar.z]);
-      // The bar stands on its anchor, 14 px tall: click its middle.
-      await page.mouse.click(at.x, at.y - 7);
+      const controls = () => page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-resource-hit, .atlas-tabletop-resource-button')]
+        .filter((el) => !el.hidden).map((el) => { const b = el.getBoundingClientRect(); return { cls: el.className, label: el.getAttribute('aria-label'), x: b.left + b.width / 2, y: b.top + b.height / 2, w: b.width, h: b.height }; }));
+      const find = (list, label) => list.find((c) => c.label === label);
+      check('no controls before a token is selected', (await controls()).length === 0, await controls());
+      const heroBody = await project(245, 245, 20);
+      await page.mouse.click(heroBody.x, heroBody.y);
+      await wait(200);
+      const selected = await page.evaluate(() => window.boardTest.board.selected);
+      check('a click selects the token', selected === 'hero', selected);
+      let list = await controls();
+      // HP on a bar, spell slots and ki on wheels; AC is static: no controls, as in Atlas.
+      check('each counting resource gets an overlay and − / +', list.length === 9 && !list.some((c) => c.label.endsWith(' ac')), list.map((c) => c.label));
+      await page.screenshot({ path: `${shots}/board-7-controls.png` });
+      const hpHit = find(list, 'Edit hp');
+      const hpMinus = find(list, 'Lower hp');
+      const hpPlus = find(list, 'Raise hp');
+      check('a bar\'s − is on its left and + on its right', hpMinus.x < hpHit.x - hpHit.w / 2 && hpPlus.x > hpHit.x + hpHit.w / 2 && Math.abs(hpMinus.y - hpHit.y) < 2, { hpHit, hpMinus, hpPlus });
+      const kiHit = find(list, 'Edit ki');
+      const kiPlus = find(list, 'Raise ki');
+      const kiMinus = find(list, 'Lower ki');
+      check('a wheel\'s + stands above its −, on its outer side', kiPlus.y < kiMinus.y && Math.abs(kiPlus.x - kiMinus.x) < 1 && Math.abs(kiPlus.x - kiHit.x) > kiHit.w / 2, { kiHit, kiPlus, kiMinus });
+
+      await page.mouse.click(hpMinus.x, hpMinus.y);
+      await wait(100);
+      r = await record();
+      check('− lowers the resource by one', JSON.stringify(r.edits[0]) === JSON.stringify(['hero', 'hp', { current: 20, max: 27 }, { current: 19, max: 27 }, false]), r.edits);
+      let shown = await page.evaluate(() => window.boardTest.board.tokens.get('hero').token.resources.hp);
+      check('the bar shows it at once', shown.current === 19, shown);
+      check('the token stays selected', (await page.evaluate(() => window.boardTest.board.selected)) === 'hero');
+
+      const slotsPlus = find(await controls(), 'Raise slots');
+      await page.mouse.click(slotsPlus.x, slotsPlus.y);
+      await page.mouse.click(slotsPlus.x, slotsPlus.y);
+      await page.mouse.click(slotsPlus.x, slotsPlus.y);
+      await wait(100);
+      r = await record();
+      const slots = r.edits.filter((e) => e[1] === 'slots').map((e) => e[3].current);
+      check('steps add up and stop at the maximum', JSON.stringify(slots) === JSON.stringify([3, 4]), r.edits);
+
+      list = await controls();
+      await page.mouse.click(find(list, 'Edit hp').x, find(list, 'Edit hp').y);
       await wait(150);
-      const open = await page.evaluate(() => !!document.querySelector('.atlas-tabletop-meter'));
-      check('clicking the HP bar opens the editor', open, open);
-      await page.keyboard.press('Control+A');
+      const editor = await page.evaluate(() => {
+        const el = document.querySelector('.atlas-token-value-editor');
+        if (!el) return null;
+        const inputs = [...el.querySelectorAll('input')].map((i) => i.value);
+        const b = el.getBoundingClientRect();
+        return { inputs, focused: document.activeElement === el.querySelector('input'), top: b.top };
+      });
+      check('a click on the bar opens Atlas\'s editor with current / max', editor && JSON.stringify(editor.inputs) === JSON.stringify(['19', '27']) && editor.focused, editor);
+      const active = await page.evaluate(() => !!document.querySelector('.atlas-tabletop-resource-hit.is-active'));
+      check('the bar is outlined while its editor is open', active, active);
+      check('the editor hangs under the bar', editor && editor.top > find(list, 'Edit hp').y, { editor, bar: find(list, 'Edit hp') });
       await page.keyboard.type('-5');
       await page.keyboard.press('Enter');
       await wait(150);
       r = await record();
-      check('the HP edit is saved', JSON.stringify(r.meters[0]) === JSON.stringify(['hero', 'hp', { current: 15, max: 27 }]), r.meters);
-      const closed = await page.evaluate(() => !document.querySelector('.atlas-tabletop-meter'));
-      check('Enter closes the editor', closed, closed);
-      const shown = await page.evaluate(() => window.boardTest.board.tokens.get('hero').token.hp);
-      check('the bar shows the new HP at once', shown.current === 15, shown);
+      check('"-5" then Enter applies it', JSON.stringify(r.edits.at(-1)) === JSON.stringify(['hero', 'hp', { current: 19, max: 27 }, { current: 14, max: 27 }, false]), r.edits.at(-1));
+      check('Enter closes the editor', await page.evaluate(() => !document.querySelector('.atlas-token-value-editor')));
+
+      list = await controls();
+      await page.mouse.click(find(list, 'Edit hp').x, find(list, 'Edit hp').y);
+      await wait(150);
+      await page.keyboard.press('Tab');
+      await page.keyboard.press('Control+A');
+      await page.keyboard.type('30');
+      await page.keyboard.press('Escape');
+      await wait(100);
+      const edits = (await record()).edits.length;
+      check('Escape discards', edits === r.edits.length && await page.evaluate(() => !document.querySelector('.atlas-token-value-editor')), edits);
+
+      await page.mouse.click(find(list, 'Edit hp').x, find(list, 'Edit hp').y);
+      await wait(150);
+      await page.keyboard.press('Tab');
+      await page.keyboard.press('Control+A');
+      await page.keyboard.type('30');
+      // A click on the empty board applies the changed editor and lets the token go.
+      const emptyAt = await project(560, 760, 0);
+      await page.mouse.click(emptyAt.x, emptyAt.y);
+      await wait(200);
+      r = await record();
+      check('clicking away applies a changed maximum, marked as edited', JSON.stringify(r.edits.at(-1)) === JSON.stringify(['hero', 'hp', { current: 14, max: 27 }, { current: 14, max: 30 }, true]), r.edits.at(-1));
+      check('a click on the empty board lets the token go', (await page.evaluate(() => window.boardTest.board.selected)) === null && (await controls()).length === 0, await controls());
+
+      await page.mouse.click(heroBody.x, heroBody.y);
+      await wait(150);
+      await page.keyboard.press('Escape');
+      await wait(100);
+      check('Escape lets the token go', (await page.evaluate(() => window.boardTest.board.selected)) === null);
+
+      // Kill and Delete, as the token menu shows them on the board before the file catches up.
+      const fate = await page.evaluate(() => {
+        const b = window.boardTest.board;
+        const gob = b.tokens.get('gob').token;
+        b.changeToken('gob', { ...gob, resources: { hp: { current: 0, max: 7 } } });
+        const gobDowned = b.tokens.get('gob').piece.downed;
+        b.changeToken('gob', gob);
+        const copy = [...b.tokens.keys()].find((id) => id.startsWith('tok_'));
+        b.select(copy);
+        b.changeToken(copy, null);
+        return { gobDowned, copy, still: b.tokens.has(copy), selected: b.selected };
+      });
+      check('a killed token is shown downed at once', fate.gobDowned, fate);
+      check('a deleted token leaves the board, and its selection', fate.copy && !fate.still && fate.selected === null, fate);
     }
 
     // 2. A click on a pin opens its note.

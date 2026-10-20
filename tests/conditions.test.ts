@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { collectionOf, conditionLabel, readCollectionRules, resourceLabel } from '../src/board/conditions';
+import { collectionOf, conditionLabel, emptyRules, readCollectionRules } from '../src/board/conditions';
 
 const metadata = JSON.parse(readFileSync('tests/fixtures/assets-metadata.json', 'utf8'));
 
@@ -17,17 +17,24 @@ test('conditions are read from the collection\'s settings', () => {
   assert.equal(rules.conditions.get('dnd5e-blinded'), undefined);
 });
 
-test('resource names and colours come from the collection; unknown keys are humanised', () => {
+test('the resources tokens track come from the collection, as Atlas defines them', () => {
   const rules = readCollectionRules(metadata, 'DotMM Level 1 Full Test');
-  assert.deepEqual(rules.resources.get('spell-slots'), { name: 'Spell Slots', color: '#6366f1' });
-  assert.equal(resourceLabel(rules, 'ac'), 'AC');
-  assert.equal(resourceLabel(rules, 'ki-points'), 'Ki points');
+  const slots = rules.definitions.find((definition) => definition.key === 'spell-slots')!;
+  assert.equal(slots.name, 'Spell Slots');
+  assert.equal(slots.color, '#6366f1');
+  assert.equal(rules.definitions.find((definition) => definition.key === 'hp')!.defeatedWhenSpent, true);
+});
+
+test('a map outside every collection tracks HP and the secondary bar; one Atlas does not know, HP', () => {
+  assert.deepEqual(readCollectionRules(metadata, null).definitions.map((d) => d.key), ['hp', 'stress']);
+  assert.deepEqual(readCollectionRules(metadata, 'Nope').definitions.map((d) => d.key), ['hp']);
+  assert.deepEqual(emptyRules().definitions.map((d) => d.key), ['hp', 'stress']);
 });
 
 test('a missing collection reads as no rules', () => {
   const rules = readCollectionRules(metadata, 'Nope');
   assert.equal(rules.conditions.size, 0);
-  assert.equal(readCollectionRules(null, 'x').resources.size, 0);
+  assert.equal(readCollectionRules(null, 'x').conditions.size, 0);
 });
 
 test('a valued condition shows its number, 1 when unset', () => {

@@ -1,8 +1,9 @@
 /**
  * A map's rules from its collection, as Atlas keeps them in `atlas-vtt/.atlas-data/assets-metadata.json`: the
- * conditions a token may carry (name, colour, whether it takes a number) and the names and colours of the stat block's
- * resources. A map belongs to the collection whose folder (`atlas-vtt/collections/<id>/`) holds it. Pure.
+ * conditions a token may carry (name, colour, whether it takes a number), the resources its tokens track, and how it
+ * measures. A map belongs to the collection whose folder (`atlas-vtt/collections/<id>/`) holds it. Pure.
  */
+import { mapDefinitions, type ResourceDefinition } from './resources';
 
 export interface ConditionDefinition {
   name: string;
@@ -11,14 +12,10 @@ export interface ConditionDefinition {
   valued: boolean;
 }
 
-export interface ResourceDefinition {
-  name: string;
-  color: string;
-}
-
 export interface CollectionRules {
   conditions: Map<string, ConditionDefinition>;
-  resources: Map<string, ResourceDefinition>;
+  /** The resources its tokens track, as Atlas defines them for the map (`resources.ts`). */
+  definitions: ResourceDefinition[];
   /** The collection's measuring rules (`settings.gridDefaults`), as Atlas stores them; null when none. */
   gridDefaults: unknown;
 }
@@ -35,26 +32,23 @@ export function collectionOf(mapPath: string): string | null {
   return id ? id : null;
 }
 
-export function emptyRules(): CollectionRules {
-  return { conditions: new Map(), resources: new Map(), gridDefaults: null };
+/** The rules of a map Atlas knows nothing about: no conditions, and the resources Atlas gives such a map. */
+export function emptyRules(inCollection = false): CollectionRules {
+  return { conditions: new Map(), definitions: mapDefinitions(null, inCollection), gridDefaults: null };
 }
 
-/** Reads a collection's conditions and resource names from Atlas's asset index. */
-export function readCollectionRules(metadata: unknown, collection: string): CollectionRules {
-  const rules = emptyRules();
+/** Reads a collection's rules from Atlas's asset index; `collection` is null for a map outside every collection. */
+export function readCollectionRules(metadata: unknown, collection: string | null): CollectionRules {
+  const rules = emptyRules(collection !== null);
+  if (collection === null) return rules;
   const settings = isObj(metadata) && isObj(metadata.collections) && isObj(metadata.collections[collection]) ? metadata.collections[collection].settings : null;
   if (!isObj(settings)) return rules;
+  rules.definitions = mapDefinitions(settings, true);
   rules.gridDefaults = isObj(settings.gridDefaults) ? settings.gridDefaults : null;
   if (Array.isArray(settings.conditions)) {
     for (const entry of settings.conditions) {
       if (!isObj(entry) || typeof entry.id !== 'string' || typeof entry.name !== 'string') continue;
       rules.conditions.set(entry.id, { name: entry.name, color: typeof entry.color === 'string' ? entry.color : '#888888', valued: entry.valued === true });
-    }
-  }
-  if (Array.isArray(settings.resources)) {
-    for (const entry of settings.resources) {
-      if (!isObj(entry) || typeof entry.key !== 'string' || typeof entry.name !== 'string') continue;
-      rules.resources.set(entry.key, { name: entry.name, color: typeof entry.color === 'string' ? entry.color : '#64748b' });
     }
   }
   return rules;
@@ -63,12 +57,4 @@ export function readCollectionRules(metadata: unknown, collection: string): Coll
 /** A condition's name as Atlas shows it: a valued one with its number (1 when unset). */
 export function conditionLabel(definition: ConditionDefinition, value: number | undefined): string {
   return definition.valued ? `${definition.name} ${value ?? 1}` : definition.name;
-}
-
-/** A resource's name: the collection's, else its key made readable (`ki-points` → `Ki points`). */
-export function resourceLabel(rules: CollectionRules, key: string): string {
-  const named = rules.resources.get(key)?.name;
-  if (named) return named;
-  const words = key.replace(/[-_.]+/g, ' ').trim();
-  return words.charAt(0).toUpperCase() + words.slice(1);
 }

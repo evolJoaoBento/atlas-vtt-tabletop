@@ -17,6 +17,7 @@ import type { LoadedMini } from '../library';
 import type { TokenStyle, PropPlacement } from './boardData';
 import { hexCenter, ringDiameter, tokenDiameter } from './geometry';
 import { isDowned, type BoardGrid, type BoardIcon, type BoardPin, type BoardToken } from './mapModel';
+import type { ResourceDefinition } from './resources';
 import { mapIconSvg } from './mapIcons';
 import { pinTitle } from './pinIcons';
 import { downedMarkerTexture, hiddenMarkerTexture, loadImageTexture, pinTexture, plateTexture } from './textures';
@@ -159,7 +160,7 @@ export class TokenPiece {
   private blobShadow: THREE.Mesh | null = null;
   private carry = 0;
 
-  constructor(token: BoardToken, private readonly grid: BoardGrid) {
+  constructor(token: BoardToken, private readonly grid: BoardGrid, private definitions: readonly ResourceDefinition[]) {
     this.token = token;
     this.fall.add(this.body);
     this.object3d.add(this.fall, this.ground);
@@ -217,15 +218,16 @@ export class TokenPiece {
     return (this.figure?.animating ?? false) || this.carry !== (this.carried ? 1 : 0) || this.fallen !== (this.downed ? 1 : 0);
   }
 
-  /** A character at 0 HP or less, as Atlas draws it: greyed out, with a skull, and here lying down. */
+  /** A creature with a defeating resource spent, as Atlas draws it: greyed out, with a skull, and here lying down. */
   get downed(): boolean {
-    return isDowned(this.token);
+    return isDowned(this.token, this.definitions);
   }
 
-  update(token: BoardToken): void {
+  update(token: BoardToken, definitions: readonly ResourceDefinition[]): void {
     const wasDowned = this.downed;
     const rebuild = token.size !== this.token.size || token.rotation !== this.token.rotation || token.showRing !== this.token.showRing || token.ringColor !== this.token.ringColor || token.hidden !== this.token.hidden;
     this.token = token;
+    this.definitions = definitions;
     if (rebuild) this.build();
     else if (wasDowned !== this.downed) this.markDowned();
   }

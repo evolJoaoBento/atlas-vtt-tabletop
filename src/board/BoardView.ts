@@ -1,10 +1,10 @@
 /**
  * The 3D board's tab: an Atlas map (`.atlasmap`) opened in 3D. It reads the map, follows the file as it changes (Atlas
  * saving it, a sync tool), follows a rename and closes when the map is deleted. What the board asks of Obsidian (images,
- * GLBs, the minis and props kept by Tabletop, saving a token's move, opening a note, the token menu) goes through
- * the plugin's `BoardServices`.
+ * GLBs, the minis and props kept by Tabletop, saving a token's move or resources, opening a note, the token menu with
+ * Atlas's Kill and Delete) goes through the plugin's `BoardServices`.
  */
-import { ItemView, Menu, Notice, TFile, debounce, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
+import { ItemView, Menu, Notice, TFile, debounce, type MenuItem, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
 import type { Assignments } from '../assignments';
 import { MiniPicker } from '../gallery';
 import type { LoadedMini, MiniLibrary } from '../library';
@@ -13,6 +13,7 @@ import type { BoardData } from './boardData';
 import { ASSETS_METADATA_PATH, collectionOf, emptyRules, readCollectionRules, type CollectionRules } from './conditions';
 import { readMap, type BoardMap, type BoardToken } from './mapModel';
 import { readMeasurement } from './measure';
+import { defeatedResources, isKillable } from './resources';
 import { QUALITY, type Quality } from './quality';
 import type { TokenWriter } from './tokenWriter';
 
@@ -164,7 +165,7 @@ export class BoardView extends ItemView {
     try {
       return readCollectionRules(JSON.parse(await this.app.vault.adapter.read(ASSETS_METADATA_PATH)), collection);
     } catch {
-      return emptyRules();
+      return emptyRules(true);
     }
   }
 
@@ -213,8 +214,9 @@ export class BoardView extends ItemView {
       copyToken: (id, newId, x, y) => {
         writer.copy(mapPath(), id, newId, x, y).catch((error: unknown) => this.unsaved('copy', error));
       },
-      editMeter: (id, field, meter) => {
-        writer.meter(mapPath(), id, field, meter).catch((error: unknown) => this.unsaved(field === 'hp' ? 'HP' : 'stress', error));
+      editResource: (id, key, edit, maxEdited) => {
+        const name = this.rules.definitions.find((definition) => definition.key === key)?.name ?? key;
+        writer.resource(mapPath(), id, key, edit, maxEdited).catch((error: unknown) => this.unsaved(`${name} change`, error));
       },
       measurement: () => readMeasurement(this.rules.gridDefaults, this.map?.rawGrid),
       statblockPreview: (id, event) => {
@@ -243,6 +245,56 @@ export class BoardView extends ItemView {
     const standee = boardData.style(map.path, id) === 'standee';
     menu.addItem((item) => item.setTitle(standee ? 'Show as disc' : 'Show as standee').setIcon(standee ? 'circle' : 'square-user')
       .onClick(() => boardData.setStyle(map.path, id, standee ? 'disc' : 'standee')));
+
+    // Atlas's destructive row: Kill (for a token with a resource that defeats it) beside Delete.
+    const danger: MenuItem[] = [];
+    const definitions = this.rules.definitions;
+    if (token.kind === 'character' && isKillable(token, definitions)) {
+      menu.addItem((item) => {
+        danger.push(item);
+        item.setTitle('Kill').setIcon('skull').setWarning(true).setSection('danger').onClick(() => this.killToken(token.id));
+      });
+    }
+    menu.addItem((item) => {
+      danger.push(item);
+      item.setTitle('Delete').setIcon('trash').setWarning(true).setSection('danger').onClick(() => this.deleteToken(token.id));
+    });
     menu.showAtMouseEvent(event);
+    sideBySide(danger);
   }
+
+  private killToken(id: string): void {
+    const token = this.map?.tokens.find((candidate) => candidate.id === id);
+    if (!token) return;
+    const definitions = this.rules.definitions;
+    const resources = defeatedResources(token, definitions);
+    if (resources) this.board?.changeToken(id, { ...token, resources });
+    this.services.writer.kill(this.path ?? '', id, definitions).catch((error: unknown) => this.unsaved('kill', error));
+  }
+
+  private deleteToken(id: string): void {
+    const path = this.path ?? '';
+    this.board?.changeToken(id, null);
+    const { assignments, boardData, writer } = this.services;
+    writer.remove(path, id).then(() => {
+      // The token is gone: so is the mini Tabletop gave it, and its look.
+      assignments.remove(path, id);
+      boardData.setStyle(path, id, 'disc');
+    }).catch((error: unknown) => this.unsaved('deletion', error));
+  }
+}
+
+/**
+ * Puts menu items in one row, as Atlas lays out Kill and Delete. Obsidian builds its menu's elements without a public
+ * handle on them; where they are not there (a native menu), the items stay one under the other.
+ */
+function sideBySide(items: MenuItem[]): void {
+  // Duck-typed: a menu in a popped-out window is built from that window's HTMLElement.
+  const doms = items.map((item) => (item as unknown as { dom?: unknown }).dom).filter((dom): dom is HTMLElement => typeof (dom as Node | undefined)?.nodeType === 'number');
+  const first = doms[0];
+  if (doms.length < 2 || !first?.parentElement) return;
+  const row = first.ownerDocument.createElement('div');
+  row.className = 'atlas-tabletop-danger-row';
+  first.parentElement.insertBefore(row, first);
+  for (const dom of doms) row.appendChild(dom);
 }

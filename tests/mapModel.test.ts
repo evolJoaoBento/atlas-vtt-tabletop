@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { isDowned, readMap } from '../src/board/mapModel';
+import { HP_RESOURCE } from '../src/board/resources';
 
 const fixture = (name: string): string => readFileSync(`tests/fixtures/${name}`, 'utf8');
 const wrap = (state: Record<string, unknown>): string => JSON.stringify({ version: 1, state: { objects: { tokens: {}, pins: {} }, ...state } });
@@ -13,7 +14,7 @@ test('reads tokens and pins from a real map', () => {
   assert.equal(map.tokens.length, 8);
   assert.equal(map.pins.length, 6);
   const kestrel = map.tokens.find((token) => token.name === 'Kestrel Vane')!;
-  assert.deepEqual(kestrel.hp, { current: 34, max: 44 });
+  assert.deepEqual(kestrel.resources.hp, { current: 34, max: 44 });
   assert.deepEqual(kestrel.conditions, ['dnd5e-exhaustion', 'dnd5e-poisoned']);
   assert.deepEqual(kestrel.conditionValues, { 'dnd5e-exhaustion': 2 });
   assert.equal(kestrel.statblockPath, 'DotMM Full Test/Party/Kestrel Vane.md');
@@ -24,7 +25,7 @@ test('reads tokens and pins from a real map', () => {
   assert.equal(bandit.instanceNumber, 1);
   const pin = map.pins[0]!;
   assert.deepEqual(pin, { id: 'pin_1792170000001_area-1000', x: 1063.6, y: 1374.7, notePath: 'DotMM Full Test/Adventure/Level 1 - Dungeon Level.md#1. Entry Well', icon: 'number', label: '1', hex: false });
-  assert.deepEqual(map.tokenSettings, { showNameplates: true, showHPBars: true, showStressBars: false, showInstanceBadges: true, hiddenResources: ['stress'] });
+  assert.deepEqual(map.tokenSettings, { showNameplates: true, showInstanceBadges: true, hiddenResources: ['stress'] });
 });
 
 test('token defaults', () => {
@@ -36,7 +37,7 @@ test('token defaults', () => {
   }, pins: {} } }));
   const [a, b, c, d] = map.tokens;
   assert.equal(a!.size, 1);
-  assert.deepEqual(a!.hp, { current: 30, max: 100 });
+  assert.deepEqual(a!.resources.hp, { current: 30, max: 100 });
   assert.equal(a!.showRing, true);
   assert.equal(a!.ringColor, '#ffffff');
   assert.equal(a!.name, null);
@@ -47,10 +48,11 @@ test('token defaults', () => {
   assert.equal(a!.statblockPath, null);
 });
 
-test('resources keep only those with a maximum, in order', () => {
+test('a token\'s resources are read as Atlas 0.8 holds them, by key', () => {
   const map = readMap('m', fixture('dungeon.atlasmap'));
   const thorin = map.tokens.find((token) => token.name === 'Thorin Ashdelve')!;
-  assert.deepEqual(thorin.resources, [{ key: 'ac', current: 18, max: 18 }, { key: 'inspiration', current: 1, max: 1 }]);
+  assert.deepEqual(thorin.resources.ac, { current: 18, max: 18 });
+  assert.deepEqual(thorin.resources.inspiration, { current: 1, max: 1 });
 });
 
 test('grid', () => {
@@ -91,7 +93,7 @@ test('icon stamps are read from the drawings; strokes are left out', () => {
   ]);
 });
 
-test('downed: a character at 0 HP or less, but 0/0 is no HP at all (Atlas)', () => {
+test('downed: a character with a defeating resource spent; 0/0 is no HP at all (Atlas)', () => {
   const map = readMap('m', wrap({ objects: { pins: {}, tokens: {
     a: { id: 'a', x: 0, y: 0, kind: 'character', hp: { current: 0, max: 9 } },
     b: { id: 'b', x: 0, y: 0, kind: 'character', hp: { current: 0, max: 0 } },
@@ -99,11 +101,14 @@ test('downed: a character at 0 HP or less, but 0/0 is no HP at all (Atlas)', () 
     d: { id: 'd', x: 0, y: 0, kind: 'token', hp: { current: 0, max: 9 } },
     e: { id: 'e', x: 0, y: 0, kind: 'character', hp: { current: 3, max: 9 } },
   } } }));
-  assert.deepEqual(map.tokens.map(isDowned), [true, false, true, false, false]);
+  const defs = [HP_RESOURCE];
+  assert.deepEqual(map.tokens.map((token) => isDowned(token, defs)), [true, false, true, false, false]);
+  // HP that does not defeat (a collection that says so) downs nobody.
+  assert.deepEqual(map.tokens.map((token) => isDowned(token, [{ ...HP_RESOURCE, defeatedWhenSpent: false }])), [false, false, false, false, false]);
 });
 
 test('older hex numbers only number hex grids; a stress max of 0 reads as 10 like Atlas', () => {
   assert.equal(readMap('m', wrap({ grid: { type: 'square', hexNumbers: 'column-row' } })).grid.numbers, null);
   const map = readMap('m', wrap({ objects: { pins: {}, tokens: { a: { id: 'a', x: 0, y: 0, kind: 'character', stress: 2, maxStress: 0 } } } }));
-  assert.deepEqual(map.tokens[0]!.stress, { current: 2, max: 10 });
+  assert.deepEqual(map.tokens[0]!.resources.stress, { current: 2, max: 10 });
 });

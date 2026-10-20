@@ -1,16 +1,25 @@
 /**
- * Saves what the board changes on a map: a token moved, a token copied (Alt-drag), a token's HP or stress edited.
+ * Saves what the board changes on a map: a token moved, copied (Alt-drag), killed or deleted, a resource stepped or
+ * edited.
  * Atlas never re-reads a map file it has open: its next save writes what it holds, which would undo a change written
  * to the file behind its back. So while an Atlas view has the map open (and has it loaded), the change goes through
  * Atlas's own store actions, which Atlas shows and saves; otherwise the file is edited, changing only what changed
  * and writing it back the way Atlas writes it (`JSON.stringify`, no indentation).
+ *
+ * Resources are changed the way Atlas 0.8 changes them: on its memory form (`resources`, `overriddenMax`), converted
+ * from and back to the file's fields with Atlas's own rules (`resources.ts`). An older Atlas holds the file's fields in
+ * its store too, and is given those.
  */
 import type { AtlasSceneState, AtlasView } from '../atlas';
-import type { Meter } from './mapModel';
+import {
+  defeatedResources, initiativeVitals, resourceUpdate, tokenFromFile, tokenToFile,
+  type ResourceDefinition, type ResourceHolder, type ResourceValue,
+} from './resources';
 
 type RawToken = Record<string, unknown> & { x?: number; y?: number; imagePath?: string; instanceNumber?: number };
-type MapFile = { state?: { objects?: { tokens?: Record<string, RawToken> } } };
-export type MeterField = 'hp' | 'stress';
+type MapFile = { state?: { objects?: { tokens?: Record<string, RawToken> }; initiative?: { entries?: unknown } } };
+/** What a change does to a token's resources, given them as Atlas holds them in memory; null when it changes nothing. */
+type ResourceChange = (token: ResourceHolder) => Pick<ResourceHolder, 'resources' | 'overriddenMax'> | null;
 
 function tokensOf(file: MapFile): Record<string, RawToken> {
   const tokens = file.state?.objects?.tokens;
@@ -51,26 +60,59 @@ export function copyTokenInText(text: string, id: string, newId: string, x: numb
   return JSON.stringify(file);
 }
 
-/** The changes Atlas makes for a meter edit: HP as `{current, max}`, stress in the form the token keeps it. */
-function meterUpdates(token: RawToken, field: MeterField, meter: Meter): Record<string, unknown> {
-  if (field === 'hp') {
-    const old = token.hp;
-    const max = typeof old === 'object' && old !== null ? (old as Meter).max : 100;
-    return { hp: { current: meter.current, max: meter.max }, ...(meter.max !== max ? { maxHpOverridden: true } : {}) };
-  }
-  const old = token.stress;
-  if (typeof old === 'object' && old !== null) {
-    return { stress: { current: meter.current, max: meter.max }, ...(meter.max !== (old as Meter).max ? { maxStressOverridden: true } : {}) };
-  }
-  const max = typeof token.maxStress === 'number' && token.maxStress > 0 ? token.maxStress : 10;
-  return { stress: meter.current, maxStress: meter.max, ...(meter.max !== max ? { maxStressOverridden: true } : {}) };
+/** The fields an older Atlas (and every map file) keeps a token's resources in. */
+const FILE_FIELDS = ['hp', 'stress', 'maxStress', 'hope', 'statblockResources', 'maxHpOverridden', 'maxStressOverridden', 'overriddenMax'];
+
+/** Whether a token is in the file's form (an older Atlas's store, or a file) rather than Atlas 0.8's memory form. */
+const inFileForm = (token: Record<string, unknown>): boolean => !('resources' in token) && FILE_FIELDS.some((field) => field in token);
+
+/** Sets one resource: `edit` turns the value the token holds into the new one. */
+function setResource(key: string, edit: (stored: ResourceValue) => ResourceValue, maxEdited: boolean): ResourceChange {
+  return (token) => {
+    const stored = token.resources?.[key];
+    if (!stored) throw new Error(`the token has no ${key}`);
+    return resourceUpdate(token, key, edit(stored), maxEdited);
+  };
 }
 
-/** The map file's text with a token's HP or stress set. */
-export function setMeterInText(text: string, id: string, field: MeterField, meter: Meter): string {
+const kill = (definitions: readonly ResourceDefinition[]): ResourceChange => (token) => {
+  const resources = defeatedResources(token, definitions);
+  return resources ? { resources } : null;
+};
+
+/** The map file's text with `change` made to a token's resources, its initiative entry's copy of them kept up. */
+function changeInText(text: string, id: string, change: ResourceChange): string {
   const file = JSON.parse(text) as MapFile;
-  const token = tokenOf(file, id);
-  Object.assign(token, meterUpdates(token, field, meter));
+  const tokens = tokensOf(file);
+  const held = tokenFromFile(tokenOf(file, id));
+  const changes = change(held);
+  if (!changes) return text;
+  const next = { ...held, ...changes };
+  tokens[id] = tokenToFile(next) as RawToken;
+  const entries = file.state?.initiative?.entries;
+  if (Array.isArray(entries)) {
+    file.state!.initiative!.entries = entries.map((entry: unknown) => (
+      typeof entry === 'object' && entry !== null && (entry as { tokenId?: unknown }).tokenId === id ? { ...entry, ...initiativeVitals(next) } : entry
+    ));
+  }
+  return JSON.stringify(file);
+}
+
+/** The map file's text with one resource of a token set; `edit` gets the value the file holds. */
+export function setResourceInText(text: string, id: string, key: string, edit: (stored: ResourceValue) => ResourceValue, maxEdited: boolean): string {
+  return changeInText(text, id, setResource(key, edit, maxEdited));
+}
+
+/** The map file's text with a token killed: every resource that defeats it spent. */
+export function killTokenInText(text: string, id: string, definitions: readonly ResourceDefinition[]): string {
+  return changeInText(text, id, kill(definitions));
+}
+
+/** The map file's text without a token. */
+export function deleteTokenInText(text: string, id: string): string {
+  const file = JSON.parse(text) as MapFile;
+  tokenOf(file, id);
+  delete tokensOf(file)[id];
   return JSON.stringify(file);
 }
 
@@ -128,15 +170,57 @@ export class TokenWriter {
     return 'file';
   }
 
-  /** Sets the token's HP or stress. */
-  async meter(path: string, id: string, field: MeterField, meter: Meter): Promise<'atlas' | 'file'> {
+  /**
+   * Changes a token's resources through Atlas's store: Atlas 0.8 holds them in memory as `resources` (it writes the
+   * file's fields only when saving, from those), an older Atlas as the file's fields.
+   */
+  private changeInAtlas(state: AtlasSceneState, id: string, change: ResourceChange): void {
+    if (!state.updateToken) throw TokenWriter.missing('token update');
+    const live = state.objects.tokens[id] as unknown as Record<string, unknown>;
+    if (!inFileForm(live)) {
+      const changes = change(live as ResourceHolder);
+      if (changes) state.updateToken(id, changes);
+      return;
+    }
+    const held = tokenFromFile(live);
+    const changes = change(held);
+    if (!changes) return;
+    const fileForm = tokenToFile({ ...held, ...changes }) as Record<string, unknown>;
+    state.updateToken(id, Object.fromEntries(FILE_FIELDS.filter((field) => field in fileForm).map((field) => [field, fileForm[field]])));
+  }
+
+  private async change(path: string, id: string, change: ResourceChange): Promise<'atlas' | 'file'> {
     const state = this.atlas(path, id);
     if (state) {
-      if (!state.updateToken) throw TokenWriter.missing('token update');
-      state.updateToken(id, meterUpdates(state.objects.tokens[id] as unknown as RawToken, field, meter));
+      this.changeInAtlas(state, id, change);
       return 'atlas';
     }
-    await this.deps.process(path, (text) => setMeterInText(text, id, field, meter));
+    await this.deps.process(path, (text) => changeInText(text, id, change));
+    return 'file';
+  }
+
+  /**
+   * Sets one of the token's resources: `edit` gets the value Atlas (or the file) holds now, so steps made in quick
+   * succession add up even before the board has read them back.
+   */
+  resource(path: string, id: string, key: string, edit: (stored: ResourceValue) => ResourceValue, maxEdited: boolean): Promise<'atlas' | 'file'> {
+    return this.change(path, id, setResource(key, edit, maxEdited));
+  }
+
+  /** Kills the token, as Atlas's Kill does: every resource that defeats it spent. */
+  kill(path: string, id: string, definitions: readonly ResourceDefinition[]): Promise<'atlas' | 'file'> {
+    return this.change(path, id, kill(definitions));
+  }
+
+  /** Deletes the token from the map. */
+  async remove(path: string, id: string): Promise<'atlas' | 'file'> {
+    const state = this.atlas(path, id);
+    if (state) {
+      if (!state.deleteTokens) throw TokenWriter.missing('way to delete a token');
+      state.deleteTokens([id]);
+      return 'atlas';
+    }
+    await this.deps.process(path, (text) => deleteTokenInText(text, id));
     return 'file';
   }
 }

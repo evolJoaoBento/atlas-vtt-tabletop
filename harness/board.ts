@@ -10,6 +10,7 @@ import type { PropPlacement } from '../src/board/boardData';
 import { emptyRules } from '../src/board/conditions';
 import { QUALITY } from '../src/board/quality';
 import type { BoardMap, BoardToken } from '../src/board/mapModel';
+import { HP_RESOURCE, type ResourceDefinition, type ResourceValue } from '../src/board/resources';
 import { parseMini, type LoadedMini } from '../src/library';
 
 function exportGlb(root: THREE.Object3D, animations: THREE.AnimationClip[] = []): Promise<ArrayBuffer> {
@@ -65,22 +66,22 @@ const face = (color: string): string => drawn(128, 128, (context) => {
 
 const token = (over: Partial<BoardToken> & Pick<BoardToken, 'id' | 'x' | 'y'>): BoardToken => ({
   size: 1, rotation: 0, imagePath: null, kind: 'character', name: null, hidden: false, showRing: true, ringColor: '#ffffff',
-  showNameplate: true, hp: null, stress: null, conditions: [], conditionValues: {}, resources: [], instanceNumber: null, statblockPath: null, ...over,
+  showNameplate: true, conditions: [], conditionValues: {}, resources: {}, overriddenMax: [], instanceNumber: null, statblockPath: null, ...over,
 });
 
 const map: BoardMap = {
   path: 'harness.atlasmap',
   background: 'bg.png',
   grid: { enabled: true, visible: true, snap: true, type: 'square', size: 70, offsetX: 0, offsetY: 0, opacity: 0.5, lineWidth: 2, color: null, lineType: 'dashed', numbers: 'letter-number', numberOpacity: 0.8 },
-  tokenSettings: { showNameplates: false, showHPBars: true, showStressBars: false, showInstanceBadges: true, hiddenResources: [] },
+  tokenSettings: { showNameplates: false, showInstanceBadges: true, hiddenResources: [] },
   tokens: [
-    token({ id: 'hero', x: 245, y: 245, imagePath: 'red.png', name: 'Hero', statblockPath: 'Bestiary/Hero.md', hp: { current: 20, max: 27 }, conditions: ['c-poisoned', 'c-frightened'], resources: [{ key: 'ac', current: 15, max: 15 }, { key: 'slots', current: 2, max: 4 }, { key: 'ki', current: 3, max: 5 }] }),
-    token({ id: 'gob', x: 525, y: 385, imagePath: 'green.png', name: 'Goblin', hp: { current: 3, max: 7 }, instanceNumber: 1 }),
-    token({ id: 'gob2', x: 875, y: 385, imagePath: 'green.png', name: 'Goblin', hp: { current: 7, max: 7 }, instanceNumber: 2 }),
-    token({ id: 'orc', x: 735, y: 525, imagePath: 'red.png', name: 'Orc', hidden: true, hp: { current: 15, max: 15 } }),
+    token({ id: 'hero', x: 245, y: 245, imagePath: 'red.png', name: 'Hero', statblockPath: 'Bestiary/Hero.md', conditions: ['c-poisoned', 'c-frightened'], resources: { hp: { current: 20, max: 27 }, ac: { current: 15, max: 15 }, slots: { current: 2, max: 4 }, ki: { current: 3, max: 5 } } }),
+    token({ id: 'gob', x: 525, y: 385, imagePath: 'green.png', name: 'Goblin', resources: { hp: { current: 3, max: 7 } }, instanceNumber: 1 }),
+    token({ id: 'gob2', x: 875, y: 385, imagePath: 'green.png', name: 'Goblin', resources: { hp: { current: 7, max: 7 } }, instanceNumber: 2 }),
+    token({ id: 'orc', x: 735, y: 525, imagePath: 'red.png', name: 'Orc', hidden: true, resources: { hp: { current: 15, max: 15 } } }),
     token({ id: 'noart', x: 385, y: 665, imagePath: 'missing.png', kind: 'token' }),
-    token({ id: 'fallen', x: 1155, y: 525, imagePath: 'red.png', name: 'Fallen', hp: { current: 0, max: 9 } }),
-    token({ id: 'fallenDisc', x: 1225, y: 525, imagePath: 'green.png', name: 'Fallen disc', hp: { current: 0, max: 9 } }),
+    token({ id: 'fallen', x: 1155, y: 525, imagePath: 'red.png', name: 'Fallen', resources: { hp: { current: 0, max: 9 } } }),
+    token({ id: 'fallenDisc', x: 1225, y: 525, imagePath: 'green.png', name: 'Fallen disc', resources: { hp: { current: 0, max: 9 } } }),
   ],
   rawGrid: null,
   icons: [
@@ -101,13 +102,23 @@ async function main(): Promise<void> {
   const record = {
     moves: [] as Array<[string, number, number]>, propMoves: [] as Array<[string, number, number]>, added: [] as Array<[string, number, number]>,
     notes: [] as string[], menus: [] as string[], propMenus: [] as string[], previews: [] as string[], warnings: [] as string[],
-    copies: [] as Array<[string, string, number, number]>, meters: [] as Array<[string, string, { current: number; max: number }]>,
+    copies: [] as Array<[string, string, number, number]>,
+    /** Resource edits as the host saved them: token, key, the value it held, the value written, max edited. */
+    edits: [] as Array<[string, string, ResourceValue, ResourceValue, boolean]>,
   };
+  /** What the host holds, as Atlas or the file would: edits apply to it. */
+  const stored = new Map(map.tokens.map((entry) => [entry.id, structuredClone(entry.resources)]));
   const rules = emptyRules();
   rules.conditions.set('c-poisoned', { name: 'Poisoned', color: '#16a34a', valued: false });
   rules.conditions.set('c-frightened', { name: 'Frightened', color: '#7c3aed', valued: false });
-  rules.resources.set('ac', { name: 'AC', color: '#64748b' });
-  rules.resources.set('slots', { name: 'Spell Slots', color: '#6366f1' });
+  // As DotMM's collection: HP and a static AC on the bars, the rest on wheels.
+  const definitions: ResourceDefinition[] = [
+    { ...HP_RESOURCE },
+    { key: 'ac', name: 'AC', field: 'ac', direction: 'static', color: '#64748b', visibleToPlayers: true },
+    { key: 'slots', name: 'Spell Slots', field: 'spell_slots', direction: 'drains', color: '#6366f1', visibleToPlayers: true },
+    { key: 'ki', name: 'Ki', field: 'ki', direction: 'fills', color: '#eab308', visibleToPlayers: true },
+  ];
+  rules.definitions = definitions;
   const host: BoardHost = {
     readImage: async (path) => images[path] ?? null,
     readMini: async (path) => (path.includes('barrel') ? barrel : hero),
@@ -123,7 +134,13 @@ async function main(): Promise<void> {
     propMenu: (id) => { record.propMenus.push(id); },
     statblockPreview: (id) => { record.previews.push(id); },
     copyToken: (id, newId, x, y) => { record.copies.push([id, newId, x, y]); },
-    editMeter: (id, field, meter) => { record.meters.push([id, field, meter]); },
+    editResource: (id, key, edit, maxEdited) => {
+      const held = stored.get(id)?.[key];
+      if (!held) return;
+      const next = edit(held);
+      stored.get(id)![key] = next;
+      record.edits.push([id, key, held, next, maxEdited]);
+    },
     measurement: () => ({ mode: 'metric', unitType: 'feet', unitDistance: 5, diagonalRule: 'equidistant', bands: [] }),
     warn: (message) => { if (!record.warnings.includes(message)) record.warnings.push(message); },
   };
@@ -137,7 +154,7 @@ async function main(): Promise<void> {
     const rect = board.canvas.getBoundingClientRect();
     return { x: rect.left + ((point.x + 1) / 2) * rect.width, y: rect.top + ((1 - point.y) / 2) * rect.height };
   };
-  Object.assign(window, { boardTest: { board, map, record, project, hero, QUALITY, ready: true } });
+  Object.assign(window, { boardTest: { board, map, record, stored, project, hero, QUALITY, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

@@ -5,8 +5,9 @@
  * - Left-drag on a token carries it (its mini leans and walks the way Tabletop's minis always have); on release it
  *   snaps to the grid like Atlas, glides there, and the move is saved once.
  * - Ctrl + left-drag on a prop carries the prop.
- * - A click on a pin opens its note; a right-click on a token or a prop opens its menu; a click on a token wobbles
- *   its mini.
+ * - A click on a pin opens its note; a right-click on a token or a prop opens its menu; a click on a token selects it
+ *   (and wobbles its mini), a click on the empty board or Escape lets it go. The selected token gets Atlas's resource
+ *   controls: − / + beside each bar and wheel, and a click on one opens Atlas's editor for it.
  * - Any other drag moves the camera: left or middle orbits, right pans. The wheel zooms. WASD or the arrow keys pan,
  *   Q and E turn, Home frames the map.
  *
@@ -20,10 +21,11 @@ import type { PropPlacement, TokenStyle } from './boardData';
 import { OrbitCamera, limitsFor } from './camera';
 import type { CollectionRules } from './conditions';
 import { formatDistance, pathLengthInCells, type Measurement } from './measure';
-import { applyMeterEdit, stepMeterText } from './meterEdit';
 import { hexCenter, ringDiameter, snapPoint } from './geometry';
 import { TokenLabels, type HoverTarget } from './labels';
-import type { BoardMap, BoardToken, Meter } from './mapModel';
+import type { BoardMap, BoardToken } from './mapModel';
+import { ResourceControls, openValueEditor, type ControlSpec, type EditorAnchor, type ScreenRect, type ValueEditor } from './resourceControls';
+import { resourceUpdate, withCurrent, type ResourceValue } from './resources';
 import { IconPiece, PinPiece, PropPiece, TokenPiece, type PoseContext } from './pieces';
 import { numberCells, type CellNumbers } from './cellNumbers';
 import { stripGeometry } from './surface';
@@ -57,8 +59,11 @@ export interface BoardHost {
   statblockPreview(id: string, event: MouseEvent): void;
   /** Saves a copy of a token (Alt + drag) under `newId` at (x, y). */
   copyToken(id: string, newId: string, x: number, y: number): void;
-  /** Saves a token's HP or stress, edited from its bar. */
-  editMeter(id: string, field: 'hp' | 'stress', meter: Meter): void;
+  /**
+   * Saves a resource edited from the token's controls: `edit` turns the value held now (by Atlas, or in the file) into
+   * the new one, so quick steps add up; `maxEdited` says the maximum was set by hand.
+   */
+  editResource(id: string, key: string, edit: (stored: ResourceValue) => ResourceValue, maxEdited: boolean): void;
   /** How distances are measured and labelled on this map. */
   measurement(): Measurement;
   /** Shown once per message. */
@@ -165,7 +170,13 @@ export class Board {
   private ruler: THREE.Group | null = null;
   /** The ruler being shown: its points (start, waypoints, landing) and its label. */
   rulerState: { points: Array<{ x: number; y: number }>; label: string } | null = null;
-  private meterEditor: { element: HTMLElement; close: (commit: boolean) => void } | null = null;
+  /** The token whose resource controls show. */
+  private selectedId: string | null = null;
+  private readonly controls: ResourceControls;
+  /** The open resource editor: whose, which resource, the value it opened on. */
+  private editor: { tokenId: string; key: string; value: ResourceValue; view: ValueEditor } | null = null;
+  /** How the last frame sized things on screen, to size what a reload rebuilds before the next frame. */
+  private lastPose: PoseContext | null = null;
   /** The token whose stat block was last shown, so a hover shows it once. */
   private previewed: string | null = null;
 
@@ -179,6 +190,10 @@ export class Board {
     this.tooltip.className = 'atlas-tabletop-tooltip';
     this.tooltip.hidden = true;
     container.appendChild(this.tooltip);
+    this.controls = new ResourceControls(container, {
+      step: (key, delta) => this.stepResource(key, delta),
+      edit: (key) => this.openEditor(key),
+    });
 
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: quality.antialias });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -204,7 +219,6 @@ export class Board {
 
   /** Shows a map: the first load frames it, later loads (the file changed) keep the camera where it is. */
   async load(map: BoardMap): Promise<void> {
-    this.meterEditor?.close(false);
     this.showCell(null);
     const first = this.map === null;
     const sameImage = this.map?.background === map.background;
@@ -329,7 +343,7 @@ export class Board {
       const shared = (artUse.get(token.imagePath ?? '') ?? 0) >= 2;
       let entry = this.tokens.get(token.id);
       if (!entry) {
-        const piece = new TokenPiece(token, map.grid);
+        const piece = new TokenPiece(token, map.grid, rules.definitions);
         piece.setMiniShadows(this.quality.miniShadows);
         const labels = new TokenLabels(token, map.tokenSettings, rules, shared);
         piece.object3d.add(labels.object3d);
@@ -337,7 +351,7 @@ export class Board {
         entry = { token, piece, labels, at: { x: token.x, y: token.y }, goal: { x: token.x, y: token.y }, mini: null };
         this.tokens.set(token.id, entry);
       } else {
-        entry.piece.update(token);
+        entry.piece.update(token, rules.definitions);
         entry.labels.update(token, map.tokenSettings, rules, shared);
         entry.token = token;
         // A token being carried stays under the pointer; the file catches up on release.
@@ -352,6 +366,13 @@ export class Board {
       entry.labels.dispose();
       entry.piece.dispose();
       this.tokens.delete(id);
+    }
+    if (this.selectedId !== null && !this.tokens.has(this.selectedId)) this.select(null);
+    // An editor whose value changed under it (Atlas, another tab) would apply its change to a stale value.
+    const editing = this.editor;
+    if (editing) {
+      const now = this.tokens.get(editing.tokenId)?.token.resources[editing.key];
+      if (!now || now.current !== editing.value.current || now.max !== editing.value.max) editing.view.close();
     }
 
     // Icons are kept across reloads when nothing about them changed: each one loads its glyph, so a rebuilt one
@@ -398,6 +419,15 @@ export class Board {
         piece.setModel(model);
         this.wake(true);
       });
+    }
+    // What was rebuilt is sized on screen now: an unsized sprite fills the view for a press made before the next frame.
+    const pose = this.lastPose;
+    if (pose) {
+      for (const pin of this.pins) pin.pose(pose);
+      for (const entry of this.tokens.values()) {
+        entry.labels.place(entry.piece.figureHeight(), ringDiameter(map.grid, entry.token.size) / 2, entry.piece.top);
+        entry.labels.pose(pose);
+      }
     }
     this.wake(true);
   }
@@ -489,6 +519,7 @@ export class Board {
       yaw: this.camera.pose.yaw,
       pixel: screenScale(1, viewHeight, FOV),
     };
+    this.lastPose = context;
     const glide = 1 - Math.exp(-GLIDE * dt);
     let changed = this.shadowsDirty || this.press?.kind === 'token' || this.press?.kind === 'prop';
     let moving = false;
@@ -528,6 +559,7 @@ export class Board {
     }
     this.shadowsDirty = false;
     this.renderer.render(this.scene, this.view);
+    this.layoutControls();
     this.continuing = busy || this.held.size > 0 || this.press !== null;
     if (this.continuing) this.wake();
   }
@@ -590,13 +622,21 @@ export class Board {
 
   private hit<T extends THREE.Object3D>(clientX: number, clientY: number, objects: T[]): T | null {
     this.ray(clientX, clientY);
+    // Rays use the world matrices of the last frame drawn: what a reload rebuilt since would still sit at the origin.
+    for (const object of objects) object.updateWorldMatrix(true, false);
     const hits = this.raycaster.intersectObjects(objects, false);
     return (hits[0]?.object as T | undefined) ?? null;
   }
 
+  /** The token under the pointer: its figure, or anything drawn over it (name, bars, wheels). */
   private tokenAt(clientX: number, clientY: number): string | null {
-    const hit = this.hit(clientX, clientY, [...this.tokens.values()].map((entry) => entry.piece.hitTarget));
-    return (hit?.userData.tokenId as string | undefined) ?? null;
+    const owners = new Map<THREE.Object3D, string>();
+    for (const entry of this.tokens.values()) {
+      owners.set(entry.piece.hitTarget, entry.token.id);
+      for (const sprite of entry.labels.sprites) owners.set(sprite, entry.token.id);
+    }
+    const hit = this.hit(clientX, clientY, [...owners.keys()]);
+    return hit ? owners.get(hit) ?? null : null;
   }
 
   private pinAt(clientX: number, clientY: number): string | null {
@@ -631,6 +671,7 @@ export class Board {
     on('keydown', (event) => {
       const key = event.key.toLowerCase();
       if (key === 'escape' && this.placing) { this.stopPlacing(); return; }
+      if (key === 'escape' && this.selectedId !== null) { this.select(null); return; }
       if (key === 'home') { this.frameMap(); event.preventDefault(); return; }
       // Space while carrying a token drops a waypoint on its ruler.
       if (key === ' ' && this.press?.kind === 'token') {
@@ -664,7 +705,6 @@ export class Board {
         return;
       }
     }
-    if (event.button === 0 && !event.altKey && this.editMeterAt(event)) return;
     if (event.button === 0) {
       const id = this.tokenAt(x, y);
       const entry = id ? this.tokens.get(id) : null;
@@ -743,6 +783,7 @@ export class Board {
         return;
       }
       if (!press.moved) {
+        this.select(press.id);
         entry.piece.shake(this.clock);
         this.wake(true);
         return;
@@ -760,6 +801,7 @@ export class Board {
       return;
     }
     if (press.moved) return;
+    if (press.button === 0 && !press.pin) this.select(null);
     if (press.button === 2 && press.token) this.host.tokenMenu(press.token, event);
     else if (press.button === 2 && press.prop) this.host.propMenu(press.prop, event);
     else if (press.button === 0 && press.pin) {
@@ -959,88 +1001,118 @@ export class Board {
     this.host.copyToken(entry.token.id, newId, at.x, at.y);
   }
 
-  /** A click on an HP or stress bar opens Atlas's editor for it. Returns whether one was hit. */
-  private editMeterAt(event: PointerEvent): boolean {
-    const targets: Array<{ object: THREE.Sprite; field: 'hp' | 'stress'; entry: TokenEntry }> = [];
-    for (const entry of this.tokens.values()) for (const target of entry.labels.meterTargets) targets.push({ ...target, entry });
-    const hit = this.hit(event.clientX, event.clientY, targets.map((target) => target.object));
-    const found = hit ? targets.find((target) => target.object === hit) : undefined;
-    if (!found) return false;
-    const meter = found.field === 'hp' ? found.entry.token.hp : found.entry.token.stress;
-    if (!meter) return false;
-    this.openMeterEditor(found.entry, found.field, meter, event);
-    return true;
+  /** The token whose resource controls show, or null. */
+  get selected(): string | null {
+    return this.selectedId;
   }
 
-  private openMeterEditor(entry: TokenEntry, field: 'hp' | 'stress', meter: Meter, event: PointerEvent): void {
-    this.meterEditor?.close(false);
-    const doc = this.container.ownerDocument;
-    const element = doc.createElement('div');
-    element.className = 'atlas-tabletop-meter';
-    const rect = this.container.getBoundingClientRect();
-    element.style.left = `${event.clientX - rect.left + 8}px`;
-    element.style.top = `${event.clientY - rect.top + 8}px`;
-    const field$ = (name: string, value: number): HTMLInputElement => {
-      const row = doc.createElement('label');
-      row.textContent = name;
-      const input = doc.createElement('input');
-      input.type = 'text';
-      input.inputMode = 'numeric';
-      input.value = String(value);
-      row.appendChild(input);
-      element.appendChild(row);
-      return input;
-    };
-    const current = field$(field === 'hp' ? 'HP' : 'Stress', meter.current);
-    const max = field$('Max', meter.max);
-    const close = (commit: boolean): void => {
-      if (this.meterEditor?.element !== element) return;
-      if (commit) {
-        const result = applyMeterEdit(current.value, max.value, meter);
-        if ('error' in result) {
-          (result.error === 'current' ? current : max).focus();
-          return;
-        }
-        if (result.current !== meter.current || result.max !== meter.max) {
-          // Shown at once; the map file catches up.
-          const map = this.map!;
-          map.tokens = map.tokens.map((token) => (token.id === entry.token.id ? { ...token, [field]: result } : token));
-          this.sync();
-          this.host.editMeter(entry.token.id, field, result);
-        }
-      }
-      this.meterEditor = null;
-      element.remove();
-      doc.removeEventListener('pointerdown', outside, true);
-    };
-    const outside = (pointer: PointerEvent): void => {
-      if (!element.contains(pointer.target as Node)) close(true);
-    };
-    for (const input of [current, max]) {
-      input.addEventListener('keydown', (key) => {
-        key.stopPropagation();
-        if (key.key === 'Enter') { key.preventDefault(); close(true); }
-        else if (key.key === 'Escape') { key.preventDefault(); close(false); }
-        else if (key.key === 'ArrowUp' || key.key === 'ArrowDown') {
-          key.preventDefault();
-          input.value = stepMeterText(input.value, (key.key === 'ArrowUp' ? 1 : -1) * (key.shiftKey ? 10 : 1));
-        }
-      });
+  /** Selects a token (null lets it go): it gets the resource controls; an editor open on another closes. */
+  select(id: string | null): void {
+    if (id === this.selectedId) return;
+    this.selectedId = id;
+    if (this.editor && this.editor.tokenId !== id) this.editor.view.close();
+    this.wake();
+  }
+
+  /**
+   * Shows a token's change at once, before the map file catches up: `token` replaces it, null takes it away. Used for
+   * the token menu's Kill and Delete.
+   */
+  changeToken(id: string, token: BoardToken | null): void {
+    const map = this.map;
+    if (!map) return;
+    map.tokens = token ? map.tokens.map((other) => (other.id === id ? token : other)) : map.tokens.filter((other) => other.id !== id);
+    this.sync();
+  }
+
+  /** The screen rectangle of a resource drawn on a token, in pixels from the board's top left. */
+  private screenRect(sprite: THREE.Sprite, width: number, height: number): ScreenRect | null {
+    const at = sprite.getWorldPosition(new THREE.Vector3()).project(this.view);
+    if (at.z > 1 || at.z < -1) return null;
+    const x = ((at.x + 1) / 2) * this.canvas.clientWidth;
+    const y = ((1 - at.y) / 2) * this.canvas.clientHeight;
+    // A sprite's centre is its anchor, as a share of its size from its bottom left.
+    const left = x - sprite.center.x * width;
+    const bottom = y + sprite.center.y * height;
+    return { left, top: bottom - height, width, height };
+  }
+
+  /** Lays the selected token's controls on its resources, and keeps an open editor under its resource. */
+  private layoutControls(): void {
+    const entry = this.selectedId !== null ? this.tokens.get(this.selectedId) : undefined;
+    const carried = this.press?.kind === 'token' && this.press.id === this.selectedId && this.press.moved;
+    if (!entry || carried) {
+      this.controls.hide();
+      return;
     }
-    this.container.appendChild(element);
-    this.meterEditor = { element, close };
-    // After this press: the click that opened it must not close it, and the browser focuses the board on mousedown,
-    // after this handler, which would take the focus from the field.
-    setTimeout(() => {
-      if (this.meterEditor?.element !== element) return;
-      doc.addEventListener('pointerdown', outside, true);
-      current.focus();
-      current.select();
-    }, 0);
-    // Tabbing out of it saves and closes it, as clicking away does.
-    element.addEventListener('focusout', (focus) => {
-      if (!element.contains(focus.relatedTarget as Node | null)) close(true);
+    const specs: ControlSpec[] = [];
+    for (const target of entry.labels.resourceTargets) {
+      // A static value does not change in play: its number is set in Atlas's Edit Token.
+      if (target.definition.direction === 'static') continue;
+      const rect = this.screenRect(target.object, target.width, target.height);
+      if (!rect) continue;
+      specs.push({ key: target.definition.key, kind: target.kind, side: target.side, rect, color: target.definition.color });
+    }
+    this.controls.layout(specs);
+    const editing = this.editor;
+    if (editing) {
+      const spec = specs.find((candidate) => candidate.key === editing.key);
+      if (spec) editing.view.reposition(this.anchorOf(spec.rect));
+    }
+  }
+
+  private anchorOf(rect: ScreenRect): EditorAnchor {
+    const canvas = this.canvas.getBoundingClientRect();
+    return { x: canvas.left + rect.left + rect.width / 2, top: canvas.top + rect.top, bottom: canvas.top + rect.top + rect.height };
+  }
+
+  /** Shows a resource's new value on the selected token at once; the map file (or Atlas) catches up. */
+  private showResource(id: string, key: string, next: ResourceValue, maxEdited: boolean): void {
+    const entry = this.tokens.get(id);
+    if (!entry) return;
+    this.changeToken(id, { ...entry.token, ...resourceUpdate(entry.token, key, next, maxEdited) } as BoardToken);
+  }
+
+  /** − / +: one point down or up, as Atlas steps it. */
+  private stepResource(key: string, delta: number): void {
+    const id = this.selectedId;
+    const value = id !== null ? this.tokens.get(id)?.token.resources[key] : undefined;
+    if (id === null || !value) return;
+    const next = withCurrent(value, value.current + delta);
+    if (next.current === value.current) return;
+    this.showResource(id, key, next, false);
+    this.host.editResource(id, key, (stored) => withCurrent(stored, stored.current + delta), false);
+  }
+
+  /** Opens Atlas's editor under one of the selected token's resources. */
+  private openEditor(key: string): void {
+    const id = this.selectedId;
+    const entry = id !== null ? this.tokens.get(id) : undefined;
+    const target = entry?.labels.resourceTargets.find((candidate) => candidate.definition.key === key);
+    const value = entry?.token.resources[key];
+    if (id === null || !target || !value) return;
+    this.editor?.view.close();
+    const rect = this.screenRect(target.object, target.width, target.height);
+    if (!rect) return;
+    this.controls.setActive(key);
+    const view = openValueEditor({
+      doc: this.container.ownerDocument,
+      anchor: this.anchorOf(rect),
+      value,
+      label: target.definition.name,
+      onCommit: (next) => {
+        if (next.current === value.current && next.max === value.max) return;
+        const maxEdited = next.max !== value.max;
+        this.showResource(id, key, next, maxEdited);
+        this.host.editResource(id, key, () => next, maxEdited);
+      },
+      onClose: () => {
+        if (this.editor?.view === view) this.editor = null;
+        this.controls.setActive(null);
+        this.wake();
+      },
     });
+    this.editor = { tokenId: id, key, value, view };
   }
 
   private stopPlacing(): void {
@@ -1089,7 +1161,8 @@ export class Board {
     for (const icon of this.icons) icon.dispose();
     this.showCell(null);
     this.clearRuler();
-    this.meterEditor?.close(false);
+    this.editor?.view.close();
+    this.controls.dispose();
     for (const piece of this.props.values()) piece.dispose();
     this.surface?.dispose();
     for (const art of this.arts.values()) void art.then((texture) => texture?.dispose());

@@ -4,6 +4,7 @@
  * defaulted the way Atlas defaults it, so a field Atlas left out (an older map, a token never edited) reads as Atlas
  * would draw it. Pure, so it is tested without Obsidian.
  */
+import { hiddenResourcesOf, isDefeated, tokenFromFile, type ResourceDefinition, type ResourceValue } from './resources';
 
 export type GridType = 'square' | 'hex-vertical' | 'hex-horizontal';
 
@@ -29,10 +30,7 @@ export interface BoardGrid {
 
 export type CellNumbering = 'column-row' | 'sequential' | 'letter-number';
 
-export interface Meter {
-  current: number;
-  max: number;
-}
+export type Meter = ResourceValue;
 
 export interface BoardToken {
   id: string;
@@ -51,12 +49,12 @@ export interface BoardToken {
   showRing: boolean;
   ringColor: string;
   showNameplate: boolean;
-  hp: Meter | null;
-  stress: Meter | null;
   conditions: string[];
   conditionValues: Record<string, number>;
-  /** The stat block's tracked values (AC, slots, …), those with a maximum, in the file's order. */
-  resources: Array<{ key: string } & Meter>;
+  /** Its resources (HP, stress, AC, slots…) by key, as Atlas 0.8 holds them in memory; see `resources.ts`. */
+  resources: Record<string, Meter>;
+  /** Keys whose maximum was set by hand. */
+  overriddenMax: string[];
   instanceNumber: number | null;
   /** The note holding the token's stat block, when it is linked to one. */
   statblockPath: string | null;
@@ -90,10 +88,8 @@ export interface BoardIcon {
 
 export interface TokenSettings {
   showNameplates: boolean;
-  showHPBars: boolean;
-  showStressBars: boolean;
   showInstanceBadges: boolean;
-  /** Resource keys the GM hid from the tokens (Atlas's `hiddenResources`). */
+  /** Resource keys the map hides from its tokens, the two old bar switches read in (Atlas's `hiddenResources`). */
   hiddenResources: string[];
 }
 
@@ -120,9 +116,6 @@ const items = (value: unknown): Raw[] => (isObj(value) ? Object.values(value).fi
 /** Atlas's old default grid colour, which it reads as "not set". */
 const LEGACY_GRID_COLOR = '#00ffff';
 const DEFAULT_GRID_SIZE = 70;
-/** A bare number for HP is out of 100, as Atlas reads it. */
-const BARE_HP_MAX = 100;
-const DEFAULT_MAX_STRESS = 10;
 
 function readNumbering(value: unknown): CellNumbering | null {
   return value === 'column-row' || value === 'sequential' || value === 'letter-number' ? value : null;
@@ -150,13 +143,6 @@ function readGrid(raw: unknown): BoardGrid {
   };
 }
 
-function readMeter(raw: unknown, bareMax: number, maxFallback?: unknown): Meter | null {
-  // `maxStress: 0` reads as the default, as Atlas reads it (`maxStress || 10`).
-  if (typeof raw === 'number' && Number.isFinite(raw)) return { current: raw, max: num(maxFallback, 0) || bareMax };
-  if (!isObj(raw)) return null;
-  return { current: num(raw.current, 0), max: num(raw.max, bareMax) };
-}
-
 function readName(token: Raw): string | null {
   const name = str(token.name);
   if (name) return name;
@@ -170,11 +156,11 @@ function readToken(token: Raw): BoardToken | null {
   const conditions = Array.isArray(token.conditions) ? token.conditions.filter((value): value is string => typeof value === 'string') : [];
   const conditionValues: Record<string, number> = {};
   if (isObj(token.conditionValues)) for (const [key, value] of Object.entries(token.conditionValues)) if (typeof value === 'number') conditionValues[key] = value;
-  const resources: BoardToken['resources'] = [];
-  if (isObj(token.statblockResources)) {
-    for (const [key, value] of Object.entries(token.statblockResources)) {
-      const meter = readMeter(value, 0);
-      if (meter && meter.max > 0) resources.push({ key, ...meter });
+  const held = tokenFromFile(token);
+  const resources: Record<string, Meter> = {};
+  if (isObj(held.resources)) {
+    for (const [key, value] of Object.entries(held.resources)) {
+      if (isObj(value) && typeof value.current === 'number' && typeof value.max === 'number') resources[key] = { current: value.current, max: value.max };
     }
   }
   return {
@@ -190,11 +176,10 @@ function readToken(token: Raw): BoardToken | null {
     showRing: token.showRing !== false,
     ringColor: str(token.ringColor) ?? '#ffffff',
     showNameplate: token.showNameplate === true,
-    hp: readMeter(token.hp, BARE_HP_MAX),
-    stress: readMeter(token.stress, DEFAULT_MAX_STRESS, token.maxStress),
     conditions,
     conditionValues,
     resources,
+    overriddenMax: Array.isArray(held.overriddenMax) ? held.overriddenMax.filter((key): key is string => typeof key === 'string') : [],
     instanceNumber: typeof token.instanceNumber === 'number' ? token.instanceNumber : null,
     statblockPath: str(token.statblockPath),
   };
@@ -232,19 +217,17 @@ function readTokenSettings(raw: unknown): TokenSettings {
   const settings = isObj(raw) ? raw : {};
   return {
     showNameplates: settings.showNameplates === true,
-    showHPBars: settings.showHPBars !== false,
-    showStressBars: settings.showStressBars === true,
     showInstanceBadges: settings.showInstanceBadges !== false,
-    hiddenResources: Array.isArray(settings.hiddenResources) ? settings.hiddenResources.filter((value): value is string => typeof value === 'string') : [],
+    hiddenResources: hiddenResourcesOf(settings),
   };
 }
 
 /**
- * A character at 0 HP or less, as Atlas reads it: greyed out with a skull. 0/0 is a stat block without hit points,
- * not a dead creature.
+ * A creature with a resource that defeats it spent (HP at 0, in most games), as Atlas reads it: greyed out with a
+ * skull. 0/0 is a stat block without hit points, not a dead creature.
  */
-export function isDowned(token: BoardToken): boolean {
-  return token.kind === 'character' && token.hp !== null && token.hp.max > 0 && token.hp.current <= 0;
+export function isDowned(token: BoardToken, definitions: readonly ResourceDefinition[]): boolean {
+  return token.kind === 'character' && isDefeated(token, definitions);
 }
 
 /** Reads an `.atlasmap` file's text. Throws when it is not an Atlas map. */

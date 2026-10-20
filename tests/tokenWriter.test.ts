@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type { AtlasSceneState, AtlasView } from '../src/atlas';
-import { TokenWriter, copyTokenInText, moveTokenInText, setMeterInText } from '../src/board/tokenWriter';
+import { HP_RESOURCE, STRESS_RESOURCE } from '../src/board/resources';
+import { TokenWriter, copyTokenInText, deleteTokenInText, killTokenInText, moveTokenInText, setResourceInText } from '../src/board/tokenWriter';
 
 const text = readFileSync('tests/fixtures/dungeon.atlasmap', 'utf8');
 const ID = 'tok_1792170000003_kestrel-v';
@@ -75,27 +76,83 @@ test('a copy is the token with a new id and place, and the lowest free copy numb
   assert.deepEqual(out.state.objects.tokens[BUGBEAR], source);
 });
 
-test('editing a meter sets it, and marks a changed maximum as overridden like Atlas', () => {
-  const same = JSON.parse(setMeterInText(text, KESTREL, 'hp', { current: 5, max: 44 }));
+const DEFS = [HP_RESOURCE, STRESS_RESOURCE, { key: 'spell-slots', name: 'Spell Slots', field: 'spell_slots', direction: 'drains' as const, color: '#6366f1', visibleToPlayers: true }];
+
+test('a resource edit is written in the file fields Atlas keeps, a changed maximum marked overridden', () => {
+  const same = JSON.parse(setResourceInText(text, KESTREL, 'hp', () => ({ current: 5, max: 44 }), false));
   assert.deepEqual(same.state.objects.tokens[KESTREL].hp, { current: 5, max: 44 });
   assert.equal(same.state.objects.tokens[KESTREL].maxHpOverridden, undefined);
-  const raised = JSON.parse(setMeterInText(text, KESTREL, 'hp', { current: 5, max: 50 }));
+  assert.equal(same.state.objects.tokens[KESTREL].resources, undefined);
+  const raised = JSON.parse(setResourceInText(text, KESTREL, 'hp', () => ({ current: 5, max: 50 }), true));
   assert.equal(raised.state.objects.tokens[KESTREL].maxHpOverridden, true);
-  const stress = JSON.parse(setMeterInText(text, KESTREL, 'stress', { current: 2, max: 6 }));
-  assert.equal(stress.state.objects.tokens[KESTREL].stress, 2);
-  assert.equal(stress.state.objects.tokens[KESTREL].maxStress, 6);
-  assert.equal(stress.state.objects.tokens[KESTREL].maxStressOverridden, true);
 });
 
-test('copies and meter edits go through Atlas when it has the map', async () => {
+test('a step is applied to the value in the file, clamped', () => {
+  const file = JSON.stringify({ state: { objects: { tokens: { t: { id: 't', stress: 2, maxStress: 6, statblockResources: { 'spell-slots': { current: 1, max: 3 } } } } } } });
+  const stressed = JSON.parse(setResourceInText(file, 't', 'stress', (v) => ({ ...v, current: v.current + 1 }), false));
+  assert.deepEqual(stressed.state.objects.tokens.t.stress, { current: 3, max: 6 });
+  assert.equal(stressed.state.objects.tokens.t.maxStress, 6);
+  const slots = JSON.parse(setResourceInText(file, 't', 'spell-slots', (v) => ({ ...v, current: v.current - 5 }), false));
+  assert.deepEqual(slots.state.objects.tokens.t.statblockResources['spell-slots'], { current: 0, max: 3 });
+});
+
+test('a resource the token does not hold is not invented', () => {
+  assert.throws(() => setResourceInText(text, KESTREL, 'nope', (v) => v, false), /has no nope/);
+});
+
+test('the initiative entry of the token gets its new vitals, as Atlas writes them', () => {
+  const file = JSON.stringify({ state: { objects: { tokens: { t: { id: 't', hp: { current: 4, max: 9 } } } }, initiative: { entries: [{ tokenId: 't', hp: { current: 4, max: 9 }, isDefeated: false }, { tokenId: 'o', hp: 1 }] } } });
+  const out = JSON.parse(setResourceInText(file, 't', 'hp', () => ({ current: 0, max: 9 }), false));
+  assert.deepEqual(out.state.initiative.entries[0], { tokenId: 't', hp: { current: 0, max: 9 }, isDefeated: true });
+  assert.deepEqual(out.state.initiative.entries[1], { tokenId: 'o', hp: 1 });
+});
+
+test('Kill spends every defeating resource in the file', () => {
+  const out = JSON.parse(killTokenInText(text, KESTREL, DEFS));
+  assert.deepEqual(out.state.objects.tokens[KESTREL].hp, { current: 0, max: 44 });
+});
+
+test('Delete takes the token off the map and nothing else', () => {
+  const out = JSON.parse(deleteTokenInText(text, KESTREL));
+  const before = JSON.parse(text);
+  delete before.state.objects.tokens[KESTREL];
+  assert.deepEqual(out, before);
+});
+
+test('with Atlas 0.8 holding the map, resource edits go through its store in its memory form', async () => {
+  const calls: unknown[] = [];
+  const live = { id: 't', x: 0, y: 0, resources: { hp: { current: 3, max: 9 }, stress: { current: 1, max: 6 } } };
+  const writer = new TokenWriter({ views: () => [fakeView('m.atlasmap', calls, { objects: { tokens: { t: live } } })], process: async () => { throw new Error('no file write'); } });
+  assert.equal(await writer.resource('m.atlasmap', 't', 'hp', (v) => ({ ...v, current: v.current - 1 }), false), 'atlas');
+  assert.deepEqual(calls.at(-1), ['t', { resources: { hp: { current: 2, max: 9 }, stress: { current: 1, max: 6 } } }]);
+  assert.equal(await writer.resource('m.atlasmap', 't', 'hp', () => ({ current: 3, max: 12 }), true), 'atlas');
+  assert.deepEqual(calls.at(-1), ['t', { resources: { hp: { current: 3, max: 12 }, stress: { current: 1, max: 6 } }, overriddenMax: ['hp'] }]);
+  assert.equal(await writer.kill('m.atlasmap', 't', DEFS), 'atlas');
+  assert.deepEqual(calls.at(-1), ['t', { resources: { hp: { current: 0, max: 9 }, stress: { current: 1, max: 6 } } }]);
+});
+
+test('an older Atlas holding the map in its file form gets the file fields', async () => {
+  const calls: unknown[] = [];
+  const live = { id: 't', x: 0, y: 0, hp: { current: 3, max: 9 }, stress: 1, maxStress: 6 };
+  const writer = new TokenWriter({ views: () => [fakeView('m.atlasmap', calls, { objects: { tokens: { t: live } } })], process: async () => { throw new Error('no file write'); } });
+  await writer.resource('m.atlasmap', 't', 'stress', (v) => ({ ...v, current: v.current + 1 }), false);
+  assert.deepEqual(calls.at(-1), ['t', { hp: { current: 3, max: 9 }, stress: { current: 2, max: 6 }, maxStress: 6 }]);
+});
+
+test('Delete goes through Atlas when it has the map', async () => {
+  const deleted: unknown[] = [];
+  const writer = new TokenWriter({ views: () => [fakeView('m.atlasmap', [], { deleteTokens: (ids: string[]) => { deleted.push(ids); } })], process: async () => { throw new Error('no file write'); } });
+  assert.equal(await writer.remove('m.atlasmap', 't'), 'atlas');
+  assert.deepEqual(deleted, [['t']]);
+});
+
+test('copies go through Atlas when it has the map', async () => {
   const calls: unknown[] = [];
   const added: unknown[] = [];
-  const view = fakeView('m.atlasmap', calls, { addToken: (data: unknown) => { added.push(data); return 'x'; }, objects: { tokens: { t: { id: 't', x: 0, y: 0, imagePath: 'a.png', instanceNumber: 1, hp: { current: 3, max: 9 } } as never } } });
+  const view = fakeView('m.atlasmap', calls, { addToken: (data: unknown) => { added.push(data); return 'x'; }, objects: { tokens: { t: { id: 't', x: 0, y: 0, imagePath: 'a.png', instanceNumber: 1, resources: { hp: { current: 3, max: 9 } } } as never } } });
   const writer = new TokenWriter({ views: () => [view], process: async () => { throw new Error('no file write'); } });
   assert.equal(await writer.copy('m.atlasmap', 't', 'tok_c', 5, 6), 'atlas');
-  assert.deepEqual(added, [{ id: 'tok_c', x: 5, y: 6, imagePath: 'a.png', hp: { current: 3, max: 9 } }]);
-  assert.equal(await writer.meter('m.atlasmap', 't', 'hp', { current: 1, max: 9 }), 'atlas');
-  assert.deepEqual(calls.at(-1), ['t', { hp: { current: 1, max: 9 } }]);
+  assert.deepEqual(added, [{ id: 'tok_c', x: 5, y: 6, imagePath: 'a.png', resources: { hp: { current: 3, max: 9 } } }]);
 });
 
 test('when Atlas holds the map but lacks the action, nothing is written behind its back', async () => {
@@ -104,11 +161,14 @@ test('when Atlas holds the map but lacks the action, nothing is written behind i
   const writer = new TokenWriter({ views: () => [view], process: async () => { processed++; } });
   await assert.rejects(writer.move('m.atlasmap', 't', 1, 2), /Atlas/);
   await assert.rejects(writer.copy('m.atlasmap', 't', 'n', 1, 2), /Atlas/);
+  await assert.rejects(writer.resource('m.atlasmap', 't', 'hp', (v) => v, false), /Atlas/);
+  await assert.rejects(writer.remove('m.atlasmap', 't'), /Atlas/);
   assert.equal(processed, 0);
 });
 
 test('stress with a max of 0 counts as 10, as Atlas reads it', () => {
   const file = JSON.stringify({ state: { objects: { tokens: { t: { id: 't', stress: 2, maxStress: 0 } } } } });
-  const out = JSON.parse(setMeterInText(file, 't', 'stress', { current: 3, max: 10 }));
+  const out = JSON.parse(setResourceInText(file, 't', 'stress', (v) => ({ ...v, current: 3 }), false));
+  assert.deepEqual(out.state.objects.tokens.t.stress, { current: 3, max: 10 });
   assert.equal(out.state.objects.tokens.t.maxStressOverridden, undefined);
 });
