@@ -423,6 +423,12 @@ export class BoardView extends ItemView {
       state: () => this.liveInitiative(),
       rules: () => this.rules.initiative,
       tokens: () => this.map?.tokens ?? [],
+      // While Atlas holds the map its tokens are the live ones: one it just added is not in the file yet.
+      hasToken: (id) => {
+        const state = this.watched?.view.atlasStore.getState();
+        if (state && state.mapPath === this.path) return Object.hasOwn(state.objects?.tokens ?? {}, id);
+        return this.map?.tokens.some((token) => token.id === id) ?? false;
+      },
       tokenSettings: () => this.map?.tokenSettings ?? { showNameplates: false, showInstanceBadges: true, hiddenResources: [] },
       definitions: () => this.rules.definitions,
       imageUrl: (path) => {

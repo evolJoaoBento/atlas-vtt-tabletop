@@ -259,6 +259,7 @@ async function main(): Promise<void> {
     state: () => shownMap().initiative,
     rules: () => rules.initiative,
     tokens: () => shownMap().tokens,
+    hasToken: (id) => shownMap().tokens.some((t) => t.id === id),
     tokenSettings: () => shownMap().tokenSettings,
     definitions: () => rules.definitions,
     imageUrl: (path) => images[path] ?? '',

@@ -829,6 +829,7 @@ server.listen(0, async () => {
 
       await choose('e-orc', 'Edit Initiative');
       const popup = await page.evaluate(() => ({ inputs: [...document.querySelectorAll('.atlas-initiative-edit-popup input')].map((i) => [i.value, i.placeholder]), hint: document.querySelector('.atlas-initiative-edit-popup__hint')?.textContent, focused: document.activeElement?.className }));
+      check('the popup is on the page\'s body, as Atlas portals it', await page.evaluate(() => document.querySelector('.atlas-initiative-edit-popup').parentElement.parentElement === document.body));
       check('Edit Initiative opens Atlas\'s popup: the total (focused) and the modifier ("auto" when none)', JSON.stringify(popup.inputs) === JSON.stringify([['5', '0'], ['', 'auto']]) && popup.hint === 'Enter to save · Esc to cancel' && popup.focused === 'atlas-initiative-edit-popup__input', popup);
       await page.keyboard.press('Control+A');
       await page.keyboard.type('20');
@@ -836,6 +837,29 @@ server.listen(0, async () => {
       await wait(100);
       check('Enter saves the total and the list re-sorts', (await ids()).startsWith('orc') && (await cards())[0].number === '20' && (await page.evaluate(() => !document.querySelector('.atlas-initiative-edit-popup'))), await ids());
       await page.screenshot({ path: `${shots}/board-18-initiative.png` });
+      // A redraw keeps a scrolled list where it was (not glided back from the top).
+      const scrolled = await page.evaluate(() => {
+        const content = document.querySelector('.atlas-initiative-tracker__content');
+        content.style.scrollBehavior = 'auto';
+        content.scrollTop = content.scrollHeight;
+        content.style.scrollBehavior = '';
+        const before = content.scrollTop;
+        window.boardTest.panel.render();
+        return { before, after: document.querySelector('.atlas-initiative-tracker__content').scrollTop };
+      });
+      check('the list overflows here, and a redraw keeps its scroll at once', scrolled.before > 0 && scrolled.after === scrolled.before, scrolled);
+      // A combatant whose token is gone (deleted while Atlas's tracker was closed) gets no card.
+      await page.evaluate(() => {
+        const map = window.boardTest.board.map;
+        map.initiative = { ...map.initiative, entries: [...map.initiative.entries, { id: 'e-ghost', tokenId: 'ghost', name: 'Ghost', initiative: 1, initiativeModifier: 0, imagePath: '', isActive: false, isNPC: true, order: 4 }] };
+        window.boardTest.panel.render();
+      });
+      check('an entry without its token gets no card', (await cards()).every((c) => c.id !== 'e-ghost') && (await cards()).length === 4, await ids());
+      await page.evaluate(() => {
+        const map = window.boardTest.board.map;
+        map.initiative = { ...map.initiative, entries: map.initiative.entries.filter((e) => e.id !== 'e-ghost') };
+        window.boardTest.panel.render();
+      });
 
       await click('[aria-label="Roll initiative"]');
       list = await cards();

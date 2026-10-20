@@ -22,6 +22,11 @@ export interface InitiativePanelHost {
   state(): InitiativeState;
   rules(): InitiativeRules;
   tokens(): readonly BoardToken[];
+  /**
+   * Whether the token is still on the map, as Atlas holds it (or the file): a combatant whose token was deleted while
+   * Atlas's own tracker was closed keeps its entry, which Atlas drops once its tracker shows again; it gets no card.
+   */
+  hasToken(tokenId: string): boolean;
   tokenSettings(): TokenSettings;
   definitions(): readonly ResourceDefinition[];
   /** A vault image's URL. */
@@ -57,7 +62,8 @@ export class InitiativePanel {
   private dragOver: number | null = null;
   private pressed: 'prev' | 'next' | null = null;
   private pressTimer: number | null = null;
-  private popup: { backdrop: HTMLElement; popup: HTMLElement } | null = null;
+  /** The edit popup's layer on the page, as Atlas puts it on its document's body. */
+  private popup: HTMLElement | null = null;
   /** The turn the list last scrolled to, so it scrolls only when the turn moves. */
   private shownTurn = '';
 
@@ -106,6 +112,7 @@ export class InitiativePanel {
     const bySides = listedBySides(state, rules);
     const entries = sortedEntries(state);
     const tokens = new Map(this.host.tokens().map((token) => [token.id, token]));
+    const shown = entries.filter((entry) => this.host.hasToken(entry.tokenId));
     const scrollTop = this.panel.querySelector('.atlas-initiative-tracker__content')?.scrollTop ?? 0;
     this.panel.replaceChildren();
 
@@ -118,24 +125,31 @@ export class InitiativePanel {
 
     const content = this.el('div', 'atlas-initiative-tracker__content', this.panel);
     content.setAttribute('role', 'list');
-    if (entries.length === 0) this.el('p', 'atlas-initiative-tracker__empty', content, 'Right-click a token to add it');
-    const card = (entry: InitiativeEntry, index: number, parent: HTMLElement): void => this.card(entry, index, parent, tokens, bySides);
-    if (entries.length > 0 && bySides) {
+    if (shown.length === 0) this.el('p', 'atlas-initiative-tracker__empty', content, 'Right-click a token to add it');
+    // `index` is the card's place among all combatants, which is what a drag reorders.
+    const card = (entry: InitiativeEntry, index: number, parent: HTMLElement): void => {
+      if (this.host.hasToken(entry.tokenId)) this.card(entry, index, parent, tokens, bySides);
+    };
+    if (shown.length > 0 && bySides) {
       for (const side of sidesInOrder(state.sides?.first ?? rules.firstSide)) {
         const section = this.el('section', `atlas-initiative-side${state.sides?.active === side ? ' atlas-initiative-side--active' : ''}`, content);
         if (state.sides?.active === side) section.setAttribute('aria-current', 'true');
         this.el('h4', 'atlas-initiative-side__label', section, SIDE_LABELS[side]);
         entries.forEach((entry, index) => { if (sideOf(tokens.get(entry.tokenId)) === side) card(entry, index, section); });
       }
-    } else {
+    } else if (shown.length > 0) {
       entries.forEach((entry, index) => card(entry, index, content));
     }
-    content.scrollTop = scrollTop;
 
     const turns = this.el('div', 'atlas-initiative-tracker__turn-controls', this.panel);
     this.button(turns, 'chevron-up', '', !state.isActive, () => this.host.act({ type: 'previous' }), this.pressed === 'prev' ? 'atlas-initiative-tracker__btn--pressed' : '');
     this.el('span', 'atlas-initiative-tracker__round', turns, state.isActive ? `R${state.round}` : '—');
     this.button(turns, 'chevron-down', '', !state.isActive, () => this.host.act({ type: 'next' }), this.pressed === 'next' ? 'atlas-initiative-tracker__btn--pressed' : '');
+    // The list is drawn anew: it is put back where it was at once (not glided there from the top), once the panel
+    // around it is whole and the list has its height.
+    content.style.scrollBehavior = 'auto';
+    content.scrollTop = scrollTop;
+    content.style.scrollBehavior = '';
 
     // The turn stays in view in a list longer than the panel: its card, or the top of its side.
     const turn = state.isActive ? `${state.round}:${state.sides?.active ?? state.entries.find((entry) => entry.isActive)?.id ?? ''}` : '';
@@ -282,9 +296,10 @@ export class InitiativePanel {
     const padding = 16;
     const height = 72;
     const top = Math.max(padding, Math.min(view.innerHeight - height - padding, anchor.top + anchor.height / 2 - height / 2));
-    const host = this.root;
-    const backdrop = this.el('div', 'atlas-initiative-edit-backdrop', host);
-    const popup = this.el('div', 'atlas-initiative-edit-popup', host);
+    // On the page's body, as Atlas portals it, under Tabletop's root for its styles.
+    const layer = this.el('div', 'atlas-tabletop-atlas', this.doc.body);
+    const backdrop = this.el('div', 'atlas-initiative-edit-backdrop', layer);
+    const popup = this.el('div', 'atlas-initiative-edit-popup', layer);
     popup.style.position = 'fixed';
     popup.style.top = `${top}px`;
     popup.style.right = `${view.innerWidth - anchor.left + padding}px`;
@@ -314,13 +329,12 @@ export class InitiativePanel {
     popup.addEventListener('click', (event) => event.stopPropagation());
     backdrop.addEventListener('pointerdown', (event) => event.stopPropagation());
     backdrop.addEventListener('click', () => this.closePopup());
-    this.popup = { backdrop, popup };
+    this.popup = layer;
     view.setTimeout(() => { total.focus(); total.select(); }, 50);
   }
 
   private closePopup(): void {
-    this.popup?.backdrop.remove();
-    this.popup?.popup.remove();
+    this.popup?.remove();
     this.popup = null;
   }
 

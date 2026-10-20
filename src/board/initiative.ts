@@ -217,7 +217,7 @@ export function emptyInitiative(): InitiativeState {
 
 const num = (value: unknown, fallback: number): number => (typeof value === 'number' && Number.isFinite(value) ? value : fallback);
 
-/** The tracker as a map file holds it, defaulted as Atlas defaults it; entries without a token are left out. */
+/** The tracker as a map file holds it, defaulted as Atlas defaults it; entries without an id or a token id are left out. */
 export function readInitiative(raw: unknown): InitiativeState {
   if (!isObj(raw)) return emptyInitiative();
   const entries = (Array.isArray(raw.entries) ? raw.entries : []).filter(isObj)
