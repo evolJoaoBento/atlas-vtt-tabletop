@@ -128,6 +128,7 @@ async function main(): Promise<void> {
   ];
   rules.definitions = definitions;
   let fogHeight = 1;
+  let fogMotion: 'off' | 'subtle' | 'full' = 'off';
   let players: Window | null = null;
   const host: BoardHost = {
     readImage: async (path) => images[path] ?? null,
@@ -152,6 +153,8 @@ async function main(): Promise<void> {
       record.edits.push([id, key, held, next, maxEdited]);
     },
     fogHeight: () => fogHeight,
+    fogMotion: () => fogMotion,
+    setFogMotion: (motion) => { fogMotion = motion; board.refresh(); },
     setFogHeight: (height) => { fogHeight = height; record.fogHeights.push(height); board.refresh(); },
     measurement: () => ({ mode: 'metric', unitType: 'feet', unitDistance: 5, diagonalRule: 'equidistant', bands: [] }),
     warn: (message) => { if (!record.warnings.includes(message)) record.warnings.push(message); },

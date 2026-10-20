@@ -1,14 +1,18 @@
 /**
  * The 3D board's toolbar, at the bottom of the board in Atlas's look: the local player view (open or close it, and
  * freeze the players' camera while it is open), and the command button, which opens the board's settings in a panel
- * above it, as Atlas's opens its command palette. The panel has the fog of war's height. Plain HTML over the board;
+ * above it, as Atlas's opens its command palette. The panel has the fog of war's height and how much it moves. Plain HTML over the board;
  * keys typed in it stay out of the board's camera keys.
  */
+
+import { readFogMotion, type FogMotion } from './fogMotion';
 
 export interface ToolbarActions {
   /** How tall the fog stands, in grid squares. */
   fogHeight(): number;
   setFogHeight(height: number): void;
+  fogMotion(): FogMotion;
+  setFogMotion(motion: FogMotion): void;
   playerViewOpen(): boolean;
   togglePlayerView(): void;
   /** Whether the players' camera is frozen; freezing it, or letting it follow again. */
@@ -36,6 +40,7 @@ export class BoardToolbar {
   private readonly playerButton: HTMLButtonElement;
   private readonly freezeButton: HTMLButtonElement;
   private readonly heightInput: HTMLInputElement;
+  private readonly motionSelect: HTMLSelectElement;
   private readonly onOutside = (event: PointerEvent): void => {
     const target = event.target as Node;
     if (!this.panel.contains(target) && !this.button.contains(target)) this.close();
@@ -86,6 +91,18 @@ export class BoardToolbar {
     this.heightInput.setAttribute('aria-label', 'Fog height in squares');
     el('span', 'atlas-tabletop-palette__unit', field, 'squares');
     el('div', 'atlas-tabletop-palette__hint', fog, 'The fog painted in Atlas stands this many grid squares tall. 0 lays it flat on the map.');
+    const motion = el('label', 'atlas-tabletop-palette__field', fog);
+    el('span', 'atlas-tabletop-palette__label', motion, 'Fog animation');
+    this.motionSelect = el('select', 'dropdown atlas-tabletop-palette__select', motion);
+    for (const [value, text] of [['off', 'Off'], ['subtle', 'Subtle'], ['full', 'Full']] as const) {
+      const option = el('option', '', this.motionSelect, text);
+      option.value = value;
+    }
+    this.motionSelect.addEventListener('change', () => {
+      const chosen = readFogMotion(this.motionSelect.value);
+      if (chosen) this.actions.setFogMotion(chosen);
+    });
+    el('div', 'atlas-tabletop-palette__hint', fog, 'Subtle rolls the fog\'s surfaces; full adds wisps drifting over it. Moving fog redraws the board 20 times a second, so off saves the most.');
     const apply = (): void => {
       const height = readFogHeight(this.heightInput.value);
       this.heightInput.toggleAttribute('aria-invalid', height === null);
@@ -126,6 +143,7 @@ export class BoardToolbar {
 
   open(): void {
     this.heightInput.value = String(this.actions.fogHeight());
+    this.motionSelect.value = this.actions.fogMotion();
     this.heightInput.removeAttribute('aria-invalid');
     this.panel.hidden = false;
     this.button.classList.add('is-active');
