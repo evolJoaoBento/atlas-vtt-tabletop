@@ -17,11 +17,11 @@ import type { BoardData } from './boardData';
 import { ASSETS_METADATA_PATH, collectionOf, emptyRules, readCollectionRules, type CollectionRules } from './conditions';
 import { readMap, type BoardMap, type BoardToken } from './mapModel';
 import { readMeasurement } from './measure';
-import { defeatedResources } from './resources';
+import { defeatedResources, isDefeated, tokenFromFile } from './resources';
 import { AtlasMenu, type MenuEntry } from './atlasMenu';
 import { tokenMenuEntries } from './tokenMenu';
 import { addToInitiative, conditionChange, conditionStep, initiativeEntryFor, initiativeId, removeFromInitiative, resetChange, type ConditionFields } from './tokenEdits';
-import { applyInitiative, emptyInitiative, ownModifier, readInitiative, statblockModifier, type InitiativeAction, type InitiativeState } from './initiative';
+import { applyInitiative, emptyInitiative, fileCannotRun, ownModifier, readInitiative, statblockModifier, type InitiativeAction, type InitiativeState } from './initiative';
 import { InitiativePanel, type InitiativePanelHost } from './initiativePanel';
 import { wholeWall } from './walls';
 import type { TokenChange } from './tokenWriter';
@@ -472,18 +472,42 @@ export class BoardView extends ItemView {
    * A change of the tracker. Through Atlas, its store changes and the tracker follows it; in the file, the board shows
    * the change at once, with the same dice the file is written with.
    */
-  private initiativeAct(action: InitiativeAction): void {
+  private initiativeAct(given: InitiativeAction): void {
     const map = this.map;
     if (!map) return;
     this.watchAtlas();
+    const action = this.withDefeated(given);
     const draws: number[] = [];
     let next = 0;
     if (!this.watched) {
+      // A fight only Atlas 0.9 runs (by cards, by rolled or named sides) is not played in the file.
+      const refused = fileCannotRun(map.initiative, action);
+      if (refused) {
+        new Notice(`Tabletop: ${refused} runs only in Atlas. Open this map in Atlas to play it.`, 8000);
+        return;
+      }
       map.initiative = applyInitiative(map.initiative, action, () => { const draw = Math.random(); draws.push(draw); return draw; });
       this.initiative?.render();
     }
     this.services.writer.initiativeAction(map.path, action, () => draws[next++] ?? Math.random())
       .catch((error: unknown) => this.unsaved('initiative change', error));
+  }
+
+  /**
+   * Atlas 0.9 passes defeated combatants by when the turn moves: the entries whose token holds a spent resource that
+   * defeats it, read from Atlas's live tokens while it holds the map.
+   */
+  private withDefeated(action: InitiativeAction): InitiativeAction {
+    if (action.type !== 'next' && action.type !== 'previous' && action.type !== 'start' && action.type !== 'remove') return action;
+    const definitions = this.rules.definitions;
+    const live = this.watched?.view.atlasStore.getState();
+    const held = live && live.mapPath === this.path ? live.objects.tokens as unknown as Record<string, Record<string, unknown>> : null;
+    const defeated = this.liveInitiative().entries.filter((entry) => {
+      const raw = held?.[entry.tokenId];
+      const token = raw ? tokenFromFile(raw) : this.map?.tokens.find((candidate) => candidate.id === entry.tokenId);
+      return token !== undefined && isDefeated(token, definitions);
+    }).map((entry) => entry.id);
+    return { ...action, defeated };
   }
 
   /** Atlas's Roll: everyone, or one combatant, each adding its own modifier, else the one its statblock holds. */

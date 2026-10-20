@@ -29,7 +29,7 @@ test('Reset restores every defined resource and clears every condition', () => {
 
 test('a token joins the initiative as Atlas adds it: last, active when it is the first', () => {
   const entry = initiativeEntryFor({ id: 't', kind: 'character', name: 'Kestrel', imagePath: 'k.png', statblockPath: 'K.md' });
-  assert.deepEqual(entry, { tokenId: 't', name: 'Kestrel', initiative: 0, initiativeModifier: 0, imagePath: 'k.png', isNPC: true, statblockPath: 'K.md' });
+  assert.deepEqual(entry, { tokenId: 't', name: 'Kestrel', initiative: 0, awaitingInitiative: true, initiativeModifier: 0, imagePath: 'k.png', isNPC: true, statblockPath: 'K.md' });
   assert.deepEqual(initiativeEntryFor({ id: 'p', kind: 'token', imagePath: 'p.png' }).name, 'Token');
   const first = addToInitiative(undefined, entry, 'init_1');
   assert.deepEqual(first.entries, [{ ...entry, id: 'init_1', order: 0, isActive: true }]);

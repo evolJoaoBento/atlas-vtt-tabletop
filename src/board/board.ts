@@ -489,14 +489,16 @@ export class Board {
     // Walls stand as tall as the fog (never quite flat, so a map with flat fog still shows them).
     this.updateWalls();
     this.applyLighting();
+    // Combatants kept beside the map (Atlas 0.9) are no part of it: not drawn, not counted, not seen.
+    const onMap = map.tokens.filter((token) => !token.offMap);
     // Players count copies among the tokens they see, ordered by the GM's numbers (Atlas's player window).
-    this.playerNumbers = numberTokensInView(this.playerNumbers, map.tokens
+    this.playerNumbers = numberTokensInView(this.playerNumbers, onMap
       .filter((token) => playerSees(token, this.tokens.get(token.id)?.goal ?? token, this.fog.areas))
       .map((token) => ({ id: token.id, art: token.imagePath ?? '', rank: token.instanceNumber ?? Infinity })));
     const artUse = new Map<string, number>();
-    for (const token of map.tokens) if (token.imagePath) artUse.set(token.imagePath, (artUse.get(token.imagePath) ?? 0) + 1);
+    for (const token of onMap) if (token.imagePath) artUse.set(token.imagePath, (artUse.get(token.imagePath) ?? 0) + 1);
     const seen = new Set<string>();
-    for (const token of map.tokens) {
+    for (const token of onMap) {
       seen.add(token.id);
       const shared = (artUse.get(token.imagePath ?? '') ?? 0) >= 2;
       const gmLook = { viewer: 'gm' as const, badge: map.tokenSettings.showInstanceBadges && shared ? token.instanceNumber : null };

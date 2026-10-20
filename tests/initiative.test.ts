@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  applyInitiative, collectionInitiativeRules, initiativeEdit, listedBySides, modifierText, parseInitiativeRules, readInitiative,
-  rollInitiativeDice, sideOf, sortedEntries, statblockModifier, type InitiativeEntry, type InitiativeState,
+  applyInitiative, collectionInitiativeRules, fightSides, fileCannotRun, initiativeEdit, listedBySides, modifierText, parseInitiativeRules,
+  readInitiative, rollInitiativeDice, sideLabel, sideOf, sortedEntries, statblockModifier,
+  type InitiativeEntry, type InitiativeRules, type InitiativeState,
 } from '../src/board/initiative';
 
 const entry = (id: string, order: number, fields: Partial<InitiativeEntry> = {}): InitiativeEntry => ({
@@ -11,6 +12,7 @@ const entry = (id: string, order: number, fields: Partial<InitiativeEntry> = {})
 const fight = (fields: Partial<InitiativeState> = {}): InitiativeState => ({
   entries: [entry('a', 0), entry('b', 1), entry('c', 2)], currentIndex: -1, round: 0, isActive: false, config: { autoSort: true }, ...fields,
 });
+const DEFAULT: InitiativeRules = { mode: 'turn-order', roll: '1d20', firstSide: 'players' };
 const ids = (state: InitiativeState): string => sortedEntries(state).map((one) => one.id).join('');
 const active = (state: InitiativeState): string | undefined => state.entries.find((one) => one.isActive)?.id;
 /** A die that always lands on `faces[i]` (1-based), in turn. */
@@ -130,4 +132,65 @@ test('a token fights on the side given it, else the players\' when it sees', () 
   assert.equal(sideOf({ side: null, sees: true }), 'players');
   assert.equal(sideOf({ side: null, sees: false }), 'opponents');
   assert.equal(sideOf(undefined), 'opponents');
+});
+
+test('Atlas 0.9: turns pass defeated and delayed combatants by; a new round clears and keeps sitting out', () => {
+  // A start clears delays (as Atlas's does): the first combatant that acts, past the defeated, takes the turn.
+  const started = applyInitiative(fight({ entries: [entry('a', 0), entry('b', 1, { delayed: true }), entry('c', 2), entry('d', 3)] }), { type: 'start', rules: DEFAULT, defeated: ['a'] });
+  assert.equal(active(started), 'b');
+  // Mid-fight, b delays: its turns pass it by.
+  let state = fight({ isActive: true, round: 1, currentIndex: 2, entries: [entry('a', 0), entry('b', 1, { delayed: true }), entry('c', 2, { isActive: true }), entry('d', 3)] });
+  state = applyInitiative(state, { type: 'sitsOut', id: 'c', sitsOut: true });
+  state = applyInitiative(state, { type: 'next', defeated: ['a'] });
+  assert.equal(active(state), 'd');
+  state = applyInitiative(state, { type: 'next', defeated: ['a'] });
+  // Round 2: c no longer sits out; a and b are passed by.
+  assert.deepEqual([active(state), state.round, state.entries.find((e) => e.id === 'c')!.sitsOut], ['c', 2, undefined]);
+  assert.deepEqual(state.satOut, { 2: ['c'] });
+  state = applyInitiative(state, { type: 'previous', defeated: ['a'] });
+  assert.deepEqual([active(state), state.round, state.entries.find((e) => e.id === 'c')!.sitsOut, state.satOut], ['d', 1, true, undefined]);
+});
+
+test('Atlas 0.9: a roll or an edit fills the empty slot and ends the tie-break; the roll keeps its modifier for ties', () => {
+  const state = fight({ entries: [entry('a', 0, { awaitingInitiative: true, tieBreak: 5 }), entry('b', 1, { awaitingInitiative: true, initiativeModifier: 3 })] });
+  const rolled = applyInitiative(state, { type: 'roll', roll: '1d20', statblockModifiers: { a: 3 } }, () => 0.5);
+  assert.deepEqual(rolled.entries.map((e) => [e.id, e.initiative, e.rolledModifier, 'awaitingInitiative' in e, 'tieBreak' in e]), [['a', 14, 3, false, false], ['b', 14, 3, false, false]]);
+  const edited = applyInitiative(state, { type: 'edit', id: 'b', changes: { initiative: 7 } });
+  assert.equal('awaitingInitiative' in edited.entries.find((e) => e.id === 'b')!, false);
+});
+
+test('Atlas 0.9: a fight leaves no cards, delays or round marks behind for the next one', () => {
+  const state = fight({ isActive: true, round: 3, cards: { deck: 10 }, satOut: { 2: ['a'] }, entries: [entry('a', 0, { card: 4, delayed: true, isActive: true })] });
+  for (const type of ['end', 'reset'] as const) {
+    const after = applyInitiative(state, { type });
+    assert.equal(after.cards, undefined);
+    assert.equal(after.satOut, undefined);
+  }
+  const started = applyInitiative(applyInitiative(state, { type: 'end' }), { type: 'start', rules: DEFAULT });
+  assert.deepEqual(['card' in started.entries[0]!, 'delayed' in started.entries[0]!, active(started)], [false, false, 'a']);
+});
+
+test('Atlas 0.9: fights only Atlas runs are refused in the file; its rules are kept whole for Atlas', () => {
+  const cards = collectionInitiativeRules({ initiative: { mode: 'cards', roll: '1d20', firstSide: 'players', deck: 12, dealEachRound: true } });
+  assert.deepEqual(cards, { mode: 'cards', roll: '1d20', firstSide: 'players', deck: 12, dealEachRound: true });
+  assert.ok(fileCannotRun(fight(), { type: 'start', rules: cards }));
+  const ose = collectionInitiativeRules({ systemPresetId: 'builtin:ose' });
+  assert.equal(ose.sideRoll, '1d6');
+  assert.ok(fileCannotRun(fight(), { type: 'start', rules: ose }));
+  assert.ok(fileCannotRun(fight({ isActive: true, sides: { first: 'players', active: 'goblins', order: [{ id: 'players' }, { id: 'goblins', name: 'Goblins' }] } }), { type: 'next' }));
+  assert.equal(fileCannotRun(fight(), { type: 'start', rules: { mode: 'sides', roll: '1d20', firstSide: 'players' } }), null);
+  // A named side's turn is read, not dropped.
+  assert.equal(readInitiative({ entries: [], isActive: true, sides: { first: 'players', active: 'goblins' } }).sides?.active, 'goblins');
+  assert.deepEqual(fightSides({ sides: { first: 'players', active: 'goblins', order: [{ id: 'goblins', name: 'Goblins' }, { id: 'players' }] } }, DEFAULT), ['goblins', 'players']);
+  assert.equal(sideLabel('goblins', [{ id: 'goblins', name: 'Goblins' }]), 'Goblins');
+});
+
+test('Atlas 0.9: removing the combatant with the turn passes it on, past the defeated', () => {
+  let state = applyInitiative(fight(), { type: 'start', rules: DEFAULT });
+  state = applyInitiative(state, { type: 'remove', id: 'a', defeated: ['b'] });
+  assert.equal(active(state), 'c');
+});
+
+test('Atlas 0.9: a Fantasy Statblocks creature\'s own modifier counts before the fallback', () => {
+  assert.equal(statblockModifier({ modifier: 2, stats: [10, 18] }, collectionInitiativeRules({ systemPresetId: 'builtin:dnd5e' })), 2);
 });

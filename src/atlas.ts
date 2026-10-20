@@ -33,16 +33,17 @@ export interface AtlasSceneState {
   initiativeTrackerOpen?: boolean;
   setInitiativeTrackerOpen?: (open: boolean) => void;
   addToInitiative?: (entry: Record<string, unknown>) => string;
-  removeFromInitiative?: (id: string) => void;
+  removeFromInitiative?: (id: string, defeated?: ReadonlySet<string>) => void;
   updateInitiativeEntry?: (id: string, updates: Record<string, unknown>) => void;
   rollAllInitiative?: (roll?: string, fromStatblocks?: ReadonlyMap<string, number>) => void;
   rollEntryInitiative?: (id: string, roll?: string, fromStatblock?: number | null) => void;
-  nextTurn?: () => void;
-  previousTurn?: () => void;
+  /** Atlas 0.9 passes the entry ids of the `defeated` by. */
+  nextTurn?: (defeated?: ReadonlySet<string>) => void;
+  previousTurn?: (defeated?: ReadonlySet<string>) => void;
   reorderInitiative?: (fromIndex: number, toIndex: number) => void;
   moveToFront?: (id: string) => void;
   moveToBack?: (id: string) => void;
-  startCombat?: (rules?: unknown) => void;
+  startCombat?: (rules?: unknown, defeated?: ReadonlySet<string>) => void;
   endCombat?: () => void;
   setInitiativeSitsOut?: (id: string, sitsOut: boolean) => void;
   resetInitiative?: () => void;

@@ -5,7 +5,7 @@
  * would draw it. Pure, so it is tested without Obsidian.
  */
 import { readFog, type FogOperation } from './fog';
-import { readInitiative, type InitiativeSide, type InitiativeState } from './initiative';
+import { readInitiative, type InitiativeState, type SideId } from './initiative';
 import { readLights, readSceneLighting, readWalls, type BoardLight, type BoardWall, type SceneLighting } from './walls';
 import { hiddenResourcesOf, isDefeated, tokenFromFile, type ResourceDefinition, type ResourceValue } from './resources';
 
@@ -61,9 +61,14 @@ export interface BoardToken {
   instanceNumber: number | null;
   /** The note holding the token's stat block, when it is linked to one. */
   statblockPath: string | null;
-  /** The side the GM put it on for a fight by sides, and whether it sees (Atlas takes those for the party). */
-  side: InitiativeSide | null;
+  /** The side the GM put it on for a fight by sides (a named one in Atlas 0.9), and whether it sees (Atlas takes those for the party). */
+  side: SideId | null;
   sees: boolean;
+  /**
+   * Kept beside the map (Atlas 0.9's `offMap`): a combatant of the scene, in its initiative and with its resources,
+   * that is no part of the map. The board neither draws nor shows it; the tracker lists it.
+   */
+  offMap: boolean;
 }
 
 export interface BoardPin {
@@ -231,7 +236,8 @@ function readToken(token: Raw): BoardToken | null {
     overriddenMax: Array.isArray(held.overriddenMax) ? held.overriddenMax.filter((key): key is string => typeof key === 'string') : [],
     instanceNumber: typeof token.instanceNumber === 'number' ? token.instanceNumber : null,
     statblockPath: str(token.statblockPath),
-    side: token.side === 'players' || token.side === 'opponents' ? token.side : null,
+    side: typeof token.side === 'string' && token.side !== '' ? token.side : null,
+    offMap: token.offMap === true,
     sees: isObj(token.vision) && token.vision.enabled === true,
   };
 }

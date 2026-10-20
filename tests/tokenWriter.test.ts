@@ -205,7 +205,7 @@ test('an older Atlas gets Reset as the file fields plus the cleared conditions',
 test('joining the initiative in the file: Atlas\'s entry with the token\'s vitals, the tracker made when there was none', () => {
   const file = JSON.stringify({ state: { objects: { tokens: { t: { id: 't', kind: 'character', name: 'Kestrel', imagePath: 'k.png', hp: { current: 0, max: 9 } } } } } });
   const joined = JSON.parse(initiativeInText(file, 't', true, 'init_1')).state.initiative;
-  assert.deepEqual(joined.entries, [{ tokenId: 't', name: 'Kestrel', initiative: 0, initiativeModifier: 0, imagePath: 'k.png', isNPC: true, hp: { current: 0, max: 9 }, isDefeated: true, id: 'init_1', order: 0, isActive: true }]);
+  assert.deepEqual(joined.entries, [{ tokenId: 't', name: 'Kestrel', initiative: 0, awaitingInitiative: true, initiativeModifier: 0, imagePath: 'k.png', isNPC: true, hp: { current: 0, max: 9 }, isDefeated: true, id: 'init_1', order: 0, isActive: true }]);
   assert.equal(joined.currentIndex, -1);
   const left = JSON.parse(initiativeInText(JSON.stringify({ state: { ...JSON.parse(file).state, initiative: joined } }), 't', false, 'x')).state.initiative;
   assert.deepEqual(left.entries, []);
@@ -222,7 +222,7 @@ test('with Atlas holding the map, initiative goes through its tracker, which ope
   });
   let writer = new TokenWriter({ views: () => [state([])], process: async () => { throw new Error('no file write'); } });
   assert.equal(await writer.initiative('m.atlasmap', 't', true), 'atlas');
-  assert.deepEqual(added, [{ tokenId: 't', name: 'K', initiative: 0, initiativeModifier: 0, imagePath: 'k.png', isNPC: true }]);
+  assert.deepEqual(added, [{ tokenId: 't', name: 'K', initiative: 0, awaitingInitiative: true, initiativeModifier: 0, imagePath: 'k.png', isNPC: true }]);
   assert.equal(opened, true);
   writer = new TokenWriter({ views: () => [state([{ id: 'init_9', tokenId: 't' }])], process: async () => { throw new Error('no file write'); } });
   await writer.initiative('m.atlasmap', 't', false);
@@ -283,4 +283,29 @@ test('a door opens and shuts in the file as Atlas toggles it; a locked one stays
   await writer.toggleDoor('m.atlasmap', 'd');
   await writer.lockDoor('m.atlasmap', 'd', true);
   assert.deepEqual(calls, [['toggle', 'd'], ['lock', 'd', true]]);
+});
+
+test('Atlas 0.9: removing a combatant kept beside the map, or Clear, takes its token too; the turn actions get the defeated', async () => {
+  const map = JSON.stringify({ state: { objects: { tokens: { side: { id: 'side', offMap: true }, on: { id: 'on' }, side2: { id: 'side2', offMap: true } } }, initiative: { entries: [
+    { id: 'e1', tokenId: 'side', order: 0 }, { id: 'e2', tokenId: 'on', order: 1 }, { id: 'e3', tokenId: 'side2', order: 2 },
+  ] } } });
+  const removed = JSON.parse(initiativeActionInText(map, { type: 'remove', id: 'e1' }));
+  assert.deepEqual(Object.keys(removed.state.objects.tokens), ['on', 'side2']);
+  const cleared = JSON.parse(initiativeActionInText(map, { type: 'reset' }));
+  assert.deepEqual(Object.keys(cleared.state.objects.tokens), ['on']);
+  assert.throws(() => initiativeActionInText(map, { type: 'start', rules: { mode: 'cards', roll: '1d20', firstSide: 'players' } }), /runs only in Atlas/);
+  const calls: unknown[][] = [];
+  const view = fakeView('m.atlasmap', [], {
+    objects: { tokens: { side: { id: 'side', x: 0, y: 0, offMap: true } as never, on: { id: 'on', x: 0, y: 0 } } },
+    initiative: { entries: [{ id: 'e1', tokenId: 'side' }] },
+    removeFromInitiative: (id, defeated) => calls.push(['remove', id, [...(defeated ?? [])]]),
+    deleteTokens: (ids) => calls.push(['delete', ids]),
+    nextTurn: (defeated) => calls.push(['next', [...(defeated ?? [])]]),
+    resetInitiative: () => calls.push(['reset']),
+  });
+  const writer = new TokenWriter({ views: () => [view], process: async () => { throw new Error('no file write'); } });
+  await writer.initiativeAction('m.atlasmap', { type: 'remove', id: 'e1', defeated: ['e9'] });
+  await writer.initiativeAction('m.atlasmap', { type: 'next', defeated: ['e9'] });
+  await writer.initiativeAction('m.atlasmap', { type: 'reset' });
+  assert.deepEqual(calls, [['remove', 'e1', ['e9']], ['delete', ['side']], ['next', ['e9']], ['reset'], ['delete', ['side']]]);
 });

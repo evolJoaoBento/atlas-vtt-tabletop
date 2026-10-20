@@ -75,6 +75,8 @@ export function initiativeEntryFor(token: { id: string; kind?: string; name?: st
     tokenId: token.id,
     name: character ? token.name : 'Token',
     initiative: 0,
+    // Atlas 0.9 shows a combatant added and not yet rolled as an empty slot.
+    awaitingInitiative: true,
     initiativeModifier: 0,
     imagePath: token.imagePath,
     isNPC: true,

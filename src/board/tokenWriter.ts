@@ -17,7 +17,7 @@ import {
   type ResourceDefinition, type ResourceHolder, type ResourceValue,
 } from './resources';
 import { addToInitiative, initiativeEntryFor, initiativeId, removeFromInitiative, type InitiativeState } from './tokenEdits';
-import { applyInitiative, readInitiative, type InitiativeAction } from './initiative';
+import { applyInitiative, fileCannotRun, readInitiative, type InitiativeAction } from './initiative';
 
 type RawToken = Record<string, unknown> & { x?: number; y?: number; imagePath?: string; instanceNumber?: number };
 type RawWall = Record<string, unknown> & { type?: string; closed?: boolean; locked?: boolean };
@@ -146,7 +146,20 @@ export function deleteTokenInText(text: string, id: string): string {
 export function initiativeActionInText(text: string, action: InitiativeAction, random: () => number = Math.random): string {
   const file = JSON.parse(text) as MapFile;
   if (!file.state) throw new Error('not an Atlas map');
-  file.state.initiative = applyInitiative(readInitiative(file.state.initiative), action, random) as unknown as InitiativeState;
+  const before = readInitiative(file.state.initiative);
+  const refused = fileCannotRun(before, action);
+  if (refused) throw new Error(`${refused} runs only in Atlas: open the map in Atlas to play it`);
+  const after = applyInitiative(before, action, random);
+  file.state.initiative = after as unknown as InitiativeState;
+  // A combatant kept beside the map (Atlas 0.9) goes with its entry, as in Atlas: nothing else shows it.
+  const tokens = file.state.objects?.tokens;
+  if (tokens && (action.type === 'remove' || action.type === 'reset')) {
+    const kept = new Set(after.entries.map((entry) => entry.tokenId));
+    for (const entry of before.entries) {
+      if (!kept.has(entry.tokenId) && tokens[entry.tokenId]?.offMap === true) delete tokens[entry.tokenId];
+    }
+    if (action.type === 'reset') for (const [id, token] of Object.entries(tokens)) if (token.offMap === true) delete tokens[id];
+  }
   return JSON.stringify(file);
 }
 
@@ -192,17 +205,33 @@ function sendToAtlas(state: AtlasSceneState, action: InitiativeAction): boolean 
       }
       return true;
     }
-    case 'next': return state.nextTurn ? (state.nextTurn(), true) : false;
-    case 'previous': return state.previousTurn ? (state.previousTurn(), true) : false;
+    // Atlas 0.9 passes the defeated by (an older Atlas takes no such set and ignores it).
+    case 'next': return state.nextTurn ? (state.nextTurn(new Set(action.defeated ?? [])), true) : false;
+    case 'previous': return state.previousTurn ? (state.previousTurn(new Set(action.defeated ?? [])), true) : false;
     case 'reorder': return state.reorderInitiative ? (state.reorderInitiative(action.from, action.to), true) : false;
     case 'front': return state.moveToFront ? (state.moveToFront(action.id), true) : false;
     case 'back': return state.moveToBack ? (state.moveToBack(action.id), true) : false;
-    case 'start': return state.startCombat ? (state.startCombat(action.rules), true) : false;
+    case 'start': return state.startCombat ? (state.startCombat(action.rules, new Set(action.defeated ?? [])), true) : false;
     case 'end': return state.endCombat ? (state.endCombat(), true) : false;
     case 'sitsOut': return state.setInitiativeSitsOut ? (state.setInitiativeSitsOut(action.id, action.sitsOut), true) : false;
-    case 'reset': return state.resetInitiative ? (state.resetInitiative(), true) : false;
+    case 'reset': {
+      if (!state.resetInitiative) return false;
+      // The combatants kept beside the map (Atlas 0.9) go with the tracker, as Atlas's Clear takes them.
+      const beside = Object.values(state.objects.tokens).filter((token) => (token as { offMap?: unknown }).offMap === true).map((token) => token.id);
+      state.resetInitiative();
+      if (beside.length > 0) state.deleteTokens?.(beside);
+      return true;
+    }
     case 'edit': return state.updateInitiativeEntry ? (state.updateInitiativeEntry(action.id, action.changes), true) : false;
-    case 'remove': return state.removeFromInitiative ? (state.removeFromInitiative(action.id), true) : false;
+    case 'remove': {
+      if (!state.removeFromInitiative) return false;
+      const tokenId = state.initiative?.entries.find((entry) => entry.id === action.id)?.tokenId;
+      state.removeFromInitiative(action.id, new Set(action.defeated ?? []));
+      // One kept beside the map (Atlas 0.9) goes with its token, as Atlas removes it.
+      const token = tokenId ? state.objects.tokens[tokenId] as { offMap?: unknown } | undefined : undefined;
+      if (tokenId && token?.offMap === true) state.deleteTokens?.([tokenId]);
+      return true;
+    }
   }
 }
 

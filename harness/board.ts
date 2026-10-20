@@ -75,7 +75,7 @@ const face = (color: string): string => drawn(128, 128, (context) => {
 
 const token = (over: Partial<BoardToken> & Pick<BoardToken, 'id' | 'x' | 'y'>): BoardToken => ({
   size: 1, rotation: 0, imagePath: null, kind: 'character', name: null, hidden: false, showRing: true, ringColor: '#ffffff',
-  showNameplate: true, conditions: [], conditionValues: {}, resources: {}, overriddenMax: [], instanceNumber: null, statblockPath: null, side: null, sees: false, ...over,
+  showNameplate: true, conditions: [], conditionValues: {}, resources: {}, overriddenMax: [], instanceNumber: null, statblockPath: null, side: null, sees: false, offMap: false, ...over,
 });
 
 const wall = (id: string, x1: number, y1: number, x2: number, y2: number, over: Partial<BoardWall> = {}): BoardWall => ({

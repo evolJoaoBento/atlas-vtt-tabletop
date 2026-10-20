@@ -133,7 +133,8 @@ export function readLights(lights: unknown, tokens: unknown): BoardLight[] {
   for (const raw of items(tokens)) {
     const id = str(raw.id);
     const at = point(raw);
-    if (!id || !at || !isObj(raw.light)) continue;
+    // A combatant kept beside the map (Atlas 0.9) lights nothing.
+    if (!id || !at || !isObj(raw.light) || raw.offMap === true) continue;
     const light = readEmission(raw.light, id, at, id, num(raw.rotation, 0), false, null);
     if (light) out.push(light);
   }

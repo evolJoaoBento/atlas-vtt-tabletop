@@ -131,9 +131,17 @@ test('the tokens in Atlas\'s initiative tracker are read', () => {
   assert.deepEqual(readMap('m', JSON.stringify({ state: { objects: { tokens: {}, pins: {} } } })).initiative.entries, []);
 });
 
-test('a token\'s side and whether it sees are read for a fight by sides', () => {
+test('a token\'s side (a named one in Atlas 0.9) and whether it sees are read for a fight by sides', () => {
   const map = readMap('m', JSON.stringify({ state: { objects: { tokens: {
     a: { id: 'a', side: 'opponents', vision: { enabled: true } }, b: { id: 'b', side: 'nobody' },
   }, pins: {} } } }));
-  assert.deepEqual(map.tokens.map((token) => [token.side, token.sees]), [['opponents', true], [null, false]]);
+  assert.deepEqual(map.tokens.map((token) => [token.side, token.sees]), [['opponents', true], ['nobody', false]]);
+});
+
+test('a combatant kept beside the map (Atlas 0.9) is read as such, and carries no light onto the map', () => {
+  const map = readMap('m', JSON.stringify({ state: { objects: { tokens: {
+    a: { id: 'a', x: -105, y: 0, offMap: true, light: { bright: 10, dim: 20 } }, b: { id: 'b', x: 70, y: 70 },
+  }, pins: {} } } }));
+  assert.deepEqual(map.tokens.map((token) => [token.id, token.offMap]), [['a', true], ['b', false]]);
+  assert.deepEqual(map.lights, []);
 });

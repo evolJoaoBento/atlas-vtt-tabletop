@@ -767,26 +767,40 @@ server.listen(0, async () => {
     await page.mouse.move(heroTop.x - 60, heroTop.y);
     await wait(100);
 
+    // 12b. A combatant kept beside the map (Atlas 0.9's `offMap`) is no part of the board.
+    {
+      const beside = await page.evaluate(() => {
+        const b = window.boardTest.board;
+        b.map.tokens = [...b.map.tokens, { ...b.map.tokens[0], id: 'beside', x: -105, y: 35, offMap: true }];
+        b.refresh();
+        const drawn = b.tokens.has('beside');
+        b.map.tokens = b.map.tokens.filter((t) => t.id !== 'beside');
+        b.refresh();
+        return drawn;
+      });
+      check('a combatant kept beside the map is not drawn on the board', beside === false);
+    }
+
     // 13. Atlas's initiative tracker at the board's right edge: I shows it; cards, a fight, turns by the arrows, the
     //     card's menu, the edit popup, rolling, dragging, a fight by sides, Clear.
     {
-      const cards = () => page.evaluate(() => [...document.querySelectorAll('.atlas-initiative-card')].map((card) => {
+      const cards = () => page.evaluate(() => [...document.querySelectorAll('.tabletop-initiative-card')].map((card) => {
         const r = card.getBoundingClientRect();
         return {
           id: card.dataset.entry, x: r.left + r.width / 2, y: r.top + r.height / 2, cls: card.className,
-          number: card.querySelector('.atlas-initiative-card__initiative')?.textContent ?? null,
-          badge: card.querySelector('.atlas-initiative-card__instance-badge')?.textContent ?? null,
-          hidden: !!card.querySelector('.atlas-initiative-card__hidden-badge'),
-          bars: [...card.querySelectorAll('.atlas-initiative-card__hp-fill')].map((fill) => fill.style.width),
+          number: card.querySelector('.tabletop-initiative-card__initiative')?.textContent ?? null,
+          badge: card.querySelector('.tabletop-initiative-card__instance-badge')?.textContent ?? null,
+          hidden: !!card.querySelector('.tabletop-initiative-card__hidden-badge'),
+          bars: [...card.querySelectorAll('.tabletop-initiative-card__hp-fill')].map((fill) => fill.style.width),
           ring: card.querySelector('.atlas-token-ring')?.style.getPropertyValue('--atlas-token-ring-color') ?? null,
-          side: card.closest('.atlas-initiative-side')?.querySelector('.atlas-initiative-side__label')?.textContent ?? null,
+          side: card.closest('.tabletop-initiative-side')?.querySelector('.tabletop-initiative-side__label')?.textContent ?? null,
         };
       }));
       const tracker = () => page.evaluate(() => {
-        const panel = document.querySelector('.atlas-initiative-tracker');
+        const panel = document.querySelector('.tabletop-initiative-tracker');
         if (!panel || panel.closest('[hidden]')) return null;
-        const buttons = [...panel.querySelectorAll('.atlas-initiative-tracker__btn')].map((button) => ({ icon: button.dataset.icon ?? (button.querySelector('svg') ? 'truce' : ''), label: button.getAttribute('aria-label'), disabled: button.disabled, pressed: button.classList.contains('atlas-initiative-tracker__btn--pressed') }));
-        return { buttons, round: panel.querySelector('.atlas-initiative-tracker__round')?.textContent, empty: panel.querySelector('.atlas-initiative-tracker__empty')?.textContent ?? null, rect: panel.getBoundingClientRect().toJSON() };
+        const buttons = [...panel.querySelectorAll('.tabletop-initiative-tracker__btn')].map((button) => ({ icon: button.dataset.icon ?? (button.querySelector('svg') ? 'truce' : ''), label: button.getAttribute('aria-label'), disabled: button.disabled, pressed: button.classList.contains('tabletop-initiative-tracker__btn--pressed') }));
+        return { buttons, round: panel.querySelector('.tabletop-initiative-tracker__round')?.textContent, empty: panel.querySelector('.tabletop-initiative-tracker__empty')?.textContent ?? null, rect: panel.getBoundingClientRect().toJSON() };
       });
       const click = async (selector) => {
         const at = await page.evaluate((selector) => { const r = document.querySelector(selector).getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, selector);
@@ -845,24 +859,24 @@ server.listen(0, async () => {
       check('Move to Back puts it last', (await ids()) === 'gob,gob2,orc,hero', await ids());
 
       await choose('e-orc', 'Edit Initiative');
-      const popup = await page.evaluate(() => ({ inputs: [...document.querySelectorAll('.atlas-initiative-edit-popup input')].map((i) => [i.value, i.placeholder]), hint: document.querySelector('.atlas-initiative-edit-popup__hint')?.textContent, focused: document.activeElement?.className }));
-      check('the popup is on the page\'s body, as Atlas portals it', await page.evaluate(() => document.querySelector('.atlas-initiative-edit-popup').parentElement.parentElement === document.body));
-      check('Edit Initiative opens Atlas\'s popup: the total (focused) and the modifier ("auto" when none)', JSON.stringify(popup.inputs) === JSON.stringify([['5', '0'], ['', 'auto']]) && popup.hint === 'Enter to save · Esc to cancel' && popup.focused === 'atlas-initiative-edit-popup__input', popup);
+      const popup = await page.evaluate(() => ({ inputs: [...document.querySelectorAll('.tabletop-initiative-edit-popup input')].map((i) => [i.value, i.placeholder]), hint: document.querySelector('.tabletop-initiative-edit-popup__hint')?.textContent, focused: document.activeElement?.className }));
+      check('the popup is on the page\'s body, as Atlas portals it', await page.evaluate(() => document.querySelector('.tabletop-initiative-edit-popup').parentElement.parentElement === document.body));
+      check('Edit Initiative opens Atlas\'s popup: the total (focused) and the modifier ("auto" when none)', JSON.stringify(popup.inputs) === JSON.stringify([['5', '0'], ['', 'auto']]) && popup.hint === 'Enter to save · Esc to cancel' && popup.focused === 'tabletop-initiative-edit-popup__input', popup);
       await page.keyboard.press('Control+A');
       await page.keyboard.type('20');
       await page.keyboard.press('Enter');
       await wait(100);
-      check('Enter saves the total and the list re-sorts', (await ids()).startsWith('orc') && (await cards())[0].number === '20' && (await page.evaluate(() => !document.querySelector('.atlas-initiative-edit-popup'))), await ids());
+      check('Enter saves the total and the list re-sorts', (await ids()).startsWith('orc') && (await cards())[0].number === '20' && (await page.evaluate(() => !document.querySelector('.tabletop-initiative-edit-popup'))), await ids());
       await page.screenshot({ path: `${shots}/board-18-initiative.png` });
       // A redraw keeps a scrolled list where it was (not glided back from the top).
       const scrolled = await page.evaluate(() => {
-        const content = document.querySelector('.atlas-initiative-tracker__content');
+        const content = document.querySelector('.tabletop-initiative-tracker__content');
         content.style.scrollBehavior = 'auto';
         content.scrollTop = content.scrollHeight;
         content.style.scrollBehavior = '';
         const before = content.scrollTop;
         window.boardTest.panel.render();
-        return { before, after: document.querySelector('.atlas-initiative-tracker__content').scrollTop };
+        return { before, after: document.querySelector('.tabletop-initiative-tracker__content').scrollTop };
       });
       check('the list overflows here, and a redraw keeps its scroll at once', scrolled.before > 0 && scrolled.after === scrolled.before, scrolled);
       // A combatant whose token is gone (deleted while Atlas's tracker was closed) gets no card.
@@ -908,7 +922,7 @@ server.listen(0, async () => {
       shown = await tracker();
       check('by sides: Players then Opponents, no numbers, no Roll', list.find((c) => c.id === 'e-hero').side === 'Players' && list.filter((c) => c.side === 'Opponents').length === 3 && list.every((c) => c.number === null) && shown.buttons[0].label === 'Start combat', { list, shown });
       await click('[aria-label="Start combat"]');
-      const sideState = () => page.evaluate(() => ({ active: document.querySelector('.atlas-initiative-side--active .atlas-initiative-side__label')?.textContent, round: document.querySelector('.atlas-initiative-tracker__round')?.textContent, cards: document.querySelectorAll('.atlas-initiative-card--active').length }));
+      const sideState = () => page.evaluate(() => ({ active: document.querySelector('.tabletop-initiative-side--active .tabletop-initiative-side__label')?.textContent, round: document.querySelector('.tabletop-initiative-tracker__round')?.textContent, cards: document.querySelectorAll('.tabletop-initiative-card--active').length }));
       check('the players\' side acts first; no card has the turn by itself', JSON.stringify(await sideState()) === JSON.stringify({ active: 'Players', round: 'R1', cards: 0 }), await sideState());
       const sitRows = await choose('e-gob', 'Sit Out This Round');
       check('in a running fight by sides a card can sit the round out', sitRows.some((r) => r.text === 'Sit Out This Round') && (await cards()).find((c) => c.id === 'e-gob').cls.includes('--sitting-out'), sitRows.map((r) => r.text));
