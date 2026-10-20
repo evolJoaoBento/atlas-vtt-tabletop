@@ -352,8 +352,8 @@ server.listen(0, async () => {
       check('the toolbar takes no press from the board', (await page.evaluate(() => window.boardTest.board.selected)) === selBefore);
       await page.mouse.click(button.x, button.y);
       await wait(100);
-      const empty = await project(560, 760, 0);
-      await page.mouse.click(empty.x, empty.y);
+      // The top-left of the board's canvas: clear of the panel whatever the camera.
+      await page.mouse.click(20, 20);
       await wait(100);
       check('a click on the board closes the settings', await page.evaluate(() => document.querySelector('.atlas-tabletop-palette:not(.atlas-tabletop-laser-options)').hidden));
     }
@@ -421,7 +421,7 @@ server.listen(0, async () => {
 
     // 1l. Atlas's laser pointer: a glowing dot while on, a beam while pressed that fades; its colour and size options.
     {
-      const tools = () => page.evaluate(() => Object.fromEntries([...document.querySelectorAll('.atlas-tabletop-tool-button')].map((b) => {
+      const tools = () => page.evaluate(() => Object.fromEntries([...document.querySelectorAll('.atlas-tabletop-tool-button, .atlas-dropdown-trigger')].map((b) => {
         const r = b.getBoundingClientRect();
         return [b.getAttribute('aria-label'), { x: r.left + r.width / 2, y: r.top + r.height / 2, active: b.classList.contains('is-active') }];
       })));
@@ -455,16 +455,26 @@ server.listen(0, async () => {
       await wait(150);
       const options = await page.evaluate(() => {
         const panel = document.querySelector('.atlas-tabletop-laser-options');
-        return { open: !panel.hidden, swatches: [...panel.querySelectorAll('.atlas-tabletop-swatch')].map((s) => [s.title, s.classList.contains('is-active')]), text: panel.textContent, size: panel.querySelector('input[type=range]').value };
+        const group = panel.closest('.atlas-tool-group').getBoundingClientRect();
+        const box = panel.getBoundingClientRect();
+        return {
+          open: !panel.hidden, above: box.bottom < group.top, alignedLeft: Math.abs(box.left - group.left) < 30,
+          swatches: [...panel.querySelectorAll('.atlas-swatch')].map((s) => [s.title, s.classList.contains('atlas-swatch--active'), !!s.querySelector('.atlas-swatch-check')]),
+          text: panel.textContent, size: panel.querySelector('.atlas-dropdown-slider-row__value').textContent,
+        };
       });
-      check('the laser options are Atlas\'s: eight colours with their hint, and the size', options.open && options.swatches.length === 8 && options.swatches[0][1] && options.text.includes('colour-blind') && options.text.includes('Laser size') && options.size === '16', options);
-      const sky = await page.evaluate(() => { const r = document.querySelector('.atlas-tabletop-swatch[title="Sky blue"]').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+      check('the laser options are Atlas\'s: eight colours (the chosen one checked) with their hint, and the size in px', options.open && options.swatches.length === 8 && options.swatches[0][1] && options.swatches[0][2] && !options.swatches[1][2] && options.text.includes('colour-blind') && options.text.includes('Laser size') && options.size === '16px', options);
+      check('they open above the laser\'s tool group, at its left', options.above && options.alignedLeft, options);
+      await page.screenshot({ path: `${shots}/board-15-laser-options.png` });
+      const sky = await page.evaluate(() => { const r = document.querySelector('.atlas-swatch[title="Sky blue"]').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
       await page.mouse.click(sky.x, sky.y);
-      await page.evaluate(() => { const range = document.querySelector('.atlas-tabletop-laser-options input[type=range]'); range.value = '40'; range.dispatchEvent(new Event('input', { bubbles: true })); });
+      // Atlas's slider: a press on the track puts the thumb there (its centre runs half a thumb in from each end).
+      const at40 = await page.evaluate(() => { const r = document.querySelector('.atlas-tabletop-laser-options .slider-root').getBoundingClientRect(); return { x: r.left + 8 + ((40 - 8) / 92) * (r.width - 16), y: r.top + r.height / 2 }; });
+      await page.mouse.click(at40.x, at40.y);
       await wait(100);
       r = await record();
       check('choosing a colour and a size saves them', JSON.stringify(r.lasers) === JSON.stringify([{ color: '#00a9ff' }, { size: 40 }]), r.lasers);
-      const ticked = await page.evaluate(() => document.querySelector('.atlas-tabletop-swatch.is-active')?.title);
+      const ticked = await page.evaluate(() => document.querySelector('.atlas-swatch.atlas-swatch--active')?.title);
       check('the chosen colour is ticked', ticked === 'Sky blue', ticked);
       await page.keyboard.press('Escape');
       await page.mouse.move(from.x, from.y);

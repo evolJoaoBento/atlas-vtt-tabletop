@@ -27,9 +27,12 @@ export interface ToolbarActions {
 /** Lucide's `command` icon (ISC), the glyph of Atlas's command palette button. */
 const COMMAND_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></svg>';
 
-/** Lucide's `flashlight` and `chevron-up` icons (ISC): Atlas's laser pointer, and its options. */
+/** Lucide's `flashlight`, `chevron-down` and `check` icons (ISC): Atlas's laser pointer, its options' chevron, a chosen swatch. */
 const LASER_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6c0 2-2 2-2 4v10a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2V10c0-2-2-2-2-4V2h12z"/><line x1="6" x2="18" y1="6" y2="6"/><line x1="12" x2="12" y1="12" y2="12"/></svg>';
-const CHEVRON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>';
+const CHEVRON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:1rem;height:1rem"><path d="m6 9 6 6 6-6"/></svg>';
+const CHECK_SVG = '<svg class="atlas-swatch-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+/** Atlas's slider thumb is a rem across: it stays within the track at either end. */
+const THUMB_PX = 16;
 
 /** Lucide's `presentation` and `snowflake` icons (ISC): Atlas's player view, and a frozen camera. */
 const PLAYER_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h20"/><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"/><path d="m7 21 5-5 5 5"/></svg>';
@@ -50,7 +53,9 @@ export class BoardToolbar {
   private readonly laserMenuButton: HTMLButtonElement;
   private readonly laserPanel: HTMLElement;
   private readonly swatches: HTMLButtonElement[] = [];
-  private readonly sizeInput: HTMLInputElement;
+  private readonly slider: HTMLElement;
+  private readonly sliderRange: HTMLElement;
+  private readonly sliderThumb: HTMLElement;
   private readonly sizeValue: HTMLElement;
   private readonly freezeButton: HTMLButtonElement;
   private readonly heightInput: HTMLInputElement;
@@ -70,7 +75,8 @@ export class BoardToolbar {
       return made;
     };
 
-    this.row = el('div', 'atlas-tabletop-toolbar-row', container);
+    // Atlas's own class names under a root of Tabletop's: its look is copied in styles.css, without needing its styles.
+    this.row = el('div', 'atlas-tabletop-toolbar-row atlas-tabletop-atlas', container);
     const bar = el('div', 'atlas-tabletop-toolbar', this.row);
     bar.setAttribute('role', 'toolbar');
     const tool = (svg: string, onClick: () => void): HTMLButtonElement => {
@@ -80,19 +86,87 @@ export class BoardToolbar {
       made.addEventListener('click', onClick);
       return made;
     };
-    // The laser and its options, as one group (Atlas's tool button and its chevron).
-    const laserGroup = el('div', 'atlas-tabletop-tool-group', bar);
-    const groupTool = (svg: string, className: string, onClick: () => void): HTMLButtonElement => {
-      const made = el('button', className, laserGroup);
-      made.type = 'button';
-      made.innerHTML = svg;
-      made.addEventListener('click', onClick);
-      return made;
-    };
-    this.laserButton = groupTool(LASER_SVG, 'atlas-tabletop-tool-button', () => this.actions.toggleLaser());
-    this.laserMenuButton = groupTool(CHEVRON_SVG, 'atlas-tabletop-tool-button atlas-tabletop-tool-chevron', () => (this.laserPanel.hidden ? this.openLaser() : this.closeLaser()));
+    // The laser and its options, as Atlas's tool group: the tool, and a chevron opening its options above it.
+    const laserGroup = el('div', 'atlas-tool-group', bar);
+    this.laserButton = el('button', 'atlas-tabletop-tool-button', laserGroup);
+    this.laserButton.type = 'button';
+    this.laserButton.innerHTML = LASER_SVG;
+    this.laserButton.addEventListener('click', () => this.actions.toggleLaser());
+    const menu = el('div', 'atlas-dropdown-menu', laserGroup);
+    this.laserMenuButton = el('button', 'atlas-dropdown-trigger btn--toolbar', menu);
+    this.laserMenuButton.type = 'button';
+    this.laserMenuButton.innerHTML = CHEVRON_SVG;
     this.laserMenuButton.setAttribute('aria-label', 'Laser options');
+    this.laserMenuButton.setAttribute('aria-expanded', 'false');
     this.laserMenuButton.title = 'Laser options';
+    this.laserMenuButton.addEventListener('click', () => (this.laserPanel.hidden ? this.openLaser() : this.closeLaser()));
+
+    // Atlas's laser options (`LaserPointerOptions`): the colour swatches with their hint, and the size slider.
+    this.laserPanel = el('div', 'atlas-dropdown-content atlas-dropdown-content--top atlas-dropdown-content--left atlas-tabletop-laser-options', menu);
+    this.laserPanel.hidden = true;
+    const section = el('div', 'atlas-dropdown-section', this.laserPanel);
+    const swatchGroup = el('div', 'atlas-dropdown-swatches', section);
+    swatchGroup.setAttribute('role', 'group');
+    swatchGroup.setAttribute('aria-label', 'Laser colour');
+    el('span', 'atlas-dropdown-swatches__label', swatchGroup, 'Laser colour');
+    const grid = el('div', 'atlas-swatch-grid', swatchGroup);
+    for (const swatch of LASER_COLORS) {
+      const button = el('button', 'atlas-swatch', grid);
+      button.type = 'button';
+      button.style.backgroundColor = swatch.value;
+      button.setAttribute('aria-label', swatch.label);
+      button.title = swatch.label;
+      button.dataset.value = swatch.value;
+      button.addEventListener('click', () => { this.actions.setLaser({ color: swatch.value }); this.showLaser(); });
+      this.swatches.push(button);
+    }
+    el('span', 'atlas-dropdown-swatches__hint', swatchGroup, LASER_COLOR_HINT);
+    const sliderRow = el('div', 'atlas-dropdown-slider-row', section);
+    const head = el('div', 'atlas-dropdown-slider-row__head', sliderRow);
+    el('span', 'atlas-dropdown-label', head, 'Laser size');
+    this.sizeValue = el('span', 'atlas-dropdown-slider-row__value', head);
+    this.slider = el('span', 'slider-root', sliderRow);
+    const track = el('span', 'slider-track', this.slider);
+    this.sliderRange = el('span', 'slider-range', track);
+    const thumbPlace = el('span', 'atlas-tabletop-slider-thumb-place', this.slider);
+    this.sliderThumb = el('span', 'slider-thumb', thumbPlace);
+    this.sliderThumb.setAttribute('role', 'slider');
+    this.sliderThumb.setAttribute('aria-label', 'Laser size');
+    this.sliderThumb.setAttribute('aria-valuemin', String(LASER_SIZE_MIN));
+    this.sliderThumb.setAttribute('aria-valuemax', String(LASER_SIZE_MAX));
+    this.sliderThumb.tabIndex = 0;
+    const setSize = (size: number): void => {
+      const value = Math.round(Math.min(LASER_SIZE_MAX, Math.max(LASER_SIZE_MIN, size)));
+      if (value === this.actions.laser().size) return;
+      this.actions.setLaser({ size: value });
+      this.showLaser();
+    };
+    const fromPointer = (event: PointerEvent): void => {
+      const rect = this.slider.getBoundingClientRect();
+      // The thumb's centre travels within the track, half a thumb in from each end.
+      const share = (event.clientX - rect.left - THUMB_PX / 2) / Math.max(1, rect.width - THUMB_PX);
+      setSize(LASER_SIZE_MIN + Math.min(1, Math.max(0, share)) * (LASER_SIZE_MAX - LASER_SIZE_MIN));
+    };
+    this.slider.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      this.slider.setPointerCapture?.(event.pointerId);
+      this.sliderThumb.focus();
+      fromPointer(event);
+    });
+    this.slider.addEventListener('pointermove', (event) => { if (this.slider.hasPointerCapture?.(event.pointerId)) fromPointer(event); });
+    this.sliderThumb.addEventListener('keydown', (event) => {
+      const size = this.actions.laser().size;
+      const steps: Record<string, number> = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1, PageUp: 10, PageDown: -10 };
+      if (event.key in steps) setSize(size + steps[event.key]!);
+      else if (event.key === 'Home') setSize(LASER_SIZE_MIN);
+      else if (event.key === 'End') setSize(LASER_SIZE_MAX);
+      else return;
+      event.preventDefault();
+    });
+    this.laserPanel.addEventListener('keydown', (event) => {
+      event.stopPropagation();
+      if (event.key === 'Escape') { event.preventDefault(); this.closeLaser(); }
+    });
     this.playerButton = tool(PLAYER_SVG, () => this.actions.togglePlayerView());
     this.freezeButton = tool(FREEZE_SVG, () => this.actions.togglePlayerFreeze());
     this.button = el('button', 'atlas-tabletop-tool-button', bar);
@@ -102,43 +176,6 @@ export class BoardToolbar {
     this.button.title = 'Board settings';
     this.button.setAttribute('aria-expanded', 'false');
     this.button.addEventListener('click', () => (this.panel.hidden ? this.open() : this.close()));
-
-    // Atlas's laser options: its colour swatches with their hint, and its size.
-    this.laserPanel = el('div', 'atlas-tabletop-palette atlas-tabletop-laser-options', this.row);
-    this.laserPanel.hidden = true;
-    this.laserPanel.setAttribute('role', 'dialog');
-    this.laserPanel.setAttribute('aria-label', 'Laser options');
-    const laserSection = el('div', 'atlas-tabletop-palette__section', this.laserPanel);
-    el('div', 'atlas-tabletop-palette__heading', laserSection, 'Laser colour');
-    const grid = el('div', 'atlas-tabletop-swatches', laserSection);
-    for (const swatch of LASER_COLORS) {
-      const button = el('button', 'atlas-tabletop-swatch', grid);
-      button.type = 'button';
-      button.style.setProperty('--swatch', swatch.value);
-      button.setAttribute('aria-label', swatch.label);
-      button.title = swatch.label;
-      button.dataset.value = swatch.value;
-      button.addEventListener('click', () => { this.actions.setLaser({ color: swatch.value }); this.showLaser(); });
-      this.swatches.push(button);
-    }
-    el('div', 'atlas-tabletop-palette__hint', laserSection, LASER_COLOR_HINT);
-    const sizeRow = el('label', 'atlas-tabletop-palette__field', laserSection);
-    el('span', 'atlas-tabletop-palette__label', sizeRow, 'Laser size');
-    this.sizeInput = el('input', 'slider atlas-tabletop-palette__slider', sizeRow);
-    this.sizeInput.type = 'range';
-    this.sizeInput.min = String(LASER_SIZE_MIN);
-    this.sizeInput.max = String(LASER_SIZE_MAX);
-    this.sizeInput.step = '1';
-    this.sizeValue = el('span', 'atlas-tabletop-palette__unit', sizeRow);
-    this.sizeInput.addEventListener('input', () => {
-      this.actions.setLaser({ size: Number(this.sizeInput.value) });
-      this.showLaser();
-    });
-    this.laserPanel.addEventListener('keydown', (event) => {
-      event.stopPropagation();
-      if (event.key === 'Escape') { event.preventDefault(); this.closeLaser(); }
-    });
-    this.laserPanel.addEventListener('pointerdown', (event) => event.stopPropagation());
 
     this.panel = el('div', 'atlas-tabletop-palette', this.row);
     this.panel.hidden = true;
@@ -203,7 +240,7 @@ export class BoardToolbar {
     this.close();
     this.showLaser();
     this.laserPanel.hidden = false;
-    this.laserMenuButton.classList.add('is-active');
+    this.laserMenuButton.classList.add('atlas-is-active');
     this.laserMenuButton.setAttribute('aria-expanded', 'true');
     this.row.ownerDocument.addEventListener('pointerdown', this.onOutside, true);
   }
@@ -211,7 +248,7 @@ export class BoardToolbar {
   closeLaser(): void {
     if (this.laserPanel.hidden) return;
     this.laserPanel.hidden = true;
-    this.laserMenuButton.classList.remove('is-active');
+    this.laserMenuButton.classList.remove('atlas-is-active');
     this.laserMenuButton.setAttribute('aria-expanded', 'false');
     if (this.panel.hidden) this.row.ownerDocument.removeEventListener('pointerdown', this.onOutside, true);
   }
@@ -221,11 +258,17 @@ export class BoardToolbar {
     const { color, size } = this.actions.laser();
     for (const swatch of this.swatches) {
       const chosen = swatch.dataset.value?.toLowerCase() === color.toLowerCase();
-      swatch.classList.toggle('is-active', chosen);
+      swatch.classList.toggle('atlas-swatch--active', chosen);
       swatch.setAttribute('aria-pressed', String(chosen));
+      swatch.innerHTML = chosen ? CHECK_SVG : '';
     }
-    this.sizeInput.value = String(size);
-    this.sizeValue.textContent = String(size);
+    const share = (size - LASER_SIZE_MIN) / (LASER_SIZE_MAX - LASER_SIZE_MIN);
+    this.sliderRange.style.left = '0';
+    this.sliderRange.style.right = `${(1 - share) * 100}%`;
+    // As Radix places its thumb: along the track, kept inside it at both ends.
+    (this.sliderThumb.parentElement as HTMLElement).style.left = `calc(${share * 100}% + ${THUMB_PX / 2 - share * THUMB_PX}px)`;
+    this.sliderThumb.setAttribute('aria-valuenow', String(size));
+    this.sizeValue.textContent = `${size}px`;
   }
 
   open(): void {
