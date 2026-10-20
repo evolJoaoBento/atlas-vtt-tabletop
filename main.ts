@@ -1,7 +1,8 @@
-import { Notice, Plugin, PluginSettingTab, Setting, TFile, debounce, type App, type ButtonComponent } from 'obsidian';
+import { Notice, Plugin, PluginSettingTab, Setting, TFile, debounce, type App, type ButtonComponent, type WorkspaceLeaf } from 'obsidian';
 import { Assignments, readAssignments, type AssignmentData, type MiniPlacement } from './src/assignments';
 import { mapViews } from './src/atlas';
 import { BOARD_VIEW_TYPE, BoardView, HOVER_SOURCE } from './src/board/BoardView';
+import { PLAYER_VIEW_TYPE, PlayerView } from './src/board/PlayerWindow';
 import { BoardData, readBoardData, type BoardDataJSON } from './src/board/boardData';
 import { DEFAULT_QUALITY, readQuality, type Quality } from './src/board/quality';
 import { TokenWriter } from './src/board/tokenWriter';
@@ -83,6 +84,19 @@ export default class TabletopPlugin extends Plugin {
       writer,
       quality: () => this.settings.quality,
       focused: (view) => { this.lastBoard = view; },
+      togglePlayerView: (view) => { void this.togglePlayerView(view); },
+      playerViewOpen: (path) => this.playerLeaves().some((leaf) => fileOf(leaf) === path),
+      boardReady: (view) => {
+        for (const player of this.playerViews()) if (player.mapPath === view.mapPath) view.showPlayer(player);
+        this.refreshPlayerButtons();
+      },
+    }));
+    this.registerView(PLAYER_VIEW_TYPE, (leaf) => new PlayerView(leaf, {
+      attach: (view) => this.attachPlayer(view),
+      detach: (view) => {
+        for (const board of this.boards()) board.hidePlayer(view);
+        this.refreshPlayerButtons();
+      },
     }));
     this.registerHoverLinkSource(HOVER_SOURCE, { display: 'Tabletop 3D board', defaultMod: true });
     this.addRibbonIcon('box', 'Open minis gallery', () => { void this.openGallery(); });
@@ -182,11 +196,56 @@ export default class TabletopPlugin extends Plugin {
   /** Opens a map in 3D in a new tab (or shows the tab it is already open in). */
   async openBoard(path: string): Promise<void> {
     // By the tab's saved state: a tab Obsidian restored but has not shown yet holds no loaded view to ask.
-    const open = this.app.workspace.getLeavesOfType(BOARD_VIEW_TYPE).find((leaf) => (leaf.getViewState().state as { file?: unknown } | undefined)?.file === path);
+    const open = this.app.workspace.getLeavesOfType(BOARD_VIEW_TYPE).find((leaf) => fileOf(leaf) === path);
     const leaf = open ?? this.app.workspace.getLeaf('tab');
     if (!open) await leaf.setViewState({ type: BOARD_VIEW_TYPE, state: { file: path }, active: true });
     await this.app.workspace.revealLeaf(leaf);
     if (leaf.view instanceof BoardView) this.lastBoard = leaf.view;
+  }
+
+  private playerLeaves(): WorkspaceLeaf[] {
+    return this.app.workspace.getLeavesOfType(PLAYER_VIEW_TYPE);
+  }
+
+  private playerViews(): PlayerView[] {
+    return this.playerLeaves().map((leaf) => leaf.view).filter((view): view is PlayerView => view instanceof PlayerView);
+  }
+
+  /**
+   * The board's player view button: closes the player view when it shows this map, else shows this map in it,
+   * opening it in its own window (one player view at a time, as Atlas has one player window).
+   */
+  private async togglePlayerView(board: BoardView): Promise<void> {
+    const path = board.mapPath;
+    if (!path) return;
+    const leaves = this.playerLeaves();
+    const showing = leaves.find((leaf) => fileOf(leaf) === path);
+    if (showing) {
+      showing.detach();
+    } else {
+      const leaf = leaves[0] ?? this.app.workspace.openPopoutLeaf({ size: { width: 1280, height: 720 } });
+      await leaf.setViewState({ type: PLAYER_VIEW_TYPE, state: { file: path }, active: false });
+    }
+    this.refreshPlayerButtons();
+  }
+
+  /** A player view shows a map: the board of that map draws into it, or it waits for one. */
+  private attachPlayer(view: PlayerView): void {
+    for (const board of this.boards()) if (board.mapPath !== view.mapPath) board.hidePlayer(view);
+    const board = this.boards().find((candidate) => candidate.mapPath === view.mapPath && candidate.ready);
+    if (board) {
+      board.showPlayer(view);
+    } else {
+      view.waiting(true);
+      // A board tab Obsidian restored but has not shown yet holds no board: load it, and it reports when ready.
+      const deferred = this.app.workspace.getLeavesOfType(BOARD_VIEW_TYPE).find((leaf) => fileOf(leaf) === view.mapPath);
+      if (deferred) void deferred.loadIfDeferred();
+    }
+    this.refreshPlayerButtons();
+  }
+
+  private refreshPlayerButtons(): void {
+    for (const board of this.boards()) board.refreshToolbar();
   }
 
   private boards(): BoardView[] {
@@ -215,6 +274,12 @@ export default class TabletopPlugin extends Plugin {
     if (!(file instanceof TFile)) throw new Error(`the map ${path} is missing`);
     await this.app.vault.process(file, edit);
   }
+}
+
+/** The map a board or player tab shows, from its saved state: a tab Obsidian restored but has not shown holds no view to ask. */
+function fileOf(leaf: WorkspaceLeaf): string | null {
+  const file = (leaf.getViewState().state as { file?: unknown } | undefined)?.file;
+  return typeof file === 'string' ? file : null;
 }
 
 class TabletopSettingTab extends PluginSettingTab {

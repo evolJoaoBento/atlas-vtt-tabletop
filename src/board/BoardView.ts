@@ -14,6 +14,7 @@ import { ASSETS_METADATA_PATH, collectionOf, emptyRules, readCollectionRules, ty
 import { readMap, type BoardMap, type BoardToken } from './mapModel';
 import { readMeasurement } from './measure';
 import { defeatedResources, isKillable } from './resources';
+import type { PlayerView } from './PlayerWindow';
 import { QUALITY, type Quality } from './quality';
 import type { TokenWriter } from './tokenWriter';
 
@@ -33,6 +34,11 @@ export interface BoardServices {
   quality(): Quality;
   /** This tab was used last: props from the gallery go to it. */
   focused(view: BoardView): void;
+  /** The local player view: open, switch to or close it for this board's map; whether one shows its map. */
+  togglePlayerView(view: BoardView): void;
+  playerViewOpen(path: string): boolean;
+  /** This board has drawn its map: a player view of that map can be drawn into. */
+  boardReady(view: BoardView): void;
 }
 
 const tokenName = (token: BoardToken): string => token.name ?? token.imagePath?.split('/').pop()?.replace(/\.[^.]+$/, '') ?? 'Token';
@@ -46,6 +52,8 @@ export class BoardView extends ItemView {
   /** Closed: a read still on its way must not build a board on a tab that is gone. */
   private closed = false;
   private readonly reload = debounce(() => { void this.read(); }, RELOAD_MS, true);
+  /** The local player view this board draws into. */
+  private playerWindow: PlayerView | null = null;
 
   constructor(leaf: WorkspaceLeaf, private readonly services: BoardServices) {
     super(leaf);
@@ -73,6 +81,9 @@ export class BoardView extends ItemView {
       this.map = null;
       this.board?.dispose();
       this.board = null;
+      // The player view shows the map this tab showed: it waits for that map's board again.
+      this.playerWindow?.waiting(true);
+      this.playerWindow = null;
       this.retitle();
       await this.read();
     }
@@ -101,6 +112,33 @@ export class BoardView extends ItemView {
     this.reload.cancel();
     this.board?.dispose();
     this.board = null;
+    this.playerWindow?.waiting(true);
+    this.playerWindow = null;
+  }
+
+  /** Whether this board has drawn its map, and so can draw a player view of it. */
+  get ready(): boolean {
+    return this.board !== null && this.map !== null;
+  }
+
+  /** Draws this board into the local player view too. */
+  showPlayer(view: PlayerView): void {
+    if (this.playerWindow === view) return;
+    this.playerWindow = view;
+    view.waiting(false);
+    this.board?.attachPlayer(view.stage);
+  }
+
+  /** Stops drawing into the local player view (it closed, or shows another map). */
+  hidePlayer(view: PlayerView): void {
+    if (this.playerWindow !== view) return;
+    this.playerWindow = null;
+    this.board?.detachPlayer();
+  }
+
+  /** The player view opened or closed: the toolbar's buttons follow. */
+  refreshToolbar(): void {
+    this.board?.refreshToolbar();
   }
 
   /** Shows the map's name on the tab and in the view's header (Obsidian refreshes only the tab by itself). */
@@ -120,6 +158,7 @@ export class BoardView extends ItemView {
     this.board = new Board(this.contentEl, this.host(), preset);
     await this.board.load(this.map);
     this.board.camera = camera;
+    if (this.playerWindow) this.board.attachPlayer(this.playerWindow.stage);
     this.board.wake(true);
   }
 
@@ -154,8 +193,10 @@ export class BoardView extends ItemView {
     if (this.closed || path !== this.path) return;
     this.rules = rules;
     this.map = map;
+    const fresh = !this.board;
     if (!this.board) this.board = new Board(this.contentEl, this.host(), QUALITY[this.services.quality()]);
     await this.board.load(map);
+    if (fresh && !this.closed) this.services.boardReady(this);
   }
 
   /** The map's conditions and resource names, from Atlas's asset index (in a hidden folder, read off the disk). */
@@ -231,6 +272,8 @@ export class BoardView extends ItemView {
         });
       },
       warn: (message) => this.warn(message),
+      togglePlayerView: () => this.services.togglePlayerView(this),
+      playerViewOpen: () => this.services.playerViewOpen(mapPath()),
     };
   }
 

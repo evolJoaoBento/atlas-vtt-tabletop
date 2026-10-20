@@ -432,3 +432,39 @@
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
 }
+
+/* The local player view: the board fills its window, a screen for the players. */
+.atlas-tabletop-player-view {
+  position: relative;
+  padding: 0 !important;
+  overflow: hidden;
+  background: #0f0c0a;
+}
+
+.atlas-tabletop-player-stage {
+  position: absolute;
+  inset: 0;
+}
+
+.atlas-tabletop-player-board {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.atlas-tabletop-player-waiting {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2em;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+/* Its own window shows the board alone: no tabs, no view header (the GM closes it from the board's toolbar). */
+body.atlas-tabletop-player-window .workspace-tab-header-container,
+body.atlas-tabletop-player-window .view-header {
+  display: none;
+}

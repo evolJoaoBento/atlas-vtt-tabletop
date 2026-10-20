@@ -7,7 +7,8 @@
  *   several tokens share the art, as Atlas-style wheels beside it, alternating left and right, named on hover.
  * Which resources show, in which socket and colour, follows Atlas (`resources.ts`); bars and wheels are drawn in its
  * look. Only characters get a name, resources and conditions. Labels keep one size on screen and stay fully opaque on
- * a hidden token.
+ * a hidden token. The players' picture has labels of its own (`LabelLook`): the resources shown to players, and copy
+ * numbers counted among the tokens players see.
  */
 import * as THREE from 'three';
 import { conditionLabel, type CollectionRules } from './conditions';
@@ -24,6 +25,12 @@ export const WHEEL_PX = 30;
 const GAP_PX = 3;
 /** Atlas's resource look: a thin grey border, a dark track, a fill set in from the border, faint ticks. */
 const LOOK = { border: '#888888', track: '#1a1a1a', tick: 'rgba(51,51,51,0.5)' };
+
+/** Whose labels these are, and the copy number the badge shows them (null: no badge). */
+export interface LabelLook {
+  viewer: 'gm' | 'player';
+  badge: number | null;
+}
 
 /** Something on a token that names itself on hover. */
 export interface HoverTarget {
@@ -187,9 +194,9 @@ export class TokenLabels {
   /** What the labels were last placed for. */
   private placed = '';
 
-  constructor(token: BoardToken, settings: TokenSettings, rules: CollectionRules, sharedArt: boolean) {
+  constructor(token: BoardToken, settings: TokenSettings, rules: CollectionRules, look: LabelLook) {
     this.object3d.add(this.top, this.side);
-    this.update(token, settings, rules, sharedArt);
+    this.update(token, settings, rules, look);
   }
 
   /** The resources drawn on the token, bars then wheels, which its controls sit on when it is selected. */
@@ -206,10 +213,10 @@ export class TokenLabels {
     return this.hover;
   }
 
-  update(token: BoardToken, settings: TokenSettings, rules: CollectionRules, sharedArt: boolean): void {
+  update(token: BoardToken, settings: TokenSettings, rules: CollectionRules, look: LabelLook): void {
     this.clear();
     const character = token.kind === 'character';
-    const shown = character ? visibleResources(token, rules.definitions, settings.hiddenResources) : [];
+    const shown = character ? visibleResources(token, rules.definitions, settings.hiddenResources, look.viewer) : [];
     // Top to bottom: name, then the bars in socket order.
     if (character && (settings.showNameplates || token.showNameplate) && token.name) {
       const plate = plateTexture(token.name);
@@ -226,8 +233,8 @@ export class TokenLabels {
     }
 
     const badges: Badge[] = [];
-    if (settings.showInstanceBadges && sharedArt && token.instanceNumber !== null) {
-      badges.push({ definition: null, value: { current: token.instanceNumber, max: 0 }, color: '#555555', label: `Copy ${token.instanceNumber}` });
+    if (look.badge !== null) {
+      badges.push({ definition: null, value: { current: look.badge, max: 0 }, color: '#555555', label: `Copy ${look.badge}` });
     }
     for (const resource of shown.filter((entry) => entry.slot >= BAR_SLOTS)) {
       const { definition, value } = resource;

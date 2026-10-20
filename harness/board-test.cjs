@@ -293,7 +293,7 @@ server.listen(0, async () => {
       check('fog covers the room, not the corridor erased through it', covered.room && !covered.corridor && !covered.outside, covered);
       await page.screenshot({ path: `${shots}/board-8-fog.png` });
 
-      const button = await page.evaluate(() => { const b = document.querySelector('.atlas-tabletop-tool-button').getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; });
+      const button = await page.evaluate(() => { const b = document.querySelector('.atlas-tabletop-tool-button[aria-label="Board settings"]').getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; });
       const selBefore = await page.evaluate(() => window.boardTest.board.selected);
       await page.mouse.click(button.x, button.y);
       await wait(150);
@@ -332,6 +332,67 @@ server.listen(0, async () => {
       await page.mouse.click(empty.x, empty.y);
       await wait(100);
       check('a click on the board closes the settings', await page.evaluate(() => document.querySelector('.atlas-tabletop-palette').hidden));
+    }
+
+    // 1k. The local player view: a second window drawing the scene as players see it.
+    {
+      const tools = () => page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-tool-button')].map((b) => {
+        const r = b.getBoundingClientRect();
+        return { label: b.getAttribute('aria-label'), hidden: b.hidden, active: b.classList.contains('is-active'), x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      }));
+      let list = await tools();
+      check('the toolbar has the player view button; freezing waits for a player view', list.some((t) => t.label === 'Open the player view') && list.find((t) => t.label?.startsWith('Freeze'))?.hidden, list);
+      const opened = page.waitForEvent('popup');
+      const open = list.find((t) => t.label === 'Open the player view');
+      await page.mouse.click(open.x, open.y);
+      const popup = await opened;
+      await wait(800);
+      list = await tools();
+      check('the button shows the player view is open, and freezing is offered', list.some((t) => t.label === 'Close the player view' && t.active) && list.some((t) => t.label === "Freeze the players' camera here" && !t.hidden), list);
+      const drawn = await popup.screenshot({ path: `${shots}/board-10-players.png` });
+      check('the player window draws the board', drawn.length > 20000, drawn.length);
+      await page.screenshot({ path: `${shots}/board-11-gm-with-players.png` });
+
+      const gm = await page.evaluate(() => {
+        const b = window.boardTest.board;
+        return { orc: b.tokens.get('orc').piece.object3d.visible, lurker: b.tokens.get('lurker').piece.object3d.visible, pins: b.pins.every((p) => p.object3d.visible), outline: b.fog.object3d.children.some((c) => c.isLineSegments && c.visible) };
+      });
+      check('after each frame the GM sees everything again: hidden tokens, tokens under fog, pins, see-through fog', gm.orc && gm.lurker && gm.pins && gm.outline, gm);
+      const players = await page.evaluate(() => {
+        const b = window.boardTest.board;
+        b.showFor('player');
+        const seen = { orc: b.tokens.get('orc').piece.object3d.visible, lurker: b.tokens.get('lurker').piece.object3d.visible, hero: b.tokens.get('hero').piece.object3d.visible, pins: b.pins.some((p) => p.object3d.visible), heroResources: b.tokens.get('hero').playerLabels.resourceTargets.map((t) => t.definition.key), heroGm: b.tokens.get('hero').labels.resourceTargets.map((t) => t.definition.key) };
+        b.showFor('gm');
+        return seen;
+      });
+      check('players do not see the hidden orc, the token under the fog, or the pins', !players.orc && !players.lurker && players.hero && !players.pins, players);
+      check('players see only the resources shown to them', JSON.stringify(players.heroResources) === '["ac","slots","ki"]' && players.heroGm.includes('hp'), players);
+      const copies = await page.evaluate(() => ({ gm: window.boardTest.board.tokens.get('gob2').labels.hoverTargets.map((t) => t.label), players: window.boardTest.board.tokens.get('gob2').playerLabels.hoverTargets.map((t) => t.label) }));
+      check('copy numbers are counted among what players see', copies.gm.includes('Copy 2'), copies);
+
+      const playerEye = () => page.evaluate(() => { const v = window.boardTest.board.player.view.position; return [v.x, v.y, v.z].map((n) => Math.round(n)); });
+      const gmEye = () => page.evaluate(() => { const v = window.boardTest.board.view.position; return [v.x, v.y, v.z].map((n) => Math.round(n)); });
+      check('the players\' camera follows the GM\'s', JSON.stringify(await playerEye()) === JSON.stringify(await gmEye()), { p: await playerEye(), g: await gmEye() });
+      const freeze = (await tools()).find((t) => t.label === "Freeze the players' camera here");
+      await page.mouse.click(freeze.x, freeze.y);
+      await wait(100);
+      const frozenAt = await playerEye();
+      const emptyAt = await project(560, 760, 0);
+      await drag(emptyAt, { x: emptyAt.x + 150, y: emptyAt.y }, 'left');
+      await wait(300);
+      check('frozen, the players\' camera stays while the GM\'s turns', JSON.stringify(await playerEye()) === JSON.stringify(frozenAt) && JSON.stringify(await gmEye()) !== JSON.stringify(frozenAt), { frozenAt, p: await playerEye(), g: await gmEye() });
+      const unfreeze = (await tools()).find((t) => t.label === "Let the players' camera follow yours");
+      check('the freeze button shows it is on', unfreeze && unfreeze.active, await tools());
+      await page.mouse.click(unfreeze.x, unfreeze.y);
+      await page.evaluate(() => window.boardTest.board.wake());
+      await wait(300);
+      check('unfrozen, it follows the GM\'s again', JSON.stringify(await playerEye()) === JSON.stringify(await gmEye()), { p: await playerEye(), g: await gmEye() });
+
+      const close = (await tools()).find((t) => t.label === 'Close the player view');
+      await page.mouse.click(close.x, close.y);
+      await wait(300);
+      const after = await page.evaluate(() => ({ player: window.boardTest.board.player, labels: [...document.querySelectorAll('.atlas-tabletop-tool-button')].map((b) => [b.getAttribute('aria-label'), b.hidden]) }));
+      check('closing it stops the second drawing and hides the freeze button', after.player === null && after.labels.some(([l]) => l === 'Open the player view'), after);
     }
 
     // 2. A click on a pin opens its note.

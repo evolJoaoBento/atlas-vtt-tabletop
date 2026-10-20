@@ -81,6 +81,8 @@ const map: BoardMap = {
     token({ id: 'orc', x: 735, y: 525, imagePath: 'red.png', name: 'Orc', hidden: true, resources: { hp: { current: 15, max: 15 } } }),
     token({ id: 'noart', x: 385, y: 665, imagePath: 'missing.png', kind: 'token' }),
     token({ id: 'fallen', x: 1155, y: 525, imagePath: 'red.png', name: 'Fallen', resources: { hp: { current: 0, max: 9 } } }),
+    // Inside the fogged room: the GM sees it, players do not.
+    token({ id: 'lurker', x: 1015, y: 805, imagePath: 'red.png', name: 'Lurker', resources: { hp: { current: 9, max: 9 } } }),
     token({ id: 'fallenDisc', x: 1225, y: 525, imagePath: 'green.png', name: 'Fallen disc', resources: { hp: { current: 0, max: 9 } } }),
   ],
   rawGrid: null,
@@ -126,6 +128,7 @@ async function main(): Promise<void> {
   ];
   rules.definitions = definitions;
   let fogHeight = 1;
+  let players: Window | null = null;
   const host: BoardHost = {
     readImage: async (path) => images[path] ?? null,
     readMini: async (path) => (path.includes('barrel') ? barrel : hero),
@@ -152,6 +155,24 @@ async function main(): Promise<void> {
     setFogHeight: (height) => { fogHeight = height; record.fogHeights.push(height); board.refresh(); },
     measurement: () => ({ mode: 'metric', unitType: 'feet', unitDistance: 5, diagonalRule: 'equidistant', bands: [] }),
     warn: (message) => { if (!record.warnings.includes(message)) record.warnings.push(message); },
+    // A popup window stands in for Obsidian's pop-out: same process, another document.
+    togglePlayerView: () => {
+      if (players && !players.closed) {
+        board.detachPlayer();
+        players.close();
+        players = null;
+      } else {
+        players = window.open('', 'players', 'width=640,height=400');
+        if (!players) return;
+        players.document.body.style.cssText = 'margin:0;background:#0f0c0a';
+        const stage = players.document.createElement('div');
+        stage.style.cssText = 'position:fixed;inset:0';
+        players.document.body.appendChild(stage);
+        board.attachPlayer(stage);
+      }
+      board.refreshToolbar();
+    },
+    playerViewOpen: () => !!players && !players.closed,
   };
   const container = document.getElementById('board')!;
   const board = new Board(container, host, QUALITY.medium);

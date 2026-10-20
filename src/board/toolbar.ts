@@ -1,17 +1,27 @@
 /**
- * The 3D board's toolbar, at the bottom of the board in Atlas's look: for now its command button alone, which opens
- * the board's settings in a panel above it, as Atlas's opens its command palette. The panel has the fog of war's
- * height. Plain HTML over the board; keys typed in it stay out of the board's camera keys.
+ * The 3D board's toolbar, at the bottom of the board in Atlas's look: the local player view (open or close it, and
+ * freeze the players' camera while it is open), and the command button, which opens the board's settings in a panel
+ * above it, as Atlas's opens its command palette. The panel has the fog of war's height. Plain HTML over the board;
+ * keys typed in it stay out of the board's camera keys.
  */
 
 export interface ToolbarActions {
   /** How tall the fog stands, in grid squares. */
   fogHeight(): number;
   setFogHeight(height: number): void;
+  playerViewOpen(): boolean;
+  togglePlayerView(): void;
+  /** Whether the players' camera is frozen; freezing it, or letting it follow again. */
+  playerFrozen(): boolean;
+  togglePlayerFreeze(): void;
 }
 
 /** Lucide's `command` icon (ISC), the glyph of Atlas's command palette button. */
 const COMMAND_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></svg>';
+
+/** Lucide's `presentation` and `snowflake` icons (ISC): Atlas's player view, and a frozen camera. */
+const PLAYER_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h20"/><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"/><path d="m7 21 5-5 5 5"/></svg>';
+const FREEZE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m10 20-1.25-2.5L6 18"/><path d="M10 4 8.75 6.5 6 6"/><path d="m14 20 1.25-2.5L18 18"/><path d="m14 4 1.25 2.5L18 6"/><path d="m17 21-3-6h-4"/><path d="m17 3-3 6 1.5 3"/><path d="M2 12h6.5L10 9"/><path d="m20 10-1.5 2 1.5 2"/><path d="M22 12h-6.5L14 15"/><path d="m4 10 1.5 2L4 14"/><path d="m7 21 3-6-1.5-3"/><path d="m7 3 3 6h4"/></svg>';
 
 /** A height typed in the panel: a number of squares from 0, or null when it is not one. */
 export function readFogHeight(text: string): number | null {
@@ -23,6 +33,8 @@ export class BoardToolbar {
   private readonly row: HTMLElement;
   private readonly panel: HTMLElement;
   private readonly button: HTMLButtonElement;
+  private readonly playerButton: HTMLButtonElement;
+  private readonly freezeButton: HTMLButtonElement;
   private readonly heightInput: HTMLInputElement;
   private readonly onOutside = (event: PointerEvent): void => {
     const target = event.target as Node;
@@ -42,6 +54,15 @@ export class BoardToolbar {
     this.row = el('div', 'atlas-tabletop-toolbar-row', container);
     const bar = el('div', 'atlas-tabletop-toolbar', this.row);
     bar.setAttribute('role', 'toolbar');
+    const tool = (svg: string, onClick: () => void): HTMLButtonElement => {
+      const made = el('button', 'atlas-tabletop-tool-button', bar);
+      made.type = 'button';
+      made.innerHTML = svg;
+      made.addEventListener('click', onClick);
+      return made;
+    };
+    this.playerButton = tool(PLAYER_SVG, () => this.actions.togglePlayerView());
+    this.freezeButton = tool(FREEZE_SVG, () => this.actions.togglePlayerFreeze());
     this.button = el('button', 'atlas-tabletop-tool-button', bar);
     this.button.type = 'button';
     this.button.innerHTML = COMMAND_SVG;
@@ -79,6 +100,24 @@ export class BoardToolbar {
     });
     // Presses on the bar and the panel are not the board's: no camera drag, no deselecting.
     for (const part of [bar, this.panel]) part.addEventListener('pointerdown', (event) => event.stopPropagation());
+    this.refresh();
+  }
+
+  /** Shows the player view's state: open or not, its camera frozen or not (the freeze button only while it is open). */
+  refresh(): void {
+    const open = this.actions.playerViewOpen();
+    const frozen = open && this.actions.playerFrozen();
+    const label = (button: HTMLButtonElement, text: string): void => {
+      button.setAttribute('aria-label', text);
+      button.title = text;
+    };
+    label(this.playerButton, open ? 'Close the player view' : 'Open the player view');
+    this.playerButton.classList.toggle('is-active', open);
+    this.playerButton.setAttribute('aria-pressed', String(open));
+    this.freezeButton.hidden = !open;
+    label(this.freezeButton, frozen ? "Let the players' camera follow yours" : "Freeze the players' camera here");
+    this.freezeButton.classList.toggle('is-active', frozen);
+    this.freezeButton.setAttribute('aria-pressed', String(frozen));
   }
 
   get isOpen(): boolean {

@@ -9,6 +9,9 @@
  *   (and wobbles its mini), a click on the empty board or Escape lets it go. The selected token gets Atlas's resource
  *   controls: − / + beside each bar and wheel, and a click on one opens Atlas's editor for it.
  * - Atlas's fog of war stands on the map as a see-through block, as tall as the toolbar's settings say.
+ * - The local player view (a second window, for a screen the players look at) draws the same scene as players see it:
+ *   no hidden tokens, nothing under the fog (which is solid), no pins, only the resources shown to players. It follows
+ *   the GM's camera, live, unless the GM froze it.
  * - Any other drag moves the camera: left or middle orbits, right pans. The wheel zooms. WASD or the arrow keys pan,
  *   Q and E turn, Home frames the map.
  *
@@ -35,6 +38,8 @@ import { BoardSurface } from './surface';
 import { FogVolume } from './fogVolume';
 import { BoardToolbar } from './toolbar';
 import { pinTitle } from './pinIcons';
+import { NO_INSTANCE_NUMBERS, badgeNumberInView, insideFog, numberTokensInView, playerSees } from './playerView';
+import { positionOf } from './camera';
 import { loadImageTexture, plateTexture, screenScale } from './textures';
 
 /** Obsidian's accent colour, for highlights; Atlas's purple outside Obsidian. */
@@ -74,6 +79,9 @@ export interface BoardHost {
   setFogHeight(height: number): void;
   /** Shown once per message. */
   warn(message: string): void;
+  /** Opens or closes the local player view of this map; whether it is open. */
+  togglePlayerView(): void;
+  playerViewOpen(): boolean;
 }
 
 const FOV = 35;
@@ -102,10 +110,25 @@ interface TokenEntry {
   token: BoardToken;
   piece: TokenPiece;
   labels: TokenLabels;
+  /** What the players' picture shows over the token, drawn only in that picture's pass. */
+  playerLabels: TokenLabels;
   /** Where it is drawn, and where it is heading. */
   at: { x: number; y: number };
   goal: { x: number; y: number };
   mini: string | null;
+}
+
+/** The local player view's own drawing of the scene, in its window. */
+interface PlayerScreen {
+  container: HTMLElement;
+  canvas: HTMLCanvasElement;
+  renderer: THREE.WebGLRenderer;
+  view: THREE.PerspectiveCamera;
+  resize: ResizeObserver;
+  /** Where the GM froze the players' camera; null while it follows the GM's. */
+  frozen: { eye: { x: number; y: number; z: number }; target: { x: number; y: number; z: number }; yaw: number; distance: number } | null;
+  /** Its shadows are drawn on its next frame (it just opened, or it was resized). */
+  shadowsDirty: boolean;
 }
 
 /** The cell under the pointer: where it is and what it is called. */
@@ -181,6 +204,11 @@ export class Board {
   private readonly controls: ResourceControls;
   private readonly fog = new FogVolume();
   private readonly toolbar: BoardToolbar;
+  private player: PlayerScreen | null = null;
+  /** Copy numbers as players see them, kept from sync to sync so a token keeps its number. */
+  private playerNumbers = NO_INSTANCE_NUMBERS;
+  /** The window whose animation frame is asked for: the GM's, or the players' while the GM's is hidden. */
+  private frameWin: Window | null = null;
   /** The open resource editor: whose, which resource, the value it opened on. */
   private editor: { tokenId: string; key: string; value: ResourceValue; view: ValueEditor } | null = null;
   /** How the last frame sized things on screen, to size what a reload rebuilds before the next frame. */
@@ -202,6 +230,10 @@ export class Board {
     this.toolbar = new BoardToolbar(container, {
       fogHeight: () => this.host.fogHeight(),
       setFogHeight: (height) => this.host.setFogHeight(height),
+      playerViewOpen: () => this.host.playerViewOpen(),
+      togglePlayerView: () => this.host.togglePlayerView(),
+      playerFrozen: () => this.player?.frozen != null,
+      togglePlayerFreeze: () => this.setPlayerFrozen(this.player?.frozen == null),
     });
     this.controls = new ResourceControls(container, {
       step: (key, delta) => this.stepResource(key, delta),
@@ -349,24 +381,38 @@ export class Board {
   private sync(): void {
     const map = this.map!;
     const rules = this.host.rules();
+    try {
+      this.fog.update(map.fog, this.host.fogHeight(), map.grid.size);
+    } catch (error) {
+      this.host.warn(`Tabletop: cannot show this map's fog of war: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    // Players count copies among the tokens they see, ordered by the GM's numbers (Atlas's player window).
+    this.playerNumbers = numberTokensInView(this.playerNumbers, map.tokens
+      .filter((token) => playerSees(token, this.tokens.get(token.id)?.goal ?? token, this.fog.areas))
+      .map((token) => ({ id: token.id, art: token.imagePath ?? '', rank: token.instanceNumber ?? Infinity })));
     const artUse = new Map<string, number>();
     for (const token of map.tokens) if (token.imagePath) artUse.set(token.imagePath, (artUse.get(token.imagePath) ?? 0) + 1);
     const seen = new Set<string>();
     for (const token of map.tokens) {
       seen.add(token.id);
       const shared = (artUse.get(token.imagePath ?? '') ?? 0) >= 2;
+      const gmLook = { viewer: 'gm' as const, badge: map.tokenSettings.showInstanceBadges && shared ? token.instanceNumber : null };
+      const playerLook = { viewer: 'player' as const, badge: badgeNumberInView(this.playerNumbers, token.id, map.tokenSettings.showInstanceBadges) };
       let entry = this.tokens.get(token.id);
       if (!entry) {
         const piece = new TokenPiece(token, map.grid, rules.definitions);
         piece.setMiniShadows(this.quality.miniShadows);
-        const labels = new TokenLabels(token, map.tokenSettings, rules, shared);
-        piece.object3d.add(labels.object3d);
+        const labels = new TokenLabels(token, map.tokenSettings, rules, gmLook);
+        const playerLabels = new TokenLabels(token, map.tokenSettings, rules, playerLook);
+        playerLabels.object3d.visible = false;
+        piece.object3d.add(labels.object3d, playerLabels.object3d);
         this.scene.add(piece.object3d);
-        entry = { token, piece, labels, at: { x: token.x, y: token.y }, goal: { x: token.x, y: token.y }, mini: null };
+        entry = { token, piece, labels, playerLabels, at: { x: token.x, y: token.y }, goal: { x: token.x, y: token.y }, mini: null };
         this.tokens.set(token.id, entry);
       } else {
         entry.piece.update(token, rules.definitions);
-        entry.labels.update(token, map.tokenSettings, rules, shared);
+        entry.labels.update(token, map.tokenSettings, rules, gmLook);
+        entry.playerLabels.update(token, map.tokenSettings, rules, playerLook);
         entry.token = token;
         // A token being carried stays under the pointer; the file catches up on release.
         if (this.press?.kind !== 'token' || this.press.id !== token.id) entry.goal = { x: token.x, y: token.y };
@@ -378,6 +424,7 @@ export class Board {
     for (const [id, entry] of [...this.tokens]) {
       if (seen.has(id)) continue;
       entry.labels.dispose();
+      entry.playerLabels.dispose();
       entry.piece.dispose();
       this.tokens.delete(id);
     }
@@ -404,12 +451,6 @@ export class Board {
       return piece;
     });
     for (const piece of kept.values()) piece.dispose();
-
-    try {
-      this.fog.update(map.fog, this.host.fogHeight(), map.grid.size);
-    } catch (error) {
-      this.host.warn(`Tabletop: cannot show this map's fog of war: ${error instanceof Error ? error.message : String(error)}`);
-    }
 
     for (const pin of this.pins) pin.dispose();
     this.pins = map.pins.map((pin) => {
@@ -447,6 +488,7 @@ export class Board {
       for (const entry of this.tokens.values()) {
         entry.labels.place(entry.piece.figureHeight(), ringDiameter(map.grid, entry.token.size) / 2, entry.piece.top);
         entry.labels.pose(pose);
+        entry.playerLabels.place(entry.piece.figureHeight(), ringDiameter(map.grid, entry.token.size) / 2, entry.piece.top);
       }
     }
     this.wake(true);
@@ -510,7 +552,11 @@ export class Board {
   wake(changed = false): void {
     if (changed) this.shadowsDirty = true;
     if (this.disposed || this.frameId !== 0) return;
-    const win = this.container.ownerDocument.defaultView ?? window;
+    // A hidden window gets no animation frames: while the GM's is hidden, the players' window drives the drawing.
+    const gm = this.container.ownerDocument;
+    const players = this.player?.container.ownerDocument;
+    const win = (gm.hidden && players && !players.hidden ? players.defaultView : gm.defaultView) ?? window;
+    this.frameWin = win;
     this.frameId = win.requestAnimationFrame((time) => this.frame(time));
   }
 
@@ -559,6 +605,7 @@ export class Board {
       entry.piece.pose(entry.at.x, entry.at.y, context);
       entry.labels.place(entry.piece.figureHeight(), ringDiameter(this.map!.grid, entry.token.size) / 2, entry.piece.top);
       entry.labels.pose(context);
+      entry.playerLabels.place(entry.piece.figureHeight(), ringDiameter(this.map!.grid, entry.token.size) / 2, entry.piece.top);
       if (entry.piece.animating) {
         busy = true;
         changed = true;
@@ -573,13 +620,15 @@ export class Board {
     if (this.cellLabel) this.cellLabel.scale.set(context.pixel * CELL_LABEL_PX * this.cellLabelAspect, context.pixel * CELL_LABEL_PX, 1);
     // A mini's clip alone redraws the shadows a few times a second, not every frame.
     const clipsOnly = changed && !this.shadowsDirty && this.press === null && !moving;
-    if (changed && (!clipsOnly || this.clock - this.shadowedAt >= CLIP_SHADOW_STEP)) {
+    const shadows = changed && (!clipsOnly || this.clock - this.shadowedAt >= CLIP_SHADOW_STEP);
+    if (shadows) {
       this.renderer.shadowMap.needsUpdate = true;
       this.shadowedAt = this.clock;
     }
     this.shadowsDirty = false;
     this.renderer.render(this.scene, this.view);
     this.layoutControls();
+    this.drawPlayers(shadows, context);
     this.continuing = busy || this.held.size > 0 || this.press !== null;
     if (this.continuing) this.wake();
   }
@@ -1022,6 +1071,129 @@ export class Board {
     this.host.copyToken(entry.token.id, newId, at.x, at.y);
   }
 
+  // ── The local player view ─────────────────────────────────────────────────
+
+  /** Draws the scene in the local player view's window too, from now on; `container` is that window's board area. */
+  attachPlayer(container: HTMLElement): void {
+    this.detachPlayer();
+    const doc = container.ownerDocument;
+    const win = doc.defaultView ?? window;
+    const canvas = doc.createElement('canvas');
+    canvas.className = 'atlas-tabletop-player-board';
+    container.appendChild(canvas);
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: this.quality.antialias, powerPreference: 'high-performance' });
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
+    renderer.shadowMap.autoUpdate = false;
+    // Its own screen: that window may sit on another monitor.
+    renderer.setPixelRatio(Math.min(win.devicePixelRatio || 1, this.quality.maxPixelRatio));
+    const view = new THREE.PerspectiveCamera(FOV, 1, this.view.near, this.view.far);
+    const resize = new win.ResizeObserver(() => {
+      const player = this.player;
+      if (!player) return;
+      player.renderer.setSize(Math.max(1, container.clientWidth), Math.max(1, container.clientHeight), false);
+      player.shadowsDirty = true;
+      this.wake();
+    });
+    resize.observe(container);
+    renderer.setSize(Math.max(1, container.clientWidth), Math.max(1, container.clientHeight), false);
+    this.player = { container, canvas, renderer, view, resize, frozen: null, shadowsDirty: true };
+    this.toolbar.refresh();
+    this.wake(true);
+  }
+
+  /** Stops drawing in the local player view's window (it closed, or shows another board). */
+  detachPlayer(): void {
+    const player = this.player;
+    if (!player) return;
+    this.player = null;
+    player.resize.disconnect();
+    player.renderer.dispose();
+    player.renderer.forceContextLoss();
+    player.canvas.remove();
+    this.toolbar.refresh();
+  }
+
+  /** The player view opened or closed somewhere: the toolbar's buttons follow. */
+  refreshToolbar(): void {
+    this.toolbar.refresh();
+  }
+
+  /** Whether the players' camera is frozen where the GM froze it. */
+  get playerFrozen(): boolean {
+    return this.player?.frozen != null;
+  }
+
+  /** Freezes the players' camera where the GM's is now, or lets it follow the GM's again. */
+  setPlayerFrozen(frozen: boolean): void {
+    const player = this.player;
+    if (!player) return;
+    const pose = this.camera.pose;
+    player.frozen = frozen ? { eye: positionOf(pose), target: { ...pose.target }, yaw: pose.yaw, distance: pose.distance } : null;
+    this.toolbar.refresh();
+    this.wake();
+  }
+
+  /**
+   * Shows the scene as `viewer` sees it, for the next drawing: the GM everything; players no hidden token, nothing
+   * whose centre is under the fog (tokens, Tabletop's props), no pins or cell highlight, the solid fog and their own
+   * labels.
+   */
+  private showFor(viewer: 'gm' | 'player'): void {
+    const gm = viewer === 'gm';
+    const fog = this.fog.areas;
+    for (const entry of this.tokens.values()) {
+      entry.piece.object3d.visible = gm || playerSees(entry.token, entry.at, fog);
+      entry.labels.object3d.visible = gm;
+      entry.playerLabels.object3d.visible = !gm;
+    }
+    for (const pin of this.pins) pin.object3d.visible = gm;
+    for (const piece of this.props.values()) piece.object3d.visible = gm || !insideFog(fog, { x: piece.object3d.position.x, y: piece.object3d.position.z });
+    if (this.cellOutline) this.cellOutline.visible = gm;
+    if (this.cellLabel) this.cellLabel.visible = gm;
+    this.fog.show(viewer);
+  }
+
+  /** The players' picture, after the GM's: the same scene through the players' camera, then back to the GM's look. */
+  private drawPlayers(shadows: boolean, gm: PoseContext): void {
+    const player = this.player;
+    if (!player) return;
+    const height = player.container.clientHeight;
+    const width = player.container.clientWidth;
+    if (width === 0 || height === 0) return;
+    const pose = this.camera.pose;
+    const frozen = player.frozen;
+    const eye = frozen?.eye ?? this.camera.position();
+    const target = frozen?.target ?? pose.target;
+    player.view.position.set(eye.x, eye.y, eye.z);
+    player.view.lookAt(target.x, target.y, target.z);
+    player.view.aspect = width / height;
+    player.view.near = this.view.near;
+    player.view.far = this.view.far;
+    player.view.updateProjectionMatrix();
+    player.view.updateMatrixWorld();
+    const distance = frozen?.distance ?? pose.distance;
+    const context: PoseContext = {
+      ...gm,
+      yaw: frozen?.yaw ?? pose.yaw,
+      zoom: height / (2 * distance * Math.tan(THREE.MathUtils.degToRad(FOV) / 2)),
+      pixel: screenScale(1, height, FOV),
+    };
+    this.showFor('player');
+    try {
+      for (const entry of this.tokens.values()) entry.playerLabels.pose(context);
+      player.renderer.shadowMap.needsUpdate = shadows || player.shadowsDirty;
+      player.shadowsDirty = false;
+      player.renderer.render(this.scene, player.view);
+    } catch (error) {
+      console.error('[Tabletop] The player view could not be drawn:', error);
+    } finally {
+      // Whatever happened, the GM's board goes back to the GM's look.
+      this.showFor('gm');
+    }
+  }
+
   /** The token whose resource controls show, or null. */
   get selected(): string | null {
     return this.selectedId;
@@ -1173,10 +1345,11 @@ export class Board {
 
   dispose(): void {
     this.disposed = true;
-    if (this.frameId !== 0) (this.container.ownerDocument.defaultView ?? window).cancelAnimationFrame(this.frameId);
+    if (this.frameId !== 0) (this.frameWin ?? this.container.ownerDocument.defaultView ?? window).cancelAnimationFrame(this.frameId);
+    this.detachPlayer();
     for (const stop of this.stops) stop();
     this.resize.disconnect();
-    for (const entry of this.tokens.values()) { entry.labels.dispose(); entry.piece.dispose(); }
+    for (const entry of this.tokens.values()) { entry.labels.dispose(); entry.playerLabels.dispose(); entry.piece.dispose(); }
     this.tokens.clear();
     for (const pin of this.pins) pin.dispose();
     for (const icon of this.icons) icon.dispose();

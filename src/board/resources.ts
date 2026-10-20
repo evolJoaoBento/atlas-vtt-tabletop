@@ -139,11 +139,14 @@ function holdsValue(definition: ResourceDefinition, value: ResourceValue): boole
   return definition.direction === 'static' ? value.max >= 0 : value.max > 0;
 }
 
-/** The resources the GM sees on a token, in socket order, without those the map hides. */
-export function visibleResources(token: ResourceHolder, definitions: readonly ResourceDefinition[], hidden: readonly string[]): VisibleResource[] {
+/**
+ * The resources a viewer sees on a token, in socket order: the GM those the map does not hide; players those the
+ * collection shows them (`visibleToPlayers`), whatever the map hides from the GM, as Atlas's player window does.
+ */
+export function visibleResources(token: ResourceHolder, definitions: readonly ResourceDefinition[], hidden: readonly string[], viewer: 'gm' | 'player' = 'gm'): VisibleResource[] {
   const shown: VisibleResource[] = [];
   for (const { definition, slot } of slottedResources(definitions)) {
-    if (hidden.includes(definition.key)) continue;
+    if (viewer === 'gm' ? hidden.includes(definition.key) : !definition.visibleToPlayers) continue;
     const value = token.resources?.[definition.key];
     if (!value || !holdsValue(definition, value)) continue;
     shown.push({ definition, value, slot });
