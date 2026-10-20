@@ -45,5 +45,5 @@ node harness/board-test.cjs <dir> <screenshot dir>
 
 ## Credits
 
-The pin icons are from [game-icons.net](https://game-icons.net) (CC BY 3.0), by Lorc, Delapouite and contributors.
+The pin and condition icons are from [game-icons.net](https://game-icons.net) (CC BY 3.0), by Lorc, Delapouite and contributors.
 They are the same icons Atlas VTT uses, and pins show the same colours as in Atlas.

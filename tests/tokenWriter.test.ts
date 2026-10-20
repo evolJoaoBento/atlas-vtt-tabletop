@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type { AtlasSceneState, AtlasView } from '../src/atlas';
 import { HP_RESOURCE, STRESS_RESOURCE } from '../src/board/resources';
-import { TokenWriter, copyTokenInText, deleteTokenInText, killTokenInText, moveTokenInText, setResourceInText } from '../src/board/tokenWriter';
+import { TokenWriter, copyTokenInText, deleteTokenInText, initiativeInText, killTokenInText, moveTokenInText, setResourceInText } from '../src/board/tokenWriter';
+import { conditionChange, resetChange } from '../src/board/tokenEdits';
 
 const text = readFileSync('tests/fixtures/dungeon.atlasmap', 'utf8');
 const ID = 'tok_1792170000003_kestrel-v';
@@ -171,4 +172,59 @@ test('stress with a max of 0 counts as 10, as Atlas reads it', () => {
   const out = JSON.parse(setResourceInText(file, 't', 'stress', (v) => ({ ...v, current: 3 }), false));
   assert.deepEqual(out.state.objects.tokens.t.stress, { current: 3, max: 10 });
   assert.equal(out.state.objects.tokens.t.maxStressOverridden, undefined);
+});
+
+test('a condition change in the file deletes the lists it empties', async () => {
+  const file = JSON.stringify({ state: { objects: { tokens: { t: { id: 't', conditions: ['a'], conditionValues: { a: 2 }, hp: { current: 3, max: 9 } } } } } });
+  let out = '';
+  const writer = new TokenWriter({ views: () => [], process: async (_path, edit) => { out = edit(file); } });
+  assert.equal(await writer.update('m', 't', (token) => conditionChange(token, 'a', false)), 'file');
+  const token = JSON.parse(out).state.objects.tokens.t;
+  assert.equal('conditions' in token, false);
+  assert.equal('conditionValues' in token, false);
+  assert.deepEqual(token.hp, { current: 3, max: 9 });
+});
+
+test('Reset in the file restores the old fields and clears conditions', async () => {
+  const file = JSON.stringify({ state: { objects: { tokens: { t: { id: 't', hp: { current: 0, max: 9 }, stress: 4, maxStress: 6, conditions: ['a'] } } } } });
+  let out = '';
+  const writer = new TokenWriter({ views: () => [], process: async (_path, edit) => { out = edit(file); } });
+  await writer.update('m', 't', (token) => resetChange(token, [HP_RESOURCE, STRESS_RESOURCE]));
+  const token = JSON.parse(out).state.objects.tokens.t;
+  assert.deepEqual([token.hp, token.stress, token.maxStress, 'conditions' in token, 'resources' in token], [{ current: 9, max: 9 }, { current: 0, max: 6 }, 6, false, false]);
+});
+
+test('an older Atlas gets Reset as the file fields plus the cleared conditions', async () => {
+  const calls: unknown[] = [];
+  const live = { id: 't', x: 0, y: 0, hp: { current: 0, max: 9 }, conditions: ['a'] };
+  const writer = new TokenWriter({ views: () => [fakeView('m.atlasmap', calls, { objects: { tokens: { t: live } } })], process: async () => { throw new Error('no file write'); } });
+  await writer.update('m.atlasmap', 't', (token) => resetChange(token, [HP_RESOURCE]));
+  assert.deepEqual(calls.at(-1), ['t', { conditions: undefined, conditionValues: undefined, hp: { current: 9, max: 9 } }]);
+});
+
+test('joining the initiative in the file: Atlas\'s entry with the token\'s vitals, the tracker made when there was none', () => {
+  const file = JSON.stringify({ state: { objects: { tokens: { t: { id: 't', kind: 'character', name: 'Kestrel', imagePath: 'k.png', hp: { current: 0, max: 9 } } } } } });
+  const joined = JSON.parse(initiativeInText(file, 't', true, 'init_1')).state.initiative;
+  assert.deepEqual(joined.entries, [{ tokenId: 't', name: 'Kestrel', initiative: 0, initiativeModifier: 0, imagePath: 'k.png', isNPC: true, hp: { current: 0, max: 9 }, isDefeated: true, id: 'init_1', order: 0, isActive: true }]);
+  assert.equal(joined.currentIndex, -1);
+  const left = JSON.parse(initiativeInText(JSON.stringify({ state: { ...JSON.parse(file).state, initiative: joined } }), 't', false, 'x')).state.initiative;
+  assert.deepEqual(left.entries, []);
+});
+
+test('with Atlas holding the map, initiative goes through its tracker, which opens', async () => {
+  const added: unknown[] = [];
+  const removed: unknown[] = [];
+  let opened = false;
+  const state = (entries: Array<{ id: string; tokenId: string }>) => fakeView('m.atlasmap', [], {
+    objects: { tokens: { t: { id: 't', x: 0, y: 0, kind: 'character', name: 'K', imagePath: 'k.png' } as never } },
+    initiative: { entries }, initiativeTrackerOpen: false, setInitiativeTrackerOpen: () => { opened = true; },
+    addToInitiative: (entry) => { added.push(entry); return 'x'; }, removeFromInitiative: (id) => { removed.push(id); },
+  });
+  let writer = new TokenWriter({ views: () => [state([])], process: async () => { throw new Error('no file write'); } });
+  assert.equal(await writer.initiative('m.atlasmap', 't', true), 'atlas');
+  assert.deepEqual(added, [{ tokenId: 't', name: 'K', initiative: 0, initiativeModifier: 0, imagePath: 'k.png', isNPC: true }]);
+  assert.equal(opened, true);
+  writer = new TokenWriter({ views: () => [state([{ id: 'init_9', tokenId: 't' }])], process: async () => { throw new Error('no file write'); } });
+  await writer.initiative('m.atlasmap', 't', false);
+  assert.deepEqual(removed, ['init_9']);
 });

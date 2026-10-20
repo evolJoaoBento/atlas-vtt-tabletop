@@ -10,6 +10,8 @@ export interface ConditionDefinition {
   color: string;
   /** Carries a number on each token (Exhaustion 2). */
   valued: boolean;
+  /** Its badge's glyph (an icon of Atlas's set); without one, its initial. */
+  icon?: string;
 }
 
 export interface CollectionRules {
@@ -48,7 +50,10 @@ export function readCollectionRules(metadata: unknown, collection: string | null
   if (Array.isArray(settings.conditions)) {
     for (const entry of settings.conditions) {
       if (!isObj(entry) || typeof entry.id !== 'string' || typeof entry.name !== 'string') continue;
-      rules.conditions.set(entry.id, { name: entry.name, color: typeof entry.color === 'string' ? entry.color : '#888888', valued: entry.valued === true });
+      rules.conditions.set(entry.id, {
+        name: entry.name, color: typeof entry.color === 'string' ? entry.color : '#888888', valued: entry.valued === true,
+        ...(typeof entry.icon === 'string' && entry.icon ? { icon: entry.icon } : {}),
+      });
     }
   }
   return rules;

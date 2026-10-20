@@ -1,6 +1,6 @@
 /**
- * Saves what the board changes on a map: a token moved, copied (Alt-drag), killed or deleted, a resource stepped or
- * edited.
+ * Saves what the board changes on a map: a token moved, copied (Alt-drag), killed, reset, hidden or shown, given or
+ * relieved of a condition, deleted, put in or taken out of the initiative; a resource stepped or edited.
  * Atlas never re-reads a map file it has open: its next save writes what it holds, which would undo a change written
  * to the file behind its back. So while an Atlas view has the map open (and has it loaded), the change goes through
  * Atlas's own store actions, which Atlas shows and saves; otherwise the file is edited, changing only what changed
@@ -15,11 +15,17 @@ import {
   defeatedResources, initiativeVitals, resourceUpdate, tokenFromFile, tokenToFile,
   type ResourceDefinition, type ResourceHolder, type ResourceValue,
 } from './resources';
+import { addToInitiative, initiativeEntryFor, initiativeId, removeFromInitiative, type InitiativeState } from './tokenEdits';
 
 type RawToken = Record<string, unknown> & { x?: number; y?: number; imagePath?: string; instanceNumber?: number };
-type MapFile = { state?: { objects?: { tokens?: Record<string, RawToken> }; initiative?: { entries?: unknown } } };
-/** What a change does to a token's resources, given them as Atlas holds them in memory; null when it changes nothing. */
-type ResourceChange = (token: ResourceHolder) => Pick<ResourceHolder, 'resources' | 'overriddenMax'> | null;
+type MapFile = { state?: { objects?: { tokens?: Record<string, RawToken> }; initiative?: InitiativeState } };
+/**
+ * What a change does to a token, given it as Atlas holds it in memory (its resources as `resources`): the fields it
+ * sets, `undefined` for one it deletes; null when it changes nothing. `resources` and `overriddenMax` are written in
+ * the form the map file (or an older Atlas) keeps them.
+ */
+export type TokenChange = (token: ResourceHolder & Record<string, unknown>) => Record<string, unknown> | null;
+type ResourceChange = TokenChange;
 
 function tokensOf(file: MapFile): Record<string, RawToken> {
   const tokens = file.state?.objects?.tokens;
@@ -87,12 +93,13 @@ function changeInText(text: string, id: string, change: ResourceChange): string 
   const held = tokenFromFile(tokenOf(file, id));
   const changes = change(held);
   if (!changes) return text;
-  const next = { ...held, ...changes };
+  const next: Record<string, unknown> = { ...held, ...changes };
+  for (const [field, value] of Object.entries(next)) if (value === undefined) delete next[field];
   tokens[id] = tokenToFile(next) as RawToken;
   const entries = file.state?.initiative?.entries;
   if (Array.isArray(entries)) {
-    file.state!.initiative!.entries = entries.map((entry: unknown) => (
-      typeof entry === 'object' && entry !== null && (entry as { tokenId?: unknown }).tokenId === id ? { ...entry, ...initiativeVitals(next) } : entry
+    file.state!.initiative!.entries = entries.map((entry) => (
+      typeof entry === 'object' && entry !== null && entry.tokenId === id ? { ...entry, ...initiativeVitals(next) } : entry
     ));
   }
   return JSON.stringify(file);
@@ -106,6 +113,21 @@ export function setResourceInText(text: string, id: string, key: string, edit: (
 /** The map file's text with a token killed: every resource that defeats it spent. */
 export function killTokenInText(text: string, id: string, definitions: readonly ResourceDefinition[]): string {
   return changeInText(text, id, kill(definitions));
+}
+
+/** The map file's text with a token put in the initiative (as Atlas adds it), or taken out. */
+export function initiativeInText(text: string, id: string, join: boolean, entryId: string): string {
+  const file = JSON.parse(text) as MapFile;
+  const raw = tokenOf(file, id);
+  const state = file.state!;
+  if (join) {
+    // The file keeps the token's vitals beside its entry, as Atlas writes them.
+    const entry = { ...initiativeEntryFor(raw as Parameters<typeof initiativeEntryFor>[0]), ...initiativeVitals(tokenFromFile(raw)) };
+    state.initiative = addToInitiative(state.initiative, entry, entryId);
+  } else if (state.initiative) {
+    state.initiative = removeFromInitiative(state.initiative, id);
+  }
+  return JSON.stringify(file);
 }
 
 /** The map file's text without a token. */
@@ -178,15 +200,18 @@ export class TokenWriter {
     if (!state.updateToken) throw TokenWriter.missing('token update');
     const live = state.objects.tokens[id] as unknown as Record<string, unknown>;
     if (!inFileForm(live)) {
-      const changes = change(live as ResourceHolder);
+      const changes = change(live as ResourceHolder & Record<string, unknown>);
       if (changes) state.updateToken(id, changes);
       return;
     }
     const held = tokenFromFile(live);
     const changes = change(held);
     if (!changes) return;
+    const { resources: _resources, overriddenMax: _overriddenMax, ...others } = changes;
+    const touchesResources = 'resources' in changes || 'overriddenMax' in changes;
     const fileForm = tokenToFile({ ...held, ...changes }) as Record<string, unknown>;
-    state.updateToken(id, Object.fromEntries(FILE_FIELDS.filter((field) => field in fileForm).map((field) => [field, fileForm[field]])));
+    const resourceFields = touchesResources ? Object.fromEntries(FILE_FIELDS.filter((field) => field in fileForm).map((field) => [field, fileForm[field]])) : {};
+    state.updateToken(id, { ...others, ...resourceFields });
   }
 
   private async change(path: string, id: string, change: ResourceChange): Promise<'atlas' | 'file'> {
@@ -205,6 +230,31 @@ export class TokenWriter {
    */
   resource(path: string, id: string, key: string, edit: (stored: ResourceValue) => ResourceValue, maxEdited: boolean): Promise<'atlas' | 'file'> {
     return this.change(path, id, setResource(key, edit, maxEdited));
+  }
+
+  /** Changes the token as `change` says (a condition, hidden or shown, Reset), through Atlas or in the file. */
+  update(path: string, id: string, change: TokenChange): Promise<'atlas' | 'file'> {
+    return this.change(path, id, change);
+  }
+
+  /**
+   * Puts the token in Atlas's initiative tracker, or takes it out. Through Atlas, its tracker opens too, as Atlas's
+   * menu opens it.
+   */
+  async initiative(path: string, id: string, join: boolean): Promise<'atlas' | 'file'> {
+    const state = this.atlas(path, id);
+    if (state) {
+      if (!state.addToInitiative || !state.removeFromInitiative) throw TokenWriter.missing('initiative tracker');
+      if (state.initiativeTrackerOpen === false) state.setInitiativeTrackerOpen?.(true);
+      const entry = state.initiative?.entries.find((candidate) => candidate.tokenId === id);
+      const token = state.objects.tokens[id] as unknown as Parameters<typeof initiativeEntryFor>[0];
+      if (join && !entry) state.addToInitiative(initiativeEntryFor(token));
+      else if (!join && entry) state.removeFromInitiative(entry.id);
+      return 'atlas';
+    }
+    const entryId = initiativeId();
+    await this.deps.process(path, (text) => initiativeInText(text, id, join, entryId));
+    return 'file';
   }
 
   /** Kills the token, as Atlas's Kill does: every resource that defeats it spent. */

@@ -4,7 +4,7 @@
  * GLBs, the minis and props kept by Tabletop, saving a token's move or resources, opening a note, the token menu with
  * Atlas's Kill and Delete) goes through the plugin's `BoardServices`.
  */
-import { ItemView, Menu, Notice, TFile, debounce, type MenuItem, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
+import { ItemView, Menu, Notice, TFile, debounce, setIcon, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
 import type { Assignments } from '../assignments';
 import { MiniPicker } from '../gallery';
 import type { LoadedMini, MiniLibrary } from '../library';
@@ -13,7 +13,11 @@ import type { BoardData } from './boardData';
 import { ASSETS_METADATA_PATH, collectionOf, emptyRules, readCollectionRules, type CollectionRules } from './conditions';
 import { readMap, type BoardMap, type BoardToken } from './mapModel';
 import { readMeasurement } from './measure';
-import { defeatedResources, isKillable } from './resources';
+import { defeatedResources } from './resources';
+import { AtlasMenu } from './atlasMenu';
+import { tokenMenuEntries } from './tokenMenu';
+import { conditionChange, conditionStep, resetChange, type ConditionFields } from './tokenEdits';
+import type { TokenChange } from './tokenWriter';
 import type { LaserSettings } from './laser';
 import type { PlayerView } from './PlayerWindow';
 import { QUALITY, type Quality } from './quality';
@@ -58,6 +62,8 @@ export class BoardView extends ItemView {
   private readonly reload = debounce(() => { void this.read(); }, RELOAD_MS, true);
   /** The local player view this board draws into. */
   private playerWindow: PlayerView | null = null;
+  /** The token menu while it is open: it follows the map as it changes. */
+  private menu: AtlasMenu | null = null;
 
   constructor(leaf: WorkspaceLeaf, private readonly services: BoardServices) {
     super(leaf);
@@ -113,6 +119,7 @@ export class BoardView extends ItemView {
 
   async onClose(): Promise<void> {
     this.closed = true;
+    this.menu?.close();
     this.reload.cancel();
     this.board?.dispose();
     this.board = null;
@@ -200,6 +207,7 @@ export class BoardView extends ItemView {
     const fresh = !this.board;
     if (!this.board) this.board = new Board(this.contentEl, this.host(), QUALITY[this.services.quality()]);
     await this.board.load(map);
+    this.menu?.refresh();
     if (fresh && !this.closed) this.services.boardReady(this);
   }
 
@@ -283,36 +291,76 @@ export class BoardView extends ItemView {
     };
   }
 
+  /** Atlas's token menu (`tokenMenu.ts`), drawn as Atlas draws its menus. */
   private tokenMenu(id: string, event: MouseEvent): void {
     const map = this.map;
-    const token = map?.tokens.find((candidate) => candidate.id === id);
-    if (!map || !token) return;
+    if (!map || !map.tokens.some((candidate) => candidate.id === id)) return;
     const { assignments, boardData, minis } = this.services;
-    const current = assignments.get(map.path, id);
-    const menu = new Menu();
-    menu.addItem((item) => item.setTitle(current ? 'Change mini…' : 'Assign mini…').setIcon('box').onClick(() => {
-      new MiniPicker(this.app, minis, tokenName(token), current, (result) => assignments.set(map.path, id, result)).open();
-    }));
-    if (current) menu.addItem((item) => item.setTitle('Remove mini').setIcon('x').onClick(() => assignments.remove(map.path, id)));
-    const standee = boardData.style(map.path, id) === 'standee';
-    menu.addItem((item) => item.setTitle(standee ? 'Show as disc' : 'Show as standee').setIcon(standee ? 'circle' : 'square-user')
-      .onClick(() => boardData.setStyle(map.path, id, standee ? 'disc' : 'standee')));
-
-    // Atlas's destructive row: Kill (for a token with a resource that defeats it) beside Delete.
-    const danger: MenuItem[] = [];
-    const definitions = this.rules.definitions;
-    if (token.kind === 'character' && isKillable(token, definitions)) {
-      menu.addItem((item) => {
-        danger.push(item);
-        item.setTitle('Kill').setIcon('skull').setWarning(true).setSection('danger').onClick(() => this.killToken(token.id));
-      });
-    }
-    menu.addItem((item) => {
-      danger.push(item);
-      item.setTitle('Delete').setIcon('trash').setWarning(true).setSection('danger').onClick(() => this.deleteToken(token.id));
+    const token = (): BoardToken | null => this.map?.tokens.find((candidate) => candidate.id === id) ?? null;
+    this.menu?.close();
+    const entries = (): ReturnType<typeof tokenMenuEntries> => tokenMenuEntries({
+      token,
+      rules: this.rules,
+      settings: () => this.map!.tokenSettings,
+      inInitiative: () => this.map?.initiativeTokens.includes(id) ?? false,
+      hasMini: () => assignments.get(map.path, id) !== null,
+      standee: () => boardData.style(map.path, id) === 'standee',
+      icon: (element, name) => setIcon(element, name),
+      actions: {
+        setCondition: (condition, active) => this.changeConditions(id, (now) => conditionChange(now, condition, active), 'condition'),
+        stepCondition: (condition, delta) => this.changeConditions(id, (now) => conditionStep(now, condition, delta), 'condition'),
+        setHidden: (hidden) => this.changeToken(id, { hidden }, () => ({ isHidden: hidden }), hidden ? 'hiding' : 'showing'),
+        setInitiative: (join) => this.setInitiative(id, join),
+        assignMini: () => {
+          const now = token();
+          if (now) new MiniPicker(this.app, minis, tokenName(now), assignments.get(map.path, id), (result) => assignments.set(map.path, id, result)).open();
+        },
+        removeMini: () => assignments.remove(map.path, id),
+        setStandee: (standee) => boardData.setStyle(map.path, id, standee ? 'standee' : 'disc'),
+        reset: () => this.resetToken(id),
+        kill: () => this.killToken(id),
+        remove: () => this.deleteToken(id),
+      },
     });
-    menu.showAtMouseEvent(event);
-    sideBySide(danger);
+    this.menu = new AtlasMenu(this.contentEl.ownerDocument, entries, { x: event.clientX, y: event.clientY }, (element, name) => setIcon(element, name), () => { this.menu = null; });
+  }
+
+  /**
+   * Shows a change of a token at once (`shown`, the board's fields) and saves it (`change`, the token's fields as
+   * Atlas holds them); `what` names it if the save fails.
+   */
+  private changeToken(id: string, shown: Partial<BoardToken>, change: TokenChange, what: string): void {
+    const token = this.map?.tokens.find((candidate) => candidate.id === id);
+    if (!token) return;
+    this.board?.changeToken(id, { ...token, ...shown });
+    this.services.writer.update(this.path ?? '', id, change).catch((error: unknown) => this.unsaved(what, error));
+  }
+
+  /** A condition set, taken off or stepped: computed on the token as it is, the same way for the board and the save. */
+  private changeConditions(id: string, change: (token: { conditions: string[]; conditionValues: Record<string, number> }) => ConditionFields | null, what: string): void {
+    const token = this.map?.tokens.find((candidate) => candidate.id === id);
+    const fields = token ? change(token) : null;
+    if (!token || !fields) return;
+    const shown = { conditions: fields.conditions ?? [], conditionValues: fields.conditionValues ?? {} };
+    // Saved from what Atlas (or the file) holds, so a change made there meanwhile is kept.
+    this.changeToken(id, shown, (held) => change({ conditions: (held.conditions as string[] | undefined) ?? [], conditionValues: (held.conditionValues as Record<string, number> | undefined) ?? {} }), what);
+  }
+
+  /** Atlas's Reset: every defined resource back at its start, every condition gone. */
+  private resetToken(id: string): void {
+    const token = this.map?.tokens.find((candidate) => candidate.id === id);
+    if (!token) return;
+    const definitions = this.rules.definitions;
+    const shown = resetChange(token, definitions);
+    this.changeToken(id, { resources: shown.resources ?? token.resources, conditions: [], conditionValues: {} }, (held) => ({ ...resetChange(held, definitions) }), 'reset');
+  }
+
+  /** Puts the token in Atlas's initiative tracker or takes it out. */
+  private setInitiative(id: string, join: boolean): void {
+    const map = this.map;
+    if (!map) return;
+    map.initiativeTokens = join ? [...map.initiativeTokens.filter((other) => other !== id), id] : map.initiativeTokens.filter((other) => other !== id);
+    this.services.writer.initiative(map.path, id, join).catch((error: unknown) => this.unsaved('initiative change', error));
   }
 
   private killToken(id: string): void {
@@ -334,19 +382,4 @@ export class BoardView extends ItemView {
       boardData.setStyle(path, id, 'disc');
     }).catch((error: unknown) => this.unsaved('deletion', error));
   }
-}
-
-/**
- * Puts menu items in one row, as Atlas lays out Kill and Delete. Obsidian builds its menu's elements without a public
- * handle on them; where they are not there (a native menu), the items stay one under the other.
- */
-function sideBySide(items: MenuItem[]): void {
-  // Duck-typed: a menu in a popped-out window is built from that window's HTMLElement.
-  const doms = items.map((item) => (item as unknown as { dom?: unknown }).dom).filter((dom): dom is HTMLElement => typeof (dom as Node | undefined)?.nodeType === 'number');
-  const first = doms[0];
-  if (doms.length < 2 || !first?.parentElement) return;
-  const row = first.ownerDocument.createElement('div');
-  row.className = 'atlas-tabletop-danger-row';
-  first.parentElement.insertBefore(row, first);
-  for (const dom of doms) row.appendChild(dom);
 }

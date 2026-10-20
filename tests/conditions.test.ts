@@ -12,7 +12,7 @@ test('a map\'s collection is the folder under atlas-vtt/collections', () => {
 
 test('conditions are read from the collection\'s settings', () => {
   const rules = readCollectionRules(metadata, 'DotMM Level 1 Full Test');
-  assert.deepEqual(rules.conditions.get('dnd5e-frightened'), { name: 'Frightened', color: '#7c3aed', valued: false });
+  assert.deepEqual(rules.conditions.get('dnd5e-frightened'), { name: 'Frightened', color: '#7c3aed', valued: false, icon: 'terror' });
   assert.equal(rules.conditions.get('dnd5e-exhaustion')!.valued, true);
   assert.equal(rules.conditions.get('dnd5e-blinded'), undefined);
 });

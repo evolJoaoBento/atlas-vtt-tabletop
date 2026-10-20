@@ -886,3 +886,42 @@ body.atlas-tabletop-player-window .view-header {
   background-color: var(--background-secondary-alt) !important;
   box-shadow: inset 0 1px 2px #00000012 !important;
 }
+
+/* Atlas's context menu (0.8.0), copied rule for rule: the token menu on the 3D board is drawn as Atlas draws its own. */
+.atlas-ctx-menu{background:var(--background-primary);border:1.5px solid color-mix(in oklch,var(--mono-100, var(--text-normal)) 18%,transparent);border-radius:var(--radius-l);box-shadow:var(--shadow-l);--atlas-panel-inner-radius: 18px ;border-radius:19.5px;corner-shape:var(--corner-shape, round);box-shadow:var(--shadow-s);display:flex;flex-direction:column;padding:4px;gap:var(--size-2-1);min-width:180px;max-width:280px;max-height:70vh;overflow-y:auto;z-index:9999;scrollbar-width:thin;scrollbar-color:var(--scrollbar-thumb-bg) transparent}
+.atlas-ctx-menu::-webkit-scrollbar{width:8px;height:8px}
+.atlas-ctx-menu::-webkit-scrollbar-track{background:transparent}
+.atlas-ctx-menu::-webkit-scrollbar-thumb{background:var(--scrollbar-thumb-bg);border-radius:9999px}
+.atlas-ctx-menu::-webkit-scrollbar-thumb:hover{background:var(--scrollbar-active-thumb-bg)}
+.atlas-ctx-separator{height:1px;margin:4px 0;background:var(--background-modifier-border)}
+.atlas-ctx-item{display:flex;align-items:center;justify-content:space-between;gap:4px;min-height:28px;padding:0 8px;corner-shape:var(--corner-shape, round);border-radius:max(0px,calc(var(--atlas-panel-inner-radius, var(--radius-l)) - 4px));background:transparent;color:var(--text-normal);font-size:var(--font-ui-small);cursor:pointer;white-space:nowrap;width:100%;text-align:left;box-sizing:border-box;border:none;outline:none}
+.atlas-ctx-item[data-highlighted]{background:var(--background-modifier-hover)}
+.atlas-ctx-item:active{background:var(--background-modifier-active-hover)}
+.atlas-ctx-item[data-disabled]{opacity:.4;cursor:not-allowed;pointer-events:none}
+.atlas-ctx-item--destructive{color:var(--text-error)}
+.atlas-ctx-item--destructive .atlas-ctx-icon svg{color:var(--text-error)}
+.atlas-ctx-item__leading{display:flex;align-items:center;gap:8px;min-width:0}
+.atlas-ctx-item__label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.atlas-ctx-item__trailing{display:flex;align-items:center;gap:4px;margin-left:auto;flex-shrink:0}
+.atlas-ctx-item__trailing .atlas-ctx-icon{width:12px;height:12px}
+.atlas-ctx-item__trailing .atlas-ctx-icon svg{width:12px;height:12px}
+.atlas-ctx-item__detail{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:50%;margin-left:auto;color:var(--text-muted);font-size:var(--font-ui-smaller)}
+.atlas-ctx-item__detail+.atlas-ctx-item__trailing{margin-left:0}
+.atlas-ctx-item__check{display:flex}
+.atlas-ctx-item__check[data-state=unchecked]{visibility:hidden}
+.atlas-ctx-stepper{display:flex;align-items:center;gap:4px}
+.atlas-ctx-menu .atlas-ctx-stepper__button{display:flex;align-items:center;justify-content:center;width:20px;height:16px;padding:0;border:none;border-radius:var(--radius-s);background:transparent;box-shadow:none;color:var(--text-muted);cursor:pointer}
+.atlas-ctx-menu .atlas-ctx-stepper__button:hover:not(:disabled){background:var(--background-modifier-hover);color:var(--text-normal)}
+.atlas-ctx-menu .atlas-ctx-stepper__button:disabled{opacity:.4;cursor:default}
+.atlas-ctx-menu .atlas-ctx-stepper__button .atlas-ctx-icon,.atlas-ctx-menu .atlas-ctx-stepper__button .atlas-ctx-icon svg{width:12px;height:12px}
+.atlas-ctx-stepper__value{min-width:2ch;color:var(--text-normal);font-size:var(--font-ui-smaller);font-variant-numeric:tabular-nums;text-align:center}
+.atlas-ctx-icon{display:flex;align-items:center;justify-content:center;width:16px;height:16px;flex-shrink:0}
+.atlas-ctx-icon svg{width:16px;height:16px;color:var(--text-muted)}
+.atlas-ctx-icon-spacer{width:16px;height:16px;flex-shrink:0}
+.atlas-ctx-destructive-row{display:flex;gap:4px}
+.atlas-ctx-destructive-btn{flex:1;display:flex;align-items:center;gap:8px;min-height:28px;padding:0 8px;border:none;corner-shape:var(--corner-shape, round);border-radius:max(0px,calc(var(--atlas-panel-inner-radius, var(--radius-l)) - 4px));background:transparent;color:var(--text-error);font-size:var(--font-ui-small);cursor:pointer;white-space:nowrap}
+.atlas-ctx-destructive-btn svg{flex-shrink:0;color:var(--text-error)}
+.atlas-ctx-destructive-btn:hover{background:color-mix(in oklch,var(--color-red) 15%,transparent)}
+.atlas-ctx-destructive-btn:active{background:color-mix(in oklch,var(--color-red) 25%,transparent)}
+.atlas-condition-badge{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;border-radius:50%;color:#fff;font-weight:var(--font-bold);line-height:1;background:linear-gradient(to bottom,color-mix(in srgb,var(--atlas-condition-color),#fff 18%),var(--atlas-condition-color) 55%,color-mix(in srgb,var(--atlas-condition-color),#000 20%));box-shadow:0 0 0 1px #111114,inset 0 1px #ffffff59,0 1px 2px #0000004d}
+.atlas-condition-badge--light{color:#16161a}

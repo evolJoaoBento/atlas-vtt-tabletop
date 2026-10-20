@@ -124,3 +124,9 @@ test('text labels are read as Atlas draws them, with its defaults; empty ones le
     { id: 'b', x: 0, y: 0, text: 'Plain', fontSize: 24, fontFamily: 'Arial', color: '#ffffff', backgroundColor: null, padding: 8, borderRadius: 0, opacity: 1, align: 'center', bold: false, italic: false, rotation: 0, scale: 1 },
   ]);
 });
+
+test('the tokens in Atlas\'s initiative tracker are read', () => {
+  const map = readMap('m', JSON.stringify({ state: { objects: { tokens: {}, pins: {} }, initiative: { entries: [{ id: 'i1', tokenId: 'a' }, { id: 'i2', tokenId: 'b' }, { id: 'i3' }] } } }));
+  assert.deepEqual(map.initiativeTokens, ['a', 'b']);
+  assert.deepEqual(readMap('m', JSON.stringify({ state: { objects: { tokens: {}, pins: {} } } })).initiativeTokens, []);
+});

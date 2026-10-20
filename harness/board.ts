@@ -11,6 +11,10 @@ import { emptyRules } from '../src/board/conditions';
 import { QUALITY } from '../src/board/quality';
 import type { BoardMap, BoardToken } from '../src/board/mapModel';
 import { insideFog } from '../src/board/playerView';
+import { AtlasMenu } from '../src/board/atlasMenu';
+import { tokenMenuEntries } from '../src/board/tokenMenu';
+import { conditionChange, conditionStep, resetChange } from '../src/board/tokenEdits';
+import { defeatedResources } from '../src/board/resources';
 import { HP_RESOURCE, type ResourceDefinition, type ResourceValue } from '../src/board/resources';
 import { parseMini, type LoadedMini } from '../src/library';
 
@@ -119,15 +123,16 @@ async function main(): Promise<void> {
   const record = {
     moves: [] as Array<[string, number, number]>, propMoves: [] as Array<[string, number, number]>, added: [] as Array<[string, number, number]>,
     notes: [] as string[], menus: [] as string[], propMenus: [] as string[], previews: [] as string[], warnings: [] as string[],
-    copies: [] as Array<[string, string, number, number]>, lasers: [] as Array<Record<string, unknown>>, fogHeights: [] as number[],
+    copies: [] as Array<[string, string, number, number]>, menuActions: [] as unknown[][], lasers: [] as Array<Record<string, unknown>>, fogHeights: [] as number[],
     /** Resource edits as the host saved them: token, key, the value it held, the value written, max edited. */
     edits: [] as Array<[string, string, ResourceValue, ResourceValue, boolean]>,
   };
   /** What the host holds, as Atlas or the file would: edits apply to it. */
   const stored = new Map(map.tokens.map((entry) => [entry.id, structuredClone(entry.resources)]));
   const rules = emptyRules();
-  rules.conditions.set('c-poisoned', { name: 'Poisoned', color: '#16a34a', valued: false });
-  rules.conditions.set('c-frightened', { name: 'Frightened', color: '#7c3aed', valued: false });
+  rules.conditions.set('c-poisoned', { name: 'Poisoned', color: '#16a34a', valued: false, icon: 'poison' });
+  rules.conditions.set('c-frightened', { name: 'Frightened', color: '#7c3aed', valued: false, icon: 'terror' });
+  rules.conditions.set('c-exhaustion', { name: 'Exhaustion', color: '#facc15', valued: true });
   // As DotMM's collection: HP and a static AC on the bars, the rest on wheels.
   const definitions: ResourceDefinition[] = [
     { ...HP_RESOURCE },
@@ -137,6 +142,8 @@ async function main(): Promise<void> {
   ];
   rules.definitions = definitions;
   let fogHeight = 1;
+  let menu: AtlasMenu | null = null;
+  const initiative = new Set<string>();
   let players: Window | null = null;
   let laser = { color: '#ff0059', size: 16 };
   const host: BoardHost = {
@@ -150,7 +157,35 @@ async function main(): Promise<void> {
     moveProp: (id, x, y) => { record.propMoves.push([id, x, y]); },
     addProp: (glb, x, y) => { record.added.push([glb, x, y]); },
     openNote: (path) => { record.notes.push(path); },
-    tokenMenu: (id) => { record.menus.push(id); },
+    // The token menu the board's tab opens, with the same entries; its actions change the board and are recorded.
+    tokenMenu: (id, event) => {
+      record.menus.push(id);
+      // The map the board shows now: a reload hands it a new one.
+      const shown = (): BoardMap => (board as unknown as { map: BoardMap }).map;
+      const token = () => shown().tokens.find((t) => t.id === id) ?? null;
+      const change = (fields: Partial<BoardToken>): void => { const now = token(); if (now) board.changeToken(id, { ...now, ...fields }); };
+      const conditions = (fields: { conditions: string[] | undefined; conditionValues?: Record<string, number> | undefined } | null): void => {
+        if (fields) change({ conditions: fields.conditions ?? [], conditionValues: fields.conditionValues ?? {} });
+      };
+      menu?.close();
+      menu = new AtlasMenu(document, () => tokenMenuEntries({
+        token, rules, settings: () => shown().tokenSettings,
+        inInitiative: () => initiative.has(id), hasMini: () => id === 'hero' || id === 'fallen', standee: () => id === 'gob',
+        icon: (element, name) => { element.dataset.icon = name; },
+        actions: {
+          setCondition: (condition, active) => { record.menuActions.push(['condition', condition, active]); conditions(conditionChange(token()!, condition, active)); },
+          stepCondition: (condition, delta) => { record.menuActions.push(['step', condition, delta]); conditions(conditionStep(token()!, condition, delta)); },
+          setHidden: (hidden) => { record.menuActions.push(['hidden', hidden]); change({ hidden }); },
+          setInitiative: (join) => { record.menuActions.push(['initiative', join]); if (join) initiative.add(id); else initiative.delete(id); },
+          assignMini: () => record.menuActions.push(['assignMini']),
+          removeMini: () => record.menuActions.push(['removeMini']),
+          setStandee: (standee) => record.menuActions.push(['standee', standee]),
+          reset: () => { record.menuActions.push(['reset']); const r = resetChange(token()!, rules.definitions); change({ resources: r.resources ?? token()!.resources, conditions: [], conditionValues: {} }); },
+          kill: () => { record.menuActions.push(['kill']); change({ resources: defeatedResources(token()!, rules.definitions) ?? token()!.resources }); },
+          remove: () => { record.menuActions.push(['delete']); board.changeToken(id, null); },
+        },
+      }), { x: event.clientX, y: event.clientY }, (element, name) => { element.dataset.icon = name; }, () => { menu = null; });
+    },
     propMenu: (id) => { record.propMenus.push(id); },
     statblockPreview: (id) => { record.previews.push(id); },
     copyToken: (id, newId, x, y) => { record.copies.push([id, newId, x, y]); },

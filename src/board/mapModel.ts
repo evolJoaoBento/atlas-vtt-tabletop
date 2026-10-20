@@ -135,6 +135,8 @@ export interface BoardMap {
   pins: BoardPin[];
   icons: BoardIcon[];
   texts: BoardText[];
+  /** The tokens in Atlas's initiative tracker. */
+  initiativeTokens: string[];
   /** The drawings that are ink (not icon stamps), in the map's order: later ones lie over earlier ones. */
   inks: BoardInk[];
   /** The fog of war's strokes, as Atlas stores them (`fog.ts` replays them). */
@@ -320,6 +322,9 @@ export function readMap(path: string, text: string): BoardMap {
     pins: items(objects.pins).map(readPin).filter((pin): pin is BoardPin => pin !== null),
     icons: items(objects.drawings).map(readIcon).filter((icon): icon is BoardIcon => icon !== null),
     texts: items(objects.texts).map(readText).filter((text): text is BoardText => text !== null),
+    initiativeTokens: isObj(state.initiative) && Array.isArray(state.initiative.entries)
+      ? state.initiative.entries.filter(isObj).map((entry) => str(entry.tokenId)).filter((id): id is string => id !== null)
+      : [],
     inks: items(objects.drawings).map(readInk).filter((ink): ink is BoardInk => ink !== null),
     fog: readFog(objects.fog),
     rawGrid: state.grid ?? null,

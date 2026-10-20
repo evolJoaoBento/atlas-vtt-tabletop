@@ -189,6 +189,27 @@ export function resourceUpdate(token: ResourceHolder, key: string, next: Resourc
   return { resources, overriddenMax: [...overridden, key] };
 }
 
+/** A fresh value: full when the resource drains (a static value is that number), empty when it fills. */
+function startingValue(definition: ResourceDefinition, max: number): ResourceValue {
+  return { current: definition.direction === 'fills' ? 0 : max, max };
+}
+
+/** The token's resources with every defined one back at its start (Reset). */
+export function restedResources(token: ResourceHolder, definitions: readonly ResourceDefinition[]): Record<string, ResourceValue> | undefined {
+  if (!token.resources) return undefined;
+  const next = { ...token.resources };
+  for (const definition of definitions) {
+    const value = next[definition.key];
+    if (value) next[definition.key] = startingValue(definition, value.max);
+  }
+  return next;
+}
+
+/** The Reset entry of Atlas's token menu, worded as Atlas words it. */
+export function resetLabel(definitions: readonly ResourceDefinition[]): string {
+  return definitions.every(({ key }) => key === 'hp' || key === 'stress') ? 'Reset (Full HP, Clear Status)' : 'Reset (Restore Resources, Clear Status)';
+}
+
 /** The token's resources with every one that defeats it spent (Kill). */
 export function defeatedResources(token: ResourceHolder, definitions: readonly ResourceDefinition[]): Record<string, ResourceValue> | undefined {
   if (!token.resources) return undefined;

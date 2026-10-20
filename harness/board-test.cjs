@@ -528,6 +528,78 @@ server.listen(0, async () => {
     r = await record();
     check('right-click on a token opens its menu', r.menus[0] === 'hero', r.menus);
 
+    // 3b. Atlas's token menu: conditions (badges, ticks, a stepper, staying open), Hide, Initiative, Reset, Kill, Delete.
+    {
+      await page.keyboard.press('Escape');
+      await page.evaluate(() => window.boardTest.board.select(null));
+      const rows = (selector) => page.evaluate((selector) => [...document.querySelectorAll(selector + ' > .atlas-ctx-item, ' + selector + ' .atlas-ctx-destructive-btn')].map((row) => {
+        const r = row.getBoundingClientRect();
+        return { text: row.textContent, x: r.left + r.width / 2, y: r.top + r.height / 2, checked: row.querySelector('.atlas-ctx-item__check')?.getAttribute('data-state') ?? null, badge: !!row.querySelector('.atlas-condition-badge svg, .atlas-condition-badge'), stepper: row.querySelector('.atlas-ctx-stepper__value')?.textContent ?? null };
+      }), selector);
+      const heroAt2 = await project(245, 245, 20);
+      await page.mouse.click(heroAt2.x, heroAt2.y, { button: 'right' });
+      await wait(150);
+      let top = await rows('.atlas-ctx-menu:nth-of-type(1)');
+      top = await page.evaluate(() => [...document.querySelectorAll('.atlas-ctx-menu')][0] ? null : null) ?? (await page.evaluate(() => {
+        const menu = document.querySelectorAll('.atlas-ctx-menu')[0];
+        return [...menu.querySelectorAll(':scope > .atlas-ctx-item, .atlas-ctx-destructive-btn')].map((row) => { const r = row.getBoundingClientRect(); return { text: row.textContent, x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+      }));
+      const labels = top.map((row) => row.text);
+      check('the token menu is Atlas\'s, in its order', JSON.stringify(labels) === JSON.stringify(['Conditions', 'Hide', 'Add to Initiative', 'Change mini…', 'Remove mini', 'Show as standee', 'Reset (Restore Resources, Clear Status)', 'Kill', 'Delete']), labels);
+      await page.screenshot({ path: `${shots}/board-16-menu.png` });
+      const conditionsRow = top[0];
+      await page.mouse.move(conditionsRow.x, conditionsRow.y);
+      await wait(150);
+      const sub = () => page.evaluate(() => {
+        const menu = document.querySelectorAll('.atlas-ctx-menu')[1];
+        if (!menu) return null;
+        return [...menu.querySelectorAll(':scope > .atlas-ctx-item')].map((row) => { const r = row.getBoundingClientRect(); return { text: row.querySelector('.atlas-ctx-item__label')?.textContent, x: r.left + 20, y: r.top + r.height / 2, checked: row.querySelector('.atlas-ctx-item__check')?.getAttribute('data-state'), badge: !!row.querySelector('.atlas-condition-badge'), stepper: row.querySelector('.atlas-ctx-stepper__value')?.textContent ?? null, plus: (() => { const b = row.querySelectorAll('.atlas-ctx-stepper__button')[1]; if (!b) return null; const q = b.getBoundingClientRect(); return { x: q.left + q.width / 2, y: q.top + q.height / 2 }; })() }; });
+      });
+      let conditions = await sub();
+      check('hovering Conditions opens its submenu: each condition with its badge, the hero\'s two ticked', conditions && conditions.length === 3 && conditions.every((c) => c.badge) && conditions[0].checked === 'checked' && conditions[1].checked === 'checked' && conditions[2].checked === 'unchecked' && conditions[2].stepper === '0', conditions);
+      await page.screenshot({ path: `${shots}/board-17-conditions.png` });
+      await page.mouse.move(conditions[0].x + 30, conditions[0].y);
+      await page.mouse.click(conditions[0].x, conditions[0].y);
+      await wait(100);
+      conditions = await sub();
+      check('choosing a condition takes it off and the submenu stays open', conditions && conditions[0].checked === 'unchecked' && (await page.evaluate(() => window.boardTest.board.tokens.get('hero').token.conditions)).join() === 'c-frightened', { conditions, actions: (await record()).menuActions, hero: await page.evaluate(() => window.boardTest.board.tokens.get('hero').token.conditions), menus: await page.evaluate(() => [...document.querySelectorAll('.atlas-ctx-menu')].map((m) => m.getBoundingClientRect().left)) });
+      await page.mouse.move(conditions[2].x + 30, conditions[2].y);
+      await page.mouse.click(conditions[2].plus.x, conditions[2].plus.y);
+      await page.mouse.click(conditions[2].plus.x, conditions[2].plus.y);
+      await wait(100);
+      conditions = await sub();
+      const hero = await page.evaluate(() => window.boardTest.board.tokens.get('hero').token);
+      check('+ on a valued condition gains it and raises it', conditions[2].stepper === '2' && conditions[2].checked === 'checked' && hero.conditionValues['c-exhaustion'] === 2, { conditions, values: hero.conditionValues });
+      await page.keyboard.press('Escape');
+      await wait(100);
+      check('Escape closes the menu', await page.evaluate(() => document.querySelectorAll('.atlas-ctx-menu').length === 0));
+
+      const choose = async (label) => {
+        await page.mouse.click(heroAt2.x, heroAt2.y, { button: 'right' });
+        await wait(150);
+        const row = await page.evaluate((label) => {
+          const found = [...document.querySelectorAll('.atlas-ctx-menu .atlas-ctx-item, .atlas-ctx-menu .atlas-ctx-destructive-btn')].find((r) => r.textContent === label);
+          if (!found) return null;
+          const r = found.getBoundingClientRect();
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        }, label);
+        if (row) await page.mouse.click(row.x, row.y);
+        await wait(100);
+        return row !== null;
+      };
+      await choose('Add to Initiative');
+      check('Add to Initiative, and the menu then offers Remove', (await choose('Remove from Initiative')) && JSON.stringify((await record()).menuActions.filter((a) => a[0] === 'initiative')) === '[["initiative",true],["initiative",false]]', (await record()).menuActions);
+      await choose('Reset (Restore Resources, Clear Status)');
+      const reset = await page.evaluate(() => { const t = window.boardTest.board.tokens.get('hero').token; return { hp: t.resources.hp, conditions: t.conditions }; });
+      check('Reset fills HP and clears the conditions', reset.hp.current === reset.hp.max && reset.conditions.length === 0, reset);
+      await choose('Kill');
+      check('Kill spends the hero\'s HP', (await page.evaluate(() => window.boardTest.board.tokens.get('hero').token.resources.hp.current)) === 0);
+      await choose('Reset (Restore Resources, Clear Status)');
+      await choose('Hide');
+      check('Hide hides the token, and the menu then offers Show', (await page.evaluate(() => window.boardTest.board.tokens.get('hero').token.hidden)) && (await choose('Show')) && !(await page.evaluate(() => window.boardTest.board.tokens.get('hero').token.hidden)));
+      check('a chosen row closes the menu', await page.evaluate(() => document.querySelectorAll('.atlas-ctx-menu').length === 0));
+    }
+
     // 4. A right-drag on empty board pans and moves nothing.
     const movesBefore = (await record()).moves.length;
     let before = await goal();

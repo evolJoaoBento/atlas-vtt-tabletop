@@ -28,6 +28,12 @@ export interface AtlasSceneState {
   updateToken?: (id: string, updates: Record<string, unknown>) => void;
   addToken?: (data: Record<string, unknown>) => string;
   deleteTokens?: (ids: string[]) => void;
+  /** Atlas's initiative tracker: its combatants, opening it, and adding or removing one. */
+  initiative?: { entries: Array<{ id: string; tokenId: string }> };
+  initiativeTrackerOpen?: boolean;
+  setInitiativeTrackerOpen?: (open: boolean) => void;
+  addToInitiative?: (entry: Record<string, unknown>) => string;
+  removeFromInitiative?: (id: string) => void;
 }
 
 interface Store<T> {
