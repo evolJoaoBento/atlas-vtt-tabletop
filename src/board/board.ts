@@ -76,7 +76,12 @@ interface TokenEntry {
 }
 
 type Press =
-  | { kind: 'camera'; button: number; x: number; y: number; lastX: number; lastY: number; moved: boolean; token: string | null; prop: string | null; pin: string | null }
+  | {
+    kind: 'camera'; button: number; x: number; y: number; lastX: number; lastY: number; moved: boolean;
+    token: string | null; prop: string | null; pin: string | null;
+    /** The spot of the board a pan holds under the pointer. */
+    grab: { x: number; y: number } | null;
+  }
   | { kind: 'token'; id: string; x: number; y: number; moved: boolean; grab: { dx: number; dy: number } }
   | { kind: 'prop'; id: string; x: number; y: number; moved: boolean; grab: { dx: number; dy: number } };
 
@@ -369,10 +374,7 @@ export class Board {
     this.clock += dt;
     this.steer(dt);
     let busy = this.camera.update(dt);
-    const eye = this.camera.position();
-    const target = this.camera.pose.target;
-    this.view.position.set(eye.x, eye.y, eye.z);
-    this.view.lookAt(target.x, target.y, target.z);
+    this.applyView();
     const viewHeight = this.renderer.domElement.clientHeight || 1;
     const context: PoseContext = {
       dt,
@@ -433,11 +435,37 @@ export class Board {
 
   // ── Pointer and keys ──────────────────────────────────────────────────────
 
+  /** Puts the drawn camera where the orbit camera's pose says, so rays cast before the next frame see it too. */
+  private applyView(): void {
+    const eye = this.camera.position();
+    const target = this.camera.pose.target;
+    this.view.position.set(eye.x, eye.y, eye.z);
+    this.view.lookAt(target.x, target.y, target.z);
+    this.view.updateMatrixWorld();
+  }
+
   private ray(clientX: number, clientY: number): void {
     const rect = this.canvas.getBoundingClientRect();
     const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
-    this.view.updateMatrixWorld();
+    this.applyView();
     this.raycaster.setFromCamera(ndc, this.view);
+  }
+
+  /**
+   * Pans so the spot `grab` is under the pointer at (x, y): the board moves exactly with the hand. Without a spot (the
+   * pan began off the board) it falls back to TacticalEngine's rate.
+   */
+  private panTo(grab: { x: number; y: number } | null, x: number, y: number): void {
+    const now = grab ? this.boardPoint(x, y) : null;
+    if (grab && now) {
+      this.camera.goal.target.x += grab.x - now.x;
+      this.camera.goal.target.z += grab.y - now.y;
+      return;
+    }
+    const press = this.press;
+    if (press?.kind !== 'camera') return;
+    const scale = this.camera.goal.distance * PAN_PER_PX;
+    this.camera.pan(-(x - press.lastX) * scale, (y - press.lastY) * scale);
   }
 
   /** The point of the board under the pointer, in map pixels. */
@@ -523,13 +551,15 @@ export class Board {
       const at = this.boardPoint(x, y);
       if (id && entry && at) {
         this.press = { kind: 'token', id, x, y, moved: false, grab: { dx: entry.at.x - at.x, dy: entry.at.y - at.y } };
+        entry.piece.carried = true;
         return;
       }
     }
     const token = event.button === 2 ? this.tokenAt(x, y) : null;
     const prop = event.button === 2 && !token ? this.propAt(x, y) : null;
     const pin = event.button === 0 ? this.pinAt(x, y) : null;
-    this.press = { kind: 'camera', button: event.button, x, y, lastX: x, lastY: y, moved: false, token, prop, pin };
+    const grab = event.button === 2 ? this.boardPoint(x, y) : null;
+    this.press = { kind: 'camera', button: event.button, x, y, lastX: x, lastY: y, moved: false, token, prop, pin, grab };
   }
 
   private move(event: PointerEvent): void {
@@ -546,11 +576,7 @@ export class Board {
       press.lastX = x;
       press.lastY = y;
       if (press.button === 0 || press.button === 1) this.camera.orbit(-dx * ORBIT_X, -dy * ORBIT_Y);
-      else {
-        // Farther away, a pixel is more of the board.
-        const scale = this.camera.goal.distance * PAN_PER_PX;
-        this.camera.pan(-dx * scale, dy * scale);
-      }
+      else this.panTo(press.grab, x, y);
       // A drag moves the view at once: easing it would leave the board trailing the pointer.
       this.camera.snap();
       this.wake();
@@ -586,6 +612,7 @@ export class Board {
     if (press.kind === 'token') {
       const entry = this.tokens.get(press.id);
       if (!entry) return;
+      entry.piece.carried = false;
       if (!press.moved) {
         entry.piece.shake(this.clock);
         this.wake(true);
@@ -617,7 +644,10 @@ export class Board {
     this.press = null;
     if (press?.kind === 'token') {
       const entry = this.tokens.get(press.id);
-      if (entry) entry.goal = { x: entry.token.x, y: entry.token.y };
+      if (entry) {
+        entry.goal = { x: entry.token.x, y: entry.token.y };
+        entry.piece.carried = false;
+      }
     } else if (press?.kind === 'prop') {
       const piece = this.props.get(press.id);
       if (piece) piece.place(piece.placement.x, piece.placement.y);

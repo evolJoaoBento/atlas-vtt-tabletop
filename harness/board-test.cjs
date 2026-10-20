@@ -51,6 +51,21 @@ server.listen(0, async () => {
     await wait(800);
     await page.screenshot({ path: `${shots}/board-2-dragged.png` });
 
+    // 1b. A carried token is lifted off the board, and set down again on release.
+    const liftFrom = await project(875, 385, 6);
+    await page.mouse.move(liftFrom.x, liftFrom.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 8; i++) { await page.mouse.move(liftFrom.x + i * 4, liftFrom.y + i * 2); await wait(30); }
+    await wait(400);
+    const carriedY = await page.evaluate(() => window.boardTest.board.tokens.get('gob2').piece.object3d.position.y);
+    await page.mouse.move(liftFrom.x, liftFrom.y);
+    await page.mouse.up();
+    await wait(1200);
+    const restY = await page.evaluate(() => window.boardTest.board.tokens.get('gob2').piece.object3d.position.y);
+    check('a carried token is lifted', carriedY > 5, carriedY);
+    check('a dropped token is set down', restY === 0, restY);
+    await page.evaluate(() => { window.boardTest.record.moves.length = 1; });
+
     // 2. A click on a pin opens its note.
     const pin = await project(1050, 300, 42);
     await page.mouse.click(pin.x, pin.y);
@@ -73,6 +88,15 @@ server.listen(0, async () => {
     r = await record();
     check('right-drag pans the camera', Math.hypot(after.target.x - before.target.x, after.target.z - before.target.z) > 1, { before: before.target, after: after.target });
     check('right-drag moves no token', r.moves.length === 1, r.moves);
+
+    // 4a. Panning grabs the board: the spot under the pointer when the drag began stays under it.
+    const grabFrom = await project(560, 760, 0);
+    await page.mouse.move(grabFrom.x, grabFrom.y);
+    await page.mouse.down({ button: 'right' });
+    for (let i = 1; i <= 10; i++) { await page.mouse.move(grabFrom.x + i * 14, grabFrom.y - i * 6); await wait(16); }
+    const under = await page.evaluate(([x, y]) => window.boardTest.board.boardPoint(x, y), [grabFrom.x + 140, grabFrom.y - 60]);
+    await page.mouse.up({ button: 'right' });
+    check('panning keeps the grabbed spot under the pointer', under && Math.hypot(under.x - 560, under.y - 760) < 4, under);
 
     // 4b. A drag moves the view at once: the drawn camera is where the drag put it, with no easing left.
     await page.mouse.move(empty.x, empty.y);

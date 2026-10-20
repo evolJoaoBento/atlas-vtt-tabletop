@@ -27,6 +27,10 @@ import { hiddenMarkerTexture, pinTexture, plateTexture } from './textures';
 const DISC_LIFT = 0.15;
 const DISC_THICKNESS = 0.12;
 const MINI_BASE_THICKNESS = 0.06;
+/** How high a carried token is held, as a share of its diameter, so a leaning mini never dips into the board. */
+const CARRY_HEIGHT = 0.35;
+/** How fast it is picked up and set down, per second. */
+const CARRY_SPEED = 12;
 /** The standee's base, as a share of the diameter. */
 const STANDEE_BASE = 0.9;
 const STANDEE_BASE_THICKNESS = 0.06;
@@ -85,6 +89,9 @@ export class TokenPiece {
   private standee: THREE.Group | null = null;
   private marker: THREE.Sprite | null = null;
   private token: BoardToken;
+  /** Being carried: it rises off the board, and sets down when let go. */
+  carried = false;
+  private carry = 0;
 
   constructor(token: BoardToken, private readonly grid: BoardGrid) {
     this.token = token;
@@ -128,7 +135,7 @@ export class TokenPiece {
   }
 
   get animating(): boolean {
-    return this.figure?.animating ?? false;
+    return (this.figure?.animating ?? false) || this.carry !== (this.carried ? 1 : 0);
   }
 
   update(token: BoardToken): void {
@@ -159,7 +166,10 @@ export class TokenPiece {
 
   /** Draws the token at (x, y) on the map this frame. */
   pose(x: number, y: number, context: PoseContext): void {
-    this.object3d.position.set(x, 0, y);
+    const goal = this.carried ? 1 : 0;
+    this.carry += (goal - this.carry) * (1 - Math.exp(-CARRY_SPEED * context.dt));
+    if (Math.abs(goal - this.carry) < 1e-3) this.carry = goal;
+    this.object3d.position.set(x, this.carry * this.diameter * CARRY_HEIGHT, y);
     if (this.standee) this.standee.rotation.y = context.yaw;
     if (this.marker) this.marker.scale.setScalar(context.pixel * Math.min(40, this.diameter * 0.5) * 0.6);
     if (this.figure && this.placement) {

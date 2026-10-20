@@ -34,12 +34,13 @@ const clamp = (value: number, min: number, max: number): number => Math.min(max,
 
 /**
  * The limits for a map `width` × `height` pixels across: TacticalEngine's, loosened a little (the GM asked for more
- * freedom, not much): a flatter low angle, nearly straight down at the top, closer in and farther out, and less of a
- * push toward looking down when pulled back. Distances scale with the map.
+ * freedom, not much): a flatter low angle, nearly straight down at the top, farther out, and less of a push toward
+ * looking down when pulled back. Distances scale with the map.
  */
 export function limitsFor(width: number, height: number): CameraLimits {
   const span = Math.max(width, height, 1);
-  return { minPitch: 0.22, maxPitch: 1.5, farPitch: 1.12, minDistance: span * 0.04, maxDistance: span * 3 };
+  // Closest: about 19 wheel notches in from the framed map (it was 27 at 0.04, too close).
+  return { minPitch: 0.22, maxPitch: 1.5, farPitch: 1.12, minDistance: span * 0.13, maxDistance: span * 3 };
 }
 
 /**

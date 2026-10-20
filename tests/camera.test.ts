@@ -5,11 +5,11 @@ import { OrbitCamera, limitsFor, pitchFloor, positionOf } from '../src/board/cam
 const limits = limitsFor(1000, 800);
 const close = (actual: number, expected: number, digits = 6): void => assert.ok(Math.abs(actual - expected) < 10 ** -digits, `${actual} ≉ ${expected}`);
 
-test('limitsFor keeps TacticalEngine\'s angles and scales the distances with the map', () => {
+test('limitsFor loosens TacticalEngine\'s angles a little and scales the distances with the map', () => {
   assert.equal(limits.minPitch, 0.22);
   assert.equal(limits.maxPitch, 1.5);
   assert.equal(limits.farPitch, 1.12);
-  close(limits.minDistance, 40);
+  close(limits.minDistance, 130);
   close(limits.maxDistance, 3000);
 });
 
