@@ -108,7 +108,13 @@ server.listen(0, async () => {
 
     // 4c. A token with a mini stands on the board; one without floats.
     const heights = await page.evaluate(() => { const t = window.boardTest.board.tokens; return { hero: t.get('hero').piece.top, gob2: t.get('gob2').piece.top, d: t.get('hero').piece.diameter }; });
-    check('a mini stands on the board', heights.hero <= heights.d * 0.07, heights);
+    check('a mini stands on the board', heights.hero === 0, heights);
+    const heroParts = await page.evaluate(() => {
+      const kinds = [];
+      window.boardTest.board.tokens.get('hero').piece.object3d.traverse((node) => { if (node.isMesh && node.visible !== false && node.material?.visible !== false) kinds.push(node.geometry.type); });
+      return kinds;
+    });
+    check('a mini has only its ring under it, no disc', heroParts.includes('TorusGeometry') && !heroParts.includes('CylinderGeometry') && !heroParts.includes('CircleGeometry'), heroParts);
     check('a token without a mini floats', heights.gob2 > heights.d * 0.2, heights);
 
     // 5. A left-drag on empty board orbits.

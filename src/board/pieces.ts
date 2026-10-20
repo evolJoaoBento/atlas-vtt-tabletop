@@ -2,9 +2,9 @@
  * What stands on the board: tokens, pins and props.
  *
  * A token floats a little above its spot. Without a mini it is a disc (its art on top of a thick coin, Atlas's ring
- * around it) or a standee (its art upright on a round base, turned to face the camera); with a mini, the mini
- * stands on the disc and moves the way Tabletop's minis always have (`MiniFigure`). A hidden token is half
- * transparent with Atlas's crossed-out eye over it, as the GM sees it in Atlas.
+ * around it) or a standee (its art upright on a round base, turned to face the camera). With a mini there is no
+ * disc: the mini stands on the board inside Atlas's ring and moves the way Tabletop's minis always have
+ * (`MiniFigure`). A hidden token is half transparent with Atlas's crossed-out eye over it, as the GM sees it in Atlas.
  *
  * A pin is Atlas's pin, kept one size on screen like Atlas's, with its title over it. A prop is a GLB standing on the
  * board, sized to a grid cell.
@@ -21,12 +21,11 @@ import { pinTitle } from './pinIcons';
 import { hiddenMarkerTexture, pinTexture, plateTexture } from './textures';
 
 /**
- * How far a token floats over the board, and how thick its disc is, as shares of its diameter. A token with a mini
- * stands on the board on a thinner base.
+ * How far a token floats over the board, and how thick its disc is, as shares of its diameter. A token with a mini has
+ * no disc: the mini stands on the board inside the token's ring.
  */
 const DISC_LIFT = 0.15;
 const DISC_THICKNESS = 0.12;
-const MINI_BASE_THICKNESS = 0.06;
 /** How high a carried token is held, as a share of its diameter, so a leaning mini never dips into the board. */
 const CARRY_HEIGHT = 0.35;
 /** How fast it is picked up and set down, per second. */
@@ -116,7 +115,7 @@ export class TokenPiece {
   }
 
   private get thickness(): number {
-    return this.diameter * (this.model ? MINI_BASE_THICKNESS : DISC_THICKNESS);
+    return this.model ? 0 : this.diameter * DISC_THICKNESS;
   }
 
   /** The height of the disc's top face over the board, where a mini stands. */
@@ -232,22 +231,25 @@ export class TokenPiece {
       this.standee.add(card);
       this.body.add(base, this.standee);
     } else {
-      const { thickness } = this;
-      const coin = new THREE.Mesh(new THREE.CylinderGeometry(d / 2, d / 2, thickness, 64), this.material({ color: EDGE_COLOR }));
-      coin.position.y = this.lift + thickness / 2;
-      coin.castShadow = true;
-      coin.receiveShadow = true;
-      const face = new THREE.Mesh(new THREE.CircleGeometry(d / 2, 64).rotateX(-Math.PI / 2), this.material({ map: this.art, color: artColor, polygonOffset: true, polygonOffsetFactor: -1 }));
-      face.position.y = this.top + 0.05;
-      // Atlas turns the art clockwise on screen: about +y that is a negative turn.
-      face.rotation.y = -THREE.MathUtils.degToRad(this.token.rotation);
-      face.receiveShadow = true;
-      this.body.add(coin, face);
+      if (!this.model) {
+        const { thickness } = this;
+        const coin = new THREE.Mesh(new THREE.CylinderGeometry(d / 2, d / 2, thickness, 64), this.material({ color: EDGE_COLOR }));
+        coin.position.y = this.lift + thickness / 2;
+        coin.castShadow = true;
+        coin.receiveShadow = true;
+        const face = new THREE.Mesh(new THREE.CircleGeometry(d / 2, 64).rotateX(-Math.PI / 2), this.material({ map: this.art, color: artColor, polygonOffset: true, polygonOffsetFactor: -1 }));
+        face.position.y = this.top + 0.05;
+        // Atlas turns the art clockwise on screen: about +y that is a negative turn.
+        face.rotation.y = -THREE.MathUtils.degToRad(this.token.rotation);
+        face.receiveShadow = true;
+        this.body.add(coin, face);
+      }
       if (this.token.showRing) {
         const outer = ringDiameter(this.grid, this.token.size) / 2;
         const tube = Math.max(0.5, (outer - d / 2) / 2);
         const ring = new THREE.Mesh(new THREE.TorusGeometry(d / 2 + tube, tube, 12, 64).rotateX(Math.PI / 2), this.material({ color: ringColor, metalness: 0.3, roughness: 0.4 }));
-        ring.position.y = this.top;
+        // Around the disc's top edge; with a mini, lying on the board.
+        ring.position.y = this.model ? tube : this.top;
         ring.castShadow = true;
         this.body.add(ring);
       }
