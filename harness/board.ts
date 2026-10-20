@@ -10,6 +10,7 @@ import type { PropPlacement } from '../src/board/boardData';
 import { emptyRules } from '../src/board/conditions';
 import { QUALITY } from '../src/board/quality';
 import type { BoardMap, BoardToken } from '../src/board/mapModel';
+import { insideFog } from '../src/board/playerView';
 import { HP_RESOURCE, type ResourceDefinition, type ResourceValue } from '../src/board/resources';
 import { parseMini, type LoadedMini } from '../src/library';
 
@@ -184,7 +185,7 @@ async function main(): Promise<void> {
     const rect = board.canvas.getBoundingClientRect();
     return { x: rect.left + ((point.x + 1) / 2) * rect.width, y: rect.top + ((1 - point.y) / 2) * rect.height };
   };
-  Object.assign(window, { boardTest: { board, map, record, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, ready: true } });
+  Object.assign(window, { boardTest: { board, map, record, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, insideFog, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

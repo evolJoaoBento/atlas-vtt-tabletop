@@ -279,15 +279,12 @@ server.listen(0, async () => {
         return { meshes, minY, maxY };
       });
       let f = await fog();
-      check('the fog stands on the map, one block per area', f.meshes === 2, f);
-      check('the fog is one square tall by default', Math.abs(f.maxY - f.minY - 70) < 0.01, f);
+      check('the fog is one cloud over all of it', f.meshes === 1, f);
+      // The cloud's box: one square tall, and half a square more for its soft top.
+      check('the fog is one square tall by default', Math.abs(f.maxY - f.minY - 105) < 0.01, f);
       const covered = await page.evaluate(() => {
         // The corridor erased through the room is open: no fog over its middle, fog over the room around it.
-        const meshes = []; window.boardTest.board.fog.object3d.traverse((n) => { if (n.isMesh) meshes.push(n); });
-        const probe = (x, z) => {
-          const caster = new (window.boardTest.Raycaster)(new (window.boardTest.Vector3)(x, 500, z), new (window.boardTest.Vector3)(0, -1, 0));
-          return caster.intersectObjects(meshes, false).length > 0;
-        };
+        const probe = (x, y) => window.boardTest.insideFog(window.boardTest.board.fog.areas, { x, y });
         return { room: probe(1000, 790), corridor: probe(1155, 875), outside: probe(600, 300) };
       });
       check('fog covers the room, not the corridor erased through it', covered.room && !covered.corridor && !covered.outside, covered);
@@ -315,7 +312,7 @@ server.listen(0, async () => {
       r = await record();
       check('typing a height and Enter sets it', JSON.stringify(r.fogHeights) === '[2]', r.fogHeights);
       f = await fog();
-      check('the fog stands two squares tall', Math.abs(f.maxY - f.minY - 140) < 0.01, f);
+      check('the fog stands two squares tall', Math.abs(f.maxY - f.minY - 175) < 0.01, f);
       const after = await goal();
       check('typing in the settings does not move the camera', JSON.stringify(after.target) === JSON.stringify(camera.target), { camera: camera.target, after: after.target });
       await page.keyboard.type('x');
@@ -355,7 +352,7 @@ server.listen(0, async () => {
 
       const gm = await page.evaluate(() => {
         const b = window.boardTest.board;
-        return { orc: b.tokens.get('orc').piece.object3d.visible, lurker: b.tokens.get('lurker').piece.object3d.visible, pins: b.pins.every((p) => p.object3d.visible), outline: b.fog.object3d.children.some((c) => c.isLineSegments && c.visible) };
+        return { orc: b.tokens.get('orc').piece.object3d.visible, lurker: b.tokens.get('lurker').piece.object3d.visible, pins: b.pins.every((p) => p.object3d.visible), outline: b.fog.material.uniforms.uStrength.value === 0.5 };
       });
       check('after each frame the GM sees everything again: hidden tokens, tokens under fog, pins, see-through fog', gm.orc && gm.lurker && gm.pins && gm.outline, gm);
       const players = await page.evaluate(() => {

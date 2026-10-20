@@ -1,32 +1,127 @@
 /**
- * Atlas's fog of war standing on the 3D board: each area of fog (with the holes erased out of it) raised into a block
- * as tall as the GM set, in grid squares. The GM sees through it, as Atlas shows fog to the GM at half strength; a
- * faint outline marks its edges so its shape reads from any angle. The players' picture shows it solid and
- * unoutlined (`show('player')`, for that window's pass). Rebuilt only when the fog or its height changes.
+ * Atlas's fog of war standing on the 3D board as a black cloud: pure black, unlit, tallest over the fog and rounding
+ * down to its edge, then thinning out softly a little past it, so it reads as a cloud and not a box.
+ *
+ * It is one box over the fog, whose shader marches each pixel's ray through it in a few dozen steps and gathers how
+ * much cloud it crosses. The cloud's shape comes from a texture: the fog's areas (with their erased holes) painted
+ * white and blurred, so the edge falls off smoothly, its outline roughened by a small static noise. Over the fog
+ * itself the map is covered completely for players (so the cloud's soft edge never shows them what is under the fog);
+ * the GM sees through it at half strength, as Atlas shows fog to the GM (`show`). Rebuilt only when the fog or its
+ * height changes.
  */
 import * as THREE from 'three';
 import { fogAreas, type FogArea, type FogOperation } from './fog';
+import { cloudFrame, cloudNoise, type CloudFrame } from './fogCloud';
 
 /** Atlas shows the GM the fog at half strength. */
-const GM_OPACITY = 0.5;
-/** Just over the board, so its floor does not flicker with the map. */
+const GM_STRENGTH = 0.5;
+/** Just over the board, so the cloud's floor does not flicker with the map. */
 const FLOOR = 0.5;
+/** How far the blur spreads the edge, in grid squares. */
+const EDGE_SQUARES = 0.35;
+/** Steps each ray takes through the cloud. */
+const STEPS = 24;
+const NOISE_TEXELS = 64;
+
+const VERTEX = /* glsl */ `
+varying vec3 vWorld;
+void main() {
+  vec4 world = modelMatrix * vec4(position, 1.0);
+  vWorld = world.xyz;
+  gl_Position = projectionMatrix * viewMatrix * world;
+}`;
+
+const FRAGMENT = /* glsl */ `
+uniform sampler2D uShape;
+uniform sampler2D uNoise;
+uniform vec2 uMin;
+uniform vec2 uSize;
+uniform float uFloor;
+uniform float uHeight;
+uniform float uCell;
+uniform float uStrength;
+varying vec3 vWorld;
+
+// How deep in the cloud a point of the map is: 1 well inside the fog, 0.5 on its outline, 0 a little past it.
+float shape(vec2 xz) {
+  float c = texture2D(uShape, (xz - uMin) / uSize).r;
+  float n = texture2D(uNoise, xz / (uCell * 3.0)).r;
+  // The noise only roughens the edge: deep inside and far outside stay as they are.
+  return clamp(c + (n - 0.5) * 0.45 * (1.0 - abs(2.0 * c - 1.0)), 0.0, 1.0);
+}
+
+void main() {
+  vec3 origin = cameraPosition;
+  vec3 dir = normalize(vWorld - origin);
+  vec3 boxMin = vec3(uMin.x, uFloor, uMin.y);
+  vec3 boxMax = vec3(uMin.x + uSize.x, uFloor + uHeight + uCell * 0.5, uMin.y + uSize.y);
+  vec3 t0 = (boxMin - origin) / dir;
+  vec3 t1 = (boxMax - origin) / dir;
+  vec3 tLow = min(t0, t1);
+  vec3 tHigh = max(t0, t1);
+  float near = max(max(tLow.x, tLow.y), max(tLow.z, 0.0));
+  float far = min(min(tHigh.x, tHigh.y), tHigh.z);
+  if (far <= near) discard;
+
+  float stepLength = (far - near) / ${STEPS}.0;
+  float crossed = 0.0;
+  for (int i = 0; i < ${STEPS}; i++) {
+    vec3 p = origin + dir * (near + (float(i) + 0.5) * stepLength);
+    float c = shape(p.xz);
+    // Tallest well inside, rounding down to nothing past the edge, with a soft top.
+    float top = uFloor + uHeight * smoothstep(0.0, 0.75, c);
+    float density = smoothstep(0.05, 0.5, c) * clamp((top - p.y) / (uCell * 0.35), 0.0, 1.0);
+    crossed += density * stepLength;
+  }
+  float alpha = 1.0 - exp(-crossed * 4.0 / uCell);
+
+  // Where the ray meets the map under the fog, the fog hides it completely (only the soft edge past it shows the map).
+  if (dir.y < 0.0) {
+    vec3 ground = origin + dir * ((uFloor - origin.y) / dir.y);
+    alpha = max(alpha, smoothstep(0.3, 0.5, shape(ground.xz)));
+  }
+  alpha *= uStrength;
+  if (alpha < 0.003) discard;
+  gl_FragColor = vec4(0.0, 0.0, 0.0, alpha);
+}`;
 
 export class FogVolume {
   readonly object3d = new THREE.Group();
   private key = '';
-  private readonly sides = new THREE.MeshStandardMaterial({ color: 0x0b0b10, transparent: true, opacity: GM_OPACITY, depthWrite: false, roughness: 1, side: THREE.DoubleSide });
-  private readonly caps = new THREE.MeshStandardMaterial({ color: 0x24242c, transparent: true, opacity: GM_OPACITY, depthWrite: false, roughness: 1, side: THREE.DoubleSide });
-  private readonly edges = new THREE.LineBasicMaterial({ color: 0x9aa0b4, transparent: true, opacity: 0.35, depthWrite: false });
-  /** Players cannot see through it: their own solid materials, swapped in for their pass. */
-  private readonly playerSides = new THREE.MeshStandardMaterial({ color: 0x050507, roughness: 1, side: THREE.DoubleSide });
-  private readonly playerCaps = new THREE.MeshStandardMaterial({ color: 0x0e0e12, roughness: 1, side: THREE.DoubleSide });
-  private blocks: Array<{ mesh: THREE.Mesh; outline: THREE.LineSegments; extruded: boolean }> = [];
   /** The fog's areas, for what players cannot see under it. */
   areas: FogArea[] = [];
+  private cloud: THREE.Mesh | null = null;
+  private shapeTexture: THREE.CanvasTexture | null = null;
+  private readonly noise: THREE.DataTexture;
+  private readonly material: THREE.ShaderMaterial;
 
   constructor() {
     this.object3d.name = 'fog';
+    const values = cloudNoise(NOISE_TEXELS, 11);
+    const rgba = new Uint8Array(NOISE_TEXELS * NOISE_TEXELS * 4);
+    values.forEach((value, i) => rgba.set([value, value, value, 255], i * 4));
+    this.noise = new THREE.DataTexture(rgba, NOISE_TEXELS, NOISE_TEXELS);
+    this.noise.wrapS = THREE.RepeatWrapping;
+    this.noise.wrapT = THREE.RepeatWrapping;
+    this.noise.magFilter = THREE.LinearFilter;
+    this.noise.minFilter = THREE.LinearFilter;
+    this.noise.needsUpdate = true;
+    this.material = new THREE.ShaderMaterial({
+      vertexShader: VERTEX,
+      fragmentShader: FRAGMENT,
+      uniforms: {
+        uShape: { value: null },
+        uNoise: { value: this.noise },
+        uMin: { value: new THREE.Vector2() },
+        uSize: { value: new THREE.Vector2(1, 1) },
+        uFloor: { value: FLOOR },
+        uHeight: { value: 0 },
+        uCell: { value: 70 },
+        uStrength: { value: GM_STRENGTH },
+      },
+      transparent: true,
+      depthWrite: false,
+    });
   }
 
   /** Shows the fog of `operations`, `height` grid squares of `cellSize` pixels tall (0 lays it flat on the map). */
@@ -35,55 +130,92 @@ export class FogVolume {
     if (key === this.key) return;
     this.key = key;
     this.clear();
-    const tall = Math.max(0, height) * cellSize;
     this.areas = fogAreas(operations);
-    for (const area of this.areas) {
-      // Map y runs down the board (+z); a shape's y is flipped so laying it down puts it back.
-      const shape = new THREE.Shape(area.outer.map((point) => new THREE.Vector2(point.x, -point.y)));
-      shape.holes = area.holes.map((hole) => new THREE.Path(hole.map((point) => new THREE.Vector2(point.x, -point.y))));
-      const geometry = tall > 0 ? new THREE.ExtrudeGeometry(shape, { depth: tall, bevelEnabled: false, curveSegments: 1 }) : new THREE.ShapeGeometry(shape, 1);
-      geometry.rotateX(-Math.PI / 2);
-      geometry.translate(0, FLOOR, 0);
-      // An extrusion's first group is its caps (floor and top), its second its sides.
-      const block = new THREE.Mesh(geometry, tall > 0 ? [this.caps, this.sides] : this.caps);
-      block.renderOrder = 5;
-      const outline = new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 30), this.edges);
-      outline.renderOrder = 6;
-      this.object3d.add(block, outline);
-      this.blocks.push({ mesh: block, outline, extruded: tall > 0 });
-    }
+    const frame = cloudFrame(this.areas, cellSize);
+    const shape = frame ? paintShape(this.areas, frame, cellSize) : null;
+    if (!frame || !shape) return;
+    this.shapeTexture = shape;
+    const tall = Math.max(0, height) * cellSize;
+    const uniforms = this.material.uniforms;
+    uniforms.uShape!.value = shape;
+    (uniforms.uMin!.value as THREE.Vector2).set(frame.minX, frame.minY);
+    (uniforms.uSize!.value as THREE.Vector2).set(frame.width, frame.height);
+    uniforms.uHeight!.value = tall;
+    uniforms.uCell!.value = cellSize;
+    // The box the rays march through: the frame, as tall as the cloud and its soft top.
+    const boxHeight = tall + cellSize * 0.5;
+    const geometry = new THREE.BoxGeometry(frame.width, boxHeight, frame.height);
+    geometry.translate(frame.minX + frame.width / 2, FLOOR + boxHeight / 2, frame.minY + frame.height / 2);
+    this.cloud = new THREE.Mesh(geometry, this.material);
+    this.cloud.renderOrder = 5;
+    this.object3d.add(this.cloud);
   }
 
-  /** Dresses the fog for whose picture is drawn next: the GM's see-through, the players' solid. */
+  /** Dresses the fog for whose picture is drawn next: the GM sees through it at half strength, players not at all. */
   show(viewer: 'gm' | 'player'): void {
-    const gm = viewer === 'gm';
-    for (const { mesh, outline, extruded } of this.blocks) {
-      mesh.material = extruded ? (gm ? [this.caps, this.sides] : [this.playerCaps, this.playerSides]) : (gm ? this.caps : this.playerCaps);
-      outline.visible = gm;
-    }
+    this.material.uniforms.uStrength!.value = viewer === 'gm' ? GM_STRENGTH : 1;
   }
 
   /** Whether there is any fog on the map. */
   get empty(): boolean {
-    return this.object3d.children.length === 0;
+    return this.cloud === null;
   }
 
   private clear(): void {
-    this.blocks = [];
     this.areas = [];
-    for (const child of [...this.object3d.children]) {
-      (child as THREE.Mesh | THREE.LineSegments).geometry.dispose();
-      child.removeFromParent();
+    if (this.cloud) {
+      this.cloud.geometry.dispose();
+      this.cloud.removeFromParent();
+      this.cloud = null;
     }
+    this.shapeTexture?.dispose();
+    this.shapeTexture = null;
   }
 
   dispose(): void {
     this.clear();
-    this.sides.dispose();
-    this.caps.dispose();
-    this.edges.dispose();
-    this.playerSides.dispose();
-    this.playerCaps.dispose();
+    this.material.dispose();
+    this.noise.dispose();
     this.object3d.removeFromParent();
   }
+}
+
+/** The cloud's shape: the fog's areas painted white (holes left black) into the frame's texture, then blurred. */
+function paintShape(areas: readonly FogArea[], frame: CloudFrame, cellSize: number): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const sharp = document.createElement('canvas');
+  sharp.width = frame.texWidth;
+  sharp.height = frame.texHeight;
+  const paint = sharp.getContext('2d');
+  if (!paint) return null;
+  paint.fillStyle = '#000';
+  paint.fillRect(0, 0, sharp.width, sharp.height);
+  paint.scale(frame.texWidth / frame.width, frame.texHeight / frame.height);
+  paint.translate(-frame.minX, -frame.minY);
+  paint.fillStyle = '#fff';
+  for (const area of areas) {
+    paint.beginPath();
+    for (const ring of [area.outer, ...area.holes]) {
+      ring.forEach((point, i) => (i === 0 ? paint.moveTo(point.x, point.y) : paint.lineTo(point.x, point.y)));
+      paint.closePath();
+    }
+    // A hole lies inside its outline: even-odd leaves it out.
+    paint.fill('evenodd');
+  }
+  const soft = document.createElement('canvas');
+  soft.width = frame.texWidth;
+  soft.height = frame.texHeight;
+  const blur = soft.getContext('2d');
+  if (!blur) return null;
+  blur.fillStyle = '#000';
+  blur.fillRect(0, 0, soft.width, soft.height);
+  blur.filter = `blur(${(EDGE_SQUARES * cellSize * frame.texWidth) / frame.width}px)`;
+  blur.drawImage(sharp, 0, 0);
+  const texture = new THREE.CanvasTexture(soft);
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  return texture;
 }
