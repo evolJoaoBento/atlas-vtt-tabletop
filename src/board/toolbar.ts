@@ -84,23 +84,26 @@ export class BoardToolbar {
 
     // Atlas's own class names under a root of Tabletop's: its look is copied in styles.css, without needing its styles.
     this.row = el('div', 'atlas-tabletop-toolbar-row atlas-tabletop-atlas', container);
-    const bar = el('div', 'atlas-tabletop-toolbar', this.row);
+    const bar = el('div', 'atlas-vtt-toolbar atlas-tabletop-toolbar', this.row);
     bar.setAttribute('role', 'toolbar');
-    const tool = (svg: string, onClick: () => void): HTMLButtonElement => {
-      const made = el('button', 'atlas-tabletop-tool-button', bar);
+    // Atlas's ToolButton: a wrapper, a span, and the button itself (a toolbar icon button).
+    const toolIn = (parent: HTMLElement, svg: string, onClick: () => void): HTMLButtonElement => {
+      const wrapper = el('div', 'atlas-tool-button', parent);
+      const span = el('span', '', wrapper);
+      span.style.display = 'inline-flex';
+      const made = el('button', 'btn btn--toolbar btn--icon atlas-tabletop-tool-button', span);
       made.type = 'button';
       made.innerHTML = svg;
       made.addEventListener('click', onClick);
       return made;
     };
+    const tool = (svg: string, onClick: () => void): HTMLButtonElement => toolIn(bar, svg, onClick);
     // Atlas's Move/Select group: its face is the tool in use (the hand, or the flashlight while the laser is on), and a
     // click on it keeps that tool; the chevron opens the group's menu above it.
     const laserGroup = el('div', 'atlas-tool-group', bar);
-    this.laserButton = el('button', 'atlas-tabletop-tool-button', laserGroup);
-    this.laserButton.type = 'button';
-    this.laserButton.addEventListener('click', () => this.actions.selectTool(this.actions.laserOn() ? 'laser' : 'move'));
+    this.laserButton = toolIn(laserGroup, HAND_SVG, () => this.actions.selectTool(this.actions.laserOn() ? 'laser' : 'move'));
     const menu = el('div', 'atlas-dropdown-menu', laserGroup);
-    this.laserMenuButton = el('button', 'atlas-dropdown-trigger btn--toolbar', menu);
+    this.laserMenuButton = el('button', 'btn btn--ghost btn--icon atlas-dropdown-trigger btn--toolbar', menu);
     this.laserMenuButton.type = 'button';
     this.laserMenuButton.innerHTML = CHEVRON_SVG;
     this.laserMenuButton.setAttribute('aria-label', 'Move options');
@@ -190,13 +193,10 @@ export class BoardToolbar {
     });
     this.playerButton = tool(PLAYER_SVG, () => this.actions.togglePlayerView());
     this.freezeButton = tool(FREEZE_SVG, () => this.actions.togglePlayerFreeze());
-    this.button = el('button', 'atlas-tabletop-tool-button', bar);
-    this.button.type = 'button';
-    this.button.innerHTML = COMMAND_SVG;
+    this.button = tool(COMMAND_SVG, () => (this.panel.hidden ? this.open() : this.close()));
     this.button.setAttribute('aria-label', 'Board settings');
     this.button.title = 'Board settings';
     this.button.setAttribute('aria-expanded', 'false');
-    this.button.addEventListener('click', () => (this.panel.hidden ? this.open() : this.close()));
 
     this.panel = el('div', 'atlas-tabletop-palette', this.row);
     this.panel.hidden = true;
@@ -252,7 +252,8 @@ export class BoardToolbar {
     label(this.playerButton, open ? 'Close the player view' : 'Open the player view');
     this.playerButton.classList.toggle('is-active', open);
     this.playerButton.setAttribute('aria-pressed', String(open));
-    this.freezeButton.hidden = !open;
+    // The wrapper is hidden, so the bar's last visible child (whose end corners follow the bar's) is the right one.
+    (this.freezeButton.closest('.atlas-tool-button') as HTMLElement).hidden = !open;
     label(this.freezeButton, frozen ? "Let the players' camera follow yours" : "Freeze the players' camera here");
     this.freezeButton.classList.toggle('is-active', frozen);
     this.freezeButton.setAttribute('aria-pressed', String(frozen));

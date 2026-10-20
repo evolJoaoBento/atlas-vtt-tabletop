@@ -362,7 +362,7 @@ server.listen(0, async () => {
     {
       const tools = () => page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-tool-button')].map((b) => {
         const r = b.getBoundingClientRect();
-        return { label: b.getAttribute('aria-label'), hidden: b.hidden, active: b.classList.contains('is-active'), x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        return { label: b.getAttribute('aria-label'), hidden: b.closest('.atlas-tool-button')?.hidden ?? b.hidden, active: b.classList.contains('is-active'), x: r.left + r.width / 2, y: r.top + r.height / 2 };
       }));
       let list = await tools();
       check('the toolbar has the player view button; freezing waits for a player view', list.some((t) => t.label === 'Open the player view') && list.find((t) => t.label?.startsWith('Freeze'))?.hidden, list);
@@ -415,7 +415,7 @@ server.listen(0, async () => {
       const close = (await tools()).find((t) => t.label === 'Close the player view');
       await page.mouse.click(close.x, close.y);
       await wait(300);
-      const after = await page.evaluate(() => ({ player: window.boardTest.board.player, labels: [...document.querySelectorAll('.atlas-tabletop-tool-button')].map((b) => [b.getAttribute('aria-label'), b.hidden]) }));
+      const after = await page.evaluate(() => ({ player: window.boardTest.board.player, labels: [...document.querySelectorAll('.atlas-tabletop-tool-button')].map((b) => [b.getAttribute('aria-label'), b.closest('.atlas-tool-button')?.hidden ?? b.hidden]) }));
       check('closing it stops the second drawing and hides the freeze button', after.player === null && after.labels.some(([l]) => l === 'Open the player view'), after);
     }
 
@@ -426,6 +426,20 @@ server.listen(0, async () => {
         return [b.getAttribute('aria-label'), { x: r.left + r.width / 2, y: r.top + r.height / 2, active: b.classList.contains('is-active') }];
       })));
       const beam = () => page.evaluate(() => { const b = window.boardTest.board.beam.object3d; return { visible: b.visible, indices: b.geometry.drawRange.count }; });
+      // The page styles every button as Obsidian's theme does (white, bordered, shadowed): the toolbar's must not show it.
+      const looks = await page.evaluate(() => {
+        const style = (el) => getComputedStyle(el);
+        const face = document.querySelector('.atlas-tool-group .atlas-tabletop-tool-button');
+        const command = document.querySelector('.atlas-tabletop-tool-button[aria-label="Board settings"]');
+        return {
+          command: { bg: style(command).backgroundColor, border: style(command).borderTopWidth, shadow: style(command).boxShadow, size: command.getBoundingClientRect().width },
+          face: { bg: style(face).backgroundColor, color: style(face).color, left: style(face).borderTopLeftRadius, right: style(face).borderTopRightRadius },
+          end: style(command).borderTopRightRadius,
+        };
+      });
+      check('toolbar buttons are flat, whatever the theme does to buttons, and 40 px', looks.command.bg === 'rgba(0, 0, 0, 0)' && looks.command.border === '0px' && looks.command.shadow === 'none' && looks.command.size === 40, looks);
+      check('the tool in use is filled with the accent colour', looks.face.bg === 'rgb(124, 92, 255)' && looks.face.color === 'rgb(255, 255, 255)', looks);
+      check("the group and the bar's ends are rounded with the bar", parseFloat(looks.face.left) > 0 && looks.face.right === '0px' && parseFloat(looks.end) > 0, looks);
       let list = await tools();
       check('the Move/Select group shows the hand while moving', !!list['Move/Select'] && !list['Laser Pointer'], Object.keys(list));
       await page.mouse.click(list['Move options'].x, list['Move options'].y);
