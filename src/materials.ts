@@ -22,6 +22,44 @@ export interface LoadedMaterial {
   apply(material: THREE.MeshStandardMaterial): void;
 }
 
+/** A material's maps by role, as URLs; null for a role it has none of. */
+export interface MaterialUrls {
+  color: string | null;
+  normal: string | null;
+  roughness: string | null;
+  ao: string | null;
+  arm: string | null;
+  metalness: string | null;
+}
+
+/**
+ * A material from its maps' URLs: the vault's (the GM's board) or the files Connect brought (a player's board). Walls
+ * are mapped one tile to a grid square: a tile `scale` squares wide repeats 1 / scale times a square.
+ */
+export async function materialFromUrls(name: string, urls: MaterialUrls, scale: number, normalDirectX: boolean): Promise<LoadedMaterial> {
+  const texture = async (at: string | null, color = false): Promise<THREE.Texture | null> => (at ? readTexture(at, color) : null);
+  const [color, normal, roughness, ao, arm, metalness] = await Promise.all([
+    texture(urls.color, true), texture(urls.normal), texture(urls.roughness), texture(urls.ao), texture(urls.arm), texture(urls.metalness),
+  ]);
+  for (const map of [color, normal, roughness, ao, arm, metalness]) map?.repeat.set(1 / scale, 1 / scale);
+  return {
+    name,
+    apply: (material) => {
+      material.color.set(0xffffff);
+      material.map = color;
+      material.normalMap = normal;
+      // DirectX normal maps point green the other way.
+      if (normal) material.normalScale.set(1, normalDirectX ? -1 : 1);
+      // An ARM map packs ambient occlusion (red), roughness (green) and metalness (blue), as three.js reads them.
+      material.aoMap = ao ?? arm;
+      material.roughnessMap = roughness ?? arm;
+      material.metalnessMap = metalness ?? arm;
+      material.roughness = 1;
+      material.metalness = metalness || arm ? 1 : 0;
+    },
+  };
+}
+
 function readTexture(url: string, color: boolean): Promise<THREE.Texture> {
   return new Promise((resolve, reject) => {
     new THREE.TextureLoader().load(url, (texture) => {
@@ -116,32 +154,10 @@ export class MaterialLibrary {
       const file = path ? this.app.vault.getAbstractFileByPath(path) : null;
       return file instanceof TFile ? this.app.vault.getResourcePath(file) : null;
     };
-    const texture = async (path: string | undefined, color = false): Promise<THREE.Texture | null> => {
-      const at = url(path);
-      return at ? readTexture(at, color) : null;
-    };
     const { scale } = await this.settings(folderPath);
-    const [color, normal, roughness, ao, arm, metalness] = await Promise.all([
-      texture(maps.color, true), texture(maps.normal), texture(maps.roughness), texture(maps.ao), texture(maps.arm), texture(maps.metalness),
-    ]);
-    // Walls are mapped one tile to a grid square: a tile `scale` squares wide repeats 1 / scale times a square.
-    for (const texture of [color, normal, roughness, ao, arm, metalness]) texture?.repeat.set(1 / scale, 1 / scale);
-    return {
-      name: folder.name,
-      apply: (material) => {
-        material.color.set(0xffffff);
-        material.map = color;
-        material.normalMap = normal;
-        // DirectX normal maps point green the other way.
-        if (normal) material.normalScale.set(1, maps.normalDirectX ? -1 : 1);
-        // An ARM map packs ambient occlusion (red), roughness (green) and metalness (blue), as three.js reads them.
-        material.aoMap = ao ?? arm;
-        material.roughnessMap = roughness ?? arm;
-        material.metalnessMap = metalness ?? arm;
-        material.roughness = 1;
-        material.metalness = metalness || arm ? 1 : 0;
-      },
-    };
+    return materialFromUrls(folder.name, {
+      color: url(maps.color), normal: url(maps.normal), roughness: url(maps.roughness), ao: url(maps.ao), arm: url(maps.arm), metalness: url(maps.metalness),
+    }, scale, maps.normalDirectX === true);
   }
 
   /**

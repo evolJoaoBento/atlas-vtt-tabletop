@@ -69,3 +69,11 @@ test('frame looks at a point from a distance fitting its radius', () => {
   assert.deepEqual(cam.goal.target, { x: 500, y: 0, z: 400 });
   close(cam.goal.distance, 1080);
 });
+
+test('a camera set to look from an eye at a target stands there (the GM view a player glides to)', () => {
+  const camera = new OrbitCamera({}, limitsFor(2000, 2000));
+  camera.view({ x: 300, y: 400, z: 900 }, { x: 300, y: 0, z: 500 });
+  const eye = positionOf(camera.goal);
+  assert.ok(Math.abs(eye.x - 300) < 1e-6 && Math.abs(eye.y - 400) < 1e-6 && Math.abs(eye.z - 900) < 1e-6, JSON.stringify(eye));
+  assert.deepEqual(camera.goal.target, { x: 300, y: 0, z: 500 });
+});

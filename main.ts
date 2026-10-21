@@ -13,6 +13,7 @@ import { DEFAULT_MATERIALS_FOLDER, MaterialLibrary } from './src/materials';
 import { GpuSettings, currentChip, gpuChoices, type GpuPreference } from './src/gpu';
 import { playerMiniPainter, type PlayerMiniPainter } from './src/playerMinis';
 import { boardLookFor, MaterialIndex } from './src/boardLook';
+import { playerBoardFactory, type PlayerBoardFactory } from './src/playerBoard';
 import type { BoardLook, GmCameraSource } from './src/connectContract';
 
 export const API_READY_EVENT = 'atlas-vtt-tabletop:api-ready';
@@ -62,6 +63,8 @@ export interface TabletopApi {
   readAsset(path: string): Promise<ArrayBuffer>;
   /** The GM's 3D view of a map, for Connect's players' "GM view". */
   readonly gmCamera: GmCameraSource;
+  /** The 3D board in a Connect player's tab, drawn from what Connect receives. */
+  readonly playerBoard: PlayerBoardFactory;
 }
 
 /** The files `readAsset` hands out: textures and GLBs, nothing else of the vault. */
@@ -181,6 +184,7 @@ export default class TabletopPlugin extends Plugin {
     this.api = Object.freeze({
       version: 1 as const,
       playerMinis: this.players.painter,
+      playerBoard: playerBoardFactory(() => this.settings.quality),
       placementsFor: (mapPath: string) => this.assignments.forMap(mapPath),
       onChange: (listener: (mapPath: string | null) => void) => this.assignments.onChange(listener),
       readMini: async (path: string): Promise<ArrayBuffer> => {

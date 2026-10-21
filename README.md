@@ -64,6 +64,14 @@ cp harness/board.html <dir>/index.html && cp styles.css <dir>/
 node harness/board-test.cjs <dir> <screenshot dir>
 ```
 
+Player board harness (Tabletop's 3D board as Atlas VTT Connect mounts it in a player's tab):
+
+```
+npx esbuild harness/playerBoard.ts --bundle --outfile=<dir>/playerBoard.js --alias:obsidian=./harness/obsidian-stub.ts
+sed 's/board\.js/playerBoard.js/' harness/board.html > <dir>/playerBoard.html && cp styles.css <dir>/
+node harness/playerBoard-test.cjs <dir> <screenshot dir>
+```
+
 ## Credits
 
 The pin and condition icons, and the End combat flag, are from [game-icons.net](https://game-icons.net) (CC BY 3.0), by Lorc, Delapouite and contributors.

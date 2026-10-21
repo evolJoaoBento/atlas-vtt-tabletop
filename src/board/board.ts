@@ -48,6 +48,10 @@ import { positionOf } from './camera';
 import { loadImageTexture, plateTexture, screenScale } from './textures';
 import { WallSet } from './wallPieces';
 import { LightRig } from './lightRig';
+import { DarknessLayer } from './darkness';
+import { BoardMarks } from './marks';
+import { PlayerToolState, type TemplateMark, type ToolAction } from './playerTools';
+import type { FogOperation } from './fog';
 import type { BoardLight } from './walls';
 import { MATERIAL_DRAG_TYPE, MATERIAL_TEXT_PREFIX, type LoadedMaterial } from '../materials';
 
@@ -125,7 +129,20 @@ export interface BoardHost {
   paintWall(id: string, material: string, whole: boolean): void;
   /** The GM's camera or the players' moved (Connect follows it for its players' "GM view"). */
   cameraMoved?(): void;
+  /** A Connect player's board: whether the player may drag this token now (one the GM lets them control). */
+  canMove?(tokenId: string): boolean;
+  /** A Connect player's board: the token under the pointer (null for none), the pointer in client pixels, Ctrl/Cmd down. */
+  hoverToken?(tokenId: string | null, client: { x: number; y: number } | null, modifier: boolean): void;
+  /** A Connect player's board: what a tool asks of the session (a ping, a template, laser points). */
+  playerAction?(action: ToolAction): void;
+  /** The player's own colour (their templates and laser while drawn). */
+  ownColor?(): string;
+  /** The tool, shape or colour changed on the board (Escape too): Connect's toolbar follows. */
+  toolsChanged?(): void;
 }
+
+/** Who looks at the board: the GM (everything, and the tools to change it), or a Connect player (what players see). */
+export type BoardAudience = 'gm' | 'player';
 
 const FOV = 35;
 /** A press that moves less than this is a click (TacticalEngine). */
@@ -216,7 +233,9 @@ type Press =
   /** Ctrl + drag on a wall or a light: up raises it, down lowers it; `start` is its height when the drag began, in squares. */
   | { kind: 'height'; target: 'wall' | 'light'; id: string; x: number; y: number; moved: boolean; start: number }
   /** The laser drawing its beam. */
-  | { kind: 'laser'; x: number; y: number; moved: boolean };
+  | { kind: 'laser'; x: number; y: number; moved: boolean }
+  /** A Connect player's tool (measure, template, laser, ping) under way. */
+  | { kind: 'tool'; x: number; y: number; moved: boolean };
 
 export class Board {
   readonly canvas: HTMLCanvasElement;
@@ -301,7 +320,18 @@ export class Board {
   /** The token whose stat block was last shown, so a hover shows it once. */
   private previewed: string | null = null;
 
-  constructor(private readonly container: HTMLElement, private readonly host: BoardHost, private quality: QualityPreset) {
+  /** Who looks at it; a player's board shows what players see and changes nothing but its own tokens' places. */
+  readonly audience: BoardAudience;
+  /** The darkness of a lit scene, on a player's board (Connect sends it). */
+  private readonly darkness = new DarknessLayer();
+  /** A Connect player's tools, and what people mark on the board in a session (templates, pings, lasers). */
+  readonly tools = new PlayerToolState();
+  readonly marks = new BoardMarks();
+  /** A player's camera stands inside the fog: the picture is black. */
+  private blind = false;
+
+  constructor(private readonly container: HTMLElement, private readonly host: BoardHost, private quality: QualityPreset, options: { audience?: BoardAudience } = {}) {
+    this.audience = options.audience ?? 'gm';
     const doc = container.ownerDocument;
     this.canvas = doc.createElement('canvas');
     this.canvas.className = 'atlas-tabletop-board';
@@ -341,6 +371,8 @@ export class Board {
         this.applyLighting();
       },
     });
+    this.toolbar.setHidden(this.audience === 'player');
+    this.scene.add(this.darkness.object3d, this.marks.object3d);
     this.controls = new ResourceControls(container, {
       step: (key, delta) => this.stepResource(key, delta),
       edit: (key) => this.openEditor(key),
@@ -488,6 +520,7 @@ export class Board {
   private sync(): void {
     const map = this.map!;
     const rules = this.host.rules();
+    this.darkness.update((map as { darkness?: FogOperation[] }).darkness ?? []);
     try {
       this.fog.update(map.fog, this.host.fogHeight(), map.grid.size);
     } catch (error) {
@@ -703,11 +736,50 @@ export class Board {
   private redraw(): void {
     if (!this.map || this.disposed) return;
     try {
-      this.fog.face(this.view.position);
-      this.renderer.render(this.scene, this.view);
+      this.drawMain();
     } catch (error) {
       console.error('[Tabletop] The board could not be drawn:', error);
     }
+  }
+
+  /** The board's own picture: the GM's, or on a player's board what players see (black inside the fog). */
+  private drawMain(): void {
+    if (this.audience === 'player') {
+      this.showFor('player');
+      this.blind = this.fog.hides(this.view.position, (point) => insideFog(this.fog.areas, point));
+      if (this.blind) {
+        this.renderer.setClearColor(0x000000, 1);
+        this.renderer.clear();
+        return;
+      }
+    }
+    this.fog.face(this.view.position);
+    this.renderer.render(this.scene, this.view);
+  }
+
+  /** On a player's board: the GM's 3D view to glide to (the GM view button); null when there is none. */
+  private gmPose: { eye: { x: number; y: number; z: number }; target: { x: number; y: number; z: number } } | null = null;
+
+  setGmView(pose: { eye: { x: number; y: number; z: number }; target: { x: number; y: number; z: number } } | null): void {
+    this.gmPose = pose ? { eye: { ...pose.eye }, target: { ...pose.target } } : null;
+  }
+
+  get hasGmView(): boolean {
+    return this.gmPose !== null;
+  }
+
+  /** Glides to the GM's 3D view; false when there is none. */
+  followGm(): boolean {
+    const pose = this.gmPose;
+    if (!pose) return false;
+    this.camera.view(pose.eye, pose.target);
+    this.wake();
+    return true;
+  }
+
+  /** Whether the picture is black (a player's camera inside the fog). */
+  get isBlind(): boolean {
+    return this.blind;
   }
 
   /** Asks for a frame; frames keep coming while anything moves. `changed` says the board itself changed (shadows). */
@@ -758,6 +830,7 @@ export class Board {
     if (this.drawLaser()) busy = true;
     const doorsMoving = this.walls.step(dt);
     if (doorsMoving) busy = true;
+    if (this.marks.step(this.clock, context.pixel)) busy = true;
     this.rig.step(this.clock);
     const glide = 1 - Math.exp(-GLIDE * dt);
     let changed = this.shadowsDirty || this.press?.kind === 'token' || this.press?.kind === 'prop' || doorsMoving;
@@ -780,6 +853,7 @@ export class Board {
       this.rig.place(entry.token.id, entry.at.x, entry.at.y);
       entry.labels.place(entry.piece.figureHeight(), ringDiameter(this.map!.grid, entry.token.size) / 2, entry.piece.top);
       entry.labels.pose(context);
+      if (this.audience === 'player') entry.playerLabels.pose(context);
       entry.playerLabels.place(entry.piece.figureHeight(), ringDiameter(this.map!.grid, entry.token.size) / 2, entry.piece.top);
       if (entry.piece.animating) {
         busy = true;
@@ -801,8 +875,7 @@ export class Board {
       this.shadowedAt = this.clock;
     }
     this.shadowsDirty = false;
-    this.fog.face(this.view.position);
-    this.renderer.render(this.scene, this.view);
+    this.drawMain();
     this.layoutControls();
     this.drawPlayers(shadows, context);
     if (cameraMoving) this.host.cameraMoved?.();
@@ -1025,6 +1098,7 @@ export class Board {
       this.showCell(null);
       this.laserClient = null;
       this.laserPoint = null;
+      if (this.audience === 'player') this.host.hoverToken?.(null, null, false);
       this.wake();
     });
     on('wheel', (event) => {
@@ -1038,7 +1112,9 @@ export class Board {
       if (key === 'escape' && this.painting) { this.paintWith(null); return; }
       if (key === 'escape' && this.laserOn) { this.setLaser(false); return; }
       // Atlas's Move/Select key switches between moving and the laser pointer.
-      if (key === 'v' && !event.ctrlKey && !event.metaKey && !event.altKey) { this.setLaser(!this.laserOn); return; }
+      // A player's tools are Connect's: Escape goes back to Move, as in its 2D view.
+      if (this.audience === 'player' && key === 'escape' && this.tools.tool !== 'move') { this.tools.select('move'); this.toolsChanged(); return; }
+      if (key === 'v' && this.audience === 'gm' && !event.ctrlKey && !event.metaKey && !event.altKey) { this.setLaser(!this.laserOn); return; }
       if (key === 'escape' && this.selectedId !== null) { this.select(null); return; }
       if (key === 'escape' && this.toolbar.isOpen) { this.toolbar.close(); return; }
       if (key === 'home') { this.frameMap(); event.preventDefault(); return; }
@@ -1103,6 +1179,10 @@ export class Board {
       this.trackLaser(x, y);
       return;
     }
+    if (this.audience === 'player') {
+      this.playerDown(event);
+      return;
+    }
     if (event.button === 0 && (event.ctrlKey || event.metaKey)) {
       const id = this.propAt(x, y);
       const piece = id ? this.props.get(id) : null;
@@ -1148,8 +1228,99 @@ export class Board {
     this.press = { kind: 'camera', button: event.button, x, y, lastX: x, lastY: y, moved: false, token, prop, pin, door, light, grab };
   }
 
+  /**
+   * A press on a player's board: a token the player may move is picked up (no copies), a pin opens its note; anything
+   * else turns or slides the camera. No menus, doors, props, walls or lights: those are the GM's.
+   */
+  private playerDown(event: PointerEvent): void {
+    const { clientX: x, clientY: y } = event;
+    if (event.button === 0) {
+      const id = this.tokenAt(x, y);
+      const entry = id ? this.tokens.get(id) : null;
+      const at = this.boardPoint(x, y);
+      if (id && entry && at && this.host.canMove?.(id) === true) {
+        this.press = {
+          kind: 'token', id, x, y, moved: false, grab: { dx: entry.at.x - at.x, dy: entry.at.y - at.y },
+          copy: false, start: snapPoint(this.map!.grid, entry.token.x, entry.token.y), waypoints: [],
+        };
+        entry.piece.carried = true;
+        return;
+      }
+    }
+    if (event.button === 0 && this.tools.takesPress) {
+      const at = this.boardPoint(x, y);
+      if (at) {
+        this.press = { kind: 'tool', x, y, moved: false };
+        this.tools.down(at, this.now());
+        this.showToolOverlay();
+        return;
+      }
+    }
+    const pin = event.button === 0 ? this.pinAt(x, y) : null;
+    const grab = event.button === 2 ? this.boardPoint(x, y) : null;
+    this.press = { kind: 'camera', button: event.button, x, y, lastX: x, lastY: y, moved: false, token: null, prop: null, pin, door: null, light: null, grab };
+  }
+
+  /** Milliseconds, for the laser's timing. */
+  private now(): number {
+    return (this.container.ownerDocument.defaultView ?? window).performance.now();
+  }
+
+  /** The tools' actions go to Connect. */
+  private act(actions: readonly ToolAction[]): void {
+    for (const action of actions) this.host.playerAction?.(action);
+  }
+
+  /** The measure or template being dragged, drawn; the toolbar told of a change. */
+  private showToolOverlay(): void {
+    const { measure, draft } = this.tools.overlay();
+    const map = this.map;
+    const label = measure && map ? formatDistance(pathLengthInCells([measure.start, measure.end], map.grid, this.host.measurement().diagonalRule), this.host.measurement()) : '';
+    this.marks.setOverlay(measure ? { ...measure, label } : null, draft ? { ...draft, color: this.host.ownColor?.() ?? '#ffcc33' } : null, this.tools.coneAngle, this.lastPose?.pixel ?? 0.002);
+    this.wake();
+  }
+
+  /** Lets the tools change from outside (Connect's toolbar): the drawing and the toolbar follow. */
+  toolsChanged(): void {
+    this.tools.cancel();
+    this.showToolOverlay();
+    this.host.toolsChanged?.();
+  }
+
+  /** The scene's lasting templates, from Connect. */
+  receiveTemplates(list: readonly TemplateMark[]): void {
+    this.tools.receiveTemplates(list);
+    this.marks.setTemplates(list, this.tools.coneAngle);
+    this.host.toolsChanged?.();
+    this.wake();
+  }
+
+  /** Someone's ping, from Connect. */
+  receivePing(x: number, y: number, color: string): void {
+    this.marks.ping(x, y, color, this.clock);
+    this.wake();
+  }
+
+  /** New points of someone's laser, from Connect. */
+  receiveLaser(from: string, points: ReadonlyArray<{ x: number; y: number }>, lifted: boolean, color: string): void {
+    this.marks.laser(from, points, lifted, color, this.clock);
+    this.wake();
+  }
+
   private move(event: PointerEvent): void {
     const press = this.press;
+    if (press?.kind === 'tool') {
+      if (!press.moved && Math.hypot(event.clientX - press.x, event.clientY - press.y) >= DRAG_PX) press.moved = true;
+      const at = this.boardPoint(event.clientX, event.clientY);
+      if (at) {
+        const actions = this.tools.move(at, this.now());
+        // The player's own laser shows as it is drawn.
+        for (const action of actions) if (action.type === 'laser') this.marks.laser('self', action.points, false, action.color || (this.host.ownColor?.() ?? '#ff0059'), this.clock);
+        this.act(actions);
+        this.showToolOverlay();
+      }
+      return;
+    }
     if (this.laserOn) this.trackLaser(event.clientX, event.clientY);
     if (press?.kind === 'laser') return;
     if (!press) { if (!this.laserOn) this.hover(event); return; }
@@ -1215,6 +1386,14 @@ export class Board {
     }
     if (!press) return;
     if (press.kind === 'laser') { this.wake(); return; }
+    if (press.kind === 'tool') {
+      const at = this.boardPoint(x, y);
+      const actions = at ? this.tools.up(at, this.now(), press.moved) : (this.tools.cancel(), []);
+      for (const action of actions) if (action.type === 'laser') this.marks.laser('self', action.points, true, action.color || (this.host.ownColor?.() ?? '#ff0059'), this.clock);
+      this.act(actions);
+      this.showToolOverlay();
+      return;
+    }
     if (press.kind === 'token') {
       this.clearRuler();
       const entry = this.tokens.get(press.id);
@@ -1225,7 +1404,8 @@ export class Board {
         return;
       }
       if (!press.moved) {
-        this.select(press.id);
+        // A player's board has no resource controls to open.
+        if (this.audience === 'gm') this.select(press.id);
         entry.piece.shake(this.clock);
         this.wake(true);
         return;
@@ -1273,6 +1453,11 @@ export class Board {
   private cancel(): void {
     const press = this.press;
     this.press = null;
+    if (press?.kind === 'tool') {
+      this.tools.cancel();
+      this.showToolOverlay();
+      return;
+    }
     if (press?.kind === 'token') {
       this.clearRuler();
       const entry = this.tokens.get(press.id);
@@ -1828,6 +2013,12 @@ export class Board {
 
   /** Names a condition ring or stat badge under the pointer; with Ctrl/Cmd held, shows a token's stat block. */
   private hover(event: PointerEvent): void {
+    if (this.audience === 'player') {
+      // Connect shows the token's card (or with Ctrl/Cmd the player's own stat block) around the board.
+      const id = this.tokenAt(event.clientX, event.clientY);
+      this.host.hoverToken?.(id, { x: event.clientX, y: event.clientY }, event.ctrlKey || event.metaKey);
+      return;
+    }
     if (event.ctrlKey || event.metaKey) {
       const id = this.tokenAt(event.clientX, event.clientY);
       if (id !== this.previewed && id && this.tokens.get(id)?.token.statblockPath) this.host.statblockPreview(id, event);

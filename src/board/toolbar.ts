@@ -360,6 +360,14 @@ export class BoardToolbar {
     this.sizeValue.textContent = `${size}px`;
   }
 
+  /** Hides the whole toolbar (a Connect player's board, whose tab has its own). */
+  setHidden(hidden: boolean): void {
+    this.row.hidden = hidden;
+    // The row lays itself out as flex, which `hidden` alone does not undo.
+    this.row.style.display = hidden ? 'none' : '';
+    if (hidden) this.close();
+  }
+
   open(): void {
     this.closeLaser();
     this.heightInput.value = String(this.actions.fogHeight());

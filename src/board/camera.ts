@@ -123,6 +123,23 @@ export class OrbitCamera {
     this.seat();
   }
 
+  /**
+   * Looks at `target` from `eye`, exactly: the angle and distance are taken as they are (the GM's view a player is sent),
+   * not held to this camera's limits. The camera glides there.
+   */
+  view(eye: { x: number; y: number; z: number }, target: { x: number; y: number; z: number }): void {
+    const dx = eye.x - target.x;
+    const dy = eye.y - target.y;
+    const dz = eye.z - target.z;
+    const distance = Math.hypot(dx, dy, dz);
+    if (!(distance > 0)) return;
+    this.goal.target = { ...target };
+    this.goal.distance = distance;
+    this.goal.yaw = Math.atan2(dx, dz);
+    this.goal.pitch = Math.asin(dy / distance);
+    this.wanted = this.goal.pitch;
+  }
+
   /** Looks at a point without changing distance or angle. */
   lookAt(target: { x: number; y: number; z: number }): void {
     this.goal.target = { ...target };
