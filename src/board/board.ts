@@ -797,6 +797,9 @@ export class Board {
       return;
     }
     const doc = this.container.ownerDocument;
+    // The same banner again is left as it is: rebuilt, its button would be swapped under the pointer.
+    const key = JSON.stringify([banner.text, banner.action?.label ?? null]);
+    if (element && !element.hidden && element.dataset.key === key) return;
     if (!element) {
       element = doc.createElement('div');
       element.className = 'atlas-tabletop-banner';
@@ -804,6 +807,7 @@ export class Board {
       this.container.appendChild(element);
     }
     element.hidden = false;
+    element.dataset.key = key;
     element.replaceChildren();
     const text = doc.createElement('span');
     text.textContent = banner.text;
@@ -826,12 +830,16 @@ export class Board {
       return;
     }
     const doc = this.container.ownerDocument;
+    // The same handout again is left as it is: rebuilt, its image would load again and flicker.
+    const key = JSON.stringify([handout.title, handout.url]);
+    if (element && !element.hidden && element.dataset.key === key) return;
     if (!element) {
       element = doc.createElement('div');
       element.className = 'atlas-tabletop-handout';
       this.container.appendChild(element);
     }
     element.hidden = false;
+    element.dataset.key = key;
     element.replaceChildren();
     const title = doc.createElement('div');
     title.className = 'atlas-tabletop-handout__title';

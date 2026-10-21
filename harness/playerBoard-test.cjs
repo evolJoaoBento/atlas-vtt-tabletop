@@ -137,6 +137,17 @@ server.listen(0, async () => {
     check('GM view glides the camera to the GM\'s 3D view', Math.abs(eye[0] - 700) < 5 && Math.abs(eye[1] - 900) < 5 && Math.abs(eye[2] - 1400) < 5, eye);
     check('the toolbar knows the GM view is there', await page.evaluate(() => window.playerTest.handle.toolState().gmView === true));
 
+    // 9b. A GM camera of a scene not shown yet is kept, and used once that scene comes.
+    await page.evaluate(() => {
+      const t = window.playerTest;
+      t.handle.setGmCamera({ sceneId: 's2', eye: { x: 100, y: 800, z: 900 }, target: { x: 100, y: 0, z: 100 } });
+      t.handle.setScene({ ...t.scene, sceneId: 's2' });
+    });
+    await wait(300);
+    check('a GM view sent before its scene is used once the scene comes', await page.evaluate(() => window.playerTest.handle.toolState().gmView === true));
+    await page.evaluate(() => { const t = window.playerTest; t.handle.setScene(t.scene); });
+    await wait(300);
+
     // 10. Darkness: Connect's darkness op is laid flat as black ground, not fog.
     await page.evaluate(() => {
       const t = window.playerTest;
@@ -150,6 +161,14 @@ server.listen(0, async () => {
     await page.evaluate(() => window.playerTest.handle.setExtras(null));
     await wait(500);
     check('extras taken away take the walls with them', (await state()).doors === 0, await state());
+
+    // 11b. The GM clears the scene: the board shows nothing, then the next scene again.
+    await page.evaluate(() => window.playerTest.handle.setScene(null));
+    await wait(300);
+    check('no scene: the board shows nothing', await page.evaluate(() => window.playerTest.board.canvas.style.visibility === 'hidden'));
+    await page.evaluate(() => { const t = window.playerTest; t.handle.setScene(t.scene); });
+    await wait(500);
+    check('a scene again: the board shows it', await page.evaluate(() => window.playerTest.board.canvas.style.visibility !== 'hidden'));
 
     // 12. Disposed: the WebGL context is let go.
     await page.evaluate(() => window.playerTest.handle.dispose());

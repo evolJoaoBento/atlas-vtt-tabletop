@@ -71,7 +71,9 @@ export interface SceneBoard {
 /** The resource that marks a token Connect says is downed (its bars say nothing of it). */
 const DOWNED_KEY = '__downed';
 
-export function boardFromScene(scene: PlayerSceneLike, extras: BoardExtras | null): SceneBoard {
+export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null): SceneBoard {
+  // Another scene's board (a player just moved) is not this one's.
+  const extras = given && given.sceneId === scene.sceneId ? given : null;
   const definitions = new Map<string, ResourceDefinition>();
   const conditions = new Map<string, ConditionDefinition>();
   const define = (key: string, name: string, color: string, defeating = false): void => {

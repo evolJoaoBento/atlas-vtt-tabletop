@@ -89,3 +89,8 @@ test('the board extras become walls, doors and lights; a token\'s light follows 
   const bare = boardFromScene(scene(), null);
   assert.deepEqual([bare.map.walls, bare.map.lights], [[], []]);
 });
+
+test('board extras of another scene are not this scene\'s: none of their walls or lights are used', () => {
+  const { map } = boardFromScene(scene(), { ...extras, sceneId: 'other' });
+  assert.deepEqual([map.walls, map.lights], [[], []]);
+});

@@ -1213,6 +1213,14 @@ server.listen(0, async () => {
       check('the banner says players do not see the board', panels.banner?.includes('open this map in Atlas'), panels);
       await page.evaluate(() => document.querySelector('.atlas-tabletop-banner button').click());
       check('its button runs its action', (await record()).opened === 1, await record());
+      check('the same handout and banner again rebuild nothing (no flicker)', await page.evaluate(() => {
+        const t = window.boardTest;
+        const image = document.querySelector('.atlas-tabletop-handout img');
+        const button = document.querySelector('.atlas-tabletop-banner button');
+        t.board.setHandout({ title: 'Old map', url: t.handoutUrl });
+        t.board.setBanner({ text: 'Players don\'t see changes made here: open this map in Atlas.', action: { label: 'Open in Atlas', run: () => { t.record.opened = (t.record.opened ?? 0) + 1; } } });
+        return image !== null && image === document.querySelector('.atlas-tabletop-handout img') && button === document.querySelector('.atlas-tabletop-banner button');
+      }));
       await page.evaluate(() => {
         window.boardTest.board.setBanner(null);
         window.boardTest.board.setHandout(null);

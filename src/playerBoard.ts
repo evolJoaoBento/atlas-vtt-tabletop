@@ -92,6 +92,8 @@ class PlayerBoard implements PlayerBoardHandle {
   private self: string | null = null;
   private order: readonly string[] = [];
   private gmCamera: BoardCamera | null = null;
+  /** The GM's last 3D view, whatever its scene: used once that scene is shown. */
+  private sentCamera: BoardCamera | null = null;
   private followedOnce = false;
   /** The map image was not here at the last load: the board loads again once it is. */
   private backgroundMissing = false;
@@ -105,7 +107,14 @@ class PlayerBoard implements PlayerBoardHandle {
   }
 
   setScene(scene: unknown): void {
+    const before = this.scene?.sceneId ?? null;
     this.scene = scene as PlayerSceneLike | null;
+    // No scene (the GM cleared it, or the player was moved to none): the board shows nothing until the next.
+    this.board.canvas.style.visibility = this.scene ? '' : 'hidden';
+    if (this.scene && this.scene.sceneId !== before) {
+      this.followedOnce = false;
+      this.useCamera();
+    }
     this.reload();
   }
 
@@ -115,6 +124,13 @@ class PlayerBoard implements PlayerBoardHandle {
   }
 
   setGmCamera(camera: BoardCamera | null): void {
+    this.sentCamera = camera;
+    this.useCamera();
+  }
+
+  /** The GM's 3D view, when it is of the scene shown. */
+  private useCamera(): void {
+    const camera = this.sentCamera;
     this.gmCamera = camera && camera.sceneId === this.scene?.sceneId ? camera : null;
     this.board.setGmView(this.gmCamera);
     // The board starts on the GM's view, then the player looks where they like.
