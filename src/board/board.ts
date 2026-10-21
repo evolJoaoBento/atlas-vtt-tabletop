@@ -674,13 +674,33 @@ export class Board {
 
   // ── Drawing ───────────────────────────────────────────────────────────────
 
-  private fit(): void {
+  /** The size and resolution the canvas was last given. */
+  private fitted = { width: 0, height: 0, ratio: 0 };
+
+  fit(): void {
     const width = Math.max(1, this.container.clientWidth);
     const height = Math.max(1, this.container.clientHeight);
+    const ratio = this.renderer.getPixelRatio();
+    // Sizing a WebGL canvas wipes it, even to the size it has: only a real change is applied.
+    if (width === this.fitted.width && height === this.fitted.height && ratio === this.fitted.ratio) return;
+    this.fitted = { width, height, ratio };
     this.renderer.setSize(width, height, false);
     this.view.aspect = width / height;
     this.view.updateProjectionMatrix();
+    // The page may paint before the next frame: the wiped canvas is drawn again now, or the board blinks.
+    this.redraw();
     this.wake();
+  }
+
+  /** Draws the board again at once with what it holds, outside the frame loop. */
+  private redraw(): void {
+    if (!this.map || this.disposed) return;
+    try {
+      this.fog.face(this.view.position);
+      this.renderer.render(this.scene, this.view);
+    } catch (error) {
+      console.error('[Tabletop] The board could not be drawn:', error);
+    }
   }
 
   /** Asks for a frame; frames keep coming while anything moves. `changed` says the board itself changed (shadows). */
@@ -1461,6 +1481,8 @@ export class Board {
       if (!player) return;
       player.renderer.setSize(Math.max(1, container.clientWidth), Math.max(1, container.clientHeight), false);
       player.shadowsDirty = true;
+      // Sizing wiped the players' canvas: drawn again before that window paints, or it blinks.
+      if (this.lastPose) this.drawPlayers(false, this.lastPose);
       this.wake();
     });
     resize.observe(container);

@@ -1142,6 +1142,51 @@ server.listen(0, async () => {
       await page.screenshot({ path: `${shots}/board-22-door-prop.png` });
       await page.evaluate(() => { window.boardTest.board.toolbar.actions.setAmbient(1, true); });
     }
+
+    // 23. The board never shows a blank frame: resizing a WebGL canvas wipes it, so a resize is drawn again before the
+    // page paints, and a resize to the same size does not wipe it at all.
+    {
+      const blanks = await page.evaluate(async () => {
+        const board = window.boardTest.board;
+        const renderer = board.renderer;
+        const events = [];
+        const setSize = renderer.setSize;
+        const render = renderer.render;
+        // A wipe must be drawn over in the same task: the page may paint before any later frame.
+        renderer.setSize = function (...args) { events.push('size'); queueMicrotask(() => events.push('frame')); return setSize.apply(this, args); };
+        renderer.render = function (...args) { events.push('render'); return render.apply(this, args); };
+        let ticking = true;
+        const tick = () => { events.push('frame'); if (ticking) requestAnimationFrame(tick); };
+        requestAnimationFrame(tick);
+        const container = document.getElementById('board');
+        const frames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        await frames();
+        container.style.width = '999px';
+        await frames();
+        await frames();
+        container.style.width = '1000px';
+        await frames();
+        await frames();
+        const sized = events.filter((event) => event === 'size').length;
+        board.fit();
+        const sameSize = events.filter((event) => event === 'size').length - sized;
+        ticking = false;
+        renderer.setSize = setSize;
+        renderer.render = render;
+        // Every wipe must be followed by a drawing before the next animation frame starts.
+        const wiped = [];
+        events.forEach((event, index) => {
+          if (event !== 'size') return;
+          const after = events.slice(index + 1);
+          const drawn = after.indexOf('render');
+          const frame = after.indexOf('frame');
+          if (drawn === -1 || (frame !== -1 && frame < drawn)) wiped.push(index);
+        });
+        return { sizes: sized, sameSize, wiped, events: events.join(' ') };
+      });
+      check('a resize is drawn again before the page paints (no blank frame)', blanks.sizes >= 2 && blanks.wiped.length === 0, blanks);
+      check('fitting to the same size does not wipe the canvas', blanks.sameSize === 0, blanks);
+    }
   } catch (error) {
     check('harness ran', false, String(error && error.stack || error));
   }
