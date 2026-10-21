@@ -16,8 +16,11 @@ import { boardLookFor, MaterialIndex } from './src/boardLook';
 import { playerBoardFactory, type PlayerBoardFactory } from './src/playerBoard';
 import type { BoardLook, BoardSession, GmCameraSource } from './src/connectContract';
 
-export const API_READY_EVENT = 'atlas-vtt-tabletop:api-ready';
-export const API_UNLOAD_EVENT = 'atlas-vtt-tabletop:api-unload';
+export const API_READY_EVENT = 'tabletop-for-atlas:api-ready';
+export const API_UNLOAD_EVENT = 'tabletop-for-atlas:api-unload';
+/** The names they had before "Tabletop for Atlas VTT" took a new id: still announced, for a Connect that knows only those. */
+const OLD_API_READY_EVENT = 'atlas-vtt-tabletop:api-ready';
+const OLD_API_UNLOAD_EVENT = 'atlas-vtt-tabletop:api-unload';
 
 interface TabletopSettings {
   /** The minis folder (the key keeps its old name so saved settings still read). */
@@ -42,8 +45,8 @@ interface SavedData {
 const isMapPath = (path: string): boolean => path.toLowerCase().endsWith('.atlasmap');
 
 /**
- * What other plugins (Atlas VTT Connect) read of Tabletop: `app.plugins.plugins['atlas-vtt-tabletop'].api`, announced
- * with the workspace event `atlas-vtt-tabletop:api-ready` and withdrawn with `atlas-vtt-tabletop:api-unload`.
+ * What other plugins (Connect for Atlas VTT) read of Tabletop: `app.plugins.plugins['tabletop-for-atlas'].api`, announced
+ * with the workspace event `tabletop-for-atlas:api-ready` and withdrawn with `tabletop-for-atlas:api-unload`.
  */
 export interface TabletopApi {
   readonly version: 1;
@@ -217,10 +220,12 @@ export default class TabletopPlugin extends Plugin {
       }),
     });
     this.app.workspace.trigger(API_READY_EVENT, this.api);
+    this.app.workspace.trigger(OLD_API_READY_EVENT, this.api);
   }
 
   onunload(): void {
     this.app.workspace.trigger(API_UNLOAD_EVENT);
+    this.app.workspace.trigger(OLD_API_UNLOAD_EVENT);
     this.api = null;
     // Connect lets go of a painter that is gone on its next frame; its views are freed here at once.
     this.players?.dispose();

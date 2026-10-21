@@ -1,8 +1,10 @@
-# Atlas VTT Extension - Tabletop
+# Tabletop for Atlas VTT
+
+Tabletop for Atlas VTT is a community extension. It is not made, endorsed or supported by Atlas VTT or Atlas Online.
 
 Opens Atlas VTT maps on a 3D board in Obsidian. The map image becomes a table, and tokens and note pins stand above
 where they are on the map. Tokens can carry 3D minis (GLB) and props can be placed on the board. Players joined
-through Atlas VTT Connect see the minis too, if they have Tabletop installed.
+through Connect for Atlas VTT see the minis too, if they have Tabletop installed.
 
 ## Use
 
@@ -64,7 +66,7 @@ cp harness/board.html <dir>/index.html && cp styles.css <dir>/
 node harness/board-test.cjs <dir> <screenshot dir>
 ```
 
-Player board harness (Tabletop's 3D board as Atlas VTT Connect mounts it in a player's tab):
+Player board harness (Tabletop's 3D board as Connect for Atlas VTT mounts it in a player's tab):
 
 ```
 npx esbuild harness/playerBoard.ts --bundle --outfile=<dir>/playerBoard.js --alias:obsidian=./harness/obsidian-stub.ts

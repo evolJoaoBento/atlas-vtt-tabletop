@@ -1,9 +1,9 @@
 {
-  "id": "atlas-vtt-tabletop",
-  "name": "Atlas VTT Extension - Tabletop",
+  "id": "tabletop-for-atlas",
+  "name": "Tabletop for Atlas VTT",
   "version": "0.1.0",
   "minAppVersion": "1.8.7",
-  "description": "Stand 3D GLB minis on Atlas VTT tokens: right-click a token to place a mini, and keep your minis in a gallery.",
+  "description": "Tabletop for Atlas VTT is a community extension. It is not made, endorsed or supported by Atlas VTT or Atlas Online. Opens Atlas VTT maps on a 3D board, with 3D minis on tokens, walls, doors, lights and props.",
   "author": "Bento's Grimoire of Things",
   "authorUrl": "https://github.com/evolJoaoBento",
   "isDesktopOnly": true

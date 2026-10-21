@@ -33,7 +33,7 @@ import type { TokenWriter } from './tokenWriter';
 
 export const BOARD_VIEW_TYPE = 'atlas-tabletop-board';
 /** The hover source Tabletop registers, so Obsidian's page preview shows stat blocks from the board. */
-export const HOVER_SOURCE = 'atlas-vtt-tabletop';
+export const HOVER_SOURCE = 'tabletop-for-atlas';
 const RELOAD_MS = 300;
 /** A light hangs a square above the map until the GM sets its height; the menu steps it a quarter square. */
 const DEFAULT_LIGHT_SQUARES = 1;
