@@ -6,6 +6,7 @@
  * right edge (`initiativePanel.ts`): it shows the tracker Atlas holds while Atlas has the map open, following its
  * store as it changes, else the one in the file.
  */
+import type { BoardMark, BoardSession } from '../connectContract';
 import { ItemView, Menu, Notice, TFile, debounce, parseYaml, setIcon, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
 import type { AtlasView } from '../atlas';
 import type { Assignments } from '../assignments';
@@ -60,6 +61,8 @@ export interface BoardServices {
   boardReady(view: BoardView): void;
   /** The GM's camera or the players' moved on this board. */
   cameraMoved?(view: BoardView): void;
+  /** Connect's hosted session, while Connect hands one over. */
+  session?(): BoardSession | null;
 }
 
 const tokenName = (token: BoardToken): string => token.name ?? token.imagePath?.split('/').pop()?.replace(/\.[^.]+$/, '') ?? 'Token';
@@ -256,7 +259,56 @@ export class BoardView extends ItemView {
     // The tracker shows when the map has combatants; the I key or the board settings show or hide it.
     if (fresh) this.initiative?.setOpen(this.liveInitiative().entries.length > 0);
     this.initiative?.render();
+    this.sessionChanged();
     if (fresh && !this.closed) this.services.boardReady(this);
+  }
+
+  /**
+   * Connect's session as this board shows it: the map's templates, the handout shown to players, and, while Atlas does
+   * not hold the map (so nothing done here reaches players), a banner that opens it in Atlas.
+   */
+  sessionChanged(): void {
+    const board = this.board;
+    const path = this.path;
+    if (!board || !path) return;
+    const session = this.services.session?.() ?? null;
+    if (!session?.hosting()) {
+      board.receiveTemplates([]);
+      board.setHandout(null);
+      board.setBanner(null);
+      board.refreshToolbar();
+      return;
+    }
+    const overlay = session.overlay(path);
+    board.tools.coneAngle = overlay.coneAngle;
+    board.receiveTemplates(overlay.templates);
+    const handout = overlay.handout;
+    const file = handout ? this.app.vault.getAbstractFileByPath(handout.path) : null;
+    board.setHandout(handout ? { title: handout.title, url: file instanceof TFile ? this.app.vault.getResourcePath(file) : null } : null);
+    const held = this.services.writer.holder(path) !== null;
+    board.setBanner(held ? null : {
+      text: "Players don't see changes made here: open this map in Atlas.",
+      action: { label: 'Open in Atlas', run: () => { void this.openInAtlas(); } },
+    });
+    board.refreshToolbar();
+  }
+
+  /** Someone's ping or laser on this board's map. */
+  mark(mark: BoardMark): void {
+    if (!this.board || mark.mapPath !== this.path) return;
+    if (mark.kind === 'ping') this.board.receivePing(mark.x, mark.y, mark.color);
+    else this.board.receiveLaser(mark.from, mark.points, mark.lifted, mark.color);
+  }
+
+  /** Opens this board's map in an Atlas tab beside it, leaving the board in front. */
+  private async openInAtlas(): Promise<void> {
+    const file = this.path ? this.app.vault.getAbstractFileByPath(this.path) : null;
+    if (!(file instanceof TFile)) return;
+    const leaf = this.app.workspace.getLeaf('tab');
+    await leaf.openFile(file, { active: false });
+    this.app.workspace.setActiveLeaf(this.leaf, { focus: true });
+    this.watchAtlas();
+    this.sessionChanged();
   }
 
   /** The map's conditions and resource names, from Atlas's asset index (in a hidden folder, read off the disk). */
@@ -370,6 +422,17 @@ export class BoardView extends ItemView {
         boardData.setWallMaterial(mapPath(), ids, material);
       },
       cameraMoved: () => this.services.cameraMoved?.(this),
+      hosting: () => this.services.session?.()?.hosting() === true,
+      // The GM's Template tool while Connect hosts: what it asks goes to every player of the map's scene.
+      playerAction: (action) => {
+        const session = this.services.session?.();
+        const path = this.path;
+        if (!session || !path || action.type !== 'template') return;
+        const change = action.change;
+        if ('add' in change) session.addTemplate(path, change.add);
+        else if ('remove' in change) session.eraseTemplate(path, change.remove);
+        else session.clearTemplates(path);
+      },
     };
   }
 
@@ -473,6 +536,8 @@ export class BoardView extends ItemView {
       this.watched = { view, stop };
     }
     this.initiative?.render();
+    // Atlas opened or closed the map: whether players see the board's changes may have changed with it.
+    this.sessionChanged();
   }
 
   /** The tracker as Atlas holds it while it has the map open, else as the file has it. */

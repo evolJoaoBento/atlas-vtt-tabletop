@@ -14,7 +14,7 @@ import { GpuSettings, currentChip, gpuChoices, type GpuPreference } from './src/
 import { playerMiniPainter, type PlayerMiniPainter } from './src/playerMinis';
 import { boardLookFor, MaterialIndex } from './src/boardLook';
 import { playerBoardFactory, type PlayerBoardFactory } from './src/playerBoard';
-import type { BoardLook, GmCameraSource } from './src/connectContract';
+import type { BoardLook, BoardSession, GmCameraSource } from './src/connectContract';
 
 export const API_READY_EVENT = 'atlas-vtt-tabletop:api-ready';
 export const API_UNLOAD_EVENT = 'atlas-vtt-tabletop:api-unload';
@@ -65,6 +65,8 @@ export interface TabletopApi {
   readonly gmCamera: GmCameraSource;
   /** The 3D board in a Connect player's tab, drawn from what Connect receives. */
   readonly playerBoard: PlayerBoardFactory;
+  /** Connect hands over its hosted session: the boards show its templates, marks and handout. Returns the release. */
+  attachSession(session: BoardSession): () => void;
 }
 
 /** The files `readAsset` hands out: textures and GLBs, nothing else of the vault. */
@@ -77,6 +79,8 @@ export default class TabletopPlugin extends Plugin {
   private readonly boardListeners = new Set<(mapPath: string | null) => void>();
   private readonly cameraListeners = new Set<() => void>();
   private materialIndex: MaterialIndex | null = null;
+  /** Connect's hosted session, while it hands one over. */
+  private session: BoardSession | null = null;
   library!: MiniLibrary;
   props!: MiniLibrary;
   materials!: MaterialLibrary;
@@ -121,6 +125,7 @@ export default class TabletopPlugin extends Plugin {
       togglePlayerView: (view) => { void this.togglePlayerView(view); },
       playerViewOpen: (path) => this.playerLeaves().some((leaf) => fileOf(leaf) === path),
       cameraMoved: () => { for (const listener of [...this.cameraListeners]) listener(); },
+      session: () => this.session,
       boardReady: (view) => {
         for (const player of this.playerViews()) if (player.mapPath === view.mapPath) view.showPlayer(player);
         this.refreshPlayerButtons();
@@ -185,6 +190,7 @@ export default class TabletopPlugin extends Plugin {
       version: 1 as const,
       playerMinis: this.players.painter,
       playerBoard: playerBoardFactory(() => this.settings.quality),
+      attachSession: (session: BoardSession) => this.attachSession(session),
       placementsFor: (mapPath: string) => this.assignments.forMap(mapPath),
       onChange: (listener: (mapPath: string | null) => void) => this.assignments.onChange(listener),
       readMini: async (path: string): Promise<ArrayBuffer> => {
@@ -301,6 +307,22 @@ export default class TabletopPlugin extends Plugin {
       if (deferred) void deferred.loadIfDeferred();
     }
     this.refreshPlayerButtons();
+  }
+
+  /** Connect's session reaches every board: its templates, handout and banner now, its pings and lasers as they come. */
+  private attachSession(session: BoardSession): () => void {
+    const stops = [
+      session.onChange(() => { for (const board of this.boards()) board.sessionChanged(); }),
+      session.onMark((mark) => { for (const board of this.boards()) board.mark(mark); }),
+    ];
+    this.session = session;
+    for (const board of this.boards()) board.sessionChanged();
+    return () => {
+      for (const stop of stops) stop();
+      if (this.session !== session) return;
+      this.session = null;
+      for (const board of this.boards()) board.sessionChanged();
+    };
   }
 
   /** A map's look changed for Connect: its listeners hear it, and a changed material is read again. */

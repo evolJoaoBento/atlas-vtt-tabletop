@@ -92,6 +92,25 @@ export interface BoardLook {
   readonly materials: ReadonlyArray<{ id: string; scale: number; maps: Record<string, string> }>;
 }
 
+/** What players do on a map, for the GM's board: a ping, or new points of a laser. */
+export type BoardMark =
+  | { kind: 'ping'; mapPath: string; x: number; y: number; color: string }
+  | { kind: 'laser'; mapPath: string; from: string; points: BoardPoint[]; lifted: boolean; color: string };
+
+export interface BoardSessionTemplate { id: string; owner: string; shape: 'line' | 'circle' | 'square' | 'cone'; start: BoardPoint; end: BoardPoint; color: string }
+
+/** Connect's hosted session, handed to `api.attachSession` (Connect's `BoardSessionHub`; the shapes must stay the same). */
+export interface BoardSession {
+  hosting(): boolean;
+  presentedMap(): string | null;
+  overlay(mapPath: string): { templates: readonly BoardSessionTemplate[]; coneAngle: number; handout: { path: string; title: string } | null };
+  onChange(listener: () => void): () => void;
+  onMark(listener: (mark: BoardMark) => void): () => void;
+  addTemplate(mapPath: string, add: { shape: BoardSessionTemplate['shape']; start: BoardPoint; end: BoardPoint }): boolean;
+  eraseTemplate(mapPath: string, id: string): void;
+  clearTemplates(mapPath: string): void;
+}
+
 /** The GM's 3D view of a map: its players' window when open, else the GM's board; null when neither shows it. */
 export interface GmCameraSource {
   camera(mapPath: string): Omit<BoardCamera, 'sceneId'> | null;

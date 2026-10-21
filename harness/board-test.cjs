@@ -1183,6 +1183,9 @@ server.listen(0, async () => {
         window.boardTest.board.receiveTemplates([{ id: 'pt', owner: 'anna', shape: 'circle', start: { x: 560, y: 200 }, end: { x: 630, y: 200 }, color: '#ff9f2e' }]);
         document.querySelector('button[aria-label="Template"]').click();
       });
+      // Earlier checks moved the camera: the whole map in view again.
+      await page.evaluate(() => { const board = window.boardTest.board; board.frameMap(); board.camera.snap(); board.wake(); });
+      await wait(400);
       const a = await project(300, 200);
       const b = await project(370, 200);
       await page.mouse.move(a.x, a.y);
