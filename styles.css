@@ -1417,5 +1417,6 @@ body.atlas-tabletop-player-window .view-header {
   color: var(--text-muted);
 }
 .atlas-tabletop-handout img { display: block; max-width: 100%; max-height: 160px; margin-top: var(--size-4-1); border-radius: var(--radius-s); }
-.atlas-tabletop-template-shapes { display: flex; gap: 2px; align-items: center; }
-.atlas-tabletop-template-shape.is-active { background: var(--background-modifier-active-hover); }
+/* Atlas's end slot in the board's toolbar: Connect's buttons sit there as in Atlas's own toolbar. */
+.atlas-tabletop-extensions { display: flex; align-items: center; gap: 8px; }
+.atlas-tabletop-extensions:empty { display: none; }

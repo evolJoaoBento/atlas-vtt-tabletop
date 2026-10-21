@@ -1172,6 +1172,12 @@ server.listen(0, async () => {
       await wait(300);
     }
 
+    // 22b2. Atlas's toolbar slot, where Connect puts its buttons (as it does in Atlas's own toolbar), styled as Atlas's.
+    check('the toolbar has the end slot of Atlas for the buttons of Connect', await page.evaluate(() => {
+      const slot = document.querySelector('#board .atlas-main-toolbar > .atlas-toolbar-end');
+      return !!slot && slot.classList.contains('atlas-vtt-plugin');
+    }));
+
     // 22c. While Connect hosts: the Template tool, players' templates and marks, the handout, and the banner.
     {
       const before = await page.evaluate(() => [...document.querySelectorAll('button[aria-label="Template"]')].filter((b) => b.offsetParent !== null).length);
@@ -1198,6 +1204,23 @@ server.listen(0, async () => {
       await wait(200);
       const actions = (await record()).toolActions;
       check('the GM places a template and erases a player\'s with a tap', actions.length === 2 && actions[0].change?.add?.shape === 'circle' && actions[1].change?.remove === 'pt', actions);
+      await page.evaluate(() => { document.querySelector('button[aria-label="Template"]').click(); });
+      // As Connect's player toolbar: a chevron opens the shapes, with their icons, and clearing the templates.
+      const menu = await page.evaluate(() => {
+        document.querySelector('button[aria-label="Template options"]').click();
+        const items = [...document.querySelectorAll('.atlas-tabletop-template-options .atlas-dropdown-menu-item')];
+        return { labels: items.map((item) => item.textContent.trim()), icons: items.map((item) => !!item.querySelector('svg')) };
+      });
+      check('the Template menu is Connect\'s: Line, Circle/Sphere, Square/Cube, Cone, then clearing', JSON.stringify(menu.labels) === JSON.stringify(['Line', 'Circle/Sphere', 'Square/Cube', 'Cone', 'Clear templates']) && menu.icons.every(Boolean), menu);
+      await page.evaluate(() => {
+        [...document.querySelectorAll('.atlas-tabletop-template-options .atlas-dropdown-menu-item')].find((item) => item.textContent.includes('Square/Cube')).click();
+      });
+      check('choosing a shape turns the Template tool on with it', await page.evaluate(() => window.boardTest.board.tools.tool === 'template' && window.boardTest.board.tools.templateShape === 'square'));
+      await page.evaluate(() => {
+        document.querySelector('button[aria-label="Template options"]').click();
+        [...document.querySelectorAll('.atlas-tabletop-template-options .atlas-dropdown-menu-item')].find((item) => item.textContent.includes('Clear templates')).click();
+      });
+      check('Clear templates asks for every template on the map to go', JSON.stringify((await record()).toolActions.at(-1)) === JSON.stringify({ type: 'template', change: { clear: true } }), (await record()).toolActions.at(-1));
       await page.evaluate(() => { document.querySelector('button[aria-label="Template"]').click(); });
       await page.evaluate(() => {
         window.boardTest.board.receivePing(400, 400, '#00a9ff');

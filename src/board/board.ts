@@ -367,6 +367,7 @@ export class Board {
       hosting: () => this.host.hosting?.() === true,
       templateOn: () => this.tools.tool === 'template',
       templateShape: () => this.tools.templateShape,
+      clearTemplates: () => { this.host.playerAction?.({ type: 'template', change: { clear: true } }); },
       selectTemplate: (shape) => {
         if (shape === null) this.tools.select('move');
         else this.tools.selectTemplateShape(shape as TemplateShape);

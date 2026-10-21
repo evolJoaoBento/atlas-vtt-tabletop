@@ -68,8 +68,22 @@ export interface TabletopApi {
   readonly gmCamera: GmCameraSource;
   /** The 3D board in a Connect player's tab, drawn from what Connect receives. */
   readonly playerBoard: PlayerBoardFactory;
+  /** The 3D boards open now: their map and their root, whose toolbar has Atlas's end slot for Connect's buttons. */
+  boardViews(): Array<{ key: string; mapPath: string; root: HTMLElement }>;
   /** Connect hands over its hosted session: the boards show its templates, marks and handout. Returns the release. */
   attachSession(session: BoardSession): () => void;
+}
+
+/** A key for each board tab, kept as long as the tab is. */
+const boardKeys = new WeakMap<object, number>();
+let nextBoardKey = 1;
+function boardKey(board: object): number {
+  let key = boardKeys.get(board);
+  if (key === undefined) {
+    key = nextBoardKey++;
+    boardKeys.set(board, key);
+  }
+  return key;
 }
 
 /** The files `readAsset` hands out: textures and GLBs, nothing else of the vault. */
@@ -194,6 +208,7 @@ export default class TabletopPlugin extends Plugin {
       playerMinis: this.players.painter,
       playerBoard: playerBoardFactory(() => this.settings.quality),
       attachSession: (session: BoardSession) => this.attachSession(session),
+      boardViews: () => this.boards().flatMap((board) => (board.mapPath ? [{ key: `tabletop:${boardKey(board)}`, mapPath: board.mapPath, root: board.contentEl }] : [])),
       placementsFor: (mapPath: string) => this.assignments.forMap(mapPath),
       onChange: (listener: (mapPath: string | null) => void) => this.assignments.onChange(listener),
       readMini: async (path: string): Promise<ArrayBuffer> => {

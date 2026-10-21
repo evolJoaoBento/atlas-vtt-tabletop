@@ -22,6 +22,8 @@ export interface ToolbarActions {
   templateShape(): string;
   /** Turns the Template tool on with a shape, or off with null. */
   selectTemplate(shape: string | null): void;
+  /** Takes every template off the map. */
+  clearTemplates(): void;
   playerViewOpen(): boolean;
   togglePlayerView(): void;
   /** Whether the players' camera is frozen; freezing it, or letting it follow again. */
@@ -58,7 +60,15 @@ const THUMB_PX = 16;
 const PLAYER_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h20"/><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"/><path d="m7 21 5-5 5 5"/></svg>';
 /** Lucide's shapes: Connect's Template tool. */
 const TEMPLATE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.3 10a.7.7 0 0 1-.626-1.079L11.4 3a.7.7 0 0 1 1.198-.043L16.3 8.9a.7.7 0 0 1-.572 1.1Z"/><rect x="3" y="14" width="7" height="7" rx="1"/><circle cx="17.5" cy="17.5" r="3.5"/></svg>';
-const TEMPLATE_SHAPES = [['line', 'Line'], ['circle', 'Circle'], ['square', 'Square'], ['cone', 'Cone']] as const;
+/** Lucide's icons Connect's player toolbar shows beside each template shape, and for clearing them. */
+const lucide = (body: string): string => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+const TEMPLATE_SHAPES = [
+  ['line', 'Line', lucide('<path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/>')],
+  ['circle', 'Circle/Sphere', lucide('<circle cx="12" cy="12" r="10"/>')],
+  ['square', 'Square/Cube', lucide('<rect width="18" height="18" x="3" y="3" rx="2"/>')],
+  ['cone', 'Cone', lucide('<path d="M13.73 4a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>')],
+] as const;
+const ERASER_SVG = lucide('<path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/>');
 const FREEZE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m10 20-1.25-2.5L6 18"/><path d="M10 4 8.75 6.5 6 6"/><path d="m14 20 1.25-2.5L18 18"/><path d="m14 4 1.25 2.5L18 6"/><path d="m17 21-3-6h-4"/><path d="m17 3-3 6 1.5 3"/><path d="M2 12h6.5L10 9"/><path d="m20 10-1.5 2 1.5 2"/><path d="M22 12h-6.5L14 15"/><path d="m4 10 1.5 2L4 14"/><path d="m7 21 3-6-1.5-3"/><path d="m7 3 3 6h4"/></svg>';
 
 /** A height typed in the panel: a number of squares from 0, or null when it is not one. */
@@ -80,7 +90,9 @@ export class BoardToolbar {
   private readonly playerButton: HTMLButtonElement;
   /** Connect's Template tool, offered only while Connect hosts, and its shapes. */
   private readonly templateButton: HTMLButtonElement;
-  private readonly templateShapes: HTMLElement;
+  private readonly templateGroup: HTMLElement;
+  private readonly templateMenuButton: HTMLButtonElement;
+  private readonly templatePanel: HTMLElement;
   private readonly laserButton: HTMLButtonElement;
   private readonly moveItem: HTMLButtonElement;
   private readonly laserItem: HTMLButtonElement;
@@ -101,6 +113,7 @@ export class BoardToolbar {
     const target = event.target as Node;
     if (!this.panel.contains(target) && !this.button.contains(target)) this.close();
     if (!this.laserPanel.contains(target) && !this.laserMenuButton.contains(target)) this.closeLaser();
+    if (!this.templatePanel.contains(target) && !this.templateMenuButton.contains(target)) this.closeTemplate();
   };
 
   constructor(container: HTMLElement, private readonly actions: ToolbarActions) {
@@ -115,7 +128,7 @@ export class BoardToolbar {
 
     // Atlas's own class names under a root of Tabletop's: its look is copied in styles.css, without needing its styles.
     this.row = el('div', 'atlas-tabletop-toolbar-row atlas-tabletop-atlas', container);
-    const bar = el('div', 'atlas-vtt-toolbar atlas-tabletop-toolbar', this.row);
+    const bar = el('div', 'atlas-vtt-toolbar atlas-main-toolbar atlas-tabletop-toolbar', this.row);
     bar.setAttribute('role', 'toolbar');
     // Atlas's ToolButton: a wrapper, a span, and the button itself (a toolbar icon button).
     const toolIn = (parent: HTMLElement, svg: string, onClick: () => void): HTMLButtonElement => {
@@ -222,19 +235,37 @@ export class BoardToolbar {
       event.stopPropagation();
       if (event.key === 'Escape') { event.preventDefault(); this.closeLaser(); }
     });
-    this.templateButton = tool(TEMPLATE_SVG, () => this.actions.selectTemplate(this.actions.templateOn() ? null : this.actions.templateShape()));
+    // Connect's Template tool, as its player toolbar has it: the tool, and a chevron to its shapes and to clearing them.
+    this.templateGroup = el('div', 'atlas-tool-group', bar);
+    this.templateButton = toolIn(this.templateGroup, TEMPLATE_SVG, () => this.actions.selectTemplate(this.actions.templateOn() ? null : this.actions.templateShape()));
     this.templateButton.setAttribute('aria-label', 'Template');
     this.templateButton.title = 'Template (players see it)';
-    this.templateShapes = el('div', 'atlas-tabletop-template-shapes', bar);
-    for (const [shape, label] of TEMPLATE_SHAPES) {
-      const choice = el('button', 'btn btn--ghost btn--sm atlas-tabletop-template-shape', this.templateShapes, label);
-      choice.type = 'button';
-      choice.dataset.shape = shape;
-      choice.addEventListener('click', () => this.actions.selectTemplate(shape));
-    }
+    const templateMenu = el('div', 'atlas-dropdown-menu', this.templateGroup);
+    this.templateMenuButton = el('button', 'btn btn--ghost btn--icon atlas-dropdown-trigger btn--toolbar', templateMenu);
+    this.templateMenuButton.type = 'button';
+    this.templateMenuButton.innerHTML = CHEVRON_SVG;
+    this.templateMenuButton.setAttribute('aria-label', 'Template options');
+    this.templateMenuButton.title = 'Template options';
+    this.templatePanel = el('div', 'atlas-dropdown-content atlas-dropdown-content--top atlas-dropdown-content--left atlas-tabletop-template-options', templateMenu);
+    this.templatePanel.hidden = true;
+    const shapes = el('div', 'atlas-dropdown-section', this.templatePanel);
+    const entry = (parent: HTMLElement, svg: string, label: string, choose: () => void, shape?: string): void => {
+      const made = el('button', 'btn btn--ghost btn--sm atlas-dropdown-menu-item', parent);
+      made.type = 'button';
+      if (shape) made.dataset.shape = shape;
+      el('span', 'atlas-dropdown-menu-item__check', made);
+      made.insertAdjacentHTML('beforeend', svg);
+      el('span', '', made, label);
+      made.addEventListener('click', () => { choose(); this.closeTemplate(); });
+    };
+    for (const [shape, label, svg] of TEMPLATE_SHAPES) entry(shapes, svg, label, () => this.actions.selectTemplate(shape), shape);
+    entry(el('div', 'atlas-dropdown-section', this.templatePanel), ERASER_SVG, 'Clear templates', () => this.actions.clearTemplates());
+    this.templateMenuButton.addEventListener('click', () => (this.templatePanel.hidden ? this.openTemplate() : this.closeTemplate()));
     this.playerButton = tool(PLAYER_SVG, () => this.actions.togglePlayerView());
     this.freezeButton = tool(FREEZE_SVG, () => this.actions.togglePlayerFreeze());
     this.button = tool(COMMAND_SVG, () => (this.panel.hidden ? this.open() : this.close()));
+    // Atlas's end slot, where Connect puts its buttons as it does in Atlas's own toolbar; Atlas's styles apply inside it.
+    el('div', 'atlas-toolbar-end atlas-vtt-plugin atlas-tabletop-extensions', bar);
     this.button.setAttribute('aria-label', 'Board settings');
     this.button.title = 'Board settings';
     this.button.setAttribute('aria-expanded', 'false');
@@ -318,11 +349,15 @@ export class BoardToolbar {
     // Connect's Template tool, while it hosts: the shapes show with the tool on.
     const hosting = this.actions.hosting();
     const templateOn = hosting && this.actions.templateOn();
-    (this.templateButton.closest('.atlas-tool-button') as HTMLElement).style.display = hosting ? '' : 'none';
+    this.templateGroup.style.display = hosting ? '' : 'none';
+    if (!hosting) this.closeTemplate();
     this.templateButton.classList.toggle('is-active', templateOn);
     this.templateButton.setAttribute('aria-pressed', String(templateOn));
-    this.templateShapes.style.display = templateOn ? '' : 'none';
-    for (const choice of this.templateShapes.querySelectorAll<HTMLElement>('button')) choice.classList.toggle('is-active', choice.dataset.shape === this.actions.templateShape());
+    for (const choice of this.templatePanel.querySelectorAll<HTMLElement>('[data-shape]')) {
+      const check = choice.querySelector('.atlas-dropdown-menu-item__check')!;
+      const chosen = choice.dataset.shape === this.actions.templateShape();
+      check.innerHTML = chosen ? CHECK_SVG.replace('class="atlas-swatch-check"', 'class="atlas-dropdown-menu-item__tick"') : '';
+    }
     const laser = this.actions.laserOn();
     // The group's face is always the tool in use, as Atlas's is while one of its tools is.
     this.laserButton.innerHTML = laser ? LASER_SVG : HAND_SVG;
@@ -362,6 +397,21 @@ export class BoardToolbar {
     this.laserMenuButton.classList.add('atlas-is-active');
     this.laserMenuButton.setAttribute('aria-expanded', 'true');
     this.row.ownerDocument.addEventListener('pointerdown', this.onOutside, true);
+  }
+
+  openTemplate(): void {
+    this.closeLaser();
+    this.templatePanel.hidden = false;
+    this.templateMenuButton.classList.add('atlas-is-active');
+    this.templateMenuButton.setAttribute('aria-expanded', 'true');
+    this.row.ownerDocument.addEventListener('pointerdown', this.onOutside, true);
+  }
+
+  closeTemplate(): void {
+    if (this.templatePanel.hidden) return;
+    this.templatePanel.hidden = true;
+    this.templateMenuButton.classList.remove('atlas-is-active');
+    this.templateMenuButton.setAttribute('aria-expanded', 'false');
   }
 
   closeLaser(): void {
