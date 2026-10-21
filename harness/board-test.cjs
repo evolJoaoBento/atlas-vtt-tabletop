@@ -352,8 +352,8 @@ server.listen(0, async () => {
       check('the toolbar takes no press from the board', (await page.evaluate(() => window.boardTest.board.selected)) === selBefore);
       await page.mouse.click(button.x, button.y);
       await wait(100);
-      // The top-left of the board's canvas: clear of the panel whatever the camera.
-      await page.mouse.click(20, 20);
+      // The left of the board's canvas, below the scene tabs: clear of the panel whatever the camera.
+      await page.mouse.click(20, 300);
       await wait(100);
       check('a click on the board closes the settings', await page.evaluate(() => document.querySelector('.atlas-tabletop-palette:not(.atlas-tabletop-laser-options)').hidden));
     }
@@ -365,14 +365,13 @@ server.listen(0, async () => {
         return { label: b.getAttribute('aria-label'), hidden: b.closest('.atlas-tool-button')?.hidden ?? b.hidden, active: b.classList.contains('is-active'), x: r.left + r.width / 2, y: r.top + r.height / 2 };
       }));
       let list = await tools();
-      check('the toolbar has the player view button; freezing waits for a player view', list.some((t) => t.label === 'Open the player view') && list.find((t) => t.label?.startsWith('Freeze'))?.hidden, list);
+      // Players are shown scenes with the eye on Atlas's scene tabs: the toolbar has no player view or freeze buttons.
+      check('no player view or freeze button on the toolbar', !list.some((t) => /player view|camera/.test(t.label ?? '')), list);
       const opened = page.waitForEvent('popup');
-      const open = list.find((t) => t.label === 'Open the player view');
-      await page.mouse.click(open.x, open.y);
+      await page.evaluate(() => window.boardTest.board.host.togglePlayerView());
       const popup = await opened;
       await wait(800);
-      list = await tools();
-      check('the button shows the player view is open, and freezing is offered', list.some((t) => t.label === 'Close the player view' && t.active) && list.some((t) => t.label === "Freeze the players' camera here" && !t.hidden), list);
+      check('the player window opens from the board', await page.evaluate(() => window.boardTest.board.player !== null));
       const drawn = await popup.screenshot({ path: `${shots}/board-10-players.png` });
       check('the player window draws the board', drawn.length > 20000, drawn.length);
       await page.screenshot({ path: `${shots}/board-11-gm-with-players.png` });
@@ -397,18 +396,15 @@ server.listen(0, async () => {
       const playerEye = () => page.evaluate(() => { const v = window.boardTest.board.player.view.position; return [v.x, v.y, v.z].map((n) => Math.round(n)); });
       const gmEye = () => page.evaluate(() => { const v = window.boardTest.board.view.position; return [v.x, v.y, v.z].map((n) => Math.round(n)); });
       check('the players\' camera follows the GM\'s', JSON.stringify(await playerEye()) === JSON.stringify(await gmEye()), { p: await playerEye(), g: await gmEye() });
-      const freeze = (await tools()).find((t) => t.label === "Freeze the players' camera here");
-      await page.mouse.click(freeze.x, freeze.y);
+      await page.evaluate(() => window.boardTest.board.setPlayerFrozen(true));
       await wait(100);
       const frozenAt = await playerEye();
       const emptyAt = await project(560, 760, 0);
       await drag(emptyAt, { x: emptyAt.x + 150, y: emptyAt.y }, 'left');
       await wait(300);
       check('frozen, the players\' camera stays while the GM\'s turns', JSON.stringify(await playerEye()) === JSON.stringify(frozenAt) && JSON.stringify(await gmEye()) !== JSON.stringify(frozenAt), { frozenAt, p: await playerEye(), g: await gmEye() });
-      const unfreeze = (await tools()).find((t) => t.label === "Let the players' camera follow yours");
-      check('the freeze button shows it is on', unfreeze && unfreeze.active, await tools());
-      await page.mouse.click(unfreeze.x, unfreeze.y);
-      await page.evaluate(() => window.boardTest.board.wake());
+      check('the board knows the camera is frozen', await page.evaluate(() => window.boardTest.board.playerFrozen === true));
+      await page.evaluate(() => { window.boardTest.board.setPlayerFrozen(false); window.boardTest.board.wake(); });
       await wait(300);
       check('unfrozen, it follows the GM\'s again', JSON.stringify(await playerEye()) === JSON.stringify(await gmEye()), { p: await playerEye(), g: await gmEye() });
 
@@ -429,11 +425,9 @@ server.listen(0, async () => {
       check('in a hole of the fog, inside its box, the fog around still shows (drawn from inside)', hole.blind === false && hole.side === 1, hole);
       await page.evaluate(() => { const b = window.boardTest.board; b.player.frozen = null; b.wake(true); });
       await wait(300);
-      const close = (await tools()).find((t) => t.label === 'Close the player view');
-      await page.mouse.click(close.x, close.y);
+      await page.evaluate(() => window.boardTest.board.host.togglePlayerView());
       await wait(300);
-      const after = await page.evaluate(() => ({ player: window.boardTest.board.player, labels: [...document.querySelectorAll('.atlas-tabletop-tool-button')].map((b) => [b.getAttribute('aria-label'), b.closest('.atlas-tool-button')?.hidden ?? b.hidden]) }));
-      check('closing it stops the second drawing and hides the freeze button', after.player === null && after.labels.some(([l]) => l === 'Open the player view'), after);
+      check('closing it stops the second drawing', await page.evaluate(() => window.boardTest.board.player === null));
     }
 
     // 1l. Atlas's laser pointer: a glowing dot while on, a beam while pressed that fades; its colour and size options.
@@ -1252,6 +1246,30 @@ server.listen(0, async () => {
       });
       check('all of it goes with the session', await page.evaluate(() => !document.querySelector('.atlas-tabletop-banner:not([hidden])') && !document.querySelector('.atlas-tabletop-handout:not([hidden])') && [...document.querySelectorAll('button[aria-label="Template"]')].every((b) => b.offsetParent === null)));
       await wait(1700);
+    }
+
+    // 22d. Atlas's scene tabs over the board, as Atlas draws them: the eye presents, a click switches.
+    {
+      const bar = await page.evaluate(() => {
+        const tabs = [...document.querySelectorAll('#board .atlas-vtt-plugin .atlas-top-bar-row .atlas-scene-tab-bar [role="tab"]')];
+        return tabs.map((tab) => ({
+          name: tab.querySelector('.atlas-scene-tab__name')?.textContent,
+          active: tab.classList.contains('atlas-scene-tab--active'),
+          eye: tab.querySelector('.atlas-scene-tab__action')?.getAttribute('aria-pressed'),
+          eyeOn: tab.querySelector('.atlas-scene-tab__action')?.classList.contains('atlas-scene-tab__action--active'),
+        }));
+      });
+      check('the scene tabs show over the board as Atlas draws them, the active tab and the presented one marked', JSON.stringify(bar) === JSON.stringify([
+        { name: 'Tavern', active: true, eye: 'false', eyeOn: false }, { name: 'Crypt', active: false, eye: 'true', eyeOn: true },
+      ]), bar);
+      await page.evaluate(() => {
+        const tabs = [...document.querySelectorAll('#board .atlas-scene-tab-bar [role="tab"]')];
+        tabs[1].click();
+        tabs[0].querySelector('.atlas-scene-tab__action').click();
+        tabs[0].querySelectorAll('.atlas-scene-tab__action')[1].click();
+        document.querySelector('#board .atlas-scene-tab-bar__add').click();
+      });
+      check('a tab switches, its eye presents (and does not switch), its cross closes, the plus opens a scene', JSON.stringify((await record()).sceneTabs) === JSON.stringify([['switch', 't2'], ['present', 't1'], ['close', 't1'], ['add']]), (await record()).sceneTabs);
     }
 
     // 23. The board never shows a blank frame: resizing a WebGL canvas wipes it, so a resize is drawn again before the

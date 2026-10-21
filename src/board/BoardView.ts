@@ -8,7 +8,8 @@
  */
 import type { BoardMark, BoardSession } from '../connectContract';
 import { ItemView, Menu, Notice, TFile, debounce, parseYaml, setIcon, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
-import type { AtlasView } from '../atlas';
+import { presentedSceneOf, tabViewOf, type AtlasView } from '../atlas';
+import { SceneTabBar } from './sceneTabBar';
 import type { Assignments } from '../assignments';
 import { MiniPicker } from '../gallery';
 import type { LoadedMini, MiniLibrary } from '../library';
@@ -136,6 +137,23 @@ export class BoardView extends ItemView {
     this.registerEvent(this.app.vault.on('delete', (file) => { if (file.path === this.path) this.leaf.detach(); }));
     this.registerDomEvent(this.contentEl, 'pointerdown', () => this.services.focused(this), true);
     this.initiative = new InitiativePanel(this.contentEl, this.initiativeHost());
+    // Atlas's scene tabs over the board: switch scenes here, and present one with its eye, as in Atlas.
+    this.sceneTabs = new SceneTabBar(this.contentEl, {
+      tabs: () => this.sceneTabEntries(),
+      switchTab: (id) => { void this.switchScene(id); },
+      presentTab: (id) => { void this.presentScene(id); },
+      closeTab: (id) => {
+        const found = this.path ? tabViewOf(this.app, this.path) : null;
+        if (found?.view.closeTab) void found.view.closeTab(id);
+      },
+      addTab: () => {
+        const found = this.path ? tabViewOf(this.app, this.path) : null;
+        if (found?.view.openSceneBrowser) found.view.openSceneBrowser();
+        else new Notice('Tabletop: open another scene in Atlas.');
+      },
+    });
+    const presented = presentedSceneOf(this.app);
+    if (presented) this.register(presented.onChange(() => this.sceneTabs?.refresh()));
     // Atlas's keys for its tracker, taken before the board's (whose arrows move the camera).
     this.registerDomEvent(this.contentEl, 'keydown', (event) => this.initiativeKey(event), { capture: true });
     this.registerEvent(this.app.workspace.on('layout-change', () => this.watchAtlas()));
@@ -143,6 +161,10 @@ export class BoardView extends ItemView {
 
   async onClose(): Promise<void> {
     this.closed = true;
+    this.stopTabs?.();
+    this.stopTabs = null;
+    this.sceneTabs?.dispose();
+    this.sceneTabs = null;
     this.menu?.close();
     this.watched?.stop();
     this.watched = null;
@@ -538,6 +560,60 @@ export class BoardView extends ItemView {
     this.initiative?.render();
     // Atlas opened or closed the map: whether players see the board's changes may have changed with it.
     this.sessionChanged();
+    this.followTabs();
+  }
+
+  /** Atlas's scene tabs over the board, followed in the view that holds this map. */
+  private sceneTabs: SceneTabBar | null = null;
+  private stopTabs: (() => void) | null = null;
+  private tabsOf: AtlasView | null = null;
+
+  private followTabs(): void {
+    const found = this.path && !this.closed ? tabViewOf(this.app, this.path) : null;
+    if (found?.view !== this.tabsOf) {
+      this.stopTabs?.();
+      this.stopTabs = found ? found.view.tabMetaStore.subscribe(() => this.sceneTabs?.refresh()) : null;
+      this.tabsOf = found?.view ?? null;
+    }
+    this.sceneTabs?.refresh();
+  }
+
+  /** The scene tabs of the Atlas view holding this map: this board's scene marked, and the one players are shown. */
+  private sceneTabEntries(): Array<{ id: string; name: string; filePath: string; active: boolean; presented: boolean; loaded: boolean; dirty: boolean }> {
+    const found = this.path ? tabViewOf(this.app, this.path) : null;
+    if (!found) return [];
+    const presented = presentedSceneOf(this.app)?.get()?.tabId ?? null;
+    return found.view.tabMetaStore.getState().tabs.map((tab) => ({
+      id: tab.id, name: tab.displayName, filePath: tab.filePath, active: tab.filePath === this.path, presented: tab.id === presented,
+      loaded: tab.isLoaded === true, dirty: tab.isDirty === true,
+    }));
+  }
+
+  /** A tab chosen over the board: Atlas switches to it, and the board shows its scene. */
+  private async switchScene(tabId: string): Promise<void> {
+    const found = this.path ? tabViewOf(this.app, this.path) : null;
+    const tab = found?.view.tabMetaStore.getState().tabs.find((entry) => entry.id === tabId);
+    if (!found || !tab) return;
+    await found.view.switchToTab(tabId);
+    if (tab.filePath !== this.path) await this.leaf.setViewState({ type: BOARD_VIEW_TYPE, state: { file: tab.filePath }, active: true });
+  }
+
+  /**
+   * A tab's eye over the board: the scene is shown to players as Atlas's own eye shows it (its present command, run on
+   * its view), and the board goes to that scene. The board keeps the focus.
+   */
+  private async presentScene(tabId: string): Promise<void> {
+    const found = this.path ? tabViewOf(this.app, this.path) : null;
+    const tab = found?.view.tabMetaStore.getState().tabs.find((entry) => entry.id === tabId);
+    if (!found || !tab) return;
+    await found.view.switchToTab(tabId);
+    this.app.workspace.setActiveLeaf(found.leaf, { focus: false });
+    const commands = (this.app as unknown as { commands?: { executeCommandById?(id: string): boolean } }).commands;
+    const ran = commands?.executeCommandById?.('atlas-vtt:send-map-to-player-view') === true;
+    this.app.workspace.setActiveLeaf(this.leaf, { focus: true });
+    if (!ran) new Notice('Tabletop: Atlas could not show this scene to players.');
+    if (tab.filePath !== this.path) await this.leaf.setViewState({ type: BOARD_VIEW_TYPE, state: { file: tab.filePath }, active: true });
+    this.sceneTabs?.refresh();
   }
 
   /** The tracker as Atlas holds it while it has the map open, else as the file has it. */

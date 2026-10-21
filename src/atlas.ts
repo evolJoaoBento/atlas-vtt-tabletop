@@ -3,7 +3,7 @@
  * workspace and their store. These are private shapes, so every member is checked before use and a failed check reads
  * as "nothing there" rather than throwing.
  */
-import type { App } from 'obsidian';
+import type { App, WorkspaceLeaf } from 'obsidian';
 
 export const ATLAS_VIEW_TYPE = 'atlas-vtt';
 
@@ -70,6 +70,43 @@ export function isAtlasView(view: unknown): view is AtlasView {
   if (!isObj(view)) return false;
   const { viewId, atlasStore } = view;
   return typeof viewId === 'string' && isStore(atlasStore) && typeof atlasStore.getState === 'function' && typeof atlasStore.subscribe === 'function';
+}
+
+/** A map view's scene tabs, as Atlas keeps them (`tabMetaStore`). */
+export interface AtlasSceneTab { id: string; filePath: string; displayName: string; isLoaded?: boolean; isDirty?: boolean }
+
+/** A map view with its scene tabs, and what Atlas's own tab bar does with them; the last two only where Atlas has them. */
+export interface AtlasTabView extends AtlasView {
+  readonly tabMetaStore: Store<{ tabs: AtlasSceneTab[]; activeTabId: string | null }>;
+  switchToTab(tabId: string): Promise<void>;
+  closeTab?(tabId: string): Promise<void>;
+  openSceneBrowser?(): void;
+}
+
+export function hasTabs(view: AtlasView): view is AtlasTabView {
+  const tabs = (view as { tabMetaStore?: unknown }).tabMetaStore;
+  return isStore(tabs) && typeof tabs.getState === 'function' && typeof (view as { switchToTab?: unknown }).switchToTab === 'function';
+}
+
+/** The open map view whose scene tabs hold `mapPath` (the one with it loaded first), and its leaf; null when none. */
+export function tabViewOf(app: App, mapPath: string): { view: AtlasTabView; leaf: WorkspaceLeaf } | null {
+  let found: { view: AtlasTabView; leaf: WorkspaceLeaf } | null = null;
+  for (const leaf of app.workspace.getLeavesOfType(ATLAS_VIEW_TYPE)) {
+    const { view } = leaf;
+    if (!isAtlasView(view) || view.atlasStore.getState().remoteView != null || !hasTabs(view)) continue;
+    if (view.atlasStore.getState().mapPath === mapPath) return { view, leaf };
+    if (!found && view.tabMetaStore.getState().tabs.some((tab) => tab.filePath === mapPath)) found = { view, leaf };
+  }
+  return found;
+}
+
+/** Atlas's presented scene (the eye on its tabs): read, and followed. */
+export function presentedSceneOf(app: App): { get(): { tabId: string; filePath: string } | null; onChange(listener: () => void): () => void } | null {
+  const scene = (app as unknown as { plugins?: { plugins?: Record<string, { presentedScene?: unknown } | undefined> } }).plugins?.plugins?.['atlas-vtt']?.presentedScene as
+    { get?: unknown; onChange?: unknown } | undefined;
+  return scene && typeof scene.get === 'function' && typeof scene.onChange === 'function'
+    ? scene as { get(): { tabId: string; filePath: string } | null; onChange(listener: () => void): () => void }
+    : null;
 }
 
 /** The GM's open map views; a player's remote view is left out. */

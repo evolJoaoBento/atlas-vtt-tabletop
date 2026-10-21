@@ -1420,3 +1420,10 @@ body.atlas-tabletop-player-window .view-header {
 /* Atlas's end slot in the board's toolbar: Connect's buttons sit there as in Atlas's own toolbar. */
 .atlas-tabletop-extensions { display: flex; align-items: center; gap: 8px; }
 .atlas-tabletop-extensions:empty { display: none; }
+
+/* Atlas's scene tabs over the GM's board: laid over its top as in Atlas's map view; only the bar takes the pointer. */
+.atlas-tabletop-scene-tabs { position: absolute; top: 0; left: 0; right: 0; height: 0; z-index: 7; pointer-events: none; }
+.atlas-tabletop-scene-tabs[hidden] { display: none; }
+.atlas-tabletop-scene-tabs .atlas-scene-tab-bar { pointer-events: auto; }
+/* The banner and the handout sit below the tabs. */
+.atlas-tabletop-banner, .atlas-tabletop-handout { top: 52px; }

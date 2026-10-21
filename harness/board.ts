@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { Board, type BoardHost } from '../src/board/board';
+import { SceneTabBar } from '../src/board/sceneTabBar';
 import type { PropPlacement } from '../src/board/boardData';
 import { emptyRules } from '../src/board/conditions';
 import { QUALITY } from '../src/board/quality';
@@ -177,7 +178,7 @@ async function main(): Promise<void> {
     moves: [] as Array<[string, number, number]>, propMoves: [] as Array<[string, number, number]>, added: [] as Array<[string, number, number]>,
     notes: [] as string[], menus: [] as string[], propMenus: [] as string[], previews: [] as string[], warnings: [] as string[],
     copies: [] as Array<[string, string, number, number]>, menuActions: [] as unknown[][], initiative: [] as unknown[], shown: [] as string[],
-    heights: [] as unknown[][], doors: [] as string[], wallMenus: [] as string[], paints: [] as Array<[string, string, boolean]>, lightMenus: [] as string[], ambients: [] as number[], lasers: [] as Array<Record<string, unknown>>, fogHeights: [] as number[], thicknesses: [] as number[], toolActions: [] as unknown[], opened: 0,
+    heights: [] as unknown[][], doors: [] as string[], wallMenus: [] as string[], paints: [] as Array<[string, string, boolean]>, lightMenus: [] as string[], ambients: [] as number[], lasers: [] as Array<Record<string, unknown>>, fogHeights: [] as number[], thicknesses: [] as number[], toolActions: [] as unknown[], opened: 0, sceneTabs: [] as unknown[][],
     /** Resource edits as the host saved them: token, key, the value it held, the value written, max edited. */
     edits: [] as Array<[string, string, ResourceValue, ResourceValue, boolean]>,
   };
@@ -311,6 +312,18 @@ async function main(): Promise<void> {
   };
   const container = document.getElementById('board')!;
   const board = new Board(container, host, QUALITY.medium);
+  // Atlas's scene tabs over the board, from the Atlas view holding its map.
+  const sceneTabs = new SceneTabBar(container, {
+    tabs: () => [
+      { id: 't1', name: 'Tavern', filePath: 'maps/tavern.atlasmap', active: true, presented: false, loaded: true, dirty: false },
+      { id: 't2', name: 'Crypt', filePath: 'maps/crypt.atlasmap', active: false, presented: true, loaded: false, dirty: false },
+    ],
+    switchTab: (id) => { record.sceneTabs.push(['switch', id]); },
+    presentTab: (id) => { record.sceneTabs.push(['present', id]); },
+    closeTab: (id) => { record.sceneTabs.push(['close', id]); },
+    addTab: () => { record.sceneTabs.push(['add']); },
+  });
+  sceneTabs.refresh();
   await board.load(map);
 
   // Atlas's initiative tracker, as the board's tab runs it on a map in the file: each change shown at once.

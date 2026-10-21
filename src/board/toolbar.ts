@@ -57,7 +57,6 @@ const CHECK_SVG = '<svg class="atlas-swatch-check" viewBox="0 0 24 24" fill="non
 const THUMB_PX = 16;
 
 /** Lucide's `presentation` and `snowflake` icons (ISC): Atlas's player view, and a frozen camera. */
-const PLAYER_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h20"/><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"/><path d="m7 21 5-5 5 5"/></svg>';
 /** Lucide's shapes: Connect's Template tool. */
 const TEMPLATE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.3 10a.7.7 0 0 1-.626-1.079L11.4 3a.7.7 0 0 1 1.198-.043L16.3 8.9a.7.7 0 0 1-.572 1.1Z"/><rect x="3" y="14" width="7" height="7" rx="1"/><circle cx="17.5" cy="17.5" r="3.5"/></svg>';
 /** Lucide's icons Connect's player toolbar shows beside each template shape, and for clearing them. */
@@ -69,7 +68,6 @@ const TEMPLATE_SHAPES = [
   ['cone', 'Cone', lucide('<path d="M13.73 4a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>')],
 ] as const;
 const ERASER_SVG = lucide('<path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/>');
-const FREEZE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m10 20-1.25-2.5L6 18"/><path d="M10 4 8.75 6.5 6 6"/><path d="m14 20 1.25-2.5L18 18"/><path d="m14 4 1.25 2.5L18 6"/><path d="m17 21-3-6h-4"/><path d="m17 3-3 6 1.5 3"/><path d="M2 12h6.5L10 9"/><path d="m20 10-1.5 2 1.5 2"/><path d="M22 12h-6.5L14 15"/><path d="m4 10 1.5 2L4 14"/><path d="m7 21 3-6-1.5-3"/><path d="m7 3 3 6h4"/></svg>';
 
 /** A height typed in the panel: a number of squares from 0, or null when it is not one. */
 export function readFogHeight(text: string): number | null {
@@ -87,7 +85,6 @@ export class BoardToolbar {
   private readonly row: HTMLElement;
   private readonly panel: HTMLElement;
   private readonly button: HTMLButtonElement;
-  private readonly playerButton: HTMLButtonElement;
   /** Connect's Template tool, offered only while Connect hosts, and its shapes. */
   private readonly templateButton: HTMLButtonElement;
   private readonly templateGroup: HTMLElement;
@@ -103,7 +100,6 @@ export class BoardToolbar {
   private readonly sliderRange: HTMLElement;
   private readonly sliderThumb: HTMLElement;
   private readonly sizeValue: HTMLElement;
-  private readonly freezeButton: HTMLButtonElement;
   private readonly heightInput: HTMLInputElement;
   private readonly thicknessInput: HTMLInputElement;
   private readonly initiativeToggle: HTMLInputElement;
@@ -261,8 +257,7 @@ export class BoardToolbar {
     for (const [shape, label, svg] of TEMPLATE_SHAPES) entry(shapes, svg, label, () => this.actions.selectTemplate(shape), shape);
     entry(el('div', 'atlas-dropdown-section', this.templatePanel), ERASER_SVG, 'Clear templates', () => this.actions.clearTemplates());
     this.templateMenuButton.addEventListener('click', () => (this.templatePanel.hidden ? this.openTemplate() : this.closeTemplate()));
-    this.playerButton = tool(PLAYER_SVG, () => this.actions.togglePlayerView());
-    this.freezeButton = tool(FREEZE_SVG, () => this.actions.togglePlayerFreeze());
+    // Players are shown scenes with the eye on Atlas's scene tabs over the board: no player view or freeze button here.
     this.button = tool(COMMAND_SVG, () => (this.panel.hidden ? this.open() : this.close()));
     // Atlas's end slot, where Connect puts its buttons as it does in Atlas's own toolbar; Atlas's styles apply inside it.
     el('div', 'atlas-toolbar-end atlas-vtt-plugin atlas-tabletop-extensions', bar);
@@ -369,20 +364,6 @@ export class BoardToolbar {
       check.innerHTML = chosen ? CHECK_SVG.replace('class="atlas-swatch-check"', 'class="atlas-dropdown-menu-item__tick"') : '';
       entry.setAttribute('aria-checked', String(chosen));
     }
-    const open = this.actions.playerViewOpen();
-    const frozen = open && this.actions.playerFrozen();
-    const label = (button: HTMLButtonElement, text: string): void => {
-      button.setAttribute('aria-label', text);
-      button.title = text;
-    };
-    label(this.playerButton, open ? 'Close the player view' : 'Open the player view');
-    this.playerButton.classList.toggle('is-active', open);
-    this.playerButton.setAttribute('aria-pressed', String(open));
-    // The wrapper is hidden, so the bar's last visible child (whose end corners follow the bar's) is the right one.
-    (this.freezeButton.closest('.atlas-tool-button') as HTMLElement).hidden = !open;
-    label(this.freezeButton, frozen ? "Let the players' camera follow yours" : "Freeze the players' camera here");
-    this.freezeButton.classList.toggle('is-active', frozen);
-    this.freezeButton.setAttribute('aria-pressed', String(frozen));
   }
 
   get isOpen(): boolean {
