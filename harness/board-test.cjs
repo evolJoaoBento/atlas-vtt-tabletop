@@ -326,7 +326,7 @@ server.listen(0, async () => {
         const input = p.querySelector('input');
         return { open: !p.hidden, value: input.value, focused: document.activeElement === input, text: p.textContent };
       });
-      check('the toolbar\'s button opens the board settings with the fog height', panel.open && panel.value === '1' && panel.focused && panel.text.includes('Fog of war'), panel);
+      check('the toolbar\'s button opens the board settings with the fog height', panel.open && panel.value === '1' && panel.focused && panel.text.includes('Walls and fog'), panel);
       await page.screenshot({ path: `${shots}/board-9-settings.png` });
       const camera = await goal();
       await page.keyboard.press('Control+A');
@@ -1141,6 +1141,35 @@ server.listen(0, async () => {
       check('a door prop fills the opening on the hinge and stays open', fitted.open === 1 && Math.abs(fitted.z[0] - 770) < 2 && Math.abs(fitted.z[1] - 840) < 12 && Math.abs(fitted.y[1] - 70 * (await page.evaluate(() => window.boardTest.board.host.fogHeight()))) < 1, fitted);
       await page.screenshot({ path: `${shots}/board-22-door-prop.png` });
       await page.evaluate(() => { window.boardTest.board.toolbar.actions.setAmbient(1, true); });
+    }
+
+    // 22b. Board settings: the default wall height (which the fog takes too) and the walls' thickness.
+    {
+      const panel = await page.evaluate(() => {
+        window.boardTest.board.toolbar.open();
+        const labels = [...document.querySelectorAll('.atlas-tabletop-palette__label')].map((label) => label.textContent);
+        const thickness = document.querySelector('input[aria-label="Wall thickness in squares"]');
+        return { labels, thickness: thickness ? thickness.value : null };
+      });
+      check('settings name the default wall height and offer the wall thickness', panel.labels.includes('Default wall height') && !panel.labels.includes('Fog height') && panel.labels.includes('Wall thickness') && panel.thickness === '0.12', panel);
+      // The walls are built from their shape: its thickness (map pixels) is the third entry of what they were built from.
+      const depth = () => page.evaluate(() => JSON.parse(window.boardTest.board.walls.signature)[2]);
+      const before = await depth();
+      await page.evaluate(() => {
+        const input = document.querySelector('input[aria-label="Wall thickness in squares"]');
+        input.value = '0.5';
+        input.dispatchEvent(new Event('change'));
+      });
+      await wait(300);
+      const after = await depth();
+      check('a thicker setting makes the walls thicker (0.12 → 0.5 of a square)', Math.abs(before - 70 * 0.12) < 0.5 && Math.abs(after - 70 * 0.5) < 0.5, { before, after, record: (await record()).thicknesses });
+      await page.evaluate(() => {
+        const input = document.querySelector('input[aria-label="Wall thickness in squares"]');
+        input.value = '0.12';
+        input.dispatchEvent(new Event('change'));
+        window.boardTest.board.toolbar.close();
+      });
+      await wait(300);
     }
 
     // 23. The board never shows a blank frame: resizing a WebGL canvas wipes it, so a resize is drawn again before the

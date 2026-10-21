@@ -56,6 +56,8 @@ export interface BoardExtras {
   ambient: number | null;
   lighting: BoardLighting;
   fogHeight: number | null;
+  /** How thick walls stand, as a share of a grid square; null is the board's default. */
+  wallThickness: number | null;
 }
 
 /** A 3D camera in the board's world: x and z are the map's x and y in pixels, y is up. */
@@ -76,6 +78,7 @@ export interface BoardLook {
   doorProp(id: string): string | null;
   lightHeight(id: string): number | null;
   readonly fogHeight: number | null;
+  readonly wallThickness: number | null;
   readonly ambient: number | null;
   readonly props: ReadonlyArray<{ id: string; path: string; x: number; y: number; scale: number; turn: number }>;
   /** The materials this map's walls use, with their texture maps by role (vault paths). */

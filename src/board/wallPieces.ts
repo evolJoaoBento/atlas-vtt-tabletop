@@ -30,14 +30,15 @@ export interface WallShape {
   /** How tall a full wall stands, and the size of a grid square (a texture tile), in map pixels. */
   height: number;
   tile: number;
+  /** How thick a wall stands, in map pixels. */
+  thickness: number;
   /** Whether a point of the map is under the fog of war: walls there are hidden from players. */
   fogged(x: number, y: number): boolean;
   /** Changes when the fog does, so walls are sorted again. */
   fogKey: string;
 }
 
-/** A wall is this share of a grid square thick; a door's leaf a little thinner, so it never flickers in the wall. */
-const THICKNESS = 0.12;
+/** A door's leaf is a little thinner than its wall, so it never flickers in the wall. */
 const LEAF = 0.8;
 /** Glass, which stops light and lets sight through. */
 const GLASS = new THREE.MeshStandardMaterial({ color: 0x9fc6e8, transparent: true, opacity: 0.32, roughness: 0.1, metalness: 0.1, depthWrite: false });
@@ -126,7 +127,7 @@ export class WallSet {
    * opened or shut swings to its new place.
    */
   update(walls: readonly BoardWall[], shape: WallShape): void {
-    const signature = JSON.stringify([shape.height, shape.tile, shape.fogKey, walls.map((wall) => [wall.id, wall.type, wall.p1, wall.p2, wall.direction, wall.blocks, wall.limited, wall.chain, this.lookup.materialOf(wall.id), this.lookup.heightOf(wall.id), isDoor(wall) ? this.lookup.propOf(wall.id) : null])]);
+    const signature = JSON.stringify([shape.height, shape.tile, shape.thickness, shape.fogKey, walls.map((wall) => [wall.id, wall.type, wall.p1, wall.p2, wall.direction, wall.blocks, wall.limited, wall.chain, this.lookup.materialOf(wall.id), this.lookup.heightOf(wall.id), isDoor(wall) ? this.lookup.propOf(wall.id) : null])]);
     if (signature !== this.signature) {
       const openness = new Map([...this.doors].map(([id, door]) => [id, door.openness]));
       this.clear();
@@ -141,7 +142,7 @@ export class WallSet {
 
   private build(walls: readonly BoardWall[], shape: WallShape, openness: Map<string, number>): void {
     const generation = ++this.generation;
-    const thick = shape.tile * THICKNESS;
+    const thick = shape.thickness;
     const groups = new Map<string, { material: THREE.Material; data: { positions: number[]; normals: number[]; uvs: number[] }; ids: string[]; shadow: boolean; fogged: boolean }>();
     for (const wall of walls) {
       const own = this.lookup.heightOf(wall.id);

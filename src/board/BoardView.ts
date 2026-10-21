@@ -323,6 +323,8 @@ export class BoardView extends ItemView {
       fogHeight: () => boardData.fogHeight(mapPath()),
       // Saved with Tabletop's data; the board follows through `refresh`, as for a style change.
       setFogHeight: (height) => boardData.setFogHeight(mapPath(), height),
+      wallThickness: () => boardData.wallThickness(mapPath()),
+      setWallThickness: (thickness) => boardData.setWallThickness(mapPath(), thickness),
       statblockPreview: (id, event) => {
         const path = this.map?.tokens.find((token) => token.id === id)?.statblockPath;
         if (!path || !this.board) return;

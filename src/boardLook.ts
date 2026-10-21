@@ -30,6 +30,7 @@ export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: 
     doorProp: (id: string) => data.doorProp(mapPath, id),
     lightHeight: (id: string) => data.lightHeight(mapPath, id),
     fogHeight: fog,
+    wallThickness: data.wallThickness(mapPath),
     ambient: data.ambient(mapPath),
     props: data.props(mapPath).map((prop) => ({ id: prop.id, path: prop.glb, x: prop.x, y: prop.y, scale: prop.scale, turn: prop.rotation })),
     materials: used,

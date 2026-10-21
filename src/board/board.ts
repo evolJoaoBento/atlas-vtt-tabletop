@@ -86,6 +86,9 @@ export interface BoardHost {
   /** How tall the map's fog stands, in grid squares; and saving a new height. */
   fogHeight(): number;
   setFogHeight(height: number): void;
+  /** How thick the walls stand, as a share of a grid square. */
+  wallThickness(): number;
+  setWallThickness(thickness: number): void;
   /** Shown once per message. */
   warn(message: string): void;
   /** Opens or closes the local player view of this map; whether it is open. */
@@ -319,6 +322,8 @@ export class Board {
     this.toolbar = new BoardToolbar(container, {
       fogHeight: () => this.host.fogHeight(),
       setFogHeight: (height) => this.host.setFogHeight(height),
+      wallThickness: () => this.host.wallThickness(),
+      setWallThickness: (thickness) => this.host.setWallThickness(thickness),
       playerViewOpen: () => this.host.playerViewOpen(),
       laserOn: () => this.laserOn,
       selectTool: (tool) => this.setLaser(tool === 'laser'),
@@ -899,6 +904,7 @@ export class Board {
     this.walls.update(map.walls, {
       height: Math.max(MIN_WALL_SQUARES, this.host.fogHeight()) * map.grid.size,
       tile: map.grid.size,
+      thickness: this.host.wallThickness() * map.grid.size,
       fogged: (x, y) => insideFog(fog, { x, y }),
       fogKey: map.fog.map((operation) => operation.id).join(','),
     });

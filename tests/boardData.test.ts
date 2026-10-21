@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { BoardData, readBoardData } from '../src/board/boardData';
+import { BoardData, DEFAULT_WALL_THICKNESS, readBoardData } from '../src/board/boardData';
 
 test('tokens are discs by default; standee round-trips; disc deletes the entry', () => {
   const data = new BoardData();
@@ -102,4 +102,18 @@ test('a wall\'s own height is kept per segment, many at once, and cleared back t
   assert.deepEqual(readBoardData(data.toJSON()), data.toJSON());
   data.setWallHeight('m', ['a', 'b'], null);
   assert.deepEqual(data.toJSON(), {});
+});
+
+test('wall thickness: a share of a square, 0.12 by default, kept per map and read back', () => {
+  const data = new BoardData();
+  assert.equal(data.wallThickness('m'), DEFAULT_WALL_THICKNESS);
+  assert.equal(DEFAULT_WALL_THICKNESS, 0.12);
+  data.setWallThickness('m', 0.3);
+  assert.equal(data.wallThickness('m'), 0.3);
+  data.setWallThickness('m', -1);
+  data.setWallThickness('m', 0);
+  assert.equal(data.wallThickness('m'), 0.3, 'none or less is no wall thickness at all: refused');
+  assert.equal(readBoardData(JSON.parse(JSON.stringify(data.toJSON())))['m']?.wallThickness, 0.3);
+  data.setWallThickness('m', DEFAULT_WALL_THICKNESS);
+  assert.equal(data.toJSON()['m'], undefined, 'the default is not stored');
 });

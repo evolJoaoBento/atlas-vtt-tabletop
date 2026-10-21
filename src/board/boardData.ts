@@ -35,10 +35,15 @@ interface MapData {
   lightHeights?: Record<string, number>;
   /** The board's ambient light, 0 (pitch black) to 1 (daylight); unset follows Atlas's scene light. */
   ambient?: number;
+  /** How thick its walls stand, as a share of a grid square; kept only when it is not the default. */
+  wallThickness?: number;
 }
 
 /** Fog stands one square tall unless the GM says otherwise. */
 export const DEFAULT_FOG_HEIGHT = 1;
+
+/** Walls stand an eighth of a square thick or so unless the GM says otherwise. */
+export const DEFAULT_WALL_THICKNESS = 0.12;
 
 export type BoardDataJSON = Record<string, MapData>;
 
@@ -61,6 +66,7 @@ function tidy(map: MapData): MapData | null {
   if (map.lightHeights && Object.keys(map.lightHeights).length > 0) out.lightHeights = map.lightHeights;
   if (map.wallHeights && Object.keys(map.wallHeights).length > 0) out.wallHeights = map.wallHeights;
   if (map.ambient !== undefined) out.ambient = map.ambient;
+  if (map.wallThickness !== undefined && map.wallThickness !== DEFAULT_WALL_THICKNESS) out.wallThickness = map.wallThickness;
   return Object.keys(out).length > 0 ? out : null;
 }
 
@@ -89,11 +95,13 @@ export function readBoardData(raw: unknown): BoardDataJSON {
     const props = Array.isArray(value.props) ? value.props.map(readProp).filter((prop): prop is PropPlacement => prop !== null) : [];
     const fogHeight = typeof value.fogHeight === 'number' && Number.isFinite(value.fogHeight) && value.fogHeight >= 0 ? value.fogHeight : undefined;
     const ambient = typeof value.ambient === 'number' && value.ambient >= 0 && value.ambient <= 1 ? value.ambient : undefined;
+    const wallThickness = typeof value.wallThickness === 'number' && Number.isFinite(value.wallThickness) && value.wallThickness > 0 ? value.wallThickness : undefined;
     const kept = tidy({
       styles, props, ...(fogHeight !== undefined && { fogHeight }),
       wallMaterials: strings(value.wallMaterials), doorProps: strings(value.doorProps), lightHeights: heights(value.lightHeights),
       wallHeights: heights(value.wallHeights),
       ...(ambient !== undefined && { ambient }),
+      ...(wallThickness !== undefined && { wallThickness }),
     });
     if (kept) out[path] = kept;
   }
@@ -157,6 +165,17 @@ export class BoardData {
   setFogHeight(mapPath: string, height: number): void {
     if (!Number.isFinite(height) || height < 0 || this.fogHeight(mapPath) === height) return;
     this.put(mapPath, { ...(this.data[mapPath] ?? {}), fogHeight: height });
+  }
+
+  /** How thick the map's walls stand, as a share of a grid square. */
+  wallThickness(mapPath: string): number {
+    return this.data[mapPath]?.wallThickness ?? DEFAULT_WALL_THICKNESS;
+  }
+
+  /** None or less is no wall at all: refused, as is anything not a number. */
+  setWallThickness(mapPath: string, thickness: number): void {
+    if (!Number.isFinite(thickness) || thickness <= 0 || this.wallThickness(mapPath) === thickness) return;
+    this.put(mapPath, { ...(this.data[mapPath] ?? {}), wallThickness: thickness });
   }
 
   /** The material painted on a wall or door: its vault folder, or null for the plain look. */

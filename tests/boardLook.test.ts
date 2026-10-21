@@ -35,6 +35,7 @@ test('a map\'s look: wall heights, materials and door props by wall id, light he
   assert.equal(look.lightHeight('l2'), null);
   assert.equal(look.fogHeight, 2);
   assert.equal(look.ambient, 0.3);
+  assert.equal(look.wallThickness, 0.12);
 });
 
 test('only the materials this map\'s walls use are listed, with their scale and maps by role', () => {

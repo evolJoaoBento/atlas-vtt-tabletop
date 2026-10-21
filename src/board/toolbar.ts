@@ -13,6 +13,9 @@ export interface ToolbarActions {
   /** How tall the fog stands, in grid squares. */
   fogHeight(): number;
   setFogHeight(height: number): void;
+  /** How thick the walls stand, as a share of a grid square. */
+  wallThickness(): number;
+  setWallThickness(thickness: number): void;
   playerViewOpen(): boolean;
   togglePlayerView(): void;
   /** Whether the players' camera is frozen; freezing it, or letting it follow again. */
@@ -55,6 +58,12 @@ export function readFogHeight(text: string): number | null {
   return text.trim() !== '' && Number.isFinite(value) && value >= 0 && value <= 100 ? value : null;
 }
 
+/** A wall thickness typed in the board settings, in squares: more than none, at most two squares. */
+export function readWallThickness(text: string): number | null {
+  const value = Number(text.trim().replace(',', '.'));
+  return text.trim() !== '' && Number.isFinite(value) && value > 0 && value <= 2 ? value : null;
+}
+
 export class BoardToolbar {
   private readonly row: HTMLElement;
   private readonly panel: HTMLElement;
@@ -72,6 +81,7 @@ export class BoardToolbar {
   private readonly sizeValue: HTMLElement;
   private readonly freezeButton: HTMLButtonElement;
   private readonly heightInput: HTMLInputElement;
+  private readonly thicknessInput: HTMLInputElement;
   private readonly initiativeToggle: HTMLInputElement;
   private readonly ambientInput: HTMLInputElement;
   private readonly ambientValue: HTMLElement;
@@ -213,15 +223,22 @@ export class BoardToolbar {
     this.panel.setAttribute('aria-label', 'Board settings');
     el('div', 'atlas-tabletop-palette__title', this.panel, 'Board settings');
     const fog = el('div', 'atlas-tabletop-palette__section', this.panel);
-    el('div', 'atlas-tabletop-palette__heading', fog, 'Fog of war');
+    el('div', 'atlas-tabletop-palette__heading', fog, 'Walls and fog');
     const field = el('label', 'atlas-tabletop-palette__field', fog);
-    el('span', 'atlas-tabletop-palette__label', field, 'Fog height');
+    el('span', 'atlas-tabletop-palette__label', field, 'Default wall height');
     this.heightInput = el('input', 'atlas-tabletop-palette__input', field);
     this.heightInput.type = 'text';
     this.heightInput.inputMode = 'decimal';
-    this.heightInput.setAttribute('aria-label', 'Fog height in squares');
+    this.heightInput.setAttribute('aria-label', 'Default wall height in squares');
     el('span', 'atlas-tabletop-palette__unit', field, 'squares');
-    el('div', 'atlas-tabletop-palette__hint', fog, 'The fog painted in Atlas stands this many grid squares tall. 0 lays it flat on the map.');
+    const thick = el('label', 'atlas-tabletop-palette__field', fog);
+    el('span', 'atlas-tabletop-palette__label', thick, 'Wall thickness');
+    this.thicknessInput = el('input', 'atlas-tabletop-palette__input', thick);
+    this.thicknessInput.type = 'text';
+    this.thicknessInput.inputMode = 'decimal';
+    this.thicknessInput.setAttribute('aria-label', 'Wall thickness in squares');
+    el('span', 'atlas-tabletop-palette__unit', thick, 'squares');
+    el('div', 'atlas-tabletop-palette__hint', fog, 'Walls without a height of their own stand this many grid squares tall, and so does the fog painted in Atlas (0 lays the fog flat on the map).');
     // The board's own daylight: in the dark only Atlas's lights show the map.
     const lighting = el('div', 'atlas-tabletop-palette__section', this.panel);
     el('div', 'atlas-tabletop-palette__heading', lighting, 'Lighting');
@@ -258,6 +275,11 @@ export class BoardToolbar {
       if (height !== null) this.actions.setFogHeight(height);
     };
     this.heightInput.addEventListener('change', apply);
+    this.thicknessInput.addEventListener('change', () => {
+      const thickness = readWallThickness(this.thicknessInput.value);
+      this.thicknessInput.toggleAttribute('aria-invalid', thickness === null);
+      if (thickness !== null) this.actions.setWallThickness(thickness);
+    });
     this.panel.addEventListener('keydown', (event) => {
       // Typing here must not move the camera.
       event.stopPropagation();
@@ -342,6 +364,8 @@ export class BoardToolbar {
     this.closeLaser();
     this.heightInput.value = String(this.actions.fogHeight());
     this.heightInput.removeAttribute('aria-invalid');
+    this.thicknessInput.value = String(this.actions.wallThickness());
+    this.thicknessInput.removeAttribute('aria-invalid');
     this.initiativeToggle.checked = this.actions.initiativeOpen();
     this.ambientInput.value = String(Math.round(this.actions.ambient() * 100));
     this.ambientValue.textContent = `${this.ambientInput.value}%`;
