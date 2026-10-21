@@ -1383,3 +1383,39 @@ body.atlas-tabletop-player-window .view-header {
 .atlas-tabletop-material-scale {
   width: 5em;
 }
+
+/* Connect hosting: the banner over the board's top, and the handout shown to players in a corner. */
+.atlas-tabletop-banner {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: var(--size-4-1) var(--size-4-2) var(--size-4-1) var(--size-4-3);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+  font-size: var(--font-ui-smaller);
+  box-shadow: var(--shadow-l);
+}
+.atlas-tabletop-banner[hidden], .atlas-tabletop-handout[hidden] { display: none; }
+.atlas-tabletop-handout {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 5;
+  max-width: 220px;
+  padding: var(--size-4-1);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+.atlas-tabletop-handout img { display: block; max-width: 100%; max-height: 160px; margin-top: var(--size-4-1); border-radius: var(--radius-s); }
+.atlas-tabletop-template-shapes { display: flex; gap: 2px; align-items: center; }
+.atlas-tabletop-template-shape.is-active { background: var(--background-modifier-active-hover); }

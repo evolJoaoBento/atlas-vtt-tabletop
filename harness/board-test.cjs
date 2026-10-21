@@ -1172,6 +1172,54 @@ server.listen(0, async () => {
       await wait(300);
     }
 
+    // 22c. While Connect hosts: the Template tool, players' templates and marks, the handout, and the banner.
+    {
+      const before = await page.evaluate(() => [...document.querySelectorAll('button[aria-label="Template"]')].filter((b) => b.offsetParent !== null).length);
+      check('no Template tool while not hosting', before === 0, before);
+      await page.evaluate(() => { window.boardTest.setHosting(true); });
+      const shown = await page.evaluate(() => [...document.querySelectorAll('button[aria-label="Template"]')].filter((b) => b.offsetParent !== null).length);
+      check('hosting: the toolbar offers the Template tool', shown === 1, shown);
+      await page.evaluate(() => {
+        window.boardTest.board.receiveTemplates([{ id: 'pt', owner: 'anna', shape: 'circle', start: { x: 560, y: 200 }, end: { x: 630, y: 200 }, color: '#ff9f2e' }]);
+        document.querySelector('button[aria-label="Template"]').click();
+      });
+      const a = await project(300, 200);
+      const b = await project(370, 200);
+      await page.mouse.move(a.x, a.y);
+      await page.mouse.down();
+      for (let i = 1; i <= 8; i++) await page.mouse.move(a.x + ((b.x - a.x) * i) / 8, a.y + ((b.y - a.y) * i) / 8);
+      await page.mouse.up();
+      await wait(200);
+      const tap = await project(560, 200);
+      await page.mouse.click(tap.x, tap.y);
+      await wait(200);
+      const actions = (await record()).toolActions;
+      check('the GM places a template and erases a player\'s with a tap', actions.length === 2 && actions[0].change?.add?.shape === 'circle' && actions[1].change?.remove === 'pt', actions);
+      await page.evaluate(() => { document.querySelector('button[aria-label="Template"]').click(); });
+      await page.evaluate(() => {
+        window.boardTest.board.receivePing(400, 400, '#00a9ff');
+        window.boardTest.board.setHandout({ title: 'Old map', url: window.boardTest.handoutUrl });
+        window.boardTest.board.setBanner({ text: 'Players don\'t see changes made here: open this map in Atlas.', action: { label: 'Open in Atlas', run: () => { window.boardTest.record.opened = (window.boardTest.record.opened ?? 0) + 1; } } });
+      });
+      check('a player\'s ping shows on the GM\'s board', await page.evaluate(() => window.boardTest.board.marks.animating));
+      const panels = await page.evaluate(() => ({
+        handout: document.querySelector('.atlas-tabletop-handout')?.textContent ?? null,
+        banner: document.querySelector('.atlas-tabletop-banner')?.textContent ?? null,
+      }));
+      check('the handout shown to players is on the board', panels.handout?.includes('Old map'), panels);
+      check('the banner says players do not see the board', panels.banner?.includes('open this map in Atlas'), panels);
+      await page.evaluate(() => document.querySelector('.atlas-tabletop-banner button').click());
+      check('its button runs its action', (await record()).opened === 1, await record());
+      await page.evaluate(() => {
+        window.boardTest.board.setBanner(null);
+        window.boardTest.board.setHandout(null);
+        window.boardTest.board.receiveTemplates([]);
+        window.boardTest.setHosting(false);
+      });
+      check('all of it goes with the session', await page.evaluate(() => !document.querySelector('.atlas-tabletop-banner:not([hidden])') && !document.querySelector('.atlas-tabletop-handout:not([hidden])') && [...document.querySelectorAll('button[aria-label="Template"]')].every((b) => b.offsetParent === null)));
+      await wait(1700);
+    }
+
     // 23. The board never shows a blank frame: resizing a WebGL canvas wipes it, so a resize is drawn again before the
     // page paints, and a resize to the same size does not wipe it at all.
     {

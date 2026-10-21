@@ -177,7 +177,7 @@ async function main(): Promise<void> {
     moves: [] as Array<[string, number, number]>, propMoves: [] as Array<[string, number, number]>, added: [] as Array<[string, number, number]>,
     notes: [] as string[], menus: [] as string[], propMenus: [] as string[], previews: [] as string[], warnings: [] as string[],
     copies: [] as Array<[string, string, number, number]>, menuActions: [] as unknown[][], initiative: [] as unknown[], shown: [] as string[],
-    heights: [] as unknown[][], doors: [] as string[], wallMenus: [] as string[], paints: [] as Array<[string, string, boolean]>, lightMenus: [] as string[], ambients: [] as number[], lasers: [] as Array<Record<string, unknown>>, fogHeights: [] as number[], thicknesses: [] as number[],
+    heights: [] as unknown[][], doors: [] as string[], wallMenus: [] as string[], paints: [] as Array<[string, string, boolean]>, lightMenus: [] as string[], ambients: [] as number[], lasers: [] as Array<Record<string, unknown>>, fogHeights: [] as number[], thicknesses: [] as number[], toolActions: [] as unknown[], opened: 0,
     /** Resource edits as the host saved them: token, key, the value it held, the value written, max edited. */
     edits: [] as Array<[string, string, ResourceValue, ResourceValue, boolean]>,
   };
@@ -197,6 +197,7 @@ async function main(): Promise<void> {
   rules.definitions = definitions;
   let fogHeight = 1;
   let wallThickness = 0.12;
+  let hosting = false;
   const wallPaint = new Map<string, string>();
   const doorProps = new Map<string, string>();
   const wallHeights = new Map<string, number>();
@@ -305,6 +306,8 @@ async function main(): Promise<void> {
     setAmbient: (level) => { ambientLevel = level; record.ambients.push(level); board.refresh(); },
     lightHeight: (light) => lightHeights.get(light.id) ?? 1,
     lightMenu: (id) => { record.lightMenus.push(id); },
+    hosting: () => hosting,
+    playerAction: (action) => { record.toolActions.push(JSON.parse(JSON.stringify(action))); },
   };
   const container = document.getElementById('board')!;
   const board = new Board(container, host, QUALITY.medium);
@@ -364,7 +367,7 @@ async function main(): Promise<void> {
     const rect = board.canvas.getBoundingClientRect();
     return { x: rect.left + ((point.x + 1) / 2) * rect.width, y: rect.top + ((1 - point.y) / 2) * rect.height };
   };
-  Object.assign(window, { boardTest: { board, map, record, panel, rules, doorProps, wallHeights, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, insideFog, ready: true } });
+  Object.assign(window, { boardTest: { setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, handoutUrl: images['green.png'], board, map, record, panel, rules, doorProps, wallHeights, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, insideFog, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

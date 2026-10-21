@@ -50,7 +50,7 @@ import { WallSet } from './wallPieces';
 import { LightRig } from './lightRig';
 import { DarknessLayer } from './darkness';
 import { BoardMarks } from './marks';
-import { PlayerToolState, type TemplateMark, type ToolAction } from './playerTools';
+import { PlayerToolState, type TemplateMark, type TemplateShape, type ToolAction } from './playerTools';
 import type { FogOperation } from './fog';
 import type { BoardLight } from './walls';
 import { MATERIAL_DRAG_TYPE, MATERIAL_TEXT_PREFIX, type LoadedMaterial } from '../materials';
@@ -139,6 +139,8 @@ export interface BoardHost {
   ownColor?(): string;
   /** The tool, shape or colour changed on the board (Escape too): Connect's toolbar follows. */
   toolsChanged?(): void;
+  /** Whether Connect hosts a session (the GM's board offers the Template tool then). */
+  hosting?(): boolean;
 }
 
 /** Who looks at the board: the GM (everything, and the tools to change it), or a Connect player (what players see). */
@@ -362,6 +364,15 @@ export class Board {
       togglePlayerView: () => this.host.togglePlayerView(),
       playerFrozen: () => this.player?.frozen != null,
       togglePlayerFreeze: () => this.setPlayerFrozen(this.player?.frozen == null),
+      hosting: () => this.host.hosting?.() === true,
+      templateOn: () => this.tools.tool === 'template',
+      templateShape: () => this.tools.templateShape,
+      selectTemplate: (shape) => {
+        if (shape === null) this.tools.select('move');
+        else this.tools.selectTemplateShape(shape as TemplateShape);
+        this.toolsChanged();
+        this.toolbar.refresh();
+      },
       initiativeOpen: () => this.host.initiativeOpen(),
       toggleInitiative: () => this.host.toggleInitiative(),
       ambient: () => this.ambientShown ?? this.host.ambient(),
@@ -372,6 +383,7 @@ export class Board {
       },
     });
     this.toolbar.setHidden(this.audience === 'player');
+    this.tools.eraseAny = this.audience === 'gm';
     this.scene.add(this.darkness.object3d, this.marks.object3d);
     this.controls = new ResourceControls(container, {
       step: (key, delta) => this.stepResource(key, delta),
@@ -775,6 +787,62 @@ export class Board {
     this.camera.view(pose.eye, pose.target);
     this.wake();
     return true;
+  }
+
+  /** The line across the board's top (Connect hosting while Atlas does not hold the map); null takes it away. */
+  setBanner(banner: { text: string; action?: { label: string; run(): void } } | null): void {
+    let element = this.container.querySelector<HTMLElement>(':scope > .atlas-tabletop-banner');
+    if (!banner) {
+      if (element) element.hidden = true;
+      return;
+    }
+    const doc = this.container.ownerDocument;
+    if (!element) {
+      element = doc.createElement('div');
+      element.className = 'atlas-tabletop-banner';
+      element.setAttribute('role', 'status');
+      this.container.appendChild(element);
+    }
+    element.hidden = false;
+    element.replaceChildren();
+    const text = doc.createElement('span');
+    text.textContent = banner.text;
+    element.appendChild(text);
+    if (banner.action) {
+      const { label, run } = banner.action;
+      const button = doc.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      button.addEventListener('click', () => run());
+      element.appendChild(button);
+    }
+  }
+
+  /** The image the GM shows players (Connect's handout), small in a corner; null takes it away. */
+  setHandout(handout: { title: string; url: string | null } | null): void {
+    let element = this.container.querySelector<HTMLElement>(':scope > .atlas-tabletop-handout');
+    if (!handout) {
+      if (element) element.hidden = true;
+      return;
+    }
+    const doc = this.container.ownerDocument;
+    if (!element) {
+      element = doc.createElement('div');
+      element.className = 'atlas-tabletop-handout';
+      this.container.appendChild(element);
+    }
+    element.hidden = false;
+    element.replaceChildren();
+    const title = doc.createElement('div');
+    title.className = 'atlas-tabletop-handout__title';
+    title.textContent = `Shown to players: ${handout.title}`;
+    element.appendChild(title);
+    if (handout.url) {
+      const image = doc.createElement('img');
+      image.src = handout.url;
+      image.alt = handout.title;
+      element.appendChild(image);
+    }
   }
 
   /** Whether the picture is black (a player's camera inside the fog). */
@@ -1183,6 +1251,16 @@ export class Board {
       this.playerDown(event);
       return;
     }
+    // While Connect hosts, the GM's Template tool: a drag places one, a tap erases any.
+    if (event.button === 0 && this.tools.tool === 'template' && this.host.hosting?.() === true) {
+      const at = this.boardPoint(x, y);
+      if (at) {
+        this.press = { kind: 'tool', x, y, moved: false };
+        this.tools.down(at, this.now());
+        this.showToolOverlay();
+        return;
+      }
+    }
     if (event.button === 0 && (event.ctrlKey || event.metaKey)) {
       const id = this.propAt(x, y);
       const piece = id ? this.props.get(id) : null;
@@ -1285,6 +1363,7 @@ export class Board {
     this.tools.cancel();
     this.showToolOverlay();
     this.host.toolsChanged?.();
+    if (this.audience === 'gm') this.toolbar.refresh();
   }
 
   /** The scene's lasting templates, from Connect. */

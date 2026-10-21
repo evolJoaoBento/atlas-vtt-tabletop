@@ -87,6 +87,8 @@ export class PlayerToolState {
   templateShape: TemplateShape = 'circle';
   laserColor = '';
   coneAngle = Math.PI / 2;
+  /** The GM's tools: a tap erases anyone's template, not only the player's own. */
+  eraseAny = false;
   private templates: TemplateMark[] = [];
   private self: string | null = null;
   private drag: { start: Point; end: Point } | null = null;
@@ -172,7 +174,7 @@ export class PlayerToolState {
     if (this.tool === 'ping') return moved ? [] : [{ type: 'ping', x: point.x, y: point.y }];
     if (this.tool === 'template') {
       if (!moved) {
-        const own = [...this.templates].reverse().find((template) => template.owner === this.self && templateHit(template, point, TAP_SLACK, this.coneAngle));
+        const own = [...this.templates].reverse().find((template) => (this.eraseAny || template.owner === this.self) && templateHit(template, point, TAP_SLACK, this.coneAngle));
         return own ? [{ type: 'template', change: { remove: own.id } }] : [];
       }
       return [{ type: 'template', change: { add: { shape: this.templateShape, start: drag.start, end: { ...point } } } }];

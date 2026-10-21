@@ -16,6 +16,12 @@ export interface ToolbarActions {
   /** How thick the walls stand, as a share of a grid square. */
   wallThickness(): number;
   setWallThickness(thickness: number): void;
+  /** Whether Connect hosts a session: the Template tool shows then. */
+  hosting(): boolean;
+  templateOn(): boolean;
+  templateShape(): string;
+  /** Turns the Template tool on with a shape, or off with null. */
+  selectTemplate(shape: string | null): void;
   playerViewOpen(): boolean;
   togglePlayerView(): void;
   /** Whether the players' camera is frozen; freezing it, or letting it follow again. */
@@ -50,6 +56,9 @@ const THUMB_PX = 16;
 
 /** Lucide's `presentation` and `snowflake` icons (ISC): Atlas's player view, and a frozen camera. */
 const PLAYER_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h20"/><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"/><path d="m7 21 5-5 5 5"/></svg>';
+/** Lucide's shapes: Connect's Template tool. */
+const TEMPLATE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.3 10a.7.7 0 0 1-.626-1.079L11.4 3a.7.7 0 0 1 1.198-.043L16.3 8.9a.7.7 0 0 1-.572 1.1Z"/><rect x="3" y="14" width="7" height="7" rx="1"/><circle cx="17.5" cy="17.5" r="3.5"/></svg>';
+const TEMPLATE_SHAPES = [['line', 'Line'], ['circle', 'Circle'], ['square', 'Square'], ['cone', 'Cone']] as const;
 const FREEZE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m10 20-1.25-2.5L6 18"/><path d="M10 4 8.75 6.5 6 6"/><path d="m14 20 1.25-2.5L18 18"/><path d="m14 4 1.25 2.5L18 6"/><path d="m17 21-3-6h-4"/><path d="m17 3-3 6 1.5 3"/><path d="M2 12h6.5L10 9"/><path d="m20 10-1.5 2 1.5 2"/><path d="M22 12h-6.5L14 15"/><path d="m4 10 1.5 2L4 14"/><path d="m7 21 3-6-1.5-3"/><path d="m7 3 3 6h4"/></svg>';
 
 /** A height typed in the panel: a number of squares from 0, or null when it is not one. */
@@ -69,6 +78,9 @@ export class BoardToolbar {
   private readonly panel: HTMLElement;
   private readonly button: HTMLButtonElement;
   private readonly playerButton: HTMLButtonElement;
+  /** Connect's Template tool, offered only while Connect hosts, and its shapes. */
+  private readonly templateButton: HTMLButtonElement;
+  private readonly templateShapes: HTMLElement;
   private readonly laserButton: HTMLButtonElement;
   private readonly moveItem: HTMLButtonElement;
   private readonly laserItem: HTMLButtonElement;
@@ -210,6 +222,16 @@ export class BoardToolbar {
       event.stopPropagation();
       if (event.key === 'Escape') { event.preventDefault(); this.closeLaser(); }
     });
+    this.templateButton = tool(TEMPLATE_SVG, () => this.actions.selectTemplate(this.actions.templateOn() ? null : this.actions.templateShape()));
+    this.templateButton.setAttribute('aria-label', 'Template');
+    this.templateButton.title = 'Template (players see it)';
+    this.templateShapes = el('div', 'atlas-tabletop-template-shapes', bar);
+    for (const [shape, label] of TEMPLATE_SHAPES) {
+      const choice = el('button', 'btn btn--ghost btn--sm atlas-tabletop-template-shape', this.templateShapes, label);
+      choice.type = 'button';
+      choice.dataset.shape = shape;
+      choice.addEventListener('click', () => this.actions.selectTemplate(shape));
+    }
     this.playerButton = tool(PLAYER_SVG, () => this.actions.togglePlayerView());
     this.freezeButton = tool(FREEZE_SVG, () => this.actions.togglePlayerFreeze());
     this.button = tool(COMMAND_SVG, () => (this.panel.hidden ? this.open() : this.close()));
@@ -293,6 +315,14 @@ export class BoardToolbar {
 
   /** Shows the player view's state: open or not, its camera frozen or not (the freeze button only while it is open). */
   refresh(): void {
+    // Connect's Template tool, while it hosts: the shapes show with the tool on.
+    const hosting = this.actions.hosting();
+    const templateOn = hosting && this.actions.templateOn();
+    (this.templateButton.closest('.atlas-tool-button') as HTMLElement).style.display = hosting ? '' : 'none';
+    this.templateButton.classList.toggle('is-active', templateOn);
+    this.templateButton.setAttribute('aria-pressed', String(templateOn));
+    this.templateShapes.style.display = templateOn ? '' : 'none';
+    for (const choice of this.templateShapes.querySelectorAll<HTMLElement>('button')) choice.classList.toggle('is-active', choice.dataset.shape === this.actions.templateShape());
     const laser = this.actions.laserOn();
     // The group's face is always the tool in use, as Atlas's is while one of its tools is.
     this.laserButton.innerHTML = laser ? LASER_SVG : HAND_SVG;
