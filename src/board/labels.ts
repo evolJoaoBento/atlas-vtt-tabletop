@@ -216,7 +216,12 @@ export class TokenLabels {
   update(token: BoardToken, settings: TokenSettings, rules: CollectionRules, look: LabelLook): void {
     this.clear();
     const character = token.kind === 'character';
-    const shown = character ? visibleResources(token, rules.definitions, settings.hiddenResources, look.viewer) : [];
+    // A Connect player's board colours each bar as Connect worked it out for this token.
+    const own = token.resourceColors;
+    const shown = (character ? visibleResources(token, rules.definitions, settings.hiddenResources, look.viewer) : []).map((entry) => {
+      const color = own?.[entry.definition.key];
+      return color ? { ...entry, definition: { ...entry.definition, color, defeatedWhenSpent: false } } : entry;
+    });
     // Top to bottom: name, then the bars in socket order.
     if (character && (settings.showNameplates || token.showNameplate) && token.name) {
       const plate = plateTexture(token.name);

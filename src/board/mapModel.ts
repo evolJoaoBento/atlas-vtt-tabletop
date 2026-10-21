@@ -69,6 +69,8 @@ export interface BoardToken {
    * that is no part of the map. The board neither draws nor shows it; the tracker lists it.
    */
   offMap: boolean;
+  /** On a Connect player's board: each bar's colour as Connect worked it out (yellow, then red as it runs low), by key. */
+  resourceColors?: Record<string, string>;
 }
 
 export interface BoardPin {

@@ -82,11 +82,14 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
   const minis: SceneBoard['minis'] = {};
   const tokens: BoardToken[] = Object.entries(scene.tokens).map(([id, token]) => {
     const resources: Record<string, Meter> = {};
-    if (token.hp) { define('hp', 'HP', '#d9534f'); resources.hp = { ...token.hp }; }
+    // An older GM's plain HP bar: coloured as Atlas colours a defeating resource as it runs low.
+    if (token.hp) { define('hp', 'HP', '#22c55e', true); resources.hp = { ...token.hp }; }
+    const colors: Record<string, string> = {};
     if (token.stress) { define('stress', 'Stress', '#7b5cd6'); resources.stress = { ...token.stress }; }
     (token.resources ?? []).forEach((resource, index) => {
       const key = `r${index}`;
       define(key, key, resource.color);
+      colors[key] = resource.color;
       resources[key] = resource.current !== undefined && resource.max !== undefined
         ? { current: resource.current, max: resource.max }
         : { current: Math.round(resource.share * 100), max: 100 };
@@ -110,6 +113,7 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
       conditions: token.conditions.map((condition) => condition.id), conditionValues: values,
       resources, overriddenMax: [], instanceNumber: token.instance ?? null, statblockPath: null,
       side: token.side ?? null, sees: false, offMap: false,
+      ...(Object.keys(colors).length > 0 ? { resourceColors: colors } : {}),
     } satisfies BoardToken;
   });
   const fog: FogOperation[] = [];

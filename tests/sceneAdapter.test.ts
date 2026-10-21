@@ -94,3 +94,14 @@ test('board extras of another scene are not this scene\'s: none of their walls o
   const { map } = boardFromScene(scene(), { ...extras, sceneId: 'other' });
   assert.deepEqual([map.walls, map.lights], [[], []]);
 });
+
+test('each token\'s bars keep the colour Connect worked out for it (yellow, then red as it runs low)', () => {
+  const low = scene();
+  low.tokens.t2 = { ...low.tokens.t2!, resources: [{ color: '#ef4444', share: 0.2, spent: false, current: 2, max: 10 }] };
+  low.tokens.t1 = { ...low.tokens.t1!, resources: [{ color: '#22c55e', share: 0.9, spent: false, current: 9, max: 10 }] };
+  const { map, rules } = boardFromScene(low, null);
+  assert.equal(map.tokens.find((token) => token.id === 't1')!.resourceColors?.r0, '#22c55e');
+  assert.equal(map.tokens.find((token) => token.id === 't2')!.resourceColors?.r0, '#ef4444');
+  // An older GM's plain HP bar: coloured as Atlas colours a defeating resource.
+  assert.equal(rules.definitions.find((definition) => definition.key === 'hp')?.defeatedWhenSpent, true);
+});
