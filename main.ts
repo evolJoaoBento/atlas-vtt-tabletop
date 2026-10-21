@@ -12,6 +12,8 @@ import { DEFAULT_MINIS_FOLDER, DEFAULT_PROPS_FOLDER, MiniLibrary, PROPS } from '
 import { DEFAULT_MATERIALS_FOLDER, MaterialLibrary } from './src/materials';
 import { GpuSettings, currentChip, gpuChoices, type GpuPreference } from './src/gpu';
 import { playerMiniPainter, type PlayerMiniPainter } from './src/playerMinis';
+import { boardLookFor, MaterialIndex } from './src/boardLook';
+import type { BoardLook, GmCameraSource } from './src/connectContract';
 
 export const API_READY_EVENT = 'atlas-vtt-tabletop:api-ready';
 export const API_UNLOAD_EVENT = 'atlas-vtt-tabletop:api-unload';
@@ -52,12 +54,26 @@ export interface TabletopApi {
   readMini(path: string): Promise<ArrayBuffer>;
   /** Draws the minis in a joined player's view: without Tabletop a player sees none. */
   readonly playerMinis: PlayerMiniPainter;
+  /** What the GM gave a map on the board (heights, materials, door props, props, fog height, ambient). */
+  boardLook(mapPath: string): BoardLook;
+  /** Calls `listener` when a map's look may have changed: with its path, or null for any map. */
+  onBoardChange(listener: (mapPath: string | null) => void): () => void;
+  /** The bytes of a material's texture or a prop's GLB, for Connect to send its players. */
+  readAsset(path: string): Promise<ArrayBuffer>;
+  /** The GM's 3D view of a map, for Connect's players' "GM view". */
+  readonly gmCamera: GmCameraSource;
 }
+
+/** The files `readAsset` hands out: textures and GLBs, nothing else of the vault. */
+const ASSET_EXTENSIONS = new Set(['glb', 'png', 'jpg', 'jpeg', 'webp']);
 
 export default class TabletopPlugin extends Plugin {
   settings: TabletopSettings = { ...DEFAULT_SETTINGS };
   assignments = new Assignments();
   boardData = new BoardData();
+  private readonly boardListeners = new Set<(mapPath: string | null) => void>();
+  private readonly cameraListeners = new Set<() => void>();
+  private materialIndex: MaterialIndex | null = null;
   library!: MiniLibrary;
   props!: MiniLibrary;
   materials!: MaterialLibrary;
@@ -101,6 +117,7 @@ export default class TabletopPlugin extends Plugin {
       focused: (view) => { this.lastBoard = view; },
       togglePlayerView: (view) => { void this.togglePlayerView(view); },
       playerViewOpen: (path) => this.playerLeaves().some((leaf) => fileOf(leaf) === path),
+      cameraMoved: () => { for (const listener of [...this.cameraListeners]) listener(); },
       boardReady: (view) => {
         for (const player of this.playerViews()) if (player.mapPath === view.mapPath) view.showPlayer(player);
         this.refreshPlayerButtons();
@@ -157,6 +174,9 @@ export default class TabletopPlugin extends Plugin {
 
     this.app.workspace.onLayoutReady(() => { this.library.emit(); this.props.emit(); });
 
+    this.materialIndex = new MaterialIndex(this.app.vault, () => this.boardChanged(null));
+    this.register(this.boardData.onChange((mapPath) => this.boardChanged(mapPath)));
+    this.register(this.materials.onChange(() => { this.materialIndex?.forgetAll(); this.boardChanged(null); }));
     this.players = playerMiniPainter();
     this.api = Object.freeze({
       version: 1 as const,
@@ -168,6 +188,23 @@ export default class TabletopPlugin extends Plugin {
         if (!(file instanceof TFile) || file.extension.toLowerCase() !== 'glb') throw new Error(`No mini at ${path}.`);
         return this.app.vault.readBinary(file);
       },
+      boardLook: (mapPath: string) => boardLookFor(this.boardData, this.materialIndex!, mapPath),
+      onBoardChange: (listener: (mapPath: string | null) => void) => {
+        this.boardListeners.add(listener);
+        return () => { this.boardListeners.delete(listener); };
+      },
+      readAsset: async (path: string): Promise<ArrayBuffer> => {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (!(file instanceof TFile) || !ASSET_EXTENSIONS.has(file.extension.toLowerCase())) throw new Error(`No texture or model at ${path}.`);
+        return this.app.vault.readBinary(file);
+      },
+      gmCamera: Object.freeze({
+        camera: (mapPath: string) => this.gmCamera(mapPath),
+        onChange: (listener: () => void) => {
+          this.cameraListeners.add(listener);
+          return () => { this.cameraListeners.delete(listener); };
+        },
+      }),
     });
     this.app.workspace.trigger(API_READY_EVENT, this.api);
   }
@@ -260,6 +297,31 @@ export default class TabletopPlugin extends Plugin {
       if (deferred) void deferred.loadIfDeferred();
     }
     this.refreshPlayerButtons();
+  }
+
+  /** A map's look changed for Connect: its listeners hear it, and a changed material is read again. */
+  private boardChanged(mapPath: string | null): void {
+    for (const listener of [...this.boardListeners]) {
+      try {
+        listener(mapPath);
+      } catch (error) {
+        console.error('[Tabletop] A board listener failed:', error);
+      }
+    }
+  }
+
+  /** The players' window's camera on `mapPath` when one shows it, else the GM's board camera of that map. */
+  private gmCamera(mapPath: string): ReturnType<GmCameraSource['camera']> {
+    const boards = this.boards().filter((board) => board.mapPath === mapPath);
+    for (const board of boards) {
+      const players = board.playerPose();
+      if (players) return players;
+    }
+    for (const board of boards) {
+      const pose = board.cameraPose();
+      if (pose) return pose;
+    }
+    return null;
   }
 
   private refreshPlayerButtons(): void {

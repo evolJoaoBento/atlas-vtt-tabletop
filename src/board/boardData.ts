@@ -164,6 +164,11 @@ export class BoardData {
     return this.data[mapPath]?.wallMaterials?.[wallId] ?? null;
   }
 
+  /** The materials painted anywhere on a map, each once, in the order first painted. */
+  usedMaterials(mapPath: string): string[] {
+    return [...new Set(Object.values(this.data[mapPath]?.wallMaterials ?? {}))];
+  }
+
   /** Paints walls (one segment, or a whole drawn wall) with a material; null takes it off. */
   setWallMaterial(mapPath: string, wallIds: readonly string[], material: string | null): void {
     const map = this.data[mapPath] ?? {};

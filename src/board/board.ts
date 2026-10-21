@@ -120,6 +120,8 @@ export interface BoardHost {
   lightMenu(id: string, event: MouseEvent): void;
   /** A material dropped from the gallery on a wall or door: that segment, or with Shift the whole wall drawn with it. */
   paintWall(id: string, material: string, whole: boolean): void;
+  /** The GM's camera or the players' moved (Connect follows it for its players' "GM view"). */
+  cameraMoved?(): void;
 }
 
 const FOV = 35;
@@ -798,6 +800,7 @@ export class Board {
     this.renderer.render(this.scene, this.view);
     this.layoutControls();
     this.drawPlayers(shadows, context);
+    if (cameraMoving) this.host.cameraMoved?.();
     this.continuing = busy || this.held.size > 0 || this.press !== null;
     if (this.continuing) this.wake();
     // Flames flicker on a timer, a few times a second, not on every frame the screen can draw; those frames are
@@ -1509,6 +1512,19 @@ export class Board {
     this.toolbar.refresh();
   }
 
+  /** The GM's camera in the board's world (x and z the map's pixels, y up). */
+  cameraPose(): { eye: { x: number; y: number; z: number }; target: { x: number; y: number; z: number } } {
+    const eye = this.camera.position();
+    return { eye: { x: eye.x, y: eye.y, z: eye.z }, target: { ...this.camera.pose.target } };
+  }
+
+  /** The players' window's camera: where the GM froze it, else the GM's; null without a players' window. */
+  playerPose(): { eye: { x: number; y: number; z: number }; target: { x: number; y: number; z: number } } | null {
+    const player = this.player;
+    if (!player) return null;
+    return player.frozen ? { eye: { ...player.frozen.eye }, target: { ...player.frozen.target } } : this.cameraPose();
+  }
+
   /** Whether the players' camera is frozen where the GM froze it. */
   get playerFrozen(): boolean {
     return this.player?.frozen != null;
@@ -1521,6 +1537,7 @@ export class Board {
     const pose = this.camera.pose;
     player.frozen = frozen ? { eye: positionOf(pose), target: { ...pose.target }, yaw: pose.yaw, distance: pose.distance } : null;
     this.toolbar.refresh();
+    this.host.cameraMoved?.();
     this.wake();
   }
 

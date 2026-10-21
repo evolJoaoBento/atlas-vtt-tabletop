@@ -58,6 +58,8 @@ export interface BoardServices {
   playerViewOpen(path: string): boolean;
   /** This board has drawn its map: a player view of that map can be drawn into. */
   boardReady(view: BoardView): void;
+  /** The GM's camera or the players' moved on this board. */
+  cameraMoved?(view: BoardView): void;
 }
 
 const tokenName = (token: BoardToken): string => token.name ?? token.imagePath?.split('/').pop()?.replace(/\.[^.]+$/, '') ?? 'Token';
@@ -153,6 +155,15 @@ export class BoardView extends ItemView {
   /** Whether this board has drawn its map, and so can draw a player view of it. */
   get ready(): boolean {
     return this.board !== null && this.map !== null;
+  }
+
+  /** The GM's camera on this board, and its players' window's (null without one); null while no board is drawn. */
+  cameraPose(): ReturnType<Board['cameraPose']> | null {
+    return this.board?.cameraPose() ?? null;
+  }
+
+  playerPose(): ReturnType<Board['playerPose']> {
+    return this.board?.playerPose() ?? null;
   }
 
   /** Draws this board into the local player view too. */
@@ -356,6 +367,7 @@ export class BoardView extends ItemView {
         const ids = whole ? wholeWall(walls, id) : [id];
         boardData.setWallMaterial(mapPath(), ids, material);
       },
+      cameraMoved: () => this.services.cameraMoved?.(this),
     };
   }
 
