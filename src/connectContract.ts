@@ -25,6 +25,10 @@ export interface BoardWallRecord {
   height: number | null;
   material: string | null;
   door?: BoardDoor;
+  /** Atlas's one-way side, a wall that stops only sight (a curtain) or only light (glass), and a limited one. */
+  direction?: 'left' | 'right';
+  blocks?: 'sight' | 'light';
+  limited?: boolean;
 }
 
 export interface BoardLightRecord {
@@ -39,6 +43,9 @@ export interface BoardLightRecord {
   animation: string | null;
   angle: number | null;
   rotation: number;
+  /** A light that darkens, and the ambient level below which it shines (Atlas's `activeBelowAmbient`). */
+  darkness: boolean;
+  activeBelowAmbient: number | null;
 }
 
 export interface BoardMaterialRecord { id: string; scale: number; maps: Record<string, string> }
