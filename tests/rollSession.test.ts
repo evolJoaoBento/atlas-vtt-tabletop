@@ -237,3 +237,72 @@ test('d100 pair explodes on its combined value, once per pair', () => {
   assert.equal(result.total, 142);
   assert.equal(result.crit, 'failure');
 });
+
+test('a settled die knocked loose is read again where it lands: the landing decides', () => {
+  const session = new RollSession({ dice: { d6: 2 }, modifier: 0 }, DEFAULT_RULES);
+  const [a, b] = session.dice;
+  session.settle(a.id, face(4));
+  session.settle(b.id, face(2));
+  assert.equal(session.result()?.total, 6);
+  session.loosen(b.id);
+  assert.equal(session.result(), null, 'no result while it moves');
+  assert.equal(b.status, 'rolling');
+  assert.deepEqual(session.pendingThrows(), [], 'it is moving, not waiting to be thrown');
+  session.settle(b.id, face(5));
+  assert.deepEqual(session.result()?.rolls.map((roll) => roll.value), [4, 5]);
+  session.loosen(a.id);
+  session.settle(a.id, CAUGHT);
+  assert.equal(a.status, 'caught');
+  assert.equal(a.value, undefined);
+  assert.equal(session.prompt(), 'd6 caught: roll it again');
+  assert.equal(session.result(), null);
+});
+
+test('a caught die knocked onto a clean face takes it', () => {
+  const session = new RollSession({ dice: { d8: 1 }, modifier: 0 }, DEFAULT_RULES);
+  const [d8] = session.dice;
+  session.settle(d8.id, CAUGHT);
+  session.loosen(d8.id);
+  assert.equal(session.prompt(), null);
+  session.settle(d8.id, face(7));
+  assert.equal(session.result()?.total, 7);
+});
+
+test('a die knocked loose off an explosion face takes back the explosion not yet thrown', () => {
+  const session = new RollSession({ dice: { d6: 1 }, modifier: 0 }, explodeAll);
+  const [d6] = session.dice;
+  session.settle(d6.id, face(6));
+  assert.equal(session.dice.length, 2);
+  session.loosen(d6.id);
+  session.settle(d6.id, face(6));
+  assert.equal(session.dice.length, 2, 'landing on the same face asks for no second explosion');
+  session.loosen(d6.id);
+  session.settle(d6.id, face(3));
+  assert.equal(session.dice.length, 1, 'the explosion it no longer earns is gone');
+  assert.deepEqual(session.pendingThrows(), []);
+  assert.equal(session.result()?.total, 3);
+});
+
+test('an explosion already thrown stays when its die is knocked onto another face', () => {
+  const session = new RollSession({ dice: { d6: 1 }, modifier: 0 }, explodeAll);
+  const [d6] = session.dice;
+  session.settle(d6.id, face(6));
+  const extra = session.dice[1];
+  session.reroll(extra.id);
+  session.settle(extra.id, face(2));
+  session.loosen(d6.id);
+  session.settle(d6.id, face(1));
+  assert.deepEqual(session.result()?.rolls.map((roll) => roll.value), [1, 2]);
+});
+
+test('a d100 half knocked loose is read again', () => {
+  const session = new RollSession({ dice: { d100: 1 }, modifier: 0 }, DEFAULT_RULES);
+  const [tens, ones] = session.dice;
+  session.settle(tens.id, face(30));
+  session.settle(ones.id, face(4));
+  assert.equal(session.result()?.total, 34);
+  session.loosen(ones.id);
+  assert.equal(session.result(), null);
+  session.settle(ones.id, face(10));
+  assert.equal(session.result()?.total, 30);
+});

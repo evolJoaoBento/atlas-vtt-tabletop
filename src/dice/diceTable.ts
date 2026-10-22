@@ -90,6 +90,8 @@ export class DiceTable {
   readonly object3d = new THREE.Group();
   /** A die came to rest: what it shows (caught when no face is up). */
   onSettled: (id: number, reading: FaceReading) => void = () => {};
+  /** A die at rest was knocked loose (the die under it was thrown again): it moves, and is read again where it lands. */
+  onLoosened: (id: number) => void = () => {};
   private readonly world = new CANNON.World();
   private readonly dice = new Map<number, ThrownDie>();
   private walls: CANNON.Body[] = [];
@@ -318,11 +320,12 @@ export class DiceTable {
    */
   private loosenDiceOn(under: ThrownDie): void {
     const { x, y, z } = under.body.position;
-    for (const die of this.dice.values()) {
+    for (const [id, die] of this.dice) {
       if (die === under || !die.settled) continue;
       const at = die.body.position;
       if (at.y <= RESTING_HEIGHT || at.y <= y || Math.hypot(at.x - x, at.z - z) > SUPPORT_REACH) continue;
       this.loosen(die);
+      this.tell(() => this.onLoosened(id));
       this.loosenDiceOn(die);
     }
   }
@@ -343,11 +346,15 @@ export class DiceTable {
     body.mass = 0;
     body.updateMassProperties();
     die.mesh.material.emissive.set(reading.caught && this.settings.highlight ? this.settings.highlightColor : 0x000000);
-    // The board's frame loop steps the table: a listener's failure stays here, and the other dice are still read.
+    this.tell(() => this.onSettled(id, reading));
+  }
+
+  /** Calls a listener. The board's frame loop steps the table: a listener's failure stays here, the other dice still read. */
+  private tell(listener: () => void): void {
     try {
-      this.onSettled(id, reading);
+      listener();
     } catch (error) {
-      console.error('[Tabletop] A settled die listener failed:', error);
+      console.error('[Tabletop] A dice table listener failed:', error);
     }
   }
 

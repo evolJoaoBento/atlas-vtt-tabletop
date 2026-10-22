@@ -197,8 +197,11 @@ test('a die resting on another is read where it lies, and falls when the die und
   const onTop = readings.get(over)?.[1];
   assert.ok(onTop && !onTop.caught && onTop.face !== null && onTop.face >= 1 && onTop.face <= 6, `a face: ${JSON.stringify(onTop)}`);
   assert.ok(top.position.y > 1.2, `it lies on the other die: ${top.position.y}`);
+  const loosened: number[] = [];
+  dice.onLoosened = (id) => { loosened.push(id); };
   dice.throwDie(under, { dx: 0, dy: -200, ms: 100 });
   assert.equal(top.type, CANNON.Body.DYNAMIC, 'the die on top is no longer held in the air');
+  assert.deepEqual(loosened, [over], 'and the table says so');
   run(dice);
   assert.equal(dice.busy, false);
   assert.ok(top.position.y < 1.2, `it fell to the felt: ${top.position.y}`);

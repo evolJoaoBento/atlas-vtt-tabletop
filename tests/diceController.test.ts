@@ -15,6 +15,7 @@ const CAUGHT: FaceReading = { caught: true, face: null, confidence: 0 };
 class FakeTable {
   busy = false;
   onSettled: (id: number, reading: FaceReading) => void = () => {};
+  onLoosened: (id: number) => void = () => {};
   session: RollSession | null = null;
   rolls = 0;
   thrown: number[] = [];
@@ -130,3 +131,25 @@ test('explosion prompt then publish with the extra die', () => {
   assert.equal(prompts.at(-1), null);
 });
 
+
+test('a die knocked loose holds the roll until it lands, and its landing decides', () => {
+  const { dice, table, published, prompts } = controller();
+  dice.start({ dice: { d6: 3 }, modifier: 0 }, FLICK);
+  const [a, b, c] = table.ids();
+  table.onSettled(a, face(1));
+  table.onSettled(b, CAUGHT);
+  assert.match(prompts.at(-1) ?? '', /d6/);
+  dice.clickDie(b, FLICK);
+  // b is thrown again, and a, which lay on it, is knocked loose.
+  table.onLoosened(a);
+  table.onSettled(c, face(2));
+  table.onSettled(b, face(3));
+  assert.equal(published.length, 0, 'the loose die has not landed');
+  table.onSettled(a, CAUGHT);
+  assert.equal(published.length, 0);
+  assert.match(prompts.at(-1) ?? '', /d6 caught/);
+  dice.throwPending(FLICK);
+  assert.deepEqual(table.thrown, [b, a]);
+  table.onSettled(a, face(6));
+  assert.deepEqual(published[0].rolls.map((roll) => roll.value), [6, 3, 2]);
+});

@@ -9,7 +9,7 @@ import { RollSession } from './rollSession';
 import type { Flick } from './throwInput';
 
 export interface DiceControllerDeps {
-  table: Pick<DiceTable, 'throwRoll' | 'throwDie' | 'clear' | 'busy'> & { onSettled: DiceTable['onSettled'] };
+  table: Pick<DiceTable, 'throwRoll' | 'throwDie' | 'clear' | 'busy'> & { onSettled: DiceTable['onSettled']; onLoosened: DiceTable['onLoosened'] };
   /** The rules of the map the roll is for, asked at each new roll. */
   rules: () => DiceRules;
   publish: (result: NonNullable<ReturnType<RollSession['result']>>) => void;
@@ -34,6 +34,13 @@ export class DiceController {
       this.session = null;
       deps.publish(result);
       deps.prompt(null);
+    };
+    // A die knocked loose is read again where it lands, and the roll waits for it.
+    deps.table.onLoosened = (id) => {
+      const session = this.session;
+      if (!session) return;
+      session.loosen(id);
+      deps.prompt(session.prompt());
     };
   }
 
@@ -69,6 +76,7 @@ export class DiceController {
   dispose(): void {
     this.drop();
     this.deps.table.onSettled = () => {};
+    this.deps.table.onLoosened = () => {};
   }
 
   private throwOne(session: RollSession, id: number, flick: Flick): void {
