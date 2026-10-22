@@ -1456,13 +1456,17 @@ server.listen(0, async () => {
       await wait(300);
       // The d6's colours: two in the pack's own; a red one added, and a blue one added and taken back.
       const colours = page.locator('.atlas-tabletop-dice-swatches');
-      await colours.locator('[aria-label="One more Red d6"]').click();
+      await colours.locator('[aria-label="Add a Red d6"]').click();
       await colours.locator('[aria-label="Add a Blue d6"]').click();
       await colours.locator('[aria-label="Take a Blue d6 back"]').click();
       await wait(600);
       await page.screenshot({ path: `${shots}/board-25a-dice-tray.png` });
-      const counted = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-dice-colour')].slice(0, 3).map((line) => [line.querySelector('.atlas-tabletop-dice-colour__name').textContent, line.querySelector('.atlas-tabletop-dice-colour__count').textContent]));
-      check('right-click on a die lists its colours with how many of it are in each', JSON.stringify(counted) === JSON.stringify([["The pack's colour", '2'], ['Red', '1'], ['Blue', '0']]), counted);
+      const counted = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-dice-colour')].slice(0, 3).map((cell) => [
+        cell.querySelector('.atlas-dice-tray__face').title,
+        cell.querySelector('.atlas-dice-tray__count')?.textContent ?? '0',
+        cell.querySelector('.atlas-dice-tray__grip') !== null,
+      ]));
+      check('right-click on a die shows its colours as the dice are shown: a badge of how many, a grip under those picked', JSON.stringify(counted) === JSON.stringify([["The pack's colour", '2', true], ['Red', '1', true], ['Blue', '0', false]]), counted);
       await colours.locator('[aria-label="Take a Red d6 back"]').click();
       const pictures = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-dice-picker .atlas-dice-tray__face img')].filter((img) => img.src.startsWith('data:image/png')).length);
       check('each die on the tray is a picture of the pack\'s die', pictures === 7, pictures);
@@ -1826,8 +1830,9 @@ server.listen(0, async () => {
         rolls: [{ die: 'd20', value: 20, max: 20, min: 1, colour: '#e03131', name: 'Red' }, { die: 'd20', value: 7, max: 20, min: 1, dropped: true }],
       }));
       await wait(900);
-      await page.screenshot({ path: `${shots}/board-27a-dice-toast.png` });
+      // Read before the screenshot: a card shows for 4 s, and a screenshot on a slow machine can outlast it.
       const card = await page.evaluate(() => { const c = [...document.querySelectorAll('.atlas-tabletop-dice-card')].find((candidate) => candidate.textContent.includes('Anna')); return c && { text: c.textContent, crit: c.classList.contains('is-crit-success'), shown: !!c.offsetParent }; });
+      await page.screenshot({ path: `${shots}/board-27a-dice-toast.png` });
       check('a roll on the map shows as a card over the board: roller, ability, total, critical', card && card.shown && card.crit && card.text.includes('Anna') && card.text.includes('Longsword') && card.text.includes('25'), card);
       await logButton.click();
       await wait(250);

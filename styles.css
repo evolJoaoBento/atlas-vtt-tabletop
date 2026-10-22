@@ -1438,12 +1438,12 @@ body.atlas-tabletop-player-window .view-header {
 .atlas-tabletop-atlas .atlas-tabletop-dice-picker .atlas-dice-tray__face.has-color::after {
   content: ''; position: absolute; left: 6px; right: 6px; bottom: 3px; height: 4px; border-radius: 2px; background: var(--atlas-tabletop-die-colors);
 }
-/* A die's colours: each with how many of the die are picked in it, and a step either way. */
-.atlas-tabletop-dice-colours { display: flex; flex-direction: column; gap: 4px; }
-.atlas-tabletop-dice-colour { display: flex; align-items: center; gap: 6px; }
-.atlas-tabletop-atlas .atlas-tabletop-dice-colour .atlas-swatch { width: 22px; height: 22px; flex: none; }
-.atlas-tabletop-dice-colour__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-ui-small); color: var(--text-muted); }
-.atlas-tabletop-dice-colour.is-picked .atlas-tabletop-dice-colour__name { color: var(--text-normal); }
+/* A die's colours, laid out as the dice are: a button of each colour (its badge how many), the grip under it taking one back. */
+.atlas-tabletop-atlas .atlas-tabletop-dice-picker .atlas-dice-tray__face.atlas-tabletop-dice-colour__face { background: var(--atlas-tabletop-swatch); }
+.atlas-tabletop-atlas .atlas-tabletop-dice-picker .atlas-dice-tray__face.atlas-tabletop-dice-colour__face.atlas-tabletop-dice-swatch--pack {
+  background: repeating-linear-gradient(45deg, var(--background-secondary), var(--background-secondary) 4px, var(--background-modifier-border) 4px, var(--background-modifier-border) 8px);
+}
+.atlas-tabletop-atlas .atlas-tabletop-dice-picker .atlas-dice-tray__face.atlas-tabletop-dice-colour__face:hover:not(:disabled) { filter: brightness(1.15); }
 .atlas-tabletop-atlas .atlas-tabletop-dice-picker .atlas-segmented[aria-disabled="true"] .atlas-segmented__option { opacity: 0.45; cursor: default; }
 .atlas-tabletop-dice-swatches { display: flex; flex-direction: column; gap: 6px; }
 .atlas-tabletop-dice-swatches[hidden] { display: none; }

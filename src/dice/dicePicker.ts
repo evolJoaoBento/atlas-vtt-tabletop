@@ -370,7 +370,10 @@ export class DicePicker {
     face.focus();
   }
 
-  /** The open colour list, drawn again with the counts as they are now. */
+  /**
+   * The open colour row, drawn again with the counts as they are now: laid out as the dice are, a button for each colour
+   * (click adds one of the die in it, its badge says how many), the grip under it taking one back.
+   */
   private drawSwatches(): void {
     const die = this.swatchesFor;
     if (!die) return;
@@ -380,48 +383,48 @@ export class DicePicker {
     label.className = 'atlas-dice-tray__modifier-label';
     label.textContent = `${die} colours`;
     this.swatches.appendChild(label);
-    const list = doc.createElement('div');
-    list.className = 'atlas-tabletop-dice-colours';
-    this.swatches.appendChild(list);
-    const total = pickedCount(this.pick);
-    const row = (color: string | null, name: string): void => {
+    const row = doc.createElement('div');
+    row.className = 'atlas-dice-tray__dice atlas-tabletop-dice-colours';
+    this.swatches.appendChild(row);
+    const full = countOf(this.pick, die) >= DIE_LIMIT || pickedCount(this.pick) >= MAX_DICE;
+    const cell = (color: string | null, name: string): void => {
       const count = countOf(this.pick, die, color);
-      const line = doc.createElement('div');
-      line.className = 'atlas-tabletop-dice-colour';
-      line.classList.toggle('is-picked', count > 0);
-      const swatch = doc.createElement('button');
-      swatch.type = 'button';
-      swatch.className = `atlas-swatch${color ? '' : ' atlas-tabletop-dice-swatch--pack'}`;
-      if (color) swatch.style.backgroundColor = color;
-      swatch.setAttribute('aria-label', `Add a ${name} ${die}`);
-      swatch.title = name;
-      swatch.disabled = countOf(this.pick, die) >= DIE_LIMIT || total >= MAX_DICE;
-      swatch.addEventListener('click', () => this.change(stepDie(this.pick, die, 1, color)));
-      const named = doc.createElement('span');
-      named.className = 'atlas-tabletop-dice-colour__name';
-      named.textContent = name;
-      const less = doc.createElement('button');
-      less.type = 'button';
-      less.className = 'atlas-dice-tray__grip atlas-dice-tray__step';
-      less.setAttribute('aria-label', `Take a ${name} ${die} back`);
-      less.innerHTML = MINUS_SVG;
-      less.disabled = count === 0;
-      less.addEventListener('click', () => this.change(stepDie(this.pick, die, -1, color)));
-      const shown = doc.createElement('span');
-      shown.className = 'atlas-dice-tray__modifier-value atlas-tabletop-dice-colour__count';
-      shown.textContent = String(count);
-      const more = doc.createElement('button');
-      more.type = 'button';
-      more.className = 'atlas-dice-tray__grip atlas-dice-tray__step';
-      more.setAttribute('aria-label', `One more ${name} ${die}`);
-      more.innerHTML = PLUS_SVG;
-      more.disabled = swatch.disabled;
-      more.addEventListener('click', () => this.change(stepDie(this.pick, die, 1, color)));
-      line.append(swatch, named, less, shown, more);
-      list.appendChild(line);
+      const made = doc.createElement('div');
+      made.className = 'atlas-dice-tray__die atlas-tabletop-dice-colour';
+      const face = doc.createElement('button');
+      face.type = 'button';
+      face.className = `atlas-dice-tray__face atlas-tabletop-dice-colour__face${color ? '' : ' atlas-tabletop-dice-swatch--pack'}`;
+      if (color) face.style.setProperty('--atlas-tabletop-swatch', color);
+      face.setAttribute('aria-label', count === 0 ? `Add a ${name} ${die}` : `Add a ${name} ${die}, ${count} in the tray`);
+      face.title = name;
+      face.disabled = full;
+      face.addEventListener('click', () => this.change(stepDie(this.pick, die, 1, color)));
+      if (count > 0) {
+        const badge = doc.createElement('span');
+        badge.className = 'atlas-dice-tray__count';
+        badge.setAttribute('aria-hidden', 'true');
+        badge.textContent = String(count);
+        face.appendChild(badge);
+      }
+      made.appendChild(face);
+      if (count > 0) {
+        const grip = doc.createElement('button');
+        grip.type = 'button';
+        grip.className = 'atlas-dice-tray__grip';
+        grip.setAttribute('aria-label', `Take a ${name} ${die} back`);
+        grip.innerHTML = MINUS_SVG;
+        grip.addEventListener('click', () => this.change(stepDie(this.pick, die, -1, color)));
+        made.appendChild(grip);
+      } else {
+        const space = doc.createElement('span');
+        space.className = 'atlas-dice-tray__grip-space';
+        space.setAttribute('aria-hidden', 'true');
+        made.appendChild(space);
+      }
+      row.appendChild(made);
     };
-    row(null, "The pack's colour");
-    for (const entry of this.opts.colors()) row(entry.color, entry.name);
+    cell(null, "The pack's colour");
+    for (const entry of this.opts.colors()) cell(entry.color, entry.name);
   }
 
   private hideSwatches(): void {
