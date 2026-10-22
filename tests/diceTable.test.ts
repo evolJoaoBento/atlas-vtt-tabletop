@@ -223,3 +223,23 @@ test('a die still tumbling at the longest roll is caught, never a number', () =>
   assert.ok(ms >= 12_000 && ms < 12_100, `held at the longest roll: ${ms} ms`);
   assert.deepEqual(readings, [{ caught: true, face: null, confidence: 0 }]);
 }));
+
+test('dice thrown again one after another start clear of each other and of the dice at rest', () => seeded(13, () => {
+  const { dice } = table(0);
+  const session = new RollSession({ dice: { d6: 3 }, modifier: 0 }, DEFAULT_RULES);
+  dice.throwRoll(session, { dx: 0, dy: -200, ms: 100 });
+  run(dice);
+  const [a, b, c] = session.dice.map((state) => bodyOf(dice, state.id));
+  // A die held where the next throw starts: the throw starts beside it, not inside it.
+  dice.throwDie(session.dice[0].id, { dx: 0, dy: -200, ms: 100 });
+  const start = a.position.clone();
+  run(dice);
+  c.position.copy(start);
+  dice.throwDie(session.dice[0].id, { dx: 0, dy: -200, ms: 100 });
+  dice.throwDie(session.dice[1].id, { dx: 0, dy: -200, ms: 100 });
+  // A d6's corners are √3/2 of an edge from its centre.
+  const apart = Math.sqrt(3);
+  assert.ok(a.position.distanceTo(c.position) >= apart, `clear of the die at rest: ${a.position.distanceTo(c.position)}`);
+  assert.ok(b.position.distanceTo(c.position) >= apart, `clear of the die at rest: ${b.position.distanceTo(c.position)}`);
+  assert.ok(a.position.distanceTo(b.position) >= apart, `clear of each other: ${a.position.distanceTo(b.position)}`);
+}));

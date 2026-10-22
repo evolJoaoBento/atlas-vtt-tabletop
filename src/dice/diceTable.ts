@@ -56,6 +56,8 @@ const LONGEST_ROLL_MS = 12_000;
 const START_SHARE = 0.55;
 const START_HEIGHT = 3;
 const SPREAD = 1.4;
+/** How many places beside its own a die tries, a spread apart, for a start clear of the dice already there. */
+const START_TRIES = 6;
 /** Throw speed, in die edges per second: the flick's gentlest toss to its hardest fling. */
 const MIN_SPEED = 10;
 const MAX_SPEED = 40;
@@ -73,6 +75,8 @@ interface ThrownDie {
   type: DieType;
   body: CANNON.Body;
   mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshPhongMaterial>;
+  /** How far its farthest corner is from its centre, in die edges. */
+  radius: number;
   normals: Vec3[];
   numbers: number[];
   /** Read and reported: it lies still until thrown again. */
@@ -230,7 +234,10 @@ export class DiceTable {
     body.sleepSpeedLimit = 0.1;
     body.sleepTimeLimit = 1;
     this.world.addBody(body);
-    const die: ThrownDie = { type, body, mesh, normals, numbers, settled: false, stillMs: 0, rollingMs: 0 };
+    const corners = geometry.getAttribute('position');
+    let radius = 0;
+    for (let i = 0; i < corners.count; i++) radius = Math.max(radius, Math.hypot(corners.getX(i), corners.getY(i), corners.getZ(i)));
+    const die: ThrownDie = { type, body, mesh, radius, normals, numbers, settled: false, stillMs: 0, rollingMs: 0 };
     this.dice.set(id, die);
     return die;
   }
@@ -254,11 +261,12 @@ export class DiceTable {
     const speed = MIN_SPEED + ((thrown.speed - MIN_THROW_SPEED) / (MAX_THROW_SPEED - MIN_THROW_SPEED)) * (MAX_SPEED - MIN_SPEED);
     const { body } = die;
     this.loosen(die);
-    body.position.set(
-      inside(-dir.x * halfWidth * START_SHARE + across.x * offset, halfWidth),
+    const start = (shift: number): CANNON.Vec3 => new CANNON.Vec3(
+      inside(-dir.x * halfWidth * START_SHARE + across.x * (offset + shift), halfWidth),
       START_HEIGHT + (index % 3) * 1.2,
-      inside(-dir.z * halfDepth * START_SHARE + across.z * offset, halfDepth),
+      inside(-dir.z * halfDepth * START_SHARE + across.z * (offset + shift), halfDepth),
     );
+    body.position.copy(this.clearStart(die, start));
     body.quaternion.setFromEuler(Math.random() * Math.PI * 2, Math.random() * Math.PI * 2, Math.random() * Math.PI * 2);
     body.velocity.set(dir.x * speed + (Math.random() - 0.5) * 2, -DROP_SPEED, dir.z * speed + (Math.random() - 0.5) * 2);
     // Spin that rolls the die the way it travels, plus some of every kind.
@@ -267,6 +275,26 @@ export class DiceTable {
     die.mesh.material.emissive.set(0x000000);
     die.mesh.position.set(body.position.x, body.position.y, body.position.z);
     die.mesh.quaternion.set(body.quaternion.x, body.quaternion.y, body.quaternion.z, body.quaternion.w);
+  }
+
+  /**
+   * Where a die starts clear of every other die (at rest, or thrown just before it): its own place, else the nearest
+   * clear one beside it, else its own place lifted over the dice there. A die started inside another is flung out.
+   */
+  private clearStart(die: ThrownDie, start: (shift: number) => CANNON.Vec3): CANNON.Vec3 {
+    const others = [...this.dice.values()].filter((other) => other !== die);
+    const clear = (at: CANNON.Vec3): boolean => others.every((other) => other.body.position.distanceTo(at) >= die.radius + other.radius);
+    for (let i = 0; i <= START_TRIES * 2; i++) {
+      // 0, then a spread to one side, the other, two spreads to one side...
+      const at = start(Math.ceil(i / 2) * (i % 2 === 0 ? -SPREAD : SPREAD));
+      if (clear(at)) return at;
+    }
+    const at = start(0);
+    for (const other of others) {
+      const across = Math.hypot(other.body.position.x - at.x, other.body.position.z - at.z);
+      if (across < die.radius + other.radius) at.y = Math.max(at.y, other.body.position.y + die.radius + other.radius);
+    }
+    return at;
   }
 
   /** A held die moves again, under gravity and bumps, and is read again once it stops. */
