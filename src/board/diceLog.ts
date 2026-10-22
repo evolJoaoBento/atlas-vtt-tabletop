@@ -8,7 +8,7 @@
 export interface LogEntry {
   id: string;
   who: string;
-  /** The statblock ability the roll was made for. */
+  /** The ability the roll was made for (a statblock's, or a player's sheet roll). */
   label?: string;
   formula: string;
   /** At most 100 dice are kept. */
@@ -57,7 +57,8 @@ export function logEntryOf(roll: unknown): LogEntry | null {
   const more = read - dice.length + Math.max(0, roll.rolls.length - MAX_SCANNED_DICE);
   const time = typeof roll.timestamp === 'number' && Number.isFinite(roll.timestamp) ? roll.timestamp : Date.now();
   const source = isObject(roll.source) ? roll.source : null;
-  const label = source?.type === 'statblock' ? text(source.abilityName) : undefined;
+  // Any source may name the ability: a statblock roll, or a player's sheet roll Connect publishes as a toolbar roll.
+  const label = source ? text(source.abilityName) : undefined;
   const crit = roll.crit === 'high' || roll.crit === 'success' ? 'success' : roll.crit === 'low' || roll.crit === 'failure' ? 'failure' : undefined;
   return {
     id: clip(text(roll.id) ?? `roll_${time}_${made++}`, 128),

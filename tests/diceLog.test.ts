@@ -34,6 +34,14 @@ test('logEntryOf reads who rolled and the statblock ability as the label', () =>
   assert.equal(entry?.label, 'Longsword');
 });
 
+// Connect publishes a player's physical sheet roll as a toolbar roll that names the ability and the token.
+test('logEntryOf reads the ability as the label from any source type', () => {
+  const entry = logEntryOf(roll({ rolledBy: 'Bea', source: { type: 'toolbar', tokenName: 'Bea', abilityName: 'Stealth' } }));
+  assert.equal(entry?.label, 'Stealth');
+  assert.equal(logEntryOf(roll({ source: { type: 'toolbar', abilityName: '  ' } }))?.label, undefined, 'a blank ability is no label');
+  assert.equal(logEntryOf(roll({ source: { type: 'toolbar', abilityName: 7 } }))?.label, undefined, 'nor is a number');
+});
+
 test('logEntryOf reads a critical as Atlas logs it, and tolerates success and failure', () => {
   assert.equal(logEntryOf(roll({ crit: 'high' }))?.crit, 'success');
   assert.equal(logEntryOf(roll({ crit: 'low' }))?.crit, 'failure');
