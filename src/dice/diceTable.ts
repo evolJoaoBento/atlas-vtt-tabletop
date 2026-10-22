@@ -129,13 +129,13 @@ export class DiceTable {
   /** Throws one die again (caught, or rerolled), or a new one of the session (an explosion), into the same tray. */
   throwDie(dieId: number, flick: Flick): void {
     let die = this.dice.get(dieId);
-    if (!die) {
+    if (die) this.loosenDiceOn(die);
+    else {
       const state = this.session?.dice.find((candidate) => candidate.id === dieId);
       if (!state) return;
       if (!this.tray) this.layTray();
       die = this.dieFor(state.id, state.die, state.color);
     }
-    this.loosenDiceOn(die);
     this.launch(die, flick, 0, 1);
     this.host.wake();
   }
