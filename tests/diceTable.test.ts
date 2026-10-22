@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import * as CANNON from 'cannon-es';
 import * as THREE from 'three';
 import { DiceTable, type DiceSettings, type DiceTableHost } from '../src/dice/diceTable';
 import type { FaceReading } from '../src/dice/kit/faces';
@@ -23,6 +24,10 @@ function table(yaw: number | (() => number) = 0.7): { dice: DiceTable; scene: TH
   };
   return { dice: new DiceTable(host, SETTINGS), scene, wakes };
 }
+
+/** The table's dice bodies: these tests set a die where a throw could only land it by chance. */
+const bodyOf = (dice: DiceTable, id: number): CANNON.Body =>
+  ((dice as unknown as { dice: Map<number, { body: CANNON.Body }> }).dice.get(id) as { body: CANNON.Body }).body;
 
 /** Runs `body` with Math.random replaced by a seeded generator (mulberry32), so a throw comes out the same every time. */
 function seeded<T>(seed: number, body: () => T): T {
@@ -52,7 +57,7 @@ function run(dice: DiceTable): number {
   return ms;
 }
 
-test('a thrown 2d6 settles inside the tray and each die is read once', () => {
+test('a thrown 2d6 settles inside the tray and each die is read once', () => seeded(1, () => {
   const { dice, scene, wakes } = table();
   const session = new RollSession({ dice: { d6: 2 }, modifier: 0 }, DEFAULT_RULES);
   const readings: Array<[number, number | null]> = [];
@@ -70,7 +75,7 @@ test('a thrown 2d6 settles inside the tray and each die is read once', () => {
     assert.ok(Math.abs(at.x) <= 480 / 42 && Math.abs(at.z) <= 320 / 42 && at.y >= 0 && at.y < 1.2, `inside the tray: ${at.x}, ${at.y}, ${at.z}`);
   }
   for (const [, face] of readings) assert.ok(face === null || (face >= 1 && face <= 6), `a d6 face: ${face}`);
-});
+}));
 
 test('a die thrown again is read again; a new die of the session is made for it', () => {
   const { dice } = table();
@@ -168,4 +173,53 @@ test('a listener that throws does not stop the other dice being read', () => see
   assert.deepEqual([...read].sort(), session.dice.map((state) => state.id).sort());
   assert.equal(dice.busy, false);
   assert.equal(errors.length, 1, 'the failure is reported');
+}));
+
+test('a die resting on another is read where it lies, and falls when the die under it is thrown again', () => seeded(5, () => {
+  const { dice } = table(0);
+  const session = new RollSession({ dice: { d6: 2 }, modifier: 0 }, DEFAULT_RULES);
+  const readings = new Map<number, FaceReading[]>();
+  dice.onSettled = (id, reading) => { readings.set(id, [...(readings.get(id) ?? []), reading]); };
+  dice.throwRoll(session, { dx: 0, dy: -200, ms: 100 });
+  run(dice);
+  const [under, over] = session.dice.map((state) => state.id);
+  assert.equal(readings.get(under)?.[0].caught, false, 'the lower die lies flat');
+  // The upper die is thrown again and set down flat on the lower one, still.
+  dice.throwDie(over, { dx: 0, dy: -200, ms: 100 });
+  const base = bodyOf(dice, under);
+  const top = bodyOf(dice, over);
+  top.position.set(base.position.x, base.position.y + 1.02, base.position.z);
+  top.quaternion.copy(base.quaternion);
+  top.velocity.set(0, 0, 0);
+  top.angularVelocity.set(0, 0, 0);
+  const ms = run(dice);
+  assert.ok(ms < 2000, `read without waiting out the longest roll: ${ms} ms`);
+  const onTop = readings.get(over)?.[1];
+  assert.ok(onTop && !onTop.caught && onTop.face !== null && onTop.face >= 1 && onTop.face <= 6, `a face: ${JSON.stringify(onTop)}`);
+  assert.ok(top.position.y > 1.2, `it lies on the other die: ${top.position.y}`);
+  dice.throwDie(under, { dx: 0, dy: -200, ms: 100 });
+  assert.equal(top.type, CANNON.Body.DYNAMIC, 'the die on top is no longer held in the air');
+  run(dice);
+  assert.equal(dice.busy, false);
+  assert.ok(top.position.y < 1.2, `it fell to the felt: ${top.position.y}`);
+  assert.equal(readings.get(over)?.length, 3, 'and is read again where it fell');
+}));
+
+test('a die still tumbling at the longest roll is caught, never a number', () => seeded(9, () => {
+  const { dice } = table(0);
+  const session = new RollSession({ dice: { d6: 1 }, modifier: 0 }, DEFAULT_RULES);
+  const readings: FaceReading[] = [];
+  dice.onSettled = (_id, reading) => { readings.push(reading); };
+  dice.throwRoll(session, { dx: 0, dy: -200, ms: 100 });
+  const body = bodyOf(dice, session.dice[0].id);
+  // Something keeps the die spinning after every step of the world: it never comes to rest.
+  const world = (dice as unknown as { world: CANNON.World }).world;
+  world.addEventListener('postStep', () => { if (body.type === CANNON.Body.DYNAMIC) body.angularVelocity.set(0, 20, 0); });
+  let ms = 0;
+  while (dice.busy && ms < 15_000) {
+    dice.step(1000 / 60);
+    ms += 1000 / 60;
+  }
+  assert.ok(ms >= 12_000 && ms < 12_100, `held at the longest roll: ${ms} ms`);
+  assert.deepEqual(readings, [{ caught: true, face: null, confidence: 0 }]);
 }));

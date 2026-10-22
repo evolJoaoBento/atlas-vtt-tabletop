@@ -44,11 +44,13 @@ const DIE_SIZE = 0.5;
 const GRAVITY = -60;
 const STEP = 1 / 120;
 const MAX_SUBSTEPS = 8;
-/** A die rests no higher than this over the floor (Interactive Dice's settle height, in die edges); higher, it is on another die or in the air. */
+/** A die on the felt lies no higher than this over the floor (Interactive Dice's settle height, in die edges); higher, it rests on another die. */
 const RESTING_HEIGHT = 1.2;
-/** Still for this long, a die is read (Interactive Dice looks again every 100 ms). */
+/** How far from a die's centre, across the felt, another die's centre may be and still rest on it (in die edges). */
+const SUPPORT_REACH = 1.5;
+/** Still for this long, a die is read where it lies, on the felt or on another die (Interactive Dice looks again every 100 ms). */
 const STILL_MS = 100;
-/** A die that never stops (jittering on another) is read as it lies after this long; caught unless a face is up. */
+/** A die that never stops (jittering on another) is held after this long, and caught: it showed no face at rest. */
 const LONGEST_ROLL_MS = 12_000;
 /** Where a throw starts: a share of the tray behind its centre, this high, the dice this far apart. */
 const START_SHARE = 0.55;
@@ -129,6 +131,7 @@ export class DiceTable {
       if (!this.tray) this.layTray();
       die = this.dieFor(state.id, state.die, state.color);
     }
+    this.loosenDiceOn(die);
     this.launch(die, flick, 0, 1);
     this.host.wake();
   }
@@ -137,7 +140,7 @@ export class DiceTable {
   step(dtMs: number): void {
     if (!this.busy || dtMs <= 0) return;
     this.world.step(STEP, dtMs / 1000, MAX_SUBSTEPS);
-    // Interactive Dice's settling: slower than these, low on the felt.
+    // Interactive Dice's settling: slower than these, wherever the die lies.
     const velocityLimit = 0.05 / this.settings.motionThreshold;
     const spinLimit = 0.5 / this.settings.motionThreshold;
     for (const [id, die] of this.dice) {
@@ -146,9 +149,10 @@ export class DiceTable {
       mesh.quaternion.set(body.quaternion.x, body.quaternion.y, body.quaternion.z, body.quaternion.w);
       if (die.settled) continue;
       die.rollingMs += dtMs;
-      const still = body.velocity.length() <= velocityLimit && body.angularVelocity.length() <= spinLimit && body.position.y <= RESTING_HEIGHT;
+      const still = body.velocity.length() <= velocityLimit && body.angularVelocity.length() <= spinLimit;
       die.stillMs = still ? die.stillMs + dtMs : 0;
-      if (die.stillMs >= STILL_MS || die.rollingMs >= LONGEST_ROLL_MS) this.settle(id, die);
+      if (die.stillMs >= STILL_MS) this.settle(id, die, true);
+      else if (die.rollingMs >= LONGEST_ROLL_MS) this.settle(id, die, false);
     }
   }
 
@@ -249,9 +253,7 @@ export class DiceTable {
     const inside = (value: number, half: number): number => Math.max(-half + 1, Math.min(half - 1, value));
     const speed = MIN_SPEED + ((thrown.speed - MIN_THROW_SPEED) / (MAX_THROW_SPEED - MIN_THROW_SPEED)) * (MAX_SPEED - MIN_SPEED);
     const { body } = die;
-    body.type = CANNON.Body.DYNAMIC;
-    body.mass = 1;
-    body.updateMassProperties();
+    this.loosen(die);
     body.position.set(
       inside(-dir.x * halfWidth * START_SHARE + across.x * offset, halfWidth),
       START_HEIGHT + (index % 3) * 1.2,
@@ -262,26 +264,54 @@ export class DiceTable {
     // Spin that rolls the die the way it travels, plus some of every kind.
     const spin = (): number => (Math.random() - 0.5) * MAX_SPIN;
     body.angularVelocity.set(spin() + dir.z * MAX_SPIN * 0.4, spin(), spin() - dir.x * MAX_SPIN * 0.4);
-    body.wakeUp();
-    die.settled = false;
-    die.stillMs = 0;
-    die.rollingMs = 0;
     die.mesh.material.emissive.set(0x000000);
     die.mesh.position.set(body.position.x, body.position.y, body.position.z);
     die.mesh.quaternion.set(body.quaternion.x, body.quaternion.y, body.quaternion.z, body.quaternion.w);
   }
 
-  /** Reads a die at rest and holds it there (another die bumps it no more), lit up when it is caught on an edge. */
-  private settle(id: number, die: ThrownDie): void {
+  /** A held die moves again, under gravity and bumps, and is read again once it stops. */
+  private loosen(die: ThrownDie): void {
     const { body } = die;
-    const reading = readFace(die.type, die.normals, die.numbers, body.quaternion, this.settings.tolerance);
+    body.type = CANNON.Body.DYNAMIC;
+    body.mass = 1;
+    body.updateMassProperties();
+    body.wakeUp();
+    die.settled = false;
+    die.stillMs = 0;
+    die.rollingMs = 0;
+  }
+
+  /**
+   * Lets go of the dice held resting on `under` (and on those, in turn) before it is thrown again: held, they would
+   * float where it was. A held body touches no other held body, so they are found by where they lie, not by contacts.
+   */
+  private loosenDiceOn(under: ThrownDie): void {
+    const { x, y, z } = under.body.position;
+    for (const die of this.dice.values()) {
+      if (die === under || !die.settled) continue;
+      const at = die.body.position;
+      if (at.y <= RESTING_HEIGHT || at.y <= y || Math.hypot(at.x - x, at.z - z) > SUPPORT_REACH) continue;
+      this.loosen(die);
+      this.loosenDiceOn(die);
+    }
+  }
+
+  /**
+   * Reads a die at rest and holds it there (another die bumps it no more), lit up when it is caught on an edge. A die
+   * held only because it never stopped (`still` false) is caught: what it showed in passing is no number.
+   */
+  private settle(id: number, die: ThrownDie, still: boolean): void {
+    const { body } = die;
+    const reading: FaceReading = still
+      ? readFace(die.type, die.normals, die.numbers, body.quaternion, this.settings.tolerance)
+      : { caught: true, face: null, confidence: 0 };
     die.settled = true;
     body.velocity.set(0, 0, 0);
     body.angularVelocity.set(0, 0, 0);
     body.type = CANNON.Body.STATIC;
     body.mass = 0;
     body.updateMassProperties();
-    if (reading.caught && this.settings.highlight) die.mesh.material.emissive.set(this.settings.highlightColor);
+    die.mesh.material.emissive.set(reading.caught && this.settings.highlight ? this.settings.highlightColor : 0x000000);
     // The board's frame loop steps the table: a listener's failure stays here, and the other dice are still read.
     try {
       this.onSettled(id, reading);
