@@ -4,8 +4,8 @@
   "files": {
     "caught.ts": "c27741737ef620bf8c2eb97ed7a1d1135d44c50e716f9bf844660f5da0806a25",
     "dieShapes.ts": "4a48fa65d2657e281b71e36d92b9d66e80037fbe7609681dff2097c6d88ccd76",
-    "faces.ts": "fa8c85c31e4022f20b679b93a77fe0c81971f8b1cfeaa87c7499dfde2834e028",
-    "packs.ts": "828b4dc18e74952c05a0692d08bf4117965ec43ede874a8a9ffbc3fd740a22ed",
+    "faces.ts": "ee43df649526d1721fa6acd384000225c63226b1d2ca321ff3136c783d293858",
+    "packs.ts": "7e2ca018189810d1ec4b775222429293602867f3d46834a3321612be7dea6ed9",
     "default-pack/.version": "18deb96c965a9515c082ee3827947392e73432c85d4f927af030eea5b306f314",
     "default-pack/d10_Numbers.png": "110bf768e8236de8b5f5aeadbb47f8fc2460b9607be370170fe1c26ff8730e16",
     "default-pack/d10_Percent_Numbers.png": "95bdb3708efc9b0cd5ab02c4756a20c514f7ea79db91f508a73c72143ee4c747",
