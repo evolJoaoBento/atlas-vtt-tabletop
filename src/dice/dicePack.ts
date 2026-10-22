@@ -5,7 +5,7 @@
  */
 import { DEFAULT_PACK, DEFAULT_PACK_CONFIG, defaultPackSheets } from './defaultPack';
 import type { DicePack } from './kit/dieShapes';
-import type { DieType } from './kit/faces';
+import { DIE_TYPES, type DieType } from './kit/faces';
 import { loadPack, packFileUrls, type PackFs } from './kit/packs';
 
 export interface ChosenPack {
@@ -30,9 +30,30 @@ export async function choosePack(fs: PackFs, folder: string, name: string): Prom
     return vendoredPack();
   }
   try {
-    return { name, config, textures: packFileUrls(fs, folder, name, config, 'texture'), normals: packFileUrls(fs, folder, name, config, 'normal') };
+    return withDefaultDice({ name, config, textures: packFileUrls(fs, folder, name, config, 'texture'), normals: packFileUrls(fs, folder, name, config, 'normal') });
   } catch (error) {
     console.warn(`[Tabletop] The dice pack "${name}" cannot be read: rolling with the default dice.`, error);
     return vendoredPack();
   }
+}
+
+/**
+ * A pack that leaves a die out wears the default pack's for it: its shape, numbering and sheet. Built from nothing, that
+ * die would read wrong or never read.
+ */
+function withDefaultDice(pack: ChosenPack): ChosenPack {
+  const missing = DIE_TYPES.filter((type) => !pack.config.dice?.[type]);
+  if (missing.length === 0) return pack;
+  const fallback = vendoredPack();
+  const dice = { ...pack.config.dice };
+  const textures = { ...pack.textures };
+  const normals = { ...pack.normals };
+  for (const type of missing) {
+    const entry = fallback.config.dice?.[type];
+    if (entry) dice[type] = entry;
+    if (fallback.textures[type]) textures[type] = fallback.textures[type];
+    else delete textures[type];
+    delete normals[type];
+  }
+  return { ...pack, config: { ...pack.config, dice }, textures, normals };
 }

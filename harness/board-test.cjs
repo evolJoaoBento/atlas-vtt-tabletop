@@ -1612,6 +1612,20 @@ server.listen(0, async () => {
         await page.screenshot({ path: `${shots}/board-26-die-${id}-read-${read ? read.face : 'none'}.png`, clip: { x: 300, y: 120, width: 400, height: 400 } });
       }
       await page.evaluate(() => window.boardTest.board.frameMap());
+      // A settings or pack change leaves the dice where they lie; the next roll is made with a new table.
+      const kept = await page.evaluate(() => {
+        window.tableBefore = window.boardTest.board.dice;
+        window.boardTest.boardDice.reset();
+        return { dice: window.boardTest.board.dice.object3d.children.length, stale: window.boardTest.boardDice.isStale, same: window.boardTest.board.dice === window.tableBefore };
+      });
+      check('a settings change leaves the dice on the table until the next roll', kept.dice === 4 && kept.stale && kept.same, kept);
+      await diceButton.click();
+      await picker.locator('.atlas-tabletop-dice-roll').click();
+      await wait(100);
+      const remade = await page.evaluate(() => ({ fresh: window.boardTest.board.dice !== window.tableBefore, oldDice: window.tableBefore.object3d.children.length, stale: window.boardTest.boardDice.isStale, dice: window.boardTest.board.dice.object3d.children.length }));
+      check('the next roll is thrown on a new table; the old dice go', remade.fresh && remade.oldDice === 0 && !remade.stale && remade.dice === 4, remade);
+      await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
+      await page.evaluate(() => window.boardTest.boardDice.sceneChanged());
     }
   } catch (error) {
     check('harness ran', false, String(error && error.stack || error));

@@ -13,7 +13,8 @@ export class DiceTextures {
   private readonly cache = new Map<string, THREE.Texture>();
 
   /** `wake`: a sheet decoded after the dice were drawn; the board draws them again. */
-  constructor(private readonly pack: ChosenPack, private readonly wake: () => void) {}
+  /** `doc`: the board's window's document, where the sheets are painted. */
+  constructor(private readonly pack: ChosenPack, private readonly doc: Document, private readonly wake: () => void) {}
 
   /** A die's maps: its face sheet over `color` (the pack's colour for the die when null), and its normal map. */
   textures(type: DieType, color: string | null): { map?: THREE.Texture; normalMap?: THREE.Texture } {
@@ -34,7 +35,7 @@ export class DiceTextures {
     const key = `${url}|${color}|${rimUV.join(',')}`;
     const cached = this.cache.get(key);
     if (cached) return cached;
-    const canvas = document.createElement('canvas');
+    const canvas = this.doc.createElement('canvas');
     const context = canvas.getContext('2d');
     // Until the sheet decodes the die wears its plain colour.
     canvas.width = canvas.height = 1;
@@ -49,7 +50,7 @@ export class DiceTextures {
     texture.colorSpace = THREE.SRGBColorSpace;
     this.cache.set(key, texture);
     if (!context) return texture;
-    const image = new Image();
+    const image = this.doc.createElement('img');
     image.onload = () => {
       if (this.cache.get(key) !== texture) return;
       canvas.width = image.width;
@@ -57,7 +58,7 @@ export class DiceTextures {
       context.fillStyle = color;
       context.fillRect(0, 0, canvas.width, canvas.height);
       context.drawImage(image, 0, 0);
-      paintRim(context, canvas, image, color, rimUV);
+      paintRim(this.doc, context, canvas, image, color, rimUV);
       // The one-pixel placeholder's GPU copy does not grow: dropped, the next frame uploads the sheet at its size.
       texture.dispose();
       texture.needsUpdate = true;
@@ -83,8 +84,8 @@ export class DiceTextures {
  * The bevel's rim samples blank sheet, where there is no wash: painted with the sheet's wash (its commonest
  * half-transparent colour, the digits being the opaque end) over the die's colour, it matches the faces.
  */
-function paintRim(context: CanvasRenderingContext2D, canvas: HTMLCanvasElement, image: HTMLImageElement, color: string, rimUV: [number, number]): void {
-  const scratch = document.createElement('canvas');
+function paintRim(doc: Document, context: CanvasRenderingContext2D, canvas: HTMLCanvasElement, image: HTMLImageElement, color: string, rimUV: [number, number]): void {
+  const scratch = doc.createElement('canvas');
   scratch.width = image.width;
   scratch.height = image.height;
   const sheet = scratch.getContext('2d', { willReadFrequently: true });

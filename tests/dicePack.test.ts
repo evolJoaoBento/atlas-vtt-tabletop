@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_PACK, DEFAULT_PACK_CONFIG, defaultPackFiles } from '../src/dice/defaultPack';
+import { DEFAULT_PACK, DEFAULT_PACK_CONFIG, defaultPackFiles, defaultPackSheets, releaseDefaultPackSheets } from '../src/dice/defaultPack';
 import { choosePack } from '../src/dice/dicePack';
 import { dieFaceNormals, dieGeometry } from '../src/dice/kit/dieShapes';
 import type { PackFs } from '../src/dice/kit/packs';
@@ -36,7 +36,9 @@ test('the chosen pack is read from the shared folder, its sheets as resource URL
   const manifest = { name: 'Bone', dice: { d6: { texture: 'six.png' }, d100: { geometry: 'd10', texture: 'pct.png' } } };
   const pack = await choosePack(fakeFs({ [`${FOLDER}/Bone/pack.json`]: JSON.stringify(manifest) }), FOLDER, 'Bone');
   assert.equal(pack.name, 'Bone');
-  assert.deepEqual(pack.config, manifest);
+  assert.equal(pack.config.name, 'Bone');
+  assert.deepEqual(pack.config.dice?.d6, manifest.dice.d6);
+  assert.deepEqual(pack.config.dice?.d100, manifest.dice.d100);
   assert.equal(pack.textures.d6, `app://vault/${FOLDER}/Bone/six.png`);
   assert.equal(pack.textures.d100, `app://vault/${FOLDER}/Bone/pct.png`);
 });
@@ -60,4 +62,28 @@ test("the default pack's files go to the shared folder under its own name, the m
   assert.deepEqual(JSON.parse(new TextDecoder().decode(files[`${DEFAULT_PACK}/pack.json`])), DEFAULT_PACK_CONFIG);
   // A PNG's signature: the bytes went in as they are.
   assert.deepEqual([...new Uint8Array(files[`${DEFAULT_PACK}/d20_Numbers.png`]!).slice(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
+});
+
+test('a pack that leaves a die out takes that die from the default pack, its sheet too', async () => {
+  const manifest = { name: 'Sixes', dice: { d6: { texture: 'six.png' } } };
+  const pack = await choosePack(fakeFs({ [`${FOLDER}/Sixes/pack.json`]: JSON.stringify(manifest) }), FOLDER, 'Sixes');
+  assert.equal(pack.name, 'Sixes');
+  assert.deepEqual(pack.config.dice?.d6, manifest.dice.d6);
+  assert.equal(pack.textures.d6, `app://vault/${FOLDER}/Sixes/six.png`);
+  for (const type of ['d4', 'd8', 'd10', 'd12', 'd20', 'd100'] as const) {
+    assert.deepEqual(pack.config.dice?.[type], DEFAULT_PACK_CONFIG.dice?.[type], type);
+    assert.match(pack.textures[type] ?? '', /^blob:/, `${type} wears the default sheet`);
+  }
+  assert.equal(facesOf(pack.config), 10);
+});
+
+test('the default sheets are let go of when the plugin unloads, and made again when asked', () => {
+  const first = defaultPackSheets().d20;
+  const revoked: string[] = [];
+  const revoke = URL.revokeObjectURL;
+  URL.revokeObjectURL = (url: string) => { revoked.push(url); revoke(url); };
+  try { releaseDefaultPackSheets(); } finally { URL.revokeObjectURL = revoke; }
+  assert.ok(first && revoked.includes(first));
+  assert.equal(revoked.length, 7);
+  assert.notEqual(defaultPackSheets().d20, first);
 });

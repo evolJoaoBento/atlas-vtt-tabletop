@@ -51,3 +51,9 @@ export function defaultPackSheets(): Partial<Record<DieType, string>> {
   sheetUrls = urls;
   return urls;
 }
+
+/** Lets go of the default sheets' URLs (the plugin unloads); they are made again when next asked for. */
+export function releaseDefaultPackSheets(): void {
+  for (const url of Object.values(sheetUrls ?? {})) URL.revokeObjectURL(url);
+  sheetUrls = null;
+}

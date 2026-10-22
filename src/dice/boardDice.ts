@@ -43,6 +43,8 @@ export class BoardDice {
   private readonly promptText: HTMLElement;
   private readonly stops: Array<() => void> = [];
   private disposed = false;
+  /** The settings or pack changed: the next roll makes a new table. */
+  private stale = false;
 
   constructor(private readonly deps: BoardDiceDeps) {
     const { board, container } = deps;
@@ -86,8 +88,21 @@ export class BoardDice {
     this.controller?.sceneChanged();
   }
 
-  /** The dice settings or pack changed: the next roll is made with them (the dice on the table go). */
+  /**
+   * The dice settings or pack changed: the next roll is made with them. The dice on the table, and a roll in play,
+   * stay as they are until then.
+   */
   reset(): void {
+    this.stale = true;
+  }
+
+  /** Whether the next roll makes a new table (the settings or pack changed since this one was made). */
+  get isStale(): boolean {
+    return this.stale;
+  }
+
+  /** The table, its roll and its textures go. */
+  private teardown(): void {
     this.controller?.dispose();
     this.controller = null;
     this.table?.dispose();
@@ -100,7 +115,7 @@ export class BoardDice {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.reset();
+    this.teardown();
     for (const stop of this.stops) stop();
     this.picker.dispose();
     this.deps.board.diceButton(null);
@@ -122,12 +137,16 @@ export class BoardDice {
   /** The table and the roll's controller, made at the first throw, with the pack and settings as they are then. */
   private ensureTable(): DiceController {
     const { board } = this.deps;
+    if (this.stale) {
+      this.teardown();
+      this.stale = false;
+    }
     if (this.controller && this.table) {
       board.attachDice(this.table);
       return this.controller;
     }
     const pack = this.deps.pack();
-    const textures = new DiceTextures(pack, () => board.wake(true));
+    const textures = new DiceTextures(pack, this.deps.container.ownerDocument, () => board.wake(true));
     const table = new DiceTable({ ...board.diceHost(), pack: () => pack.config, textures: (type, color) => textures.textures(type, color) }, this.deps.settings());
     board.attachDice(table);
     this.textures = textures;
@@ -185,6 +204,8 @@ export class BoardDice {
       win.removeEventListener('pointermove', move, true);
       win.removeEventListener('pointerup', up, true);
       win.removeEventListener('pointercancel', stop, true);
+      const at = this.stops.indexOf(stop);
+      if (at !== -1) this.stops.splice(at, 1);
     };
     win.addEventListener('pointermove', move, true);
     win.addEventListener('pointerup', up, true);

@@ -397,7 +397,7 @@ async function main(): Promise<void> {
     throwRoll(counts, flick) {
       if (!this.table) {
         const pack = vendoredPack();
-        const textures = new DiceTextures(pack, () => board.wake(true));
+        const textures = new DiceTextures(pack, document, () => board.wake(true));
         this.table = new DiceTable({ ...board.diceHost(), pack: () => pack.config, textures: (type, color) => textures.textures(type, color) }, { dieSquares: 0.6, tolerance: 0.3, motionThreshold: 2, shadows: true, highlight: true, highlightColor: '#ffd700' });
         board.attachDice(this.table);
       }

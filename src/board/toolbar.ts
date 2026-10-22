@@ -411,6 +411,7 @@ export class BoardToolbar {
     button.addEventListener('click', () => {
       this.close();
       this.closeLaser();
+      this.closeTemplate();
       handlers.toggle();
       this.refresh();
     });

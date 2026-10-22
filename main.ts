@@ -15,7 +15,7 @@ import { playerMiniPainter, type PlayerMiniPainter } from './src/playerMinis';
 import { boardLookFor, MaterialIndex } from './src/boardLook';
 import { playerBoardFactory, type PlayerBoardFactory } from './src/playerBoard';
 import type { BoardLook, BoardSession, GmCameraSource } from './src/connectContract';
-import { defaultPackFiles } from './src/dice/defaultPack';
+import { DEFAULT_PACK, defaultPackFiles, releaseDefaultPackSheets } from './src/dice/defaultPack';
 import { choosePack, vendoredPack, type ChosenPack } from './src/dice/dicePack';
 import { colorsText, DEFAULT_DICE_SETTINGS, DIE_SQUARES, MOTION_THRESHOLD, readColorsText, readDiceSettings, TOLERANCE, type TabletopDiceSettings } from './src/dice/diceSettings';
 import { ensureDefaultPack, listPacks, packsFolder, type PackFs } from './src/dice/kit/packs';
@@ -256,6 +256,8 @@ export default class TabletopPlugin extends Plugin {
     // Connect lets go of a painter that is gone on its next frame; its views are freed here at once.
     this.players?.dispose();
     this.players = null;
+    // The boards closed with the plugin; the default sheets' URLs go with them.
+    releaseDefaultPackSheets();
     this.save.run();
   }
 
@@ -531,9 +533,15 @@ class TabletopSettingTab extends PluginSettingTab {
         area.setValue(colorsText(dice.colors)).onChange((value) => plugin.setDice({ colors: readColorsText(value) }));
         area.inputEl.rows = 6;
       });
-    const packs = await listPacks(plugin.packFs, plugin.packsFolder);
+    let packs: string[] = [];
+    try {
+      packs = await listPacks(plugin.packFs, plugin.packsFolder);
+    } catch (error) {
+      console.warn('[Tabletop] Cannot list the dice packs:', error);
+    }
     if (!pack.settingEl.isConnected) return;
-    const names = packs.includes(dice.pack) ? packs : [dice.pack, ...packs];
+    // The pack chosen, and the default pack, are offered even when the folder cannot be listed.
+    const names = [...new Set([dice.pack, DEFAULT_PACK, ...packs])].sort();
     pack.addDropdown((dropdown) => dropdown
       .addOptions(Object.fromEntries(names.map((name) => [name, name])))
       .setValue(dice.pack)
