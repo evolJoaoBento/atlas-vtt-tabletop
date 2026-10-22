@@ -243,3 +243,23 @@ test('dice thrown again one after another start clear of each other and of the d
   assert.ok(b.position.distanceTo(c.position) >= apart, `clear of the die at rest: ${b.position.distanceTo(c.position)}`);
   assert.ok(a.position.distanceTo(b.position) >= apart, `clear of each other: ${a.position.distanceTo(b.position)}`);
 }));
+
+test('the felt and the walls hold a die wherever it lands in a wide tray', () => seeded(17, () => {
+  const scene = new THREE.Scene();
+  // The harness's view: a tray 28 by 18 dice, where a die thrown gently lands well short of the tray's centre.
+  const host: DiceTableHost = {
+    scene, gridSize: () => 70, target: () => ({ x: 700, z: 500 }), visibleHalfExtent: () => ({ x: 1478.5, z: 946.25 }),
+    cameraYaw: () => 0, wake: () => {}, textures: () => ({}), pack: () => ({}),
+  };
+  for (const flick of [{ dx: 0, dy: -100, ms: 140 }, { dx: 30, dy: -260, ms: 140 }, { dx: 400, dy: 0, ms: 100 }, { dx: 0, dy: 600, ms: 100 }]) {
+    const dice = new DiceTable(host, SETTINGS);
+    const session = new RollSession({ dice: { d6: 2 }, modifier: 0 }, DEFAULT_RULES);
+    dice.throwRoll(session, flick);
+    const ms = run(dice);
+    for (const mesh of dice.object3d.children) {
+      const at = mesh.position;
+      assert.ok(Math.abs(at.x) <= 1182.8 / 42 && Math.abs(at.z) <= 757 / 42 && at.y > 0 && at.y < 1.2, `${JSON.stringify(flick)}: on the felt in ${ms} ms: ${at.x}, ${at.y}, ${at.z}`);
+    }
+    dice.dispose();
+  }
+}));

@@ -201,6 +201,9 @@ export class DiceTable {
       const body = new CANNON.Body({ mass: 0, material, shape: new CANNON.Plane() });
       body.position.set(x, 0, z);
       body.quaternion.setFromAxisAngle(axis, angle);
+      // cannon measured the plane's bounds when the body was made, facing +z at the origin, and never measures a
+      // static body again: unmeasured, the felt and the side walls held dice only on the tray's far half, the near wall none.
+      body.updateAABB();
       return body;
     };
     const up = new CANNON.Vec3(0, 1, 0);
