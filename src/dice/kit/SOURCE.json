@@ -1,9 +1,9 @@
 {
   "repo": "atlas-physical-dice",
-  "commit": "9af26c184f90c6ca218a481f66b467359ad41029",
+  "commit": "e59f413f5f7445c8f6d2b60e2270e42b7bfefe69",
   "files": {
-    "caught.ts": "c27741737ef620bf8c2eb97ed7a1d1135d44c50e716f9bf844660f5da0806a25",
-    "dieShapes.ts": "4a48fa65d2657e281b71e36d92b9d66e80037fbe7609681dff2097c6d88ccd76",
+    "caught.ts": "3265e9927a102d8959d59693b041fe7c3dabaf741da041b68b3b3360c227e9bc",
+    "dieShapes.ts": "ccd70542d67921b11f5626ffdc993337562da6a2f1cdfdec7cc8d3c536789054",
     "faces.ts": "ee43df649526d1721fa6acd384000225c63226b1d2ca321ff3136c783d293858",
     "packs.ts": "7e2ca018189810d1ec4b775222429293602867f3d46834a3321612be7dea6ed9",
     "default-pack/.version": "18deb96c965a9515c082ee3827947392e73432c85d4f927af030eea5b306f314",

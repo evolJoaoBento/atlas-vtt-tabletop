@@ -53,8 +53,9 @@ test('a pack that cannot be read falls back to the default pack Tabletop carries
     assert.equal(pack.config, DEFAULT_PACK_CONFIG, name);
     for (const type of ['d4', 'd6', 'd8', 'd10', 'd12', 'd20', 'd100'] as const) assert.ok(pack.textures[type], `${name}: ${type} has a sheet`);
   }
-  // Why it matters: a d100 from an empty pack is not built as a ten-sided die and never reads; from the default pack it is.
-  assert.notEqual(facesOf({}), 10);
+  // The default pack's d100 is a ten-sided die. Since the kit builds a d100 with no shape as a d10, so is an empty
+  // pack's; the default pack still gives it its sheet and its own numbering.
+  assert.equal(facesOf({}), 10);
   assert.equal(facesOf(DEFAULT_PACK_CONFIG), 10);
 });
 
