@@ -85,6 +85,19 @@ export class DiceController {
     this.deps.prompt(session.prompt());
   }
 
+  /**
+   * The thrower pressed on a die the roll waits on: the throw to make once it is let go. It throws only into this roll,
+   * so a press that spans a new roll (whose dice may have the same ids) or the roll's end throws nothing. Null when the
+   * roll does not wait on the die.
+   */
+  pickUp(id: number): ((flick: Flick) => void) | null {
+    const session = this.session;
+    if (!session || !this.waitsOn(id)) return null;
+    return (flick) => {
+      if (this.session === session) this.clickDie(id, flick);
+    };
+  }
+
   /** The board shows another scene: the roll goes, unpublished. */
   sceneChanged(): void {
     this.drop();

@@ -14,11 +14,13 @@ import { SheetDrawer } from '../sheets/sheetDrawer';
 import type { AdvantageSide, PlayerSheet } from '../sheets/sheet';
 import type { ChosenPack } from './dicePack';
 import { DicePicker } from './dicePicker';
+import { DicePrompt } from './dicePrompt';
 import type { TabletopDiceSettings } from './diceSettings';
 import { DiceTable } from './diceTable';
 import { DiceTextures } from './diceTextures';
+import { listenForDiePresses } from './diePress';
 import { parseFormula, type RollRequest } from './rollRules';
-import type { Flick } from './throwInput';
+import { GENTLE, type Flick } from './throwInput';
 
 export interface BoardDiceDeps {
   board: Board;
@@ -36,11 +38,6 @@ export interface BoardDiceDeps {
   sheetOf?(tokenId: string): Promise<PlayerSheet | null>;
 }
 
-/** A press that moves less than this is a click on a die: it is tossed gently. */
-const DRAG_PX = 6;
-const FLICK_MS = 100;
-const GENTLE: Flick = { dx: 0, dy: 0, ms: 1 };
-
 export class BoardDice {
   readonly picker: DicePicker;
   readonly log: DiceLogPanel;
@@ -55,8 +52,7 @@ export class BoardDice {
   private table: DiceTable | null = null;
   private textures: DiceTextures | null = null;
   private controller: DiceController | null = null;
-  private readonly prompt: HTMLElement;
-  private readonly promptText: HTMLElement;
+  private readonly prompt: DicePrompt;
   private readonly stops: Array<() => void> = [];
   private disposed = false;
   /** The settings or pack changed: the next roll makes a new table. */
@@ -105,24 +101,19 @@ export class BoardDice {
       }
     }
     // What the roll waits on, as a line over the board, and the throw it asks for (an explosion has no die to click).
-    this.prompt = doc.createElement('div');
-    this.prompt.className = 'atlas-tabletop-dice-prompt';
-    this.prompt.hidden = true;
-    this.prompt.setAttribute('role', 'status');
-    this.promptText = doc.createElement('span');
-    this.promptText.className = 'atlas-tabletop-dice-prompt__text';
-    const throwButton = doc.createElement('button');
-    throwButton.type = 'button';
-    throwButton.className = 'atlas-tabletop-dice-prompt__throw';
-    throwButton.textContent = 'Throw';
-    throwButton.addEventListener('click', () => this.controller?.throwPending(GENTLE));
-    this.prompt.append(this.promptText, throwButton);
-    this.prompt.addEventListener('pointerdown', (event) => event.stopPropagation());
-    container.appendChild(this.prompt);
-    const down = (event: PointerEvent): void => this.pressDie(event);
-    // Before the board's own handling: a press on a die the roll waits on is the dice's, anything else the board's.
-    container.addEventListener('pointerdown', down, true);
-    this.stops.push(() => container.removeEventListener('pointerdown', down, true));
+    this.prompt = new DicePrompt(container, () => this.controller?.throwPending(GENTLE));
+    // A press on a die the roll waits on: let go, it is thrown again, into the roll and table it was pressed in.
+    this.stops.push(listenForDiePresses({
+      container,
+      canvas: () => board.canvas,
+      pickUp: (x, y) => {
+        const controller = this.controller;
+        const id = controller ? board.diceAt(x, y) : null;
+        const release = controller && id !== null ? controller.pickUp(id) : null;
+        // A new table meanwhile (the settings changed) has a controller of its own: the press throws nothing.
+        return release && ((flick) => { if (this.controller === controller) release(flick); });
+      },
+    }));
   }
 
   /** The log hears the Atlas map view that holds the board's map: it follows when that view opens, closes or moves. */
@@ -213,8 +204,7 @@ export class BoardDice {
     if (this.disposed) return;
     this.disposed = true;
     this.teardown();
-    // A press's stop takes itself out of the list: the list is walked as it was.
-    for (const stop of [...this.stops]) stop();
+    for (const stop of this.stops) stop();
     this.heard?.stop();
     this.heard = null;
     this.picker.dispose();
@@ -223,7 +213,7 @@ export class BoardDice {
     this.deps.board.diceButton(null);
     this.deps.board.diceLogButton(null);
     this.deps.board.sheetButton(null);
-    this.prompt.remove();
+    this.prompt.dispose();
   }
 
   /** The rules of the board's map, as Atlas has them for its collection. */
@@ -281,43 +271,6 @@ export class BoardDice {
   }
 
   private showPrompt(text: string | null): void {
-    this.promptText.textContent = text ?? '';
-    this.prompt.hidden = text === null;
-  }
-
-  /** A press on a die the roll waits on: let go, the die is thrown again, the way the pointer went. */
-  private pressDie(event: PointerEvent): void {
-    const controller = this.controller;
-    if (event.button !== 0 || !controller || event.target !== this.deps.board.canvas) return;
-    const id = this.deps.board.diceAt(event.clientX, event.clientY);
-    if (id === null || !controller.waitsOn(id)) return;
-    event.stopPropagation();
-    event.preventDefault();
-    const win = this.deps.container.ownerDocument.defaultView ?? window;
-    const samples = [{ x: event.clientX, y: event.clientY, t: event.timeStamp }];
-    const move = (moved: PointerEvent): void => {
-      if (moved.pointerId !== event.pointerId) return;
-      samples.push({ x: moved.clientX, y: moved.clientY, t: moved.timeStamp });
-      if (samples.length > 32) samples.shift();
-    };
-    const up = (lifted: PointerEvent): void => {
-      if (lifted.pointerId !== event.pointerId) return;
-      stop();
-      const last = { x: lifted.clientX, y: lifted.clientY, t: lifted.timeStamp };
-      const dragged = Math.hypot(last.x - event.clientX, last.y - event.clientY) > DRAG_PX;
-      const from = samples.find((sample) => last.t - sample.t <= FLICK_MS) ?? last;
-      if (this.controller === controller) controller.clickDie(id, dragged ? { dx: last.x - from.x, dy: last.y - from.y, ms: Math.max(1, last.t - from.t) } : GENTLE);
-    };
-    const stop = (): void => {
-      win.removeEventListener('pointermove', move, true);
-      win.removeEventListener('pointerup', up, true);
-      win.removeEventListener('pointercancel', stop, true);
-      const at = this.stops.indexOf(stop);
-      if (at !== -1) this.stops.splice(at, 1);
-    };
-    win.addEventListener('pointermove', move, true);
-    win.addEventListener('pointerup', up, true);
-    win.addEventListener('pointercancel', stop, true);
-    this.stops.push(stop);
+    this.prompt.show(text);
   }
 }

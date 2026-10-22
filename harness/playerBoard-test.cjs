@@ -212,6 +212,53 @@ server.listen(0, async () => {
     await wait(1500);
     const after = await page.evaluate(() => ({ busy: window.playerTest.board.dice.busy, prompt: document.querySelector('.atlas-tabletop-dice-prompt').hidden, sends: window.playerTest.record.diceResults.length }));
     check('then the dice lie still (no physics), the line is gone, and nothing more is sent', !after.busy && after.prompt && after.sends === 1, after);
+
+    // 11d. A die caught on an edge (its first reading forced caught): the line asks for it, a click on it throws it
+    // again, and only its clean reading goes.
+    await page.evaluate(() => {
+      const t = window.playerTest;
+      t.handle.throwDice({ dice: { d20: 1 }, modifier: 0 });
+      const table = t.board.dice;
+      const settled = table.onSettled;
+      let forced = false;
+      table.onSettled = (id, reading) => {
+        if (forced) return settled(id, reading);
+        forced = true;
+        return settled(id, { caught: true, face: null, confidence: 0 });
+      };
+    });
+    const caughtDie = () => page.evaluate(() => {
+      const t = window.playerTest;
+      const b = t.board;
+      b.view.updateMatrixWorld();
+      const rect = b.canvas.getBoundingClientRect();
+      for (const mesh of b.dice.object3d.children) {
+        if (!t.handle.dice.waitsOn(mesh.userData.dieId)) continue;
+        const ndc = mesh.getWorldPosition(mesh.position.clone()).project(b.view);
+        const line = document.querySelector('.atlas-tabletop-dice-prompt');
+        return { x: rect.left + ((ndc.x + 1) / 2) * rect.width, y: rect.top + ((1 - ndc.y) / 2) * rect.height, prompt: line.hidden ? null : line.textContent };
+      }
+      return null;
+    });
+    await page.waitForFunction(() => !window.playerTest.board.dice.busy, null, { timeout: 90000 });
+    await wait(300);
+    const caught = await caughtDie();
+    check('a caught die: the line over the board says so, and nothing is sent', caught !== null && /d20/.test(caught.prompt ?? '') && (await record()).diceResults.length === 1, caught);
+    await page.screenshot({ path: `${shots}/player-5-dice-caught.png` });
+    let clicks = 0;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const die = attempt === 0 ? caught : await caughtDie();
+      if (!die) break;
+      await page.mouse.click(die.x, die.y);
+      clicks++;
+      await wait(200);
+      await page.waitForFunction(() => !window.playerTest.board.dice.busy, null, { timeout: 90000 });
+      await wait(300);
+      if ((await record()).diceResults.length > 1) break;
+    }
+    const rethrownRoll = (await record()).diceResults;
+    check('a click on the caught die throws it again; its clean reading alone is sent, once', clicks >= 1 && rethrownRoll.length === 2 && rethrownRoll[1].rolls.length === 1
+      && rethrownRoll[1].rolls[0].die === 'd20' && Number.isInteger(rethrownRoll[1].rolls[0].value) && rethrownRoll[1].rolls[0].value >= 1 && rethrownRoll[1].rolls[0].value <= 20, { clicks, sent: rethrownRoll.slice(1) });
     const changed = await page.evaluate(() => {
       const t = window.playerTest;
       t.handle.throwDice({ dice: { d20: 1 }, modifier: 0 });
@@ -219,13 +266,14 @@ server.listen(0, async () => {
       return { dice: t.board.dice.object3d.children.length };
     });
     await wait(2500);
-    check('a scene change clears the dice and the roll in play is never sent', changed.dice === 0 && (await record()).diceResults.length === 1, { changed, sends: (await record()).diceResults.length });
+    check('a scene change clears the dice and the roll in play is never sent', changed.dice === 0 && (await record()).diceResults.length === 2, { changed, sends: (await record()).diceResults.length });
     await page.evaluate(() => { const t = window.playerTest; t.handle.setScene(t.scene); });
     await wait(300);
 
     // 12. Disposed: the WebGL context is let go.
     await page.evaluate(() => window.playerTest.handle.dispose());
     check('dispose leaves no canvas behind', await page.evaluate(() => document.querySelectorAll('#board canvas').length === 0));
+    check('nor the dice line', await page.evaluate(() => document.querySelectorAll('.atlas-tabletop-dice-prompt').length === 0));
   } catch (error) {
     check('harness ran', false, String(error && error.stack || error));
   }

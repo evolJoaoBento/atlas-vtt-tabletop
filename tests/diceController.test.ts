@@ -217,3 +217,21 @@ test('the roll waits on a caught die and on an explosion, not on a die with its 
   assert.equal(dice.waiting, false);
   assert.equal(dice.waitsOn(a), false);
 });
+
+test('a die picked up is thrown into its own roll only: a new roll meanwhile, or a dropped one, throws nothing', () => {
+  const { dice, table } = controller();
+  dice.start({ dice: { d20: 1 }, modifier: 0 }, FLICK);
+  const [first] = table.ids();
+  table.onSettled(first, CAUGHT);
+  const release = dice.pickUp(first);
+  assert.ok(release);
+  dice.start({ dice: { d20: 1 }, modifier: 0 }, FLICK);
+  table.onSettled(table.ids()[0], CAUGHT);
+  release(FLICK);
+  assert.deepEqual(table.thrown, [], 'the new roll is not the one the die was picked up from');
+  const again = dice.pickUp(table.ids()[0]);
+  dice.sceneChanged();
+  again?.(FLICK);
+  assert.deepEqual(table.thrown, []);
+  assert.equal(dice.pickUp(0), null, 'no roll, nothing to pick up');
+});

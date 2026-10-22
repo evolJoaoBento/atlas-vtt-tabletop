@@ -9,7 +9,7 @@ import { DiceController, type DiceControllerDeps } from './diceController';
 import { DIE_TYPES } from './kit/faces';
 import { DEFAULT_RULES, MAX_DICE, type DiceRules } from './rollRules';
 import type { RollSession } from './rollSession';
-import type { Flick } from './throwInput';
+import { GENTLE, type Flick } from './throwInput';
 
 /** A dice table the board made with the pack and settings as they were then. */
 export interface PlayerDiceTable {
@@ -28,8 +28,6 @@ export interface PlayerDiceDeps {
   prompt(text: string | null, notice?: boolean): void;
 }
 
-/** Connect asks for a throw without a flick of its own: the dice are tossed gently. */
-const GENTLE: Flick = { dx: 0, dy: 0, ms: 1 };
 const NOT_SENT = "Couldn't send the roll to the GM.";
 
 export class PlayerDice {
@@ -47,9 +45,11 @@ export class PlayerDice {
   throw(request: PlayerDiceRequest): boolean {
     if (this.disposed || !this.deps.host.sendDiceResult || !throwable(request)) return false;
     const { sheet, ...roll } = request;
-    const controller = this.ensureTable();
+    // The notice goes first: a table made again clears the line, and must not show it again.
     this.notice = null;
+    const controller = this.ensureTable();
     this.sheet = sheet ?? null;
+    // Connect asks for a throw without a flick of its own: the dice are tossed gently.
     controller.start(roll, GENTLE);
     return true;
   }
@@ -59,9 +59,12 @@ export class PlayerDice {
     return this.controller?.waitsOn(id) ?? false;
   }
 
-  /** The player picked up a die the roll waits on: it is thrown again the way the pointer went. */
-  clickDie(id: number, flick: Flick): void {
-    this.controller?.clickDie(id, flick);
+  /**
+   * The player pressed on a die the roll waits on: the throw once it is let go, into this roll only (a new throw, scene
+   * or table meanwhile throws nothing). Null when the roll does not wait on it.
+   */
+  pickUp(id: number): ((flick: Flick) => void) | null {
+    return this.controller?.pickUp(id) ?? null;
   }
 
   /** Throws every die the roll waits on: caught dice, and explosions (which have no die to click). */
@@ -126,12 +129,12 @@ export class PlayerDice {
   }
 }
 
-/** One to 20 dice of the known types, each count a whole number. */
+/** One to 20 dice of the known types, each count and the modifier a whole number. */
 function throwable(request: PlayerDiceRequest): boolean {
   let count = 0;
   for (const [die, n] of Object.entries(request.dice ?? {})) {
     if (!(DIE_TYPES as readonly string[]).includes(die) || !Number.isInteger(n) || (n as number) < 0) return false;
     count += n as number;
   }
-  return count >= 1 && count <= MAX_DICE && Number.isFinite(request.modifier);
+  return count >= 1 && count <= MAX_DICE && Number.isInteger(request.modifier);
 }

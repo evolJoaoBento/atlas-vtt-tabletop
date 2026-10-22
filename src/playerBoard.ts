@@ -14,12 +14,14 @@ import { QUALITY, type Quality } from './board/quality';
 import { materialFromUrls, type LoadedMaterial } from './materials';
 import type { BoardCamera, BoardExtras, PlayerDiceRequest, PlayerDiceResult } from './connectContract';
 import type { ChosenPack } from './dice/dicePack';
+import { DicePrompt } from './dice/dicePrompt';
+import { listenForDiePresses } from './dice/diePress';
 import { PlayerDice, type PlayerDiceTable } from './dice/playerDice';
 import type { TabletopDiceSettings } from './dice/diceSettings';
 import { DiceTable } from './dice/diceTable';
 import { DiceTextures } from './dice/diceTextures';
 import type { DiceRules } from './dice/rollRules';
-import type { Flick } from './dice/throwInput';
+import { GENTLE } from './dice/throwInput';
 import type { MeasureShape, PlayerTool, TemplateMark, TemplateShape, TemplateChange } from './board/playerTools';
 import type { Measurement } from './board/measure';
 
@@ -75,7 +77,7 @@ export interface PlayerBoardHandle {
   refresh(): void;
   measure(): void;
   dispose(): void;
-  /** This board throws dice (`throwDice`). */
+  /** This board throws dice (`throwDice`): set when Connect can send a roll (`sendDiceResult`). */
   readonly diceAvailable?: true;
   /** Throws the roll on the board (one still settling is dropped, unsent); false when there are no dice or no scene. */
   throwDice?(request: PlayerDiceRequest): boolean;
@@ -96,13 +98,6 @@ export interface PlayerBoardDice {
   settings(): TabletopDiceSettings;
   pack(): ChosenPack;
 }
-
-/** A press on a die that moves less than this is a click: the die is tossed gently. */
-const DRAG_PX = 6;
-const FLICK_MS = 100;
-const GENTLE: Flick = { dx: 0, dy: 0, ms: 1 };
-/** How long the line says a roll could not be sent. */
-const NOTICE_MS = 5000;
 
 export function playerBoardFactory(quality: () => Quality, dice: PlayerBoardDice): PlayerBoardFactory {
   return Object.freeze({
@@ -131,37 +126,30 @@ class PlayerBoard implements PlayerBoardHandle {
   private readonly waiting = new Map<string, Array<() => void>>();
   private loading: Promise<void> = Promise.resolve();
   private disposed = false;
-  readonly diceAvailable = true as const;
+  declare readonly diceAvailable?: true;
   private readonly dice: PlayerDice;
   /** The line over the board saying what the roll waits on, and its Throw (an explosion has no die to click). */
-  private readonly prompt: HTMLElement;
-  private readonly promptText: HTMLElement;
-  private readonly throwButton: HTMLButtonElement;
-  private noticeTimer = 0;
-  private readonly stops: Array<() => void> = [];
+  private readonly prompt: DicePrompt;
+  private readonly stopPresses: () => void;
 
   constructor(private readonly parent: HTMLElement, private readonly host: PlayerBoardHost, quality: Quality, private readonly diceDeps: PlayerBoardDice) {
     this.board = new Board(parent, this.boardHost(), QUALITY[quality], { audience: 'player' });
-    this.dice = new PlayerDice({ host, makeTable: () => this.makeDiceTable(), prompt: (text, notice) => this.showPrompt(text, notice === true) });
-    const doc = parent.ownerDocument;
-    this.prompt = doc.createElement('div');
-    this.prompt.className = 'atlas-tabletop-dice-prompt';
-    this.prompt.hidden = true;
-    this.prompt.setAttribute('role', 'status');
-    this.promptText = doc.createElement('span');
-    this.promptText.className = 'atlas-tabletop-dice-prompt__text';
-    this.throwButton = doc.createElement('button');
-    this.throwButton.type = 'button';
-    this.throwButton.className = 'atlas-tabletop-dice-prompt__throw';
-    this.throwButton.textContent = 'Throw';
-    this.throwButton.addEventListener('click', () => this.dice.throwPending(GENTLE));
-    this.prompt.append(this.promptText, this.throwButton);
-    this.prompt.addEventListener('pointerdown', (event) => event.stopPropagation());
-    parent.appendChild(this.prompt);
-    const down = (event: PointerEvent): void => this.pressDie(event);
-    // Before the board's own handling: a press on a die the roll waits on is the dice's, anything else the board's.
-    parent.addEventListener('pointerdown', down, true);
-    this.stops.push(() => parent.removeEventListener('pointerdown', down, true));
+    if (host.sendDiceResult) this.diceAvailable = true;
+    this.dice = new PlayerDice({
+      host,
+      makeTable: () => this.makeDiceTable(),
+      prompt: (text, notice) => (notice && text !== null ? this.prompt.notice(text) : this.prompt.show(text)),
+    });
+    this.prompt = new DicePrompt(parent, () => this.dice.throwPending(GENTLE));
+    // A press on a die the roll waits on: let go, it is thrown again, into the roll it was pressed in.
+    this.stopPresses = listenForDiePresses({
+      container: parent,
+      canvas: () => this.board.canvas,
+      pickUp: (x, y) => {
+        const id = this.board.diceAt(x, y);
+        return id === null ? null : this.dice.pickUp(id);
+      },
+    });
   }
 
   setScene(scene: unknown): void {
@@ -290,9 +278,8 @@ class PlayerBoard implements PlayerBoardHandle {
     this.disposed = true;
     this.waiting.clear();
     this.dice.dispose();
-    for (const stop of [...this.stops]) stop();
-    this.parent.ownerDocument.defaultView?.clearTimeout(this.noticeTimer);
-    this.prompt.remove();
+    this.stopPresses();
+    this.prompt.dispose();
     this.board.dispose();
   }
 
@@ -311,52 +298,6 @@ class PlayerBoard implements PlayerBoardHandle {
         textures.dispose();
       },
     };
-  }
-
-  /** What the roll waits on, with its Throw; a notice (the roll was not sent) has none, and goes after a while. */
-  private showPrompt(text: string | null, notice: boolean): void {
-    const win = this.parent.ownerDocument.defaultView;
-    win?.clearTimeout(this.noticeTimer);
-    this.noticeTimer = 0;
-    this.promptText.textContent = text ?? '';
-    this.throwButton.hidden = notice;
-    this.prompt.hidden = text === null;
-    if (notice && win) this.noticeTimer = win.setTimeout(() => this.showPrompt(null, false), NOTICE_MS);
-  }
-
-  /** A press on a die the roll waits on: let go, the die is thrown again, the way the pointer went. */
-  private pressDie(event: PointerEvent): void {
-    if (event.button !== 0 || event.target !== this.board.canvas) return;
-    const id = this.board.diceAt(event.clientX, event.clientY);
-    if (id === null || !this.dice.waitsOn(id)) return;
-    event.stopPropagation();
-    event.preventDefault();
-    const win = this.parent.ownerDocument.defaultView ?? window;
-    const samples = [{ x: event.clientX, y: event.clientY, t: event.timeStamp }];
-    const move = (moved: PointerEvent): void => {
-      if (moved.pointerId !== event.pointerId) return;
-      samples.push({ x: moved.clientX, y: moved.clientY, t: moved.timeStamp });
-      if (samples.length > 32) samples.shift();
-    };
-    const up = (lifted: PointerEvent): void => {
-      if (lifted.pointerId !== event.pointerId) return;
-      stop();
-      const last = { x: lifted.clientX, y: lifted.clientY, t: lifted.timeStamp };
-      const dragged = Math.hypot(last.x - event.clientX, last.y - event.clientY) > DRAG_PX;
-      const from = samples.find((sample) => last.t - sample.t <= FLICK_MS) ?? last;
-      if (!this.disposed) this.dice.clickDie(id, dragged ? { dx: last.x - from.x, dy: last.y - from.y, ms: Math.max(1, last.t - from.t) } : GENTLE);
-    };
-    const stop = (): void => {
-      win.removeEventListener('pointermove', move, true);
-      win.removeEventListener('pointerup', up, true);
-      win.removeEventListener('pointercancel', stop, true);
-      const at = this.stops.indexOf(stop);
-      if (at !== -1) this.stops.splice(at, 1);
-    };
-    win.addEventListener('pointermove', move, true);
-    win.addEventListener('pointerup', up, true);
-    win.addEventListener('pointercancel', stop, true);
-    this.stops.push(stop);
   }
 
   /** This player's colour, as Connect gives it: their place after the GM's, the last colour when not listed. */

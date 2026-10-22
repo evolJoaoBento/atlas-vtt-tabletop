@@ -6,7 +6,7 @@
  */
 import { DIE_TYPES, type DieType } from './kit/faces';
 import { defaultDie, MAX_DICE, type DiceRules, type RollRequest } from './rollRules';
-import type { Flick } from './throwInput';
+import { DRAG_PX, FLICK_MS, GENTLE, type Flick } from './throwInput';
 
 /** What the picker holds: how many of each die, the modifier, and the colour a die type is thrown in. */
 export interface Pick {
@@ -72,12 +72,6 @@ const MINUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const PLUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>';
 const TRASH_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
 
-/** A press that moves less than this is a click; more, and it is a drag that may throw. */
-const DRAG_PX = 6;
-/** The flick is the pointer's last stretch of movement before it lets go. */
-const FLICK_MS = 100;
-/** Roll's toss: no movement, so the dice go gently up the screen. */
-const GENTLE: Flick = { dx: 0, dy: 0, ms: 1 };
 
 export class DicePicker {
   private pick: Pick = emptyPick();

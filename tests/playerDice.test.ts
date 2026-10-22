@@ -108,7 +108,9 @@ test('a caught die is never sent: clicked, it is thrown again, and only its clea
   assert.equal(results.length, 0);
   assert.equal(dice.waitsOn(d20), true);
   assert.match(prompts.at(-1)?.text ?? '', /d20/);
-  dice.clickDie(d20, FLICK);
+  const pickedUp = dice.pickUp(d20);
+  assert.ok(pickedUp, 'a press on the caught die is the dice\'s');
+  pickedUp(FLICK);
   assert.deepEqual(table.thrown, [d20]);
   table.onSettled(d20, face(7));
   assert.deepEqual(results.map((result) => result.rolls), [[{ die: 'd20', value: 7, max: 20 }]]);
@@ -159,13 +161,14 @@ test('a roll Connect could not send shows a short notice, without a Throw, and i
   assert.equal(prompts.at(-1)?.text, null, 'the next throw takes the notice away');
 });
 
-test('a throw Connect should not ask for is refused: no dice, an unknown die, more than 20', () => {
+test('a throw Connect should not ask for is refused: no dice, an unknown die, more than 20, a fraction', () => {
   const { host } = sender();
   const { dice, tables } = playerDice(host);
   assert.equal(dice.throw({ dice: {}, modifier: 3 }), false);
   assert.equal(dice.throw({ dice: { d7: 1 } as never, modifier: 0 }), false);
   assert.equal(dice.throw({ dice: { d6: 21 }, modifier: 0 }), false);
   assert.equal(dice.throw({ dice: { d6: 1.5 }, modifier: 0 }), false);
+  assert.equal(dice.throw({ dice: { d6: 1 }, modifier: 1.5 }), false, 'a modifier is a whole number');
   assert.equal(tables.length, 0);
 });
 
@@ -177,4 +180,59 @@ test('the pack or settings changed: the next throw makes a new table, the old on
   dice.throw({ dice: { d6: 1 }, modifier: 0 });
   assert.equal(tables.length, 2);
   assert.equal(tables[0].disposed, true);
+});
+
+test('a die with its number, or no roll at all, is not picked up', () => {
+  const { host } = sender();
+  const { dice, tables } = playerDice(host);
+  assert.equal(dice.pickUp(0), null);
+  dice.throw({ dice: { d6: 1 }, modifier: 0 });
+  const [id] = tables[0].ids();
+  tables[0].onSettled(id, face(4));
+  assert.equal(dice.pickUp(id), null);
+});
+
+/** A caught die picked up, then something happens before it is let go: the new roll's die with the same id stays put. */
+function pickedUpThen(happen: (dice: PlayerDice, outdate: () => void) => void) {
+  const { host, results } = sender();
+  const { dice, tables, outdate } = playerDice(host);
+  dice.throw({ dice: { d20: 1 }, modifier: 0 });
+  const [id] = tables[0].ids();
+  tables[0].onSettled(id, CAUGHT);
+  const release = dice.pickUp(id);
+  assert.ok(release);
+  happen(dice, outdate);
+  const table = tables.at(-1) as FakeTable;
+  // The roll now on the table has a die with the old id, caught too: the old press must not throw it.
+  if (table.session) table.onSettled(table.ids()[0], CAUGHT);
+  const thrownBefore = tables.map((t) => t.thrown.length);
+  release(FLICK);
+  assert.deepEqual(tables.map((t) => t.thrown.length), thrownBefore, 'the old press throws nothing');
+  assert.equal(results.length, 0);
+}
+
+test('a press that spans a new throw from Connect throws nothing into the new roll', () => {
+  pickedUpThen((dice) => { dice.throw({ dice: { d20: 1 }, modifier: 0 }); });
+});
+
+test('a press that spans a scene change throws nothing', () => {
+  pickedUpThen((dice) => { dice.sceneChanged(); dice.throw({ dice: { d20: 1 }, modifier: 0 }); });
+});
+
+test('a press that spans a new table (the pack or settings changed) throws nothing', () => {
+  pickedUpThen((dice, outdate) => { outdate(); dice.throw({ dice: { d20: 1 }, modifier: 0 }); });
+});
+
+test('the notice of an unsent roll goes before a new table is made: it never shows again', () => {
+  const { host } = sender(null, false);
+  const { dice, tables, prompts, outdate } = playerDice(host);
+  dice.throw({ dice: { d6: 1 }, modifier: 0 });
+  tables[0].onSettled(tables[0].ids()[0], face(3));
+  assert.equal(prompts.at(-1)?.notice, true);
+  const before = prompts.length;
+  outdate();
+  dice.throw({ dice: { d6: 1 }, modifier: 0 });
+  assert.equal(tables.length, 2);
+  assert.deepEqual(prompts.slice(before).filter((prompt) => prompt.notice), []);
+  assert.equal(prompts.at(-1)?.text, null);
 });
