@@ -1,8 +1,9 @@
 /**
- * The GM's dice on a board: the toolbar's Dice button and its picker, the dice table they throw into, the roll's
- * lifetime (`DiceController`), the line over the board telling the GM what the roll waits on, and the finished roll
- * handed to Atlas's roll log on the map view the roll belongs to. A die the roll waits on (caught on an edge) is thrown
- * again with a click or a flick on it. The selected token's stat sheet opens from the toolbar too (`SheetDrawer`); its
+ * The GM's dice on a board: the toolbar's Dice button and its tray (Atlas's), the dice table its rolls are laid on, the
+ * roll's lifetime (`DiceController`), the line over the board telling the GM what the roll waits on (and what it came
+ * to), and the finished roll handed to Atlas's roll log on the map view the roll belongs to. A die at rest is picked up
+ * with a press, carried under the pointer and thrown when let go (Ctrl: with every die still waiting); thrown again
+ * once read, the roll is logged again. The selected token's stat sheet opens from the toolbar too (`SheetDrawer`); its
  * rolls are thrown with the same dice and logged as that token's. The board's tab (and the browser harness) make one
  * per board.
  */
@@ -14,13 +15,15 @@ import { SheetDrawer } from '../sheets/sheetDrawer';
 import type { AdvantageSide, PlayerSheet } from '../sheets/sheet';
 import type { ChosenPack } from './dicePack';
 import { DicePicker } from './dicePicker';
+import { DicePreviews } from './dicePreviews';
 import { DicePrompt } from './dicePrompt';
 import type { TabletopDiceSettings } from './diceSettings';
 import { DiceTable } from './diceTable';
 import { DiceTextures } from './diceTextures';
 import { listenForDiePresses } from './diePress';
+import { DIE_TYPES } from './kit/faces';
 import { parseFormula, type RollRequest } from './rollRules';
-import { GENTLE, type Flick } from './throwInput';
+import { GENTLE } from './throwInput';
 
 export interface BoardDiceDeps {
   board: Board;
@@ -57,8 +60,11 @@ export class BoardDice {
   private disposed = false;
   /** The settings or pack changed: the next roll makes a new table. */
   private stale = false;
-  /** A finished roll no Atlas view took, with its total: shown on the line once the controller clears it. */
-  private unlogged: string | null = null;
+  /** What the last finished roll came to: shown on the line while its dice lie on the table. */
+  private lastResult: string | null = null;
+  /** The pictures of the dice on the tray's buttons, and the pack they were drawn with. */
+  private readonly previews: DicePreviews;
+  private drawnFor: ChosenPack | null = null;
 
   constructor(private readonly deps: BoardDiceDeps) {
     const { board, container } = deps;
@@ -69,12 +75,22 @@ export class BoardDice {
       toggle: () => (this.picker.isOpen ? this.picker.close() : this.picker.open()),
       close: () => this.picker.close(),
     });
+    this.previews = new DicePreviews(doc, () => this.picker?.refreshPictures());
     this.picker = new DicePicker(anchor ?? container, {
-      onRoll: (request, flick) => this.roll(request, flick),
-      onClear: () => this.controller?.sceneChanged(),
+      onRoll: (request) => this.roll(request),
       colors: () => deps.settings().colors,
       rules: () => this.rules(),
-      onOpenChange: () => board.refreshToolbar(),
+      picture: (die) => this.previews.url(die),
+      onOpenChange: (open) => {
+        // The dice's pictures, of the pack chosen now.
+        const pack = deps.pack();
+        if (open && pack !== this.drawnFor) {
+          this.drawnFor = pack;
+          this.previews.draw(pack, DIE_TYPES);
+        }
+        this.prompt?.setCovered(open);
+        board.refreshToolbar();
+      },
     });
     // The log button beside it; every roll Atlas logs on the map shows in the log and as a card over the board.
     const logAnchor = board.diceLogButton({
@@ -103,17 +119,22 @@ export class BoardDice {
       }
     }
     // What the roll waits on, as a line over the board, and the throw it asks for (an explosion has no die to click).
-    this.prompt = new DicePrompt(container, () => this.controller?.throwPending(GENTLE));
-    // A press on a die the roll waits on: let go, it is thrown again, into the roll and table it was pressed in.
+    this.prompt = new DicePrompt(container, () => this.controller?.throwPending(GENTLE), () => this.clearTable());
+    // A press on a die at rest: carried under the pointer, and thrown when let go, into the roll and table it was pressed in.
     this.stops.push(listenForDiePresses({
       container,
       canvas: () => board.canvas,
       pickUp: (x, y) => {
         const controller = this.controller;
+        const table = this.table;
         const id = controller ? board.diceAt(x, y) : null;
-        const release = controller && id !== null ? controller.pickUp(id) : null;
-        // A new table meanwhile (the settings changed) has a controller of its own: the press throws nothing.
-        return release && ((flick) => { if (this.controller === controller) release(flick); });
+        const grab = controller && id !== null ? controller.pickUp(id) : null;
+        if (!grab || !table) return null;
+        // A new table meanwhile (the settings changed) has a controller of its own: the press carries and throws nothing.
+        return {
+          move: (cx, cy) => { if (this.controller === controller) table.hold(grab.id, board.rayAt(cx, cy)); },
+          release: (flick, all) => { if (this.controller === controller) grab.release(flick, all); },
+        };
       },
     }));
   }
@@ -137,8 +158,17 @@ export class BoardDice {
 
   /** The board shows another scene or map, or closes: the dice go, and the roll in play is never logged. */
   sceneChanged(): void {
+    this.lastResult = null;
     this.controller?.sceneChanged();
     this.rollFrom = null;
+  }
+
+  /** The GM cleared the table: the dice go; a roll not yet complete is never logged. */
+  private clearTable(): void {
+    this.lastResult = null;
+    this.rollFrom = null;
+    if (this.controller) this.controller.clear();
+    else this.showPrompt(null);
   }
 
   /** The drawer shows the selected token's sheet, read again (the note may have changed); none while it is closed. */
@@ -173,8 +203,9 @@ export class BoardDice {
       return;
     }
     const controller = this.ensureTable();
+    this.lastResult = null;
     this.rollFrom = { abilityName: label, tokenId };
-    controller.start({ ...parsed, label, ...(advantage ? { advantage } : {}) }, GENTLE);
+    controller.start({ ...parsed, label, ...(advantage ? { advantage } : {}) });
   }
 
   /**
@@ -210,6 +241,7 @@ export class BoardDice {
     this.heard?.stop();
     this.heard = null;
     this.picker.dispose();
+    this.previews.dispose();
     this.log.dispose();
     this.sheet?.dispose();
     this.deps.board.diceButton(null);
@@ -223,13 +255,14 @@ export class BoardDice {
     return diceRulesOf(this.deps.atlasView(), this.deps.mapPath());
   }
 
-  /** A roll from the picker: the picker steps aside so the GM sees the dice land (they land where the camera looks). */
-  private roll(request: RollRequest, flick: Flick): void {
+  /** A roll from the picker, its dice laid where the camera looks: the picker steps aside so the GM can pick them up. */
+  private roll(request: RollRequest): void {
     if (this.disposed) return;
     this.picker.close();
     const controller = this.ensureTable();
     this.rollFrom = null;
-    controller.start(request, flick);
+    this.lastResult = null;
+    controller.start(request);
   }
 
   /** The table and the roll's controller, made at the first throw, with the pack and settings as they are then. */
@@ -265,21 +298,25 @@ export class BoardDice {
       const name = roll.color ? names.get(roll.color.toLowerCase()) : undefined;
       return name ? { ...roll, colorName: name } : roll;
     });
+    // The ability stays with the roll: thrown again, its dice are still that ability's.
     const from = this.rollFrom ?? undefined;
-    this.rollFrom = null;
     const roll = stockRoll({ ...result, rolls }, undefined, from) as { formula: string; total: number };
-    if (!publishRoll(this.deps.atlasView(), roll)) {
-      // Warned once per message; the total goes on the line on every such roll, so no result is lost.
-      this.deps.warn('Tabletop: open this map in Atlas to log dice rolls in its roll log.');
-      this.unlogged = `Not logged (open this map in Atlas): ${from ? `${from.abilityName} ` : ''}${roll.formula} = ${roll.total}`;
+    const said = `${from ? `${from.abilityName}: ` : ''}${roll.formula} = ${roll.total}`;
+    if (publishRoll(this.deps.atlasView(), roll)) {
+      this.lastResult = said;
+      return;
     }
+    // Warned once per message; the total stays on the line, so no result is lost.
+    this.deps.warn('Tabletop: open this map in Atlas to log dice rolls in its roll log.');
+    this.lastResult = `Not logged (open this map in Atlas): ${said}`;
   }
 
-  /** What the roll waits on; the controller clears the line once a roll is published, and a roll not logged shows then. */
+  /**
+   * What the roll waits on. Once the controller clears the line (the roll published), what the roll came to stays on
+   * it while its dice lie on the table.
+   */
   private showPrompt(text: string | null): void {
-    const unlogged = this.unlogged;
-    this.unlogged = null;
-    if (text === null && unlogged !== null) this.prompt.notice(unlogged);
+    if (text === null && this.lastResult !== null) this.prompt.result(`${this.lastResult} · drag a die to throw it again`);
     else this.prompt.show(text);
   }
 }

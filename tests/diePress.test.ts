@@ -27,21 +27,26 @@ function presses(onDie = true) {
   const container = Object.assign(new FakeTarget(), { ownerDocument: { defaultView: win } });
   const canvas = {};
   const released: Flick[] = [];
+  const all: boolean[] = [];
+  const moved: Array<[number, number]> = [];
   const asked: Array<[number, number]> = [];
   const stop = listenForDiePresses({
     container: container as unknown as HTMLElement,
     canvas: () => canvas as EventTarget,
-    pickUp: (x, y) => { asked.push([x, y]); return onDie ? (flick) => { released.push(flick) } : null; },
+    pickUp: (x, y) => {
+      asked.push([x, y]);
+      return onDie ? { move: (mx, my) => { moved.push([mx, my]); }, release: (flick, every) => { released.push(flick); all.push(every); } } : null;
+    },
   });
   const down = (x: number, y: number, t: number, target: unknown = canvas, button = 0): FakePointer => {
     const event = new FakePointer(x, y, t, target, button);
     container.fire('pointerdown', event);
     return event;
   };
-  return { win, container, canvas, released, asked, stop, down };
+  return { win, container, canvas, released, all, moved, asked, stop, down };
 }
 
-test('a click on a die the roll waits on is taken from the board and tosses it gently', () => {
+test('a click on a die at rest is taken from the board and tosses it gently', () => {
   const { win, released, down } = presses();
   const event = down(100, 100, 0);
   assert.equal(event.stopped && event.prevented, true, 'the board never sees the press');
@@ -51,14 +56,25 @@ test('a click on a die the roll waits on is taken from the board and tosses it g
   assert.equal(win.count('pointermove') + win.count('pointerup') + win.count('pointercancel'), 0, 'let go, the press stops listening');
 });
 
-test('a drag throws the die the way the pointer went, over its last 100 ms', () => {
-  const { win, released, down } = presses();
+test('a drag carries the die under the pointer, and throws it the way the pointer went, over its last 100 ms', () => {
+  const { win, released, moved, all, down } = presses();
   down(100, 300, 0);
+  win.fire('pointermove', new FakePointer(101, 299, 20));
+  assert.deepEqual(moved, [], 'a twitch is not a drag: the die stays where it lies');
   win.fire('pointermove', new FakePointer(100, 280, 50));
   win.fire('pointermove', new FakePointer(100, 250, 150));
   win.fire('pointermove', new FakePointer(100, 200, 200));
+  assert.deepEqual(moved, [[100, 280], [100, 250], [100, 200]], 'carried under the pointer');
   win.fire('pointerup', new FakePointer(110, 150, 250));
   assert.deepEqual(released, [{ dx: 10, dy: -100, ms: 100 }]);
+  assert.deepEqual(all, [false]);
+});
+
+test('let go with Ctrl, every die still waiting is thrown with it', () => {
+  const { win, all, down } = presses();
+  down(100, 300, 0);
+  win.fire('pointerup', Object.assign(new FakePointer(100, 300, 50), { ctrlKey: true }));
+  assert.deepEqual(all, [true]);
 });
 
 test('a press that is not on a die it may throw, or not on the board, or not the main button, is the board\'s', () => {

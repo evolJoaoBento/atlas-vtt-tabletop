@@ -23,7 +23,8 @@ class FakeTable {
   removed: number[] = [];
   /** Which die rests on which: throwing the one below knocks the one on top loose, as the real table does. */
   restsOn = new Map<number, number>();
-  throwRoll(session: RollSession): void { this.session = session; this.rolls++; }
+  placeRoll(session: RollSession): void { this.session = session; this.rolls++; }
+  placeMissing(): void {}
   throwDie(id: number): void {
     this.thrown.push(id);
     for (const [top, below] of this.restsOn) if (below === id) this.onLoosened(top);
@@ -43,7 +44,9 @@ function controller(rules: DiceRules = DEFAULT_RULES) {
 
 test('publishes once when every die settles', () => {
   const { dice, table, published, prompts } = controller();
-  dice.start({ dice: { d6: 2 }, modifier: 1 }, FLICK);
+  dice.start({ dice: { d6: 2 }, modifier: 1 });
+  dice.throwPending(FLICK);
+  table.thrown.length = 0;
   assert.equal(table.rolls, 1);
   const [a, b] = table.ids();
   table.onSettled(a, face(3));
@@ -59,7 +62,9 @@ test('publishes once when every die settles', () => {
 
 test('caught die prompts and publishes after reroll', () => {
   const { dice, table, published, prompts } = controller();
-  dice.start({ dice: { d20: 1 }, modifier: 0 }, FLICK);
+  dice.start({ dice: { d20: 1 }, modifier: 0 });
+  dice.throwPending(FLICK);
+  table.thrown.length = 0;
   const [d20] = table.ids();
   table.onSettled(d20, CAUGHT);
   assert.equal(published.length, 0);
@@ -72,20 +77,80 @@ test('caught die prompts and publishes after reroll', () => {
   assert.equal(prompts.at(-1), null);
 });
 
-test('clicking a die with nothing to throw throws nothing', () => {
+test('a die in the air, or none of the roll, is not thrown; a die at rest is thrown again', () => {
   const { dice, table } = controller();
-  dice.start({ dice: { d6: 2 }, modifier: 0 }, FLICK);
+  dice.start({ dice: { d6: 2 }, modifier: 0 });
+  dice.throwPending(FLICK);
+  table.thrown.length = 0;
   const [a, b] = table.ids();
   table.onSettled(a, face(4));
-  dice.clickDie(a, FLICK);
   dice.clickDie(b, FLICK);
   dice.clickDie(999, FLICK);
-  assert.deepEqual(table.thrown, [], 'a settled die keeps its number; a rolling die is in the air');
+  assert.deepEqual(table.thrown, [], 'a rolling die is in the air; an unknown die is none of the roll');
+  dice.clickDie(a, FLICK);
+  assert.deepEqual(table.thrown, [a], 'a die with its number is thrown again');
+});
+
+test('a roll is laid on the table: nothing is thrown until the thrower throws, one die or all', () => {
+  const { dice, table, published, prompts } = controller();
+  dice.start({ dice: { d6: 3 }, modifier: 0 });
+  assert.equal(table.rolls, 1);
+  assert.deepEqual(table.thrown, [], 'laid, not thrown');
+  assert.match(prompts.at(-1) ?? '', /Drag a die/);
+  const [a, b, c] = table.ids();
+  dice.clickDie(a, FLICK);
+  assert.deepEqual(table.thrown, [a]);
+  table.onSettled(a, face(2));
+  assert.equal(published.length, 0, 'two dice still lie unthrown');
+  dice.throwPending(FLICK);
+  assert.deepEqual(table.thrown, [a, b, c], 'throw all throws only the dice still waiting');
+  table.onSettled(b, face(3));
+  table.onSettled(c, face(4));
+  assert.equal(published.length, 1);
+  assert.equal(published[0].total, 9);
+});
+
+test('a die thrown again after the roll is published publishes the roll again once it lands', () => {
+  const { dice, table, published } = controller();
+  dice.start({ dice: { d6: 2 }, modifier: 1 });
+  dice.throwPending(FLICK);
+  const [a, b] = table.ids();
+  table.onSettled(a, face(3));
+  table.onSettled(b, face(5));
+  assert.equal(published.length, 1);
+  dice.clickDie(a, FLICK);
+  assert.equal(published.length, 1, 'in the air: nothing new yet');
+  table.onSettled(a, face(6));
+  assert.equal(published.length, 2);
+  assert.equal(published[1].total, 12);
+});
+
+test('a die picked up with all thrown throws every die still waiting with it', () => {
+  const { dice, table } = controller();
+  dice.start({ dice: { d6: 3 }, modifier: 0 });
+  const [a, b, c] = table.ids();
+  const grab = dice.pickUp(b);
+  assert.ok(grab);
+  grab.release(FLICK, true);
+  assert.deepEqual(table.thrown, [b, a, c], 'the die in hand first, then the rest');
+});
+
+test('clear drops the roll: nothing is published, the table is cleared', () => {
+  const { dice, table, published } = controller();
+  dice.start({ dice: { d6: 1 }, modifier: 0 });
+  dice.throwPending(FLICK);
+  const [a] = table.ids();
+  dice.clear();
+  assert.equal(table.clears, 1);
+  table.onSettled(a, face(4));
+  assert.equal(published.length, 0);
 });
 
 test('throwPending throws every caught die once', () => {
   const { dice, table, published } = controller();
-  dice.start({ dice: { d8: 2 }, modifier: 0 }, FLICK);
+  dice.start({ dice: { d8: 2 }, modifier: 0 });
+  dice.throwPending(FLICK);
+  table.thrown.length = 0;
   const [a, b] = table.ids();
   table.onSettled(a, CAUGHT);
   table.onSettled(b, CAUGHT);
@@ -99,7 +164,9 @@ test('throwPending throws every caught die once', () => {
 
 test('scene change drops the roll', () => {
   const { dice, table, published, prompts } = controller();
-  dice.start({ dice: { d6: 1 }, modifier: 0 }, FLICK);
+  dice.start({ dice: { d6: 1 }, modifier: 0 });
+  dice.throwPending(FLICK);
+  table.thrown.length = 0;
   const [d6] = table.ids();
   dice.sceneChanged();
   assert.equal(table.clears, 1);
@@ -112,7 +179,9 @@ test('scene change drops the roll', () => {
 
 test('dispose clears the table and stops listening', () => {
   const { dice, table, published } = controller();
-  dice.start({ dice: { d6: 1 }, modifier: 0 }, FLICK);
+  dice.start({ dice: { d6: 1 }, modifier: 0 });
+  dice.throwPending(FLICK);
+  table.thrown.length = 0;
   const [d6] = table.ids();
   dice.dispose();
   assert.equal(table.clears, 1);
@@ -122,7 +191,9 @@ test('dispose clears the table and stops listening', () => {
 
 test('explosion prompt then publish with the extra die', () => {
   const { dice, table, published, prompts } = controller(explodeAll);
-  dice.start({ dice: { d6: 1 }, modifier: 0 }, FLICK);
+  dice.start({ dice: { d6: 1 }, modifier: 0 });
+  dice.throwPending(FLICK);
+  table.thrown.length = 0;
   const session = table.session as RollSession;
   const [d6] = table.ids();
   table.onSettled(d6, face(6));
@@ -141,7 +212,9 @@ test('explosion prompt then publish with the extra die', () => {
 
 test('a die knocked loose holds the roll until it lands, and its landing decides', () => {
   const { dice, table, published, prompts } = controller();
-  dice.start({ dice: { d6: 3 }, modifier: 0 }, FLICK);
+  dice.start({ dice: { d6: 3 }, modifier: 0 });
+  dice.throwPending(FLICK);
+  table.thrown.length = 0;
   const [a, b, c] = table.ids();
   table.onSettled(a, face(1));
   table.onSettled(b, CAUGHT);
@@ -163,7 +236,9 @@ test('a die knocked loose holds the roll until it lands, and its landing decides
 
 test('a die knocked loose by a pending throw takes its explosion back before it can be thrown', () => {
   const { dice, table, published, prompts } = controller(explodeAll);
-  dice.start({ dice: { d6: 1, d8: 1 }, modifier: 0 }, FLICK);
+  dice.start({ dice: { d6: 1, d8: 1 }, modifier: 0 });
+  dice.throwPending(FLICK);
+  table.thrown.length = 0;
   const session = table.session as RollSession;
   const [a, b] = table.ids();
   table.onSettled(a, face(6));
@@ -188,7 +263,9 @@ test('a publish that fails still clears the prompt and publishes nothing more', 
   const prompts: Array<string | null> = [];
   let publishes = 0;
   const dice = new DiceController({ table, rules: () => DEFAULT_RULES, publish: () => { publishes++; throw new Error('no route'); }, prompt: (text) => { prompts.push(text); } });
-  dice.start({ dice: { d20: 1 }, modifier: 0 }, FLICK);
+  dice.start({ dice: { d20: 1 }, modifier: 0 });
+  dice.throwPending(FLICK);
+  table.thrown.length = 0;
   const [d20] = table.ids();
   table.onSettled(d20, CAUGHT);
   dice.clickDie(d20, FLICK);
@@ -202,7 +279,9 @@ test('a publish that fails still clears the prompt and publishes nothing more', 
 test('the roll waits on a caught die and on an explosion, not on a die with its number', () => {
   const { dice, table } = controller(explodeAll);
   assert.equal(dice.waiting, false);
-  dice.start({ dice: { d6: 2 }, modifier: 0 }, FLICK);
+  dice.start({ dice: { d6: 2 }, modifier: 0 });
+  dice.throwPending(FLICK);
+  table.thrown.length = 0;
   const [a, b] = table.ids();
   table.onSettled(a, CAUGHT);
   table.onSettled(b, face(3));
@@ -220,18 +299,22 @@ test('the roll waits on a caught die and on an explosion, not on a die with its 
 
 test('a die picked up is thrown into its own roll only: a new roll meanwhile, or a dropped one, throws nothing', () => {
   const { dice, table } = controller();
-  dice.start({ dice: { d20: 1 }, modifier: 0 }, FLICK);
+  dice.start({ dice: { d20: 1 }, modifier: 0 });
+  dice.throwPending(FLICK);
+  table.thrown.length = 0;
   const [first] = table.ids();
   table.onSettled(first, CAUGHT);
   const release = dice.pickUp(first);
   assert.ok(release);
-  dice.start({ dice: { d20: 1 }, modifier: 0 }, FLICK);
+  dice.start({ dice: { d20: 1 }, modifier: 0 });
+  dice.throwPending(FLICK);
+  table.thrown.length = 0;
   table.onSettled(table.ids()[0], CAUGHT);
-  release(FLICK);
+  release.release(FLICK);
   assert.deepEqual(table.thrown, [], 'the new roll is not the one the die was picked up from');
   const again = dice.pickUp(table.ids()[0]);
   dice.sceneChanged();
-  again?.(FLICK);
+  again?.release(FLICK);
   assert.deepEqual(table.thrown, []);
   assert.equal(dice.pickUp(0), null, 'no roll, nothing to pick up');
 });

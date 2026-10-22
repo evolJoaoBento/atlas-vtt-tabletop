@@ -1,6 +1,7 @@
 /**
- * Physical dice on the board: a tray laid at the camera's centre (see tray.ts), dice thrown into it with cannon-es, and
- * each die read once it comes to rest. The world is Interactive Dice's, tuned the same way, in die units (a die's edge
+ * Physical dice on the board: a tray laid at the camera's centre (see tray.ts), a roll's dice laid in it at rest, each
+ * picked up and carried under the pointer and thrown with cannon-es from where it is let go, and read once it comes to
+ * rest. The board's tokens, props and walls stand in the tray as fixed shapes: a die bounces off them, they never move. The world is Interactive Dice's, tuned the same way, in die units (a die's edge
  * is 1); the dice's group is scaled up to the board and turned with the camera, so the tray's near wall faces the
  * thrower. Only the thrower's board draws the dice: the board keeps them out of the players' picture.
  */
@@ -11,7 +12,16 @@ import { buildDie } from './dieBuild';
 import { readFace, type DieType, type FaceReading, type Vec3 } from './kit/faces';
 import type { RollSession } from './rollSession';
 import { MAX_THROW_SPEED, MIN_THROW_SPEED, throwVector, type Flick } from './throwInput';
-import { dieEdgePx, START_SHARE, trayAt, type Tray } from './tray';
+import { dieEdgePx, trayAt, type Tray } from './tray';
+
+/**
+ * Something on the board a die bounces off, in map pixels: a token or prop (round, `radius` across its middle), or a
+ * wall (a box `halfLength` along `heading`, radians from map x toward map y, and `halfWidth` across it). It stands
+ * `height` tall from the table.
+ */
+export type DiceObstacle =
+  | { kind: 'round'; x: number; z: number; radius: number; height: number }
+  | { kind: 'box'; x: number; z: number; halfLength: number; halfWidth: number; heading: number; height: number };
 
 export interface DiceTableHost {
   scene: THREE.Scene;
@@ -25,6 +35,8 @@ export interface DiceTableHost {
   /** A die's face sheet, painted over its colour (the pack's for the die when null), and its normal map. */
   textures(type: DieType, color: string | null): { map?: THREE.Texture; normalMap?: THREE.Texture };
   pack(): DicePack;
+  /** What stands on the board for dice to bounce off (none without it). */
+  obstacles?(): DiceObstacle[];
 }
 
 export interface DiceSettings {
@@ -54,9 +66,13 @@ const SUPPORT_REACH = 1.5;
 const STILL_MS = 100;
 /** A die that never stops (jittering on another) is held after this long, and caught: it showed no face at rest. */
 const LONGEST_ROLL_MS = 12_000;
-/** Where a throw starts: START_SHARE of the tray behind its centre, this high, the dice this far apart. */
-const START_HEIGHT = 3;
+/** How high a die is let go from at least, and how far apart dice thrown together start. */
+const START_HEIGHT = 2;
 const SPREAD = 1.4;
+/** How high a die is carried under the pointer, in die edges. */
+const HOLD_HEIGHT = 2;
+/** How far apart the dice of a roll are laid on the table, centre to centre, in die edges. */
+const LAY_SPACING = 1.8;
 /** How many places beside its own a die tries, a spread apart, for a start clear of the dice already there. */
 const START_TRIES = 6;
 /** Throw speed, in die edges per second: the flick's gentlest toss to its hardest fling. */
@@ -71,6 +87,8 @@ const MAX_SPIN = 25;
 const DIE_MATERIAL = new CANNON.Material({ friction: 0.4, restitution: 0.3 });
 const FLOOR_MATERIAL = new CANNON.Material({ friction: 0.7, restitution: 0.25 });
 const WALL_MATERIAL = new CANNON.Material({ friction: 0.3, restitution: 0.45 });
+/** Tokens, props and the map's walls: a die bounces off them as off the tray's walls. */
+const OBSTACLE_MATERIAL = new CANNON.Material({ friction: 0.4, restitution: 0.35 });
 
 interface ThrownDie {
   type: DieType;
@@ -80,8 +98,10 @@ interface ThrownDie {
   radius: number;
   normals: Vec3[];
   numbers: number[];
-  /** Read and reported: it lies still until thrown again. */
+  /** Read and reported, laid on the table unthrown, or carried: it lies still (held) until thrown. */
   settled: boolean;
+  /** Laid on the table, never thrown: it has nothing to read. */
+  laid?: boolean;
   stillMs: number;
   rollingMs: number;
 }
@@ -96,6 +116,8 @@ export class DiceTable {
   private readonly world = new CANNON.World();
   private readonly dice = new Map<number, ThrownDie>();
   private walls: CANNON.Body[] = [];
+  /** The board's tokens, props and walls in the tray, as they stood at the last throw. */
+  private obstacles: CANNON.Body[] = [];
   private tray: Tray | null = null;
   private session: RollSession | null = null;
   private readonly raycaster = new THREE.Raycaster();
@@ -119,18 +141,40 @@ export class DiceTable {
     return false;
   }
 
-  /** Throws a roll's dice into a tray laid where the camera looks now; the dice of an earlier roll go. */
-  throwRoll(session: RollSession, flick: Flick): void {
+  /** Lays a roll's dice at rest in a tray where the camera looks now, to be thrown one by one; an earlier roll's go. */
+  placeRoll(session: RollSession): void {
     this.clear();
     this.session = session;
     this.layTray();
-    const rolling = session.dice.filter((state) => state.status === 'rolling');
-    rolling.forEach((state, index) => this.launch(this.dieFor(state.id, state.die, state.color), flick, index, rolling.length));
-    this.host.wake();
+    this.placeMissing();
   }
 
-  /** Throws one die again (caught, or rerolled), or a new one of the session (an explosion), into the same tray. */
-  throwDie(dieId: number, flick: Flick): void {
+  /** Lays at rest, beside the others, every die of the roll the table has none for yet (an explosion's). */
+  placeMissing(): void {
+    const session = this.session;
+    if (!session) return;
+    if (!this.tray) this.layTray();
+    let laid = false;
+    for (const state of session.dice) {
+      if (this.dice.has(state.id) || state.status === 'rolling') continue;
+      this.lay(this.dieFor(state.id, state.die, state.color));
+      laid = true;
+    }
+    if (laid) this.host.wake();
+  }
+
+  /** Throws the session's dice not yet read, all together, the way the flick went (each from where it lies). */
+  throwRoll(session: RollSession, flick: Flick): void {
+    if (session !== this.session) this.placeRoll(session);
+    const ids = session.dice.filter((state) => state.status === 'waiting' || state.status === 'rolling').map((state) => state.id);
+    ids.forEach((id, index) => this.throwDie(id, flick, index, ids.length));
+  }
+
+  /**
+   * Throws one die from where it lies or is carried (laid, caught, read, or a new one of the session: an explosion),
+   * the way the flick went; the dice resting on it fall. The `index`th of `count` thrown together starts beside the rest.
+   */
+  throwDie(dieId: number, flick: Flick, index = 0, count = 1): void {
     let die = this.dice.get(dieId);
     if (die) this.loosenDiceOn(die);
     else {
@@ -138,8 +182,36 @@ export class DiceTable {
       if (!state) return;
       if (!this.tray) this.layTray();
       die = this.dieFor(state.id, state.die, state.color);
+      this.lay(die);
     }
-    this.launch(die, flick, 0, 1);
+    this.standObstacles();
+    this.launch(die, flick, index, count);
+    this.host.wake();
+  }
+
+  /**
+   * Carries a die under the pointer (`ray`, in the board's world), over the table: it hangs still, unread, till thrown.
+   * The dice resting on it fall.
+   */
+  hold(dieId: number, ray: THREE.Ray): void {
+    const die = this.dice.get(dieId);
+    const tray = this.tray;
+    if (!die || !tray) return;
+    const edge = dieEdgePx(this.host.gridSize(), this.settings.dieSquares);
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -HOLD_HEIGHT * edge);
+    const at = ray.intersectPlane(plane, new THREE.Vector3());
+    if (!at) return;
+    this.loosenDiceOn(die);
+    this.object3d.updateMatrixWorld(true);
+    const local = this.object3d.worldToLocal(at);
+    const halfWidth = tray.halfWidth / edge - 1;
+    const halfDepth = tray.halfDepth / edge - 1;
+    const { body } = die;
+    this.freeze(die);
+    die.settled = true;
+    body.position.set(Math.max(-halfWidth, Math.min(halfWidth, local.x)), HOLD_HEIGHT, Math.max(-halfDepth, Math.min(halfDepth, local.z)));
+    die.mesh.position.set(body.position.x, body.position.y, body.position.z);
+    die.mesh.material.emissive.set(0x000000);
     this.host.wake();
   }
 
@@ -190,6 +262,8 @@ export class DiceTable {
     this.dice.clear();
     for (const wall of this.walls) this.world.removeBody(wall);
     this.walls = [];
+    for (const body of this.obstacles) this.world.removeBody(body);
+    this.obstacles = [];
     this.tray = null;
     this.session = null;
     if (shown) this.host.wake();
@@ -233,6 +307,115 @@ export class DiceTable {
       plane(WALL_MATERIAL, halfWidth, 0, up, -Math.PI / 2),
     ];
     for (const body of this.walls) this.world.addBody(body);
+    this.standObstacles();
+  }
+
+  /**
+   * The board's tokens, props and walls inside the tray, as they stand now, as fixed bodies a die bounces off (in the
+   * tray's frame, in die edges). Made again at each throw: tokens move between throws.
+   */
+  private standObstacles(): void {
+    for (const body of this.obstacles) this.world.removeBody(body);
+    this.obstacles = [];
+    const tray = this.tray;
+    if (!tray || !this.host.obstacles) return;
+    const edge = dieEdgePx(this.host.gridSize(), this.settings.dieSquares);
+    const cos = Math.cos(tray.yaw);
+    const sin = Math.sin(tray.yaw);
+    // Map pixels to the tray's frame: about its centre, turned back by its yaw (as the dice's group is turned by it).
+    const toTray = (x: number, z: number): { x: number; z: number } => {
+      const dx = (x - tray.center.x) / edge;
+      const dz = (z - tray.center.z) / edge;
+      return { x: dx * cos - dz * sin, z: dx * sin + dz * cos };
+    };
+    const reachX = tray.halfWidth / edge + 2;
+    const reachZ = tray.halfDepth / edge + 2;
+    for (const obstacle of this.host.obstacles()) {
+      if (!(obstacle.height > 0)) continue;
+      const at = toTray(obstacle.x, obstacle.z);
+      const height = obstacle.height / edge;
+      let body: CANNON.Body;
+      if (obstacle.kind === 'round') {
+        const radius = obstacle.radius / edge;
+        if (!(radius > 0) || Math.abs(at.x) > reachX + radius || Math.abs(at.z) > reachZ + radius) continue;
+        body = new CANNON.Body({ mass: 0, material: OBSTACLE_MATERIAL, shape: new CANNON.Cylinder(radius, radius, height, 16) });
+      } else {
+        const halfLength = obstacle.halfLength / edge;
+        const halfWidth = obstacle.halfWidth / edge;
+        const reach = halfLength + halfWidth;
+        if (!(halfLength > 0) || Math.abs(at.x) > reachX + reach || Math.abs(at.z) > reachZ + reach) continue;
+        body = new CANNON.Body({ mass: 0, material: OBSTACLE_MATERIAL, shape: new CANNON.Box(new CANNON.Vec3(halfLength, height / 2, Math.max(halfWidth, 0.05))) });
+        // The wall's heading on the map (x toward map y, the board's +z) is a turn about -y; the tray is turned by its yaw.
+        body.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), -obstacle.heading - tray.yaw);
+      }
+      body.position.set(at.x, height / 2, at.z);
+      body.updateAABB();
+      this.world.addBody(body);
+      this.obstacles.push(body);
+    }
+  }
+
+  /**
+   * Lays a die at rest on the felt, flat on one of its faces and turned at random, in the first free spot of a spiral
+   * out from the tray's centre (clear of the other dice and of what stands on the board); held there until thrown.
+   */
+  private lay(die: ThrownDie): void {
+    const { body } = die;
+    const down = new THREE.Vector3(0, -1, 0);
+    const normal = die.normals[Math.floor(Math.random() * die.normals.length)] ?? { x: 0, y: -1, z: 0 };
+    const flat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(normal.x, normal.y, normal.z).normalize(), down);
+    const turn = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.random() * Math.PI * 2);
+    const pose = turn.multiply(flat);
+    // Its lowest corner on the felt.
+    const corners = die.mesh.geometry.getAttribute('position');
+    const corner = new THREE.Vector3();
+    let lowest = 0;
+    for (let i = 0; i < corners.count; i++) lowest = Math.min(lowest, corner.fromBufferAttribute(corners, i).applyQuaternion(pose).y);
+    const spot = this.freeSpot(die);
+    this.freeze(die);
+    die.settled = true;
+    die.laid = true;
+    body.position.set(spot.x, -lowest, spot.z);
+    body.quaternion.set(pose.x, pose.y, pose.z, pose.w);
+    die.mesh.position.set(body.position.x, body.position.y, body.position.z);
+    die.mesh.quaternion.copy(pose);
+  }
+
+  /** The first spot, spiralling out from the tray's centre, clear of the other dice and the board's obstacles. */
+  private freeSpot(die: ThrownDie): { x: number; z: number } {
+    const tray = this.tray as Tray;
+    const edge = dieEdgePx(this.host.gridSize(), this.settings.dieSquares);
+    const halfWidth = tray.halfWidth / edge - die.radius;
+    const halfDepth = tray.halfDepth / edge - die.radius;
+    const others = [...this.dice.values()].filter((other) => other !== die);
+    const clear = (x: number, z: number): boolean => {
+      if (Math.abs(x) > halfWidth || Math.abs(z) > halfDepth) return false;
+      if (others.some((other) => Math.hypot(other.body.position.x - x, other.body.position.z - z) < (die.radius + other.radius) * 0.9)) return false;
+      return this.obstacles.every((body) => {
+        const box = body.aabb;
+        return x + die.radius < box.lowerBound.x || x - die.radius > box.upperBound.x || z + die.radius < box.lowerBound.z || z - die.radius > box.upperBound.z;
+      });
+    };
+    for (let ring = 0; ring < 12; ring++) {
+      const around = Math.max(1, ring * 6);
+      for (let i = 0; i < around; i++) {
+        const angle = (i / around) * Math.PI * 2;
+        const x = Math.cos(angle) * ring * LAY_SPACING;
+        const z = Math.sin(angle) * ring * LAY_SPACING;
+        if (clear(x, z)) return { x, z };
+      }
+    }
+    return { x: 0, z: 0 };
+  }
+
+  /** A die held where it is: it moves only when it is thrown (or knocked loose). */
+  private freeze(die: ThrownDie): void {
+    const { body } = die;
+    body.velocity.set(0, 0, 0);
+    body.angularVelocity.set(0, 0, 0);
+    body.type = CANNON.Body.STATIC;
+    body.mass = 0;
+    body.updateMassProperties();
   }
 
   /** A die's body and mesh, made once per id. */
@@ -262,8 +445,8 @@ export class DiceTable {
   }
 
   /**
-   * Sends a die across the tray the way the flick went (up the screen is away from the thrower), from behind the
-   * tray's centre so it has the tray to roll in; the `index`th of `count` dice thrown together stands beside the others.
+   * Sends a die across the tray the way the flick went (up the screen is away from the thrower), from where it lies or
+   * is carried, lifted off the felt; the `index`th of `count` dice thrown together starts beside the others.
    */
   private launch(die: ThrownDie, flick: Flick, index: number, count: number): void {
     const tray = this.tray as Tray;
@@ -280,10 +463,11 @@ export class DiceTable {
     const speed = MIN_SPEED + ((thrown.speed - MIN_THROW_SPEED) / (MAX_THROW_SPEED - MIN_THROW_SPEED)) * (MAX_SPEED - MIN_SPEED);
     const { body } = die;
     this.loosen(die);
+    const from = { x: body.position.x, y: body.position.y, z: body.position.z };
     const start = (shift: number): CANNON.Vec3 => new CANNON.Vec3(
-      inside(-dir.x * halfWidth * START_SHARE + across.x * (offset + shift), halfWidth),
-      START_HEIGHT + (index % 3) * 1.2,
-      inside(-dir.z * halfDepth * START_SHARE + across.z * (offset + shift), halfDepth),
+      inside(from.x + across.x * (offset + shift), halfWidth),
+      Math.max(from.y, START_HEIGHT) + (index % 3) * 0.6,
+      inside(from.z + across.z * (offset + shift), halfDepth),
     );
     body.position.copy(this.clearStart(die, start));
     body.quaternion.setFromEuler(Math.random() * Math.PI * 2, Math.random() * Math.PI * 2, Math.random() * Math.PI * 2);
@@ -323,6 +507,7 @@ export class DiceTable {
     body.updateMassProperties();
     body.wakeUp();
     die.settled = false;
+    delete die.laid;
     die.stillMs = 0;
     die.rollingMs = 0;
     // Moving, it is caught no longer: it is lit up again only if it lands caught.
@@ -336,7 +521,8 @@ export class DiceTable {
   private loosenDiceOn(under: ThrownDie): void {
     const { x, y, z } = under.body.position;
     for (const [id, die] of this.dice) {
-      if (die === under || !die.settled) continue;
+      // A die laid unthrown lies on the felt: nothing rests on it, and it has no reading to lose.
+      if (die === under || !die.settled || die.laid) continue;
       const at = die.body.position;
       if (at.y <= RESTING_HEIGHT || at.y <= y || Math.hypot(at.x - x, at.z - z) > SUPPORT_REACH) continue;
       this.loosen(die);

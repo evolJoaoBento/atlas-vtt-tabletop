@@ -1424,9 +1424,10 @@ server.listen(0, async () => {
       await wait(300);
     }
 
-    // 25. The GM's dice picker: the toolbar's Dice button opens it, 2d6 is picked and rolled; the dice settle (a die caught
-    // on an edge is clicked to throw it again) and Atlas's roll log gets one stock roll of two d6 with min 1. The players'
-    // window never draws these dice either.
+    // 25. The GM's dice tray (Atlas's): the toolbar's Dice button opens it, 2d6 is picked and Roll lays the dice on the
+    // table, at rest. One die is dragged (carried under the pointer) and thrown, the other thrown with Throw all; caught
+    // dice are thrown again. Atlas's roll log gets one stock roll of two d6 with min 1; a die thrown again logs the roll
+    // again. The players' window never draws these dice.
     {
       const opened = page.waitForEvent('popup');
       await page.evaluate(() => window.boardTest.board.host.togglePlayerView());
@@ -1436,22 +1437,29 @@ server.listen(0, async () => {
       const diceButton = page.locator('.atlas-tabletop-extensions button[aria-label="Dice"]');
       check('the toolbar has a Dice button in its end slot', await diceButton.count() === 1);
       await diceButton.click();
-      await wait(200);
+      await wait(400);
       const picker = page.locator('.atlas-tabletop-dice-picker');
-      check('the Dice button opens the picker', await picker.isVisible() && await page.evaluate(() => document.querySelector('.atlas-tabletop-extensions button[aria-label="Dice"]').classList.contains('is-active')));
+      check('the Dice button opens Atlas\'s dice tray', await picker.isVisible() && await page.evaluate(() => {
+        const tray = document.querySelector('.atlas-tabletop-dice-picker');
+        return tray.classList.contains('atlas-dice-tray') && tray.querySelectorAll('.atlas-dice-tray__die').length === 7 && document.querySelector('.atlas-tabletop-extensions button[aria-label="Dice"]').classList.contains('is-active');
+      }));
+      const empty = await page.evaluate(() => ({ formula: document.querySelector('.atlas-dice-tray__formula').textContent, roll: document.querySelector('.atlas-dice-tray__roll').disabled }));
+      check('an empty tray says so, and Roll is off (as in Atlas)', empty.formula === 'The tray is empty.' && empty.roll, empty);
       const d6 = picker.locator('[data-die="d6"]');
       await d6.click();
       await d6.click();
-      await picker.locator('[aria-label="One more d20"]').click();
-      await picker.locator('[aria-label="One fewer d20"]').click();
-      await picker.locator('[aria-label="Raise the modifier"]').click();
-      await picker.locator('[aria-label="Lower the modifier"]').click();
+      await picker.locator('[data-die="d20"]').click();
+      await picker.locator('[aria-label="Take one d20 back"]').click();
+      await picker.locator('[aria-label="Increase modifier"]').click();
+      await picker.locator('[aria-label="Decrease modifier"]').click();
       await d6.click({ button: 'right' });
-      await wait(150);
-      await page.screenshot({ path: `${shots}/board-25a-dice-picker.png` });
+      await wait(600);
+      await page.screenshot({ path: `${shots}/board-25a-dice-tray.png` });
+      const pictures = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-dice-picker .atlas-dice-tray__face img')].filter((img) => img.src.startsWith('data:image/png')).length);
+      check('each die on the tray is a picture of the pack\'s die', pictures === 7, pictures);
       await picker.locator('.atlas-tabletop-dice-swatches [aria-label="The pack\'s colour d6"]').click();
-      const asked = await page.evaluate(() => ({ request: window.boardTest.boardDice.picker.request(), formula: document.querySelector('.atlas-tabletop-dice-formula').textContent }));
-      check('the picker holds 2d6 and no modifier', JSON.stringify(asked.request) === JSON.stringify({ dice: { d6: 2 }, modifier: 0 }) && asked.formula.startsWith('2d6'), asked);
+      const asked = await page.evaluate(() => ({ request: window.boardTest.boardDice.picker.request(), formula: document.querySelector('.atlas-dice-tray__formula').textContent, badge: document.querySelector('[data-die="d6"] .atlas-dice-tray__count')?.textContent }));
+      check('the tray holds 2d6 and no modifier', JSON.stringify(asked.request) === JSON.stringify({ dice: { d6: 2 }, modifier: 0 }) && asked.formula === '2d6' && asked.badge === '2', asked);
       await page.evaluate(() => {
         window.diceRenders25 = { gm: [], players: [] };
         const b = window.boardTest.board;
@@ -1462,35 +1470,56 @@ server.listen(0, async () => {
         watch(b.renderer, window.diceRenders25.gm);
         watch(b.player.renderer, window.diceRenders25.players);
       });
-      await picker.locator('.atlas-tabletop-dice-roll').click();
-      let rethrown = 0;
-      for (let attempt = 0; attempt < 8; attempt++) {
-        await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
-        await wait(300);
-        if (await page.evaluate(() => window.boardTest.atlasRolls.length > 0)) break;
-        // A die caught on an edge: clicked where it lies, it is thrown again.
-        const caught = await page.evaluate(() => {
-          const b = window.boardTest.board;
-          const table = b.dice;
-          const controller = window.boardTest.boardDice.controller;
-          b.view.updateMatrixWorld();
-          const rect = b.canvas.getBoundingClientRect();
-          for (const mesh of table.object3d.children) {
-            if (!controller.waitsOn(mesh.userData.dieId)) continue;
-            const ndc = mesh.getWorldPosition(new window.boardTest.Vector3()).project(b.view);
-            return { x: rect.left + ((ndc.x + 1) / 2) * rect.width, y: rect.top + ((1 - ndc.y) / 2) * rect.height, prompt: document.querySelector('.atlas-tabletop-dice-prompt').textContent };
-          }
-          return null;
-        });
-        if (!caught) break;
-        if (rethrown === 0) await page.screenshot({ path: `${shots}/board-25b-dice-caught.png` });
-        await page.mouse.click(caught.x, caught.y);
-        rethrown++;
-        await wait(200);
-      }
+      await picker.locator('.atlas-dice-tray__roll').click();
       await wait(400);
-      await page.screenshot({ path: `${shots}/board-25c-dice-settled.png` });
-      await popup.screenshot({ path: `${shots}/board-25d-players-no-dice.png` });
+      const laid = await page.evaluate(() => ({
+        dice: window.boardTest.board.dice.object3d.children.length,
+        busy: window.boardTest.board.dice.busy,
+        rolls: window.boardTest.atlasRolls.length,
+        prompt: document.querySelector('.atlas-tabletop-dice-prompt').textContent,
+        open: !document.querySelector('.atlas-tabletop-dice-picker').hidden,
+      }));
+      check('Roll lays the dice on the table at rest, throws none, and the tray steps aside', laid.dice === 2 && !laid.busy && laid.rolls === 0 && !laid.open && laid.prompt.includes('Drag a die'), laid);
+      await page.screenshot({ path: `${shots}/board-25b-dice-laid.png` });
+      // One die dragged away from the camera: carried under the pointer while dragged, thrown when let go.
+      const screenOf = (id) => page.evaluate((id) => {
+        const b = window.boardTest.board;
+        b.view.updateMatrixWorld();
+        const mesh = b.dice.object3d.children.find((candidate) => candidate.userData.dieId === id);
+        const ndc = mesh.getWorldPosition(new window.boardTest.Vector3()).project(b.view);
+        const rect = b.canvas.getBoundingClientRect();
+        return { x: rect.left + ((ndc.x + 1) / 2) * rect.width, y: rect.top + ((1 - ndc.y) / 2) * rect.height, height: mesh.position.y };
+      }, id);
+      const [first, second] = await page.evaluate(() => window.boardTest.board.dice.object3d.children.map((mesh) => mesh.userData.dieId));
+      const start = await screenOf(first);
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      for (let i = 1; i <= 4; i++) { await page.mouse.move(start.x + i * 5, start.y - i * 6); await wait(30); }
+      const carried = await screenOf(first);
+      await page.screenshot({ path: `${shots}/board-25c-die-carried.png` });
+      check('a die pressed and dragged is carried up off the table, under the pointer', carried.height > 1.5 && Math.hypot(carried.x - (start.x + 20), carried.y - (start.y - 24)) < 60 && !(await page.evaluate(() => window.boardTest.board.dice.busy)), { start, carried });
+      for (let i = 5; i <= 12; i++) { await page.mouse.move(start.x + i * 5, start.y - i * 20); await wait(16); }
+      await page.mouse.up();
+      await wait(100);
+      const flying = await page.evaluate((second) => ({ busy: window.boardTest.board.dice.busy, waiting: window.boardTest.boardDice.controller.waitsOn(second) }), second);
+      check('let go, the die is thrown; the other still lies waiting', flying.busy && flying.waiting, flying);
+      await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
+      // The other with Throw all; a die caught on an edge is thrown again the same way.
+      const settle = async (rolls) => {
+        let thrown = 0;
+        for (let attempt = 0; attempt < 10; attempt++) {
+          await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
+          await wait(300);
+          if (await page.evaluate((rolls) => window.boardTest.atlasRolls.length >= rolls, rolls)) break;
+          await page.locator('.atlas-tabletop-dice-prompt__throw').click();
+          thrown++;
+        }
+        return thrown;
+      };
+      const rethrown = await settle(1);
+      await wait(400);
+      await page.screenshot({ path: `${shots}/board-25d-dice-settled.png` });
+      await popup.screenshot({ path: `${shots}/board-25e-players-no-dice.png` });
       // For the eye: the settled dice close up, their faces painted from the default pack.
       await page.evaluate(() => {
         const b = window.boardTest.board;
@@ -1501,24 +1530,30 @@ server.listen(0, async () => {
         b.wake();
       });
       await wait(1500);
-      await page.screenshot({ path: `${shots}/board-25e-dice-close.png` });
+      await page.screenshot({ path: `${shots}/board-25f-dice-close.png` });
       await page.evaluate(() => window.boardTest.board.frameMap());
-      const logged = await page.evaluate(() => JSON.parse(JSON.stringify({ rolls: window.boardTest.atlasRolls, warnings: window.boardTest.diceWarnings, dice: window.boardTest.board.dice.object3d.children.length, prompt: document.querySelector('.atlas-tabletop-dice-prompt').hidden })));
+      await wait(800);
+      const logged = await page.evaluate(() => JSON.parse(JSON.stringify({ rolls: window.boardTest.atlasRolls, warnings: window.boardTest.diceWarnings, dice: window.boardTest.board.dice.object3d.children.length, prompt: { hidden: document.querySelector('.atlas-tabletop-dice-prompt').hidden, text: document.querySelector('.atlas-tabletop-dice-prompt').textContent } })));
       const roll = logged.rolls[0]?.[1];
-      console.log(`25: logged ${JSON.stringify(roll && roll.rolls.map((die) => [die.die, die.value]))}, rethrown ${rethrown}`);
+      console.log(`25: logged ${JSON.stringify(roll && roll.rolls.map((die) => [die.die, die.value]))}, thrown again ${rethrown}`);
       check('Atlas\'s roll log gets one dice-rolled: two d6, each with min 1, as 2d6', logged.rolls.length === 1 && logged.rolls[0][0] === 'dice-rolled' && roll.rolls.length === 2 && roll.rolls.every((die) => die.die === 'd6' && die.min === 1 && die.value >= 1 && die.value <= 6) && roll.formula === '2d6' && roll.total === roll.rolls[0].value + roll.rolls[1].value, { logged, rethrown });
-      check('the settled dice stay on the table, the prompt gone, nothing warned', logged.dice === 2 && logged.prompt === true && logged.warnings.length === 0, logged);
+      check('the dice stay on the table, the line says what the roll came to, nothing warned', logged.dice === 2 && !logged.prompt.hidden && logged.prompt.text.includes(`2d6 = ${roll?.total}`) && logged.warnings.length === 0, logged);
+      // A die thrown again: once it lands, the roll is logged again with its new number.
+      const again = await screenOf(first);
+      await page.mouse.move(again.x, again.y);
+      await page.mouse.down();
+      for (let i = 1; i <= 10; i++) { await page.mouse.move(again.x - i * 4, again.y - i * 18); await wait(16); }
+      await page.mouse.up();
+      await settle(2);
+      const twice = await page.evaluate(() => JSON.parse(JSON.stringify(window.boardTest.atlasRolls.map(([, roll]) => ({ formula: roll.formula, values: roll.rolls.map((die) => die.value) })))));
+      check('a die thrown again logs the roll again once it lands', twice.length === 2 && twice[1].formula === '2d6' && twice[1].values.length === 2, twice);
       const { gm, players } = await page.evaluate(() => window.diceRenders25);
-      check('the GM\'s board drew the picked dice; every players\' pass ran with them hidden', gm.length >= 5 && gm.some((visible) => visible === true) && players.length >= 5 && players.every((visible) => visible === false), { gm: gm.length, players: players.length, shown: players.filter((visible) => visible !== false).length });
-      // Rolling put the picker aside; opened again, Escape closes it; Clear (from the picker) takes the dice away.
-      check('the picker steps aside for the roll', !(await picker.isVisible()));
+      check('the GM\'s board drew the dice; every players\' pass ran with them hidden', gm.length >= 5 && gm.some((visible) => visible === true) && players.length >= 5 && players.every((visible) => visible === false), { gm: gm.length, players: players.length, shown: players.filter((visible) => visible !== false).length });
       await diceButton.click();
       await wait(150);
       await page.keyboard.press('Escape');
       await wait(150);
-      check('Escape closes the picker', !(await picker.isVisible()));
-      await diceButton.click();
-      await wait(150);
+      check('Escape closes the tray', !(await picker.isVisible()));
       // The board still, so only Clear itself can ask for a frame: minis' clips and flames held, each frame counted with
       // the dice it drew. The board draws only when woken, so dice cleared without a frame stay on the screen.
       const stilled = await page.evaluate(async () => {
@@ -1539,11 +1574,9 @@ server.listen(0, async () => {
         return { idleFrames: window.clearFrames.length, dice: b.dice?.object3d.children.length ?? 0 };
       });
       check('(before Clear: the dice on the table)', stilled.dice === 2, stilled);
-      // Only the frames from Clear on count.
-      const clearButton = await picker.locator('.atlas-tabletop-dice-clear').boundingBox();
+      const clearButton = await page.locator('.atlas-tabletop-dice-prompt__clear').boundingBox();
       await page.mouse.move(clearButton.x + clearButton.width / 2, clearButton.y + clearButton.height / 2);
       await wait(100);
-      // Still: no frame for 400 ms (the frames the hover asked for have run out).
       const quiet = await page.evaluate(async () => {
         for (let tries = 0; tries < 25; tries++) {
           const before = window.clearFrames.length;
@@ -1554,7 +1587,7 @@ server.listen(0, async () => {
       });
       check('(before Clear: the board has gone still)', quiet);
       await page.evaluate(() => { window.clearFrames = []; });
-      await picker.locator('.atlas-tabletop-dice-clear').click();
+      await page.locator('.atlas-tabletop-dice-prompt__clear').click();
       await wait(300);
       const cleared = await page.evaluate(() => {
         const frames = window.clearFrames.slice();
@@ -1562,19 +1595,21 @@ server.listen(0, async () => {
         for (const held of window.clearHeld) delete held.animating;
         for (const held of window.clearHeld) delete held.animated;
         window.boardTest.board.wake();
-        return { frames, dice: window.boardTest.board.dice.object3d.children.length, request: window.boardTest.boardDice.picker.request() };
+        return { frames, dice: window.boardTest.board.dice.object3d.children.length, line: document.querySelector('.atlas-tabletop-dice-prompt').hidden };
       });
-      check('Clear takes the dice off the table and empties the picker (Roll would throw the default d20)', cleared.dice === 0 && JSON.stringify(cleared.request) === JSON.stringify({ dice: { d20: 1 }, modifier: 0 }), cleared);
+      check('Clear on the line takes the dice off the table, and the line goes', cleared.dice === 0 && cleared.line, cleared);
       check('Clear redraws the board at once: a frame is drawn, with no dice in it', cleared.frames.length >= 1 && cleared.frames.at(-1) === 0, cleared.frames);
       // A scene change drops a roll in play: no roll reaches Atlas.
-      await picker.locator('.atlas-tabletop-dice-roll').click();
+      await page.evaluate(() => {
+        window.boardTest.boardDice.roll({ dice: { d6: 1 }, modifier: 0 });
+        window.boardTest.boardDice.controller.throwPending({ dx: 0, dy: -200, ms: 120 });
+      });
       await wait(100);
       await page.evaluate(() => window.boardTest.boardDice.sceneChanged());
       await wait(1500);
       const dropped = await page.evaluate(() => ({ rolls: window.boardTest.atlasRolls.length, dice: window.boardTest.board.dice.object3d.children.length, busy: window.boardTest.board.dice.busy }));
-      check('a roll in play when the scene changes goes, unlogged', dropped.rolls === 1 && dropped.dice === 0 && !dropped.busy, dropped);
-      // A roll no Atlas view takes is not lost: its total shows on the prompt line every time, not only with the first
-      // warning.
+      check('a roll in play when the scene changes goes, unlogged', dropped.rolls === 2 && dropped.dice === 0 && !dropped.busy, dropped);
+      // A roll no Atlas view takes is not lost: its total stays on the line, on every such roll.
       await page.evaluate(() => {
         const bd = window.boardTest.boardDice;
         window.savedAtlasView = bd.deps.atlasView();
@@ -1586,12 +1621,12 @@ server.listen(0, async () => {
       });
       const notices = [];
       for (let n = 1; n <= 2; n++) {
-        await page.evaluate(() => window.boardTest.boardDice.roll({ dice: { d6: 1 }, modifier: 2 }, { dx: 0, dy: -200, ms: 120 }));
+        await page.evaluate(() => window.boardTest.boardDice.roll({ dice: { d6: 1 }, modifier: 2 }));
         for (let attempt = 0; attempt < 10; attempt++) {
+          await page.evaluate(() => window.boardTest.boardDice.controller.throwPending({ dx: 0, dy: -200, ms: 120 }));
           await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
           await wait(200);
           if (await page.evaluate((n) => window.unlogged.length >= n, n)) break;
-          await page.evaluate(() => window.boardTest.boardDice.controller.throwPending({ dx: 0, dy: -200, ms: 120 }));
         }
         notices.push(await page.evaluate(() => {
           const line = document.querySelector('.atlas-tabletop-dice-prompt');
@@ -1599,14 +1634,14 @@ server.listen(0, async () => {
         }));
       }
       await page.evaluate(() => { window.restorePublish(); window.boardTest.useAtlasView(window.savedAtlasView); window.boardTest.boardDice.sceneChanged(); });
-      check('a roll no Atlas view takes shows its total on the prompt line, on every such roll', notices.length === 2 && notices.every((notice) => !notice.hidden && typeof notice.total === 'number' && notice.text.includes(`= ${notice.total}`)), notices);
+      check('a roll no Atlas view takes shows its total on the line, on every such roll', notices.length === 2 && notices.every((notice) => !notice.hidden && typeof notice.total === 'number' && notice.text.includes('Not logged') && notice.text.includes(`= ${notice.total}`)), notices);
       await page.keyboard.press('Escape');
       await page.evaluate(() => window.boardTest.board.host.togglePlayerView());
       await wait(300);
     }
 
-    // 26. Drag-out-to-throw: a d20, a d10 and a d100 picked, and the d20 dragged up out of the picker onto the board. The
-    // picker steps aside, the dice fly away from the camera, and the roll Atlas logs is what the dice read where they lie.
+    // 26. A d20, a d10 and a d100 on the tray: Roll lays them (a d100 is two dice), and Ctrl let go throws every die
+    // still waiting with the one in hand. The roll Atlas logs is what the dice read where they lie.
     {
       await page.evaluate(() => window.boardTest.board.frameMap());
       await wait(1000);
@@ -1621,40 +1656,39 @@ server.listen(0, async () => {
         const settled = table.onSettled;
         table.onSettled = (id, reading) => { window.faces26.push({ id, face: reading.face, caught: reading.caught }); settled(id, reading); };
       });
-      const from = await picker.locator('[data-die="d20"]').boundingBox();
-      const start = { x: from.x + from.width / 2, y: from.y + from.height / 2 };
-      await page.mouse.move(start.x, start.y);
+      await picker.locator('.atlas-dice-tray__roll').click();
+      await wait(300);
+      const laid = await page.evaluate(() => ({ dice: window.boardTest.board.dice.object3d.children.length, busy: window.boardTest.board.dice.busy }));
+      check('a d20, a d10 and a d100 are laid as four dice', laid.dice === 4 && !laid.busy, laid);
+      const id = await page.evaluate(() => window.boardTest.board.dice.object3d.children[0].userData.dieId);
+      const from = await page.evaluate((id) => {
+        const b = window.boardTest.board;
+        b.view.updateMatrixWorld();
+        const mesh = b.dice.object3d.children.find((candidate) => candidate.userData.dieId === id);
+        const ndc = mesh.getWorldPosition(new window.boardTest.Vector3()).project(b.view);
+        const rect = b.canvas.getBoundingClientRect();
+        return { x: rect.left + ((ndc.x + 1) / 2) * rect.width, y: rect.top + ((1 - ndc.y) / 2) * rect.height };
+      }, id);
+      await page.mouse.move(from.x, from.y);
       await page.mouse.down();
-      for (let i = 1; i <= 10; i++) { await page.mouse.move(start.x + i * 6, start.y - i * 22); await wait(16); }
+      for (let i = 1; i <= 10; i++) { await page.mouse.move(from.x + i * 6, from.y - i * 22); await wait(16); }
+      await page.keyboard.down('Control');
       await page.mouse.up();
-      await wait(150);
-      const flying = await page.evaluate(() => ({ busy: window.boardTest.board.dice.busy, dice: window.boardTest.board.dice.object3d.children.length }));
-      check('a die dragged out of the picker throws the picked roll (a d100 is two dice) and the picker steps aside', flying.busy && flying.dice === 4 && !(await picker.isVisible()), flying);
+      await page.keyboard.up('Control');
+      await wait(100);
+      const flying = await page.evaluate(() => ({ busy: window.boardTest.board.dice.busy, waiting: window.boardTest.boardDice.controller.waiting }));
+      check('let go with Ctrl, every die is thrown with the one in hand', flying.busy && !flying.waiting, flying);
       let rethrown = 0;
       for (let attempt = 0; attempt < 10; attempt++) {
         await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
         await wait(300);
-        if (await page.evaluate(() => window.boardTest.atlasRolls.length > 1)) break;
-        const caught = await page.evaluate(() => {
-          const b = window.boardTest.board;
-          const controller = window.boardTest.boardDice.controller;
-          b.view.updateMatrixWorld();
-          const rect = b.canvas.getBoundingClientRect();
-          for (const mesh of b.dice.object3d.children) {
-            if (!controller.waitsOn(mesh.userData.dieId)) continue;
-            const ndc = mesh.getWorldPosition(new window.boardTest.Vector3()).project(b.view);
-            return { x: rect.left + ((ndc.x + 1) / 2) * rect.width, y: rect.top + ((1 - ndc.y) / 2) * rect.height };
-          }
-          return null;
-        });
-        if (!caught) break;
-        await page.mouse.click(caught.x, caught.y);
+        if (await page.evaluate(() => window.boardTest.atlasRolls.length > 2)) break;
+        await page.locator('.atlas-tabletop-dice-prompt__throw').click();
         rethrown++;
-        await wait(200);
       }
       const thrown = await page.evaluate(() => {
         const b = window.boardTest.board;
-        const roll = window.boardTest.atlasRolls[1]?.[1];
+        const roll = window.boardTest.atlasRolls[2]?.[1];
         const at = new window.boardTest.Vector3();
         for (const mesh of b.dice.object3d.children) at.add(mesh.getWorldPosition(new window.boardTest.Vector3()));
         at.divideScalar(Math.max(1, b.dice.object3d.children.length));
@@ -1662,11 +1696,11 @@ server.listen(0, async () => {
         b.wake();
         return JSON.parse(JSON.stringify({ roll, faces: window.faces26, rolls: window.boardTest.atlasRolls.length }));
       });
-      console.log(`26: logged ${JSON.stringify(thrown.roll && thrown.roll.rolls.map((die) => [die.die, die.value]))}, read ${JSON.stringify(thrown.faces)}, rethrown ${rethrown}`);
-      check('Atlas logs the dragged roll: a d20, a d10 and a d100, min 1, each within its faces', thrown.rolls === 2 && thrown.roll.rolls.length === 3 && thrown.roll.rolls.every((die) => die.min === 1 && die.value >= 1 && die.value <= die.max)
+      console.log(`26: logged ${JSON.stringify(thrown.roll && thrown.roll.rolls.map((die) => [die.die, die.value]))}, read ${JSON.stringify(thrown.faces)}, thrown again ${rethrown}`);
+      check('Atlas logs the roll: a d20, a d10 and a d100, min 1, each within its faces', thrown.rolls === 3 && thrown.roll.rolls.length === 3 && thrown.roll.rolls.every((die) => die.min === 1 && die.value >= 1 && die.value <= die.max)
         && JSON.stringify(thrown.roll.rolls.map((die) => die.die).sort()) === JSON.stringify(['d10', 'd100', 'd20']), thrown);
       await wait(1500);
-      await page.screenshot({ path: `${shots}/board-26-dragged-dice-close.png` });
+      await page.screenshot({ path: `${shots}/board-26-dice-close.png` });
       // For the eye: each die close up from above, named by what it read, to set against the face it shows.
       const ids = await page.evaluate(() => window.boardTest.board.dice.object3d.children.map((mesh) => mesh.userData.dieId));
       for (const id of ids) {
@@ -1691,11 +1725,11 @@ server.listen(0, async () => {
       });
       check('a settings change leaves the dice on the table until the next roll', kept.dice === 4 && kept.stale && kept.same, kept);
       await diceButton.click();
-      await picker.locator('.atlas-tabletop-dice-roll').click();
+      await picker.locator('[data-die="d20"]').click();
+      await picker.locator('.atlas-dice-tray__roll').click();
       await wait(100);
       const remade = await page.evaluate(() => ({ fresh: window.boardTest.board.dice !== window.tableBefore, oldDice: window.tableBefore.object3d.children.length, stale: window.boardTest.boardDice.isStale, dice: window.boardTest.board.dice.object3d.children.length }));
-      check('the next roll is thrown on a new table; the old dice go', remade.fresh && remade.oldDice === 0 && !remade.stale && remade.dice === 4, remade);
-      await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
+      check('the next roll is laid on a new table; the old dice go', remade.fresh && remade.oldDice === 0 && !remade.stale && remade.dice === 1, remade);
       await page.evaluate(() => window.boardTest.boardDice.sceneChanged());
     }
 
@@ -1725,12 +1759,12 @@ server.listen(0, async () => {
       // The Longsword's attack: thrown with the d20, logged as the hero's Longsword.
       await drawer.locator('.atlas-tabletop-sheet__roll', { hasText: 'Attack: +5' }).click();
       await wait(150);
-      check('the attack throws a d20 and the notice goes', await page.evaluate(() => window.boardTest.board.dice.busy && document.querySelector('.atlas-tabletop-sheet__notice').hidden));
+      check('the attack lays a d20 on the table and the notice goes', await page.evaluate(() => window.boardTest.board.dice.object3d.children.length === 1 && !window.boardTest.board.dice.busy && document.querySelector('.atlas-tabletop-sheet__notice').hidden));
       for (let attempt = 0; attempt < 8; attempt++) {
         await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
         await wait(300);
         if (await page.evaluate(() => window.boardTest.atlasRolls.length > window.rollsBefore26b)) break;
-        // A die caught on an edge: the prompt's Throw throws it again.
+        // The die laid, or caught on an edge: the line's Throw all throws it.
         await page.locator('.atlas-tabletop-dice-prompt__throw').click();
       }
       await wait(600);
@@ -1742,7 +1776,8 @@ server.listen(0, async () => {
       // A sheet roll replaced by the picker's while it settles: only the picker's is logged, as a toolbar roll.
       await drawer.locator('.atlas-tabletop-sheet__roll', { hasText: '1d10 + 5' }).click();
       await page.evaluate(() => { window.rollsBefore26b = window.boardTest.atlasRolls.length; window.boardTest.boardDice.picker.open(); });
-      await page.locator('.atlas-tabletop-dice-picker .atlas-tabletop-dice-roll').click();
+      await page.locator('.atlas-tabletop-dice-picker [data-die="d20"]').click();
+      await page.locator('.atlas-tabletop-dice-picker .atlas-dice-tray__roll').click();
       for (let attempt = 0; attempt < 8; attempt++) {
         await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
         await wait(300);
@@ -1751,7 +1786,7 @@ server.listen(0, async () => {
       }
       await wait(300);
       const replaced = await page.evaluate(() => JSON.parse(JSON.stringify(window.boardTest.atlasRolls.slice(window.rollsBefore26b).map(([, roll]) => ({ formula: roll.formula, source: roll.source })))));
-      check('a sheet roll still settling is dropped for the picker\'s, which is logged as the toolbar\'s', replaced.length === 1 && replaced[0].source.type === 'toolbar', replaced);
+      check('a sheet roll on the table is dropped for the tray\'s, which is logged as the toolbar\'s', replaced.length === 1 && replaced[0].source.type === 'toolbar', replaced);
       // Dice from its button shuts the drawer; the drawer's button shuts the picker; another token empties it.
       await page.locator('.atlas-tabletop-extensions button[aria-label="Dice"]').click();
       await wait(150);

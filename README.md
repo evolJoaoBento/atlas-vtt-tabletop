@@ -63,6 +63,7 @@ Browser harness for the 3D board:
 ```
 npx esbuild harness/board.ts --bundle --outfile=<dir>/board.js --alias:obsidian=./harness/obsidian-stub.ts --loader:.png=binary
 cp harness/board.html <dir>/index.html && cp styles.css <dir>/
+# optional, for screenshots in Atlas's look: cp <vault>/.obsidian/plugins/atlas-vtt/styles.css <dir>/atlas.css
 node harness/board-test.cjs <dir> <screenshot dir>
 ```
 

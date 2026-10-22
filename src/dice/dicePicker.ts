@@ -1,24 +1,29 @@
 /**
- * The GM's dice picker on the board, opened from the toolbar's Dice button, laid out like Interactive Dice's controls
- * panel in Atlas's menu look: a count per die type (click or + adds one, − takes one off), a die's colour from its
- * right-click, a flat modifier, Clear, and Roll (a gentle toss). A die (or Roll) dragged out of the picker onto the
- * board is thrown the way the pointer went. Plain DOM; what it picks is `pickedRequest`, which is pure.
+ * The GM's dice tray on the board, opened from the toolbar's Dice button: Atlas's own dice tray, in its look and with
+ * its controls. A picture of each die (click adds one, the grip under it takes one back), right-click on a die for the
+ * colour it is thrown in, Normal / Advantage / Disadvantage when the dice picked allow it, a modifier, the formula, Roll
+ * and Clear. Roll lays the dice on the table where the camera looks, for the GM to pick up and throw. Plain DOM; what
+ * it picks is `pickedRequest`, which is pure.
  */
 import { DIE_TYPES, type DieType } from './kit/faces';
 import { defaultDie, MAX_DICE, type DiceRules, type RollRequest } from './rollRules';
-import { DRAG_PX, FLICK_MS, GENTLE, type Flick } from './throwInput';
 
-/** What the picker holds: how many of each die, the modifier, and the colour a die type is thrown in. */
+export type AdvantageSide = NonNullable<RollRequest['advantage']>;
+
+/** What the tray holds: how many of each die, the modifier, the colour a die type is thrown in, and the side. */
 export interface Pick {
   counts: Partial<Record<DieType, number>>;
   modifier: number;
   colors: Partial<Record<DieType, string>>;
+  advantage?: AdvantageSide;
 }
 
-export const MODIFIER_LIMIT = 99;
+/** Atlas's tray: a modifier from −20 to +20, at most 20 of one die. */
+export const MODIFIER_LIMIT = 20;
+export const DIE_LIMIT = 20;
 
-/** The picker's dice in Atlas's order: the percentile die last. */
-const PICKER_DICE: readonly DieType[] = ['d4', 'd6', 'd8', 'd10', 'd12', 'd20', 'd100'];
+/** The tray's dice in Atlas's order: the percentile die last. */
+const TRAY_DICE: readonly DieType[] = ['d4', 'd6', 'd8', 'd10', 'd12', 'd20', 'd100'];
 
 export function emptyPick(): Pick {
   return { counts: {}, modifier: 0, colors: {} };
@@ -26,11 +31,12 @@ export function emptyPick(): Pick {
 
 const pickedCount = (pick: Pick): number => DIE_TYPES.reduce((sum, die) => sum + (pick.counts[die] ?? 0), 0);
 
-/** One more (or fewer) of a die: never below none, never more than 20 dice in all. */
+/** One more (or fewer) of a die: never below none, never more than 20 of it or 20 dice in all. */
 export function stepDie(pick: Pick, die: DieType, delta: 1 | -1): Pick {
   const now = pick.counts[die] ?? 0;
-  if (delta > 0 && pickedCount(pick) >= MAX_DICE) return pick;
+  if (delta > 0 && (pickedCount(pick) >= MAX_DICE || now >= DIE_LIMIT)) return pick;
   const next = Math.max(0, now + delta);
+  if (next === now) return pick;
   const counts = { ...pick.counts };
   if (next === 0) delete counts[die];
   else counts[die] = next;
@@ -41,51 +47,78 @@ export function stepModifier(pick: Pick, delta: 1 | -1): Pick {
   return { ...pick, modifier: Math.max(-MODIFIER_LIMIT, Math.min(MODIFIER_LIMIT, pick.modifier + delta)) };
 }
 
-/** The roll the picker throws: the dice picked, else one of the collection's default die (a d20 failing that). */
-export function pickedRequest(pick: Pick, rules: DiceRules): RollRequest {
-  const dice = pickedCount(pick) > 0 ? { ...pick.counts } : { [defaultDie(rules) ?? 'd20']: 1 };
-  const colors: Partial<Record<DieType, string>> = {};
-  for (const die of Object.keys(dice) as DieType[]) if (pick.colors[die]) colors[die] = pick.colors[die];
-  return { dice, modifier: pick.modifier, ...(Object.keys(colors).length > 0 ? { colors } : {}) };
+/** Whether advantage or disadvantage applies to the dice picked: exactly one of the collection's default die. */
+export function advantageApplies(pick: Pick, rules: DiceRules): boolean {
+  const die = defaultDie(rules);
+  return die !== null && pick.counts[die] === 1 && pickedCount(pick) < MAX_DICE;
 }
 
-/** `2d6+1d20+3`: the picked dice and the modifier, as the formula bar shows them. */
+/** The roll the tray lays on the table; null with no dice picked (Roll is off, as in Atlas). */
+export function pickedRequest(pick: Pick, rules: DiceRules): RollRequest | null {
+  if (pickedCount(pick) === 0) return null;
+  const dice = { ...pick.counts };
+  const colors: Partial<Record<DieType, string>> = {};
+  for (const die of Object.keys(dice) as DieType[]) if (pick.colors[die]) colors[die] = pick.colors[die];
+  return {
+    dice,
+    modifier: pick.modifier,
+    ...(Object.keys(colors).length > 0 ? { colors } : {}),
+    ...(pick.advantage && advantageApplies(pick, rules) ? { advantage: pick.advantage } : {}),
+  };
+}
+
+/** `2d6 + 1d20 + 3`, as Atlas's tray writes it; empty with no dice. */
 export function pickFormula(pick: Pick): string {
-  const dice = PICKER_DICE.filter((die) => pick.counts[die]).map((die) => `${pick.counts[die]}${die}`).join('+');
-  const modifier = pick.modifier === 0 ? '' : `${pick.modifier > 0 ? '+' : '−'}${Math.abs(pick.modifier)}`;
-  return `${dice}${modifier}`;
+  const dice = TRAY_DICE.filter((die) => pick.counts[die]).map((die) => `${pick.counts[die]}${die}`);
+  if (dice.length === 0) return '';
+  const formula = dice.join(' + ');
+  return pick.modifier === 0 ? formula : `${formula} ${pick.modifier < 0 ? '-' : '+'} ${Math.abs(pick.modifier)}`;
 }
 
 export interface DicePickerOptions {
-  onRoll(request: RollRequest, flick: Flick): void;
-  onClear(): void;
+  /** Roll: the dice to lay on the table. */
+  onRoll(request: RollRequest): void;
   colors: () => { name: string; color: string }[];
-  /** The rules of the board's map: Roll with nothing picked throws its default die. */
+  /** The rules of the board's map: whether advantage applies. */
   rules: () => DiceRules;
-  /** The picker opened or closed (the toolbar's button follows). */
+  /** A picture of a die of the chosen pack, or null (the button shows its name). */
+  picture?(die: DieType): string | null;
+  /** The tray opened or closed (the toolbar's button follows). */
   onOpenChange?(open: boolean): void;
 }
 
 /** Lucide's `dices` (ISC): the toolbar's Dice button. */
 export const DICES_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="12" height="12" x="2" y="10" rx="2" ry="2"/><path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3l-5-4.92a2.24 2.24 0 0 0-3 0L10 6"/><path d="M6 18h.01"/><path d="M10 14h.01"/><path d="M15 6h.01"/><path d="M18 9h.01"/></svg>';
-const MINUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg>';
-const PLUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>';
-const TRASH_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
+/** Lucide's `minus` and `plus` (ISC). */
+const MINUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/></svg>';
+const PLUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>';
 
+const SIDES: Array<{ value: AdvantageSide | 'normal'; label: string }> = [
+  { value: 'normal', label: 'Normal' },
+  { value: 'advantage', label: 'Advantage' },
+  { value: 'disadvantage', label: 'Disadvantage' },
+];
 
 export class DicePicker {
   private pick: Pick = emptyPick();
+  /** Atlas's tray: positioned over its button by Atlas's own styles. */
   private readonly panel: HTMLElement;
-  private readonly badges = new Map<DieType, HTMLElement>();
-  private readonly dieButtons = new Map<DieType, HTMLButtonElement>();
+  private readonly faces = new Map<DieType, HTMLButtonElement>();
+  private readonly grips = new Map<DieType, HTMLElement>();
+  private readonly sides: HTMLElement;
+  private readonly sideButtons = new Map<string, HTMLButtonElement>();
   private readonly modifierValue: HTMLElement;
+  private readonly lower: HTMLButtonElement;
+  private readonly raise: HTMLButtonElement;
   private readonly formula: HTMLElement;
+  private readonly roll: HTMLButtonElement;
+  private readonly clear: HTMLButtonElement;
   private readonly swatches: HTMLElement;
   private swatchesFor: DieType | null = null;
   private readonly stops: Array<() => void> = [];
   private readonly onOutside = (event: PointerEvent): void => {
     const target = event.target as Node;
-    // The Dice button toggles the picker itself.
+    // The Dice button toggles the tray itself.
     if (!this.panel.contains(target) && !this.panel.parentElement?.contains(target)) this.close();
   };
 
@@ -98,72 +131,73 @@ export class DicePicker {
       into.appendChild(made);
       return made;
     };
-    const iconButton = (into: HTMLElement, svg: string, label: string, onClick: () => void): HTMLButtonElement => {
-      const made = el('button', 'btn btn--ghost btn--icon btn--sm atlas-tabletop-dice-step', into);
+    const button = (className: string, into: HTMLElement, label: string, onClick: () => void, text?: string): HTMLButtonElement => {
+      const made = el('button', className, into, text);
       made.type = 'button';
-      made.innerHTML = svg;
       made.setAttribute('aria-label', label);
-      made.title = label;
       made.addEventListener('click', onClick);
       return made;
     };
-    this.panel = el('div', 'atlas-dropdown-content atlas-dropdown-content--top atlas-tabletop-dice-picker', parent);
+    this.panel = el('div', 'atlas-dice-tray atlas-tabletop-dice-picker', parent);
     this.panel.hidden = true;
     this.panel.setAttribute('role', 'dialog');
     this.panel.setAttribute('aria-label', 'Dice');
+    const content = el('div', 'atlas-dice-tray__content', el('div', 'atlas-dice-panel', this.panel));
 
-    const diceSection = el('div', 'atlas-dropdown-section', this.panel);
-    el('span', 'atlas-dropdown-label', diceSection, 'Dice');
-    const grid = el('div', 'atlas-tabletop-dice-grid', diceSection);
-    for (const die of PICKER_DICE) {
-      const cell = el('div', 'atlas-tabletop-dice-cell', grid);
-      const button = el('button', 'btn btn--ghost atlas-tabletop-dice-die', cell);
-      button.type = 'button';
-      button.dataset.die = die;
-      button.setAttribute('aria-label', `${die}: click to add, right-click for its colour, drag onto the board to throw`);
-      button.title = `${die}: click to add · right-click: colour · drag onto the board: throw`;
-      el('span', 'atlas-tabletop-dice-die__name', button, die);
-      this.badges.set(die, el('span', 'atlas-tabletop-dice-die__badge', button));
-      this.dieButtons.set(die, button);
-      this.throwable(button, () => this.add(die, 1), () => {
-        // Dragged out: the picked roll, with this die in it.
-        const pick = this.pick.counts[die] ? this.pick : stepDie(this.pick, die, 1);
-        return pickedRequest(pick, this.opts.rules());
-      });
-      button.addEventListener('contextmenu', (event) => {
+    const dice = el('div', 'atlas-dice-tray__dice', content);
+    for (const die of TRAY_DICE) {
+      const cell = el('div', 'atlas-dice-tray__die', dice);
+      const face = button('atlas-dice-tray__face', cell, `Add a ${die}`, () => this.change(stepDie(this.pick, die, 1)));
+      face.dataset.die = die;
+      face.title = `${die} · right-click: colour`;
+      face.addEventListener('contextmenu', (event) => {
         event.preventDefault();
-        this.showSwatches(die, button);
+        this.showSwatches(die, face);
       });
-      const steps = el('div', 'atlas-tabletop-dice-steps', cell);
-      iconButton(steps, MINUS_SVG, `One fewer ${die}`, () => this.add(die, -1));
-      iconButton(steps, PLUS_SVG, `One more ${die}`, () => this.add(die, 1));
+      this.faces.set(die, face);
+      this.grips.set(die, cell);
     }
-    this.swatches = el('div', 'atlas-tabletop-dice-swatches', diceSection);
+    this.swatches = el('div', 'atlas-tabletop-dice-swatches', content);
     this.swatches.hidden = true;
 
-    const modifierSection = el('div', 'atlas-dropdown-section', this.panel);
-    const modifierRow = el('div', 'atlas-tabletop-dice-modifier', modifierSection);
-    el('span', 'atlas-dropdown-label', modifierRow, 'Modifier');
-    iconButton(modifierRow, MINUS_SVG, 'Lower the modifier', () => this.change(stepModifier(this.pick, -1)));
-    this.modifierValue = el('span', 'atlas-tabletop-dice-modifier__value', modifierRow);
-    iconButton(modifierRow, PLUS_SVG, 'Raise the modifier', () => this.change(stepModifier(this.pick, 1)));
+    this.sides = el('div', 'atlas-segmented atlas-segmented--fit atlas-dice-tray__advantage', content);
+    this.sides.setAttribute('role', 'radiogroup');
+    this.sides.setAttribute('aria-label', 'Advantage for the next roll');
+    for (const side of SIDES) {
+      const option = button('btn btn--ghost btn--sm atlas-segmented__option', this.sides, side.label, () => {
+        if (this.sides.getAttribute('aria-disabled') === 'true') return;
+        const { advantage: _gone, ...rest } = this.pick;
+        this.change(side.value === 'normal' ? rest : { ...rest, advantage: side.value });
+      }, side.label);
+      option.setAttribute('role', 'radio');
+      this.sideButtons.set(side.value, option);
+    }
 
-    const bar = el('div', 'atlas-dropdown-section atlas-tabletop-dice-bar', this.panel);
-    this.formula = el('span', 'atlas-tabletop-dice-formula', bar);
-    const clear = iconButton(bar, TRASH_SVG, 'Clear the dice', () => {
+    const modifier = el('div', 'atlas-dice-tray__modifier', content);
+    el('span', 'atlas-dice-tray__modifier-label', modifier, 'Modifier');
+    this.lower = button('atlas-dice-tray__grip atlas-dice-tray__step', modifier, 'Decrease modifier', () => this.change(stepModifier(this.pick, -1)));
+    this.lower.innerHTML = MINUS_SVG;
+    this.modifierValue = el('span', 'atlas-dice-tray__modifier-value', modifier);
+    this.raise = button('atlas-dice-tray__grip atlas-dice-tray__step', modifier, 'Increase modifier', () => this.change(stepModifier(this.pick, 1)));
+    this.raise.innerHTML = PLUS_SVG;
+
+    this.formula = el('p', 'atlas-dice-tray__formula', content);
+    this.formula.setAttribute('role', 'status');
+    this.formula.setAttribute('aria-live', 'polite');
+
+    const actions = el('div', 'atlas-dice-tray__actions', content);
+    this.roll = button('btn btn--default btn--sm atlas-dice-tray__roll', actions, 'Roll', () => {
+      const request = pickedRequest(this.pick, this.opts.rules());
+      if (!request) return;
+      this.opts.onRoll(request);
+      // As Atlas's tray: a roll made, the tray is empty again.
       this.change(emptyPick());
-      this.opts.onClear();
-    });
-    clear.classList.add('atlas-tabletop-dice-clear');
-    const roll = el('button', 'btn btn--primary btn--sm atlas-tabletop-dice-roll', bar, 'Roll');
-    roll.type = 'button';
-    roll.title = 'Roll · drag onto the board to throw';
-    this.throwable(roll, () => this.opts.onRoll(this.request(), GENTLE), () => this.request());
-    el('div', 'atlas-dropdown-swatches__hint atlas-tabletop-dice-hint', this.panel, 'Drag a die onto the board to throw it. Click a die caught on an edge to throw it again.');
+    }, 'Roll');
+    this.clear = button('btn btn--outline btn--sm', actions, 'Clear', () => this.change(emptyPick()), 'Clear');
 
     // Presses and keys here are not the board's: no camera drag, no camera keys.
     this.panel.addEventListener('pointerdown', (event) => event.stopPropagation());
-    // Escape closes it, from the picker or from the button that opened it.
+    // Escape closes it, from the tray or from the button that opened it.
     const escape = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape' || !this.isOpen) return;
       event.preventDefault();
@@ -184,6 +218,7 @@ export class DicePicker {
     if (this.isOpen) return;
     this.show();
     this.panel.hidden = false;
+    this.keepInView();
     this.parent.ownerDocument.addEventListener('pointerdown', this.onOutside, true);
     this.opts.onOpenChange?.(true);
   }
@@ -196,9 +231,23 @@ export class DicePicker {
     this.opts.onOpenChange?.(false);
   }
 
-  /** What Roll throws now. */
-  request(): RollRequest {
+  /** Atlas's tray stands centred over its button: moved sideways as far as it takes to stay inside the window. */
+  private keepInView(): void {
+    this.panel.style.removeProperty('--atlas-keep-in-view-x');
+    const rect = this.panel.getBoundingClientRect();
+    const width = this.parent.ownerDocument.defaultView?.innerWidth ?? rect.right;
+    const shift = rect.right > width - 8 ? width - 8 - rect.right : rect.left < 8 ? 8 - rect.left : 0;
+    if (shift !== 0) this.panel.style.setProperty('--atlas-keep-in-view-x', `${Math.round(shift)}px`);
+  }
+
+  /** What Roll lays on the table now; null with no dice picked. */
+  request(): RollRequest | null {
     return pickedRequest(this.pick, this.opts.rules());
+  }
+
+  /** The dice's pictures were drawn (again). */
+  refreshPictures(): void {
+    this.show();
   }
 
   dispose(): void {
@@ -207,48 +256,91 @@ export class DicePicker {
     this.panel.remove();
   }
 
-  private add(die: DieType, delta: 1 | -1): void {
-    const next = stepDie(this.pick, die, delta);
-    if (next === this.pick) {
-      // Full: the die says so for a moment.
-      const button = this.dieButtons.get(die);
-      button?.classList.add('is-at-limit');
-      this.parent.ownerDocument.defaultView?.setTimeout(() => button?.classList.remove('is-at-limit'), 1200);
-      return;
-    }
-    this.change(next);
-  }
-
   private change(pick: Pick): void {
     this.pick = pick;
     this.show();
   }
 
   private show(): void {
-    for (const die of DIE_TYPES) {
+    const doc = this.parent.ownerDocument;
+    const total = pickedCount(this.pick);
+    for (const die of TRAY_DICE) {
       const count = this.pick.counts[die] ?? 0;
-      const badge = this.badges.get(die)!;
-      badge.textContent = count > 0 ? String(count) : '';
-      badge.hidden = count === 0;
-      const button = this.dieButtons.get(die)!;
-      button.classList.toggle('is-selected', count > 0);
+      const face = this.faces.get(die)!;
+      face.replaceChildren();
+      const picture = this.opts.picture?.(die) ?? null;
+      if (picture) {
+        const img = doc.createElement('img');
+        img.className = 'atlas-tabletop-die-picture';
+        img.src = picture;
+        img.alt = '';
+        img.setAttribute('aria-hidden', 'true');
+        img.draggable = false;
+        face.appendChild(img);
+      } else {
+        const name = doc.createElement('span');
+        name.className = 'atlas-tabletop-dice-face-name';
+        name.textContent = die;
+        face.appendChild(name);
+      }
+      if (count > 0) {
+        const badge = doc.createElement('span');
+        badge.className = 'atlas-dice-tray__count';
+        badge.setAttribute('aria-hidden', 'true');
+        badge.textContent = String(count);
+        face.appendChild(badge);
+      }
       const color = this.pick.colors[die];
-      button.style.setProperty('--atlas-tabletop-die-color', color ?? 'transparent');
-      button.classList.toggle('has-color', color !== undefined);
+      face.style.setProperty('--atlas-tabletop-die-color', color ?? 'transparent');
+      face.classList.toggle('has-color', color !== undefined);
+      face.disabled = count >= DIE_LIMIT || total >= MAX_DICE;
+      face.setAttribute('aria-label', count === 0 ? `Add a ${die}` : `Add a ${die}, ${count} in the tray`);
+      // Under each die: the grip that takes one back, or the space it would take.
+      const cell = this.grips.get(die)!;
+      cell.querySelector('.atlas-dice-tray__grip, .atlas-dice-tray__grip-space')?.remove();
+      if (count > 0) {
+        const grip = doc.createElement('button');
+        grip.type = 'button';
+        grip.className = 'atlas-dice-tray__grip';
+        grip.setAttribute('aria-label', `Take one ${die} back`);
+        grip.innerHTML = MINUS_SVG;
+        grip.addEventListener('click', () => this.change(stepDie(this.pick, die, -1)));
+        cell.appendChild(grip);
+      } else {
+        const space = doc.createElement('span');
+        space.className = 'atlas-dice-tray__grip-space';
+        space.setAttribute('aria-hidden', 'true');
+        cell.appendChild(space);
+      }
     }
-    this.modifierValue.textContent = `${this.pick.modifier > 0 ? '+' : this.pick.modifier < 0 ? '−' : ''}${Math.abs(this.pick.modifier)}`;
+    const applies = advantageApplies(this.pick, this.opts.rules());
+    const side = applies ? this.pick.advantage ?? 'normal' : 'normal';
+    this.sides.setAttribute('aria-disabled', String(!applies));
+    for (const [value, option] of this.sideButtons) {
+      const active = value === side;
+      option.classList.toggle('atlas-active', active);
+      option.setAttribute('aria-checked', String(active));
+      option.setAttribute('aria-disabled', String(!applies));
+    }
+    this.modifierValue.textContent = this.pick.modifier > 0 ? `+${this.pick.modifier}` : String(this.pick.modifier);
+    this.lower.disabled = this.pick.modifier <= -MODIFIER_LIMIT;
+    this.raise.disabled = this.pick.modifier >= MODIFIER_LIMIT;
     const formula = pickFormula(this.pick);
-    this.formula.textContent = formula ? `${formula} · ${pickedCount(this.pick)}/${MAX_DICE}` : `No dice: Roll throws a ${defaultDie(this.opts.rules()) ?? 'd20'}`;
+    const sideName = applies && this.pick.advantage ? SIDES.find((entry) => entry.value === this.pick.advantage)?.label : undefined;
+    this.formula.textContent = formula === '' ? 'The tray is empty.' : sideName ? `${formula} · ${sideName}` : formula;
+    this.formula.classList.toggle('atlas-dice-tray__formula--empty', formula === '');
+    this.roll.disabled = formula === '';
+    this.clear.hidden = formula === '' && this.pick.modifier === 0;
   }
 
   /** The colours a die can be thrown in, under the dice; the pack's own colour first. */
-  private showSwatches(die: DieType, button: HTMLElement): void {
+  private showSwatches(die: DieType, face: HTMLElement): void {
     if (this.swatchesFor === die && !this.swatches.hidden) { this.hideSwatches(); return; }
     const doc = this.parent.ownerDocument;
     this.swatchesFor = die;
     this.swatches.replaceChildren();
     const label = doc.createElement('span');
-    label.className = 'atlas-dropdown-swatches__label';
+    label.className = 'atlas-dice-tray__modifier-label';
     label.textContent = `${die} colour`;
     this.swatches.appendChild(label);
     const grid = doc.createElement('div');
@@ -270,7 +362,7 @@ export class DicePicker {
         else delete colors[die];
         this.change({ ...this.pick, colors });
         this.hideSwatches();
-        button.focus();
+        face.focus();
       });
       grid.appendChild(made);
     };
@@ -282,59 +374,5 @@ export class DicePicker {
   private hideSwatches(): void {
     this.swatches.hidden = true;
     this.swatchesFor = null;
-  }
-
-  /**
-   * A press on `element`: a click runs `click`; a drag let go outside the picker throws `request()` with the
-   * pointer's flick (its last stretch of movement before letting go).
-   */
-  private throwable(element: HTMLElement, click: () => void, request: () => RollRequest): void {
-    let press: { id: number; x: number; y: number; dragged: boolean; samples: Array<{ x: number; y: number; t: number }> } | null = null;
-    const down = (event: PointerEvent): void => {
-      if (event.button !== 0) return;
-      event.preventDefault();
-      press = { id: event.pointerId, x: event.clientX, y: event.clientY, dragged: false, samples: [{ x: event.clientX, y: event.clientY, t: event.timeStamp }] };
-      element.setPointerCapture?.(event.pointerId);
-    };
-    const move = (event: PointerEvent): void => {
-      if (!press || event.pointerId !== press.id) return;
-      press.samples.push({ x: event.clientX, y: event.clientY, t: event.timeStamp });
-      if (press.samples.length > 32) press.samples.shift();
-      if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > DRAG_PX) press.dragged = true;
-      element.classList.toggle('is-dragging', press.dragged);
-    };
-    const up = (event: PointerEvent): void => {
-      if (!press || event.pointerId !== press.id) return;
-      const done = press;
-      press = null;
-      element.classList.remove('is-dragging');
-      if (!done.dragged) { click(); return; }
-      const rect = this.panel.getBoundingClientRect();
-      const inside = event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
-      if (inside) return;
-      const last = { x: event.clientX, y: event.clientY, t: event.timeStamp };
-      const from = done.samples.find((sample) => last.t - sample.t <= FLICK_MS) ?? last;
-      this.opts.onRoll(request(), { dx: last.x - from.x, dy: last.y - from.y, ms: Math.max(1, last.t - from.t) });
-    };
-    const cancel = (): void => {
-      press = null;
-      element.classList.remove('is-dragging');
-    };
-    // The press is the picker's own: a click is told apart from a drag here, so the button's click event is not used.
-    element.addEventListener('pointerdown', down);
-    element.addEventListener('pointermove', move);
-    element.addEventListener('pointerup', up);
-    element.addEventListener('pointercancel', cancel);
-    element.addEventListener('keydown', (event) => {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
-      event.preventDefault();
-      click();
-    });
-    this.stops.push(() => {
-      element.removeEventListener('pointerdown', down);
-      element.removeEventListener('pointermove', move);
-      element.removeEventListener('pointerup', up);
-      element.removeEventListener('pointercancel', cancel);
-    });
   }
 }

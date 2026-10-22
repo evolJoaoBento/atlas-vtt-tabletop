@@ -138,9 +138,13 @@ class PlayerBoard implements PlayerBoardHandle {
     this.dice = new PlayerDice({
       host,
       makeTable: () => this.makeDiceTable(),
-      prompt: (text, notice) => (notice && text !== null ? this.prompt.notice(text) : this.prompt.show(text)),
+      prompt: (text, kind) => {
+        if (text !== null && kind === 'notice') this.prompt.notice(text);
+        else if (text !== null && kind === 'result') this.prompt.result(text);
+        else this.prompt.show(text);
+      },
     });
-    this.prompt = new DicePrompt(parent, () => this.dice.throwPending(GENTLE));
+    this.prompt = new DicePrompt(parent, () => this.dice.throwPending(GENTLE), () => this.dice.clear());
     // A press on a die the roll waits on: let go, it is thrown again, into the roll it was pressed in.
     this.stopPresses = listenForDiePresses({
       container: parent,
@@ -292,6 +296,7 @@ class PlayerBoard implements PlayerBoardHandle {
     this.board.attachDice(table);
     return {
       table,
+      hold: (id, clientX, clientY) => table.hold(id, this.board.rayAt(clientX, clientY)),
       outdated: () => this.diceDeps.pack() !== pack || this.diceDeps.settings() !== settings,
       dispose: () => {
         table.dispose();

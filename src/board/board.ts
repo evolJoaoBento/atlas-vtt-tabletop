@@ -52,9 +52,9 @@ import { DarknessLayer } from './darkness';
 import { BoardMarks } from './marks';
 import { PlayerToolState, type TemplateMark, type TemplateShape, type ToolAction } from './playerTools';
 import type { FogOperation } from './fog';
-import type { BoardLight } from './walls';
+import { segmentFrame, type BoardLight } from './walls';
 import { MATERIAL_DRAG_TYPE, MATERIAL_TEXT_PREFIX, type LoadedMaterial } from '../materials';
-import type { DiceTable, DiceTableHost } from '../dice/diceTable';
+import type { DiceObstacle, DiceTable, DiceTableHost } from '../dice/diceTable';
 
 /** Obsidian's accent colour, for highlights; Atlas's purple outside Obsidian. */
 function accent(element: HTMLElement): string {
@@ -1765,7 +1765,34 @@ export class Board {
       visibleHalfExtent: () => this.visibleHalfExtent(),
       cameraYaw: () => this.cameraYaw(),
       wake: () => this.wake(true),
+      obstacles: () => this.diceObstacles(),
     };
+  }
+
+  /**
+   * What stands on the board for dice to bounce off: every token and prop (as the round shape a click finds them by),
+   * and every wall and closed door, as tall as they stand. Never moved by a die.
+   */
+  private diceObstacles(): DiceObstacle[] {
+    const map = this.map;
+    if (!map) return [];
+    const obstacles: DiceObstacle[] = [];
+    const round = (object3d: THREE.Object3D, hit: THREE.Object3D): void => {
+      const radius = hit.scale.x;
+      const height = hit.scale.y;
+      if (radius > 0 && height > 0) obstacles.push({ kind: 'round', x: object3d.position.x, z: object3d.position.z, radius, height });
+    };
+    for (const entry of this.tokens.values()) round(entry.piece.object3d, entry.piece.hitTarget);
+    for (const piece of this.props.values()) round(piece.object3d, piece.hitTarget);
+    const thick = this.host.wallThickness() * map.grid.size;
+    for (const wall of map.walls) {
+      if ((wall.type === 'door' || wall.type === 'secret-door') && !wall.closed) continue;
+      const height = this.wallSquares(wall.id) * map.grid.size;
+      if (!(height > 0)) continue;
+      const frame = segmentFrame(wall.p1, wall.p2);
+      obstacles.push({ kind: 'box', x: frame.cx, z: frame.cy, halfLength: (frame.length + thick) / 2, halfWidth: thick / 2, heading: frame.heading, height });
+    }
+    return obstacles;
   }
 
   /** The toolbar's Dice button, opening the board's dice picker; null takes it away. Returns where the picker opens. */

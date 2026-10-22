@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { FaceReading } from '../src/dice/kit/faces';
 import { DEFAULT_RULES, type DiceRules } from '../src/dice/rollRules';
-import { RollSession } from '../src/dice/rollSession';
+import { RollSession, THROW_PROMPT } from '../src/dice/rollSession';
 
 const face = (n: number): FaceReading => ({ caught: false, face: n, confidence: 1 });
 const CAUGHT: FaceReading = { caught: true, face: null, confidence: 0.4 };
@@ -30,13 +30,41 @@ test('reroll keeps settled dice', () => {
   assert.equal(result.crit, undefined);
 });
 
-test('a settled die keeps its value: settle again and reroll do nothing', () => {
+test('a settled die keeps its value when read again; thrown again, it waits for its new landing', () => {
   const session = new RollSession({ dice: { d6: 1 }, modifier: 1, label: 'Dagger' }, DEFAULT_RULES);
   const id = session.dice[0].id;
   session.settle(id, face(3));
   session.settle(id, face(5));
-  session.reroll(id);
   assert.deepEqual(session.result(), { rolls: [{ die: 'd6', value: 3, max: 6 }], modifier: 1, total: 4, label: 'Dagger' });
+  session.reroll(id);
+  assert.equal(session.result(), null, 'thrown again: no result while it rolls');
+  session.settle(id, face(5));
+  assert.equal(session.result()?.total, 6);
+});
+
+test('a roll starts laid on the table: every die waits to be thrown, and the line says so', () => {
+  const session = new RollSession({ dice: { d6: 2 }, modifier: 0 }, DEFAULT_RULES);
+  assert.deepEqual(session.dice.map((state) => state.status), ['waiting', 'waiting']);
+  assert.deepEqual(session.pendingThrows().map((pending) => pending.reason), ['placed', 'placed']);
+  assert.equal(session.prompt(), THROW_PROMPT);
+  session.reroll(session.dice[0].id);
+  assert.equal(session.dice[0].status, 'rolling');
+  assert.equal(session.prompt(), THROW_PROMPT, 'one still waits');
+  session.reroll(session.dice[1].id);
+  assert.equal(session.prompt(), null, 'all in the air');
+});
+
+test('a die thrown again takes back the explosion its old face earned', () => {
+  const rules: DiceRules = { defaultRoll: '1d6', crit: 'none', explode: { dice: 'all', repeats: false, highFaces: 1, lowFaces: 0 } };
+  const session = new RollSession({ dice: { d6: 1 }, modifier: 0 }, rules);
+  const [d6] = session.dice;
+  session.settle(d6.id, face(6));
+  assert.equal(session.dice.length, 2, 'the 6 earned another d6');
+  const removed = session.reroll(d6.id);
+  assert.equal(removed.length, 1);
+  assert.equal(session.dice.length, 1);
+  session.settle(d6.id, face(2));
+  assert.equal(session.result()?.total, 2);
 });
 
 test('an impossible face is caught, never a number', () => {
@@ -225,7 +253,7 @@ test('d100 pair explodes on its combined value, once per pair', () => {
   const rules: DiceRules = { defaultRoll: '1d100', crit: 'roll-under', explode: { dice: 'all', repeats: false, highFaces: 1, lowFaces: 0 } };
   const session = new RollSession({ dice: { d100: 1 }, modifier: 0 }, rules);
   session.settle(session.dice[0].id, face(0));
-  assert.deepEqual(session.pendingThrows(), [], 'no explosion before both halves settle');
+  assert.deepEqual(session.pendingThrows().filter((pending) => pending.reason !== 'placed'), [], 'no explosion before both halves settle');
   session.settle(session.dice[1].id, face(0));
   assert.deepEqual(pending(session), [{ die: 'd100', reason: 'explode-up' }, { die: 'd10', reason: 'explode-up' }]);
   assert.equal(session.prompt(), 'd100 exploded: throw another d100');

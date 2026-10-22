@@ -170,36 +170,41 @@ server.listen(0, async () => {
     await wait(500);
     check('a scene again: the board shows it', await page.evaluate(() => window.playerTest.board.canvas.style.visibility !== 'hidden'));
 
-    // 11c. Dice: Connect asks for a throw; the dice tumble on this board, and the landed values go back once, the sheet unchanged.
+    // 11c. Dice: Connect asks for a roll; its dice are laid on this board at rest, the player drags one to throw it and
+    // throws the other with Throw all, and the landed values go back once, the sheet unchanged.
     const sheet = { tokenId: 'mine', roll: { ability: 'Longsword', formula: '2d6+3' } };
     const thrown = await page.evaluate((sheet) => {
       const t = window.playerTest;
-      return { available: t.handle.diceAvailable === true, ok: t.handle.throwDice({ dice: { d6: 2 }, modifier: 3, label: 'Longsword', sheet }), busy: !!t.board.dice?.busy };
+      const ok = t.handle.throwDice({ dice: { d6: 2 }, modifier: 3, label: 'Longsword', sheet });
+      const line = document.querySelector('.atlas-tabletop-dice-prompt');
+      return { available: t.handle.diceAvailable === true, ok, busy: !!t.board.dice?.busy, dice: t.board.dice?.object3d.children.length, prompt: line.hidden ? null : line.textContent };
     }, sheet);
-    check('the board has dice, and a throw from Connect starts them rolling', thrown.available && thrown.ok && thrown.busy, thrown);
+    check('the board has dice, and a roll from Connect lays them on the table to be thrown', thrown.available && thrown.ok && !thrown.busy && thrown.dice === 2 && /Drag a die/.test(thrown.prompt ?? ''), thrown);
+    await wait(300);
+    await page.screenshot({ path: `${shots}/player-3-dice-laid.png` });
+    const dieOnScreen = (index) => page.evaluate((index) => {
+      const b = window.playerTest.board;
+      b.view.updateMatrixWorld();
+      const rect = b.canvas.getBoundingClientRect();
+      const mesh = b.dice.object3d.children[index];
+      const ndc = mesh.getWorldPosition(mesh.position.clone()).project(b.view);
+      return { x: rect.left + ((ndc.x + 1) / 2) * rect.width, y: rect.top + ((1 - ndc.y) / 2) * rect.height };
+    }, index);
+    const grab = await dieOnScreen(0);
+    await page.mouse.move(grab.x, grab.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 10; i++) { await page.mouse.move(grab.x + i * 4, grab.y - i * 20); await wait(16); }
+    await page.mouse.up();
+    check('a die dragged and let go is thrown', await page.evaluate(() => window.playerTest.board.dice.busy));
     await wait(250);
-    await page.screenshot({ path: `${shots}/player-3-dice-rolling.png` });
+    await page.screenshot({ path: `${shots}/player-3b-dice-rolling.png` });
     let rethrown = 0;
     for (let attempt = 0; attempt < 8; attempt++) {
       await page.waitForFunction(() => !window.playerTest.board.dice.busy, null, { timeout: 90000 });
       await wait(300);
       if ((await record()).diceResults.length > 0) break;
-      // A die caught on an edge: clicked where it lies, it is thrown again.
-      const caught = await page.evaluate(() => {
-        const t = window.playerTest;
-        const b = t.board;
-        b.view.updateMatrixWorld();
-        const rect = b.canvas.getBoundingClientRect();
-        for (const mesh of b.dice.object3d.children) {
-          if (!t.handle.dice.waitsOn(mesh.userData.dieId)) continue;
-          const ndc = mesh.getWorldPosition(mesh.position.clone()).project(b.view);
-          return { x: rect.left + ((ndc.x + 1) / 2) * rect.width, y: rect.top + ((1 - ndc.y) / 2) * rect.height, prompt: document.querySelector('.atlas-tabletop-dice-prompt').textContent };
-        }
-        return null;
-      });
-      if (!caught) break;
-      if (rethrown === 0) await page.screenshot({ path: `${shots}/player-3b-dice-caught.png` });
-      await page.mouse.click(caught.x, caught.y);
+      // The die still laid, or one caught on an edge: Throw all on the line throws it.
+      await page.locator('.atlas-tabletop-dice-prompt__throw').click();
       rethrown++;
       await wait(200);
     }
@@ -210,8 +215,8 @@ server.listen(0, async () => {
       && sent[0].rolls.every((roll) => roll.die === 'd6' && roll.max === 6 && Number.isInteger(roll.value) && roll.value >= 1 && roll.value <= 6)
       && sent[0].modifier === 3 && sent[0].label === 'Longsword' && JSON.stringify(sent[0].sheet) === JSON.stringify(sheet) && !('total' in sent[0]), { sent, rethrown });
     await wait(1500);
-    const after = await page.evaluate(() => ({ busy: window.playerTest.board.dice.busy, prompt: document.querySelector('.atlas-tabletop-dice-prompt').hidden, sends: window.playerTest.record.diceResults.length }));
-    check('then the dice lie still (no physics), the line is gone, and nothing more is sent', !after.busy && after.prompt && after.sends === 1, after);
+    const after = await page.evaluate(() => ({ busy: window.playerTest.board.dice.busy, prompt: document.querySelector('.atlas-tabletop-dice-prompt').textContent, sends: window.playerTest.record.diceResults.length }));
+    check('then the dice lie still (no physics), the line says what was sent, and nothing more is sent', !after.busy && after.prompt.includes('Sent to the GM') && after.sends === 1, after);
 
     // 11d. A die caught on an edge (its first reading forced caught): the line asks for it, a click on it throws it
     // again, and only its clean reading goes.
@@ -240,6 +245,10 @@ server.listen(0, async () => {
       }
       return null;
     });
+    // The laid d20, clicked, is tossed; its first landing is caught.
+    const laidD20 = await caughtDie();
+    await page.mouse.click(laidD20.x, laidD20.y);
+    await wait(200);
     await page.waitForFunction(() => !window.playerTest.board.dice.busy, null, { timeout: 90000 });
     await wait(300);
     const caught = await caughtDie();
@@ -262,6 +271,7 @@ server.listen(0, async () => {
     const changed = await page.evaluate(() => {
       const t = window.playerTest;
       t.handle.throwDice({ dice: { d20: 1 }, modifier: 0 });
+      t.handle.dice.throwPending({ dx: 0, dy: -200, ms: 120 });
       t.handle.setScene({ ...t.scene, sceneId: 's3' });
       return { dice: t.board.dice.object3d.children.length };
     });

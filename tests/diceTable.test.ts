@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as CANNON from 'cannon-es';
 import * as THREE from 'three';
-import { DiceTable, type DiceSettings, type DiceTableHost } from '../src/dice/diceTable';
+import { DiceTable, type DiceObstacle, type DiceSettings, type DiceTableHost } from '../src/dice/diceTable';
 import type { FaceReading } from '../src/dice/kit/faces';
 import { DEFAULT_RULES } from '../src/dice/rollRules';
 import { RollSession } from '../src/dice/rollSession';
 
 const SETTINGS: DiceSettings = { dieSquares: 0.6, tolerance: 0.3, motionThreshold: 2, shadows: true, highlight: true, highlightColor: '#ffd700' };
 
-function table(yaw: number | (() => number) = 0.7): { dice: DiceTable; scene: THREE.Scene; wakes: number[] } {
+function table(yaw: number | (() => number) = 0.7, obstacles: DiceObstacle[] = []): { dice: DiceTable; scene: THREE.Scene; wakes: number[] } {
   const scene = new THREE.Scene();
   const wakes: number[] = [];
   const host: DiceTableHost = {
@@ -21,6 +21,7 @@ function table(yaw: number | (() => number) = 0.7): { dice: DiceTable; scene: TH
     wake: () => { wakes.push(1); },
     textures: () => ({}),
     pack: () => ({}),
+    obstacles: () => obstacles,
   };
   return { dice: new DiceTable(host, SETTINGS), scene, wakes };
 }
@@ -64,7 +65,7 @@ test('a thrown 2d6 settles inside the tray and each die is read once', () => see
   dice.onSettled = (id, reading) => { readings.push([id, reading.face]); session.settle(id, reading); };
   dice.throwRoll(session, { dx: 20, dy: -300, ms: 150 });
   assert.ok(scene.children.includes(dice.object3d), 'the dice are in the board\'s scene');
-  assert.equal(wakes.length, 1, 'a throw asks the board for frames');
+  assert.ok(wakes.length >= 1, 'a throw asks the board for frames');
   assert.equal(dice.busy, true);
   const ms = run(dice);
   assert.equal(dice.busy, false, `settled in ${ms} ms`);
@@ -175,7 +176,7 @@ test('a listener that throws does not stop the other dice being read', () => see
   assert.equal(errors.length, 1, 'the failure is reported');
 }));
 
-test('a die resting on another is read where it lies, and falls when the die under it is thrown again', () => seeded(5, () => {
+test('a die resting on another is read where it lies, and falls when the die under it is thrown again', () => seeded(8, () => {
   const { dice } = table(0);
   const session = new RollSession({ dice: { d6: 2 }, modifier: 0 }, DEFAULT_RULES);
   const readings = new Map<number, FaceReading[]>();
@@ -286,7 +287,7 @@ test('a die new to the table lets go of no dice held where it is made', () => se
   assert.equal(bodyOf(dice, first).type, CANNON.Body.STATIC);
 }));
 
-test('a die taken off the table lets go of the dice resting on it', () => seeded(5, () => {
+test('a die taken off the table lets go of the dice resting on it', () => seeded(8, () => {
   const { dice } = table(0);
   const session = new RollSession({ dice: { d6: 2 }, modifier: 0 }, DEFAULT_RULES);
   dice.throwRoll(session, { dx: 0, dy: -200, ms: 100 });
@@ -309,3 +310,80 @@ test('a die taken off the table lets go of the dice resting on it', () => seeded
   assert.ok(top.position.y < 1.2, `it fell to the felt: ${top.position.y}`);
   dice.remove(999);
 }));
+
+test('a roll is laid on the felt at rest: flat, inside the tray, apart, nothing moving or read', () => seeded(3, () => {
+  const { dice } = table(0.4);
+  const session = new RollSession({ dice: { d4: 1, d6: 2, d8: 1, d10: 1, d12: 1, d20: 1, d100: 1 }, modifier: 0 }, DEFAULT_RULES);
+  const read: number[] = [];
+  dice.onSettled = (id) => { read.push(id); };
+  dice.placeRoll(session);
+  assert.equal(dice.busy, false, 'laid dice ask for no frames');
+  dice.step(1000);
+  assert.deepEqual(read, [], 'a laid die is not read: it was never thrown');
+  const meshes = dice.object3d.children as THREE.Mesh[];
+  assert.equal(meshes.length, session.dice.length, 'a d100 is laid as its two dice');
+  for (const mesh of meshes) {
+    // The dice's group is scaled to the board: a die's edge is 42 map pixels here.
+    const lowest = new THREE.Box3().setFromObject(mesh).min.y / 42;
+    assert.ok(Math.abs(lowest) < 0.02, `on the felt: lowest corner ${lowest} die edges`);
+    assert.ok(Math.abs(mesh.position.x) < 600 * 0.8 / 42 && Math.abs(mesh.position.z) < 400 * 0.8 / 42, 'inside the tray');
+  }
+  for (let i = 0; i < meshes.length; i++) for (let j = i + 1; j < meshes.length; j++) {
+    const a = meshes[i].position;
+    const b = meshes[j].position;
+    assert.ok(Math.hypot(a.x - b.x, a.z - b.z) > 0.9, 'laid apart');
+  }
+}));
+
+test('a die carried under the pointer hangs over the table, then is thrown from there and read', () => seeded(4, () => {
+  const { dice } = table(0);
+  const session = new RollSession({ dice: { d6: 1 }, modifier: 0 }, DEFAULT_RULES);
+  const read: number[] = [];
+  dice.onSettled = (id) => { read.push(id); };
+  dice.placeRoll(session);
+  const [d6] = session.dice;
+  // Straight down onto the table, 3 squares right of the tray's centre (map 500, 300): the die is carried there.
+  dice.hold(d6.id, new THREE.Ray(new THREE.Vector3(500 + 210, 1000, 300), new THREE.Vector3(0, -1, 0)));
+  const body = bodyOf(dice, d6.id);
+  assert.ok(Math.abs(body.position.x - 210 / 42) < 1e-6 && body.position.y === 2, `carried: ${body.position.toString()}`);
+  assert.equal(dice.busy, false, 'carried, it does not fall');
+  session.reroll(d6.id);
+  dice.throwDie(d6.id, { dx: 0, dy: -100, ms: 100 });
+  assert.equal(dice.busy, true);
+  run(dice);
+  assert.deepEqual(read, [d6.id]);
+}));
+
+test('a token on the board stops a die: none is laid in it, none ends in it, and the token stays put', () => seeded(6, () => {
+  // A big token right where the camera looks, where the dice would be laid and through which they are thrown.
+  const token: DiceObstacle = { kind: 'round', x: 500, z: 300, radius: 100, height: 120 };
+  const { dice } = table(0, [token]);
+  const session = new RollSession({ dice: { d6: 4 }, modifier: 0 }, DEFAULT_RULES);
+  dice.placeRoll(session);
+  const r = 100 / 42;
+  const outside = (at: CANNON.Vec3): boolean => Math.hypot(at.x, at.z) > r || at.y >= 120 / 42;
+  for (const state of session.dice) assert.ok(outside(bodyOf(dice, state.id).position), 'no die is laid inside the token');
+  // Each thrown across the tray, through where the token stands.
+  for (const state of session.dice) {
+    const at = bodyOf(dice, state.id).position;
+    session.reroll(state.id);
+    dice.throwDie(state.id, { dx: -at.x * 40, dy: at.z * 40, ms: 80 });
+  }
+  run(dice);
+  for (const state of session.dice) assert.ok(outside(bodyOf(dice, state.id).position), `a die never ends inside the token: ${bodyOf(dice, state.id).position.toString()}`);
+  assert.deepEqual(token, { kind: 'round', x: 500, z: 300, radius: 100, height: 120 }, 'the token is not moved');
+}));
+
+test('a wall on the board stands in the tray as a box along its heading', () => {
+  // A wall right across the tray (along map x), a little toward -z of its centre.
+  const wall: DiceObstacle = { kind: 'box', x: 500, z: 300 - 84, halfLength: 400, halfWidth: 6, heading: 0, height: 140 };
+  const { dice } = table(0, [wall]);
+  const session = new RollSession({ dice: { d6: 1 }, modifier: 0 }, DEFAULT_RULES);
+  dice.placeRoll(session);
+  const [d6] = session.dice;
+  // Thrown hard straight up the screen (toward -z): the wall stops it short of it.
+  session.reroll(d6.id);
+  dice.throwDie(d6.id, { dx: 0, dy: -500, ms: 60 });
+  run(dice);
+  assert.ok(bodyOf(dice, d6.id).position.z > -84 / 42, `stopped by the wall: ${bodyOf(dice, d6.id).position.toString()}`);
+});

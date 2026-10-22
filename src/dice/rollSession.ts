@@ -1,7 +1,8 @@
 /**
- * One physical roll from throw to result: which dice are in the air, settled or caught on an edge, which explosions
- * still have to be thrown, and the result once every die has a number. A die never gets a number it did not show.
- * Pure: the dice table reports what each die reads, the session decides what the roll is.
+ * One physical roll from the dice laid on the table to the result: which dice still wait to be thrown, which are in
+ * the air, settled or caught on an edge, which explosions still have to be thrown, and the result once every die has
+ * a number. Any die at rest may be thrown again; the roll is complete again once it lands. A die never gets a number
+ * it did not show. Pure: the dice table reports what each die reads, the session decides what the roll is.
  */
 import { caughtMessage } from './kit/caught';
 import { DIE_FACES, DIE_TYPES, type DieType, type FaceReading } from './kit/faces';
@@ -11,14 +12,18 @@ export type DieState = {
   id: number;
   die: DieType;
   color?: string;
-  status: 'rolling' | 'settled' | 'caught';
+  /** `waiting`: laid on the table, not thrown yet. */
+  status: 'waiting' | 'rolling' | 'settled' | 'caught';
   value?: number;
   exploded?: true;
   negative?: true;
   isDefault: boolean;
 };
 
-type ThrowReason = 'caught' | 'explode-up' | 'explode-down';
+/** The line over the board while dice lie on the table unthrown. */
+export const THROW_PROMPT = 'Drag a die to throw it, or throw them all';
+
+type ThrowReason = 'placed' | 'caught' | 'explode-up' | 'explode-down';
 
 /** What the session knows of a die beyond its state. */
 interface DieLine {
@@ -77,14 +82,20 @@ export class RollSession {
     this.explode(line.ones ? (line.pair as number) : id);
   }
 
-  /** The die is being thrown again: a caught die, or an explosion not yet thrown. */
-  reroll(id: number): void {
+  /**
+   * The die is thrown: one laid on the table, caught, an explosion not yet thrown, or one that had its number (thrown
+   * again). A die thrown again loses its number, and the explosion its old face earned goes, thrown or not, with any
+   * chain from it. Returns the dice taken out of the roll, for the table to take away. A die in the air is not thrown.
+   */
+  reroll(id: number): number[] {
     const state = this.states.find((candidate) => candidate.id === id);
     const line = this.lines.get(id);
-    if (!state || !line || (state.status !== 'caught' && !line.awaiting)) return;
+    if (!state || !line || state.status === 'rolling') return [];
     delete line.awaiting;
+    const removed = state.status === 'settled' ? this.withdrawExplosion(id) : [];
     state.status = 'rolling';
     delete state.value;
+    return removed;
   }
 
   /**
@@ -96,9 +107,17 @@ export class RollSession {
   loosen(id: number): number[] {
     const state = this.states.find((candidate) => candidate.id === id);
     const line = this.lines.get(id);
-    if (!state || !line || state.status === 'rolling') return [];
+    // A die laid on the table, never thrown, has no reading to lose: it waits for its throw still.
+    if (!state || !line || state.status === 'rolling' || state.status === 'waiting') return [];
+    const removed = this.withdrawExplosion(id);
     state.status = 'rolling';
     delete state.value;
+    return removed;
+  }
+
+  /** Takes back the explosion a die's face earned (a d100's, through either of its dice), with any chain from it. */
+  private withdrawExplosion(id: number): number[] {
+    const line = this.lines.get(id) as DieLine;
     const head = this.lines.get(line.ones ? (line.pair as number) : id) as DieLine;
     const removed: number[] = [];
     if (head.explodedInto !== undefined) this.withdraw(head.explodedInto, removed);
@@ -106,24 +125,26 @@ export class RollSession {
     return removed;
   }
 
-  /** The dice the thrower still has to throw: caught dice and explosions. */
+  /** The dice the thrower still has to throw: dice laid on the table, caught dice and explosions. */
   pendingThrows(): { id: number; die: DieType; reason: ThrowReason; color?: string }[] {
     const pending: { id: number; die: DieType; reason: ThrowReason; color?: string }[] = [];
     for (const state of this.states) {
-      const reason = state.status === 'caught' ? 'caught' : this.lines.get(state.id)?.awaiting;
+      const awaiting = this.lines.get(state.id)?.awaiting;
+      const reason = state.status === 'caught' ? 'caught' : awaiting ?? (state.status === 'waiting' ? 'placed' : undefined);
       if (reason) pending.push({ id: state.id, die: state.die, reason, ...(state.color !== undefined ? { color: state.color } : {}) });
     }
     return pending;
   }
 
-  /** What to tell the thrower: caught dice first, then explosions to throw; null when nothing waits on them. */
+  /** What to tell the thrower: caught dice first, then explosions to throw, then dice to throw; null when nothing waits. */
   prompt(): string | null {
     const caught = this.states.filter((state) => state.status === 'caught').map((state) => ({ type: state.die }));
     if (caught.length > 0) return caughtMessage(caught);
     const explosions = this.states
       .filter((state) => this.lines.get(state.id)?.awaiting && !this.lines.get(state.id)?.ones)
       .map((state) => `${state.die} exploded: throw another ${state.die}`);
-    return explosions.length > 0 ? explosions.join('\n') : null;
+    if (explosions.length > 0) return explosions.join('\n');
+    return this.states.some((state) => state.status === 'waiting') ? THROW_PROMPT : null;
   }
 
   /** The roll once every die has settled and every explosion is thrown; null until then. The die set aside stays, marked dropped. */
@@ -161,7 +182,7 @@ export class RollSession {
   private addDie(die: DieType, from: { isDefault: boolean; color?: string; parent?: DieState; up?: boolean }): number {
     const parentLine = from.parent ? this.lines.get(from.parent.id) : undefined;
     const make = (type: DieType, ones: boolean): DieState => {
-      const state: DieState = { id: this.nextId++, die: type, status: 'rolling', isDefault: from.isDefault };
+      const state: DieState = { id: this.nextId++, die: type, status: 'waiting', isDefault: from.isDefault };
       if (from.color !== undefined) state.color = from.color;
       if (from.parent) {
         state.exploded = true;
