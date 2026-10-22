@@ -16,10 +16,10 @@ export interface Tray {
 /** Most of the view, so the walls stand inside the picture. */
 const VIEW_SHARE = 0.8;
 /**
- * A few squares (a die needs room to roll), never larger than a room. The view wins over the floor: zoomed in close,
- * the tray is no larger than what is shown, so no die comes to rest off screen; but never under one die's edge.
+ * Never larger than a room, nor than most of what is shown: zoomed in close, the walls stay inside the picture (the
+ * near ones too, which perspective brings in), so no die comes to rest off screen. The view wins over the old floor of
+ * three squares; the least the tray keeps is one die's edge each way.
  */
-const MIN_SQUARES = 3;
 const MAX_SQUARES = 20;
 
 /**
@@ -27,10 +27,7 @@ const MAX_SQUARES = 20;
  * looks. `dieEdge` is a die's edge in map pixels, the least the tray keeps each way.
  */
 export function trayAt(target: { x: number; z: number }, visibleHalfExtent: { x: number; z: number }, gridSize: number, yaw: number, dieEdge: number): Tray {
-  const half = (extent: number): number => {
-    const sized = Math.min(MAX_SQUARES * gridSize, Math.max(MIN_SQUARES * gridSize, extent * VIEW_SHARE));
-    return Math.max(dieEdge, Math.min(sized, extent));
-  };
+  const half = (extent: number): number => Math.max(dieEdge, Math.min(MAX_SQUARES * gridSize, extent * VIEW_SHARE));
   return { center: { x: target.x, z: target.z }, halfWidth: half(visibleHalfExtent.x), halfDepth: half(visibleHalfExtent.z), yaw };
 }
 
