@@ -6,7 +6,8 @@
  */
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { diePhysicsShape, dieFaceNormals, dieGeometry, dieMaterial, type DicePack } from './kit/dieShapes';
+import { diePhysicsShape, dieMaterial, type DicePack } from './kit/dieShapes';
+import { buildDie } from './dieBuild';
 import { readFace, type DieType, type FaceReading, type Vec3 } from './kit/faces';
 import type { RollSession } from './rollSession';
 import { MAX_THROW_SPEED, MIN_THROW_SPEED, throwVector, type Flick } from './throwInput';
@@ -236,8 +237,7 @@ export class DiceTable {
     const existing = this.dice.get(id);
     if (existing) return existing;
     const pack = this.host.pack();
-    const geometry = dieGeometry(type, DIE_SIZE, pack);
-    const { normals, numbers } = dieFaceNormals(type, geometry);
+    const { geometry, normals, numbers } = buildDie(type, DIE_SIZE, pack);
     const mesh = new THREE.Mesh(geometry, dieMaterial(type, pack, this.host.textures(type, color ?? null), color ?? null));
     mesh.castShadow = this.settings.shadows;
     mesh.receiveShadow = this.settings.shadows;
