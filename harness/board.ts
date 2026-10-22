@@ -31,6 +31,7 @@ import type { MapViewLike } from '../src/dice/atlasDice';
 import { vendoredPack } from '../src/dice/dicePack';
 import { DiceTextures } from '../src/dice/diceTextures';
 import { DEFAULT_DICE_SETTINGS } from '../src/dice/diceSettings';
+import { buildSheet } from '../src/sheets/sheet';
 
 function exportGlb(root: THREE.Object3D, animations: THREE.AnimationClip[] = []): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => new GLTFExporter().parse(root, (out) => resolve(out as ArrayBuffer), reject, { binary: true, animations }));
@@ -442,6 +443,17 @@ async function main(): Promise<void> {
     settings: () => DEFAULT_DICE_SETTINGS,
     pack: () => vendoredPack(),
     warn: (message) => { diceWarnings.push(message); },
+    // The hero's stat block, as Fantasy Statblocks would give it; markup in a note stays text.
+    sheetOf: async (tokenId) => (tokenId === 'hero' ? buildSheet({
+      name: 'Hero', size: 'Medium', type: 'humanoid', subtype: 'human', alignment: 'neutral good', ac: 16, hp: 27, hit_dice: '5d8 + 5', speed: '30 ft.',
+      stats: [16, 12, 14, 10, 13, 8], saves: [{ strength: 5 }, { constitution: 4 }], skillsaves: [{ athletics: 5 }, { perception: 3 }],
+      senses: 'passive Perception 13', languages: ['Common'], cr: '2',
+      traits: [{ name: 'Second Wind', desc: 'Once per rest the hero regains 1d10 + 5 hit points. <img src=x onerror="window.sheetXss=1">' }],
+      actions: [
+        { name: 'Longsword', desc: 'Melee Weapon Attack: +5 to hit, reach 5 ft. Hit: 7 (1d8 + 3) slashing damage.' },
+        { name: 'Hex', desc: 'Hit: 2d6 - 1d4 necrotic damage.' },
+      ],
+    }) : null),
   });
   Object.assign(window, { boardTest: { boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, handoutUrl: images['green.png'], board, map, record, panel, rules, doorProps, wallHeights, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, insideFog, dice, ready: true } });
 }

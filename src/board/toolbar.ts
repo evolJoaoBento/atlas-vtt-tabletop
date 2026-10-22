@@ -43,7 +43,7 @@ export interface ToolbarActions {
   setAmbient(level: number, keep: boolean): void;
 }
 
-/** The board's dice picker and dice log, which open from buttons in the toolbar's end slot. */
+/** The board's dice picker, dice log and stat sheet, which open from buttons in the toolbar's end slot. */
 export interface DiceButton {
   isOpen(): boolean;
   toggle(): void;
@@ -59,6 +59,9 @@ interface EndButton {
 
 /** Lucide's `scroll-text` (ISC): the dice log's button. */
 const LOG_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></svg>';
+
+/** Lucide's `notebook-text` (ISC): the stat sheet's button. */
+const SHEET_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h4"/><path d="M2 10h4"/><path d="M2 14h4"/><path d="M2 18h4"/><rect width="16" height="20" x="4" y="2" rx="2"/><path d="M9.5 8h5"/><path d="M9.5 12H16"/><path d="M9.5 16H14"/></svg>';
 
 /** Lucide's `command` icon (ISC), the glyph of Atlas's command palette button. */
 const COMMAND_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></svg>';
@@ -127,6 +130,7 @@ export class BoardToolbar {
   private readonly endSlot: HTMLElement;
   private dice: EndButton | null = null;
   private diceLog: EndButton | null = null;
+  private sheet: EndButton | null = null;
   private readonly onOutside = (event: PointerEvent): void => {
     const target = event.target as Node;
     if (!this.panel.contains(target) && !this.button.contains(target)) this.close();
@@ -375,8 +379,7 @@ export class BoardToolbar {
       const chosen = choice.dataset.shape === this.actions.templateShape();
       check.innerHTML = chosen ? CHECK_SVG.replace('class="atlas-swatch-check"', 'class="atlas-dropdown-menu-item__tick"') : '';
     }
-    for (const end of [this.dice, this.diceLog]) {
-      if (!end) continue;
+    for (const end of this.ends()) {
       const open = end.handlers.isOpen();
       end.button.classList.toggle('is-active', open);
       end.button.setAttribute('aria-expanded', String(open));
@@ -395,7 +398,12 @@ export class BoardToolbar {
   }
 
   get isOpen(): boolean {
-    return !this.panel.hidden || !this.laserPanel.hidden || this.dice?.handlers.isOpen() === true || this.diceLog?.handlers.isOpen() === true;
+    return !this.panel.hidden || !this.laserPanel.hidden || this.ends().some((end) => end.handlers.isOpen());
+  }
+
+  /** The end slot's buttons there now: Dice, its log and the stat sheet. */
+  private ends(): EndButton[] {
+    return [this.dice, this.diceLog, this.sheet].filter((end): end is EndButton => end !== null);
   }
 
   /**
@@ -419,7 +427,16 @@ export class BoardToolbar {
     return this.diceLog.anchor;
   }
 
-  /** A button in the end slot that opens a panel above itself, the other toolbar panels (and the other dice panel) shut. */
+  /** Puts the stat sheet's button after the dice log's (or the Dice button's); null takes it away. */
+  setSheet(handlers: DiceButton | null): HTMLElement | null {
+    this.sheet?.anchor.remove();
+    this.sheet = null;
+    if (!handlers) return null;
+    this.sheet = this.endButton('Stat sheet', SHEET_SVG, handlers, 'atlas-tabletop-sheet-menu', () => this.diceLog?.anchor ?? this.dice?.anchor ?? null);
+    return this.sheet.anchor;
+  }
+
+  /** A button in the end slot that opens its panel, the other toolbar panels (and the other end slot panels) shut. */
   private endButton(label: string, svg: string, handlers: DiceButton, className: string, after: (() => HTMLElement | null) | null): EndButton {
     const doc = this.row.ownerDocument;
     const anchor = doc.createElement('div');
@@ -440,14 +457,14 @@ export class BoardToolbar {
       this.close();
       this.closeLaser();
       this.closeTemplate();
-      for (const other of [this.dice, this.diceLog]) if (other && other !== made) other.handlers.close();
+      for (const other of this.ends()) if (other !== made) other.handlers.close();
       handlers.toggle();
       this.refresh();
     });
     span.appendChild(button);
     wrapper.appendChild(span);
     anchor.appendChild(wrapper);
-    // Next to the Dice button when it is there, else first in the slot.
+    // Next to the button before it when that is there, else first in the slot.
     const beside = after?.() ?? null;
     if (beside) beside.after(anchor);
     else this.endSlot.prepend(anchor);
@@ -456,8 +473,7 @@ export class BoardToolbar {
   }
 
   closeDice(): void {
-    this.dice?.handlers.close();
-    this.diceLog?.handlers.close();
+    for (const end of this.ends()) end.handlers.close();
   }
 
   /** Shows the laser's options above the toolbar. */
@@ -549,6 +565,7 @@ export class BoardToolbar {
     this.closeLaser();
     this.setDice(null);
     this.setDiceLog(null);
+    this.setSheet(null);
     this.row.remove();
   }
 }

@@ -1628,6 +1628,75 @@ server.listen(0, async () => {
       await page.evaluate(() => window.boardTest.boardDice.sceneChanged());
     }
 
+    // 26b. The selected token's stat sheet: its button after the log's, the drawer showing the hero's sheet as text; an
+    // ability clicked is thrown with the board's dice and logged as the hero's; a roll the dice cannot throw rolls nothing.
+    {
+      await page.evaluate(() => window.boardTest.boardDice.picker.close());
+      const sheetButton = page.locator('.atlas-tabletop-extensions button[aria-label="Stat sheet"]');
+      check('the toolbar has a Stat sheet button after the Dice log button', await sheetButton.count() === 1 && await page.evaluate(() => document.querySelector('.atlas-tabletop-dice-log-menu').nextElementSibling === document.querySelector('.atlas-tabletop-sheet-menu')));
+      const drawer = page.locator('.atlas-tabletop-sheet');
+      await page.evaluate(() => window.boardTest.board.select(null));
+      await sheetButton.click();
+      await wait(200);
+      check('with no token selected the drawer says to select one', await drawer.isVisible() && (await drawer.textContent()).includes('Select a token with a stat block'));
+      await page.evaluate(() => window.boardTest.board.select('hero'));
+      await wait(300);
+      const shown = await page.evaluate(() => ({ text: document.querySelector('.atlas-tabletop-sheet').textContent, imgs: document.querySelectorAll('.atlas-tabletop-sheet img').length, xss: window.sheetXss ?? null, active: document.querySelector('.atlas-tabletop-extensions button[aria-label="Stat sheet"]').classList.contains('is-active') }));
+      check('selecting the hero shows its sheet, its note text as text', shown.text.includes('Hero') && shown.text.includes('Longsword') && shown.text.includes('STR') && shown.text.includes('<img') && shown.imgs === 0 && shown.xss === null && shown.active, shown);
+      await page.screenshot({ path: `${shots}/board-26b1-sheet-drawer.png` });
+      // A roll the dice cannot throw (a subtracted die): a notice, nothing thrown, nothing logged.
+      await page.evaluate(() => { window.rollsBefore26b = window.boardTest.atlasRolls.length; window.diceBefore26b = window.boardTest.board.dice.object3d.children.length; });
+      await drawer.locator('.atlas-tabletop-sheet__roll', { hasText: '2d6 - 1d4' }).click();
+      await wait(300);
+      const refused = await page.evaluate(() => ({ notice: document.querySelector('.atlas-tabletop-sheet__notice').hidden ? null : document.querySelector('.atlas-tabletop-sheet__notice').textContent, rolls: window.boardTest.atlasRolls.length - window.rollsBefore26b, dice: window.boardTest.board.dice.object3d.children.length, before: window.diceBefore26b, busy: window.boardTest.board.dice.busy }));
+      check('a subtracted die is not thrown: the drawer says so, no dice, nothing logged', refused.notice === "Can't roll 2d6-1d4 with physical dice." && refused.rolls === 0 && refused.dice === refused.before && !refused.busy, refused);
+      await page.screenshot({ path: `${shots}/board-26b2-sheet-notice.png` });
+      // The Longsword's attack: thrown with the d20, logged as the hero's Longsword.
+      await drawer.locator('.atlas-tabletop-sheet__roll', { hasText: 'Attack: +5' }).click();
+      await wait(150);
+      check('the attack throws a d20 and the notice goes', await page.evaluate(() => window.boardTest.board.dice.busy && document.querySelector('.atlas-tabletop-sheet__notice').hidden));
+      for (let attempt = 0; attempt < 8; attempt++) {
+        await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
+        await wait(300);
+        if (await page.evaluate(() => window.boardTest.atlasRolls.length > window.rollsBefore26b)) break;
+        // A die caught on an edge: the prompt's Throw throws it again.
+        await page.locator('.atlas-tabletop-dice-prompt__throw').click();
+      }
+      await wait(600);
+      await page.screenshot({ path: `${shots}/board-26b3-sheet-rolled.png` });
+      const sheetRoll = await page.evaluate(() => JSON.parse(JSON.stringify({ roll: window.boardTest.atlasRolls[window.rollsBefore26b], count: window.boardTest.atlasRolls.length - window.rollsBefore26b, entry: window.boardTest.boardDice.log.entries[0], open: !document.querySelector('.atlas-tabletop-sheet').hidden })));
+      const thrown = sheetRoll.roll?.[1];
+      check('the attack is logged once, as the hero\'s Longsword: 1d20+5 with its d20', sheetRoll.count === 1 && thrown.formula === '1d20+5' && thrown.rolls.length === 1 && thrown.rolls[0].die === 'd20' && thrown.total === thrown.rolls[0].value + 5 && JSON.stringify(thrown.source) === JSON.stringify({ type: 'statblock', abilityName: 'Longsword', tokenId: 'hero' }), sheetRoll);
+      check('the log names the ability, and the drawer stays open', sheetRoll.entry?.label === 'Longsword' && sheetRoll.open, sheetRoll);
+      // A sheet roll replaced by the picker's while it settles: only the picker's is logged, as a toolbar roll.
+      await drawer.locator('.atlas-tabletop-sheet__roll', { hasText: '1d10 + 5' }).click();
+      await page.evaluate(() => { window.rollsBefore26b = window.boardTest.atlasRolls.length; window.boardTest.boardDice.picker.open(); });
+      await page.locator('.atlas-tabletop-dice-picker .atlas-tabletop-dice-roll').click();
+      for (let attempt = 0; attempt < 8; attempt++) {
+        await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
+        await wait(300);
+        if (await page.evaluate(() => window.boardTest.atlasRolls.length > window.rollsBefore26b)) break;
+        await page.locator('.atlas-tabletop-dice-prompt__throw').click();
+      }
+      await wait(300);
+      const replaced = await page.evaluate(() => JSON.parse(JSON.stringify(window.boardTest.atlasRolls.slice(window.rollsBefore26b).map(([, roll]) => ({ formula: roll.formula, source: roll.source })))));
+      check('a sheet roll still settling is dropped for the picker\'s, which is logged as the toolbar\'s', replaced.length === 1 && replaced[0].source.type === 'toolbar', replaced);
+      // Dice from its button shuts the drawer; the drawer's button shuts the picker; another token empties it.
+      await page.locator('.atlas-tabletop-extensions button[aria-label="Dice"]').click();
+      await wait(150);
+      check('opening Dice shuts the drawer', !(await drawer.isVisible()) && await page.locator('.atlas-tabletop-dice-picker').isVisible());
+      await sheetButton.click();
+      await wait(250);
+      check('opening the drawer shuts the picker', await drawer.isVisible() && !(await page.locator('.atlas-tabletop-dice-picker').isVisible()));
+      await page.evaluate(() => window.boardTest.board.select('gob'));
+      await wait(300);
+      check('a token without a stat block empties the drawer', (await drawer.textContent()).includes('Select a token with a stat block') && await drawer.locator('.atlas-tabletop-sheet__roll').count() === 0);
+      await page.evaluate(() => window.boardTest.board.select(null));
+      await sheetButton.click();
+      await wait(150);
+      check('the button closes the drawer', !(await drawer.isVisible()));
+      await page.evaluate(() => window.boardTest.boardDice.sceneChanged());
+    }
     // 27. The GM's dice log: the roll of 25 is in the log, and a statblock roll with a critical published on the map's
     // Atlas view shows as a card over the board and first in the log; the Log button opens the panel and shuts the picker.
     {

@@ -290,6 +290,7 @@ export class Board {
   rulerState: { points: Array<{ x: number; y: number }>; label: string } | null = null;
   /** The token whose resource controls show. */
   private selectedId: string | null = null;
+  private readonly selectListeners = new Set<(id: string | null) => void>();
   private readonly controls: ResourceControls;
   private readonly fog = new FogVolume();
   /** Atlas's walls and doors, and the materials they are painted with, by key (a folder, or the plain looks). */
@@ -1779,6 +1780,18 @@ export class Board {
     return this.toolbar.setDiceLog(this.audience === 'gm' ? handlers : null);
   }
 
+  /** The toolbar's Stat sheet button, opening the selected token's sheet; null takes it away. */
+  sheetButton(handlers: DiceButton | null): HTMLElement | null {
+    if (this.disposed) return null;
+    return this.toolbar.setSheet(this.audience === 'gm' ? handlers : null);
+  }
+
+  /** Hears every change of the selected token (its id, or null) until the returned function is called. */
+  onSelect(listener: (id: string | null) => void): () => void {
+    this.selectListeners.add(listener);
+    return () => this.selectListeners.delete(listener);
+  }
+
   /** Throws dice on this board from now on (a table made with `diceHost()`); the one before goes. */
   attachDice(table: DiceTable): void {
     if (this.dice && this.dice !== table) this.dice.dispose();
@@ -1985,6 +1998,7 @@ export class Board {
     if (id === this.selectedId) return;
     this.selectedId = id;
     if (this.editor && this.editor.tokenId !== id) this.editor.view.close();
+    for (const listener of [...this.selectListeners]) listener(id);
     this.wake();
   }
 
@@ -2218,6 +2232,7 @@ export class Board {
 
   dispose(): void {
     this.disposed = true;
+    this.selectListeners.clear();
     this.dice?.dispose();
     this.dice = null;
     if (this.flickerTimer !== 0) (this.frameWin ?? this.container.ownerDocument.defaultView ?? window).clearTimeout(this.flickerTimer);

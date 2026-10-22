@@ -7,7 +7,7 @@
  * store as it changes, else the one in the file.
  */
 import type { BoardMark, BoardSession } from '../connectContract';
-import { ItemView, Menu, Notice, TFile, debounce, parseYaml, setIcon, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
+import { ItemView, Menu, Notice, TFile, debounce, setIcon, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
 import { presentedSceneOf, tabViewOf, type AtlasView } from '../atlas';
 import { SceneTabBar } from './sceneTabBar';
 import type { Assignments } from '../assignments';
@@ -32,6 +32,8 @@ import type { PlayerView } from './PlayerWindow';
 import { QUALITY, type Quality, type QualityPreset } from './quality';
 import type { TokenWriter } from './tokenWriter';
 import { BoardDice } from '../dice/boardDice';
+import { buildSheet, type PlayerSheet } from '../sheets/sheet';
+import { statblockFields, statblockOf } from '../sheets/statblock';
 import { rollViewFor, type MapViewLike } from '../dice/atlasDice';
 import type { ChosenPack } from '../dice/dicePack';
 import type { TabletopDiceSettings } from '../dice/diceSettings';
@@ -251,8 +253,16 @@ export class BoardView extends ItemView {
       settings: () => this.services.diceSettings(),
       pack: () => this.services.dicePack(),
       warn: (message) => this.warn(message),
+      sheetOf: (tokenId) => this.sheetOf(tokenId),
     });
     return board;
+  }
+
+  /** The sheet of a token's stat block, named as the token when the stat block has no name. */
+  private async sheetOf(tokenId: string): Promise<PlayerSheet | null> {
+    const token = this.map?.tokens.find((candidate) => candidate.id === tokenId);
+    if (!token?.statblockPath) return null;
+    return buildSheet(await statblockOf(this.app, token), token.name);
   }
 
   /** The board goes (another map, new quality, the tab closing): its dice first, the roll in play never logged. */
@@ -718,30 +728,12 @@ export class BoardView extends ItemView {
     for (const entry of this.liveInitiative().entries) {
       if ((entryId !== undefined && entry.id !== entryId) || ownModifier(entry) !== undefined) continue;
       const path = this.map?.tokens.find((token) => token.id === entry.tokenId)?.statblockPath ?? entry.statblockPath;
-      const fields = path ? await this.statblockFields(path) : null;
+      const fields = path ? await statblockFields(this.app, path) : null;
       const modifier = fields ? statblockModifier(fields, rules) : null;
       if (modifier !== null) statblockModifiers[entry.id] = modifier;
     }
     if (this.closed) return;
     this.initiativeAct({ type: 'roll', roll: rules.roll, statblockModifiers, ...(entryId !== undefined && { entryId }) });
-  }
-
-  /** A statblock note's fields: its `statblock` block's, with its frontmatter laid over them, as Atlas reads them. */
-  private async statblockFields(path: string): Promise<Record<string, unknown> | null> {
-    const file = this.app.vault.getAbstractFileByPath(path.split('#')[0]!);
-    if (!(file instanceof TFile)) return null;
-    const front = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
-    let block: Record<string, unknown> | undefined;
-    const match = /```statblock[^\n]*\n([\s\S]*?)```/.exec(await this.app.vault.cachedRead(file));
-    if (match) {
-      try {
-        const parsed: unknown = parseYaml(match[1]!);
-        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) block = parsed as Record<string, unknown>;
-      } catch {
-        // A block that is not YAML holds no fields.
-      }
-    }
-    return front || block ? { ...block, ...front } : null;
   }
 
   /** Atlas's tracker keys: I shows or hides it; the up and down arrows step the turns while it shows a running fight. */

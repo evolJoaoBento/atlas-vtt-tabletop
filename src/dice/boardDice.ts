@@ -2,18 +2,22 @@
  * The GM's dice on a board: the toolbar's Dice button and its picker, the dice table they throw into, the roll's
  * lifetime (`DiceController`), the line over the board telling the GM what the roll waits on, and the finished roll
  * handed to Atlas's roll log on the map view the roll belongs to. A die the roll waits on (caught on an edge) is thrown
- * again with a click or a flick on it. The board's tab (and the browser harness) make one per board.
+ * again with a click or a flick on it. The selected token's stat sheet opens from the toolbar too (`SheetDrawer`); its
+ * rolls are thrown with the same dice and logged as that token's. The board's tab (and the browser harness) make one
+ * per board.
  */
 import type { Board } from '../board/board';
 import { DiceLogPanel, logEntryOf } from '../board/diceLog';
 import { diceRulesOf, onRolled, publishRoll, stockRoll, type MapViewLike, type RollResult } from './atlasDice';
 import { DiceController } from './diceController';
+import { SheetDrawer } from '../sheets/sheetDrawer';
+import type { AdvantageSide, PlayerSheet } from '../sheets/sheet';
 import type { ChosenPack } from './dicePack';
 import { DicePicker } from './dicePicker';
 import type { TabletopDiceSettings } from './diceSettings';
 import { DiceTable } from './diceTable';
 import { DiceTextures } from './diceTextures';
-import type { RollRequest } from './rollRules';
+import { parseFormula, type RollRequest } from './rollRules';
 import type { Flick } from './throwInput';
 
 export interface BoardDiceDeps {
@@ -28,6 +32,8 @@ export interface BoardDiceDeps {
   pack(): ChosenPack;
   /** Shown once per message. */
   warn(message: string): void;
+  /** The sheet of a token's stat block; null when it links none or it cannot be read. Without it, no sheet. */
+  sheetOf?(tokenId: string): Promise<PlayerSheet | null>;
 }
 
 /** A press that moves less than this is a click on a die: it is tossed gently. */
@@ -38,6 +44,12 @@ const GENTLE: Flick = { dx: 0, dy: 0, ms: 1 };
 export class BoardDice {
   readonly picker: DicePicker;
   readonly log: DiceLogPanel;
+  readonly sheet: SheetDrawer | null = null;
+  /** The token whose sheet the drawer shows, and the read of it awaited. */
+  private sheetToken: string | null = null;
+  private sheetRead = 0;
+  /** The statblock ability the roll in play was thrown for; null for the picker's rolls. */
+  private rollFrom: { abilityName: string; tokenId: string } | null = null;
   /** The Atlas map view the log listens on, and how to stop. */
   private heard: { view: MapViewLike; stop: () => void } | null = null;
   private table: DiceTable | null = null;
@@ -74,6 +86,24 @@ export class BoardDice {
     });
     this.log = new DiceLogPanel(logAnchor ?? container, { toastParent: container, onOpenChange: () => board.refreshToolbar() });
     this.listen();
+    // The selected token's sheet, after the log; it follows the selection.
+    if (deps.sheetOf) {
+      const sheetAnchor = board.sheetButton({
+        isOpen: () => this.sheet?.isOpen === true,
+        toggle: () => this.sheet?.toggle(),
+        close: () => this.sheet?.close(),
+      });
+      if (sheetAnchor) {
+        this.sheet = new SheetDrawer(container, {
+          onRoll: (formula, label, advantage) => this.sheetRoll(formula, label, advantage),
+          onOpenChange: (open) => {
+            if (open) this.readSheet();
+            board.refreshToolbar();
+          },
+        });
+        this.stops.push(board.onSelect(() => this.readSheet()));
+      }
+    }
     // What the roll waits on, as a line over the board, and the throw it asks for (an explosion has no die to click).
     this.prompt = doc.createElement('div');
     this.prompt.className = 'atlas-tabletop-dice-prompt';
@@ -115,6 +145,43 @@ export class BoardDice {
   /** The board shows another scene or map, or closes: the dice go, and the roll in play is never logged. */
   sceneChanged(): void {
     this.controller?.sceneChanged();
+    this.rollFrom = null;
+  }
+
+  /** The drawer shows the selected token's sheet, read again (the note may have changed); none while it is closed. */
+  private readSheet(): void {
+    const sheet = this.sheet;
+    if (!sheet || this.disposed) return;
+    const tokenId = this.deps.board.selected;
+    const read = ++this.sheetRead;
+    if (tokenId !== this.sheetToken) {
+      this.sheetToken = null;
+      sheet.show(null);
+    }
+    if (tokenId === null || !sheet.isOpen) return;
+    void (this.deps.sheetOf?.(tokenId) ?? Promise.resolve(null)).catch(() => null).then((found) => {
+      // Another token was selected, or the drawer went, meanwhile: this read is no longer wanted.
+      if (read !== this.sheetRead || this.disposed) return;
+      this.sheetToken = tokenId;
+      sheet.show(found);
+    });
+  }
+
+  /**
+   * A roll from the sheet, thrown gently; a roll still settling is dropped, unpublished, as the picker's Roll does.
+   * Logged as the ability of the token whose sheet it is.
+   */
+  private sheetRoll(formula: string, label: string, advantage?: AdvantageSide): void {
+    const tokenId = this.sheetToken;
+    if (this.disposed || tokenId === null) return;
+    const parsed = parseFormula(formula, this.rules());
+    if (!parsed) {
+      this.sheet?.notice(`Can't roll ${formula} with physical dice.`);
+      return;
+    }
+    const controller = this.ensureTable();
+    this.rollFrom = { abilityName: label, tokenId };
+    controller.start({ ...parsed, label, ...(advantage ? { advantage } : {}) }, GENTLE);
   }
 
   /**
@@ -132,6 +199,7 @@ export class BoardDice {
 
   /** The table, its roll and its textures go. */
   private teardown(): void {
+    this.rollFrom = null;
     this.controller?.dispose();
     this.controller = null;
     this.table?.dispose();
@@ -151,8 +219,10 @@ export class BoardDice {
     this.heard = null;
     this.picker.dispose();
     this.log.dispose();
+    this.sheet?.dispose();
     this.deps.board.diceButton(null);
     this.deps.board.diceLogButton(null);
+    this.deps.board.sheetButton(null);
     this.prompt.remove();
   }
 
@@ -165,7 +235,9 @@ export class BoardDice {
   private roll(request: RollRequest, flick: Flick): void {
     if (this.disposed) return;
     this.picker.close();
-    this.ensureTable().start(request, flick);
+    const controller = this.ensureTable();
+    this.rollFrom = null;
+    controller.start(request, flick);
   }
 
   /** The table and the roll's controller, made at the first throw, with the pack and settings as they are then. */
@@ -201,7 +273,9 @@ export class BoardDice {
       const name = roll.color ? names.get(roll.color.toLowerCase()) : undefined;
       return name ? { ...roll, colorName: name } : roll;
     });
-    if (!publishRoll(this.deps.atlasView(), stockRoll({ ...result, rolls }))) {
+    const from = this.rollFrom ?? undefined;
+    this.rollFrom = null;
+    if (!publishRoll(this.deps.atlasView(), stockRoll({ ...result, rolls }, undefined, from))) {
       this.deps.warn('Tabletop: open this map in Atlas to log dice rolls in its roll log.');
     }
   }
