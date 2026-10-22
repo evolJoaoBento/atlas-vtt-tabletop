@@ -1523,6 +1523,8 @@ body.atlas-tabletop-player-window .view-header {
 .atlas-tabletop-dice-log__summary { display: flex; align-items: baseline; gap: 6px; }
 .atlas-tabletop-dice-log__formula, .atlas-tabletop-dice-log__eq { color: var(--text-muted); font-size: var(--font-ui-small); }
 .atlas-tabletop-dice-log__total { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.atlas-tabletop-dice-log__more { align-self: center; color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.atlas-tabletop-dice-log__formula, .atlas-tabletop-dice-card__formula { overflow-wrap: anywhere; min-width: 0; }
 .atlas-tabletop-dice-log__dice, .atlas-tabletop-dice-card__dice { display: flex; flex-wrap: wrap; gap: 4px; }
 .atlas-tabletop-dice-log__die {
   display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 22px; padding: 0 4px; box-sizing: border-box;

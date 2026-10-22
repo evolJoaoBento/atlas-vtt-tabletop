@@ -11,19 +11,31 @@ export interface LogEntry {
   /** The statblock ability the roll was made for. */
   label?: string;
   formula: string;
+  /** At most 100 dice are kept. */
   dice: { die: string; value: number; dropped?: boolean; colour?: string }[];
+  /** How many more dice the roll had than are kept. */
+  more?: number;
   total: number;
   crit?: 'success' | 'failure';
   time: number;
 }
 
 export const LOG_LIMIT = 50;
+/** What one roll may take to show: anyone's roll can arrive on the bus. */
+export const MAX_SHOWN_DICE = 100;
+const MAX_SCANNED_DICE = 1000;
+const MAX_WHO = 64;
+const MAX_LABEL = 64;
+const MAX_FORMULA = 80;
+/** Cards over the board at once; the oldest goes for a new one. */
+export const MAX_TOASTS = 3;
 /** How long a roll's card shows over the board. */
 export const TOAST_MS = 4000;
 
 type Rec = Record<string, unknown>;
 const isObject = (value: unknown): value is Rec => typeof value === 'object' && value !== null && !Array.isArray(value);
 const text = (value: unknown): string | undefined => (typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined);
+const clip = (value: string, max: number): string => (value.length > max ? `${value.slice(0, max - 1)}…` : value);
 
 let made = 0;
 
@@ -31,22 +43,29 @@ let made = 0;
 export function logEntryOf(roll: unknown): LogEntry | null {
   if (!isObject(roll) || typeof roll.formula !== 'string' || typeof roll.total !== 'number' || !Number.isFinite(roll.total)) return null;
   if (!Array.isArray(roll.rolls) || roll.rolls.length === 0) return null;
+  // A die that does not read is skipped; the roll stays when at least one does.
   const dice: LogEntry['dice'] = [];
-  for (const die of roll.rolls) {
-    if (!isObject(die) || typeof die.die !== 'string' || typeof die.value !== 'number' || !Number.isFinite(die.value)) return null;
+  let read = 0;
+  for (const die of roll.rolls.slice(0, MAX_SCANNED_DICE)) {
+    if (!isObject(die) || typeof die.die !== 'string' || typeof die.value !== 'number' || !Number.isFinite(die.value)) continue;
+    read++;
+    if (dice.length >= MAX_SHOWN_DICE) continue;
     const colour = text(die.colour);
-    dice.push({ die: die.die, value: die.value, ...(die.dropped === true ? { dropped: true } : {}), ...(colour ? { colour } : {}) });
+    dice.push({ die: clip(die.die, 8), value: die.value, ...(die.dropped === true ? { dropped: true } : {}), ...(colour ? { colour: clip(colour, 32) } : {}) });
   }
+  if (read === 0) return null;
+  const more = read - dice.length + Math.max(0, roll.rolls.length - MAX_SCANNED_DICE);
   const time = typeof roll.timestamp === 'number' && Number.isFinite(roll.timestamp) ? roll.timestamp : Date.now();
   const source = isObject(roll.source) ? roll.source : null;
   const label = source?.type === 'statblock' ? text(source.abilityName) : undefined;
   const crit = roll.crit === 'high' || roll.crit === 'success' ? 'success' : roll.crit === 'low' || roll.crit === 'failure' ? 'failure' : undefined;
   return {
-    id: text(roll.id) ?? `roll_${time}_${made++}`,
-    who: text(roll.rolledBy) ?? 'GM',
-    ...(label ? { label } : {}),
-    formula: roll.formula,
+    id: clip(text(roll.id) ?? `roll_${time}_${made++}`, 128),
+    who: clip(text(roll.rolledBy) ?? 'GM', MAX_WHO),
+    ...(label ? { label: clip(label, MAX_LABEL) } : {}),
+    formula: clip(roll.formula, MAX_FORMULA),
     dice,
+    ...(more > 0 ? { more } : {}),
     total: roll.total,
     ...(crit ? { crit } : {}),
     time,
@@ -135,7 +154,10 @@ export class DiceLogPanel {
     const next = withEntry(this.list, entry);
     if (next === this.list) return;
     this.list = next;
-    this.render();
+    // Only the new row is made; the rows past 50 go.
+    this.empty.hidden = true;
+    this.body.prepend(this.row(entry));
+    while (this.body.childElementCount > LOG_LIMIT) this.body.lastElementChild?.remove();
     this.toast(entry);
   }
 
@@ -170,11 +192,6 @@ export class DiceLogPanel {
     this.toasts.remove();
   }
 
-  private render(): void {
-    this.empty.hidden = this.list.length > 0;
-    this.body.replaceChildren(...this.list.map((entry) => this.row(entry)));
-  }
-
   private make<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, into: HTMLElement | null, content?: string): HTMLElementTagNameMap[K] {
     const made = this.parent.ownerDocument.createElement(tag);
     made.className = className;
@@ -203,6 +220,7 @@ export class DiceLogPanel {
       badge.title = die.die;
       if (die.colour) badge.style.setProperty('--die-tag-colour', die.colour);
     }
+    if (entry.more) this.make('span', 'atlas-tabletop-dice-log__more', list, `+${entry.more} more`);
     return list;
   }
 
@@ -216,6 +234,7 @@ export class DiceLogPanel {
     this.make('span', 'atlas-tabletop-dice-card__formula', content, entry.formula);
     content.appendChild(this.dice(entry, 'atlas-tabletop-dice-card__dice'));
     this.make('span', 'atlas-tabletop-dice-card__total', card, String(entry.total));
+    while (this.toasts.childElementCount >= MAX_TOASTS) this.toasts.firstElementChild?.remove();
     this.toasts.appendChild(card);
     this.toasts.hidden = false;
     const win = this.parent.ownerDocument.defaultView ?? window;

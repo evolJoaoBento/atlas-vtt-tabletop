@@ -1663,7 +1663,37 @@ server.listen(0, async () => {
       await wait(3300);
       check('the card goes after 4 seconds', await page.evaluate(() => document.querySelectorAll('.atlas-tabletop-dice-card').length === 0));
       check('garbage on the bus is not logged', await page.evaluate(() => { const bus = window.boardTest.atlasBus; bus.emit('dice-rolled', { formula: 3 }); bus.emit('dice-rolled', null); return window.boardTest.boardDice.log.entries.length === window.countBefore + 1; }));
-      check('the log listens on the Atlas view once, and not after the board is gone', await page.evaluate(() => { const before = window.boardTest.atlasListeners.size; return before === 1; }));
+      check('the log listens on the Atlas view once', await page.evaluate(() => window.boardTest.atlasListeners.size === 1));
+      // The map is held by another Atlas view: only that view's rolls arrive; the old view's go unheard; none twice.
+      const moved = await page.evaluate(() => {
+        const t = window.boardTest;
+        const other = t.otherAtlas();
+        const count = () => t.boardDice.log.entries.length;
+        const roll = (id) => ({ id, timestamp: Date.now(), formula: 'd20', total: 3, rolls: [{ die: 'd20', value: 3, max: 20, min: 1 }] });
+        const start = count();
+        t.useAtlasView(other.view);
+        t.boardDice.listen();
+        t.boardDice.listen();
+        t.atlasBus.emit('dice-rolled', roll('old_view'));
+        const afterOld = count();
+        other.bus.emit('dice-rolled', roll('new_view'));
+        return { start, afterOld, afterNew: count(), oldListeners: t.atlasListeners.size, newListeners: other.listeners.size };
+      });
+      check('moved to another Atlas view: the old view is let go, the new one heard once', moved.afterOld === moved.start && moved.afterNew === moved.start + 1 && moved.oldListeners === 0 && moved.newListeners === 1, moved);
+      // The board closes: nothing is heard, nothing throws, the buttons and cards are gone.
+      const closed = await page.evaluate(() => {
+        const t = window.boardTest;
+        const other = t.otherAtlas();
+        t.useAtlasView(other.view);
+        t.boardDice.listen();
+        const heardBefore = other.listeners.size;
+        const log = t.boardDice.log;
+        t.boardDice.dispose();
+        let threw = null;
+        try { other.bus.emit('dice-rolled', { id: 'after', timestamp: 1, formula: 'd4', total: 1, rolls: [{ die: 'd4', value: 1 }] }); } catch (error) { threw = String(error); }
+        return { heardBefore, listeners: other.listeners.size, oldListeners: t.atlasListeners.size, has: log.entries.some((entry) => entry.id === 'after'), threw, button: document.querySelectorAll('button[aria-label="Dice log"]').length, cards: document.querySelectorAll('.atlas-tabletop-dice-card, .atlas-tabletop-dice-log').length };
+      });
+      check('closing the board lets go of the Atlas view: nothing heard, nothing thrown, button and cards gone', closed.heardBefore === 1 && closed.listeners === 0 && !closed.has && closed.threw === null && closed.button === 0 && closed.cards === 0, closed);
     }
   } catch (error) {
     check('harness ran', false, String(error && error.stack || error));
