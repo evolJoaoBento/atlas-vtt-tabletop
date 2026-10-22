@@ -199,7 +199,10 @@ test('a die resting on another is read where it lies, and falls when the die und
   assert.ok(top.position.y > 1.2, `it lies on the other die: ${top.position.y}`);
   const loosened: number[] = [];
   dice.onLoosened = (id) => { loosened.push(id); };
+  const topMesh = dice.object3d.children.find((mesh) => mesh.userData.dieId === over) as THREE.Mesh<THREE.BufferGeometry, THREE.MeshPhongMaterial>;
+  topMesh.material.emissive.set('#ffd700');
   dice.throwDie(under, { dx: 0, dy: -200, ms: 100 });
+  assert.equal(topMesh.material.emissive.getHex(), 0, 'a die knocked loose is not lit up as caught while it falls');
   assert.equal(top.type, CANNON.Body.DYNAMIC, 'the die on top is no longer held in the air');
   assert.deepEqual(loosened, [over], 'and the table says so');
   run(dice);
@@ -281,4 +284,28 @@ test('a die new to the table lets go of no dice held where it is made', () => se
   dice.throwDie(third, { dx: 0, dy: -200, ms: 100 });
   assert.equal(bodyOf(dice, second).type, CANNON.Body.STATIC, 'the die on top is still held');
   assert.equal(bodyOf(dice, first).type, CANNON.Body.STATIC);
+}));
+
+test('a die taken off the table lets go of the dice resting on it', () => seeded(5, () => {
+  const { dice } = table(0);
+  const session = new RollSession({ dice: { d6: 2 }, modifier: 0 }, DEFAULT_RULES);
+  dice.throwRoll(session, { dx: 0, dy: -200, ms: 100 });
+  run(dice);
+  const [under, over] = session.dice.map((state) => state.id);
+  dice.throwDie(over, { dx: 0, dy: -200, ms: 100 });
+  const base = bodyOf(dice, under);
+  const top = bodyOf(dice, over);
+  top.position.set(base.position.x, base.position.y + 1.02, base.position.z);
+  top.quaternion.copy(base.quaternion);
+  top.velocity.set(0, 0, 0);
+  top.angularVelocity.set(0, 0, 0);
+  run(dice);
+  const loosened: number[] = [];
+  dice.onLoosened = (id) => { loosened.push(id); };
+  dice.remove(under);
+  assert.deepEqual(dice.object3d.children.map((mesh) => mesh.userData.dieId), [over]);
+  assert.deepEqual(loosened, [over]);
+  run(dice);
+  assert.ok(top.position.y < 1.2, `it fell to the felt: ${top.position.y}`);
+  dice.remove(999);
 }));

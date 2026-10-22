@@ -162,6 +162,16 @@ export class DiceTable {
     }
   }
 
+  /** Takes a die off the table (an explosion its die no longer earns); the dice resting on it fall. */
+  remove(dieId: number): void {
+    const die = this.dice.get(dieId);
+    if (!die) return;
+    this.dice.delete(dieId);
+    this.removeDie(die);
+    this.loosenDiceOn(die);
+    if (this.busy) this.host.wake();
+  }
+
   /** The die a ray (in the board's world) meets first, or null. */
   pick(ray: THREE.Ray): number | null {
     this.object3d.updateMatrixWorld(true);
@@ -277,7 +287,6 @@ export class DiceTable {
     // Spin that rolls the die the way it travels, plus some of every kind.
     const spin = (): number => (Math.random() - 0.5) * MAX_SPIN;
     body.angularVelocity.set(spin() + dir.z * MAX_SPIN * 0.4, spin(), spin() - dir.x * MAX_SPIN * 0.4);
-    die.mesh.material.emissive.set(0x000000);
     die.mesh.position.set(body.position.x, body.position.y, body.position.z);
     die.mesh.quaternion.set(body.quaternion.x, body.quaternion.y, body.quaternion.z, body.quaternion.w);
   }
@@ -312,6 +321,8 @@ export class DiceTable {
     die.settled = false;
     die.stillMs = 0;
     die.rollingMs = 0;
+    // Moving, it is caught no longer: it is lit up again only if it lands caught.
+    die.mesh.material.emissive.set(0x000000);
   }
 
   /**

@@ -90,12 +90,20 @@ export class RollSession {
   /**
    * The die was knocked loose (a die under it was thrown again) and moves: it is read again where it lands, and that
    * reading replaces whatever it had, a number or caught. Not a throw: it is not pending, and the roll waits for it.
+   * The explosion its old face earned goes at once, thrown or not, with any chain from it: where it lands alone
+   * decides another. Returns the dice taken out of the roll, for the table to take away.
    */
-  loosen(id: number): void {
+  loosen(id: number): number[] {
     const state = this.states.find((candidate) => candidate.id === id);
-    if (!state || state.status === 'rolling') return;
+    const line = this.lines.get(id);
+    if (!state || !line || state.status === 'rolling') return [];
     state.status = 'rolling';
     delete state.value;
+    const head = this.lines.get(line.ones ? (line.pair as number) : id) as DieLine;
+    const removed: number[] = [];
+    if (head.explodedInto !== undefined) this.withdraw(head.explodedInto, removed);
+    delete head.explodedInto;
+    return removed;
   }
 
   /** The dice the thrower still has to throw: caught dice and explosions. */
@@ -208,27 +216,22 @@ export class RollSession {
     const state = this.states.find((candidate) => candidate.id === id);
     const line = this.lines.get(id);
     const value = this.unitValue(id);
-    if (!state || !line || value === null) return;
-    if (line.explodedInto !== undefined) {
-      // Read again after it was knocked loose: an explosion already thrown stands; one not yet thrown goes, and the
-      // face it landed on now decides whether it explodes.
-      if (!this.lines.get(line.explodedInto)?.awaiting) return;
-      this.removeDie(line.explodedInto);
-      delete line.explodedInto;
-    }
-    if (this.rollCount() >= MAX_DICE) return;
+    if (!state || !line || value === null || this.rollCount() >= MAX_DICE) return;
     const direction = explosion(this.rules, state.die, value, line.defaultLine, line.fromExplosion);
     if (direction) line.explodedInto = this.addDie(state.die, { isDefault: false, color: state.color, parent: state, up: direction === 'up' });
   }
 
-  /** Takes a die (a d100 with its ones die) out of the roll. */
-  private removeDie(id: number): void {
-    const pair = this.lines.get(id)?.pair;
-    for (const gone of pair === undefined ? [id] : [id, pair]) {
+  /** Takes an explosion's die (a d100 with its ones die) out of the roll, and the explosions it earned in turn. */
+  private withdraw(id: number, removed: number[]): void {
+    const line = this.lines.get(id);
+    if (!line) return;
+    for (const gone of line.pair === undefined ? [id] : [id, line.pair]) {
       this.lines.delete(gone);
       const index = this.states.findIndex((state) => state.id === gone);
       if (index >= 0) this.states.splice(index, 1);
+      removed.push(gone);
     }
+    if (line.explodedInto !== undefined) this.withdraw(line.explodedInto, removed);
   }
 
   /** The root of the die advantage or disadvantage sets aside (with its explosions); null without one. */

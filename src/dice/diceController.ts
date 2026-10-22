@@ -9,7 +9,7 @@ import { RollSession } from './rollSession';
 import type { Flick } from './throwInput';
 
 export interface DiceControllerDeps {
-  table: Pick<DiceTable, 'throwRoll' | 'throwDie' | 'clear' | 'busy'> & { onSettled: DiceTable['onSettled']; onLoosened: DiceTable['onLoosened'] };
+  table: Pick<DiceTable, 'throwRoll' | 'throwDie' | 'remove' | 'clear' | 'busy'> & { onSettled: DiceTable['onSettled']; onLoosened: DiceTable['onLoosened'] };
   /** The rules of the map the roll is for, asked at each new roll. */
   rules: () => DiceRules;
   publish: (result: NonNullable<ReturnType<RollSession['result']>>) => void;
@@ -32,14 +32,17 @@ export class DiceController {
         return;
       }
       this.session = null;
-      deps.publish(result);
-      deps.prompt(null);
+      try {
+        deps.publish(result);
+      } finally {
+        deps.prompt(null);
+      }
     };
-    // A die knocked loose is read again where it lands, and the roll waits for it.
+    // A die knocked loose is read again where it lands, and the roll waits for it; the explosion it had earned goes.
     deps.table.onLoosened = (id) => {
       const session = this.session;
       if (!session) return;
-      session.loosen(id);
+      for (const gone of session.loosen(id)) deps.table.remove(gone);
       deps.prompt(session.prompt());
     };
   }
@@ -56,7 +59,11 @@ export class DiceController {
   throwPending(flick: Flick): void {
     const session = this.session;
     if (!session) return;
-    for (const pending of session.pendingThrows()) this.throwOne(session, pending.id, flick);
+    for (const pending of session.pendingThrows()) {
+      // A throw can knock a die loose and take back its explosion: what is no longer pending is not thrown.
+      if (this.session !== session || !session.pendingThrows().some((still) => still.id === pending.id)) continue;
+      this.throwOne(session, pending.id, flick);
+    }
     this.deps.prompt(session.prompt());
   }
 

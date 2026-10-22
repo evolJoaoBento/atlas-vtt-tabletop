@@ -20,8 +20,15 @@ class FakeTable {
   rolls = 0;
   thrown: number[] = [];
   clears = 0;
+  removed: number[] = [];
+  /** Which die rests on which: throwing the one below knocks the one on top loose, as the real table does. */
+  restsOn = new Map<number, number>();
   throwRoll(session: RollSession): void { this.session = session; this.rolls++; }
-  throwDie(id: number): void { this.thrown.push(id); }
+  throwDie(id: number): void {
+    this.thrown.push(id);
+    for (const [top, below] of this.restsOn) if (below === id) this.onLoosened(top);
+  }
+  remove(id: number): void { this.removed.push(id); }
   clear(): void { this.clears++; this.session = null; }
   ids(): number[] { return (this.session as RollSession).dice.map((state) => state.id); }
 }
@@ -152,4 +159,42 @@ test('a die knocked loose holds the roll until it lands, and its landing decides
   assert.deepEqual(table.thrown, [b, a]);
   table.onSettled(a, face(6));
   assert.deepEqual(published[0].rolls.map((roll) => roll.value), [6, 3, 2]);
+});
+
+test('a die knocked loose by a pending throw takes its explosion back before it can be thrown', () => {
+  const { dice, table, published, prompts } = controller(explodeAll);
+  dice.start({ dice: { d6: 1, d8: 1 }, modifier: 0 }, FLICK);
+  const session = table.session as RollSession;
+  const [a, b] = table.ids();
+  table.onSettled(a, face(6));
+  table.onSettled(b, CAUGHT);
+  const extra = session.dice[2].id;
+  assert.deepEqual(session.pendingThrows().map((pending) => pending.id), [b, extra]);
+  // The exploded d6 rests on the caught d8: throwing the d8 knocks it loose.
+  table.restsOn.set(a, b);
+  dice.throwPending(FLICK);
+  assert.deepEqual(table.thrown, [b], 'the explosion its parent no longer holds is not thrown');
+  assert.deepEqual(table.removed, [extra]);
+  assert.equal(prompts.at(-1), null, 'nothing asks for the withdrawn explosion');
+  table.onSettled(b, face(5));
+  assert.equal(published.length, 0, 'the loose d6 has not landed');
+  table.onSettled(a, face(1));
+  assert.deepEqual(published[0].rolls.map((roll) => [roll.die, roll.value, roll.exploded ?? false]), [['d6', 1, false], ['d8', 5, false]]);
+  assert.equal(published[0].total, 6);
+});
+
+test('a publish that fails still clears the prompt and publishes nothing more', () => {
+  const table = new FakeTable();
+  const prompts: Array<string | null> = [];
+  let publishes = 0;
+  const dice = new DiceController({ table, rules: () => DEFAULT_RULES, publish: () => { publishes++; throw new Error('no route'); }, prompt: (text) => { prompts.push(text); } });
+  dice.start({ dice: { d20: 1 }, modifier: 0 }, FLICK);
+  const [d20] = table.ids();
+  table.onSettled(d20, CAUGHT);
+  dice.clickDie(d20, FLICK);
+  const before = prompts.length;
+  assert.throws(() => table.onSettled(d20, face(12)), /no route/);
+  assert.deepEqual(prompts.slice(before), [null], 'the prompt is cleared all the same');
+  table.onSettled(d20, face(3));
+  assert.equal(publishes, 1);
 });
