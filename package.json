@@ -9,7 +9,8 @@
     "dev": "node esbuild.config.mjs",
     "build": "tsc --noEmit && node esbuild.config.mjs production",
     "test": "node tests/run.mjs",
-    "deploy": "node esbuild.config.mjs production && node scripts/deploy.mjs"
+    "deploy": "node esbuild.config.mjs production && node scripts/deploy.mjs",
+    "sync:dice": "node scripts/sync-dice-kit.mjs"
   },
   "devDependencies": {
     "@types/three": "^0.185.0",
@@ -18,6 +19,7 @@
     "typescript": "~5.8.3"
   },
   "dependencies": {
+    "cannon-es": "^0.20.0",
     "clipper2-ts": "^2.0.1-18",
     "meshoptimizer": "^1.3.0",
     "three": "^0.185.1"
