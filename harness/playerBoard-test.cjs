@@ -170,6 +170,59 @@ server.listen(0, async () => {
     await wait(500);
     check('a scene again: the board shows it', await page.evaluate(() => window.playerTest.board.canvas.style.visibility !== 'hidden'));
 
+    // 11c. Dice: Connect asks for a throw; the dice tumble on this board, and the landed values go back once, the sheet unchanged.
+    const sheet = { tokenId: 'mine', roll: { ability: 'Longsword', formula: '2d6+3' } };
+    const thrown = await page.evaluate((sheet) => {
+      const t = window.playerTest;
+      return { available: t.handle.diceAvailable === true, ok: t.handle.throwDice({ dice: { d6: 2 }, modifier: 3, label: 'Longsword', sheet }), busy: !!t.board.dice?.busy };
+    }, sheet);
+    check('the board has dice, and a throw from Connect starts them rolling', thrown.available && thrown.ok && thrown.busy, thrown);
+    await wait(250);
+    await page.screenshot({ path: `${shots}/player-3-dice-rolling.png` });
+    let rethrown = 0;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      await page.waitForFunction(() => !window.playerTest.board.dice.busy, null, { timeout: 90000 });
+      await wait(300);
+      if ((await record()).diceResults.length > 0) break;
+      // A die caught on an edge: clicked where it lies, it is thrown again.
+      const caught = await page.evaluate(() => {
+        const t = window.playerTest;
+        const b = t.board;
+        b.view.updateMatrixWorld();
+        const rect = b.canvas.getBoundingClientRect();
+        for (const mesh of b.dice.object3d.children) {
+          if (!t.handle.dice.waitsOn(mesh.userData.dieId)) continue;
+          const ndc = mesh.getWorldPosition(mesh.position.clone()).project(b.view);
+          return { x: rect.left + ((ndc.x + 1) / 2) * rect.width, y: rect.top + ((1 - ndc.y) / 2) * rect.height, prompt: document.querySelector('.atlas-tabletop-dice-prompt').textContent };
+        }
+        return null;
+      });
+      if (!caught) break;
+      if (rethrown === 0) await page.screenshot({ path: `${shots}/player-3b-dice-caught.png` });
+      await page.mouse.click(caught.x, caught.y);
+      rethrown++;
+      await wait(200);
+    }
+    await page.screenshot({ path: `${shots}/player-4-dice-landed.png` });
+    const landed = await record();
+    const sent = landed.diceResults;
+    check('the landed roll goes to Connect once: two d6 read clean, the modifier, label and sheet as asked', sent.length === 1 && sent[0].rolls.length === 2
+      && sent[0].rolls.every((roll) => roll.die === 'd6' && roll.max === 6 && Number.isInteger(roll.value) && roll.value >= 1 && roll.value <= 6)
+      && sent[0].modifier === 3 && sent[0].label === 'Longsword' && JSON.stringify(sent[0].sheet) === JSON.stringify(sheet) && !('total' in sent[0]), { sent, rethrown });
+    await wait(1500);
+    const after = await page.evaluate(() => ({ busy: window.playerTest.board.dice.busy, prompt: document.querySelector('.atlas-tabletop-dice-prompt').hidden, sends: window.playerTest.record.diceResults.length }));
+    check('then the dice lie still (no physics), the line is gone, and nothing more is sent', !after.busy && after.prompt && after.sends === 1, after);
+    const changed = await page.evaluate(() => {
+      const t = window.playerTest;
+      t.handle.throwDice({ dice: { d20: 1 }, modifier: 0 });
+      t.handle.setScene({ ...t.scene, sceneId: 's3' });
+      return { dice: t.board.dice.object3d.children.length };
+    });
+    await wait(2500);
+    check('a scene change clears the dice and the roll in play is never sent', changed.dice === 0 && (await record()).diceResults.length === 1, { changed, sends: (await record()).diceResults.length });
+    await page.evaluate(() => { const t = window.playerTest; t.handle.setScene(t.scene); });
+    await wait(300);
+
     // 12. Disposed: the WebGL context is let go.
     await page.evaluate(() => window.playerTest.handle.dispose());
     check('dispose leaves no canvas behind', await page.evaluate(() => document.querySelectorAll('#board canvas').length === 0));

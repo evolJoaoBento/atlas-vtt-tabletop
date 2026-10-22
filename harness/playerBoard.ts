@@ -5,7 +5,9 @@
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { playerBoardFactory, type PlayerBoardHandle, type PlayerBoardHost } from '../src/playerBoard';
-import type { BoardExtras } from '../src/connectContract';
+import type { BoardExtras, PlayerDiceResult } from '../src/connectContract';
+import { vendoredPack } from '../src/dice/dicePack';
+import { DEFAULT_DICE_SETTINGS } from '../src/dice/diceSettings';
 
 function exportGlb(root: THREE.Object3D): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => new GLTFExporter().parse(root, (out) => resolve(out as ArrayBuffer), reject, { binary: true }));
@@ -67,8 +69,9 @@ async function main(): Promise<void> {
   files.set(TEX, drawn(64, 64, (context) => { context.fillStyle = '#884422'; context.fillRect(0, 0, 64, 64); }));
   const record = {
     moves: [] as unknown[][], pings: [] as unknown[][], lasers: [] as unknown[][], templates: [] as unknown[], pins: [] as string[],
-    hovers: [] as unknown[][], toolsChanged: 0,
+    hovers: [] as unknown[][], toolsChanged: 0, diceResults: [] as PlayerDiceResult[],
   };
+  const pack = vendoredPack();
   const host: PlayerBoardHost = {
     image: (id) => { const file = files.get(id); return typeof file === 'string' ? file : null; },
     model: (id) => { const file = files.get(id); return file instanceof ArrayBuffer ? file : null; },
@@ -79,9 +82,11 @@ async function main(): Promise<void> {
     openPin: (pinId) => { record.pins.push(pinId); },
     hover: (id, client, modifier) => { record.hovers.push([id, client !== null, modifier]); },
     toolsChanged: () => { record.toolsChanged++; },
+    sendDiceResult: (result) => { record.diceResults.push(result); return true; },
+    diceRules: () => null,
   };
   const container = document.getElementById('board')!;
-  const handle: PlayerBoardHandle = playerBoardFactory(() => 'medium').create(container, host);
+  const handle: PlayerBoardHandle = playerBoardFactory(() => 'medium', { settings: () => DEFAULT_DICE_SETTINGS, pack: () => pack }).create(container, host);
   handle.setPlayers(['me', 'you'], 'me');
   handle.setConnected(true);
   handle.setControlled(['mine']);

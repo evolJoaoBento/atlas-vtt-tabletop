@@ -217,7 +217,7 @@ export default class TabletopPlugin extends Plugin {
     this.api = Object.freeze({
       version: 1 as const,
       playerMinis: this.players.painter,
-      playerBoard: playerBoardFactory(() => this.settings.quality),
+      playerBoard: playerBoardFactory(() => this.settings.quality, { settings: () => this.settings.dice, pack: () => (this.dicePack ??= vendoredPack()) }),
       attachSession: (session: BoardSession) => this.attachSession(session),
       boardViews: () => this.boards().flatMap((board) => (board.mapPath ? [{ key: `tabletop:${boardKey(board)}`, mapPath: board.mapPath, root: board.contentEl }] : [])),
       placementsFor: (mapPath: string) => this.assignments.forMap(mapPath),

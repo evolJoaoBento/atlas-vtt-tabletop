@@ -3,6 +3,7 @@
  * Connect's `src/app/online/scene/boardTypes.ts` and must stay the same; the API shapes are what each plugin offers
  * the other through `app.plugins.plugins[…].api`. Heights are in grid squares; null is the board's default.
  */
+import type { RolledDie, RollRequest } from './dice/rollRules';
 
 // ── On the wire (Connect's `boardTypes.ts`) ──────────────────────────────────
 
@@ -116,4 +117,20 @@ export interface GmCameraSource {
   camera(mapPath: string): Omit<BoardCamera, 'sceneId'> | null;
   /** Called (often) while either camera moves. */
   onChange(listener: () => void): () => void;
+}
+
+// ── A player's physical dice (`api.playerBoard`, optional in version 1) ─────
+
+/** What Connect's stat sheet rolled, handed through the throw and back with its result unchanged. */
+export interface PlayerDiceSheet { tokenId: string; roll: unknown }
+
+/** A throw Connect asks the player's board for: the roll, and the sheet roll it is for, if any. */
+export type PlayerDiceRequest = RollRequest & { sheet?: PlayerDiceSheet };
+
+/** A finished throw on the player's board, for Connect to send to the GM: every die read, none caught. */
+export interface PlayerDiceResult {
+  rolls: RolledDie[];
+  modifier: number;
+  label?: string;
+  sheet?: PlayerDiceSheet;
 }
