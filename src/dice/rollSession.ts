@@ -126,7 +126,7 @@ export class RollSession {
     return explosions.length > 0 ? explosions.join('\n') : null;
   }
 
-  /** The roll once every die has settled and every explosion is thrown; null until then. */
+  /** The roll once every die has settled and every explosion is thrown; null until then. The die set aside stays, marked dropped. */
   result(): { rolls: RolledDie[]; modifier: number; total: number; crit?: 'success' | 'failure'; label?: string } | null {
     if (this.states.some((state) => state.status !== 'settled' || this.lines.get(state.id)?.awaiting)) return null;
     const dropped = this.droppedRoot();
@@ -134,6 +134,8 @@ export class RollSession {
     for (const state of this.states) {
       const line = this.lines.get(state.id) as DieLine;
       if (line.ones) continue;
+      // A die set aside earns no explosion (Atlas explodes kept dice only): what its explosions threw leaves the roll.
+      if (dropped !== null && line.root === dropped && line.fromExplosion) continue;
       const value = this.unitValue(state.id) as number;
       rolls.push({
         die: state.die,

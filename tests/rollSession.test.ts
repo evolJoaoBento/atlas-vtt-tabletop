@@ -155,7 +155,7 @@ test('disadvantage drops the higher', () => {
   assert.equal(result.crit, 'failure');
 });
 
-test('a dropped die takes its explosions with it', () => {
+test('a dropped die takes its explosions with it: they leave the roll, as Atlas explodes kept dice only', () => {
   const rules: DiceRules = { defaultRoll: '1d20', crit: 'natural', explode: { dice: 'default', repeats: false, highFaces: 1, lowFaces: 0 } };
   const session = new RollSession({ dice: { d20: 1 }, modifier: 0, advantage: 'disadvantage' }, rules);
   session.settle(session.dice[0].id, face(20));
@@ -163,7 +163,7 @@ test('a dropped die takes its explosions with it', () => {
   session.settle(session.dice[2].id, face(9));
   const result = session.result();
   assert.ok(result);
-  assert.deepEqual(result.rolls.map((roll) => roll.dropped === true), [true, false, true]);
+  assert.deepEqual(result.rolls, [{ die: 'd20', value: 20, max: 20, dropped: true }, { die: 'd20', value: 7, max: 20 }]);
   assert.equal(result.total, 7);
 });
 
