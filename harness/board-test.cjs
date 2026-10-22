@@ -1444,6 +1444,9 @@ server.listen(0, async () => {
         return tray.classList.contains('atlas-dice-tray') && tray.querySelectorAll('.atlas-dice-tray__die').length === 7 && document.querySelector('.atlas-tabletop-extensions button[aria-label="Dice"]').classList.contains('is-active');
       }));
       const empty = await page.evaluate(() => ({ formula: document.querySelector('.atlas-dice-tray__formula').textContent, roll: document.querySelector('.atlas-dice-tray__roll').disabled }));
+      // The toolbar's own buttons are see-through; the tray's Roll keeps Atlas's accent fill, or it is lost on a light theme.
+      const rollFill = await page.evaluate(() => getComputedStyle(document.querySelector('.atlas-dice-tray__roll')).backgroundColor);
+      check('the tray\'s Roll keeps its accent fill inside the toolbar', rollFill !== 'rgba(0, 0, 0, 0)' && rollFill !== 'transparent', rollFill);
       check('an empty tray says so, and Roll is off (as in Atlas)', empty.formula === 'The tray is empty.' && empty.roll, empty);
       const d6 = picker.locator('[data-die="d6"]');
       await d6.click();
@@ -1493,6 +1496,21 @@ server.listen(0, async () => {
       }));
       check('Roll lays the dice on the table at rest, throws none, and the tray steps aside', laid.dice === 2 && !laid.busy && laid.rolls === 0 && !laid.open && laid.prompt.includes('Drag a die'), laid);
       await page.screenshot({ path: `${shots}/board-25b-dice-laid.png` });
+      const outlined = await page.evaluate(() => window.boardTest.board.dice.object3d.children.map((mesh) => mesh.children.some((child) => child.name === 'die-outline' && child.visible)));
+      check('each die still to be thrown has a line round it', outlined.length === 2 && outlined.every(Boolean), outlined);
+      // For the eye: the laid dice close up, each with its line.
+      await page.evaluate(() => {
+        const b = window.boardTest.board;
+        const at = new window.boardTest.Vector3();
+        for (const mesh of b.dice.object3d.children) at.add(mesh.getWorldPosition(new window.boardTest.Vector3()));
+        at.divideScalar(b.dice.object3d.children.length);
+        b.camera.frame({ x: at.x, y: 0, z: at.z }, 60);
+        b.wake();
+      });
+      await wait(1500);
+      await page.screenshot({ path: `${shots}/board-25b2-dice-laid-close.png` });
+      await page.evaluate(() => window.boardTest.board.frameMap());
+      await wait(1200);
       // One die dragged away from the camera: carried under the pointer while dragged, thrown when let go.
       const screenOf = (id) => page.evaluate((id) => {
         const b = window.boardTest.board;

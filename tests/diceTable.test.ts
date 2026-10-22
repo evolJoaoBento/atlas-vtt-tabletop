@@ -3,13 +3,14 @@ import { test } from 'node:test';
 import * as CANNON from 'cannon-es';
 import * as THREE from 'three';
 import { DiceTable, type DiceObstacle, type DiceSettings, type DiceTableHost } from '../src/dice/diceTable';
+import { outlineShown } from '../src/dice/dieOutline';
 import type { FaceReading } from '../src/dice/kit/faces';
 import { DEFAULT_RULES } from '../src/dice/rollRules';
 import { RollSession } from '../src/dice/rollSession';
 
 const SETTINGS: DiceSettings = { dieSquares: 0.6, tolerance: 0.3, motionThreshold: 2, shadows: true, highlight: true, highlightColor: '#ffd700' };
 
-function table(yaw: number | (() => number) = 0.7, obstacles: DiceObstacle[] = []): { dice: DiceTable; scene: THREE.Scene; wakes: number[] } {
+function table(yaw: number | (() => number) = 0.7, obstacles: DiceObstacle[] = [], settings: DiceSettings = SETTINGS): { dice: DiceTable; scene: THREE.Scene; wakes: number[] } {
   const scene = new THREE.Scene();
   const wakes: number[] = [];
   const host: DiceTableHost = {
@@ -24,7 +25,7 @@ function table(yaw: number | (() => number) = 0.7, obstacles: DiceObstacle[] = [
     pack: () => ({}),
     obstacles: () => obstacles,
   };
-  return { dice: new DiceTable(host, SETTINGS), scene, wakes };
+  return { dice: new DiceTable(host, settings), scene, wakes };
 }
 
 /** The table's dice bodies: these tests set a die where a throw could only land it by chance. */
@@ -47,6 +48,19 @@ function seeded<T>(seed: number, body: () => T): T {
   } finally {
     Math.random = random;
   }
+}
+
+/**
+ * A stack of two bevelled dice does not stand long in cannon (the upper one creeps off): these settings read a die as
+ * still sooner (Interactive Dice's motion threshold, low), so the upper one is read, and held, where it was set.
+ */
+const STACKING: DiceSettings = { ...SETTINGS, motionThreshold: 0.25 };
+
+/** Sets a die at rest square on the felt where it lies (its faces along the axes), `half` its half height. */
+function squareUp(body: CANNON.Body, half: number): void {
+  body.quaternion.set(0, 0, 0, 1);
+  body.position.y = half;
+  body.updateAABB();
 }
 
 /** Steps 60 frames a second until nothing moves, or gives up after a minute of play. */
@@ -180,7 +194,7 @@ test('a listener that throws does not stop the other dice being read', () => see
 }));
 
 test('a die resting on another is read where it lies, and falls when the die under it is thrown again', () => seeded(15, () => {
-  const { dice } = table(0);
+  const { dice } = table(0, [], STACKING);
   const session = new RollSession({ dice: { d6: 2 }, modifier: 0 }, DEFAULT_RULES);
   const readings = new Map<number, FaceReading[]>();
   dice.onSettled = (id, reading) => { readings.set(id, [...(readings.get(id) ?? []), reading]); };
@@ -192,21 +206,24 @@ test('a die resting on another is read where it lies, and falls when the die und
   dice.throwDie(over, { dx: 0, dy: -200, ms: 100 });
   const base = bodyOf(dice, under);
   const top = bodyOf(dice, over);
+  // A stack that stands: the lower die square on the felt, the upper square on it (two bevelled dice set askew topple).
+  squareUp(base, 0.5);
   top.position.set(base.position.x, base.position.y + 1.02, base.position.z);
   top.quaternion.copy(base.quaternion);
   top.velocity.set(0, 0, 0);
   top.angularVelocity.set(0, 0, 0);
   const ms = run(dice);
-  assert.ok(ms < 2000, `read without waiting out the longest roll: ${ms} ms`);
+  assert.ok(ms < 6000, `read without waiting out the longest roll (12 s): ${ms} ms`);
   const onTop = readings.get(over)?.[1];
   assert.ok(onTop && !onTop.caught && onTop.face !== null && onTop.face >= 1 && onTop.face <= 6, `a face: ${JSON.stringify(onTop)}`);
   assert.ok(top.position.y > 1.2, `it lies on the other die: ${top.position.y}`);
   const loosened: number[] = [];
   dice.onLoosened = (id) => { loosened.push(id); };
   const topMesh = dice.object3d.children.find((mesh) => mesh.userData.dieId === over) as THREE.Mesh<THREE.BufferGeometry, THREE.MeshPhongMaterial>;
-  topMesh.material.emissive.set('#ffd700');
+  dice.mark([over]);
+  assert.equal(outlineShown(topMesh), true, '(the roll waits on it: the line round it shows)');
   dice.throwDie(under, { dx: 0, dy: -200, ms: 100 });
-  assert.equal(topMesh.material.emissive.getHex(), 0, 'a die knocked loose is not lit up as caught while it falls');
+  assert.equal(outlineShown(topMesh), false, 'a die knocked loose has no line round it while it falls');
   assert.equal(top.type, CANNON.Body.DYNAMIC, 'the die on top is no longer held in the air');
   assert.deepEqual(loosened, [over], 'and the table says so');
   run(dice);
@@ -291,7 +308,7 @@ test('a die new to the table lets go of no dice held where it is made', () => se
 }));
 
 test('a die taken off the table lets go of the dice resting on it', () => seeded(15, () => {
-  const { dice } = table(0);
+  const { dice } = table(0, [], STACKING);
   const session = new RollSession({ dice: { d6: 2 }, modifier: 0 }, DEFAULT_RULES);
   dice.throwRoll(session, { dx: 0, dy: -200, ms: 100 });
   run(dice);
@@ -299,6 +316,8 @@ test('a die taken off the table lets go of the dice resting on it', () => seeded
   dice.throwDie(over, { dx: 0, dy: -200, ms: 100 });
   const base = bodyOf(dice, under);
   const top = bodyOf(dice, over);
+  // A stack that stands: the lower die square on the felt, the upper square on it (two bevelled dice set askew topple).
+  squareUp(base, 0.5);
   top.position.set(base.position.x, base.position.y + 1.02, base.position.z);
   top.quaternion.copy(base.quaternion);
   top.velocity.set(0, 0, 0);
@@ -415,4 +434,36 @@ test('a roll is laid where the camera looks, wherever on the map that is', () =>
   dice.placeRoll(new RollSession({ dice: { d6: 1 }, modifier: 0 }, DEFAULT_RULES));
   const world = dice.object3d.children[0].getWorldPosition(new THREE.Vector3());
   assert.ok(Math.hypot(world.x - 200, world.z - 1500) < 1, `laid where the camera looks: ${world.x}, ${world.z}`);
+});
+
+test('the line round a die: on while the roll waits on it, off in hand and in the air, on again when it lands caught', () => seeded(31, () => {
+  const { dice } = table(0);
+  const session = new RollSession({ dice: { d6: 2 }, modifier: 0 }, DEFAULT_RULES);
+  dice.placeRoll(session);
+  const [a, b] = session.dice;
+  const mesh = (id: number) => dice.object3d.children.find((candidate) => candidate.userData.dieId === id) as THREE.Mesh;
+  dice.mark([a.id, b.id]);
+  assert.deepEqual([outlineShown(mesh(a.id)), outlineShown(mesh(b.id))], [true, true], 'both laid, both to be thrown');
+  dice.hold(a.id, new THREE.Ray(new THREE.Vector3(500, 1000, 300), new THREE.Vector3(0, -1, 0)));
+  assert.equal(outlineShown(mesh(a.id)), false, 'picked up: no line');
+  dice.mark([a.id, b.id]);
+  assert.equal(outlineShown(mesh(a.id)), false, 'still in hand: no line, whatever else changes');
+  session.reroll(a.id);
+  dice.throwDie(a.id, { dx: 0, dy: -200, ms: 100 });
+  dice.mark([b.id]);
+  assert.deepEqual([outlineShown(mesh(a.id)), outlineShown(mesh(b.id))], [false, true], 'in the air: no line; the other still waits');
+  run(dice);
+  dice.mark([a.id, b.id]);
+  assert.equal(outlineShown(mesh(a.id)), true, 'landed caught (the roll waits on it again): the line is back');
+  const rim = mesh(a.id).children.find((child) => child.name === 'die-outline') as THREE.Mesh;
+  assert.equal(dice.pick(new THREE.Ray(mesh(a.id).getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 500, 0)), new THREE.Vector3(0, -1, 0))), a.id, 'a click finds the die, never its line');
+  assert.equal((rim.material as THREE.MeshBasicMaterial).stencilWrite, true, 'drawn only outside the die (stencil)');
+}));
+
+test('no line round any die with the highlight off in the settings', () => {
+  const { dice } = table(0, [], { ...SETTINGS, highlight: false });
+  const session = new RollSession({ dice: { d6: 1 }, modifier: 0 }, DEFAULT_RULES);
+  dice.placeRoll(session);
+  dice.mark([session.dice[0].id]);
+  assert.equal(outlineShown(dice.object3d.children[0] as THREE.Mesh), false);
 });

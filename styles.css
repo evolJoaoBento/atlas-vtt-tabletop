@@ -785,7 +785,7 @@ body.atlas-tabletop-player-window .view-header {
   border-radius: var(--atlas-bar-start-radius, var(--radius-m)) var(--atlas-bar-end-radius, var(--radius-m)) var(--atlas-bar-end-radius, var(--radius-m)) var(--atlas-bar-start-radius, var(--radius-m));
 }
 
-.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn {
+.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn:not(.atlas-dice-tray *) {
   background: transparent !important;
   border: none !important;
   outline: none !important;
@@ -793,26 +793,26 @@ body.atlas-tabletop-player-window .view-header {
   transition: transform 0.16s cubic-bezier(0.23, 1, 0.32, 1), background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn:active:not(:disabled) {
+.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn:not(.atlas-dice-tray *):active:not(:disabled) {
   transform: scale(0.96);
 }
 
-.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn:focus-visible {
+.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn:not(.atlas-dice-tray *):focus-visible {
   outline: 2px solid var(--interactive-accent) !important;
   outline-offset: -2px;
 }
 
-.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn:hover {
+.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn:not(.atlas-dice-tray *):hover {
   background: var(--background-modifier-hover) !important;
   color: var(--text-normal) !important;
 }
 
-.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn.is-active {
+.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn:not(.atlas-dice-tray *).is-active {
   background: var(--interactive-accent) !important;
   color: var(--text-on-accent) !important;
 }
 
-.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn.is-active:hover {
+.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn:not(.atlas-dice-tray *).is-active:hover {
   background: var(--interactive-accent-hover) !important;
   color: var(--text-on-accent) !important;
 }

@@ -10,7 +10,7 @@ import { RollSession } from './rollSession';
 import type { Flick } from './throwInput';
 
 export interface DiceControllerDeps {
-  table: Pick<DiceTable, 'placeRoll' | 'placeMissing' | 'throwDie' | 'remove' | 'clear' | 'busy'> & { onSettled: DiceTable['onSettled']; onLoosened: DiceTable['onLoosened'] };
+  table: Pick<DiceTable, 'placeRoll' | 'placeMissing' | 'throwDie' | 'remove' | 'clear' | 'busy'> & { onSettled: DiceTable['onSettled']; onLoosened: DiceTable['onLoosened']; mark?: DiceTable['mark'] };
   /** The rules of the map the roll is for, asked at each new roll. */
   rules: () => DiceRules;
   publish: (result: NonNullable<ReturnType<RollSession['result']>>) => void;
@@ -37,6 +37,7 @@ export class DiceController {
       session.settle(id, reading);
       // An explosion's die is laid on the table, to be thrown like the rest.
       deps.table.placeMissing();
+      this.markWaiting(session);
       const result = session.result();
       if (!result || this.published) {
         deps.prompt(session.prompt());
@@ -55,8 +56,14 @@ export class DiceController {
       if (!session) return;
       for (const gone of session.loosen(id)) deps.table.remove(gone);
       this.published = false;
+      this.markWaiting(session);
       deps.prompt(session.prompt());
     };
+  }
+
+  /** The line round every die the roll waits on being thrown. */
+  private markWaiting(session: RollSession): void {
+    this.deps.table.mark?.(session.pendingThrows().map((pending) => pending.id));
   }
 
   /** A new roll, its dice laid on the table to be thrown; a roll still on the table goes, as it is. */
@@ -65,6 +72,7 @@ export class DiceController {
     this.session = session;
     this.published = false;
     this.deps.table.placeRoll(session);
+    this.markWaiting(session);
     this.deps.prompt(session.prompt());
   }
 
@@ -153,6 +161,7 @@ export class DiceController {
     for (const gone of session.reroll(id)) this.deps.table.remove(gone);
     this.published = false;
     this.deps.table.throwDie(id, flick, index, count);
+    this.markWaiting(session);
   }
 
   private drop(): void {

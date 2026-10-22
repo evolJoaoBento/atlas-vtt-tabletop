@@ -30,6 +30,8 @@ class FakeTable {
     for (const [top, below] of this.restsOn) if (below === id) this.onLoosened(top);
   }
   remove(id: number): void { this.removed.push(id); }
+  marked: number[][] = [];
+  mark(waiting: readonly number[]): void { this.marked.push([...waiting]); }
   clear(): void { this.clears++; this.session = null; }
   ids(): number[] { return (this.session as RollSession).dice.map((state) => state.id); }
 }
@@ -317,4 +319,17 @@ test('a die picked up is thrown into its own roll only: a new roll meanwhile, or
   again?.release(FLICK);
   assert.deepEqual(table.thrown, []);
   assert.equal(dice.pickUp(0), null, 'no roll, nothing to pick up');
+});
+
+test('the table is told which dice the roll waits on: all laid, none thrown, a caught one again', () => {
+  const { dice, table } = controller();
+  dice.start({ dice: { d6: 2 }, modifier: 0 });
+  const [a, b] = table.ids();
+  assert.deepEqual(table.marked.at(-1), [a, b], 'laid: both');
+  dice.clickDie(a, FLICK);
+  assert.deepEqual(table.marked.at(-1), [b], 'thrown: only the other');
+  table.onSettled(a, CAUGHT);
+  assert.deepEqual(table.marked.at(-1), [a, b], 'caught: it waits again');
+  dice.throwPending(FLICK);
+  assert.deepEqual(table.marked.at(-1), [], 'all in the air');
 });

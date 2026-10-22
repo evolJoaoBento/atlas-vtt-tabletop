@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { diePhysicsShape, dieMaterial, type DicePack } from './kit/dieShapes';
 import { buildDie } from './dieBuild';
+import { addOutline, disposeOutline, showOutline } from './dieOutline';
 import { readFace, type DieType, type FaceReading, type Vec3 } from './kit/faces';
 import type { RollSession } from './rollSession';
 import { MAX_THROW_SPEED, MIN_THROW_SPEED, throwVector, type Flick } from './throwInput';
@@ -49,7 +50,7 @@ export interface DiceSettings {
   /** Interactive Dice's motion threshold: higher waits for stiller dice. */
   motionThreshold: number;
   shadows: boolean;
-  /** Whether a die caught on an edge is lit up, and in what colour. */
+  /** Whether a die still to be thrown (laid, caught on an edge, an explosion's) has a line round it, and in what colour. */
   highlight: boolean;
   highlightColor: string;
 }
@@ -104,6 +105,10 @@ interface ThrownDie {
   settled: boolean;
   /** Laid on the table, never thrown: it has nothing to read. */
   laid?: boolean;
+  /** Carried under the pointer: no line round it while it is in hand. */
+  held?: boolean;
+  /** The roll waits on it being thrown: the line round it shows (unless it is in hand). */
+  waited?: boolean;
   stillMs: number;
   rollingMs: number;
 }
@@ -211,9 +216,10 @@ export class DiceTable {
     const { body } = die;
     this.freeze(die);
     die.settled = true;
+    die.held = true;
+    this.outline(die);
     body.position.set(Math.max(-halfWidth, Math.min(halfWidth, local.x)), HOLD_HEIGHT, Math.max(-halfDepth, Math.min(halfDepth, local.z)));
     die.mesh.position.set(body.position.x, body.position.y, body.position.z);
-    die.mesh.material.emissive.set(0x000000);
     this.host.wake();
   }
 
@@ -255,6 +261,29 @@ export class DiceTable {
     const hits = this.raycaster.intersectObjects([...this.dice.values()].map((die) => die.mesh), false);
     const id = hits[0]?.object.userData.dieId as number | undefined;
     return id ?? null;
+  }
+
+  /**
+   * The dice the roll waits on being thrown (laid, caught on an edge, an explosion's): a line round each, as
+   * TacticalEngine rims a creature; none round the others, nor round a die in hand.
+   */
+  mark(waiting: readonly number[]): void {
+    const wanted = new Set(waiting);
+    let changed = false;
+    for (const [id, die] of this.dice) {
+      die.waited = wanted.has(id);
+      changed = this.outline(die) || changed;
+    }
+    if (changed) this.host.wake();
+  }
+
+  /** Shows the line round a die as its state asks; whether that changed anything. */
+  private outline(die: ThrownDie): boolean {
+    const show = this.settings.highlight && die.waited === true && die.held !== true;
+    const rim = die.mesh.children.find((child) => child.name === 'die-outline');
+    if (!rim || rim.visible === show) return false;
+    showOutline(die.mesh, show);
+    return true;
   }
 
   /** Takes every die and the tray away, and off the screen at once (the board draws only when woken). */
@@ -445,6 +474,8 @@ export class DiceTable {
     body.sleepSpeedLimit = 0.1;
     body.sleepTimeLimit = 1;
     this.world.addBody(body);
+    // After the body: the line's hull is made from the die's geometry, which the body's shape is read from first.
+    if (this.settings.highlight) addOutline(mesh, this.settings.highlightColor);
     const corners = geometry.getAttribute('position');
     let radius = 0;
     for (let i = 0; i < corners.count; i++) radius = Math.max(radius, Math.hypot(corners.getX(i), corners.getY(i), corners.getZ(i)));
@@ -517,10 +548,12 @@ export class DiceTable {
     body.wakeUp();
     die.settled = false;
     delete die.laid;
+    delete die.held;
+    // In the air, the roll waits on it no longer: the line comes back only if it lands caught.
+    die.waited = false;
+    this.outline(die);
     die.stillMs = 0;
     die.rollingMs = 0;
-    // Moving, it is caught no longer: it is lit up again only if it lands caught.
-    die.mesh.material.emissive.set(0x000000);
   }
 
   /**
@@ -555,7 +588,6 @@ export class DiceTable {
     body.type = CANNON.Body.STATIC;
     body.mass = 0;
     body.updateMassProperties();
-    die.mesh.material.emissive.set(reading.caught && this.settings.highlight ? this.settings.highlightColor : 0x000000);
     this.tell(() => this.onSettled(id, reading));
   }
 
@@ -570,6 +602,7 @@ export class DiceTable {
 
   private removeDie(die: ThrownDie): void {
     this.world.removeBody(die.body);
+    disposeOutline(die.mesh);
     die.mesh.removeFromParent();
     die.mesh.geometry.dispose();
     die.mesh.material.dispose();

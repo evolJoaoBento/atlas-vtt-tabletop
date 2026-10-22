@@ -396,7 +396,8 @@ export class Board {
     });
 
     // The fast card where the browser lets a page ask (a Mac with two); on Windows, Tabletop's graphics card setting.
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: quality.antialias, powerPreference: 'high-performance' });
+    // A stencil buffer: the line round a die still to be thrown is drawn only outside the die (dieOutline.ts).
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: quality.antialias, powerPreference: 'high-performance', stencil: true });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
