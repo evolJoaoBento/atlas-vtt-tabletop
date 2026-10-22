@@ -71,7 +71,7 @@ export function cloudNoise(size: number, seed: number): Uint8Array {
         const fy = (y / size) * cells;
         const x0 = Math.floor(fx);
         const y0 = Math.floor(fy);
-        const at = (ix: number, iy: number): number => lattice[(iy % cells) * cells + (ix % cells)]!;
+        const at = (ix: number, iy: number): number => lattice[(iy % cells) * cells + (ix % cells)];
         const tx = smooth(fx - x0);
         const ty = smooth(fy - y0);
         const top = at(x0, y0) + (at(x0 + 1, y0) - at(x0, y0)) * tx;

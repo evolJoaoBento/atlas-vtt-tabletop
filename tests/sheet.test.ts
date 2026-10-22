@@ -117,6 +117,7 @@ class FakeElement {
   attrs = new Map<string, string>();
   listeners = new Map<string, Array<(event: unknown) => void>>();
   constructor(readonly ownerDocument: FakeDocument, readonly tagName = 'div', readonly isText = false) {}
+  get nodeName(): string { return this.tagName; }
   get textContent(): string { return this.isText || this.children.length === 0 ? this.ownText : this.children.map((child) => child.textContent).join(''); }
   set textContent(value: string) { this.ownText = value; this.children = []; }
   setAttribute(name: string, value: string): void { this.attrs.set(name, value); }
@@ -140,8 +141,13 @@ class FakeElement {
 class FakeDocument extends FakeElement {
   constructor() { super(null as unknown as FakeDocument); }
   createElement(tag: string): FakeElement { return new FakeElement(this, tag); }
+  importNode(node: FakeElement): FakeElement { return node; }
   createTextNode(text: string): FakeElement { const node = new FakeElement(this, '#text', true); node.textContent = text; return node; }
 }
+
+(globalThis as { DOMParser?: unknown }).DOMParser = class {
+  parseFromString(): { documentElement: FakeElement } { return { documentElement: new FakeElement(new FakeDocument(), 'svg') }; }
+};
 
 function drawer() {
   const doc = new FakeDocument();

@@ -196,7 +196,7 @@ export class AtlasMenu {
     if (level.highlighted >= level.rows.length) level.highlighted = level.rows.length - 1;
     this.highlight(level, level.highlighted);
     // A submenu stays open across a redraw: its trigger is the new row at the same place.
-    if (openIndex >= 0 && level.rows[openIndex]) this.levels[depth + 1]!.trigger = level.rows[openIndex]!;
+    if (openIndex >= 0 && level.rows[openIndex]) this.levels[depth + 1].trigger = level.rows[openIndex]!;
   }
 
   private stepper(stepper: MenuStepper): HTMLElement {
@@ -238,7 +238,7 @@ export class AtlasMenu {
   private openSubmenu(level: Level, row: HTMLElement, children: () => MenuEntry[], focus = false): void {
     const depth = this.levels.indexOf(level);
     if (this.levels[depth + 1]?.trigger === row) {
-      if (focus) this.focusFirst(this.levels[depth + 1]!);
+      if (focus) this.focusFirst(this.levels[depth + 1]);
       return;
     }
     this.closeBelow(level);
@@ -247,7 +247,7 @@ export class AtlasMenu {
     const parent = level.element.getBoundingClientRect();
     // Beside its row (Radix: side offset 4, align offset −4), on the other side when there is no room.
     this.place(element, { left: parent.left - GAP, right: parent.right + GAP, top: rect.top - GAP, bottom: rect.top - GAP }, 'beside');
-    if (focus) this.focusFirst(this.levels[this.levels.length - 1]!);
+    if (focus) this.focusFirst(this.levels[this.levels.length - 1]);
   }
 
   private focusFirst(level: Level): void {
@@ -258,9 +258,7 @@ export class AtlasMenu {
   /** Puts a menu at its anchor, kept within the window (collision padding 8) and flipped to the other side if need be. */
   private place(element: HTMLElement, anchor: { left: number; right: number; top: number; bottom: number }, mode: 'below' | 'beside'): void {
     const win = this.doc.defaultView ?? window;
-    element.style.position = 'fixed';
-    element.style.left = '0px';
-    element.style.top = '0px';
+    element.setCssStyles({ position: 'fixed', left: '0px', top: '0px' });
     const { width, height } = element.getBoundingClientRect();
     const maxX = win.innerWidth - COLLISION_PADDING - width;
     const maxY = win.innerHeight - COLLISION_PADDING - height;
@@ -286,7 +284,7 @@ export class AtlasMenu {
       let index = level.highlighted;
       for (let tries = 0; tries < level.rows.length; tries++) {
         index = (index + step + level.rows.length) % level.rows.length;
-        if (!level.rows[index]!.hasAttribute('data-disabled')) break;
+        if (!level.rows[index].hasAttribute('data-disabled')) break;
       }
       this.highlight(level, index);
     };
@@ -303,8 +301,8 @@ export class AtlasMenu {
         break;
       case 'ArrowLeft':
         if (this.levels.length < 2) return;
-        this.closeBelow(this.levels[this.levels.length - 2]!);
-        this.levels[this.levels.length - 1]!.element.focus();
+        this.closeBelow(this.levels[this.levels.length - 2]);
+        this.levels[this.levels.length - 1].element.focus();
         break;
       case 'Escape': this.close(); break;
       case '+':

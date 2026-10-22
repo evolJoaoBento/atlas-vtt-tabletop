@@ -145,11 +145,11 @@ export class FogVolume {
     this.shapeTexture = shape;
     const tall = Math.max(0, height) * cellSize;
     const uniforms = this.material.uniforms;
-    uniforms.uShape!.value = shape;
-    (uniforms.uMin!.value as THREE.Vector2).set(frame.minX, frame.minY);
-    (uniforms.uSize!.value as THREE.Vector2).set(frame.width, frame.height);
-    uniforms.uHeight!.value = tall;
-    uniforms.uCell!.value = cellSize;
+    uniforms.uShape.value = shape;
+    (uniforms.uMin.value as THREE.Vector2).set(frame.minX, frame.minY);
+    (uniforms.uSize.value as THREE.Vector2).set(frame.width, frame.height);
+    uniforms.uHeight.value = tall;
+    uniforms.uCell.value = cellSize;
     // The box the rays march through: the frame, as tall as the cloud and its soft top.
     const boxHeight = tall + cellSize * 0.5;
     const geometry = new THREE.BoxGeometry(frame.width, boxHeight, frame.height);
@@ -166,7 +166,7 @@ export class FogVolume {
 
   /** Dresses the fog for whose picture is drawn next: the GM sees through it at half strength, players not at all. */
   show(viewer: 'gm' | 'player'): void {
-    this.material.uniforms.uStrength!.value = viewer === 'gm' ? GM_STRENGTH : 1;
+    this.material.uniforms.uStrength.value = viewer === 'gm' ? GM_STRENGTH : 1;
   }
 
   /** Draws the box's outside faces for a camera at `eye` outside it, its inside faces for one inside. */
@@ -211,7 +211,7 @@ export class FogVolume {
 /** The cloud's shape: the fog's areas painted white (holes left black) into the frame's texture, then blurred. */
 function paintShape(areas: readonly FogArea[], frame: CloudFrame, cellSize: number): THREE.CanvasTexture | null {
   if (typeof document === 'undefined') return null;
-  const sharp = document.createElement('canvas');
+  const sharp = createEl('canvas');
   sharp.width = frame.texWidth;
   sharp.height = frame.texHeight;
   const paint = sharp.getContext('2d');
@@ -230,7 +230,7 @@ function paintShape(areas: readonly FogArea[], frame: CloudFrame, cellSize: numb
     // A hole lies inside its outline: even-odd leaves it out.
     paint.fill('evenodd');
   }
-  const soft = document.createElement('canvas');
+  const soft = createEl('canvas');
   soft.width = frame.texWidth;
   soft.height = frame.texHeight;
   const blur = soft.getContext('2d');

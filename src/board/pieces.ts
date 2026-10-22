@@ -45,15 +45,17 @@ function setGrey(root: THREE.Object3D, grey: boolean): void {
     const mesh = node as THREE.Mesh;
     if (!mesh.isMesh) return;
     for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
-      material.userData.grey = grey ? 1 : 0;
-      const uniform = material.userData.greyUniform as { value: number } | undefined;
-      if (uniform) { uniform.value = material.userData.grey; continue; }
+      const data = material.userData as { grey?: number; greyUniform?: { value: number }; greyHooked?: boolean };
+      data.grey = grey ? 1 : 0;
+      const uniform = data.greyUniform;
+      if (uniform) { uniform.value = data.grey; continue; }
       // Hooked the first time it is greyed: a token never downed costs no shader recompile.
-      if (material.userData.greyHooked || !grey) continue;
-      material.userData.greyHooked = true;
+      if (data.greyHooked || !grey) continue;
+      data.greyHooked = true;
       material.onBeforeCompile = (shader) => {
-        shader.uniforms.uGrey = { value: material.userData.grey };
-        material.userData.greyUniform = shader.uniforms.uGrey;
+        const greyUniform = { value: data.grey ?? 0 };
+        shader.uniforms.uGrey = greyUniform;
+        data.greyUniform = greyUniform;
         shader.fragmentShader = `uniform float uGrey;\n${shader.fragmentShader}`.replace(
           '#include <dithering_fragment>',
           '#include <dithering_fragment>\ngl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114))), uGrey);',
@@ -90,7 +92,7 @@ let blobTexture: THREE.Texture | null = null;
 /** A soft round shadow, drawn once and shared by every mini (never freed with a piece). */
 function blob(): THREE.Texture {
   if (blobTexture) return blobTexture;
-  const canvas = document.createElement('canvas');
+  const canvas = createEl('canvas');
   canvas.width = 128;
   canvas.height = 128;
   const context = canvas.getContext('2d')!;
@@ -594,7 +596,7 @@ export class TextPiece {
   constructor(readonly label: BoardText) {
     const family = /[\s,]/.test(label.fontFamily) && !/["']/.test(label.fontFamily) ? `"${label.fontFamily}"` : label.fontFamily;
     const font = `${label.italic ? 'italic ' : ''}${label.bold ? 'bold ' : ''}${label.fontSize}px ${family}, sans-serif`;
-    const measure = document.createElement('canvas').getContext('2d')!;
+    const measure = createEl('canvas').getContext('2d')!;
     measure.font = font;
     const lines = label.text.split('\n');
     const lineHeight = label.fontSize * 1.25;

@@ -85,7 +85,7 @@ export class DicePreviews {
         this.urls.set(type, canvas.toDataURL('image/png'));
         scene.remove(mesh);
         geometry.dispose();
-        (Array.isArray(material) ? material : [material]).forEach((made) => made.dispose());
+        (Array.isArray(material) ? material : [material]).forEach((made: THREE.Material) => made.dispose());
       }
     } finally {
       renderer.dispose();

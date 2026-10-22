@@ -469,7 +469,7 @@ export class Board {
   /** The next left click on the board drops a prop of `glb` there. */
   placeProp(glb: string): void {
     this.placing = glb;
-    this.canvas.style.cursor = 'crosshair';
+    this.canvas.setCssStyles({ cursor: 'crosshair' });
     this.canvas.focus();
   }
 
@@ -819,11 +819,11 @@ export class Board {
     text.textContent = banner.text;
     element.appendChild(text);
     if (banner.action) {
-      const { label, run } = banner.action;
+      const action = banner.action;
       const button = doc.createElement('button');
       button.type = 'button';
-      button.textContent = label;
-      button.addEventListener('click', () => run());
+      button.textContent = action.label;
+      button.addEventListener('click', () => action.run());
       element.appendChild(button);
     }
   }
@@ -1627,7 +1627,7 @@ export class Board {
     }
     const segments: number[] = [];
     corners.forEach((corner, i) => {
-      const next = corners[(i + 1) % corners.length]!;
+      const next = corners[(i + 1) % corners.length];
       segments.push(cell.center.x + corner.x, cell.center.y + corner.y, cell.center.x + next.x, cell.center.y + next.y);
     });
     this.cellOutline = new THREE.Mesh(stripGeometry(segments, grid.size * 0.04), new THREE.MeshBasicMaterial({ color: accent(this.container), transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide }));
@@ -1652,7 +1652,7 @@ export class Board {
     if (!entry) return null;
     const landing = snapPoint(this.map.grid, entry.at.x, entry.at.y);
     const points = [press.start, ...press.waypoints];
-    const last = points[points.length - 1]!;
+    const last = points[points.length - 1];
     if (Math.hypot(landing.x - last.x, landing.y - last.y) > 0.5) points.push(landing);
     return points.length > 1 ? points : null;
   }
@@ -1699,7 +1699,7 @@ export class Board {
     const group = new THREE.Group();
     group.position.y = 1.2;
     const segments: number[] = [];
-    for (let i = 1; i < points.length; i++) segments.push(points[i - 1]!.x, points[i - 1]!.y, points[i]!.x, points[i]!.y);
+    for (let i = 1; i < points.length; i++) segments.push(points[i - 1].x, points[i - 1].y, points[i].x, points[i].y);
     const color = accent(this.container);
     const edge = new THREE.Mesh(stripGeometry(segments, map.grid.size * 0.09), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide }));
     const line = new THREE.Mesh(stripGeometry(segments, map.grid.size * 0.05), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide }));
@@ -1712,12 +1712,12 @@ export class Board {
     }
     // The label sits halfway along the path.
     let total = 0;
-    for (let i = 1; i < points.length; i++) total += Math.hypot(points[i]!.x - points[i - 1]!.x, points[i]!.y - points[i - 1]!.y);
+    for (let i = 1; i < points.length; i++) total += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
     let rest = total / 2;
-    let middle = points[0]!;
+    let middle = points[0];
     for (let i = 1; i < points.length; i++) {
-      const a = points[i - 1]!;
-      const b = points[i]!;
+      const a = points[i - 1];
+      const b = points[i];
       const length = Math.hypot(b.x - a.x, b.y - a.y);
       if (rest <= length) {
         const t = length === 0 ? 0 : rest / length;
@@ -2086,7 +2086,7 @@ export class Board {
   private showResource(id: string, key: string, next: ResourceValue, maxEdited: boolean): void {
     const entry = this.tokens.get(id);
     if (!entry) return;
-    this.changeToken(id, { ...entry.token, ...resourceUpdate(entry.token, key, next, maxEdited) } as BoardToken);
+    this.changeToken(id, { ...entry.token, ...resourceUpdate(entry.token, key, next, maxEdited) });
   }
 
   /** − / +: one point down or up, as Atlas steps it. */

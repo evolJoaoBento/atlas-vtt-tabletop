@@ -5,6 +5,7 @@
  * Escape discards, Tab switches fields, the arrow keys step (Shift for tens). They are HTML over the board, laid out
  * every frame on the resources the board draws.
  */
+import { setSvg } from '../svg';
 import { parseValueInput, type ResourceValue } from './resources';
 
 /** A rectangle on screen, in pixels from the board's top left. */
@@ -99,7 +100,7 @@ export class ResourceControls {
       const element = doc.createElement('div');
       element.className = className;
       element.setAttribute('aria-label', label);
-      if (svg) element.innerHTML = svg;
+      if (svg) setSvg(element, svg);
       element.addEventListener('pointerdown', (event) => {
         // Not the board's: a press here must not start a drag or move the camera, nor take the focus from the editor.
         event.preventDefault();

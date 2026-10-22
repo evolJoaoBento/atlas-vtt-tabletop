@@ -200,7 +200,7 @@ export class RollSession {
         fromExplosion: from.parent !== undefined,
         ...(ones ? { ones: true } : {}),
         ...(from.parent ? { awaiting: from.up ? 'explode-up' : 'explode-down' } : {}),
-      } as DieLine);
+      });
       return state;
     };
     const head = make(die, false);

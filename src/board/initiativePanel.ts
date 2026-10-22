@@ -150,9 +150,9 @@ export class InitiativePanel {
     this.button(turns, 'chevron-down', '', !state.isActive, () => this.host.act({ type: 'next' }), this.pressed === 'next' ? 'tabletop-initiative-tracker__btn--pressed' : '');
     // The list is drawn anew: it is put back where it was at once (not glided there from the top), once the panel
     // around it is whole and the list has its height.
-    content.style.scrollBehavior = 'auto';
+    content.setCssStyles({ scrollBehavior: 'auto' });
     content.scrollTop = scrollTop;
-    content.style.scrollBehavior = '';
+    content.setCssStyles({ scrollBehavior: '' });
 
     // The turn stays in view in a list longer than the panel: its card, or the top of its side.
     const turn = state.isActive ? `${state.round}:${state.sides?.active ?? state.entries.find((entry) => entry.isActive)?.id ?? ''}` : '';
@@ -307,7 +307,7 @@ export class InitiativePanel {
     const layer = this.el('div', 'atlas-tabletop-atlas', this.doc.body);
     const backdrop = this.el('div', 'tabletop-initiative-edit-backdrop', layer);
     const popup = this.el('div', 'tabletop-initiative-edit-popup', layer);
-    popup.style.position = 'fixed';
+    popup.setCssStyles({ position: 'fixed' });
     popup.style.top = `${top}px`;
     popup.style.right = `${view.innerWidth - anchor.left + padding}px`;
     const fields = this.el('div', 'tabletop-initiative-edit-popup__fields', popup);

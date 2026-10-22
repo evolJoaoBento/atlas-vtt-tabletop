@@ -28,7 +28,7 @@ export function roleOf(name: string): { role: MapRole; directX: boolean } | null
   if (!IMAGE.test(name)) return null;
   const words = name.replace(IMAGE, '').toLowerCase().split(/[\s_.-]+/);
   for (let i = words.length - 1; i >= 0; i--) {
-    const word = words[i]!;
+    const word = words[i];
     if (!(word in ROLE_WORDS)) continue;
     const role = ROLE_WORDS[word]!;
     if (role === null) return null;

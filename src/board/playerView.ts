@@ -14,8 +14,8 @@ interface Point {
 function inRing(point: Point, ring: readonly Point[]): boolean {
   let within = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const a = ring[i]!;
-    const b = ring[j]!;
+    const a = ring[i];
+    const b = ring[j];
     if ((a.y > point.y) !== (b.y > point.y) && point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x) within = !within;
   }
   return within;

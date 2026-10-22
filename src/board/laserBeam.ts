@@ -107,9 +107,9 @@ export class LaserBeam {
       vertex++;
     };
     for (let i = 0; i < points.length; i++) {
-      const point = points[i]!;
-      const before = points[Math.max(0, i - 1)]!;
-      const after = points[Math.min(points.length - 1, i + 1)]!;
+      const point = points[i];
+      const before = points[Math.max(0, i - 1)];
+      const after = points[Math.min(points.length - 1, i + 1)];
       const length = Math.hypot(after.x - before.x, after.y - before.y) || 1;
       const nx = -(after.y - before.y) / length;
       const ny = (after.x - before.x) / length;
@@ -139,11 +139,11 @@ export class LaserBeam {
     const uniforms = this.material.uniforms;
     // The colour as typed: the shader writes it straight out, as Atlas's does.
     const hex = Number.parseInt(color.slice(1), 16);
-    (uniforms.uColor!.value as THREE.Vector3).set(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255);
-    if (pointer) (uniforms.uPointer!.value as THREE.Vector2).set(pointer.x, pointer.y);
-    uniforms.uPointerVisible!.value = pointer ? 1 : 0;
-    uniforms.uPointerRadius!.value = halfWidth * 1.25;
-    uniforms.uBodyShare!.value = bodyShare;
+    (uniforms.uColor.value as THREE.Vector3).set(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255);
+    if (pointer) (uniforms.uPointer.value as THREE.Vector2).set(pointer.x, pointer.y);
+    uniforms.uPointerVisible.value = pointer ? 1 : 0;
+    uniforms.uPointerRadius.value = halfWidth * 1.25;
+    uniforms.uBodyShare.value = bodyShare;
   }
 
   dispose(): void {

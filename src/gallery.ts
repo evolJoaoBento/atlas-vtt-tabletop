@@ -192,7 +192,7 @@ export class GalleryView extends ItemView {
     const search = bar.createEl('input', { type: 'search', placeholder: `Search ${library.kind.many}…`, cls: 'atlas-tabletop-search' });
     search.addEventListener('input', () => { this.filter = search.value; this.redraw(); });
     const button = bar.createEl('button', { cls: 'mod-cta', text: 'Import GLB' });
-    button.addEventListener('click', async () => importWithNotice(library, await pickFiles(body.ownerDocument)));
+    button.addEventListener('click', () => { void pickFiles(body.ownerDocument).then((files) => importWithNotice(library, files)); });
     const hint = this.tab === 'minis'
       ? `Drop .glb files here. Minis live in ${library.folderPath}. On a 3D board, right-click a token and choose "Assign mini…".`
       : `Drop .glb files here. Props live in ${library.folderPath}. Click a prop, then click the 3D board to put it there; Ctrl + drag moves it.`;
@@ -209,8 +209,8 @@ export class GalleryView extends ItemView {
     const search = bar.createEl('input', { type: 'search', placeholder: 'Search materials…', cls: 'atlas-tabletop-search' });
     search.addEventListener('input', () => { this.filter = search.value; this.redraw(); });
     const doc = body.ownerDocument;
-    bar.createEl('button', { cls: 'mod-cta', text: 'Import zip or maps' }).addEventListener('click', async () => importMaterials(library, await pickMaterialFiles(doc, false)));
-    bar.createEl('button', { text: 'Import folder' }).addEventListener('click', async () => importMaterials(library, await pickMaterialFiles(doc, true)));
+    bar.createEl('button', { cls: 'mod-cta', text: 'Import zip or maps' }).addEventListener('click', () => { void pickMaterialFiles(doc, false).then((files) => importMaterials(library, files)); });
+    bar.createEl('button', { text: 'Import folder' }).addEventListener('click', () => { void pickMaterialFiles(doc, true).then((files) => importMaterials(library, files)); });
     body.createDiv({
       cls: 'atlas-tabletop-hint',
       text: `Import a texture set as Poly Haven gives it (the zip, or its colour, normal, roughness and AO maps). Materials live in ${library.folderPath}. Drag one onto a wall or door of a 3D board to paint that segment, or click it and then click walls on the board (Esc stops); hold Shift to paint the whole wall.`,
@@ -403,10 +403,12 @@ export class MiniPicker extends Modal {
     const search = bar.createEl('input', { type: 'search', placeholder: `Search ${this.library.kind.many}…`, cls: 'atlas-tabletop-search' });
     search.addEventListener('input', () => { this.filter = search.value; redraw(); });
     const importButton = bar.createEl('button', { text: 'Import GLB' });
-    importButton.addEventListener('click', async () => {
-      const added = await importWithNotice(this.library, await pickFiles(root.ownerDocument));
-      if (added.length === 1) this.selected = added[0]!;
-      redraw();
+    importButton.addEventListener('click', () => {
+      void (async () => {
+        const added = await importWithNotice(this.library, await pickFiles(root.ownerDocument));
+        if (added.length === 1) this.selected = added[0]!;
+        redraw();
+      })();
     });
     const grid = root.createDiv({ cls: 'atlas-tabletop-grid' });
     acceptDrops(root, this.library);

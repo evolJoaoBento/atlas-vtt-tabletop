@@ -17,7 +17,7 @@ type Rec = Record<string, unknown>;
 const isObject = (value: unknown): value is Rec => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 function api(): FantasyStatblocksApi | null {
-  const found = (globalThis as { FantasyStatblocks?: unknown }).FantasyStatblocks;
+  const found = (window as { FantasyStatblocks?: unknown }).FantasyStatblocks;
   return isObject(found) ? found : null;
 }
 
@@ -46,12 +46,12 @@ const notePath = (path: string): string => path.split('#')[0] ?? path;
 async function readNote(app: App, path: string): Promise<{ name: string; front?: Rec; block?: Rec } | null> {
   const file = app.vault.getAbstractFileByPath(notePath(path));
   if (!(file instanceof TFile)) return null;
-  const front = app.metadataCache.getFileCache(file)?.frontmatter as Rec | undefined;
+  const front = app.metadataCache.getFileCache(file)?.frontmatter;
   let block: Rec | undefined;
   const match = /```statblock[^\n]*\n([\s\S]*?)```/.exec(await app.vault.cachedRead(file));
   if (match) {
     try {
-      const parsed: unknown = parseYaml(match[1]!);
+      const parsed: unknown = parseYaml(match[1]);
       if (isObject(parsed)) block = parsed;
     } catch {
       // A block that is not YAML holds no fields.
@@ -67,7 +67,7 @@ export async function statblockFields(app: App, path: string): Promise<Rec | nul
 }
 
 /** The creature `token` links; null when it links none or none can be read. */
-export async function statblockOf(app: App, token: { statblockPath?: string | null; statblockName?: string | null }): Promise<unknown | null> {
+export async function statblockOf(app: App, token: { statblockPath?: string | null; statblockName?: string | null }): Promise<unknown> {
   const path = typeof token.statblockPath === 'string' ? token.statblockPath : '';
   const name = typeof token.statblockName === 'string' ? token.statblockName.trim() : '';
   if (path) {

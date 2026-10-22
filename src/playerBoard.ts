@@ -308,7 +308,7 @@ class PlayerBoard implements PlayerBoardHandle {
   /** This player's colour, as Connect gives it: their place after the GM's, the last colour when not listed. */
   private ownColor(): string {
     const place = this.self ? this.order.indexOf(this.self) + 1 : 0;
-    return LASER_PALETTE[(place > 0 ? place : LASER_PALETTE.length - 1) % LASER_PALETTE.length]!;
+    return LASER_PALETTE[(place > 0 ? place : LASER_PALETTE.length - 1) % LASER_PALETTE.length];
   }
 
   /** The board again from the scene and its extras; loads run one after another. */
@@ -359,7 +359,7 @@ class PlayerBoard implements PlayerBoardHandle {
         if (!record) return null;
         const ids = Object.values(record.maps);
         await Promise.all(ids.map((asset) => this.arrival(asset, () => this.host.image(asset) !== null)));
-        const url = (role: string): string | null => (record.maps[role] ? this.host.image(record.maps[role]!) : null);
+        const url = (role: string): string | null => (record.maps[role] ? this.host.image(record.maps[role]) : null);
         return materialFromUrls('', {
           color: url('color'), normal: url('normal') ?? url('normal-dx'), roughness: url('roughness'), ao: url('ao'), arm: url('arm'), metalness: url('metalness'),
         }, record.scale, record.maps['normal-dx'] !== undefined && record.maps.normal === undefined);

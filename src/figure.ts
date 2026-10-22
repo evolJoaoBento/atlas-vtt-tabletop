@@ -96,14 +96,14 @@ export class MiniFigure {
       mesh.castShadow = true;
       const own = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).map((material) => material.clone());
       this.materials.push(...own);
-      mesh.material = Array.isArray(mesh.material) ? own : own[0]!;
+      mesh.material = Array.isArray(mesh.material) ? own : own[0];
     });
     this.yaw.add(copy);
     this.model = model;
     if (model.animations.length > 0) {
       const mixer = new THREE.AnimationMixer(copy);
       const moveClip = findClip(model.animations, /walk|run|move|jog/i);
-      const idleClip = findClip(model.animations, /idle|stand|breath/i) ?? (moveClip ? null : model.animations[0]!);
+      const idleClip = findClip(model.animations, /idle|stand|breath/i) ?? (moveClip ? null : model.animations[0]);
       this.mixer = mixer;
       this.idle = idleClip ? mixer.clipAction(idleClip) : null;
       this.move = moveClip ? mixer.clipAction(moveClip) : null;

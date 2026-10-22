@@ -20,7 +20,7 @@ export function loadImageTexture(url: string): Promise<THREE.Texture> {
 
 /** A canvas texture `size` pixels square, drawn by `draw`. */
 export function canvasTexture(width: number, height: number, draw: (context: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
+  const canvas = createEl('canvas');
   canvas.width = width;
   canvas.height = height;
   const context = canvas.getContext('2d')!;
@@ -83,7 +83,7 @@ export function pinTexture(pin: BoardPin): THREE.CanvasTexture {
 
 /** A text plate (a pill) for a name or a title. Returns the texture and its size in pixels. */
 export function plateTexture(text: string, fontPx = 26): { texture: THREE.CanvasTexture; width: number; height: number } {
-  const probe = document.createElement('canvas').getContext('2d')!;
+  const probe = createEl('canvas').getContext('2d')!;
   const font = `600 ${fontPx}px -apple-system, "Segoe UI", Roboto, Arial, sans-serif`;
   probe.font = font;
   const height = Math.round(fontPx * 1.6);

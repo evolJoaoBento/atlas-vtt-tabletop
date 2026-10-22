@@ -684,7 +684,7 @@ body.atlas-tabletop-player-window .view-header {
 .atlas-tabletop-atlas .atlas-dropdown-menu-item {
   display: grid !important;
   grid-template-columns: 16px 16px 1fr auto;
-  column-gap: 8px;
+  gap: 0 8px;
   align-items: center;
   width: 100%;
   text-align: left;
@@ -888,7 +888,7 @@ body.atlas-tabletop-player-window .view-header {
 }
 
 /* Atlas's context menu (0.8.0), copied rule for rule: the token menu on the 3D board is drawn as Atlas draws its own. */
-.atlas-ctx-menu{background:var(--background-primary);border:1.5px solid color-mix(in oklch,var(--mono-100, var(--text-normal)) 18%,transparent);border-radius:var(--radius-l);box-shadow:var(--shadow-l);--atlas-panel-inner-radius: 18px ;border-radius:19.5px;corner-shape:var(--corner-shape, round);box-shadow:var(--shadow-s);display:flex;flex-direction:column;padding:4px;gap:var(--size-2-1);min-width:180px;max-width:280px;max-height:70vh;overflow-y:auto;z-index:9999;scrollbar-width:thin;scrollbar-color:var(--scrollbar-thumb-bg) transparent}
+.atlas-ctx-menu{background:var(--background-primary);border:1.5px solid color-mix(in oklch,var(--mono-100, var(--text-normal)) 18%,transparent);--atlas-panel-inner-radius: 18px ;border-radius:19.5px;corner-shape:var(--corner-shape, round);box-shadow:var(--shadow-s);display:flex;flex-direction:column;padding:4px;gap:var(--size-2-1);min-width:180px;max-width:280px;max-height:70vh;overflow-y:auto;z-index:9999;scrollbar-width:thin;scrollbar-color:var(--scrollbar-thumb-bg) transparent}
 .atlas-ctx-menu::-webkit-scrollbar{width:8px;height:8px}
 .atlas-ctx-menu::-webkit-scrollbar-track{background:transparent}
 .atlas-ctx-menu::-webkit-scrollbar-thumb{background:var(--scrollbar-thumb-bg);border-radius:9999px}

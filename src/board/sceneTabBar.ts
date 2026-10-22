@@ -4,6 +4,8 @@
  * marked, an eye that presents a scene to players (lit on the presented one), a cross that closes it, and a plus that
  * opens another. The board's host does what each asks of Atlas.
  */
+import { setSvg } from '../svg';
+
 
 export interface SceneTabEntry {
   id: string;
@@ -59,7 +61,7 @@ export class SceneTabBar {
       add.className = 'atlas-scene-tab atlas-scene-tab-bar__button atlas-scene-tab-bar__add';
       add.setAttribute('aria-label', 'Open a scene');
       add.title = 'Open a scene';
-      add.innerHTML = PLUS;
+      setSvg(add, PLUS);
       add.addEventListener('click', () => host.addTab?.());
       this.bar.appendChild(add);
     }
@@ -131,7 +133,7 @@ export class SceneTabBar {
     button.setAttribute('aria-label', label);
     button.title = label;
     if (active !== undefined) button.setAttribute('aria-pressed', String(active));
-    button.innerHTML = svg;
+    setSvg(button, svg);
     button.addEventListener('click', (event) => {
       event.stopPropagation();
       run();

@@ -144,7 +144,7 @@ class PlayerMinis implements PlayerMiniView {
     if (!bytes) return null;
     this.reading.add(asset);
     // A copy: the bytes stay Connect's, and the loader may detach what it reads.
-    parseMini(bytes.slice(0)).then((model) => model, (error: unknown) => {
+    void parseMini(bytes.slice(0)).then((model) => model, (error: unknown) => {
       console.warn('[Tabletop] A mini sent by the GM could not be drawn:', error);
       return null;
     }).then((model) => {

@@ -16,7 +16,7 @@ function resolve(icon: string): string {
 
 /** The pin's colour (Atlas's dark-theme tone). Label pins take the default pin's. */
 export function pinTone(icon: string): string {
-  return PIN_TONES[resolve(icon)] ?? PIN_TONES[DEFAULT_ICON]!;
+  return PIN_TONES[resolve(icon)] ?? PIN_TONES[DEFAULT_ICON];
 }
 
 /** The glyph's SVG path on a 512 × 512 canvas, or null for a pin that shows its label. */
@@ -30,7 +30,7 @@ export function pinTitle(pin: Pick<BoardPin, 'notePath' | 'label'>): string {
   if (pin.notePath) {
     const [file, heading] = pin.notePath.split('#', 2);
     if (heading) return heading;
-    const name = file!.split('/').pop()!.replace(/\.[^.]+$/, '');
+    const name = file.split('/').pop()!.replace(/\.[^.]+$/, '');
     if (name) return name;
   }
   return pin.label ?? '';

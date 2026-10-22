@@ -131,7 +131,7 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
     .map(([id, drawing]) => ({ id, points: drawing.points.map((point) => ({ ...point })), color: drawing.color, width: drawing.width, opacity: drawing.opacity }));
   const icons: BoardIcon[] = drawings
     .filter(([, drawing]) => drawing.type === 'icon' && drawing.icon !== null && drawing.points[0])
-    .map(([id, drawing]) => ({ id, icon: drawing.icon!, x: drawing.points[0]!.x, y: drawing.points[0]!.y, color: drawing.color, size: drawing.width, opacity: drawing.opacity }));
+    .map(([id, drawing]) => ({ id, icon: drawing.icon!, x: drawing.points[0].x, y: drawing.points[0].y, color: drawing.color, size: drawing.width, opacity: drawing.opacity }));
   const texts: BoardText[] = Object.entries(scene.texts).map(([id, text]) => ({
     id, x: text.x, y: text.y, text: text.text, fontSize: text.fontSize, fontFamily: text.fontFamily, color: text.color,
     backgroundColor: text.backgroundColor, padding: text.padding, borderRadius: text.borderRadius, opacity: text.opacity,

@@ -24,7 +24,7 @@ export function triangleCount(root: THREE.Object3D): number {
 }
 
 function positionsOf(geometry: THREE.BufferGeometry): Float32Array {
-  const position = geometry.attributes.position!;
+  const position = geometry.attributes.position;
   const out = new Float32Array(position.count * 3);
   for (let i = 0; i < position.count; i++) {
     out[i * 3] = position.getX(i);

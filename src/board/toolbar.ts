@@ -7,6 +7,7 @@
  * keys typed in it stay out of the board's camera keys.
  */
 
+import { setSvg } from '../svg';
 import { DICES_SVG } from '../dice/dicePicker';
 import { LASER_COLORS, LASER_COLOR_HINT, LASER_SIZE_MAX, LASER_SIZE_MIN, type LaserSettings } from './laser';
 
@@ -156,10 +157,10 @@ export class BoardToolbar {
     const toolIn = (parent: HTMLElement, svg: string, onClick: () => void): HTMLButtonElement => {
       const wrapper = el('div', 'atlas-tool-button', parent);
       const span = el('span', '', wrapper);
-      span.style.display = 'inline-flex';
+      span.setCssStyles({ display: 'inline-flex' });
       const made = el('button', 'btn btn--toolbar btn--icon atlas-tabletop-tool-button', span);
       made.type = 'button';
-      made.innerHTML = svg;
+      setSvg(made, svg);
       made.addEventListener('click', onClick);
       return made;
     };
@@ -171,7 +172,7 @@ export class BoardToolbar {
     const menu = el('div', 'atlas-dropdown-menu', laserGroup);
     this.laserMenuButton = el('button', 'btn btn--ghost btn--icon atlas-dropdown-trigger btn--toolbar', menu);
     this.laserMenuButton.type = 'button';
-    this.laserMenuButton.innerHTML = CHEVRON_SVG;
+    setSvg(this.laserMenuButton, CHEVRON_SVG);
     this.laserMenuButton.setAttribute('aria-label', 'Move options');
     this.laserMenuButton.setAttribute('aria-expanded', 'false');
     this.laserMenuButton.title = 'Move options';
@@ -186,7 +187,7 @@ export class BoardToolbar {
       const made = el('button', 'btn btn--ghost btn--sm atlas-dropdown-menu-item', tools);
       made.type = 'button';
       el('span', 'atlas-dropdown-menu-item__check', made);
-      made.insertAdjacentHTML('beforeend', svg);
+      setSvg(made, svg, true);
       el('span', '', made, label);
       el('span', 'atlas-dropdown-menu-item__shortcut', made, MOVE_KEY);
       made.addEventListener('click', () => { choose(); this.closeLaser(); });
@@ -247,7 +248,7 @@ export class BoardToolbar {
     this.sliderThumb.addEventListener('keydown', (event) => {
       const size = this.actions.laser().size;
       const steps: Record<string, number> = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1, PageUp: 10, PageDown: -10 };
-      if (event.key in steps) setSize(size + steps[event.key]!);
+      if (event.key in steps) setSize(size + steps[event.key]);
       else if (event.key === 'Home') setSize(LASER_SIZE_MIN);
       else if (event.key === 'End') setSize(LASER_SIZE_MAX);
       else return;
@@ -265,7 +266,7 @@ export class BoardToolbar {
     const templateMenu = el('div', 'atlas-dropdown-menu', this.templateGroup);
     this.templateMenuButton = el('button', 'btn btn--ghost btn--icon atlas-dropdown-trigger btn--toolbar', templateMenu);
     this.templateMenuButton.type = 'button';
-    this.templateMenuButton.innerHTML = CHEVRON_SVG;
+    setSvg(this.templateMenuButton, CHEVRON_SVG);
     this.templateMenuButton.setAttribute('aria-label', 'Template options');
     this.templateMenuButton.title = 'Template options';
     this.templatePanel = el('div', 'atlas-dropdown-content atlas-dropdown-content--top atlas-dropdown-content--left atlas-tabletop-template-options', templateMenu);
@@ -276,7 +277,7 @@ export class BoardToolbar {
       made.type = 'button';
       if (shape) made.dataset.shape = shape;
       el('span', 'atlas-dropdown-menu-item__check', made);
-      made.insertAdjacentHTML('beforeend', svg);
+      setSvg(made, svg, true);
       el('span', '', made, label);
       made.addEventListener('click', () => { choose(); this.closeTemplate(); });
     };
@@ -377,7 +378,7 @@ export class BoardToolbar {
     for (const choice of this.templatePanel.querySelectorAll<HTMLElement>('[data-shape]')) {
       const check = choice.querySelector('.atlas-dropdown-menu-item__check')!;
       const chosen = choice.dataset.shape === this.actions.templateShape();
-      check.innerHTML = chosen ? CHECK_SVG.replace('class="atlas-swatch-check"', 'class="atlas-dropdown-menu-item__tick"') : '';
+      setSvg(check, chosen ? CHECK_SVG.replace('class="atlas-swatch-check"', 'class="atlas-dropdown-menu-item__tick"') : '');
     }
     for (const end of this.ends()) {
       const open = end.handlers.isOpen();
@@ -386,13 +387,13 @@ export class BoardToolbar {
     }
     const laser = this.actions.laserOn();
     // The group's face is always the tool in use, as Atlas's is while one of its tools is.
-    this.laserButton.innerHTML = laser ? LASER_SVG : HAND_SVG;
+    setSvg(this.laserButton, laser ? LASER_SVG : HAND_SVG);
     this.laserButton.classList.add('is-active');
     this.laserButton.setAttribute('aria-label', laser ? 'Laser Pointer' : 'Move/Select');
     this.laserButton.title = `${laser ? 'Laser Pointer' : 'Move/Select'} (${MOVE_KEY})`;
     for (const [entry, chosen] of [[this.moveItem, !laser], [this.laserItem, laser]] as const) {
       const check = entry.querySelector('.atlas-dropdown-menu-item__check')!;
-      check.innerHTML = chosen ? CHECK_SVG.replace('class="atlas-swatch-check"', 'class="atlas-dropdown-menu-item__tick"') : '';
+      setSvg(check, chosen ? CHECK_SVG.replace('class="atlas-swatch-check"', 'class="atlas-dropdown-menu-item__tick"') : '');
       entry.setAttribute('aria-checked', String(chosen));
     }
   }
@@ -444,11 +445,11 @@ export class BoardToolbar {
     const wrapper = doc.createElement('div');
     wrapper.className = 'atlas-tool-button';
     const span = doc.createElement('span');
-    span.style.display = 'inline-flex';
+    span.setCssStyles({ display: 'inline-flex' });
     const button = doc.createElement('button');
     button.className = 'btn btn--toolbar btn--icon atlas-tabletop-tool-button';
     button.type = 'button';
-    button.innerHTML = svg;
+    setSvg(button, svg);
     button.setAttribute('aria-label', label);
     button.title = label;
     button.setAttribute('aria-expanded', 'false');
@@ -516,10 +517,10 @@ export class BoardToolbar {
       const chosen = swatch.dataset.value?.toLowerCase() === color.toLowerCase();
       swatch.classList.toggle('atlas-swatch--active', chosen);
       swatch.setAttribute('aria-pressed', String(chosen));
-      swatch.innerHTML = chosen ? CHECK_SVG : '';
+      setSvg(swatch, chosen ? CHECK_SVG : '');
     }
     const share = (size - LASER_SIZE_MIN) / (LASER_SIZE_MAX - LASER_SIZE_MIN);
-    this.sliderRange.style.left = '0';
+    this.sliderRange.setCssStyles({ left: '0' });
     this.sliderRange.style.right = `${(1 - share) * 100}%`;
     // As Radix places its thumb: along the track, kept inside it at both ends.
     (this.sliderThumb.parentElement as HTMLElement).style.left = `calc(${share * 100}% + ${THUMB_PX / 2 - share * THUMB_PX}px)`;

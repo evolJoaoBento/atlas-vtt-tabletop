@@ -48,14 +48,14 @@ export function gpuChoices(adapters: readonly Adapter[]): { power: string; perfo
   // The fast card has more memory of its own; where Windows reports none, the built-in chip is told by its name.
   const rank = (adapter: Adapter): number => adapter.memory + (BUILT_IN.test(adapter.name) ? 0 : 1);
   const sorted = [...cards].sort((a, b) => rank(b) - rank(a));
-  return { performance: sorted[0]!.name, power: sorted[sorted.length - 1]!.name };
+  return { performance: sorted[0].name, power: sorted[sorted.length - 1].name };
 }
 
 /** The chip a WebGL renderer string names: ANGLE's `ANGLE (Vendor, Chip (0x…) Direct3D11 …, D3D11)`, else the string. */
 export function chipName(renderer: string): string {
   if (!renderer.startsWith('ANGLE (')) return renderer.trim();
   const chip = renderer.slice(renderer.indexOf(',') + 1);
-  return chip.split(/\s\(0x[0-9a-f]+\)|\sDirect3D|\sOpenGL|\sVulkan|,/i)[0]!.trim();
+  return chip.split(/\s\(0x[0-9a-f]+\)|\sDirect3D|\sOpenGL|\sVulkan|,/i)[0].trim();
 }
 
 /** The preference a value's data holds; no value lets Windows decide. */

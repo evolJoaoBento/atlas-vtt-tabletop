@@ -253,7 +253,7 @@ export class TokenLabels {
       this.badges.push(made);
       this.hover.push({ object: made, label: badge.label });
       if (badge.definition) {
-        this.resources.push({ object: made, definition: badge.definition, value: badge.value, kind: 'wheel', width: WHEEL_PX, height: WHEEL_PX, side: slots[index]!.side < 0 ? -1 : 1 });
+        this.resources.push({ object: made, definition: badge.definition, value: badge.value, kind: 'wheel', width: WHEEL_PX, height: WHEEL_PX, side: slots[index].side < 0 ? -1 : 1 });
       }
     });
 
@@ -282,7 +282,7 @@ export class TokenLabels {
     const gap = baseRadius * 0.05;
     const radii = conditionRingRadii(baseRadius, this.rings.length, width, gap);
     this.rings.forEach((ring, index) => {
-      const radius = radii[index]!;
+      const radius = radii[index];
       ring.geometry.dispose();
       ring.geometry = new THREE.RingGeometry(radius - width / 2, radius + width / 2, 64).rotateX(-Math.PI / 2);
       ring.position.y = baseY + 0.2;
@@ -293,7 +293,7 @@ export class TokenLabels {
   pose(context: PoseContext): void {
     let rise = 0;
     for (let i = this.stack.length - 1; i >= 0; i--) {
-      const entry = this.stack[i]!;
+      const entry = this.stack[i];
       entry.sprite.scale.set(context.pixel * entry.width, context.pixel * entry.height, 1);
       entry.sprite.center.set(0.5, -rise / entry.height);
       rise += entry.height + GAP_PX;
@@ -302,7 +302,7 @@ export class TokenLabels {
     const right = new THREE.Vector3(Math.cos(context.yaw), 0, -Math.sin(context.yaw));
     const slots = sideBadgeSlots(this.badges.length);
     this.badges.forEach((badge, index) => {
-      const slot = slots[index]!;
+      const slot = slots[index];
       badge.position.copy(right).multiplyScalar(slot.side * this.sideRadius);
       badge.scale.set(context.pixel * WHEEL_PX, context.pixel * WHEEL_PX, 1);
       // Outward from the token on its side, and stacked downward a row at a time.

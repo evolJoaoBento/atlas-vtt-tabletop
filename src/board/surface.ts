@@ -15,14 +15,14 @@ const GRID_LIFT = 0.4;
 /** Black or white, whichever stands out on the image, the way Atlas picks a grid colour that was not set. */
 function contrastColor(image: CanvasImageSource & { width: number; height: number }): string {
   try {
-    const canvas = document.createElement('canvas');
+    const canvas = createEl('canvas');
     canvas.width = 16;
     canvas.height = 16;
     const context = canvas.getContext('2d', { willReadFrequently: true })!;
     context.drawImage(image, 0, 0, 16, 16);
     const { data } = context.getImageData(0, 0, 16, 16);
     let sum = 0;
-    for (let i = 0; i < data.length; i += 4) sum += 0.299 * data[i]! + 0.587 * data[i + 1]! + 0.114 * data[i + 2]!;
+    for (let i = 0; i < data.length; i += 4) sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
     return sum / (data.length / 4) > 128 ? '#000000' : '#ffffff';
   } catch {
     return '#000000';
@@ -35,7 +35,7 @@ export function stripGeometry(segments: readonly number[], width: number): THREE
   const half = width / 2;
   let at = 0;
   for (let i = 0; i < segments.length; i += 4) {
-    const [x1, y1, x2, y2] = [segments[i]!, segments[i + 1]!, segments[i + 2]!, segments[i + 3]!];
+    const [x1, y1, x2, y2] = [segments[i], segments[i + 1], segments[i + 2], segments[i + 3]];
     const length = Math.hypot(x2 - x1, y2 - y1) || 1;
     const nx = (-(y2 - y1) / length) * half;
     const ny = ((x2 - x1) / length) * half;

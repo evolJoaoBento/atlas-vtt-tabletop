@@ -150,7 +150,7 @@ export function initiativeActionInText(text: string, action: InitiativeAction, r
   const refused = fileCannotRun(before, action);
   if (refused) throw new Error(`${refused} runs only in Atlas: open the map in Atlas to play it`);
   const after = applyInitiative(before, action, random);
-  file.state.initiative = after as unknown as InitiativeState;
+  file.state.initiative = after;
   // A combatant kept beside the map (Atlas 0.9) goes with its entry, as in Atlas: nothing else shows it.
   const tokens = file.state.objects?.tokens;
   if (tokens && (action.type === 'remove' || action.type === 'reset')) {
@@ -306,7 +306,7 @@ export class TokenWriter {
     if (!state.updateToken) throw TokenWriter.missing('token update');
     const live = state.objects.tokens[id] as unknown as Record<string, unknown>;
     if (!inFileForm(live)) {
-      const changes = change(live as ResourceHolder & Record<string, unknown>);
+      const changes = change(live);
       if (changes) state.updateToken(id, changes);
       return;
     }

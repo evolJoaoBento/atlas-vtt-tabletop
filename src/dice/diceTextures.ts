@@ -100,9 +100,9 @@ function paintRim(doc: Document, context: CanvasRenderingContext2D, canvas: HTML
   }
   const seen = new Map<number, number>();
   for (let i = 0; i < pixels.length; i += 4 * 37) {
-    const alpha = pixels[i + 3]!;
+    const alpha = pixels[i + 3];
     if (alpha <= 8 || alpha > 240) continue;
-    const packed = ((pixels[i]! << 24) | (pixels[i + 1]! << 16) | (pixels[i + 2]! << 8) | alpha) >>> 0;
+    const packed = ((pixels[i] << 24) | (pixels[i + 1] << 16) | (pixels[i + 2] << 8) | alpha) >>> 0;
     seen.set(packed, (seen.get(packed) ?? 0) + 1);
   }
   let wash = 0;

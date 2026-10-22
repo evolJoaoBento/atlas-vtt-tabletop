@@ -96,11 +96,11 @@ export function addToInitiative(state: InitiativeState | undefined, entry: Recor
 export function removeFromInitiative(state: InitiativeState, tokenId: string): InitiativeState {
   const index = state.entries.findIndex((entry) => entry.tokenId === tokenId);
   if (index === -1) return state;
-  const wasActive = state.entries[index]!.isActive;
+  const wasActive = state.entries[index].isActive;
   const entries = state.entries.filter((_, i) => i !== index).map((entry, order) => ({ ...entry, order }));
   if (!wasActive || entries.length === 0) return { ...state, entries };
   const next = Math.min(index, entries.length - 1);
-  entries[next] = { ...entries[next]!, isActive: true };
+  entries[next] = { ...entries[next], isActive: true };
   return { ...state, entries, currentIndex: next };
 }
 

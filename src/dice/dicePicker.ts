@@ -5,6 +5,7 @@
  * dice picked allow it, a modifier, the formula, Roll and Clear. Roll lays the dice on the table where the camera looks, for the GM to pick up and throw. Plain DOM; what
  * it picks is `pickedRequest`, which is pure.
  */
+import { setSvg } from '../svg';
 import { DIE_TYPES, type DieType } from './kit/faces';
 import { defaultDie, MAX_DICE, type DiceRules, type RollRequest } from './rollRules';
 
@@ -195,10 +196,10 @@ export class DicePicker {
     const modifier = el('div', 'atlas-dice-tray__modifier', content);
     el('span', 'atlas-dice-tray__modifier-label', modifier, 'Modifier');
     this.lower = button('atlas-dice-tray__grip atlas-dice-tray__step', modifier, 'Decrease modifier', () => this.change(stepModifier(this.pick, -1)));
-    this.lower.innerHTML = MINUS_SVG;
+    setSvg(this.lower, MINUS_SVG);
     this.modifierValue = el('span', 'atlas-dice-tray__modifier-value', modifier);
     this.raise = button('atlas-dice-tray__grip atlas-dice-tray__step', modifier, 'Increase modifier', () => this.change(stepModifier(this.pick, 1)));
-    this.raise.innerHTML = PLUS_SVG;
+    setSvg(this.raise, PLUS_SVG);
 
     this.formula = el('p', 'atlas-dice-tray__formula', content);
     this.formula.setAttribute('role', 'status');
@@ -328,7 +329,7 @@ export class DicePicker {
         grip.type = 'button';
         grip.className = 'atlas-dice-tray__grip';
         grip.setAttribute('aria-label', `Take one ${die} back`);
-        grip.innerHTML = MINUS_SVG;
+        setSvg(grip, MINUS_SVG);
         grip.addEventListener('click', () => this.change(stepDie(this.pick, die, -1)));
         cell.appendChild(grip);
       } else {
@@ -412,7 +413,7 @@ export class DicePicker {
         grip.type = 'button';
         grip.className = 'atlas-dice-tray__grip';
         grip.setAttribute('aria-label', `Take a ${name} ${die} back`);
-        grip.innerHTML = MINUS_SVG;
+        setSvg(grip, MINUS_SVG);
         grip.addEventListener('click', () => this.change(stepDie(this.pick, die, -1, color)));
         made.appendChild(grip);
       } else {

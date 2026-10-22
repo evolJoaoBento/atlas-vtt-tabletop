@@ -96,7 +96,7 @@ function shapeOf(operation: FogOperation): Paths64 {
   const path: Path64 = operation.points.map((point) => ({ x: quantize(point.x + ox), y: quantize(point.y + oy) }));
   if (operation.type === 'lasso') return union([path], FillRule.NonZero);
   const radius = quantize(operation.brushRadius);
-  const stroke = path.filter((point, index) => index === 0 || point.x !== path[index - 1]!.x || point.y !== path[index - 1]!.y);
+  const stroke = path.filter((point, index) => index === 0 || point.x !== path[index - 1].x || point.y !== path[index - 1].y);
   if (radius === 0 || stroke.length === 0) return [];
   // Round caps and joins, as Atlas inflates its brush; integer offsetting can cross itself, so it is unioned.
   return union(inflatePaths([stroke], radius, JoinType.Round, EndType.Round, 2, 1), FillRule.NonZero);
@@ -106,8 +106,8 @@ function shapeOf(operation: FogOperation): Paths64 {
 export function ringArea(ring: readonly Point[]): number {
   let area = 0;
   for (let i = 0; i < ring.length; i++) {
-    const a = ring[i]!;
-    const b = ring[(i + 1) % ring.length]!;
+    const a = ring[i];
+    const b = ring[(i + 1) % ring.length];
     area += a.x * b.y - a.y * b.x;
   }
   return area / 2;
@@ -116,8 +116,8 @@ export function ringArea(ring: readonly Point[]): number {
 function inside(point: Point, ring: readonly Point[]): boolean {
   let within = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const a = ring[i]!;
-    const b = ring[j]!;
+    const a = ring[i];
+    const b = ring[j];
     if ((a.y > point.y) !== (b.y > point.y) && point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x) within = !within;
   }
   return within;
@@ -142,7 +142,7 @@ export function fogAreas(operations: readonly FogOperation[]): FogArea[] {
   const outers = rings.filter((ring) => ringArea(ring) > 0).map((outer) => ({ outer, holes: [] as Point[][] }));
   for (const hole of rings.filter((ring) => ringArea(ring) < 0)) {
     // A hole belongs to the smallest outline around it (an island inside a hole has its own outline).
-    const around = outers.filter((area) => inside(hole[0]!, area.outer)).sort((a, b) => ringArea(a.outer) - ringArea(b.outer))[0];
+    const around = outers.filter((area) => inside(hole[0], area.outer)).sort((a, b) => ringArea(a.outer) - ringArea(b.outer))[0];
     around?.holes.push(hole);
   }
   return outers;

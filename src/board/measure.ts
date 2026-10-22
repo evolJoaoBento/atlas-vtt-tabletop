@@ -58,8 +58,8 @@ export function pathLengthInCells(points: ReadonlyArray<{ x: number; y: number }
   if (grid.type !== 'square') {
     let steps = 0;
     for (let i = 1; i < points.length; i++) {
-      const a = hexAxial(grid, points[i - 1]!.x, points[i - 1]!.y);
-      const b = hexAxial(grid, points[i]!.x, points[i]!.y);
+      const a = hexAxial(grid, points[i - 1].x, points[i - 1].y);
+      const b = hexAxial(grid, points[i].x, points[i].y);
       const dq = a.q - b.q;
       const dr = a.r - b.r;
       steps += (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
@@ -70,8 +70,8 @@ export function pathLengthInCells(points: ReadonlyArray<{ x: number; y: number }
   let diagonals = 0;
   let exact = 0;
   for (let i = 1; i < points.length; i++) {
-    const dx = Math.abs(points[i]!.x - points[i - 1]!.x) / grid.size;
-    const dy = Math.abs(points[i]!.y - points[i - 1]!.y) / grid.size;
+    const dx = Math.abs(points[i].x - points[i - 1].x) / grid.size;
+    const dy = Math.abs(points[i].y - points[i - 1].y) / grid.size;
     straight += Math.abs(dx - dy);
     diagonals += Math.min(dx, dy);
     exact += Math.hypot(dx, dy);
@@ -86,5 +86,5 @@ export function formatDistance(cells: number, measurement: Measurement): string 
   if (measurement.mode === 'metric') return `${Math.round(cells * measurement.unitDistance)}${SUFFIX[measurement.unitType]}`;
   const squares = Math.round(cells);
   if (measurement.bands.length === 0) return `${squares} sq`;
-  return (measurement.bands.find((band) => squares <= band.maxSquares) ?? measurement.bands[measurement.bands.length - 1]!).name;
+  return (measurement.bands.find((band) => squares <= band.maxSquares) ?? measurement.bands[measurement.bands.length - 1]).name;
 }

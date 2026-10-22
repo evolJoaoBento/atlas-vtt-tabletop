@@ -222,10 +222,10 @@ function busOf(view: MapViewLike | null): RollBus | null {
  * False when neither takes it.
  */
 export function publishRoll(view: MapViewLike | null, roll: object, ext?: DicePublisher | null): boolean {
-  const publish = ext?.dice?.publish;
-  if (typeof publish === 'function') {
+  const dice = ext?.dice;
+  if (typeof dice?.publish === 'function') {
     try {
-      publish.call(ext?.dice, roll, { throw: false });
+      dice.publish(roll, { throw: false });
       return true;
     } catch (error) {
       // Atlas refused the roll before logging anything, so the bus cannot double it.

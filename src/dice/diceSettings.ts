@@ -82,7 +82,7 @@ export function readColorsText(text: string): TabletopDiceSettings['colors'] {
   const colors: TabletopDiceSettings['colors'] = [];
   for (const line of text.split('\n')) {
     const match = /^(.*?)\s*(#[0-9a-fA-F]{6})\s*$/.exec(line.trim());
-    if (match) colors.push({ name: match[1]!.trim() || match[2]!, color: match[2]! });
+    if (match) colors.push({ name: match[1].trim() || match[2], color: match[2] });
   }
   return colors;
 }

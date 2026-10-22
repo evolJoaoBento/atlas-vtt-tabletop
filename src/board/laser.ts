@@ -98,10 +98,10 @@ export function smoothBeam(points: readonly BeamPoint[], spacing: number): BeamP
   if (points.length < 3) return points.map((point) => ({ ...point }));
   const smoothed: BeamPoint[] = [];
   for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[Math.max(0, i - 1)]!;
-    const p1 = points[i]!;
-    const p2 = points[i + 1]!;
-    const p3 = points[Math.min(points.length - 1, i + 2)]!;
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[Math.min(points.length - 1, i + 2)];
     const steps = Math.min(MAX_SUBDIVISIONS, Math.max(1, Math.ceil(Math.hypot(p2.x - p1.x, p2.y - p1.y) / spacing)));
     for (let step = 0; step < steps; step++) {
       const t = step / steps;
@@ -112,6 +112,6 @@ export function smoothBeam(points: readonly BeamPoint[], spacing: number): BeamP
       });
     }
   }
-  smoothed.push({ ...points[points.length - 1]! });
+  smoothed.push({ ...points[points.length - 1] });
   return smoothed;
 }

@@ -5,6 +5,7 @@
  * subtracted die) rolls nothing: the drawer says so. Text only, never markup: the sheet comes from vault notes.
  * Ported from Atlas VTT Connect (MIT, `sheetView.mts`).
  */
+import { setSvg } from '../svg';
 import { parseFormula } from '../dice/rollRules';
 import {
   ABILITY_NAMES, advantageSide, mayHaveAdvantage, modifierOf, sheetRollFormula, sheetRollLabel, signed, textParts,
@@ -40,7 +41,7 @@ export class SheetDrawer {
     close.setAttribute('aria-label', 'Close');
     close.title = 'Close';
     // A fixed icon of this file's, never note text.
-    close.innerHTML = CLOSE_SVG;
+    setSvg(close, CLOSE_SVG);
     close.addEventListener('click', () => this.close());
     this.noticeLine = this.el('p', 'atlas-tabletop-sheet__notice', this.root);
     this.noticeLine.setAttribute('role', 'status');

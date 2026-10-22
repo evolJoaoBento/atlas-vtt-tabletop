@@ -177,7 +177,7 @@ export class LightRig {
     // A bulb is small: it is hit within twice its size.
     const grown = bulbs.map((bulb) => { const scale = bulb.scale.x; bulb.scale.setScalar(scale * 2); bulb.updateMatrixWorld(true); return scale; });
     const hit = raycaster.intersectObjects(bulbs, false)[0];
-    bulbs.forEach((bulb, i) => { bulb.scale.setScalar(grown[i]!); bulb.updateMatrixWorld(true); });
+    bulbs.forEach((bulb, i) => { bulb.scale.setScalar(grown[i]); bulb.updateMatrixWorld(true); });
     return (hit?.object.userData.lightId as string | undefined) ?? null;
   }
 

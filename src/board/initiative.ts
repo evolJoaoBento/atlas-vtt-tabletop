@@ -342,7 +342,7 @@ function beginRound(state: InitiativeState): void {
 
 /** Back into the round before: the marks its end cleared come back. */
 function backToRoundBefore(state: InitiativeState): void {
-  const kept = isObj(state.satOut) ? state.satOut as Record<string, unknown> : {};
+  const kept = isObj(state.satOut) ? state.satOut : {};
   const marks = kept[String(state.round)];
   clearSittingOut(state);
   if (Array.isArray(marks)) for (const entry of state.entries) if (marks.includes(entry.id)) entry.sitsOut = true;
@@ -374,7 +374,7 @@ function nextTurn(state: InitiativeState, defeated: ReadonlySet<string>): void {
       index = 0;
       beginRound(state);
     }
-    if (actsInTurn(entries[index]!, defeated)) return giveTurn(state, index);
+    if (actsInTurn(entries[index], defeated)) return giveTurn(state, index);
   }
 }
 
@@ -389,7 +389,7 @@ function previousTurn(state: InitiativeState, defeated: ReadonlySet<string>): vo
       index = entries.length - 1;
       if (state.round > 1) backToRoundBefore(state);
     }
-    if (actsInTurn(entries[index]!, defeated)) return giveTurn(state, index);
+    if (actsInTurn(entries[index], defeated)) return giveTurn(state, index);
   }
 }
 
@@ -452,27 +452,27 @@ export function applyInitiative(given: InitiativeState, action: InitiativeAction
       const { from, to } = action;
       if (from < 0 || from >= entries.length || to < 0 || to >= entries.length) break;
       const [moved] = entries.splice(from, 1);
-      entries.splice(to, 0, moved!);
+      entries.splice(to, 0, moved);
       renumber(entries);
-      if (moved!.isActive) state.currentIndex = to;
+      if (moved.isActive) state.currentIndex = to;
       break;
     }
     case 'front': {
       const index = find(action.id);
       if (index <= 0) break;
       const [moved] = entries.splice(index, 1);
-      entries.unshift(moved!);
+      entries.unshift(moved);
       renumber(entries);
-      if (moved!.isActive) state.currentIndex = 0;
+      if (moved.isActive) state.currentIndex = 0;
       break;
     }
     case 'back': {
       const index = find(action.id);
       if (index < 0 || index >= entries.length - 1) break;
       const [moved] = entries.splice(index, 1);
-      entries.push(moved!);
+      entries.push(moved);
       renumber(entries);
-      if (moved!.isActive) state.currentIndex = entries.length - 1;
+      if (moved.isActive) state.currentIndex = entries.length - 1;
       break;
     }
     case 'start': {
@@ -528,7 +528,7 @@ export function applyInitiative(given: InitiativeState, action: InitiativeAction
     case 'remove': {
       const index = find(action.id);
       if (index === -1) break;
-      const hadTurn = entries[index]!.isActive;
+      const hadTurn = entries[index].isActive;
       entries.splice(index, 1);
       renumber(entries);
       if (!hadTurn || entries.length === 0) break;

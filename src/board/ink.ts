@@ -18,8 +18,8 @@ export function inkTriangles(points: readonly Point[], width: number): Float32Ar
   const half = width / 2;
   const out: number[] = [];
   for (let i = 1; i < points.length; i++) {
-    const a = points[i - 1]!;
-    const b = points[i]!;
+    const a = points[i - 1];
+    const b = points[i];
     const length = Math.hypot(b.x - a.x, b.y - a.y);
     if (length === 0) continue;
     const nx = (-(b.y - a.y) / length) * half;

@@ -21,7 +21,7 @@ interface Laser { line: THREE.Line; points: Array<Point & { at: number }>; lifte
 
 /** A flat outline of points on the map (x, y) laid on the board (x, z). */
 function flat(points: readonly Point[], closed: boolean): THREE.BufferGeometry {
-  const list = closed && points.length > 0 ? [...points, points[0]!] : points;
+  const list = closed && points.length > 0 ? [...points, points[0]] : points;
   return new THREE.BufferGeometry().setFromPoints(list.map((point) => new THREE.Vector3(point.x, LIFT, point.y)));
 }
 

@@ -170,8 +170,8 @@ export class PlayerDice {
 function throwable(request: PlayerDiceRequest): boolean {
   let count = 0;
   for (const [die, n] of Object.entries(request.dice ?? {})) {
-    if (!(DIE_TYPES as readonly string[]).includes(die) || !Number.isInteger(n) || (n as number) < 0) return false;
-    count += n as number;
+    if (!(DIE_TYPES as readonly string[]).includes(die) || !Number.isInteger(n) || (n) < 0) return false;
+    count += n;
   }
   return count >= 1 && count <= MAX_DICE && Number.isInteger(request.modifier);
 }

@@ -13,7 +13,7 @@ export function checkGlb(data: ArrayBuffer): void {
   const length = view.getUint32(12, true);
   let json: { extensionsUsed?: unknown; buffers?: Array<{ uri?: unknown }>; images?: Array<{ uri?: unknown }> };
   try {
-    json = JSON.parse(new TextDecoder().decode(new Uint8Array(data, 20, Math.min(length, data.byteLength - 20))));
+    json = JSON.parse(new TextDecoder().decode(new Uint8Array(data, 20, Math.min(length, data.byteLength - 20)))) as typeof json;
   } catch {
     throw new Error('bad json: not a GLB');
   }
