@@ -24,7 +24,10 @@ export interface RollRequest {
   /** Rolls a second default die and keeps the higher (advantage) or the lower. */
   advantage?: 'advantage' | 'disadvantage';
   label?: string;
+  /** One colour for every die of a type. */
   colors?: Partial<Record<DieType, string>>;
+  /** A colour for each die of a type, in order (null: the pack's colour); wins over `colors`. */
+  dieColors?: Partial<Record<DieType, Array<string | null>>>;
 }
 
 /** One die of a finished roll, as Atlas logs it. */

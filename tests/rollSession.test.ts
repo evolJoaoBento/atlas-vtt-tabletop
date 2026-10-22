@@ -359,3 +359,8 @@ test('a d100 half knocked loose is read again', () => {
   session.settle(ones.id, face(10));
   assert.equal(session.result()?.total, 30);
 });
+
+test('each die of a type is thrown in its own colour; null is the pack\'s, and wins over the type\'s colour', () => {
+  const session = new RollSession({ dice: { d6: 3 }, modifier: 0, colors: { d6: '#000000' }, dieColors: { d6: ['#d64545', null] } }, DEFAULT_RULES);
+  assert.deepEqual(session.dice.map((state) => state.color), ['#d64545', undefined, '#000000']);
+});

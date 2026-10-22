@@ -1762,7 +1762,7 @@ export class Board {
       scene: this.scene,
       gridSize: () => this.map?.grid.size ?? FALLBACK_SIZE / 40,
       target: () => ({ x: this.camera.goal.target.x, z: this.camera.goal.target.z }),
-      visibleHalfExtent: () => this.visibleHalfExtent(),
+      mapSize: () => ({ width: this.size.width, height: this.size.height }),
       cameraYaw: () => this.cameraYaw(),
       wake: () => this.wake(true),
       obstacles: () => this.diceObstacles(),

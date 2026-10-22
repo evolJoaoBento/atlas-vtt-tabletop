@@ -1,7 +1,8 @@
 /**
- * Physical dice on the board: a tray laid at the camera's centre (see tray.ts), a roll's dice laid in it at rest, each
- * picked up and carried under the pointer and thrown with cannon-es from where it is let go, and read once it comes to
- * rest. The board's tokens, props and walls stand in the tray as fixed shapes: a die bounces off them, they never move. The world is Interactive Dice's, tuned the same way, in die units (a die's edge
+ * Physical dice on the board: the map is the tray (see tray.ts), its edges the only walls; a roll's dice are laid at rest
+ * where the camera looks, each picked up and carried under the pointer anywhere on the map and thrown with cannon-es
+ * from where it is let go, and read once it comes to rest. The board's tokens, props and walls stand on the map as fixed
+ * shapes: a die bounces off them, they never move. The world is Interactive Dice's, tuned the same way, in die units (a die's edge
  * is 1); the dice's group is scaled up to the board and turned with the camera, so the tray's near wall faces the
  * thrower. Only the thrower's board draws the dice: the board keeps them out of the players' picture.
  */
@@ -12,7 +13,7 @@ import { buildDie } from './dieBuild';
 import { readFace, type DieType, type FaceReading, type Vec3 } from './kit/faces';
 import type { RollSession } from './rollSession';
 import { MAX_THROW_SPEED, MIN_THROW_SPEED, throwVector, type Flick } from './throwInput';
-import { dieEdgePx, trayAt, type Tray } from './tray';
+import { dieEdgePx, trayOnMap, type Tray } from './tray';
 
 /**
  * Something on the board a die bounces off, in map pixels: a token or prop (round, `radius` across its middle), or a
@@ -28,7 +29,8 @@ export interface DiceTableHost {
   gridSize(): number;
   /** Where the camera looks, on the ground (map pixels). */
   target(): { x: number; z: number };
-  visibleHalfExtent(): { x: number; z: number };
+  /** The map's size in map pixels (it spans from 0, 0); 0 × 0 with none. */
+  mapSize(): { width: number; height: number };
   cameraYaw(): number;
   /** Asks the board for frames: dice are moving. */
   wake(): void;
@@ -280,7 +282,7 @@ export class DiceTable {
     for (const wall of this.walls) this.world.removeBody(wall);
     const grid = this.host.gridSize();
     const edge = dieEdgePx(grid, this.settings.dieSquares);
-    const tray = trayAt(this.host.target(), this.host.visibleHalfExtent(), grid, this.host.cameraYaw(), edge);
+    const tray = trayOnMap(this.host.mapSize(), this.host.target(), grid, edge);
     this.tray = tray;
     this.object3d.position.set(tray.center.x, 0, tray.center.z);
     this.object3d.rotation.set(0, tray.yaw, 0);
@@ -381,10 +383,17 @@ export class DiceTable {
     die.mesh.quaternion.copy(pose);
   }
 
-  /** The first spot, spiralling out from the tray's centre, clear of the other dice and the board's obstacles. */
+  /** The first spot, spiralling out from where the camera looks, on the map, clear of the other dice and the board's obstacles. */
   private freeSpot(die: ThrownDie): { x: number; z: number } {
     const tray = this.tray as Tray;
     const edge = dieEdgePx(this.host.gridSize(), this.settings.dieSquares);
+    // Where the camera looks, in the tray's frame (it is never turned), kept on the map.
+    const target = this.host.target();
+    const inner = (value: number, half: number): number => Math.max(-half, Math.min(half, value));
+    const from = {
+      x: inner((target.x - tray.center.x) / edge, tray.halfWidth / edge - die.radius),
+      z: inner((target.z - tray.center.z) / edge, tray.halfDepth / edge - die.radius),
+    };
     const halfWidth = tray.halfWidth / edge - die.radius;
     const halfDepth = tray.halfDepth / edge - die.radius;
     const others = [...this.dice.values()].filter((other) => other !== die);
@@ -400,12 +409,12 @@ export class DiceTable {
       const around = Math.max(1, ring * 6);
       for (let i = 0; i < around; i++) {
         const angle = (i / around) * Math.PI * 2;
-        const x = Math.cos(angle) * ring * LAY_SPACING;
-        const z = Math.sin(angle) * ring * LAY_SPACING;
+        const x = from.x + Math.cos(angle) * ring * LAY_SPACING;
+        const z = from.z + Math.sin(angle) * ring * LAY_SPACING;
         if (clear(x, z)) return { x, z };
       }
     }
-    return { x: 0, z: 0 };
+    return from;
   }
 
   /** A die held where it is: it moves only when it is thrown (or knocked loose). */

@@ -16,7 +16,8 @@ function table(yaw: number | (() => number) = 0.7, obstacles: DiceObstacle[] = [
     scene,
     gridSize: () => 70,
     target: () => ({ x: 500, z: 300 }),
-    visibleHalfExtent: () => ({ x: 600, z: 400 }),
+    // A map 1000 by 600: the tray, centred on it at (500, 300) where the camera looks.
+    mapSize: () => ({ width: 1000, height: 600 }),
     cameraYaw: typeof yaw === 'number' ? () => yaw : yaw,
     wake: () => { wakes.push(1); },
     textures: () => ({}),
@@ -73,7 +74,7 @@ test('a thrown 2d6 settles inside the tray and each die is read once', () => see
   const local = dice.object3d.children.map((mesh) => mesh.position);
   // The tray is 0.8 of the view: 480 by 320 map pixels each way, a die 42.
   for (const at of local) {
-    assert.ok(Math.abs(at.x) <= 480 / 42 && Math.abs(at.z) <= 320 / 42 && at.y >= 0 && at.y < 1.2, `inside the tray: ${at.x}, ${at.y}, ${at.z}`);
+    assert.ok(Math.abs(at.x) <= 500 / 42 && Math.abs(at.z) <= 300 / 42 && at.y >= 0 && at.y < 1.2, `on the map: ${at.x}, ${at.y}, ${at.z}`);
   }
   for (const [, face] of readings) assert.ok(face === null || (face >= 1 && face <= 6), `a d6 face: ${face}`);
 }));
@@ -124,20 +125,22 @@ test('a ray finds the die it meets; clear takes the dice away', () => {
   assert.equal(dice.busy, false);
 });
 
-test('a die thrown again goes up the screen as the camera faces now, though the tray was laid facing another way', () => seeded(7, () => {
+test('a die thrown again goes up the screen as the camera faces now, though it faced another way before', () => seeded(7, () => {
   let yaw = 0.7;
   const { dice } = table(() => yaw);
   const session = new RollSession({ dice: { d6: 1 }, modifier: 0 }, DEFAULT_RULES);
   dice.throwRoll(session, { dx: 0, dy: -200, ms: 100 });
   run(dice);
-  // A quarter turn more: up the screen is now the tray's -x (its left as it was laid).
+  // A quarter turn more: up the screen is now the camera's forward along the ground as it faces now.
   yaw += Math.PI / 2;
   dice.throwDie(session.dice[0].id, { dx: 0, dy: -200, ms: 100 });
   const mesh = dice.object3d.children[0];
   const from = mesh.position.clone();
   for (let i = 0; i < 4; i++) dice.step(1000 / 60);
   const moved = mesh.position.clone().sub(from);
-  assert.ok(moved.x < -1 && Math.abs(moved.z) < Math.abs(moved.x) / 3, `toward the tray's -x: ${moved.x}, ${moved.z}`);
+  const forward = { x: -Math.sin(yaw), z: -Math.cos(yaw) };
+  const along = (moved.x * forward.x + moved.z * forward.z) / Math.hypot(moved.x, moved.z);
+  assert.ok(Math.hypot(moved.x, moved.z) > 1 && along > 0.9, `up the screen as the camera faces now: ${moved.x}, ${moved.z}`);
 }));
 
 test('a die at rest on the felt reads the number it shows', () => seeded(11, () => {
@@ -176,7 +179,7 @@ test('a listener that throws does not stop the other dice being read', () => see
   assert.equal(errors.length, 1, 'the failure is reported');
 }));
 
-test('a die resting on another is read where it lies, and falls when the die under it is thrown again', () => seeded(8, () => {
+test('a die resting on another is read where it lies, and falls when the die under it is thrown again', () => seeded(15, () => {
   const { dice } = table(0);
   const session = new RollSession({ dice: { d6: 2 }, modifier: 0 }, DEFAULT_RULES);
   const readings = new Map<number, FaceReading[]>();
@@ -253,9 +256,9 @@ test('dice thrown again one after another start clear of each other and of the d
 
 test('the felt and the walls hold a die wherever it lands in a wide tray', () => seeded(17, () => {
   const scene = new THREE.Scene();
-  // The harness's view: a tray 28 by 18 dice, where a die thrown gently lands well short of the tray's centre.
+  // A map 2800 by 1800: the tray its whole size, the dice laid where the camera looks, off its centre.
   const host: DiceTableHost = {
-    scene, gridSize: () => 70, target: () => ({ x: 700, z: 500 }), visibleHalfExtent: () => ({ x: 1478.5, z: 946.25 }),
+    scene, gridSize: () => 70, target: () => ({ x: 700, z: 500 }), mapSize: () => ({ width: 2800, height: 1800 }),
     cameraYaw: () => 0, wake: () => {}, textures: () => ({}), pack: () => ({}),
   };
   for (const flick of [{ dx: 0, dy: -100, ms: 140 }, { dx: 30, dy: -260, ms: 140 }, { dx: 400, dy: 0, ms: 100 }, { dx: 0, dy: 600, ms: 100 }]) {
@@ -265,7 +268,7 @@ test('the felt and the walls hold a die wherever it lands in a wide tray', () =>
     const ms = run(dice);
     for (const mesh of dice.object3d.children) {
       const at = mesh.position;
-      assert.ok(Math.abs(at.x) <= 1182.8 / 42 && Math.abs(at.z) <= 757 / 42 && at.y > 0 && at.y < 1.2, `${JSON.stringify(flick)}: on the felt in ${ms} ms: ${at.x}, ${at.y}, ${at.z}`);
+      assert.ok(Math.abs(at.x) <= 1400 / 42 && Math.abs(at.z) <= 900 / 42 && at.y > 0 && at.y < 1.2, `${JSON.stringify(flick)}: on the felt in ${ms} ms: ${at.x}, ${at.y}, ${at.z}`);
     }
     dice.dispose();
   }
@@ -287,7 +290,7 @@ test('a die new to the table lets go of no dice held where it is made', () => se
   assert.equal(bodyOf(dice, first).type, CANNON.Body.STATIC);
 }));
 
-test('a die taken off the table lets go of the dice resting on it', () => seeded(8, () => {
+test('a die taken off the table lets go of the dice resting on it', () => seeded(15, () => {
   const { dice } = table(0);
   const session = new RollSession({ dice: { d6: 2 }, modifier: 0 }, DEFAULT_RULES);
   dice.throwRoll(session, { dx: 0, dy: -200, ms: 100 });
@@ -311,7 +314,7 @@ test('a die taken off the table lets go of the dice resting on it', () => seeded
   dice.remove(999);
 }));
 
-test('a roll is laid on the felt at rest: flat, inside the tray, apart, nothing moving or read', () => seeded(3, () => {
+test('a roll is laid on the felt at rest where the camera looks: flat, on the map, apart, nothing moving or read', () => seeded(3, () => {
   const { dice } = table(0.4);
   const session = new RollSession({ dice: { d4: 1, d6: 2, d8: 1, d10: 1, d12: 1, d20: 1, d100: 1 }, modifier: 0 }, DEFAULT_RULES);
   const read: number[] = [];
@@ -326,7 +329,7 @@ test('a roll is laid on the felt at rest: flat, inside the tray, apart, nothing 
     // The dice's group is scaled to the board: a die's edge is 42 map pixels here.
     const lowest = new THREE.Box3().setFromObject(mesh).min.y / 42;
     assert.ok(Math.abs(lowest) < 0.02, `on the felt: lowest corner ${lowest} die edges`);
-    assert.ok(Math.abs(mesh.position.x) < 600 * 0.8 / 42 && Math.abs(mesh.position.z) < 400 * 0.8 / 42, 'inside the tray');
+    assert.ok(Math.abs(mesh.position.x) < 500 / 42 && Math.abs(mesh.position.z) < 300 / 42, 'on the map');
   }
   for (let i = 0; i < meshes.length; i++) for (let j = i + 1; j < meshes.length; j++) {
     const a = meshes[i].position;
@@ -386,4 +389,30 @@ test('a wall on the board stands in the tray as a box along its heading', () => 
   dice.throwDie(d6.id, { dx: 0, dy: -500, ms: 60 });
   run(dice);
   assert.ok(bodyOf(dice, d6.id).position.z > -84 / 42, `stopped by the wall: ${bodyOf(dice, d6.id).position.toString()}`);
+});
+
+test("the map's edge is the only wall: a die thrown hard toward it stops at it, on the map", () => seeded(12, () => {
+  const { dice } = table(0);
+  const session = new RollSession({ dice: { d6: 1 }, modifier: 0 }, DEFAULT_RULES);
+  dice.placeRoll(session);
+  const [d6] = session.dice;
+  // Carried to near the map's right edge (map x 950 of 1000), and flung right, at the edge.
+  dice.hold(d6.id, new THREE.Ray(new THREE.Vector3(950, 1000, 300), new THREE.Vector3(0, -1, 0)));
+  session.reroll(d6.id);
+  dice.throwDie(d6.id, { dx: 600, dy: 0, ms: 60 });
+  run(dice);
+  const at = bodyOf(dice, d6.id).position;
+  assert.ok(at.x <= 500 / 42 && at.x > 300 / 42, `stopped by the map's edge, not before it: ${at.toString()}`);
+}));
+
+test('a roll is laid where the camera looks, wherever on the map that is', () => {
+  const scene = new THREE.Scene();
+  const host: DiceTableHost = {
+    scene, gridSize: () => 70, target: () => ({ x: 200, z: 1500 }), mapSize: () => ({ width: 2800, height: 1800 }),
+    cameraYaw: () => 0, wake: () => {}, textures: () => ({}), pack: () => ({}),
+  };
+  const dice = new DiceTable(host, SETTINGS);
+  dice.placeRoll(new RollSession({ dice: { d6: 1 }, modifier: 0 }, DEFAULT_RULES));
+  const world = dice.object3d.children[0].getWorldPosition(new THREE.Vector3());
+  assert.ok(Math.hypot(world.x - 200, world.z - 1500) < 1, `laid where the camera looks: ${world.x}, ${world.z}`);
 });

@@ -1,8 +1,8 @@
 /**
  * The GM's dice tray on the board, opened from the toolbar's Dice button: Atlas's own dice tray, in its look and with
- * its controls. A picture of each die (click adds one, the grip under it takes one back), right-click on a die for the
- * colour it is thrown in, Normal / Advantage / Disadvantage when the dice picked allow it, a modifier, the formula, Roll
- * and Clear. Roll lays the dice on the table where the camera looks, for the GM to pick up and throw. Plain DOM; what
+ * its controls. A picture of each die (click adds one, the grip under it takes one back), right-click on a die for its
+ * colours (how many of it in each, each added or taken back on its own), Normal / Advantage / Disadvantage when the
+ * dice picked allow it, a modifier, the formula, Roll and Clear. Roll lays the dice on the table where the camera looks, for the GM to pick up and throw. Plain DOM; what
  * it picks is `pickedRequest`, which is pure.
  */
 import { DIE_TYPES, type DieType } from './kit/faces';
@@ -10,11 +10,10 @@ import { defaultDie, MAX_DICE, type DiceRules, type RollRequest } from './rollRu
 
 export type AdvantageSide = NonNullable<RollRequest['advantage']>;
 
-/** What the tray holds: how many of each die, the modifier, the colour a die type is thrown in, and the side. */
+/** What the tray holds: each die picked, by type, in the colour it is thrown in (null: the pack's), the modifier and the side. */
 export interface Pick {
-  counts: Partial<Record<DieType, number>>;
+  dice: Partial<Record<DieType, Array<string | null>>>;
   modifier: number;
-  colors: Partial<Record<DieType, string>>;
   advantage?: AdvantageSide;
 }
 
@@ -26,21 +25,36 @@ export const DIE_LIMIT = 20;
 const TRAY_DICE: readonly DieType[] = ['d4', 'd6', 'd8', 'd10', 'd12', 'd20', 'd100'];
 
 export function emptyPick(): Pick {
-  return { counts: {}, modifier: 0, colors: {} };
+  return { dice: {}, modifier: 0 };
 }
 
-const pickedCount = (pick: Pick): number => DIE_TYPES.reduce((sum, die) => sum + (pick.counts[die] ?? 0), 0);
+/** How many of a die are picked: in every colour, or in `color` (null: the pack's) only. */
+export function countOf(pick: Pick, die: DieType, color?: string | null): number {
+  const picked = pick.dice[die] ?? [];
+  return color === undefined ? picked.length : picked.filter((each) => each === color).length;
+}
 
-/** One more (or fewer) of a die: never below none, never more than 20 of it or 20 dice in all. */
-export function stepDie(pick: Pick, die: DieType, delta: 1 | -1): Pick {
-  const now = pick.counts[die] ?? 0;
-  if (delta > 0 && (pickedCount(pick) >= MAX_DICE || now >= DIE_LIMIT)) return pick;
-  const next = Math.max(0, now + delta);
-  if (next === now) return pick;
-  const counts = { ...pick.counts };
-  if (next === 0) delete counts[die];
-  else counts[die] = next;
-  return { ...pick, counts };
+const pickedCount = (pick: Pick): number => DIE_TYPES.reduce((sum, die) => sum + countOf(pick, die), 0);
+
+/**
+ * One more of a die, in `color` (null: the pack's), or one fewer: of that colour when one is named, else the last one
+ * added. Never below none, never more than 20 of a die or 20 dice in all.
+ */
+export function stepDie(pick: Pick, die: DieType, delta: 1 | -1, color?: string | null): Pick {
+  const picked = pick.dice[die] ?? [];
+  let next: Array<string | null>;
+  if (delta > 0) {
+    if (pickedCount(pick) >= MAX_DICE || picked.length >= DIE_LIMIT) return pick;
+    next = [...picked, color ?? null];
+  } else {
+    const at = color === undefined ? picked.length - 1 : picked.lastIndexOf(color);
+    if (at < 0) return pick;
+    next = picked.filter((_each, index) => index !== at);
+  }
+  const dice = { ...pick.dice };
+  if (next.length === 0) delete dice[die];
+  else dice[die] = next;
+  return { ...pick, dice };
 }
 
 export function stepModifier(pick: Pick, delta: 1 | -1): Pick {
@@ -50,26 +64,31 @@ export function stepModifier(pick: Pick, delta: 1 | -1): Pick {
 /** Whether advantage or disadvantage applies to the dice picked: exactly one of the collection's default die. */
 export function advantageApplies(pick: Pick, rules: DiceRules): boolean {
   const die = defaultDie(rules);
-  return die !== null && pick.counts[die] === 1 && pickedCount(pick) < MAX_DICE;
+  return die !== null && countOf(pick, die) === 1 && pickedCount(pick) < MAX_DICE;
 }
 
 /** The roll the tray lays on the table; null with no dice picked (Roll is off, as in Atlas). */
 export function pickedRequest(pick: Pick, rules: DiceRules): RollRequest | null {
   if (pickedCount(pick) === 0) return null;
-  const dice = { ...pick.counts };
-  const colors: Partial<Record<DieType, string>> = {};
-  for (const die of Object.keys(dice) as DieType[]) if (pick.colors[die]) colors[die] = pick.colors[die];
+  const dice: Partial<Record<DieType, number>> = {};
+  const dieColors: Partial<Record<DieType, Array<string | null>>> = {};
+  for (const die of DIE_TYPES) {
+    const picked = pick.dice[die];
+    if (!picked?.length) continue;
+    dice[die] = picked.length;
+    if (picked.some((color) => color !== null)) dieColors[die] = [...picked];
+  }
   return {
     dice,
     modifier: pick.modifier,
-    ...(Object.keys(colors).length > 0 ? { colors } : {}),
+    ...(Object.keys(dieColors).length > 0 ? { dieColors } : {}),
     ...(pick.advantage && advantageApplies(pick, rules) ? { advantage: pick.advantage } : {}),
   };
 }
 
 /** `2d6 + 1d20 + 3`, as Atlas's tray writes it; empty with no dice. */
 export function pickFormula(pick: Pick): string {
-  const dice = TRAY_DICE.filter((die) => pick.counts[die]).map((die) => `${pick.counts[die]}${die}`);
+  const dice = TRAY_DICE.filter((die) => countOf(pick, die) > 0).map((die) => `${countOf(pick, die)}${die}`);
   if (dice.length === 0) return '';
   const formula = dice.join(' + ');
   return pick.modifier === 0 ? formula : `${formula} ${pick.modifier < 0 ? '-' : '+'} ${Math.abs(pick.modifier)}`;
@@ -259,13 +278,14 @@ export class DicePicker {
   private change(pick: Pick): void {
     this.pick = pick;
     this.show();
+    if (!this.swatches.hidden) this.drawSwatches();
   }
 
   private show(): void {
     const doc = this.parent.ownerDocument;
     const total = pickedCount(this.pick);
     for (const die of TRAY_DICE) {
-      const count = this.pick.counts[die] ?? 0;
+      const count = countOf(this.pick, die);
       const face = this.faces.get(die)!;
       face.replaceChildren();
       const picture = this.opts.picture?.(die) ?? null;
@@ -290,9 +310,14 @@ export class DicePicker {
         badge.textContent = String(count);
         face.appendChild(badge);
       }
-      const color = this.pick.colors[die];
-      face.style.setProperty('--atlas-tabletop-die-color', color ?? 'transparent');
-      face.classList.toggle('has-color', color !== undefined);
+      // The colours picked for it, as a stripe of their shares under the picture (the pack's own leaves no mark).
+      const picked = this.pick.dice[die] ?? [];
+      const coloured = picked.some((each) => each !== null);
+      face.classList.toggle('has-color', coloured);
+      if (coloured) {
+        const stops = picked.map((each, index) => `${each ?? 'transparent'} ${(index / picked.length) * 100}% ${((index + 1) / picked.length) * 100}%`);
+        face.style.setProperty('--atlas-tabletop-die-colors', `linear-gradient(to right, ${stops.join(', ')})`);
+      } else face.style.removeProperty('--atlas-tabletop-die-colors');
       face.disabled = count >= DIE_LIMIT || total >= MAX_DICE;
       face.setAttribute('aria-label', count === 0 ? `Add a ${die}` : `Add a ${die}, ${count} in the tray`);
       // Under each die: the grip that takes one back, or the space it would take.
@@ -333,42 +358,70 @@ export class DicePicker {
     this.clear.hidden = formula === '' && this.pick.modifier === 0;
   }
 
-  /** The colours a die can be thrown in, under the dice; the pack's own colour first. */
+  /**
+   * A die's colours, under the dice: the pack's own first, then each colour set up, with how many of the die are picked
+   * in it. A colour's swatch (or +) adds one of the die in it, − takes one of it back.
+   */
   private showSwatches(die: DieType, face: HTMLElement): void {
     if (this.swatchesFor === die && !this.swatches.hidden) { this.hideSwatches(); return; }
-    const doc = this.parent.ownerDocument;
     this.swatchesFor = die;
+    this.drawSwatches();
+    this.swatches.hidden = false;
+    face.focus();
+  }
+
+  /** The open colour list, drawn again with the counts as they are now. */
+  private drawSwatches(): void {
+    const die = this.swatchesFor;
+    if (!die) return;
+    const doc = this.parent.ownerDocument;
     this.swatches.replaceChildren();
     const label = doc.createElement('span');
     label.className = 'atlas-dice-tray__modifier-label';
-    label.textContent = `${die} colour`;
+    label.textContent = `${die} colours`;
     this.swatches.appendChild(label);
-    const grid = doc.createElement('div');
-    grid.className = 'atlas-swatch-grid';
-    this.swatches.appendChild(grid);
-    const swatch = (color: string | undefined, name: string): void => {
-      const made = doc.createElement('button');
-      made.type = 'button';
-      made.className = `atlas-swatch${color ? '' : ' atlas-tabletop-dice-swatch--pack'}`;
-      if (color) made.style.backgroundColor = color;
-      made.setAttribute('aria-label', `${name} ${die}`);
-      made.title = name;
-      const chosen = this.pick.colors[die] === color;
-      made.classList.toggle('atlas-swatch--active', chosen);
-      made.setAttribute('aria-pressed', String(chosen));
-      made.addEventListener('click', () => {
-        const colors = { ...this.pick.colors };
-        if (color) colors[die] = color;
-        else delete colors[die];
-        this.change({ ...this.pick, colors });
-        this.hideSwatches();
-        face.focus();
-      });
-      grid.appendChild(made);
+    const list = doc.createElement('div');
+    list.className = 'atlas-tabletop-dice-colours';
+    this.swatches.appendChild(list);
+    const total = pickedCount(this.pick);
+    const row = (color: string | null, name: string): void => {
+      const count = countOf(this.pick, die, color);
+      const line = doc.createElement('div');
+      line.className = 'atlas-tabletop-dice-colour';
+      line.classList.toggle('is-picked', count > 0);
+      const swatch = doc.createElement('button');
+      swatch.type = 'button';
+      swatch.className = `atlas-swatch${color ? '' : ' atlas-tabletop-dice-swatch--pack'}`;
+      if (color) swatch.style.backgroundColor = color;
+      swatch.setAttribute('aria-label', `Add a ${name} ${die}`);
+      swatch.title = name;
+      swatch.disabled = countOf(this.pick, die) >= DIE_LIMIT || total >= MAX_DICE;
+      swatch.addEventListener('click', () => this.change(stepDie(this.pick, die, 1, color)));
+      const named = doc.createElement('span');
+      named.className = 'atlas-tabletop-dice-colour__name';
+      named.textContent = name;
+      const less = doc.createElement('button');
+      less.type = 'button';
+      less.className = 'atlas-dice-tray__grip atlas-dice-tray__step';
+      less.setAttribute('aria-label', `Take a ${name} ${die} back`);
+      less.innerHTML = MINUS_SVG;
+      less.disabled = count === 0;
+      less.addEventListener('click', () => this.change(stepDie(this.pick, die, -1, color)));
+      const shown = doc.createElement('span');
+      shown.className = 'atlas-dice-tray__modifier-value atlas-tabletop-dice-colour__count';
+      shown.textContent = String(count);
+      const more = doc.createElement('button');
+      more.type = 'button';
+      more.className = 'atlas-dice-tray__grip atlas-dice-tray__step';
+      more.setAttribute('aria-label', `One more ${name} ${die}`);
+      more.innerHTML = PLUS_SVG;
+      more.disabled = swatch.disabled;
+      more.addEventListener('click', () => this.change(stepDie(this.pick, die, 1, color)));
+      line.append(swatch, named, less, shown, more);
+      list.appendChild(line);
     };
-    swatch(undefined, "The pack's colour");
-    for (const entry of this.opts.colors()) swatch(entry.color, entry.name);
-    this.swatches.hidden = false;
+    row(null, "The pack's colour");
+    for (const entry of this.opts.colors()) row(entry.color, entry.name);
   }
 
   private hideSwatches(): void {

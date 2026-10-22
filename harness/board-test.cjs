@@ -1453,11 +1453,19 @@ server.listen(0, async () => {
       await picker.locator('[aria-label="Increase modifier"]').click();
       await picker.locator('[aria-label="Decrease modifier"]').click();
       await d6.click({ button: 'right' });
+      await wait(300);
+      // The d6's colours: two in the pack's own; a red one added, and a blue one added and taken back.
+      const colours = page.locator('.atlas-tabletop-dice-swatches');
+      await colours.locator('[aria-label="One more Red d6"]').click();
+      await colours.locator('[aria-label="Add a Blue d6"]').click();
+      await colours.locator('[aria-label="Take a Blue d6 back"]').click();
       await wait(600);
       await page.screenshot({ path: `${shots}/board-25a-dice-tray.png` });
+      const counted = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-dice-colour')].slice(0, 3).map((line) => [line.querySelector('.atlas-tabletop-dice-colour__name').textContent, line.querySelector('.atlas-tabletop-dice-colour__count').textContent]));
+      check('right-click on a die lists its colours with how many of it are in each', JSON.stringify(counted) === JSON.stringify([["The pack's colour", '2'], ['Red', '1'], ['Blue', '0']]), counted);
+      await colours.locator('[aria-label="Take a Red d6 back"]').click();
       const pictures = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-dice-picker .atlas-dice-tray__face img')].filter((img) => img.src.startsWith('data:image/png')).length);
       check('each die on the tray is a picture of the pack\'s die', pictures === 7, pictures);
-      await picker.locator('.atlas-tabletop-dice-swatches [aria-label="The pack\'s colour d6"]').click();
       const asked = await page.evaluate(() => ({ request: window.boardTest.boardDice.picker.request(), formula: document.querySelector('.atlas-dice-tray__formula').textContent, badge: document.querySelector('[data-die="d6"] .atlas-dice-tray__count')?.textContent }));
       check('the tray holds 2d6 and no modifier', JSON.stringify(asked.request) === JSON.stringify({ dice: { d6: 2 }, modifier: 0 }) && asked.formula === '2d6' && asked.badge === '2', asked);
       await page.evaluate(() => {

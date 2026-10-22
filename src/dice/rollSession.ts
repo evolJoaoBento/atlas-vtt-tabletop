@@ -52,7 +52,11 @@ export class RollSession {
     this.defaultType = defaultDie(rules);
     for (const die of DIE_TYPES) {
       const count = request.dice[die] ?? 0;
-      for (let i = 0; i < count; i++) this.addDie(die, { isDefault: die === this.defaultType, color: request.colors?.[die] });
+      for (let i = 0; i < count; i++) {
+        const own = request.dieColors?.[die]?.[i];
+        const color = own === null ? undefined : own ?? request.colors?.[die];
+        this.addDie(die, { isDefault: die === this.defaultType, ...(color !== undefined ? { color } : {}) });
+      }
     }
     const defaults = this.states.filter((state) => state.isDefault && !this.lines.get(state.id)?.ones);
     if (request.advantage && defaults.length === 1 && this.rollCount() < MAX_DICE) {
