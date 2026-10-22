@@ -282,7 +282,12 @@ export class DiceTable {
     body.mass = 0;
     body.updateMassProperties();
     if (reading.caught && this.settings.highlight) die.mesh.material.emissive.set(this.settings.highlightColor);
-    this.onSettled(id, reading);
+    // The board's frame loop steps the table: a listener's failure stays here, and the other dice are still read.
+    try {
+      this.onSettled(id, reading);
+    } catch (error) {
+      console.error('[Tabletop] A settled die listener failed:', error);
+    }
   }
 
   private removeDie(die: ThrownDie): void {

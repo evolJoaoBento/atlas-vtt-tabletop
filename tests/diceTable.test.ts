@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
 import { DiceTable, type DiceSettings, type DiceTableHost } from '../src/dice/diceTable';
+import type { FaceReading } from '../src/dice/kit/faces';
 import { DEFAULT_RULES } from '../src/dice/rollRules';
 import { RollSession } from '../src/dice/rollSession';
 
@@ -131,4 +132,40 @@ test('a die thrown again goes up the screen as the camera faces now, though the 
   for (let i = 0; i < 4; i++) dice.step(1000 / 60);
   const moved = mesh.position.clone().sub(from);
   assert.ok(moved.x < -1 && Math.abs(moved.z) < Math.abs(moved.x) / 3, `toward the tray's -x: ${moved.x}, ${moved.z}`);
+}));
+
+test('a die at rest on the felt reads the number it shows', () => seeded(11, () => {
+  const { dice } = table(0);
+  const session = new RollSession({ dice: { d6: 4 }, modifier: 0 }, DEFAULT_RULES);
+  const readings: FaceReading[] = [];
+  dice.onSettled = (id, reading) => { readings.push(reading); session.settle(id, reading); };
+  dice.throwRoll(session, { dx: 10, dy: -220, ms: 120 });
+  run(dice);
+  assert.equal(readings.length, 4);
+  const numbers = readings.filter((reading) => !reading.caught);
+  assert.ok(numbers.length >= 2, `most dice show a face: ${JSON.stringify(readings)}`);
+  for (const reading of numbers) assert.ok(reading.face !== null && reading.face >= 1 && reading.face <= 6, `a d6 face: ${reading.face}`);
+  assert.ok(session.dice.some((state) => state.status === 'settled' && state.value !== undefined), 'the roll has a number from them');
+}));
+
+test('a listener that throws does not stop the other dice being read', () => seeded(3, () => {
+  const { dice } = table(0);
+  const session = new RollSession({ dice: { d6: 2 }, modifier: 0 }, DEFAULT_RULES);
+  const read: number[] = [];
+  dice.onSettled = (id) => {
+    read.push(id);
+    if (read.length === 1) throw new Error('listener failed');
+  };
+  const errors: unknown[] = [];
+  const consoleError = console.error;
+  console.error = (...args: unknown[]) => { errors.push(args); };
+  try {
+    dice.throwRoll(session, { dx: 0, dy: -200, ms: 100 });
+    assert.doesNotThrow(() => run(dice));
+  } finally {
+    console.error = consoleError;
+  }
+  assert.deepEqual([...read].sort(), session.dice.map((state) => state.id).sort());
+  assert.equal(dice.busy, false);
+  assert.equal(errors.length, 1, 'the failure is reported');
 }));
