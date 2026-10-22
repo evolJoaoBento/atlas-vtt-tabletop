@@ -127,14 +127,20 @@ test('a die thrown again after the roll is published publishes the roll again on
   assert.equal(published[1].total, 12);
 });
 
-test('a die picked up with all thrown throws every die still waiting with it', () => {
+test('Ctrl picks up every die at rest in a bundle round the one pressed, and throws them all together', () => {
   const { dice, table } = controller();
   dice.start({ dice: { d6: 3 }, modifier: 0 });
   const [a, b, c] = table.ids();
-  const grab = dice.pickUp(b);
+  dice.clickDie(a, FLICK);
+  assert.deepEqual(dice.pickUp(b, true)?.ids.sort(), [b, c].sort(), 'a die in the air is not in the bundle');
+  table.onSettled(a, face(4));
+  const grab = dice.pickUp(b, true);
   assert.ok(grab);
-  grab.release(FLICK, true);
-  assert.deepEqual(table.thrown, [b, a, c], 'the die in hand first, then the rest');
+  assert.deepEqual(grab.ids, [b, a, c], 'the die pressed first, then every other die at rest: laid or read');
+  table.thrown.length = 0;
+  grab.release(FLICK);
+  assert.deepEqual(table.thrown, [b, a, c]);
+  assert.deepEqual(dice.pickUp(b, false)?.ids, undefined, 'all in the air: nothing to pick up');
 });
 
 test('clear drops the roll: nothing is published, the table is cleared', () => {

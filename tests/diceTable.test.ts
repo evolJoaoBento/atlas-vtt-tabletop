@@ -467,3 +467,25 @@ test('no line round any die with the highlight off in the settings', () => {
   dice.mark([session.dice[0].id]);
   assert.equal(outlineShown(dice.object3d.children[0] as THREE.Mesh), false);
 });
+
+test('a bundle in hand: every die held round the pointer, apart, none read, none outlined; let go, all thrown', () => seeded(41, () => {
+  const { dice } = table(0);
+  const session = new RollSession({ dice: { d6: 4, d20: 2 }, modifier: 0 }, DEFAULT_RULES);
+  dice.placeRoll(session);
+  const ids = session.dice.map((die) => die.id);
+  dice.mark(ids);
+  dice.hold(ids, new THREE.Ray(new THREE.Vector3(500, 1000, 300), new THREE.Vector3(0, -1, 0)));
+  const held = ids.map((id) => bodyOf(dice, id).position.clone());
+  assert.ok(held.every((at) => at.y === 2), 'all carried over the table');
+  assert.ok(Math.hypot(held[0].x, held[0].z) < 1e-6, 'the first under the pointer');
+  for (let i = 0; i < held.length; i++) for (let j = i + 1; j < held.length; j++) {
+    assert.ok(Math.hypot(held[i].x - held[j].x, held[i].z - held[j].z) > 1.1, 'held apart');
+  }
+  assert.ok(held.every((at) => Math.hypot(at.x, at.z) < 4), 'gathered close round the pointer');
+  assert.equal(dice.busy, false);
+  assert.ok((dice.object3d.children as THREE.Mesh[]).every((mesh) => !outlineShown(mesh)), 'in hand: no lines');
+  for (const id of ids) { session.reroll(id); dice.throwDie(id, { dx: 0, dy: -200, ms: 100 }); }
+  assert.equal(dice.busy, true);
+  run(dice);
+  assert.equal(dice.busy, false);
+}));

@@ -16,8 +16,8 @@ import { GENTLE, type Flick } from './throwInput';
 /** A dice table the board made with the pack and settings as they were then. */
 export interface PlayerDiceTable {
   table: DiceControllerDeps['table'];
-  /** Carries a die under the pointer. */
-  hold(id: number, clientX: number, clientY: number): void;
+  /** Carries a die, or a bundle of dice round the first, under the pointer. */
+  hold(ids: readonly number[], clientX: number, clientY: number): void;
   /** The pack or the dice settings changed since: the next throw makes another table. */
   outdated(): boolean;
   /** The table and its textures go. */
@@ -69,17 +69,20 @@ export class PlayerDice {
   }
 
   /**
-   * The player pressed on a die at rest: carried under the pointer, thrown once it is let go, into this roll only (a
-   * new roll, scene or table meanwhile throws nothing). Null for a die in the air.
+   * The player pressed on a die at rest (`all`, Ctrl: every die at rest, bundled round it, gathered at `at`): carried
+   * under the pointer, thrown once it is let go, into this roll only (a new roll, scene or table meanwhile throws
+   * nothing). Null for a die in the air.
    */
-  pickUp(id: number): PressedDie | null {
+  pickUp(id: number, all = false, at?: { clientX: number; clientY: number }): PressedDie | null {
     const controller = this.controller;
     const made = this.made;
-    const grab = controller?.pickUp(id) ?? null;
+    const grab = controller?.pickUp(id, all) ?? null;
     if (!grab || !made) return null;
+    // Ctrl: every die at rest is gathered round the pointer at once.
+    if (all && at) made.hold(grab.ids, at.clientX, at.clientY);
     return {
-      move: (clientX, clientY) => { if (this.controller === controller) made.hold(id, clientX, clientY); },
-      release: (flick, all) => { if (this.controller === controller) grab.release(flick, all); },
+      move: (clientX, clientY) => { if (this.controller === controller) made.hold(grab.ids, clientX, clientY); },
+      release: (flick) => { if (this.controller === controller) grab.release(flick); },
     };
   }
 

@@ -149,9 +149,9 @@ class PlayerBoard implements PlayerBoardHandle {
     this.stopPresses = listenForDiePresses({
       container: parent,
       canvas: () => this.board.canvas,
-      pickUp: (x, y) => {
+      pickUp: (x, y, all) => {
         const id = this.board.diceAt(x, y);
-        return id === null ? null : this.dice.pickUp(id);
+        return id === null ? null : this.dice.pickUp(id, all, { clientX: x, clientY: y });
       },
     });
   }
@@ -296,7 +296,7 @@ class PlayerBoard implements PlayerBoardHandle {
     this.board.attachDice(table);
     return {
       table,
-      hold: (id, clientX, clientY) => table.hold(id, this.board.rayAt(clientX, clientY)),
+      hold: (ids, clientX, clientY) => table.hold(ids, this.board.rayAt(clientX, clientY)),
       outdated: () => this.diceDeps.pack() !== pack || this.diceDeps.settings() !== settings,
       dispose: () => {
         table.dispose();

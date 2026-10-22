@@ -120,20 +120,23 @@ export class BoardDice {
     }
     // What the roll waits on, as a line over the board, and the throw it asks for (an explosion has no die to click).
     this.prompt = new DicePrompt(container, () => this.controller?.throwPending(GENTLE), () => this.clearTable());
-    // A press on a die at rest: carried under the pointer, and thrown when let go, into the roll and table it was pressed in.
+    // A press on a die at rest (Ctrl: every die at rest, bundled): carried under the pointer, and thrown when let go,
+    // into the roll and table it was pressed in.
     this.stops.push(listenForDiePresses({
       container,
       canvas: () => board.canvas,
-      pickUp: (x, y) => {
+      pickUp: (x, y, all) => {
         const controller = this.controller;
         const table = this.table;
         const id = controller ? board.diceAt(x, y) : null;
-        const grab = controller && id !== null ? controller.pickUp(id) : null;
+        const grab = controller && id !== null ? controller.pickUp(id, all) : null;
         if (!grab || !table) return null;
+        // Ctrl: every die at rest is gathered round the pointer at once.
+        if (all) table.hold(grab.ids, board.rayAt(x, y));
         // A new table meanwhile (the settings changed) has a controller of its own: the press carries and throws nothing.
         return {
-          move: (cx, cy) => { if (this.controller === controller) table.hold(grab.id, board.rayAt(cx, cy)); },
-          release: (flick, all) => { if (this.controller === controller) grab.release(flick, all); },
+          move: (cx, cy) => { if (this.controller === controller) table.hold(grab.ids, board.rayAt(cx, cy)); },
+          release: (flick) => { if (this.controller === controller) grab.release(flick); },
         };
       },
     }));

@@ -28,22 +28,24 @@ function presses(onDie = true) {
   const canvas = {};
   const released: Flick[] = [];
   const all: boolean[] = [];
+  const gathered: number[] = [];
   const moved: Array<[number, number]> = [];
   const asked: Array<[number, number]> = [];
   const stop = listenForDiePresses({
     container: container as unknown as HTMLElement,
     canvas: () => canvas as EventTarget,
-    pickUp: (x, y) => {
+    pickUp: (x, y, every) => {
       asked.push([x, y]);
-      return onDie ? { move: (mx, my) => { moved.push([mx, my]); }, release: (flick, every) => { released.push(flick); all.push(every); } } : null;
+      all.push(every);
+      return onDie ? { move: (mx, my) => { moved.push([mx, my]); }, release: (flick) => { released.push(flick); } } : null;
     },
   });
-  const down = (x: number, y: number, t: number, target: unknown = canvas, button = 0): FakePointer => {
-    const event = new FakePointer(x, y, t, target, button);
+  const down = (x: number, y: number, t: number, target: unknown = canvas, button = 0, ctrlKey = false): FakePointer => {
+    const event = Object.assign(new FakePointer(x, y, t, target, button), { ctrlKey });
     container.fire('pointerdown', event);
     return event;
   };
-  return { win, container, canvas, released, all, moved, asked, stop, down };
+  return { win, container, canvas, released, all, moved, gathered, asked, stop, down };
 }
 
 test('a click on a die at rest is taken from the board and tosses it gently', () => {
@@ -70,11 +72,14 @@ test('a drag carries the die under the pointer, and throws it the way the pointe
   assert.deepEqual(all, [false]);
 });
 
-test('let go with Ctrl, every die still waiting is thrown with it', () => {
-  const { win, all, down } = presses();
-  down(100, 300, 0);
-  win.fire('pointerup', Object.assign(new FakePointer(100, 300, 50), { ctrlKey: true }));
-  assert.deepEqual(all, [true]);
+test('pressed with Ctrl, the press picks up every die at rest, carried from the first move', () => {
+  const { win, all, moved, released, down } = presses();
+  down(100, 300, 0, undefined, 0, true);
+  assert.deepEqual(all, [true], 'the bundle is asked for at the press');
+  win.fire('pointermove', new FakePointer(101, 299, 20));
+  assert.deepEqual(moved, [[101, 299]], 'a bundle follows the pointer at once');
+  win.fire('pointerup', new FakePointer(101, 299, 40));
+  assert.deepEqual(released, [GENTLE], 'a Ctrl-click tosses them all gently');
 });
 
 test('a press that is not on a die it may throw, or not on the board, or not the main button, is the board\'s', () => {

@@ -74,6 +74,9 @@ const START_HEIGHT = 2;
 const SPREAD = 1.4;
 /** How high a die is carried under the pointer, in die edges. */
 const HOLD_HEIGHT = 2;
+/** How close the dice of a bundle in hand are held round the pointer, and the turn between one and the next. */
+const BUNDLE_SPACING = 1.25;
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 /** How far apart the dice of a roll are laid on the table, centre to centre, in die edges. */
 const LAY_SPACING = 1.8;
 /** How many places beside its own a die tries, a spread apart, for a start clear of the dice already there. */
@@ -197,29 +200,38 @@ export class DiceTable {
   }
 
   /**
-   * Carries a die under the pointer (`ray`, in the board's world), over the table: it hangs still, unread, till thrown.
-   * The dice resting on it fall.
+   * Carries a die, or a bundle of dice, under the pointer (`ray`, in the board's world), over the table: the first die
+   * under the pointer, the others gathered round it. They hang still, unread, till thrown; the dice resting on them fall.
    */
-  hold(dieId: number, ray: THREE.Ray): void {
-    const die = this.dice.get(dieId);
+  hold(dieIds: number | readonly number[], ray: THREE.Ray): void {
+    const dice = (typeof dieIds === 'number' ? [dieIds] : [...dieIds]).map((id) => this.dice.get(id)).filter((die): die is ThrownDie => die !== undefined);
     const tray = this.tray;
-    if (!die || !tray) return;
+    if (dice.length === 0 || !tray) return;
     const edge = dieEdgePx(this.host.gridSize(), this.settings.dieSquares);
     const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -HOLD_HEIGHT * edge);
     const at = ray.intersectPlane(plane, new THREE.Vector3());
     if (!at) return;
-    this.loosenDiceOn(die);
     this.object3d.updateMatrixWorld(true);
     const local = this.object3d.worldToLocal(at);
     const halfWidth = tray.halfWidth / edge - 1;
     const halfDepth = tray.halfDepth / edge - 1;
-    const { body } = die;
-    this.freeze(die);
-    die.settled = true;
-    die.held = true;
-    this.outline(die);
-    body.position.set(Math.max(-halfWidth, Math.min(halfWidth, local.x)), HOLD_HEIGHT, Math.max(-halfDepth, Math.min(halfDepth, local.z)));
-    die.mesh.position.set(body.position.x, body.position.y, body.position.z);
+    dice.forEach((die, index) => {
+      if (die.held !== true) this.loosenDiceOn(die);
+      // A sunflower round the pointer: each die a little over its own width from the next.
+      const reach = BUNDLE_SPACING * Math.sqrt(index);
+      const angle = index * GOLDEN_ANGLE;
+      const { body } = die;
+      this.freeze(die);
+      die.settled = true;
+      die.held = true;
+      this.outline(die);
+      body.position.set(
+        Math.max(-halfWidth, Math.min(halfWidth, local.x + Math.cos(angle) * reach)),
+        HOLD_HEIGHT,
+        Math.max(-halfDepth, Math.min(halfDepth, local.z + Math.sin(angle) * reach)),
+      );
+      die.mesh.position.set(body.position.x, body.position.y, body.position.z);
+    });
     this.host.wake();
   }
 

@@ -18,10 +18,11 @@ export interface DiceControllerDeps {
   prompt: (text: string | null) => void;
 }
 
-/** A die the thrower picked up: carried under the pointer, then thrown (with every die still waiting, for `all`). */
+/** Dice the thrower picked up (one, or all of them in a bundle): carried under the pointer, then thrown together. */
 export interface DieGrab {
-  id: number;
-  release(flick: Flick, all?: boolean): void;
+  /** The die pressed first, then the rest of the bundle. */
+  ids: number[];
+  release(flick: Flick): void;
 }
 
 export class DiceController {
@@ -108,27 +109,20 @@ export class DiceController {
   }
 
   /**
-   * The thrower pressed on a die of the roll at rest: the grab that carries and throws it. It throws only into this
-   * roll, so a press that spans a new roll (whose dice may have the same ids) or the roll's end throws nothing. Null for
-   * a die in the air, or no roll.
+   * The thrower pressed on a die of the roll at rest: the grab that carries and throws it, or with `all` (Ctrl) every die
+   * of the roll at rest, bundled round it. It throws only into this roll, so a press that spans a new roll (whose dice
+   * may have the same ids) or the roll's end throws nothing. Null for a die in the air, or no roll.
    */
-  pickUp(id: number): DieGrab | null {
+  pickUp(id: number, all = false): DieGrab | null {
     const session = this.session;
     if (!session || !this.atRest(session, id)) return null;
+    const ids = all ? [id, ...session.dice.filter((die) => die.id !== id && die.status !== 'rolling').map((die) => die.id)] : [id];
     return {
-      id,
-      release: (flick, all = false) => {
+      ids,
+      release: (flick) => {
         if (this.session !== session) return;
-        if (!all) {
-          this.clickDie(id, flick);
-          return;
-        }
-        // The die in hand first, then the dice still waiting, beside it.
-        const others = session.pendingThrows().filter((pending) => pending.id !== id);
-        this.throwOne(session, id, flick, 0, others.length + 1);
-        others.forEach((pending, index) => {
-          if (this.session === session && session.pendingThrows().some((still) => still.id === pending.id)) this.throwOne(session, pending.id, flick, index + 1, others.length + 1);
-        });
+        // Each from where it is held: the bundle is already spread round the pointer.
+        for (const each of ids) if (this.atRest(session, each)) this.throwOne(session, each, flick, 0, 1);
         this.deps.prompt(session.prompt());
       },
     };

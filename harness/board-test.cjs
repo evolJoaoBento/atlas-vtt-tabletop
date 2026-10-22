@@ -1699,15 +1699,20 @@ server.listen(0, async () => {
         const rect = b.canvas.getBoundingClientRect();
         return { x: rect.left + ((ndc.x + 1) / 2) * rect.width, y: rect.top + ((1 - ndc.y) / 2) * rect.height };
       }, id);
+      // Ctrl and press: every die at rest is gathered round the pointer, carried as one, and thrown together.
       await page.mouse.move(from.x, from.y);
-      await page.mouse.down();
-      for (let i = 1; i <= 10; i++) { await page.mouse.move(from.x + i * 6, from.y - i * 22); await wait(16); }
       await page.keyboard.down('Control');
+      await page.mouse.down();
+      for (let i = 1; i <= 3; i++) { await page.mouse.move(from.x + i * 2, from.y - i * 6); await wait(30); }
+      const bundle = await page.evaluate(() => window.boardTest.board.dice.object3d.children.map((mesh) => mesh.position.y));
+      check('Ctrl and a press gathers every die into the hand', bundle.length === 4 && bundle.every((y) => y > 1.5), bundle);
+      await page.screenshot({ path: `${shots}/board-26a-dice-bundle.png` });
+      for (let i = 4; i <= 10; i++) { await page.mouse.move(from.x + i * 6, from.y - i * 22); await wait(16); }
       await page.mouse.up();
       await page.keyboard.up('Control');
       await wait(100);
       const flying = await page.evaluate(() => ({ busy: window.boardTest.board.dice.busy, waiting: window.boardTest.boardDice.controller.waiting }));
-      check('let go with Ctrl, every die is thrown with the one in hand', flying.busy && !flying.waiting, flying);
+      check('let go, the bundle is thrown together', flying.busy && !flying.waiting, flying);
       let rethrown = 0;
       for (let attempt = 0; attempt < 10; attempt++) {
         await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
