@@ -54,6 +54,7 @@ import { PlayerToolState, type TemplateMark, type TemplateShape, type ToolAction
 import type { FogOperation } from './fog';
 import type { BoardLight } from './walls';
 import { MATERIAL_DRAG_TYPE, MATERIAL_TEXT_PREFIX, type LoadedMaterial } from '../materials';
+import type { DiceTable, DiceTableHost } from '../dice/diceTable';
 
 /** Obsidian's accent colour, for highlights; Atlas's purple outside Obsidian. */
 function accent(element: HTMLElement): string {
@@ -331,6 +332,8 @@ export class Board {
   readonly marks = new BoardMarks();
   /** A player's camera stands inside the fog: the picture is black. */
   private blind = false;
+  /** The thrower's dice, drawn on this board only: never in the players' picture. */
+  private dice: DiceTable | null = null;
 
   constructor(private readonly container: HTMLElement, private readonly host: BoardHost, private quality: QualityPreset, options: { audience?: BoardAudience } = {}) {
     this.audience = options.audience ?? 'gm';
@@ -912,6 +915,13 @@ export class Board {
     const glide = 1 - Math.exp(-GLIDE * dt);
     let changed = this.shadowsDirty || this.press?.kind === 'token' || this.press?.kind === 'prop' || doorsMoving;
     let moving = false;
+    // Dice in the air step with the frame, and keep frames (and shadows) coming until the last one is read.
+    if (this.dice?.busy) {
+      this.dice.step(dt * 1000);
+      busy = true;
+      changed = true;
+      moving = true;
+    }
     for (const entry of this.tokens.values()) {
       const dx = entry.goal.x - entry.at.x;
       const dy = entry.goal.y - entry.at.y;
@@ -1740,6 +1750,58 @@ export class Board {
     this.host.copyToken(entry.token.id, newId, at.x, at.y);
   }
 
+  // ── Dice ──────────────────────────────────────────────────────────────────
+
+  /** What a dice table needs of this board: its scene, the grid, where the camera looks, and frames. */
+  diceHost(): DiceTableHost {
+    return {
+      scene: this.scene,
+      gridSize: () => this.map?.grid.size ?? FALLBACK_SIZE / 40,
+      target: () => ({ x: this.camera.goal.target.x, z: this.camera.goal.target.z }),
+      visibleHalfExtent: () => this.visibleHalfExtent(),
+      cameraYaw: () => this.cameraYaw(),
+      wake: () => this.wake(true),
+      // The dice packs come later: plain dice until then.
+      textures: () => ({}),
+      pack: () => ({}),
+    };
+  }
+
+  /** Throws dice on this board from now on (a table made with `diceHost()`); the one before goes. */
+  attachDice(table: DiceTable): void {
+    if (this.dice && this.dice !== table) this.dice.dispose();
+    this.dice = table;
+    this.wake(true);
+  }
+
+  /** Which way the camera faces round the board, in radians (0 looks toward -z). */
+  cameraYaw(): number {
+    return this.camera.pose.yaw;
+  }
+
+  /** The camera's forward and right along the ground, as unit vectors in map pixels (x, z). */
+  cameraBasis(): { forward: { x: number; z: number }; right: { x: number; z: number } } {
+    const yaw = this.camera.pose.yaw;
+    return { forward: { x: -Math.sin(yaw), z: -Math.cos(yaw) }, right: { x: Math.cos(yaw), z: -Math.sin(yaw) } };
+  }
+
+  /** Half of what the camera shows across and up the screen, in map pixels, at the distance of what it looks at. */
+  visibleHalfExtent(): { x: number; z: number } {
+    const half = this.camera.pose.distance * Math.tan(THREE.MathUtils.degToRad(FOV) / 2);
+    return { x: half * this.view.aspect, z: half };
+  }
+
+  /** The ray from the camera through a point of the screen, in the board's world. */
+  rayAt(clientX: number, clientY: number): THREE.Ray {
+    this.ray(clientX, clientY);
+    return this.raycaster.ray.clone();
+  }
+
+  /** The die under the pointer, or null. */
+  diceAt(clientX: number, clientY: number): number | null {
+    return this.dice?.pick(this.rayAt(clientX, clientY)) ?? null;
+  }
+
   // ── The local player view ─────────────────────────────────────────────────
 
   /** Draws the scene in the local player view's window too, from now on; `container` is that window's board area. */
@@ -1868,6 +1930,8 @@ export class Board {
       pixel: screenScale(1, height, FOV),
     };
     this.showFor('player');
+    // Only the thrower sees the dice tumble: never the players' screen.
+    if (this.dice) this.dice.object3d.visible = false;
     try {
       for (const entry of this.tokens.values()) entry.playerLabels.pose(context);
       player.renderer.shadowMap.needsUpdate = shadows || player.shadowsDirty;
@@ -1886,6 +1950,7 @@ export class Board {
     } finally {
       // Whatever happened, the GM's board goes back to the GM's look.
       this.showFor('gm');
+      if (this.dice) this.dice.object3d.visible = true;
     }
   }
 
@@ -2141,6 +2206,8 @@ export class Board {
 
   dispose(): void {
     this.disposed = true;
+    this.dice?.dispose();
+    this.dice = null;
     if (this.flickerTimer !== 0) (this.frameWin ?? this.container.ownerDocument.defaultView ?? window).clearTimeout(this.flickerTimer);
     if (this.frameId !== 0) (this.frameWin ?? this.container.ownerDocument.defaultView ?? window).cancelAnimationFrame(this.frameId);
     this.detachPlayer();

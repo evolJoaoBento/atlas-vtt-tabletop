@@ -22,6 +22,10 @@ import { InitiativePanel } from '../src/board/initiativePanel';
 import type { BoardWall } from '../src/board/walls';
 import type { LoadedMaterial } from '../src/materials';
 import { parseMini, type LoadedMini } from '../src/library';
+import { DiceTable } from '../src/dice/diceTable';
+import { DEFAULT_RULES, type RollRequest } from '../src/dice/rollRules';
+import { RollSession } from '../src/dice/rollSession';
+import type { Flick } from '../src/dice/throwInput';
 
 function exportGlb(root: THREE.Object3D, animations: THREE.AnimationClip[] = []): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => new GLTFExporter().parse(root, (out) => resolve(out as ArrayBuffer), reject, { binary: true, animations }));
@@ -380,7 +384,24 @@ async function main(): Promise<void> {
     const rect = board.canvas.getBoundingClientRect();
     return { x: rect.left + ((point.x + 1) / 2) * rect.width, y: rect.top + ((1 - point.y) / 2) * rect.height };
   };
-  Object.assign(window, { boardTest: { setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, handoutUrl: images['green.png'], board, map, record, panel, rules, doorProps, wallHeights, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, insideFog, ready: true } });
+  /** Physical dice on the board: a table made on first use, a roll of `dice` thrown with `flick`, each die settled into the session. */
+  const dice: { table: DiceTable | null; session: RollSession | null; readings: Array<{ id: number; face: number | null; caught: boolean }>; throwRoll(counts: RollRequest['dice'], flick: Flick): void } = {
+    table: null,
+    session: null,
+    readings: [],
+    throwRoll(counts, flick) {
+      if (!this.table) {
+        this.table = new DiceTable(board.diceHost(), { dieSquares: 0.6, tolerance: 0.3, motionThreshold: 2, shadows: true, highlight: true, highlightColor: '#ffd700' });
+        board.attachDice(this.table);
+      }
+      const session = new RollSession({ dice: counts, modifier: 0 }, DEFAULT_RULES);
+      this.session = session;
+      this.readings = [];
+      this.table.onSettled = (id, reading) => { this.readings.push({ id, face: reading.face, caught: reading.caught }); session.settle(id, reading); };
+      this.table.throwRoll(session, flick);
+    },
+  };
+  Object.assign(window, { boardTest: { setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, handoutUrl: images['green.png'], board, map, record, panel, rules, doorProps, wallHeights, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, insideFog, dice, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

@@ -1316,6 +1316,113 @@ server.listen(0, async () => {
       check('a resize is drawn again before the page paints (no blank frame)', blanks.sizes >= 2 && blanks.wiped.length === 0, blanks);
       check('fitting to the same size does not wipe the canvas', blanks.sameSize === 0, blanks);
     }
+
+    // 24. Physical dice: a 2d6 thrown on the GM's board lands in the tray at the camera's centre and is read; the
+    // players' window never draws a die (each players' pass runs with the dice hidden, and its picture is unchanged).
+    {
+      const opened = page.waitForEvent('popup');
+      await page.evaluate(() => window.boardTest.board.host.togglePlayerView());
+      const popup = await opened;
+      await page.evaluate(() => { window.boardTest.board.frameMap(); });
+      await wait(1500);
+      await page.screenshot({ path: `${shots}/board-24a-gm-before-dice.png` });
+      await popup.screenshot({ path: `${shots}/board-24a-players-before-dice.png` });
+      await page.evaluate(() => {
+        const b = window.boardTest.board;
+        window.diceRenders = { gm: [], players: [] };
+        const watch = (renderer, list) => {
+          const render = renderer.render;
+          renderer.render = function (...args) { list.push(window.boardTest.dice.table?.object3d.visible ?? null); return render.apply(this, args); };
+        };
+        watch(b.renderer, window.diceRenders.gm);
+        watch(b.player.renderer, window.diceRenders.players);
+        window.boardTest.dice.throwRoll({ d6: 2 }, { dx: 30, dy: -260, ms: 140 });
+      });
+      await wait(250);
+      await page.screenshot({ path: `${shots}/board-24b-dice-rolling.png` });
+      await page.waitForFunction(() => !window.boardTest.dice.table.busy, null, { timeout: 90000 });
+      await wait(600);
+      await page.screenshot({ path: `${shots}/board-24c-dice-settled.png` });
+      await popup.screenshot({ path: `${shots}/board-24d-players-no-dice.png` });
+      const thrown = await page.evaluate(() => {
+        const { table, session, readings } = window.boardTest.dice;
+        const b = window.boardTest.board;
+        const tray = table.tray;
+        const edge = table.object3d.scale.x;
+        const view = b.view;
+        view.updateMatrixWorld();
+        return {
+          tray: { ...tray, edge },
+          dice: table.object3d.children.map((mesh) => {
+            const world = mesh.getWorldPosition(new window.boardTest.Vector3());
+            const ndc = world.clone().project(view);
+            const rect = b.canvas.getBoundingClientRect();
+            const client = { x: rect.left + ((ndc.x + 1) / 2) * rect.width, y: rect.top + ((1 - ndc.y) / 2) * rect.height };
+            return {
+              id: mesh.userData.dieId,
+              local: { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z },
+              onScreen: Math.abs(ndc.x) < 1 && Math.abs(ndc.y) < 1 && ndc.z < 1,
+              picked: b.diceAt(client.x, client.y),
+            };
+          }),
+          readings,
+          states: session.dice.map((state) => ({ id: state.id, status: state.status, value: state.value })),
+          result: session.result(),
+          renders: window.diceRenders,
+        };
+      });
+      const inside = thrown.dice.every((die) => Math.abs(die.local.x) <= thrown.tray.halfWidth / thrown.tray.edge && Math.abs(die.local.z) <= thrown.tray.halfDepth / thrown.tray.edge && die.local.y >= 0 && die.local.y < 1.2);
+      check('a thrown 2d6 settles: two dice, each read once, the roll has its result or says which die is caught', thrown.dice.length === 2 && thrown.readings.length === 2 && thrown.states.every((state) => state.status !== 'rolling') && (thrown.result !== null || thrown.states.some((state) => state.status === 'caught')), { readings: thrown.readings, states: thrown.states, result: thrown.result });
+      check('both dice lie inside the tray at the camera\'s centre', inside, { tray: thrown.tray, dice: thrown.dice.map((die) => die.local) });
+      check('the dice are in the GM\'s picture, and a click finds each one', thrown.dice.every((die) => die.onScreen && die.picked === die.id), thrown.dice);
+      const { gm, players } = thrown.renders;
+      check('the GM\'s board drew the dice on every frame of the throw', gm.length >= 5 && gm.every((visible) => visible === true), { frames: gm.length, hidden: gm.filter((visible) => visible !== true).length });
+      check('every players\' pass of the throw ran with the dice hidden', players.length >= 5 && players.every((visible) => visible === false), { frames: players.length, shown: players.filter((visible) => visible !== false).length });
+      // Minis play clips, so the players' window is never still from frame to frame (its screenshots are for the eye): the
+      // pixel comparison draws both pictures in one task (nothing moves between), with the dice on the table and without.
+      const pixels = await page.evaluate(() => {
+        const b = window.boardTest.board;
+        const group = window.boardTest.dice.table.object3d;
+        const scene = group.parent;
+        const read = (renderer) => {
+          const gl = renderer.getContext();
+          const data = new Uint8Array(gl.drawingBufferWidth * gl.drawingBufferHeight * 4);
+          gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, data);
+          let hash = 0;
+          for (let i = 0; i < data.length; i++) hash = (hash * 31 + data[i]) | 0;
+          return hash;
+        };
+        const draw = () => {
+          b.drawMain();
+          const gm = read(b.renderer);
+          b.drawPlayers(false, b.lastPose);
+          return { gm, players: read(b.player.renderer) };
+        };
+        const withDice = draw();
+        group.removeFromParent();
+        const without = draw();
+        scene.add(group);
+        return { withDice, without };
+      });
+      check('the players\' picture is the same pixels with the dice on the table as without them', pixels.withDice.players === pixels.without.players, pixels);
+      check('(the same comparison on the GM\'s picture does show the dice)', pixels.withDice.gm !== pixels.without.gm, pixels);
+      // The board's minis play clips, so its frames go on: the dice are no longer stepped in them.
+      const steps = await page.evaluate(async () => {
+        const table = window.boardTest.dice.table;
+        const step = table.step;
+        let count = 0;
+        table.step = function (...args) { count++; return step.apply(this, args); };
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        table.step = step;
+        return { count, busy: table.busy, frames: window.diceRenders.gm.length };
+      });
+      check('once the dice are read the board no longer steps them', steps.count === 0 && !steps.busy, steps);
+      await page.evaluate(() => { window.boardTest.dice.table.clear(); window.boardTest.board.wake(true); });
+      await wait(300);
+      check('clearing the table takes the dice away', await page.evaluate(() => window.boardTest.dice.table.object3d.children.length === 0));
+      await page.evaluate(() => window.boardTest.board.host.togglePlayerView());
+      await wait(300);
+    }
   } catch (error) {
     check('harness ran', false, String(error && error.stack || error));
   }
