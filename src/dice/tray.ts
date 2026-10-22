@@ -15,15 +15,27 @@ export interface Tray {
 
 /** Most of the view, so the walls stand inside the picture. */
 const VIEW_SHARE = 0.8;
-/** Never smaller than a few squares (a die needs room to roll), never larger than a room. */
+/**
+ * A few squares (a die needs room to roll), never larger than a room. The view wins over the floor: zoomed in close,
+ * the tray is no larger than what is shown, so no die comes to rest off screen; but never under one die's edge.
+ */
 const MIN_SQUARES = 3;
 const MAX_SQUARES = 20;
 
-/** The tray at `target`, sized from the view's half extent on the ground; off the map too, the tray is where the camera looks. */
-export function trayAt(target: { x: number; z: number }, visibleHalfExtent: { x: number; z: number }, gridSize: number, yaw: number): Tray {
-  const half = (extent: number): number => Math.min(MAX_SQUARES * gridSize, Math.max(MIN_SQUARES * gridSize, extent * VIEW_SHARE));
+/**
+ * The tray at `target`, sized from the view's half extent on the ground; off the map too, the tray is where the camera
+ * looks. `dieEdge` is a die's edge in map pixels, the least the tray keeps each way.
+ */
+export function trayAt(target: { x: number; z: number }, visibleHalfExtent: { x: number; z: number }, gridSize: number, yaw: number, dieEdge: number): Tray {
+  const half = (extent: number): number => {
+    const sized = Math.min(MAX_SQUARES * gridSize, Math.max(MIN_SQUARES * gridSize, extent * VIEW_SHARE));
+    return Math.max(dieEdge, Math.min(sized, extent));
+  };
   return { center: { x: target.x, z: target.z }, halfWidth: half(visibleHalfExtent.x), halfDepth: half(visibleHalfExtent.z), yaw };
 }
+
+/** Where a throw starts: this share of the tray's half depth behind its centre, toward the thrower. */
+export const START_SHARE = 0.55;
 
 /** A die's edge on the board, in map pixels: a share of a grid square. */
 export function dieEdgePx(gridSize: number, squares = 0.6): number {

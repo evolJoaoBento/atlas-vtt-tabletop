@@ -11,7 +11,7 @@ import { buildDie } from './dieBuild';
 import { readFace, type DieType, type FaceReading, type Vec3 } from './kit/faces';
 import type { RollSession } from './rollSession';
 import { MAX_THROW_SPEED, MIN_THROW_SPEED, throwVector, type Flick } from './throwInput';
-import { dieEdgePx, trayAt, type Tray } from './tray';
+import { dieEdgePx, START_SHARE, trayAt, type Tray } from './tray';
 
 export interface DiceTableHost {
   scene: THREE.Scene;
@@ -54,8 +54,7 @@ const SUPPORT_REACH = 1.5;
 const STILL_MS = 100;
 /** A die that never stops (jittering on another) is held after this long, and caught: it showed no face at rest. */
 const LONGEST_ROLL_MS = 12_000;
-/** Where a throw starts: a share of the tray behind its centre, this high, the dice this far apart. */
-const START_SHARE = 0.55;
+/** Where a throw starts: START_SHARE of the tray behind its centre, this high, the dice this far apart. */
 const START_HEIGHT = 3;
 const SPREAD = 1.4;
 /** How many places beside its own a die tries, a spread apart, for a start clear of the dice already there. */
@@ -202,9 +201,9 @@ export class DiceTable {
   private layTray(): void {
     for (const wall of this.walls) this.world.removeBody(wall);
     const grid = this.host.gridSize();
-    const tray = trayAt(this.host.target(), this.host.visibleHalfExtent(), grid, this.host.cameraYaw());
-    this.tray = tray;
     const edge = dieEdgePx(grid, this.settings.dieSquares);
+    const tray = trayAt(this.host.target(), this.host.visibleHalfExtent(), grid, this.host.cameraYaw(), edge);
+    this.tray = tray;
     this.object3d.position.set(tray.center.x, 0, tray.center.z);
     this.object3d.rotation.set(0, tray.yaw, 0);
     this.object3d.scale.setScalar(edge);
