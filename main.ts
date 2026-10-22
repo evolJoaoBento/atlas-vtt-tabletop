@@ -506,15 +506,17 @@ class TabletopSettingTab extends PluginSettingTab {
     const dice = plugin.settings.dice;
     new Setting(containerEl).setName('Dice').setHeading();
     const number = (name: string, desc: string, key: 'dieSquares' | 'tolerance' | 'motionThreshold', bounds: { min: number; max: number }): void => {
-      new Setting(containerEl).setName(name).setDesc(`${desc} (${bounds.min} to ${bounds.max}; default ${DEFAULT_DICE_SETTINGS[key]}).`).addText((text) => text
-        .setPlaceholder(String(DEFAULT_DICE_SETTINGS[key]))
-        .setValue(String(dice[key]))
-        .onChange((value) => {
+      new Setting(containerEl).setName(name).setDesc(`${desc} (${bounds.min} to ${bounds.max}; default ${DEFAULT_DICE_SETTINGS[key]}).`).addText((text) => {
+        text.setPlaceholder(String(DEFAULT_DICE_SETTINGS[key])).setValue(String(dice[key]));
+        // Taken when the field is left (or Enter), not at each keystroke: a change clears the dice on the boards.
+        text.inputEl.addEventListener('change', () => {
+          const value = text.getValue();
           const read = Number(value.trim().replace(',', '.'));
           const ok = value.trim() !== '' && Number.isFinite(read) && read >= bounds.min && read <= bounds.max;
           text.inputEl.toggleClass('atlas-tabletop-invalid', !ok);
-          if (ok) plugin.setDice({ [key]: read });
-        }));
+          if (ok && read !== plugin.settings.dice[key]) plugin.setDice({ [key]: read });
+        });
+      });
     };
     number('Die size', 'How big a die is on the 3D board, in grid squares', 'dieSquares', DIE_SQUARES);
     const pack = new Setting(containerEl).setName('Dice pack').setDesc(`The texture pack the dice wear, from the shared packs folder (${plugin.packsFolder}), which Interactive Dice for Atlas VTT reads too.`);

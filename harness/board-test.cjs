@@ -1505,6 +1505,7 @@ server.listen(0, async () => {
       await page.evaluate(() => window.boardTest.board.frameMap());
       const logged = await page.evaluate(() => JSON.parse(JSON.stringify({ rolls: window.boardTest.atlasRolls, warnings: window.boardTest.diceWarnings, dice: window.boardTest.board.dice.object3d.children.length, prompt: document.querySelector('.atlas-tabletop-dice-prompt').hidden })));
       const roll = logged.rolls[0]?.[1];
+      console.log(`25: logged ${JSON.stringify(roll && roll.rolls.map((die) => [die.die, die.value]))}, rethrown ${rethrown}`);
       check('Atlas\'s roll log gets one dice-rolled: two d6, each with min 1, as 2d6', logged.rolls.length === 1 && logged.rolls[0][0] === 'dice-rolled' && roll.rolls.length === 2 && roll.rolls.every((die) => die.die === 'd6' && die.min === 1 && die.value >= 1 && die.value <= 6) && roll.formula === '2d6' && roll.total === roll.rolls[0].value + roll.rolls[1].value, { logged, rethrown });
       check('the settled dice stay on the table, the prompt gone, nothing warned', logged.dice === 2 && logged.prompt === true && logged.warnings.length === 0, logged);
       const { gm, players } = await page.evaluate(() => window.diceRenders25);
@@ -1531,6 +1532,86 @@ server.listen(0, async () => {
       await page.keyboard.press('Escape');
       await page.evaluate(() => window.boardTest.board.host.togglePlayerView());
       await wait(300);
+    }
+
+    // 26. Drag-out-to-throw: a d20, a d10 and a d100 picked, and the d20 dragged up out of the picker onto the board. The
+    // picker steps aside, the dice fly away from the camera, and the roll Atlas logs is what the dice read where they lie.
+    {
+      await page.evaluate(() => window.boardTest.board.frameMap());
+      await wait(1000);
+      const diceButton = page.locator('.atlas-tabletop-extensions button[aria-label="Dice"]');
+      const picker = page.locator('.atlas-tabletop-dice-picker');
+      await diceButton.click();
+      await wait(150);
+      for (const die of ['d20', 'd10', 'd100']) await picker.locator(`[data-die="${die}"]`).click();
+      await page.evaluate(() => {
+        window.faces26 = [];
+        const table = window.boardTest.board.dice;
+        const settled = table.onSettled;
+        table.onSettled = (id, reading) => { window.faces26.push({ id, face: reading.face, caught: reading.caught }); settled(id, reading); };
+      });
+      const from = await picker.locator('[data-die="d20"]').boundingBox();
+      const start = { x: from.x + from.width / 2, y: from.y + from.height / 2 };
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      for (let i = 1; i <= 10; i++) { await page.mouse.move(start.x + i * 6, start.y - i * 22); await wait(16); }
+      await page.mouse.up();
+      await wait(150);
+      const flying = await page.evaluate(() => ({ busy: window.boardTest.board.dice.busy, dice: window.boardTest.board.dice.object3d.children.length }));
+      check('a die dragged out of the picker throws the picked roll (a d100 is two dice) and the picker steps aside', flying.busy && flying.dice === 4 && !(await picker.isVisible()), flying);
+      let rethrown = 0;
+      for (let attempt = 0; attempt < 10; attempt++) {
+        await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
+        await wait(300);
+        if (await page.evaluate(() => window.boardTest.atlasRolls.length > 1)) break;
+        const caught = await page.evaluate(() => {
+          const b = window.boardTest.board;
+          const controller = window.boardTest.boardDice.controller;
+          b.view.updateMatrixWorld();
+          const rect = b.canvas.getBoundingClientRect();
+          for (const mesh of b.dice.object3d.children) {
+            if (!controller.waitsOn(mesh.userData.dieId)) continue;
+            const ndc = mesh.getWorldPosition(new window.boardTest.Vector3()).project(b.view);
+            return { x: rect.left + ((ndc.x + 1) / 2) * rect.width, y: rect.top + ((1 - ndc.y) / 2) * rect.height };
+          }
+          return null;
+        });
+        if (!caught) break;
+        await page.mouse.click(caught.x, caught.y);
+        rethrown++;
+        await wait(200);
+      }
+      const thrown = await page.evaluate(() => {
+        const b = window.boardTest.board;
+        const roll = window.boardTest.atlasRolls[1]?.[1];
+        const at = new window.boardTest.Vector3();
+        for (const mesh of b.dice.object3d.children) at.add(mesh.getWorldPosition(new window.boardTest.Vector3()));
+        at.divideScalar(Math.max(1, b.dice.object3d.children.length));
+        b.camera.frame({ x: at.x, y: 0, z: at.z }, 150);
+        b.wake();
+        return JSON.parse(JSON.stringify({ roll, faces: window.faces26, rolls: window.boardTest.atlasRolls.length }));
+      });
+      console.log(`26: logged ${JSON.stringify(thrown.roll && thrown.roll.rolls.map((die) => [die.die, die.value]))}, read ${JSON.stringify(thrown.faces)}, rethrown ${rethrown}`);
+      check('Atlas logs the dragged roll: a d20, a d10 and a d100, min 1, each within its faces', thrown.rolls === 2 && thrown.roll.rolls.length === 3 && thrown.roll.rolls.every((die) => die.min === 1 && die.value >= 1 && die.value <= die.max)
+        && JSON.stringify(thrown.roll.rolls.map((die) => die.die).sort()) === JSON.stringify(['d10', 'd100', 'd20']), thrown);
+      await wait(1500);
+      await page.screenshot({ path: `${shots}/board-26-dragged-dice-close.png` });
+      // For the eye: each die close up from above, named by what it read, to set against the face it shows.
+      const ids = await page.evaluate(() => window.boardTest.board.dice.object3d.children.map((mesh) => mesh.userData.dieId));
+      for (const id of ids) {
+        await page.evaluate((id) => {
+          const b = window.boardTest.board;
+          const mesh = b.dice.object3d.children.find((candidate) => candidate.userData.dieId === id);
+          const at = mesh.getWorldPosition(new window.boardTest.Vector3());
+          b.camera.frame({ x: at.x, y: 0, z: at.z }, 45);
+          b.camera.orbit(0, 2);
+          b.wake();
+        }, id);
+        await wait(1200);
+        const read = thrown.faces.filter((face) => face.id === id).pop();
+        await page.screenshot({ path: `${shots}/board-26-die-${id}-read-${read ? read.face : 'none'}.png`, clip: { x: 300, y: 120, width: 400, height: 400 } });
+      }
+      await page.evaluate(() => window.boardTest.board.frameMap());
     }
   } catch (error) {
     check('harness ran', false, String(error && error.stack || error));

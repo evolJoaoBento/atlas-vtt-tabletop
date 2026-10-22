@@ -1752,8 +1752,11 @@ export class Board {
 
   // ── Dice ──────────────────────────────────────────────────────────────────
 
-  /** What a dice table needs of this board: its scene, the grid, where the camera looks, and frames. */
-  diceHost(): DiceTableHost {
+  /**
+   * What a dice table needs of this board: its scene, the grid, where the camera looks, and frames. The pack and its
+   * textures are the thrower's to add (never an empty pack: a die needs its pack's shapes and numbers to be read).
+   */
+  diceHost(): Omit<DiceTableHost, 'pack' | 'textures'> {
     return {
       scene: this.scene,
       gridSize: () => this.map?.grid.size ?? FALLBACK_SIZE / 40,
@@ -1761,9 +1764,6 @@ export class Board {
       visibleHalfExtent: () => this.visibleHalfExtent(),
       cameraYaw: () => this.cameraYaw(),
       wake: () => this.wake(true),
-      // The dice packs come later: plain dice until then.
-      textures: () => ({}),
-      pack: () => ({}),
     };
   }
 

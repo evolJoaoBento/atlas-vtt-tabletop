@@ -29,6 +29,7 @@ import type { Flick } from '../src/dice/throwInput';
 import { BoardDice } from '../src/dice/boardDice';
 import type { MapViewLike } from '../src/dice/atlasDice';
 import { vendoredPack } from '../src/dice/dicePack';
+import { DiceTextures } from '../src/dice/diceTextures';
 import { DEFAULT_DICE_SETTINGS } from '../src/dice/diceSettings';
 
 function exportGlb(root: THREE.Object3D, animations: THREE.AnimationClip[] = []): Promise<ArrayBuffer> {
@@ -395,7 +396,9 @@ async function main(): Promise<void> {
     readings: [],
     throwRoll(counts, flick) {
       if (!this.table) {
-        this.table = new DiceTable(board.diceHost(), { dieSquares: 0.6, tolerance: 0.3, motionThreshold: 2, shadows: true, highlight: true, highlightColor: '#ffd700' });
+        const pack = vendoredPack();
+        const textures = new DiceTextures(pack, () => board.wake(true));
+        this.table = new DiceTable({ ...board.diceHost(), pack: () => pack.config, textures: (type, color) => textures.textures(type, color) }, { dieSquares: 0.6, tolerance: 0.3, motionThreshold: 2, shadows: true, highlight: true, highlightColor: '#ffd700' });
         board.attachDice(this.table);
       }
       const session = new RollSession({ dice: counts, modifier: 0 }, DEFAULT_RULES);

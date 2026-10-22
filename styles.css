@@ -1512,3 +1512,6 @@ body.atlas-tabletop-player-window .view-header {
 }
 .atlas-tabletop-dice-prompt[hidden] { display: none; }
 .atlas-tabletop-dice-prompt__throw { height: 28px; padding: 0 12px; }
+
+/* A dice setting typed out of its range. */
+.atlas-tabletop-invalid { border-color: var(--text-error) !important; }
