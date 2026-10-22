@@ -7,6 +7,7 @@
  * keys typed in it stay out of the board's camera keys.
  */
 
+import { DICES_SVG } from '../dice/dicePicker';
 import { LASER_COLORS, LASER_COLOR_HINT, LASER_SIZE_MAX, LASER_SIZE_MIN, type LaserSettings } from './laser';
 
 export interface ToolbarActions {
@@ -40,6 +41,13 @@ export interface ToolbarActions {
   /** The board's ambient light (0–1); a new level, shown while the slider moves and kept when it is let go. */
   ambient(): number;
   setAmbient(level: number, keep: boolean): void;
+}
+
+/** The board's dice picker, which opens from the Dice button in the toolbar's end slot. */
+export interface DiceButton {
+  isOpen(): boolean;
+  toggle(): void;
+  close(): void;
 }
 
 /** Lucide's `command` icon (ISC), the glyph of Atlas's command palette button. */
@@ -105,6 +113,9 @@ export class BoardToolbar {
   private readonly initiativeToggle: HTMLInputElement;
   private readonly ambientInput: HTMLInputElement;
   private readonly ambientValue: HTMLElement;
+  /** Atlas's end slot, and the Dice button in it while the board has dice. */
+  private readonly endSlot: HTMLElement;
+  private dice: { handlers: DiceButton; anchor: HTMLElement; button: HTMLButtonElement } | null = null;
   private readonly onOutside = (event: PointerEvent): void => {
     const target = event.target as Node;
     if (!this.panel.contains(target) && !this.button.contains(target)) this.close();
@@ -260,7 +271,7 @@ export class BoardToolbar {
     // Players are shown scenes with the eye on Atlas's scene tabs over the board: no player view or freeze button here.
     this.button = tool(COMMAND_SVG, () => (this.panel.hidden ? this.open() : this.close()));
     // Atlas's end slot, where Connect puts its buttons as it does in Atlas's own toolbar; Atlas's styles apply inside it.
-    el('div', 'atlas-toolbar-end atlas-vtt-plugin atlas-tabletop-extensions', bar);
+    this.endSlot = el('div', 'atlas-toolbar-end atlas-vtt-plugin atlas-tabletop-extensions', bar);
     this.button.setAttribute('aria-label', 'Board settings');
     this.button.title = 'Board settings';
     this.button.setAttribute('aria-expanded', 'false');
@@ -353,6 +364,11 @@ export class BoardToolbar {
       const chosen = choice.dataset.shape === this.actions.templateShape();
       check.innerHTML = chosen ? CHECK_SVG.replace('class="atlas-swatch-check"', 'class="atlas-dropdown-menu-item__tick"') : '';
     }
+    if (this.dice) {
+      const open = this.dice.handlers.isOpen();
+      this.dice.button.classList.toggle('is-active', open);
+      this.dice.button.setAttribute('aria-expanded', String(open));
+    }
     const laser = this.actions.laserOn();
     // The group's face is always the tool in use, as Atlas's is while one of its tools is.
     this.laserButton.innerHTML = laser ? LASER_SVG : HAND_SVG;
@@ -367,7 +383,48 @@ export class BoardToolbar {
   }
 
   get isOpen(): boolean {
-    return !this.panel.hidden || !this.laserPanel.hidden;
+    return !this.panel.hidden || !this.laserPanel.hidden || this.dice?.handlers.isOpen() === true;
+  }
+
+  /**
+   * Puts the Dice button in Atlas's end slot (before what Connect puts there), or takes it away with null. Returns the
+   * place the picker opens from: above the button, inside the slot's `atlas-vtt-plugin` root.
+   */
+  setDice(handlers: DiceButton | null): HTMLElement | null {
+    this.dice?.anchor.remove();
+    this.dice = null;
+    if (!handlers) return null;
+    const doc = this.row.ownerDocument;
+    const anchor = doc.createElement('div');
+    anchor.className = 'atlas-dropdown-menu atlas-tabletop-dice-menu';
+    const wrapper = doc.createElement('div');
+    wrapper.className = 'atlas-tool-button';
+    const span = doc.createElement('span');
+    span.style.display = 'inline-flex';
+    const button = doc.createElement('button');
+    button.className = 'btn btn--toolbar btn--icon atlas-tabletop-tool-button';
+    button.type = 'button';
+    button.innerHTML = DICES_SVG;
+    button.setAttribute('aria-label', 'Dice');
+    button.title = 'Dice';
+    button.setAttribute('aria-expanded', 'false');
+    button.addEventListener('click', () => {
+      this.close();
+      this.closeLaser();
+      handlers.toggle();
+      this.refresh();
+    });
+    span.appendChild(button);
+    wrapper.appendChild(span);
+    anchor.appendChild(wrapper);
+    this.endSlot.prepend(anchor);
+    this.dice = { handlers, anchor, button };
+    this.refresh();
+    return anchor;
+  }
+
+  closeDice(): void {
+    this.dice?.handlers.close();
   }
 
   /** Shows the laser's options above the toolbar. */
@@ -457,6 +514,7 @@ export class BoardToolbar {
   dispose(): void {
     this.close();
     this.closeLaser();
+    this.setDice(null);
     this.row.remove();
   }
 }

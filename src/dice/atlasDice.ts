@@ -122,13 +122,18 @@ function readRules(raw: Rec): DiceRules {
  *   toolbar rolls for that map, its `diceSetId` (built-in or the vault's dice sets) or `dice` already resolved;
  * - else the collection's stored settings (`getAssetService().getCollectionSettings(getCollectionForMap(map)).dice`);
  * - else Atlas's defaults.
+ * `mapPath`: the map the roll is for, when the view may show another (`rollViewFor` fell back to it); the dice tool
+ * rolls the view's own map, so then only that map's collection settings are read.
  */
-export function diceRulesOf(view: MapViewLike | null): DiceRules {
+export function diceRulesOf(view: MapViewLike | null, forMap?: string): DiceRules {
   if (!view) return { ...DEFAULT_RULES };
-  const tool = call(call(view.serviceManager, 'getToolController'), 'getDiceTool');
-  const set = call(tool, 'getDiceRules');
-  if (isObject(set)) return readRules(set);
-  const mapPath = mapPathOf(view);
+  const shown = mapPathOf(view);
+  const mapPath = forMap ?? shown;
+  if (mapPath === shown) {
+    const tool = call(call(view.serviceManager, 'getToolController'), 'getDiceTool');
+    const set = call(tool, 'getDiceRules');
+    if (isObject(set)) return readRules(set);
+  }
   const assets = call(view.serviceManager, 'getAssetService');
   const collectionId = mapPath ? call(assets, 'getCollectionForMap', mapPath) : undefined;
   const settings = typeof collectionId === 'string' && collectionId !== '' ? call(assets, 'getCollectionSettings', collectionId) : undefined;

@@ -61,7 +61,7 @@ node scripts/deploy.mjs   # copy into a vault's plugin folder (ATLAS_VAULT=<vaul
 Browser harness for the 3D board:
 
 ```
-npx esbuild harness/board.ts --bundle --outfile=<dir>/board.js --alias:obsidian=./harness/obsidian-stub.ts
+npx esbuild harness/board.ts --bundle --outfile=<dir>/board.js --alias:obsidian=./harness/obsidian-stub.ts --loader:.png=binary
 cp harness/board.html <dir>/index.html && cp styles.css <dir>/
 node harness/board-test.cjs <dir> <screenshot dir>
 ```
@@ -69,7 +69,7 @@ node harness/board-test.cjs <dir> <screenshot dir>
 Player board harness (Tabletop's 3D board as Connect for Atlas VTT mounts it in a player's tab):
 
 ```
-npx esbuild harness/playerBoard.ts --bundle --outfile=<dir>/playerBoard.js --alias:obsidian=./harness/obsidian-stub.ts
+npx esbuild harness/playerBoard.ts --bundle --outfile=<dir>/playerBoard.js --alias:obsidian=./harness/obsidian-stub.ts --loader:.png=binary
 sed 's/board\.js/playerBoard.js/' harness/board.html > <dir>/playerBoard.html && cp styles.css <dir>/
 node harness/playerBoard-test.cjs <dir> <screenshot dir>
 ```

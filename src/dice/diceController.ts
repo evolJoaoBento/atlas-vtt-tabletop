@@ -67,6 +67,16 @@ export class DiceController {
     this.deps.prompt(session.prompt());
   }
 
+  /** Whether the roll waits on this die being thrown (caught on an edge): a click on it throws it. */
+  waitsOn(id: number): boolean {
+    return this.session?.pendingThrows().some((pending) => pending.id === id) ?? false;
+  }
+
+  /** Whether the roll waits on a throw (a caught die, or an explosion to throw). */
+  get waiting(): boolean {
+    return (this.session?.pendingThrows().length ?? 0) > 0;
+  }
+
   /** The thrower picked up a die: it is thrown again if the roll waits on it; a die with its number stays put. */
   clickDie(id: number, flick: Flick): void {
     const session = this.session;

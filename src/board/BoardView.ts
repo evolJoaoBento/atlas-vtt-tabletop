@@ -29,8 +29,12 @@ import { wholeWall } from './walls';
 import type { TokenChange } from './tokenWriter';
 import type { LaserSettings } from './laser';
 import type { PlayerView } from './PlayerWindow';
-import { QUALITY, type Quality } from './quality';
+import { QUALITY, type Quality, type QualityPreset } from './quality';
 import type { TokenWriter } from './tokenWriter';
+import { BoardDice } from '../dice/boardDice';
+import { rollViewFor, type MapViewLike } from '../dice/atlasDice';
+import type { ChosenPack } from '../dice/dicePack';
+import type { TabletopDiceSettings } from '../dice/diceSettings';
 
 export const BOARD_VIEW_TYPE = 'atlas-tabletop-board';
 /** The hover source Tabletop registers, so Obsidian's page preview shows stat blocks from the board. */
@@ -64,6 +68,9 @@ export interface BoardServices {
   cameraMoved?(view: BoardView): void;
   /** Connect's hosted session, while Connect hands one over. */
   session?(): BoardSession | null;
+  /** The dice settings, and the pack the dice are made from (the default pack Tabletop carries until it is read). */
+  diceSettings(): TabletopDiceSettings;
+  dicePack(): ChosenPack;
 }
 
 const tokenName = (token: BoardToken): string => token.name ?? token.imagePath?.split('/').pop()?.replace(/\.[^.]+$/, '') ?? 'Token';
@@ -71,6 +78,8 @@ const tokenName = (token: BoardToken): string => token.name ?? token.imagePath?.
 export class BoardView extends ItemView {
   private path: string | null = null;
   private board: Board | null = null;
+  /** The GM's dice on the board: its picker, table and roll. */
+  private dice: BoardDice | null = null;
   private map: BoardMap | null = null;
   private rules: CollectionRules = emptyRules();
   private readonly warned = new Set<string>();
@@ -110,8 +119,7 @@ export class BoardView extends ItemView {
     if (typeof file === 'string' && file !== this.path) {
       this.path = file;
       this.map = null;
-      this.board?.dispose();
-      this.board = null;
+      this.dropBoard();
       // The player view shows the map this tab showed: it waits for that map's board again.
       this.playerWindow?.waiting(true);
       this.playerWindow = null;
@@ -171,8 +179,7 @@ export class BoardView extends ItemView {
     this.initiative?.dispose();
     this.initiative = null;
     this.reload.cancel();
-    this.board?.dispose();
-    this.board = null;
+    this.dropBoard();
     this.playerWindow?.waiting(true);
     this.playerWindow = null;
   }
@@ -224,12 +231,49 @@ export class BoardView extends ItemView {
     const preset = QUALITY[this.services.quality()];
     if (board.setQuality(preset)) return;
     const camera = board.camera;
-    board.dispose();
-    this.board = new Board(this.contentEl, this.host(), preset);
-    await this.board.load(this.map);
-    this.board.camera = camera;
-    if (this.playerWindow) this.board.attachPlayer(this.playerWindow.stage);
-    this.board.wake(true);
+    this.dropBoard();
+    const fresh = this.makeBoard(preset);
+    await fresh.load(this.map);
+    fresh.camera = camera;
+    if (this.playerWindow) fresh.attachPlayer(this.playerWindow.stage);
+    fresh.wake(true);
+  }
+
+  /** A board, and the GM's dice on it. */
+  private makeBoard(preset: QualityPreset): Board {
+    const board = new Board(this.contentEl, this.host(), preset);
+    this.board = board;
+    this.dice = new BoardDice({
+      board,
+      container: this.contentEl,
+      mapPath: () => this.path ?? '',
+      atlasView: () => this.rollView(),
+      settings: () => this.services.diceSettings(),
+      pack: () => this.services.dicePack(),
+      warn: (message) => this.warn(message),
+    });
+    return board;
+  }
+
+  /** The board goes (another map, new quality, the tab closing): its dice first, the roll in play never logged. */
+  private dropBoard(): void {
+    this.dice?.sceneChanged();
+    this.dice?.dispose();
+    this.dice = null;
+    this.board?.dispose();
+    this.board = null;
+  }
+
+  /** The Atlas map view a roll on this board's map is logged on: the one showing it, else the one used last. */
+  private rollView(): MapViewLike | null {
+    const views = this.app.workspace.getLeavesOfType('atlas-vtt').map((leaf) => leaf.view as unknown as MapViewLike);
+    const recent = (this.app.workspace.getMostRecentLeaf()?.view ?? null) as unknown as MapViewLike | null;
+    return this.path ? rollViewFor(views, recent, this.path) : null;
+  }
+
+  /** The dice settings or pack changed: the next roll uses them. */
+  diceChanged(): void {
+    this.dice?.reset();
   }
 
   /** The minis, styles or props changed: the board draws them again. */
@@ -274,8 +318,8 @@ export class BoardView extends ItemView {
     this.rules = rules;
     this.map = map;
     const fresh = !this.board;
-    if (!this.board) this.board = new Board(this.contentEl, this.host(), QUALITY[this.services.quality()]);
-    await this.board.load(map);
+    const board = this.board ?? this.makeBoard(QUALITY[this.services.quality()]);
+    await board.load(map);
     this.menu?.refresh();
     this.watchAtlas();
     // The tracker shows when the map has combatants; the I key or the board settings show or hide it.

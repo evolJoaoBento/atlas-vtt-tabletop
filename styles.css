@@ -1427,3 +1427,88 @@ body.atlas-tabletop-player-window .view-header {
 .atlas-tabletop-scene-tabs .atlas-scene-tab-bar { pointer-events: auto; }
 /* The banner and the handout sit below the tabs. */
 .atlas-tabletop-banner, .atlas-tabletop-handout { top: 52px; }
+
+/* The GM's dice picker, opened from the Dice button in the toolbar's end slot: Atlas's dropdown, above the button. */
+.atlas-tabletop-atlas .atlas-tabletop-dice-picker { right: -8px; width: 340px; cursor: default; }
+.atlas-tabletop-dice-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.atlas-tabletop-dice-cell { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn.atlas-tabletop-dice-die {
+  position: relative;
+  width: 100%;
+  height: 40px;
+  padding: 0;
+  border-radius: var(--radius-m);
+  background: var(--background-secondary) !important;
+  color: var(--text-normal) !important;
+  box-shadow: inset 0 -3px 0 var(--atlas-tabletop-die-color, transparent) !important;
+  touch-action: none;
+  cursor: grab;
+}
+.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn.atlas-tabletop-dice-die:hover { background: var(--background-modifier-hover) !important; }
+.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn.atlas-tabletop-dice-die.is-selected { outline: 1.5px solid var(--interactive-accent) !important; outline-offset: -1.5px; }
+.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn.atlas-tabletop-dice-die.is-at-limit { outline: 1.5px solid var(--text-error) !important; outline-offset: -1.5px; }
+.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn.atlas-tabletop-dice-die.is-dragging { cursor: grabbing; opacity: 0.6; }
+.atlas-tabletop-dice-die__name { font-size: var(--font-ui-small); font-weight: var(--font-semibold); font-variant-numeric: tabular-nums; }
+.atlas-tabletop-dice-die__badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 9999px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+.atlas-tabletop-dice-die__badge[hidden] { display: none; }
+.atlas-tabletop-dice-steps { display: flex; }
+.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn.atlas-tabletop-dice-step { width: 20px; height: 20px; padding: 0; border-radius: var(--radius-s); }
+.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn.atlas-tabletop-dice-step svg { width: 12px; height: 12px; }
+.atlas-tabletop-dice-swatches { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; }
+.atlas-tabletop-dice-swatches[hidden] { display: none; }
+.atlas-tabletop-atlas .atlas-tabletop-dice-swatches .atlas-swatch { height: auto; }
+.atlas-tabletop-atlas .atlas-swatch.atlas-tabletop-dice-swatch--pack {
+  background: repeating-linear-gradient(45deg, var(--background-secondary), var(--background-secondary) 3px, var(--background-modifier-border) 3px, var(--background-modifier-border) 6px);
+}
+.atlas-tabletop-dice-modifier { display: flex; align-items: center; gap: 6px; }
+.atlas-tabletop-dice-modifier .atlas-dropdown-label { flex: 1; }
+.atlas-tabletop-dice-modifier__value { min-width: 32px; text-align: center; font-variant-numeric: tabular-nums; font-size: var(--font-ui-small); color: var(--text-normal); }
+.atlas-tabletop-atlas .atlas-dropdown-section.atlas-tabletop-dice-bar { flex-direction: row; align-items: center; gap: 6px; }
+.atlas-tabletop-dice-formula { flex: 1; padding-inline: 4px; font-size: var(--font-ui-smaller); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn.atlas-tabletop-dice-clear { width: 32px; height: 32px; }
+.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn.atlas-tabletop-dice-roll {
+  height: 32px;
+  padding: 0 16px;
+  border-radius: var(--radius-m);
+  background: var(--interactive-accent) !important;
+  color: var(--text-on-accent) !important;
+  touch-action: none;
+}
+.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn.atlas-tabletop-dice-roll:hover { background: var(--interactive-accent-hover) !important; color: var(--text-on-accent) !important; }
+.atlas-tabletop-atlas .atlas-tabletop-dice-hint { padding-top: 8px; padding-inline: 4px; white-space: normal; }
+
+/* What a roll waits on (a die caught on an edge, an explosion to throw), as a line over the board. */
+.atlas-tabletop-dice-prompt {
+  position: absolute;
+  left: 50%;
+  bottom: 88px;
+  transform: translateX(-50%);
+  z-index: 21;
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-3);
+  max-width: calc(100% - 32px);
+  padding: var(--size-4-2) var(--size-4-2) var(--size-4-2) var(--size-4-3);
+  border-radius: var(--radius-l);
+  background: var(--background-primary);
+  border: 1.5px solid color-mix(in oklch, var(--text-normal) 18%, transparent);
+  box-shadow: var(--shadow-l);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  white-space: pre-line;
+}
+.atlas-tabletop-dice-prompt[hidden] { display: none; }
+.atlas-tabletop-dice-prompt__throw { height: 28px; padding: 0 12px; }

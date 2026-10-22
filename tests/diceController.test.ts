@@ -198,3 +198,22 @@ test('a publish that fails still clears the prompt and publishes nothing more', 
   table.onSettled(d20, face(3));
   assert.equal(publishes, 1);
 });
+
+test('the roll waits on a caught die and on an explosion, not on a die with its number', () => {
+  const { dice, table } = controller(explodeAll);
+  assert.equal(dice.waiting, false);
+  dice.start({ dice: { d6: 2 }, modifier: 0 }, FLICK);
+  const [a, b] = table.ids();
+  table.onSettled(a, CAUGHT);
+  table.onSettled(b, face(3));
+  assert.equal(dice.waitsOn(a), true);
+  assert.equal(dice.waitsOn(b), false);
+  assert.equal(dice.waiting, true);
+  dice.clickDie(a, FLICK);
+  assert.equal(dice.waitsOn(a), false, 'thrown again, it is in the air');
+  table.onSettled(a, face(6));
+  assert.equal(dice.waiting, true, 'a six explodes: another d6 to throw');
+  dice.sceneChanged();
+  assert.equal(dice.waiting, false);
+  assert.equal(dice.waitsOn(a), false);
+});

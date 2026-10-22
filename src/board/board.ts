@@ -41,7 +41,7 @@ import { BoardSurface } from './surface';
 import { FogVolume } from './fogVolume';
 import { LaserBeam } from './laserBeam';
 import { LaserTrail, beamWidth, smoothBeam, type LaserSettings } from './laser';
-import { BoardToolbar } from './toolbar';
+import { BoardToolbar, type DiceButton } from './toolbar';
 import { pinTitle } from './pinIcons';
 import { NO_INSTANCE_NUMBERS, badgeNumberInView, insideFog, numberTokensInView, playerSees } from './playerView';
 import { positionOf } from './camera';
@@ -1203,7 +1203,7 @@ export class Board {
       if (this.audience === 'player' && key === 'escape' && this.tools.tool !== 'move') { this.tools.select('move'); this.toolsChanged(); return; }
       if (key === 'v' && this.audience === 'gm' && !event.ctrlKey && !event.metaKey && !event.altKey) { this.setLaser(!this.laserOn); return; }
       if (key === 'escape' && this.selectedId !== null) { this.select(null); return; }
-      if (key === 'escape' && this.toolbar.isOpen) { this.toolbar.close(); return; }
+      if (key === 'escape' && this.toolbar.isOpen) { this.toolbar.close(); this.toolbar.closeDice(); return; }
       if (key === 'home') { this.frameMap(); event.preventDefault(); return; }
       // Space while carrying a token drops a waypoint on its ruler.
       if (key === ' ' && this.press?.kind === 'token') {
@@ -1765,6 +1765,12 @@ export class Board {
       textures: () => ({}),
       pack: () => ({}),
     };
+  }
+
+  /** The toolbar's Dice button, opening the board's dice picker; null takes it away. Returns where the picker opens. */
+  diceButton(handlers: DiceButton | null): HTMLElement | null {
+    if (this.disposed) return null;
+    return this.toolbar.setDice(this.audience === 'gm' ? handlers : null);
   }
 
   /** Throws dice on this board from now on (a table made with `diceHost()`); the one before goes. */

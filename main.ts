@@ -15,6 +15,10 @@ import { playerMiniPainter, type PlayerMiniPainter } from './src/playerMinis';
 import { boardLookFor, MaterialIndex } from './src/boardLook';
 import { playerBoardFactory, type PlayerBoardFactory } from './src/playerBoard';
 import type { BoardLook, BoardSession, GmCameraSource } from './src/connectContract';
+import { defaultPackFiles } from './src/dice/defaultPack';
+import { choosePack, vendoredPack, type ChosenPack } from './src/dice/dicePack';
+import { colorsText, DEFAULT_DICE_SETTINGS, DIE_SQUARES, MOTION_THRESHOLD, readColorsText, readDiceSettings, TOLERANCE, type TabletopDiceSettings } from './src/dice/diceSettings';
+import { ensureDefaultPack, listPacks, packsFolder, type PackFs } from './src/dice/kit/packs';
 
 export const API_READY_EVENT = 'tabletop-for-atlas:api-ready';
 export const API_UNLOAD_EVENT = 'tabletop-for-atlas:api-unload';
@@ -32,9 +36,11 @@ interface TabletopSettings {
   quality: Quality;
   /** The laser pointer's colour and size (Atlas's options), for every map. */
   laser?: Partial<LaserSettings>;
+  /** The GM's dice on the board. */
+  dice: TabletopDiceSettings;
 }
 
-const DEFAULT_SETTINGS: TabletopSettings = { folder: DEFAULT_MINIS_FOLDER, propsFolder: DEFAULT_PROPS_FOLDER, materialsFolder: DEFAULT_MATERIALS_FOLDER, quality: DEFAULT_QUALITY };
+const DEFAULT_SETTINGS: TabletopSettings = { folder: DEFAULT_MINIS_FOLDER, propsFolder: DEFAULT_PROPS_FOLDER, materialsFolder: DEFAULT_MATERIALS_FOLDER, quality: DEFAULT_QUALITY, dice: DEFAULT_DICE_SETTINGS };
 
 interface SavedData {
   settings?: Partial<TabletopSettings>;
@@ -105,6 +111,8 @@ export default class TabletopPlugin extends Plugin {
   private players: ReturnType<typeof playerMiniPainter> | null = null;
   /** The 3D board used last: props from the gallery go to it. */
   private lastBoard: BoardView | null = null;
+  /** The pack the dice are made from: the default pack Tabletop carries until the chosen one is read. */
+  private dicePack: ChosenPack | null = null;
   private readonly save = debounce(() => {
     void this.saveData({ settings: this.settings, assignments: this.assignments.toJSON(), board: this.boardData.toJSON() } satisfies SavedData);
   }, 500, true);
@@ -113,6 +121,7 @@ export default class TabletopPlugin extends Plugin {
     const saved = ((await this.loadData()) ?? {}) as SavedData;
     this.settings = { ...DEFAULT_SETTINGS, ...(saved.settings ?? {}) };
     this.settings.quality = readQuality(this.settings.quality);
+    this.settings.dice = readDiceSettings(saved.settings?.dice);
     this.assignments = new Assignments(readAssignments(saved.assignments));
     this.boardData = new BoardData(readBoardData(saved.board));
     this.register(this.assignments.onChange(() => { this.save(); this.refreshBoards(); }));
@@ -143,6 +152,8 @@ export default class TabletopPlugin extends Plugin {
       playerViewOpen: (path) => this.playerLeaves().some((leaf) => fileOf(leaf) === path),
       cameraMoved: () => { for (const listener of [...this.cameraListeners]) listener(); },
       session: () => this.session,
+      diceSettings: () => this.settings.dice,
+      dicePack: () => (this.dicePack ??= vendoredPack()),
       boardReady: (view) => {
         for (const player of this.playerViews()) if (player.mapPath === view.mapPath) view.showPlayer(player);
         this.refreshPlayerButtons();
@@ -197,7 +208,7 @@ export default class TabletopPlugin extends Plugin {
     this.registerEvent(this.app.vault.on('create', changed));
     this.registerEvent(this.app.vault.on('modify', changed));
 
-    this.app.workspace.onLayoutReady(() => { this.library.emit(); this.props.emit(); });
+    this.app.workspace.onLayoutReady(() => { this.library.emit(); this.props.emit(); void this.loadDicePack(); });
 
     this.materialIndex = new MaterialIndex(this.app.vault, () => this.boardChanged(null));
     this.register(this.boardData.onChange((mapPath) => this.boardChanged(mapPath)));
@@ -260,6 +271,43 @@ export default class TabletopPlugin extends Plugin {
     this.save();
     if (key === 'materialsFolder') this.materials.fileChanged(this.materials.folderPath);
     else (key === 'folder' ? this.library : this.props).emit();
+  }
+
+  /** The shared packs folder, beside the vault's config: both dice plugins read their packs there. */
+  get packsFolder(): string {
+    return packsFolder(this.app.vault.configDir);
+  }
+
+  get packFs(): PackFs {
+    return this.app.vault.adapter;
+  }
+
+  /**
+   * Writes the default pack into the shared folder when it is missing, then reads the chosen pack (the default pack
+   * Tabletop carries when it cannot be read). The boards make their next dice from it.
+   */
+  async loadDicePack(): Promise<void> {
+    const folder = this.packsFolder;
+    try {
+      await ensureDefaultPack(this.packFs, folder, defaultPackFiles());
+    } catch (error) {
+      console.warn('[Tabletop] Cannot write the default dice pack into the shared packs folder:', error);
+    }
+    const name = this.settings.dice.pack;
+    const pack = await choosePack(this.packFs, folder, name);
+    if (name !== this.settings.dice.pack) return;
+    this.dicePack = pack;
+    for (const view of this.boards()) view.diceChanged();
+  }
+
+  /** A dice setting changed: saved, and the boards' next dice follow it (a new pack is read first). */
+  setDice(changes: Partial<TabletopDiceSettings>): void {
+    const packChanged = changes.pack !== undefined && changes.pack !== this.settings.dice.pack;
+    this.settings.dice = { ...this.settings.dice, ...changes };
+    this.save();
+    if (packChanged) void this.loadDicePack();
+    // The colours are only the picker's: the dice on the table stay.
+    else if (Object.keys(changes).some((key) => key !== 'colors')) for (const view of this.boards()) view.diceChanged();
   }
 
   async setQuality(quality: Quality): Promise<void> {
@@ -448,7 +496,46 @@ class TabletopSettingTab extends PluginSettingTab {
         .addOptions({ low: 'Low', medium: 'Medium', high: 'High' })
         .setValue(this.plugin.settings.quality)
         .onChange((value) => { void this.plugin.setQuality(readQuality(value)); }));
+    void this.diceSection(containerEl);
     void this.graphicsCard(containerEl);
+  }
+
+  /** The GM's dice: their size, pack, shadows, the highlight of a die caught on an edge, how they are read, their colours. */
+  private async diceSection(containerEl: HTMLElement): Promise<void> {
+    const { plugin } = this;
+    const dice = plugin.settings.dice;
+    new Setting(containerEl).setName('Dice').setHeading();
+    const number = (name: string, desc: string, key: 'dieSquares' | 'tolerance' | 'motionThreshold', bounds: { min: number; max: number }): void => {
+      new Setting(containerEl).setName(name).setDesc(`${desc} (${bounds.min} to ${bounds.max}; default ${DEFAULT_DICE_SETTINGS[key]}).`).addText((text) => text
+        .setPlaceholder(String(DEFAULT_DICE_SETTINGS[key]))
+        .setValue(String(dice[key]))
+        .onChange((value) => {
+          const read = Number(value.trim().replace(',', '.'));
+          const ok = value.trim() !== '' && Number.isFinite(read) && read >= bounds.min && read <= bounds.max;
+          text.inputEl.toggleClass('atlas-tabletop-invalid', !ok);
+          if (ok) plugin.setDice({ [key]: read });
+        }));
+    };
+    number('Die size', 'How big a die is on the 3D board, in grid squares', 'dieSquares', DIE_SQUARES);
+    const pack = new Setting(containerEl).setName('Dice pack').setDesc(`The texture pack the dice wear, from the shared packs folder (${plugin.packsFolder}), which Interactive Dice for Atlas VTT reads too.`);
+    new Setting(containerEl).setName('Shadows').setDesc('Dice cast shadows on the board.').addToggle((toggle) => toggle.setValue(dice.shadows).onChange((value) => plugin.setDice({ shadows: value })));
+    new Setting(containerEl).setName('Highlight caught dice').setDesc('A die that lands caught on an edge, with no face up, is lit in this colour until it is thrown again.')
+      .addToggle((toggle) => toggle.setValue(dice.highlight).onChange((value) => plugin.setDice({ highlight: value })))
+      .addColorPicker((picker) => picker.setValue(dice.highlightColor).onChange((value) => plugin.setDice({ highlightColor: value })));
+    number('Face detection tolerance', 'How far from flat a die may rest and still be read; a die tilted more is caught', 'tolerance', TOLERANCE);
+    number('Motion threshold', 'Higher waits for stiller dice before reading them', 'motionThreshold', MOTION_THRESHOLD);
+    new Setting(containerEl).setName('Dice colours').setDesc("The colours a die can be thrown in (right-click a die in the board's dice picker), one a line: a name, then the colour as #rrggbb. The name shows in Atlas's roll log.")
+      .addTextArea((area) => {
+        area.setValue(colorsText(dice.colors)).onChange((value) => plugin.setDice({ colors: readColorsText(value) }));
+        area.inputEl.rows = 6;
+      });
+    const packs = await listPacks(plugin.packFs, plugin.packsFolder);
+    if (!pack.settingEl.isConnected) return;
+    const names = packs.includes(dice.pack) ? packs : [dice.pack, ...packs];
+    pack.addDropdown((dropdown) => dropdown
+      .addOptions(Object.fromEntries(names.map((name) => [name, name])))
+      .setValue(dice.pack)
+      .onChange((value) => plugin.setDice({ pack: value })));
   }
 
   /**

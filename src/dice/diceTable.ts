@@ -21,7 +21,8 @@ export interface DiceTableHost {
   cameraYaw(): number;
   /** Asks the board for frames: dice are moving. */
   wake(): void;
-  textures(type: DieType): { map?: THREE.Texture; normalMap?: THREE.Texture };
+  /** A die's face sheet, painted over its colour (the pack's for the die when null), and its normal map. */
+  textures(type: DieType, color: string | null): { map?: THREE.Texture; normalMap?: THREE.Texture };
   pack(): DicePack;
 }
 
@@ -237,7 +238,7 @@ export class DiceTable {
     const pack = this.host.pack();
     const geometry = dieGeometry(type, DIE_SIZE, pack);
     const { normals, numbers } = dieFaceNormals(type, geometry);
-    const mesh = new THREE.Mesh(geometry, dieMaterial(type, pack, this.host.textures(type), color ?? null));
+    const mesh = new THREE.Mesh(geometry, dieMaterial(type, pack, this.host.textures(type, color ?? null), color ?? null));
     mesh.castShadow = this.settings.shadows;
     mesh.receiveShadow = this.settings.shadows;
     mesh.userData.dieId = id;

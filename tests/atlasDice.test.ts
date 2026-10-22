@@ -98,6 +98,27 @@ test('diceRulesOf gives the defaults for garbage, no collection and no view', ()
   assert.deepEqual(diceRulesOf(null), DEFAULT_RULES);
 });
 
+test("diceRulesOf for a board's map reads that map's collection when the view shows another map", () => {
+  const set = { dice: [{ count: 1, sides: 6 }], crit: 'none' };
+  const collections: Record<string, string> = { [MAP]: 'c1', 'atlas-vtt/collections/c2/maps/vault.json': 'c2' };
+  const settings: Record<string, unknown> = { c1: { dice: D10_EXPLODING }, c2: { dice: { defaultRoll: '1d12', crit: 'roll-under' } } };
+  const view: MapViewLike = {
+    getViewType: () => 'atlas-vtt',
+    file: { path: MAP },
+    atlasStore: { getState: () => ({ mapPath: MAP }) },
+    serviceManager: {
+      getToolController: () => ({ getDiceTool: () => ({ getDiceRules: () => set }) }),
+      getAssetService: () => ({ getCollectionForMap: (path: string) => collections[path] ?? null, getCollectionSettings: (id: string) => settings[id] }),
+    },
+  };
+  // The view shows the board's map: its dice tool's set, as before.
+  assert.deepEqual(diceRulesOf(view, MAP), { defaultRoll: '1d6', crit: 'none' });
+  // The view fell back from another map: the dice tool rolls the view's map, so the board's map's collection rules.
+  assert.deepEqual(diceRulesOf(view, 'atlas-vtt/collections/c2/maps/vault.json'), { defaultRoll: '1d12', crit: 'roll-under' });
+  assert.deepEqual(diceRulesOf(view, OTHER), DEFAULT_RULES);
+  assert.deepEqual(diceRulesOf(view, 'loose.json'), DEFAULT_RULES);
+});
+
 test("stockRoll is Atlas's stock roll: min 1 on every die, its colour tag as Atlas names it", () => {
   const roll = stockRoll({
     rolls: [
