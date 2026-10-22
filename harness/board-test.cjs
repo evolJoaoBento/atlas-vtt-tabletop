@@ -1573,6 +1573,33 @@ server.listen(0, async () => {
       await wait(1500);
       const dropped = await page.evaluate(() => ({ rolls: window.boardTest.atlasRolls.length, dice: window.boardTest.board.dice.object3d.children.length, busy: window.boardTest.board.dice.busy }));
       check('a roll in play when the scene changes goes, unlogged', dropped.rolls === 1 && dropped.dice === 0 && !dropped.busy, dropped);
+      // A roll no Atlas view takes is not lost: its total shows on the prompt line every time, not only with the first
+      // warning.
+      await page.evaluate(() => {
+        const bd = window.boardTest.boardDice;
+        window.savedAtlasView = bd.deps.atlasView();
+        window.boardTest.useAtlasView(null);
+        window.unlogged = [];
+        const publish = bd.publish;
+        bd.publish = function (result) { window.unlogged.push(result.total); return publish.call(this, result); };
+        window.restorePublish = () => { bd.publish = publish; };
+      });
+      const notices = [];
+      for (let n = 1; n <= 2; n++) {
+        await page.evaluate(() => window.boardTest.boardDice.roll({ dice: { d6: 1 }, modifier: 2 }, { dx: 0, dy: -200, ms: 120 }));
+        for (let attempt = 0; attempt < 10; attempt++) {
+          await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
+          await wait(200);
+          if (await page.evaluate((n) => window.unlogged.length >= n, n)) break;
+          await page.evaluate(() => window.boardTest.boardDice.controller.throwPending({ dx: 0, dy: -200, ms: 120 }));
+        }
+        notices.push(await page.evaluate(() => {
+          const line = document.querySelector('.atlas-tabletop-dice-prompt');
+          return { total: window.unlogged.at(-1), text: line.textContent, hidden: line.hidden, warnings: window.boardTest.diceWarnings.length };
+        }));
+      }
+      await page.evaluate(() => { window.restorePublish(); window.boardTest.useAtlasView(window.savedAtlasView); window.boardTest.boardDice.sceneChanged(); });
+      check('a roll no Atlas view takes shows its total on the prompt line, on every such roll', notices.length === 2 && notices.every((notice) => !notice.hidden && typeof notice.total === 'number' && notice.text.includes(`= ${notice.total}`)), notices);
       await page.keyboard.press('Escape');
       await page.evaluate(() => window.boardTest.board.host.togglePlayerView());
       await wait(300);

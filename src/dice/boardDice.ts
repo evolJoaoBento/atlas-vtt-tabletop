@@ -57,6 +57,8 @@ export class BoardDice {
   private disposed = false;
   /** The settings or pack changed: the next roll makes a new table. */
   private stale = false;
+  /** A finished roll no Atlas view took, with its total: shown on the line once the controller clears it. */
+  private unlogged: string | null = null;
 
   constructor(private readonly deps: BoardDiceDeps) {
     const { board, container } = deps;
@@ -265,12 +267,19 @@ export class BoardDice {
     });
     const from = this.rollFrom ?? undefined;
     this.rollFrom = null;
-    if (!publishRoll(this.deps.atlasView(), stockRoll({ ...result, rolls }, undefined, from))) {
+    const roll = stockRoll({ ...result, rolls }, undefined, from) as { formula: string; total: number };
+    if (!publishRoll(this.deps.atlasView(), roll)) {
+      // Warned once per message; the total goes on the line on every such roll, so no result is lost.
       this.deps.warn('Tabletop: open this map in Atlas to log dice rolls in its roll log.');
+      this.unlogged = `Not logged (open this map in Atlas): ${from ? `${from.abilityName} ` : ''}${roll.formula} = ${roll.total}`;
     }
   }
 
+  /** What the roll waits on; the controller clears the line once a roll is published, and a roll not logged shows then. */
   private showPrompt(text: string | null): void {
-    this.prompt.show(text);
+    const unlogged = this.unlogged;
+    this.unlogged = null;
+    if (text === null && unlogged !== null) this.prompt.notice(unlogged);
+    else this.prompt.show(text);
   }
 }
