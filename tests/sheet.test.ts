@@ -146,7 +146,7 @@ class FakeDocument extends FakeElement {
 }
 
 (globalThis as { DOMParser?: unknown }).DOMParser = class {
-  parseFromString(): { documentElement: FakeElement } { return { documentElement: new FakeElement(new FakeDocument(), 'svg') }; }
+  parseFromString(): { body: { firstElementChild: FakeElement } } { return { body: { firstElementChild: new FakeElement(new FakeDocument(), 'svg') } }; }
 };
 
 function drawer() {

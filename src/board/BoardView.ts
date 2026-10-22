@@ -489,6 +489,10 @@ export class BoardView extends ItemView {
       setAmbient: (level) => boardData.setAmbient(mapPath(), level),
       lightHeight: (light) => boardData.lightHeight(mapPath(), light.id) ?? DEFAULT_LIGHT_SQUARES,
       lightMenu: (id, event) => this.lightMenu(id, event),
+      assignMini: (tokenId, glb) => {
+        const have = assignments.get(mapPath(), tokenId);
+        assignments.set(mapPath(), tokenId, { mini: glb, scale: have?.scale ?? 1, turn: have?.turn ?? 0 });
+      },
       paintWall: (id, material, whole) => {
         const walls = this.map?.walls ?? [];
         const wall = walls.find((candidate) => candidate.id === id);

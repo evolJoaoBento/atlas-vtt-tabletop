@@ -13,6 +13,10 @@ export interface MiniPlacement {
   readonly turn: number;
 }
 
+/** A mini dragged from the gallery onto a token on the board: the GLB path, as its own type and as plain text. */
+export const MINI_DRAG_TYPE = 'application/x-atlas-tabletop-mini';
+export const MINI_TEXT_PREFIX = 'atlas-tabletop-mini:';
+
 export type AssignmentData = Record<string, Record<string, MiniPlacement>>;
 
 export const DEFAULT_PLACEMENT: Omit<MiniPlacement, 'mini'> = Object.freeze({ scale: 1, turn: 0 });

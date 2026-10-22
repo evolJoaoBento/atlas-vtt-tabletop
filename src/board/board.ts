@@ -53,6 +53,7 @@ import { BoardMarks } from './marks';
 import { PlayerToolState, type TemplateMark, type TemplateShape, type ToolAction } from './playerTools';
 import type { FogOperation } from './fog';
 import { segmentFrame, type BoardLight } from './walls';
+import { MINI_DRAG_TYPE, MINI_TEXT_PREFIX } from '../assignments';
 import { MATERIAL_DRAG_TYPE, MATERIAL_TEXT_PREFIX, type LoadedMaterial } from '../materials';
 import type { DiceObstacle, DiceTable, DiceTableHost } from '../dice/diceTable';
 
@@ -128,6 +129,8 @@ export interface BoardHost {
   lightMenu(id: string, event: MouseEvent): void;
   /** A material dropped from the gallery on a wall or door: that segment, or with Shift the whole wall drawn with it. */
   paintWall(id: string, material: string, whole: boolean): void;
+  /** A mini dragged from the gallery onto a token: that token is drawn as it. */
+  assignMini?(tokenId: string, glb: string): void;
   /** The GM's camera or the players' moved (Connect follows it for its players' "GM view"). */
   cameraMoved?(): void;
   /** A Connect player's board: whether the player may drag this token now (one the GM lets them control). */
@@ -1227,7 +1230,7 @@ export class Board {
     const types = (event: DragEvent): string[] => Array.from(event.dataTransfer?.types ?? []);
     // Over the board itself only: the panels on it (the initiative cards) have drags of their own.
     const mayCarry = (event: DragEvent): boolean => event.target === this.canvas
-      && (types(event).includes(MATERIAL_DRAG_TYPE) || (types(event).includes('text/plain') && !types(event).includes('Files')));
+      && (types(event).includes(MATERIAL_DRAG_TYPE) || types(event).includes(MINI_DRAG_TYPE) || (types(event).includes('text/plain') && !types(event).includes('Files')));
     const take = (type: 'dragover' | 'drop' | 'dragleave', handler: (event: DragEvent) => void): void => {
       this.container.addEventListener(type, handler, true);
       this.stops.push(() => this.container.removeEventListener(type, handler, true));
@@ -1237,6 +1240,10 @@ export class Board {
       event.preventDefault();
       event.stopPropagation();
       if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+      if (types(event).includes(MINI_DRAG_TYPE)) {
+        this.showTip(event.clientX, event.clientY, this.tokenAt(event.clientX, event.clientY) ? 'Give this token the mini' : 'Drop on a token');
+        return;
+      }
       const wall = this.wallAt(event.clientX, event.clientY);
       this.showTip(event.clientX, event.clientY, wall ? (event.shiftKey ? 'Paint the whole wall' : 'Paint this segment (Shift: the whole wall)') : 'Drop on a wall or door');
     });
@@ -1244,6 +1251,16 @@ export class Board {
     take('drop', (event) => {
       if (!mayCarry(event)) return;
       const text = event.dataTransfer?.getData('text/plain') ?? '';
+      const mini = event.dataTransfer?.getData(MINI_DRAG_TYPE) || (text.startsWith(MINI_TEXT_PREFIX) ? text.slice(MINI_TEXT_PREFIX.length) : '');
+      if (mini) {
+        event.preventDefault();
+        event.stopPropagation();
+        this.tooltip.hidden = true;
+        const token = this.tokenAt(event.clientX, event.clientY);
+        if (token) this.host.assignMini?.(token, mini);
+        else this.host.warn('Tabletop: drop the mini on a token.');
+        return;
+      }
       const material = event.dataTransfer?.getData(MATERIAL_DRAG_TYPE) || (text.startsWith(MATERIAL_TEXT_PREFIX) ? text.slice(MATERIAL_TEXT_PREFIX.length) : '');
       if (!material) return;
       event.preventDefault();

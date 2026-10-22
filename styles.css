@@ -105,7 +105,7 @@
   white-space: nowrap;
 }
 
-.atlas-tabletop-controls {
+.atlas-tabletop-picker-controls {
   display: flex;
   flex-wrap: wrap;
   gap: var(--size-4-2) var(--size-4-6);

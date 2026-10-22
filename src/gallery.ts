@@ -7,6 +7,7 @@
  */
 import { ItemView, Menu, Modal, Notice, setIcon, type App, type TFile, type TFolder, type WorkspaceLeaf } from 'obsidian';
 import type { MiniLibrary } from './library';
+import { MINI_DRAG_TYPE, MINI_TEXT_PREFIX } from './assignments';
 import { MATERIAL_DRAG_TYPE, MATERIAL_TEXT_PREFIX, type MaterialLibrary } from './materials';
 import { MAX_TEXTURE_SCALE, MIN_TEXTURE_SCALE } from './materialMaps';
 
@@ -57,6 +58,8 @@ interface GridOptions {
   selected?: string | null;
   onPick?(file: TFile): void;
   onMenu?(file: TFile, event: MouseEvent): void;
+  /** Cards that can be dragged out, onto a token on the 3D board. */
+  draggable?: boolean;
 }
 
 /** Draws the cards of a library's GLBs into `grid`. */
@@ -102,6 +105,17 @@ This model has ${model.simplifiedFrom.toLocaleString()} triangles; Tabletop draw
       card.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); pick(); } });
     }
     if (options.onMenu) card.addEventListener('contextmenu', (event) => { event.preventDefault(); options.onMenu?.(file, event); });
+    if (options.draggable) {
+      card.draggable = true;
+      card.addEventListener('dragstart', (event) => {
+        if (!event.dataTransfer) return;
+        event.dataTransfer.setData(MINI_DRAG_TYPE, file.path);
+        event.dataTransfer.setData('text/plain', MINI_TEXT_PREFIX + file.path);
+        event.dataTransfer.effectAllowed = 'copy';
+        const image = thumb.querySelector('img');
+        if (image) event.dataTransfer.setDragImage(image, 24, 24);
+      });
+    }
   }
 }
 
@@ -286,6 +300,7 @@ export class GalleryView extends ItemView {
     const library = this.library;
     drawGrid(this.grid, library, {
       filter: this.filter,
+      ...(this.tab === 'minis' ? { draggable: true } : {}),
       ...(this.tab === 'props' ? { onPick: (file: TFile) => this.placeProp(file.path) } : {}),
       onMenu: (file, event) => {
         const menu = new Menu();
@@ -413,7 +428,7 @@ export class MiniPicker extends Modal {
     const grid = root.createDiv({ cls: 'atlas-tabletop-grid' });
     acceptDrops(root, this.library);
 
-    const controls = root.createDiv({ cls: 'atlas-tabletop-controls' });
+    const controls = root.createDiv({ cls: 'atlas-tabletop-picker-controls' });
     const slider = (label: string, min: number, max: number, stepBy: number, value: number, show: (v: number) => string, set: (v: number) => void): void => {
       const row = controls.createDiv({ cls: 'atlas-tabletop-slider' });
       row.createSpan({ text: label });
