@@ -46,6 +46,16 @@ through Connect for Atlas VTT see the minis too, if they have Tabletop installed
   where it should go. **Ctrl + drag** moves a prop, and right-clicking one removes it.
 - **Folders:** minis live in `atlas-vtt/assets/minis` and props in `atlas-vtt/assets/props`. Both can be changed in
   the settings.
+- **Dice:** the **Dice** button on the board's toolbar opens Atlas's dice tray. Pick dice (right-click a die for its
+  colours, each with how many of it are in that colour), a modifier and advantage, then **Roll**: the dice are laid
+  on the table where the camera looks. Press a die and drag to carry it, and let go to throw it; **Ctrl** and a press
+  gathers every die into one throw, and **Throw all** throws the rest. Dice bounce off tokens, props and walls, and
+  only the map's edge stops them. Dice still to be thrown carry a line round them. A die caught on an edge gives no
+  number and asks to be thrown again; an exploding die asks for another. Once every die has landed, the roll goes to
+  Atlas's roll log (and again whenever a die is thrown again). The **Dice log** and **Stat sheet** buttons beside it
+  show the rolls on the map and the selected token's sheet, whose rolls are thrown the same way. Dice packs are read
+  from `.obsidian/atlas-dice-packs/`, shared with Interactive Dice for Atlas VTT. Players' windows never show the
+  GM's dice; with Connect for Atlas VTT, players throw their own on their 3D view.
 
 GLBs must be self-contained and uncompressed (no Draco or Meshopt).
 
@@ -67,6 +77,8 @@ cp harness/board.html <dir>/index.html && cp styles.css <dir>/
 node harness/board-test.cjs <dir> <screenshot dir>
 ```
 
+The harnesses use Playwright's Chromium: install `playwright`, or point `PLAYWRIGHT_MODULE` at an installed copy.
+
 Player board harness (Tabletop's 3D board as Connect for Atlas VTT mounts it in a player's tab):
 
 ```
@@ -75,7 +87,14 @@ sed 's/board\.js/playerBoard.js/' harness/board.html > <dir>/playerBoard.html &&
 node harness/playerBoard-test.cjs <dir> <screenshot dir>
 ```
 
+## License
+
+[AGPL-3.0](LICENSE), as Connect for Atlas VTT.
+
 ## Credits
+
+The dice's shapes, faces and pack format come from [Interactive Dice for Atlas VTT](https://github.com/evolJoaoBento/atlas-physical-dice) (MIT).
+3D with [three.js](https://threejs.org) (MIT) and physics with [cannon-es](https://github.com/pmndrs/cannon-es) (MIT).
 
 The pin and condition icons, and the End combat flag, are from [game-icons.net](https://game-icons.net) (CC BY 3.0), by Lorc, Delapouite and contributors.
 They are the same icons Atlas VTT uses, and pins show the same colours as in Atlas.

@@ -1,7 +1,7 @@
 // Usage: node harness/playerBoard-test.cjs <bundle dir> <screenshot dir>, after bundling harness/playerBoard.ts as playerBoard.js
 // and copying harness/board.html as playerBoard.html with board.js swapped for playerBoard.js (see README).
 // Drives Tabletop's player board as Connect mounts it, with real mouse input, and checks what it asked of Connect.
-const { chromium } = require('C:/Users/joaoo/2075/atlas-vtt-connect/node_modules/playwright');
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const http = require('http'), fs = require('fs'), path = require('path');
 const root = process.argv[2];
 const shots = process.argv[3];

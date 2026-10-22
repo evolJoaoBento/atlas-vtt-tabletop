@@ -1,3 +1,7 @@
 node_modules/
 main.js
 .test-build/
+
+# Workspace notes and agent files, never published
+.superpowers/
+.claude/
