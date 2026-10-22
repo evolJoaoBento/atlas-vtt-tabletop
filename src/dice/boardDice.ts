@@ -5,7 +5,8 @@
  * again with a click or a flick on it. The board's tab (and the browser harness) make one per board.
  */
 import type { Board } from '../board/board';
-import { diceRulesOf, publishRoll, stockRoll, type MapViewLike, type RollResult } from './atlasDice';
+import { DiceLogPanel, logEntryOf } from '../board/diceLog';
+import { diceRulesOf, onRolled, publishRoll, stockRoll, type MapViewLike, type RollResult } from './atlasDice';
 import { DiceController } from './diceController';
 import type { ChosenPack } from './dicePack';
 import { DicePicker } from './dicePicker';
@@ -36,6 +37,9 @@ const GENTLE: Flick = { dx: 0, dy: 0, ms: 1 };
 
 export class BoardDice {
   readonly picker: DicePicker;
+  readonly log: DiceLogPanel;
+  /** The Atlas map view the log listens on, and how to stop. */
+  private heard: { view: MapViewLike; stop: () => void } | null = null;
   private table: DiceTable | null = null;
   private textures: DiceTextures | null = null;
   private controller: DiceController | null = null;
@@ -62,6 +66,14 @@ export class BoardDice {
       rules: () => this.rules(),
       onOpenChange: () => board.refreshToolbar(),
     });
+    // The log button beside it; every roll Atlas logs on the map shows in the log and as a card over the board.
+    const logAnchor = board.diceLogButton({
+      isOpen: () => this.log?.isOpen === true,
+      toggle: () => this.log.toggle(),
+      close: () => this.log.close(),
+    });
+    this.log = new DiceLogPanel(logAnchor ?? container, { toastParent: container, onOpenChange: () => board.refreshToolbar() });
+    this.listen();
     // What the roll waits on, as a line over the board, and the throw it asks for (an explosion has no die to click).
     this.prompt = doc.createElement('div');
     this.prompt.className = 'atlas-tabletop-dice-prompt';
@@ -81,6 +93,23 @@ export class BoardDice {
     // Before the board's own handling: a press on a die the roll waits on is the dice's, anything else the board's.
     container.addEventListener('pointerdown', down, true);
     this.stops.push(() => container.removeEventListener('pointerdown', down, true));
+  }
+
+  /** The log hears the Atlas map view that holds the board's map: it follows when that view opens, closes or moves. */
+  listen(): void {
+    if (this.disposed) return;
+    const view = this.deps.atlasView();
+    if (view === this.heard?.view) return;
+    this.heard?.stop();
+    this.heard = null;
+    if (!view) return;
+    this.heard = {
+      view,
+      stop: onRolled(view, (roll) => {
+        const entry = logEntryOf(roll);
+        if (entry) this.log.add(entry);
+      }),
+    };
   }
 
   /** The board shows another scene or map, or closes: the dice go, and the roll in play is never logged. */
@@ -118,8 +147,12 @@ export class BoardDice {
     this.teardown();
     // A press's stop takes itself out of the list: the list is walked as it was.
     for (const stop of [...this.stops]) stop();
+    this.heard?.stop();
+    this.heard = null;
     this.picker.dispose();
+    this.log.dispose();
     this.deps.board.diceButton(null);
+    this.deps.board.diceLogButton(null);
     this.prompt.remove();
   }
 

@@ -1773,6 +1773,12 @@ export class Board {
     return this.toolbar.setDice(this.audience === 'gm' ? handlers : null);
   }
 
+  /** The toolbar's Dice log button, opening the board's dice log; null takes it away. Returns where the log opens. */
+  diceLogButton(handlers: DiceButton | null): HTMLElement | null {
+    if (this.disposed) return null;
+    return this.toolbar.setDiceLog(this.audience === 'gm' ? handlers : null);
+  }
+
   /** Throws dice on this board from now on (a table made with `diceHost()`); the one before goes. */
   attachDice(table: DiceTable): void {
     if (this.dice && this.dice !== table) this.dice.dispose();

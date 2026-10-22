@@ -602,6 +602,8 @@ export class BoardView extends ItemView {
       this.watched = { view, stop };
     }
     this.initiative?.render();
+    // The dice log listens on the Atlas view holding the map.
+    this.dice?.listen();
     // Atlas opened or closed the map: whether players see the board's changes may have changed with it.
     this.sessionChanged();
     this.followTabs();

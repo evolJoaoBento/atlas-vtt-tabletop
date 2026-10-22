@@ -410,11 +410,17 @@ async function main(): Promise<void> {
   };
   // The GM's dice as the board's tab makes them, logging rolls on a stand-in Atlas map view of this map.
   const atlasRolls: Array<[string, unknown]> = [];
+  const atlasListeners = new Set<(roll: unknown) => void>();
+  const atlasBus = {
+    emit: (event: string, roll: unknown) => { atlasRolls.push([event, roll]); if (event === 'dice-rolled') for (const listener of [...atlasListeners]) listener(roll); },
+    on: (event: string, listener: (roll: unknown) => void) => { if (event === 'dice-rolled') atlasListeners.add(listener); },
+    off: (event: string, listener: (roll: unknown) => void) => { if (event === 'dice-rolled') atlasListeners.delete(listener); },
+  };
   const atlasView: MapViewLike = {
     getViewType: () => 'atlas-vtt',
     file: { path: map.path },
     atlasStore: { getState: () => ({ mapPath: map.path }) },
-    serviceManager: { getEventBus: () => ({ emit: (event: string, roll: unknown) => { atlasRolls.push([event, roll]); } }) },
+    serviceManager: { getEventBus: () => atlasBus },
   };
   const diceWarnings: string[] = [];
   const boardDice = new BoardDice({
@@ -426,7 +432,7 @@ async function main(): Promise<void> {
     pack: () => vendoredPack(),
     warn: (message) => { diceWarnings.push(message); },
   });
-  Object.assign(window, { boardTest: { boardDice, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, handoutUrl: images['green.png'], board, map, record, panel, rules, doorProps, wallHeights, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, insideFog, dice, ready: true } });
+  Object.assign(window, { boardTest: { boardDice, atlasBus, atlasListeners, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, handoutUrl: images['green.png'], board, map, record, panel, rules, doorProps, wallHeights, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, insideFog, dice, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

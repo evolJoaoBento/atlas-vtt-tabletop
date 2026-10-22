@@ -1513,5 +1513,52 @@ body.atlas-tabletop-player-window .view-header {
 .atlas-tabletop-dice-prompt[hidden] { display: none; }
 .atlas-tabletop-dice-prompt__throw { height: 28px; padding: 0 12px; }
 
+/* The GM's dice log, opened from the Log button beside Dice: Atlas's dropdown above the button, the rolls newest first. */
+.atlas-tabletop-atlas .atlas-tabletop-dice-log { right: -8px; width: 320px; cursor: default; }
+.atlas-tabletop-dice-log__list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow-y: auto; }
+.atlas-tabletop-dice-log__empty { margin: 0; padding: 16px 4px; text-align: center; color: var(--text-muted); font-size: var(--font-ui-small); }
+.atlas-tabletop-dice-log__empty[hidden] { display: none; }
+.atlas-tabletop-dice-log__entry { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); }
+.atlas-tabletop-dice-log__who { font-size: var(--font-ui-small); font-weight: var(--font-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atlas-tabletop-dice-log__summary { display: flex; align-items: baseline; gap: 6px; }
+.atlas-tabletop-dice-log__formula, .atlas-tabletop-dice-log__eq { color: var(--text-muted); font-size: var(--font-ui-small); }
+.atlas-tabletop-dice-log__total { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.atlas-tabletop-dice-log__dice, .atlas-tabletop-dice-card__dice { display: flex; flex-wrap: wrap; gap: 4px; }
+.atlas-tabletop-dice-log__die {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 22px; padding: 0 4px; box-sizing: border-box;
+  border-radius: 4px; background: var(--background-secondary); color: var(--text-normal);
+  border-bottom: 2px solid var(--die-tag-colour, transparent);
+  font-family: var(--font-monospace); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.atlas-tabletop-dice-log__die.is-max { color: var(--color-green, #2f9e44); }
+.atlas-tabletop-dice-log__die.is-min { color: var(--color-red, #e03131); }
+.atlas-tabletop-dice-log__die.is-dropped { background: transparent; color: var(--text-faint); text-decoration: line-through; }
+.atlas-tabletop-dice-log__entry.is-crit-success { border-color: var(--color-green, #2f9e44); box-shadow: inset 3px 0 0 var(--color-green, #2f9e44); }
+.atlas-tabletop-dice-log__entry.is-crit-failure { border-color: var(--color-red, #e03131); box-shadow: inset 3px 0 0 var(--color-red, #e03131); }
+
+/* A new roll as a card over the board, as Atlas's result card: the roller, the ability in small caps, a hero total;
+   yellow for a critical success, red for a failure. */
+.atlas-tabletop-dice-toasts { position: absolute; top: 56px; left: 50%; transform: translateX(-50%); z-index: 22; display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: calc(100% - 32px); pointer-events: none; }
+.atlas-tabletop-dice-toasts[hidden] { display: none; }
+@keyframes atlas-tabletop-card-enter { from { opacity: 0; transform: translateY(-32px) scale(0.94); } to { opacity: 1; transform: none; } }
+@keyframes atlas-tabletop-card-land { from { opacity: 0; transform: scale(1.7); filter: blur(5px); } 60% { opacity: 1; transform: scale(0.95); filter: blur(0); } to { opacity: 1; transform: scale(1); filter: blur(0); } }
+.atlas-tabletop-dice-card {
+  --card-accent: var(--interactive-accent);
+  display: flex; align-items: center; gap: 16px; box-sizing: border-box; width: max-content; min-width: 240px; max-width: 360px; padding: 14px 16px;
+  border-radius: 12px; color: var(--text-normal); font-size: 13px;
+  border: 1.5px solid color-mix(in oklch, var(--card-accent) 35%, color-mix(in oklch, var(--text-normal) 18%, transparent));
+  background: radial-gradient(120% 90% at 100% 50%, color-mix(in oklch, var(--card-accent) 14%, transparent), transparent 60%), var(--background-primary);
+  box-shadow: 0 1px 2px color-mix(in oklch, #000 30%, transparent), 0 12px 32px color-mix(in oklch, #000 45%, transparent), 0 0 28px color-mix(in oklch, var(--card-accent) 18%, transparent);
+  animation: atlas-tabletop-card-enter 0.35s cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+.atlas-tabletop-dice-card.is-crit-success { --card-accent: var(--color-yellow, #f0b429); }
+.atlas-tabletop-dice-card.is-crit-failure { --card-accent: var(--color-red, #e03131); }
+.atlas-tabletop-dice-card__content { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.atlas-tabletop-dice-card__who { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atlas-tabletop-dice-card__label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: color-mix(in oklch, var(--card-accent) 75%, var(--text-normal)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atlas-tabletop-dice-card__formula { font-family: var(--font-monospace); font-size: 12px; color: var(--text-muted); }
+.atlas-tabletop-dice-card__total { flex-shrink: 0; font-size: 36px; line-height: 1; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--card-accent); animation: atlas-tabletop-card-land 0.5s cubic-bezier(0.23, 1, 0.32, 1) 250ms both; }
+@media (prefers-reduced-motion: reduce) { .atlas-tabletop-dice-card, .atlas-tabletop-dice-card__total { animation-duration: 1ms !important; animation-delay: 0ms !important; } }
+
 /* A dice setting typed out of its range. */
 .atlas-tabletop-invalid { border-color: var(--text-error) !important; }

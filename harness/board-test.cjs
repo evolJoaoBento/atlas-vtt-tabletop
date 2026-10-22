@@ -1627,6 +1627,44 @@ server.listen(0, async () => {
       await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
       await page.evaluate(() => window.boardTest.boardDice.sceneChanged());
     }
+
+    // 27. The GM's dice log: the roll of 25 is in the log, and a statblock roll with a critical published on the map's
+    // Atlas view shows as a card over the board and first in the log; the Log button opens the panel and shuts the picker.
+    {
+      await page.evaluate(() => window.boardTest.boardDice.picker.close());
+      const logButton = page.locator('.atlas-tabletop-extensions button[aria-label="Dice log"]');
+      check('the toolbar has a Dice log button next to the Dice button', await logButton.count() === 1 && await page.evaluate(() => document.querySelector('.atlas-tabletop-dice-menu').nextElementSibling === document.querySelector('.atlas-tabletop-dice-log-menu')));
+      // The picker's rolls of 25 and 26 were heard: the oldest is the 2d6.
+      const heard = await page.evaluate(() => window.boardTest.boardDice.log.entries.map((entry) => entry.formula));
+      check('the log heard the rolls the picker threw, newest first', heard.length >= 2 && heard[heard.length - 1] === '2d6' && heard.every((formula) => formula !== ''), heard);
+      await page.evaluate(() => { window.countBefore = window.boardTest.boardDice.log.entries.length; });
+      await page.evaluate(() => window.boardTest.atlasBus.emit('dice-rolled', {
+        id: 'harness_1', timestamp: Date.now(), formula: '2d20kh1+5', total: 25, modifiers: 5, crit: 'high', rolledBy: 'Anna', source: { type: 'statblock', abilityName: 'Longsword' },
+        rolls: [{ die: 'd20', value: 20, max: 20, min: 1, colour: '#e03131', name: 'Red' }, { die: 'd20', value: 7, max: 20, min: 1, dropped: true }],
+      }));
+      await wait(900);
+      await page.screenshot({ path: `${shots}/board-27a-dice-toast.png` });
+      const card = await page.evaluate(() => { const c = [...document.querySelectorAll('.atlas-tabletop-dice-card')].find((candidate) => candidate.textContent.includes('Anna')); return c && { text: c.textContent, crit: c.classList.contains('is-crit-success'), shown: !!c.offsetParent }; });
+      check('a roll on the map shows as a card over the board: roller, ability, total, critical', card && card.shown && card.crit && card.text.includes('Anna') && card.text.includes('Longsword') && card.text.includes('25'), card);
+      await logButton.click();
+      await wait(250);
+      const log = page.locator('.atlas-tabletop-dice-log');
+      check('the Log button opens the log, newest roll first', await log.isVisible() && await page.evaluate(() => document.querySelector('.atlas-tabletop-dice-log__entry').textContent.includes('Anna')));
+      await page.screenshot({ path: `${shots}/board-27b-dice-log.png` });
+      await page.locator('.atlas-tabletop-extensions button[aria-label="Dice"]').click();
+      await wait(200);
+      check('opening Dice shuts the log, and the log button follows', !(await log.isVisible()) && await page.locator('.atlas-tabletop-dice-picker').isVisible());
+      await logButton.click();
+      await wait(200);
+      check('opening the log shuts the picker', await log.isVisible() && !(await page.locator('.atlas-tabletop-dice-picker').isVisible()));
+      await page.keyboard.press('Escape');
+      await wait(150);
+      check('Escape closes the log', !(await log.isVisible()));
+      await wait(3300);
+      check('the card goes after 4 seconds', await page.evaluate(() => document.querySelectorAll('.atlas-tabletop-dice-card').length === 0));
+      check('garbage on the bus is not logged', await page.evaluate(() => { const bus = window.boardTest.atlasBus; bus.emit('dice-rolled', { formula: 3 }); bus.emit('dice-rolled', null); return window.boardTest.boardDice.log.entries.length === window.countBefore + 1; }));
+      check('the log listens on the Atlas view once, and not after the board is gone', await page.evaluate(() => { const before = window.boardTest.atlasListeners.size; return before === 1; }));
+    }
   } catch (error) {
     check('harness ran', false, String(error && error.stack || error));
   }
