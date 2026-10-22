@@ -4,8 +4,8 @@
  * a d20) and no numbering, so it reads wrong or caught.
  */
 import { DEFAULT_PACK, DEFAULT_PACK_CONFIG, defaultPackSheets } from './defaultPack';
-import type { DicePack } from './kit/dieShapes';
-import { DIE_TYPES, type DieType } from './kit/faces';
+import { dieFaceCount, type DicePack, type PackDie } from './kit/dieShapes';
+import { DIE_FACES, DIE_TYPES, type DieType } from './kit/faces';
 import { loadPack, packFileUrls, type PackFs } from './kit/packs';
 
 export interface ChosenPack {
@@ -37,12 +37,29 @@ export async function choosePack(fs: PackFs, folder: string, name: string): Prom
   }
 }
 
+/** A d100 is a d10 with tens on it: ten faces. */
+const facesOf = (type: DieType): number => (type === 'd100' ? 10 : DIE_FACES[type]);
+
 /**
- * A pack that leaves a die out wears the default pack's for it: its shape, numbering and sheet. Built from nothing, that
- * die would read wrong or never read.
+ * Whether a pack's entry is enough to build and read its die: a sheet, a solid with the die's number of faces, a number
+ * for each face, and where each face lies on the sheet (a grid's cells or the faces' corners).
+ */
+function usableDie(type: DieType, entry: unknown): boolean {
+  if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) return false;
+  const die = entry as PackDie;
+  const faces = facesOf(type);
+  return typeof die.texture === 'string' && die.texture !== ''
+    && dieFaceCount(type, { dice: { [type]: die } }) === faces
+    && Array.isArray(die.numbers) && die.numbers.length === faces && die.numbers.every((n) => Number.isInteger(n))
+    && ((Array.isArray(die.faces) && die.faces.length === faces) || (Array.isArray(die.grid?.cells) && die.grid.cells.length === faces));
+}
+
+/**
+ * A pack that leaves a die out, or describes it too little to build or read, wears the default pack's for it: its
+ * shape, numbering and sheet. Built from nothing, that die would read wrong or never read.
  */
 function withDefaultDice(pack: ChosenPack): ChosenPack {
-  const missing = DIE_TYPES.filter((type) => !pack.config.dice?.[type]);
+  const missing = DIE_TYPES.filter((type) => !usableDie(type, pack.config.dice?.[type]));
   if (missing.length === 0) return pack;
   const fallback = vendoredPack();
   const dice = { ...pack.config.dice };

@@ -33,7 +33,7 @@ async function quietly<T>(body: () => Promise<T>): Promise<T> {
 const facesOf = (config: Parameters<typeof dieGeometry>[2]): number => dieFaceNormals('d100', dieGeometry('d100', 0.5, config)).normals.length;
 
 test('the chosen pack is read from the shared folder, its sheets as resource URLs', async () => {
-  const manifest = { name: 'Bone', dice: { d6: { texture: 'six.png' }, d100: { geometry: 'd10', texture: 'pct.png' } } };
+  const manifest = { name: 'Bone', dice: { d6: { ...DEFAULT_PACK_CONFIG.dice!.d6!, texture: 'six.png' }, d100: { ...DEFAULT_PACK_CONFIG.dice!.d100!, texture: 'pct.png' } } };
   const pack = await choosePack(fakeFs({ [`${FOLDER}/Bone/pack.json`]: JSON.stringify(manifest) }), FOLDER, 'Bone');
   assert.equal(pack.name, 'Bone');
   assert.equal(pack.config.name, 'Bone');
@@ -65,7 +65,7 @@ test("the default pack's files go to the shared folder under its own name, the m
 });
 
 test('a pack that leaves a die out takes that die from the default pack, its sheet too', async () => {
-  const manifest = { name: 'Sixes', dice: { d6: { texture: 'six.png' } } };
+  const manifest = { name: 'Sixes', dice: { d6: { ...DEFAULT_PACK_CONFIG.dice!.d6!, texture: 'six.png' } } };
   const pack = await choosePack(fakeFs({ [`${FOLDER}/Sixes/pack.json`]: JSON.stringify(manifest) }), FOLDER, 'Sixes');
   assert.equal(pack.name, 'Sixes');
   assert.deepEqual(pack.config.dice?.d6, manifest.dice.d6);
@@ -86,4 +86,27 @@ test('the default sheets are let go of when the plugin unloads, and made again w
   assert.ok(first && revoked.includes(first));
   assert.equal(revoked.length, 7);
   assert.notEqual(defaultPackSheets().d20, first);
+});
+
+test('a die the pack describes too little to build or read takes the default pack\'s die', async () => {
+  const d6 = DEFAULT_PACK_CONFIG.dice!.d6!;
+  const manifest = {
+    name: 'Thin',
+    dice: {
+      d6: { ...d6, texture: 'six.png' },
+      d100: {},
+      d20: { texture: 'twenty.png' },
+      d10: { ...DEFAULT_PACK_CONFIG.dice!.d10!, numbers: [1, 2, 3] },
+      d8: { ...DEFAULT_PACK_CONFIG.dice!.d8!, faces: [] },
+      d12: { ...DEFAULT_PACK_CONFIG.dice!.d12!, texture: '' },
+      d4: 'd4',
+    },
+  };
+  const pack = await choosePack(fakeFs({ [`${FOLDER}/Thin/pack.json`]: JSON.stringify(manifest) }), FOLDER, 'Thin');
+  assert.equal(pack.textures.d6, `app://vault/${FOLDER}/Thin/six.png`, 'a whole d6 is the pack\'s own');
+  for (const type of ['d4', 'd8', 'd10', 'd12', 'd20', 'd100'] as const) {
+    assert.deepEqual(pack.config.dice?.[type], DEFAULT_PACK_CONFIG.dice?.[type], type);
+    assert.match(pack.textures[type] ?? '', /^blob:/, `${type} wears the default sheet`);
+  }
+  assert.equal(facesOf(pack.config), 10);
 });

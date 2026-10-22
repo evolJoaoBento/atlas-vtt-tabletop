@@ -116,7 +116,8 @@ export class BoardDice {
     if (this.disposed) return;
     this.disposed = true;
     this.teardown();
-    for (const stop of this.stops) stop();
+    // A press's stop takes itself out of the list: the list is walked as it was.
+    for (const stop of [...this.stops]) stop();
     this.picker.dispose();
     this.deps.board.diceButton(null);
     this.prompt.remove();
