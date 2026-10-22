@@ -263,3 +263,19 @@ test('the felt and the walls hold a die wherever it lands in a wide tray', () =>
     dice.dispose();
   }
 }));
+
+test('a die new to the table lets go of no dice held where it is made', () => seeded(21, () => {
+  const { dice } = table(0);
+  const session = new RollSession({ dice: { d6: 3 }, modifier: 0 }, DEFAULT_RULES);
+  const [first, second, third] = session.dice.map((state) => state.id);
+  // The third die already has its number: the throw leaves it off the table, as an explosion not yet thrown is.
+  session.settle(third, { caught: false, face: 4, confidence: 1 });
+  dice.throwRoll(session, { dx: 0, dy: -200, ms: 100 });
+  run(dice);
+  // Two dice held one on the other at the tray's centre, where a new die's body is made.
+  bodyOf(dice, first).position.set(0, 0.5, 0);
+  bodyOf(dice, second).position.set(0, 1.5, 0);
+  dice.throwDie(third, { dx: 0, dy: -200, ms: 100 });
+  assert.equal(bodyOf(dice, second).type, CANNON.Body.STATIC, 'the die on top is still held');
+  assert.equal(bodyOf(dice, first).type, CANNON.Body.STATIC);
+}));
