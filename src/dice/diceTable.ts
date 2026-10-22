@@ -9,7 +9,7 @@ import * as CANNON from 'cannon-es';
 import { diePhysicsShape, dieFaceNormals, dieGeometry, dieMaterial, type DicePack } from './kit/dieShapes';
 import { readFace, type DieType, type FaceReading, type Vec3 } from './kit/faces';
 import type { RollSession } from './rollSession';
-import type { Flick } from './throwInput';
+import { MAX_THROW_SPEED, MIN_THROW_SPEED, throwVector, type Flick } from './throwInput';
 import { dieEdgePx, trayAt, type Tray } from './tray';
 
 export interface DiceTableHost {
@@ -54,8 +54,7 @@ const LONGEST_ROLL_MS = 12_000;
 const START_SHARE = 0.55;
 const START_HEIGHT = 3;
 const SPREAD = 1.4;
-/** Throw speed, in die edges per second: per pixel per millisecond of the flick, and its bounds. */
-const SPEED_PER_PX_MS = 25;
+/** Throw speed, in die edges per second: the flick's gentlest toss to its hardest fling. */
 const MIN_SPEED = 10;
 const MAX_SPEED = 40;
 /** Interactive Dice's downward push and its largest spin, in radians per second. */
@@ -241,13 +240,14 @@ export class DiceTable {
     const edge = dieEdgePx(this.host.gridSize(), this.settings.dieSquares);
     const halfWidth = tray.halfWidth / edge;
     const halfDepth = tray.halfDepth / edge;
-    const length = Math.hypot(flick.dx, flick.dy);
-    // Screen right is the tray's +x and screen down its +z (toward the thrower); no flick throws straight ahead.
-    const dir = length > 0 ? { x: flick.dx / length, z: flick.dy / length } : { x: 0, z: -1 };
+    // The flick on the ground as the camera sees it now, turned into the tray's frame (its +x screen right when it was
+    // laid, +z toward the thrower): the camera may have turned since.
+    const thrown = throwVector(flick, this.host.cameraYaw() - tray.yaw);
+    const dir = { x: thrown.x, z: thrown.z };
     const across = { x: -dir.z, z: dir.x };
     const offset = (index - (count - 1) / 2) * SPREAD;
     const inside = (value: number, half: number): number => Math.max(-half + 1, Math.min(half - 1, value));
-    const speed = Math.min(MAX_SPEED, Math.max(MIN_SPEED, (length / Math.max(flick.ms, 16)) * SPEED_PER_PX_MS));
+    const speed = MIN_SPEED + ((thrown.speed - MIN_THROW_SPEED) / (MAX_THROW_SPEED - MIN_THROW_SPEED)) * (MAX_SPEED - MIN_SPEED);
     const { body } = die;
     body.type = CANNON.Body.DYNAMIC;
     body.mass = 1;

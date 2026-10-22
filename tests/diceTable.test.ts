@@ -7,7 +7,7 @@ import { RollSession } from '../src/dice/rollSession';
 
 const SETTINGS: DiceSettings = { dieSquares: 0.6, tolerance: 0.3, motionThreshold: 2, shadows: true, highlight: true, highlightColor: '#ffd700' };
 
-function table(yaw = 0.7): { dice: DiceTable; scene: THREE.Scene; wakes: number[] } {
+function table(yaw: number | (() => number) = 0.7): { dice: DiceTable; scene: THREE.Scene; wakes: number[] } {
   const scene = new THREE.Scene();
   const wakes: number[] = [];
   const host: DiceTableHost = {
@@ -15,12 +15,30 @@ function table(yaw = 0.7): { dice: DiceTable; scene: THREE.Scene; wakes: number[
     gridSize: () => 70,
     target: () => ({ x: 500, z: 300 }),
     visibleHalfExtent: () => ({ x: 600, z: 400 }),
-    cameraYaw: () => yaw,
+    cameraYaw: typeof yaw === 'number' ? () => yaw : yaw,
     wake: () => { wakes.push(1); },
     textures: () => ({}),
     pack: () => ({}),
   };
   return { dice: new DiceTable(host, SETTINGS), scene, wakes };
+}
+
+/** Runs `body` with Math.random replaced by a seeded generator (mulberry32), so a throw comes out the same every time. */
+function seeded<T>(seed: number, body: () => T): T {
+  const random = Math.random;
+  let state = seed >>> 0;
+  Math.random = () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  try {
+    return body();
+  } finally {
+    Math.random = random;
+  }
 }
 
 /** Steps 60 frames a second until nothing moves, or gives up after a minute of play. */
@@ -98,3 +116,19 @@ test('a ray finds the die it meets; clear takes the dice away', () => {
   assert.equal(dice.object3d.children.length, 0);
   assert.equal(dice.busy, false);
 });
+
+test('a die thrown again goes up the screen as the camera faces now, though the tray was laid facing another way', () => seeded(7, () => {
+  let yaw = 0.7;
+  const { dice } = table(() => yaw);
+  const session = new RollSession({ dice: { d6: 1 }, modifier: 0 }, DEFAULT_RULES);
+  dice.throwRoll(session, { dx: 0, dy: -200, ms: 100 });
+  run(dice);
+  // A quarter turn more: up the screen is now the tray's -x (its left as it was laid).
+  yaw += Math.PI / 2;
+  dice.throwDie(session.dice[0].id, { dx: 0, dy: -200, ms: 100 });
+  const mesh = dice.object3d.children[0];
+  const from = mesh.position.clone();
+  for (let i = 0; i < 4; i++) dice.step(1000 / 60);
+  const moved = mesh.position.clone().sub(from);
+  assert.ok(moved.x < -1 && Math.abs(moved.z) < Math.abs(moved.x) / 3, `toward the tray's -x: ${moved.x}, ${moved.z}`);
+}));
