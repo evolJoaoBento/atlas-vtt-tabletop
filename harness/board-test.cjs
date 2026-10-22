@@ -1518,10 +1518,54 @@ server.listen(0, async () => {
       await wait(150);
       check('Escape closes the picker', !(await picker.isVisible()));
       await diceButton.click();
+      await wait(150);
+      // The board still, so only Clear itself can ask for a frame: minis' clips and flames held, each frame counted with
+      // the dice it drew. The board draws only when woken, so dice cleared without a frame stay on the screen.
+      const stilled = await page.evaluate(async () => {
+        const b = window.boardTest.board;
+        window.clearHeld = [];
+        for (const entry of b.tokens.values()) {
+          Object.defineProperty(entry.piece, 'animating', { value: false, configurable: true });
+          window.clearHeld.push(entry.piece);
+        }
+        Object.defineProperty(b.rig, 'animated', { value: false, configurable: true });
+        window.clearHeld.push(b.rig);
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        window.clearFrames = [];
+        const drawMain = b.drawMain;
+        b.drawMain = function (...args) { window.clearFrames.push(b.dice?.object3d.children.length ?? 0); return drawMain.apply(this, args); };
+        window.clearUnwatch = () => { b.drawMain = drawMain; };
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        return { idleFrames: window.clearFrames.length, dice: b.dice?.object3d.children.length ?? 0 };
+      });
+      check('(before Clear: the dice on the table)', stilled.dice === 2, stilled);
+      // Only the frames from Clear on count.
+      const clearButton = await picker.locator('.atlas-tabletop-dice-clear').boundingBox();
+      await page.mouse.move(clearButton.x + clearButton.width / 2, clearButton.y + clearButton.height / 2);
+      await wait(100);
+      // Still: no frame for 400 ms (the frames the hover asked for have run out).
+      const quiet = await page.evaluate(async () => {
+        for (let tries = 0; tries < 25; tries++) {
+          const before = window.clearFrames.length;
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          if (window.clearFrames.length === before) return true;
+        }
+        return false;
+      });
+      check('(before Clear: the board has gone still)', quiet);
+      await page.evaluate(() => { window.clearFrames = []; });
       await picker.locator('.atlas-tabletop-dice-clear').click();
       await wait(300);
-      const cleared = await page.evaluate(() => ({ dice: window.boardTest.board.dice.object3d.children.length, request: window.boardTest.boardDice.picker.request() }));
+      const cleared = await page.evaluate(() => {
+        const frames = window.clearFrames.slice();
+        window.clearUnwatch();
+        for (const held of window.clearHeld) delete held.animating;
+        for (const held of window.clearHeld) delete held.animated;
+        window.boardTest.board.wake();
+        return { frames, dice: window.boardTest.board.dice.object3d.children.length, request: window.boardTest.boardDice.picker.request() };
+      });
       check('Clear takes the dice off the table and empties the picker (Roll would throw the default d20)', cleared.dice === 0 && JSON.stringify(cleared.request) === JSON.stringify({ dice: { d20: 1 }, modifier: 0 }), cleared);
+      check('Clear redraws the board at once: a frame is drawn, with no dice in it', cleared.frames.length >= 1 && cleared.frames.at(-1) === 0, cleared.frames);
       // A scene change drops a roll in play: no roll reaches Atlas.
       await picker.locator('.atlas-tabletop-dice-roll').click();
       await wait(100);

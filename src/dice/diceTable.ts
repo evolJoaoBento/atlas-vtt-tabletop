@@ -170,7 +170,8 @@ export class DiceTable {
     this.dice.delete(dieId);
     this.removeDie(die);
     this.loosenDiceOn(die);
-    if (this.busy) this.host.wake();
+    // The board draws only when woken: the die leaves the picture now, whether or not others still roll.
+    this.host.wake();
   }
 
   /** The die a ray (in the board's world) meets first, or null. */
@@ -182,17 +183,20 @@ export class DiceTable {
     return id ?? null;
   }
 
-  /** Takes every die and the tray away. */
+  /** Takes every die and the tray away, and off the screen at once (the board draws only when woken). */
   clear(): void {
+    const shown = this.dice.size > 0;
     for (const die of this.dice.values()) this.removeDie(die);
     this.dice.clear();
     for (const wall of this.walls) this.world.removeBody(wall);
     this.walls = [];
     this.tray = null;
     this.session = null;
+    if (shown) this.host.wake();
   }
 
   dispose(): void {
+    // Clear asks for the frame that draws the board without the dice; the group leaves the scene before it comes.
     this.clear();
     this.object3d.removeFromParent();
   }
