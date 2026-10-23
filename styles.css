@@ -124,10 +124,13 @@
 }
 
 /* The 3D board's tab: the board fills it, with a tooltip for condition rings and stat badges. */
-.atlas-tabletop-board-view.atlas-tabletop-board-view.atlas-tabletop-board-view {
+.atlas-tabletop-board-view {
   position: relative;
-  padding: 0;
   overflow: hidden;
+}
+
+.atlas-tabletop-board-view.atlas-tabletop-board-view.atlas-tabletop-board-view {
+  padding: 0;
 }
 
 .atlas-tabletop-board {
@@ -404,11 +407,14 @@
 }
 
 /* The local player view: the board fills its window, a screen for the players. */
-.atlas-tabletop-player-view.atlas-tabletop-player-view.atlas-tabletop-player-view {
+.atlas-tabletop-player-view {
   position: relative;
-  padding: 0;
   overflow: hidden;
   background: #0f0c0a;
+}
+
+.atlas-tabletop-player-view.atlas-tabletop-player-view.atlas-tabletop-player-view {
+  padding: 0;
 }
 
 .atlas-tabletop-player-stage {
@@ -441,9 +447,12 @@ body.atlas-tabletop-player-window .view-header {
 
 /* Atlas's tool group and dropdown, as its stylesheet (0.8.0) draws them, for the laser's options: copied rule for rule
    under Tabletop's own root (`.atlas-tabletop-atlas`), so they look the same with or without Atlas's styles. */
-.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-dropdown-menu {
+.atlas-tabletop-atlas .atlas-dropdown-menu {
   position: relative;
   display: inline-block;
+}
+
+.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-dropdown-menu {
   border-radius: var(--radius-l);
 }
 
@@ -679,14 +688,17 @@ body.atlas-tabletop-player-window .view-header {
   flex-shrink: 0;
 }
 
-.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-dropdown-menu-item {
-  display: grid;
+.atlas-tabletop-atlas .atlas-dropdown-menu-item {
   grid-template-columns: 16px 16px 1fr auto;
   gap: 0 8px;
   align-items: center;
   width: 100%;
   text-align: left;
   white-space: nowrap;
+}
+
+.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-dropdown-menu-item {
+  display: grid;
 }
 
 .atlas-tabletop-atlas .atlas-dropdown-menu-item__check {
@@ -763,14 +775,17 @@ body.atlas-tabletop-player-window .view-header {
   flex-shrink: 0;
 }
 
-.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .btn--toolbar {
-  background: transparent;
+.atlas-tabletop-atlas .btn--toolbar {
   color: var(--text-muted);
   width: 20px;
   height: 36px;
   padding: 0;
   border: none;
   outline: none;
+}
+
+.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .btn--toolbar {
+  background: transparent;
 }
 
 .atlas-tabletop-atlas .btn--icon {
@@ -783,21 +798,27 @@ body.atlas-tabletop-player-window .view-header {
   border-radius: var(--atlas-bar-start-radius, var(--radius-m)) var(--atlas-bar-end-radius, var(--radius-m)) var(--atlas-bar-end-radius, var(--radius-m)) var(--atlas-bar-start-radius, var(--radius-m));
 }
 
+.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn:not(.atlas-dice-tray *) {
+  transition: transform 0.16s cubic-bezier(0.23, 1, 0.32, 1), background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 .atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn:not(.atlas-dice-tray *) {
   background: transparent;
   border: none;
   outline: none;
   box-shadow: none;
-  transition: transform 0.16s cubic-bezier(0.23, 1, 0.32, 1), background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .atlas-tabletop-atlas .atlas-vtt-toolbar button.btn:not(.atlas-dice-tray *):active:not(:disabled) {
   transform: scale(0.96);
 }
 
+.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn:not(.atlas-dice-tray *):focus-visible {
+  outline-offset: -2px;
+}
+
 .atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn:not(.atlas-dice-tray *):focus-visible {
   outline: 2px solid var(--interactive-accent);
-  outline-offset: -2px;
 }
 
 .atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-vtt-toolbar button.btn:not(.atlas-dice-tray *):hover {
@@ -852,9 +873,12 @@ body.atlas-tabletop-player-window .view-header {
   background: var(--interactive-accent-hover);
 }
 
-.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-dropdown-menu {
+.atlas-tabletop-atlas .atlas-dropdown-menu {
   position: relative;
   display: inline-block;
+}
+
+.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-dropdown-menu {
   border-radius: var(--radius-l);
 }
 
@@ -866,13 +890,16 @@ body.atlas-tabletop-player-window .view-header {
   border-radius: var(--radius-m);
 }
 
-.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-tool-group .atlas-dropdown-trigger.btn {
+.atlas-tabletop-atlas .atlas-tool-group .atlas-dropdown-trigger.btn {
   width: 20px;
   height: 40px;
   padding: 0;
   margin-left: 0;
-  border-left: 1px solid var(--divider-color);
   color: var(--text-muted);
+}
+
+.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-tool-group .atlas-dropdown-trigger.btn {
+  border-left: 1px solid var(--divider-color);
 }
 
 .atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-tool-group .atlas-dropdown-trigger.btn:hover:not(.atlas-is-active) {
@@ -1556,4 +1583,6 @@ body.atlas-tabletop-player-window .view-header {
 .atlas-tabletop-sheet button.atlas-tabletop-sheet__roll:hover { background: var(--interactive-accent); color: var(--text-on-accent); }
 
 /* A dice setting typed out of its range. */
-.atlas-tabletop-invalid.atlas-tabletop-invalid.atlas-tabletop-invalid { border-color: var(--text-error); }
+.atlas-tabletop-invalid.atlas-tabletop-invalid.atlas-tabletop-invalid {
+  border-color: var(--text-error);
+}

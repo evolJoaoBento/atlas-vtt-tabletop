@@ -80,7 +80,7 @@ export interface BoardHost {
   propMenu(id: string, event: MouseEvent): void;
   /** Shows a token's stat block (Ctrl/Cmd + hover). */
   statblockPreview(id: string, event: MouseEvent): void;
-  /** Saves a copy of a token (Alt + drag) under `newId` at (x, y). */
+  /** Saves a copy of a token (Shift + Alt + drag) under `newId` at (x, y). */
   copyToken(id: string, newId: string, x: number, y: number): void;
   /**
    * Saves a resource edited from the token's controls: `edit` turns the value held now (by Atlas, or in the file) into
@@ -131,6 +131,9 @@ export interface BoardHost {
   paintWall(id: string, material: string, whole: boolean): void;
   /** A mini dragged from the gallery onto a token: that token is drawn as it. */
   assignMini?(tokenId: string, glb: string): void;
+  /** Alt + drag on a token turns its mini: its turn in degrees now (null with no mini), and where a drag saves it. */
+  miniTurn?(tokenId: string): number | null;
+  setMiniTurn?(tokenId: string, turn: number): void;
   /** The GM's camera or the players' moved (Connect follows it for its players' "GM view"). */
   cameraMoved?(): void;
   /** A Connect player's board: whether the player may drag this token now (one the GM lets them control). */
@@ -235,6 +238,8 @@ type Press =
     start: { x: number; y: number };
     waypoints: Array<{ x: number; y: number }>;
   }
+  /** Alt + drag on a token with a mini: the mini turns with the pointer round the token, from where it was. */
+  | { kind: 'rotate'; id: string; x: number; y: number; moved: boolean; center: { x: number; y: number }; startAngle: number; startTurn: number; turn: number }
   | { kind: 'prop'; id: string; x: number; y: number; moved: boolean; grab: { dx: number; dy: number } }
   /** Ctrl + drag on a wall or a light: up raises it, down lowers it; `start` is its height when the drag began, in squares. */
   | { kind: 'height'; target: 'wall' | 'light'; id: string; x: number; y: number; moved: boolean; start: number }
@@ -1325,10 +1330,16 @@ export class Board {
       const id = this.tokenAt(x, y);
       const entry = id ? this.tokens.get(id) : null;
       const at = this.boardPoint(x, y);
+      const turn = id && event.altKey && !event.shiftKey ? this.host.miniTurn?.(id) ?? null : null;
+      if (id && entry && at && turn !== null) {
+        const center = { x: entry.at.x, y: entry.at.y };
+        this.press = { kind: 'rotate', id, x, y, moved: false, center, startAngle: Math.atan2(at.y - center.y, at.x - center.x), startTurn: turn, turn };
+        return;
+      }
       if (id && entry && at) {
         this.press = {
           kind: 'token', id, x, y, moved: false, grab: { dx: entry.at.x - at.x, dy: entry.at.y - at.y },
-          copy: event.altKey, start: snapPoint(this.map!.grid, entry.token.x, entry.token.y), waypoints: [],
+          copy: event.altKey && event.shiftKey, start: snapPoint(this.map!.grid, entry.token.x, entry.token.y), waypoints: [],
         };
         entry.piece.carried = true;
         return;
@@ -1446,6 +1457,18 @@ export class Board {
     const { clientX: x, clientY: y } = event;
     if (!press.moved && Math.hypot(x - press.x, y - press.y) >= DRAG_PX) press.moved = true;
     if (!press.moved) return;
+    if (press.kind === 'rotate') {
+      const at = this.boardPoint(x, y);
+      if (!at) return;
+      let turn = press.startTurn + THREE.MathUtils.radToDeg(Math.atan2(at.y - press.center.y, at.x - press.center.x) - press.startAngle);
+      if (event.shiftKey) turn = Math.round(turn / 15) * 15;
+      turn = ((turn % 360) + 360) % 360;
+      press.turn = turn;
+      this.tokens.get(press.id)?.piece.turnMini(turn);
+      this.showTip(x, y, `Turn ${Math.round(turn)}° (Shift: steps of 15°)`);
+      this.wake(true);
+      return;
+    }
     if (press.kind === 'camera') {
       const dx = x - press.lastX;
       const dy = y - press.lastY;
@@ -1509,6 +1532,13 @@ export class Board {
       for (const action of actions) if (action.type === 'laser') this.marks.laser('self', action.points, true, action.color || (this.host.ownColor?.() ?? '#ff0059'), this.clock);
       this.act(actions);
       this.showToolOverlay();
+      return;
+    }
+    if (press.kind === 'rotate') {
+      this.tooltip.hidden = true;
+      if (press.moved) this.host.setMiniTurn?.(press.id, press.turn);
+      else if (this.audience === 'gm') this.select(press.id);
+      this.wake(true);
       return;
     }
     if (press.kind === 'token') {
@@ -1575,7 +1605,12 @@ export class Board {
       this.showToolOverlay();
       return;
     }
-    if (press?.kind === 'token') {
+    if (press?.kind === 'rotate') {
+      // A lost drag leaves the mini turned as it was.
+      this.tokens.get(press.id)?.piece.turnMini(press.startTurn);
+      this.tooltip.hidden = true;
+      this.wake(true);
+    } else if (press?.kind === 'token') {
       this.clearRuler();
       const entry = this.tokens.get(press.id);
       if (entry) {
@@ -1755,7 +1790,7 @@ export class Board {
     this.wake();
   }
 
-  /** Alt + drag let go: the token goes back, and a copy (shown at once) is saved where it was dropped. */
+  /** Shift + Alt + drag let go: the token goes back, and a copy (shown at once) is saved where it was dropped. */
   private copyToken(entry: TokenEntry, at: { x: number; y: number }): void {
     const map = this.map!;
     entry.goal = { x: entry.token.x, y: entry.token.y };

@@ -264,6 +264,16 @@ export class TokenPiece {
     this.build();
   }
 
+  /** The mini's own turn in degrees, null for a token with no mini. */
+  get miniTurn(): number | null {
+    return this.model && this.placement ? this.placement.turn : null;
+  }
+
+  /** Turns the mini now (a drag shows it before it is saved). */
+  turnMini(turn: number): void {
+    if (this.placement) this.placement = { ...this.placement, turn };
+  }
+
   setMini(model: LoadedMini | null, placement: MiniPlacement | null): void {
     if (model === this.model && placement?.mini === this.placement?.mini && placement?.scale === this.placement?.scale && placement?.turn === this.placement?.turn) return;
     const changedModel = model !== this.model;
@@ -378,12 +388,13 @@ export class TokenPiece {
         face.receiveShadow = true;
         this.body.add(coin, face);
       }
-      if (this.token.showRing) {
+      // A token with a mini stands on the board without a ring.
+      if (this.token.showRing && !this.model) {
         const outer = ringDiameter(this.grid, this.token.size) / 2;
         const tube = Math.max(0.5, (outer - d / 2) / 2);
         const ring = new THREE.Mesh(new THREE.TorusGeometry(d / 2 + tube, tube, 12, 64).rotateX(Math.PI / 2), this.material({ color: ringColor, metalness: 0.3, roughness: 0.4 }));
         // Around the disc's top edge; with a mini, lying on the board.
-        ring.position.y = this.model ? tube : this.top;
+        ring.position.y = this.top;
         ring.castShadow = true;
         // On the ground: a downed figure tips over, its ring stays.
         this.ground.add(ring);

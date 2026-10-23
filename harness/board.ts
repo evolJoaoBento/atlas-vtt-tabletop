@@ -3,6 +3,7 @@
  * mini, a standee, a hidden one and one whose art is missing; two pins and a prop) on a `Board` with a fake host that
  * records what the board asks of it. Driven by Playwright; not shipped.
  */
+import './dom-polyfill';
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { Board, type BoardHost } from '../src/board/board';

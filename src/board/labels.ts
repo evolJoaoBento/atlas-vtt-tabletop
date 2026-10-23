@@ -11,11 +11,13 @@
  * numbers counted among the tokens players see.
  */
 import * as THREE from 'three';
-import { conditionLabel, type CollectionRules } from './conditions';
-import { conditionRingRadii, sideBadgeSlots } from './geometry';
+import { conditionLabel, type CollectionRules, type ConditionDefinition } from './conditions';
+import { CONDITION_ICON_PATHS, resolveConditionIcon } from './conditionIconData';
+import { sideBadgeSlots } from './geometry';
 import type { BoardToken, TokenSettings } from './mapModel';
 import type { PoseContext } from './pieces';
 import { BAR_SLOTS, resourceColor, visibleResources, wheelGauge, type ResourceDefinition, type ResourceValue } from './resources';
+import { isLightBadgeColor } from './tokenMenu';
 import { canvasTexture, plateTexture } from './textures';
 
 /** Sizes on screen, in pixels: Atlas's bar is 64 × 10 and its wheel two bar heights across. */
@@ -175,6 +177,122 @@ function wheelTexture(badge: Badge): THREE.CanvasTexture {
   });
 }
 
+/**
+ * Atlas's condition badge (`ConditionBadge.ts`): a softly lit disc in the condition's colour inside a dark bezel, its
+ * glyph in white (near-black on a light colour), a dark pip with its number on the lower right for a valued one. The
+ * overflow badge ("+3") is a dark grey disc.
+ */
+const BADGE = { radius: 6, bezel: 1, bezelColor: '#111114', pip: 0.6, pipOffset: 0.72, pipColor: '#1c1c22', overflowColor: '#3a3a42', glyph: 0.62 };
+/** The texture's width in badge units: the badge with its bezel, and a margin for the shadow. */
+const BADGE_UNITS = (BADGE.radius + BADGE.bezel) * 2 + 2;
+
+function shade(hex: string, amount: number): string {
+  const value = Number.parseInt(hex.replace('#', '').padEnd(6, '0').slice(0, 6), 16);
+  const channel = (shift: number): number => {
+    const part = (value >> shift) & 255;
+    return Math.round(amount >= 0 ? part + (255 - part) * amount : part * (1 + amount));
+  };
+  return `rgb(${channel(16)}, ${channel(8)}, ${channel(0)})`;
+}
+
+function conditionBadgeTexture(definition: ConditionDefinition | null, value: number | undefined, overflow: number): THREE.CanvasTexture {
+  const px = 128;
+  const unit = px / BADGE_UNITS;
+  return canvasTexture(px, px, (context) => {
+    const c = px / 2;
+    const radius = BADGE.radius * unit;
+    const bezel = BADGE.bezel * unit;
+    context.fillStyle = 'rgba(0,0,0,0.3)';
+    context.beginPath();
+    context.arc(c, c + radius * 0.18, radius + bezel + unit * 0.5, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = BADGE.bezelColor;
+    context.beginPath();
+    context.arc(c, c, radius + bezel, 0, Math.PI * 2);
+    context.fill();
+    const color = definition?.color ?? BADGE.overflowColor;
+    if (definition) {
+      const gradient = context.createLinearGradient(0, c - radius, 0, c + radius);
+      gradient.addColorStop(0, shade(color, 0.18));
+      gradient.addColorStop(0.55, color);
+      gradient.addColorStop(1, shade(color, -0.2));
+      context.fillStyle = gradient;
+    } else context.fillStyle = color;
+    context.beginPath();
+    context.arc(c, c, radius, 0, Math.PI * 2);
+    context.fill();
+    context.strokeStyle = 'rgba(255,255,255,0.18)';
+    context.lineWidth = radius * 0.08;
+    context.beginPath();
+    context.arc(c, c, radius + radius * 0.04, 0, Math.PI * 2);
+    context.stroke();
+    context.fillStyle = definition && isLightBadgeColor(color) ? '#16161a' : '#ffffff';
+    const path = definition?.icon ? CONDITION_ICON_PATHS[resolveConditionIcon(definition.icon)] : undefined;
+    if (path) {
+      const size = radius * 2 * BADGE.glyph;
+      context.save();
+      context.translate(c - size / 2, c - size / 2);
+      context.scale(size / 512, size / 512);
+      context.fill(new Path2D(path));
+      context.restore();
+    } else {
+      const text = definition ? (Array.from(definition.name.trim())[0] ?? '?').toLocaleUpperCase() : `+${overflow}`;
+      context.font = numberFont(Math.round(radius * (definition ? 1.1 : 0.95)));
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.fillText(text, c, c + unit * 0.4);
+    }
+    if (definition && value !== undefined) {
+      const pipRadius = radius * BADGE.pip;
+      const x = c + radius * BADGE.pipOffset;
+      const y = c + radius * BADGE.pipOffset;
+      context.fillStyle = BADGE.bezelColor;
+      context.beginPath();
+      context.arc(x, y, pipRadius + bezel * 0.75, 0, Math.PI * 2);
+      context.fill();
+      context.fillStyle = BADGE.pipColor;
+      context.beginPath();
+      context.arc(x, y, pipRadius, 0, Math.PI * 2);
+      context.fill();
+      context.fillStyle = '#ffffff';
+      context.font = numberFont(Math.round(pipRadius * 1.25));
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.fillText(String(value), x, y + unit * 0.3);
+    }
+  });
+}
+
+/**
+ * The badges fan out in an arc of the token's ring like Atlas's (`conditionBadgeLayout.ts`), three on a medium token; here
+ * below the token, since the name and bars take the space above it.
+ */
+const ARC_CENTRE = 0.5 * Math.PI;
+const ARC_SPAN = Math.PI / 2;
+/** A badge's radius, and the distance between neighbours' centres, as shares of the token's ring radius (Atlas: 7 and 15.5 of 31). */
+const BADGE_SHARE = 7 / 31;
+const PITCH_SHARE = 15.5 / 31;
+const MAX_CONDITION_SLOTS = 6;
+/** The token ring the badges are laid on is never smaller than this on screen, in pixels. */
+const MIN_RING_PX = 34;
+
+/** How many badges fit the arc, and how many conditions are left to the "+n" badge. */
+export function fitConditionBadges(count: number): { shown: number; overflow: number } {
+  const badgeAngle = PITCH_SHARE * ((BADGE_SHARE * 2) / PITCH_SHARE);
+  const slots = Math.max(1, Math.min(MAX_CONDITION_SLOTS, Math.floor((ARC_SPAN - badgeAngle) / PITCH_SHARE) + 1));
+  if (count <= slots) return { shown: count, overflow: 0 };
+  return { shown: slots - 1, overflow: count - (slots - 1) };
+}
+
+/** Badge centres from the token's centre, in ring radii: right and up on screen. */
+export function conditionBadgeOffsets(count: number): Array<{ x: number; y: number }> {
+  const middle = (count - 1) / 2;
+  return Array.from({ length: count }, (_, index) => {
+    const angle = ARC_CENTRE + (middle - index) * PITCH_SHARE;
+    return { x: Math.cos(angle), y: -Math.sin(angle) };
+  });
+}
+
 const sprite = (texture: THREE.Texture): THREE.Sprite => {
   const made = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, sizeAttenuation: false, transparent: true, depthTest: false }));
   made.renderOrder = 20;
@@ -187,7 +305,8 @@ export class TokenLabels {
   private readonly side = new THREE.Group();
   private stack: Array<{ sprite: THREE.Sprite; width: number; height: number }> = [];
   private badges: THREE.Sprite[] = [];
-  private rings: THREE.Mesh[] = [];
+  private conditionBadges: THREE.Sprite[] = [];
+  private ringRadius = 0;
   private hover: HoverTarget[] = [];
   private resources: ResourceTarget[] = [];
   private sideRadius = 0;
@@ -206,7 +325,7 @@ export class TokenLabels {
 
   /** Everything drawn over the token: a press on any of it is a press on the token. */
   get sprites(): THREE.Sprite[] {
-    return [...this.stack.map((entry) => entry.sprite), ...this.badges];
+    return [...this.stack.map((entry) => entry.sprite), ...this.badges, ...this.conditionBadges];
   }
 
   get hoverTargets(): readonly HoverTarget[] {
@@ -259,12 +378,23 @@ export class TokenLabels {
 
     if (character) {
       const known = token.conditions.filter((id) => rules.conditions.has(id));
-      for (const id of known) {
+      const { shown: count, overflow } = fitConditionBadges(known.length);
+      known.slice(0, count).forEach((id) => {
         const definition = rules.conditions.get(id)!;
-        const ring = new THREE.Mesh(new THREE.RingGeometry(0, 1, 64).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: definition.color, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2 }));
-        this.object3d.add(ring);
-        this.rings.push(ring);
-        this.hover.push({ object: ring, label: conditionLabel(definition, token.conditionValues[id]) });
+        const value = definition.valued ? token.conditionValues[id] ?? 1 : undefined;
+        const made = sprite(conditionBadgeTexture(definition, value, 0));
+        this.side.add(made);
+        this.conditionBadges.push(made);
+        this.hover.push({ object: made, label: conditionLabel(definition, token.conditionValues[id]) });
+      });
+      if (overflow > 0) {
+        const made = sprite(conditionBadgeTexture(null, undefined, overflow));
+        this.side.add(made);
+        this.conditionBadges.push(made);
+        this.hover.push({
+          object: made,
+          label: known.slice(count).map((id) => conditionLabel(rules.conditions.get(id)!, token.conditionValues[id])).join(', '),
+        });
       }
     }
   }
@@ -272,21 +402,13 @@ export class TokenLabels {
   /** Places the labels around a token `figureHeight` tall, its ring `baseRadius` across, its base's top at `baseY`. */
   place(figureHeight: number, baseRadius: number, baseY: number): void {
     // Called every frame: the rings are rebuilt only when the token's shape changed.
-    const key = `${figureHeight}|${baseRadius}|${baseY}|${this.rings.length}`;
+    const key = `${figureHeight}|${baseRadius}|${baseY}|${this.conditionBadges.length}`;
     if (key === this.placed) return;
     this.placed = key;
     this.top.position.y = figureHeight + baseRadius * 0.15;
     this.side.position.y = Math.max(baseY, figureHeight * 0.55);
     this.sideRadius = baseRadius * 1.15;
-    const width = baseRadius * 0.12;
-    const gap = baseRadius * 0.05;
-    const radii = conditionRingRadii(baseRadius, this.rings.length, width, gap);
-    this.rings.forEach((ring, index) => {
-      const radius = radii[index];
-      ring.geometry.dispose();
-      ring.geometry = new THREE.RingGeometry(radius - width / 2, radius + width / 2, 64).rotateX(-Math.PI / 2);
-      ring.position.y = baseY + 0.2;
-    });
+    this.ringRadius = baseRadius;
   }
 
   /** Keeps the labels one size on screen and the side wheels beside the token as the camera turns. */
@@ -300,6 +422,16 @@ export class TokenLabels {
     }
     // Screen right, on the board, for a camera turned by `yaw`.
     const right = new THREE.Vector3(Math.cos(context.yaw), 0, -Math.sin(context.yaw));
+    // Condition badges grow with the token on screen, as Atlas's do on its ring.
+    // With a floor, so they stay readable when the board is far away.
+    const ringPx = Math.max(MIN_RING_PX, this.ringRadius * context.zoom);
+    const offsets = conditionBadgeOffsets(this.conditionBadges.length);
+    const badgePx = ringPx * BADGE_SHARE * 2 * (BADGE_UNITS / ((BADGE.radius + BADGE.bezel) * 2));
+    this.conditionBadges.forEach((badge, index) => {
+      badge.position.set(0, 0, 0);
+      badge.scale.set(context.pixel * badgePx, context.pixel * badgePx, 1);
+      badge.center.set(0.5 - (offsets[index].x * ringPx) / badgePx, 0.5 - (offsets[index].y * ringPx) / badgePx);
+    });
     const slots = sideBadgeSlots(this.badges.length);
     this.badges.forEach((badge, index) => {
       const slot = slots[index];
@@ -313,14 +445,10 @@ export class TokenLabels {
   private clear(): void {
     for (const entry of this.stack) this.disposeSprite(entry.sprite);
     for (const badge of this.badges) this.disposeSprite(badge);
-    for (const ring of this.rings) {
-      ring.removeFromParent();
-      ring.geometry.dispose();
-      (ring.material as THREE.Material).dispose();
-    }
+    for (const badge of this.conditionBadges) this.disposeSprite(badge);
     this.stack = [];
     this.badges = [];
-    this.rings = [];
+    this.conditionBadges = [];
     this.hover = [];
     this.resources = [];
     this.placed = '';

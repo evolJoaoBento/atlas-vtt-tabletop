@@ -1,5 +1,5 @@
 /**
- * Saves what the board changes on a map: a token moved, copied (Alt-drag), killed, reset, hidden or shown, given or
+ * Saves what the board changes on a map: a token moved, copied (Shift + Alt-drag), killed, reset, hidden or shown, given or
  * relieved of a condition, deleted, put in or taken out of the initiative; a resource stepped or edited; and what the
  * initiative tracker does (turns, rolls, the order, a fight started or ended).
  * Atlas never re-reads a map file it has open: its next save writes what it holds, which would undo a change written

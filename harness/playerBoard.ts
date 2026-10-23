@@ -2,6 +2,7 @@
  * The player board harness: Tabletop's `playerBoard` mounted as Connect mounts it in a player's tab, with a fake Connect
  * that records what the board asks of it, a Connect scene and board extras, and files that arrive late on demand.
  */
+import './dom-polyfill';
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { playerBoardFactory, type PlayerBoardHandle, type PlayerBoardHost } from '../src/playerBoard';

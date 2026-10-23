@@ -1,6 +1,6 @@
 {
   "name": "atlas-vtt-tabletop",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "description": "Atlas VTT extension: stand 3D GLB minis on tokens, with a gallery to import them; shared with players over Atlas VTT Connect.",
   "main": "main.js",

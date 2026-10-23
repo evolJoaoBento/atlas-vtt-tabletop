@@ -172,13 +172,16 @@ export function buildSheet(creature: unknown, fallbackName: string | null = null
   const sections: SheetSection[] = [];
   for (const [key, title] of SECTIONS) {
     const found = items(creature[key]);
+    // Fantasy Statblocks keeps the intro to these lists in its own field.
+    const intro = text(creature[key.replace(/_actions$/, '_description')], SHEET_LIMITS.desc);
+    if (intro && found.length > 0) found.unshift({ name: title, desc: intro });
     if (found.length > 0) sections.push({ title, items: found });
     if (sections.length >= SHEET_LIMITS.sections) break;
   }
   return {
     name,
     subtitle,
-    ac: text(creature.ac, SHEET_LIMITS.short),
+    ac: text([text(creature.ac, SHEET_LIMITS.short), creature.ac_class ? `(${text(creature.ac_class, SHEET_LIMITS.short) ?? ''})` : null].filter(Boolean).join(' '), SHEET_LIMITS.short),
     hp,
     speed: text(creature.speed, SHEET_LIMITS.short),
     stats,
