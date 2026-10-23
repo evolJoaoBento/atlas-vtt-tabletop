@@ -1,4 +1,4 @@
-import { Notice, Plugin, PluginSettingTab, Setting, TFile, debounce, type App, type ButtonComponent, type WorkspaceLeaf } from 'obsidian';
+import { Notice, Plugin, PluginSettingTab, Setting, TFile, debounce, type App, type ButtonComponent, type SettingDefinitionItem, type SettingDefinitionRender, type WorkspaceLeaf } from 'obsidian';
 import { Assignments, readAssignments, type AssignmentData, type MiniPlacement } from './src/assignments';
 import { mapViews } from './src/atlas';
 import { BOARD_VIEW_TYPE, BoardView, HOVER_SOURCE } from './src/board/BoardView';
@@ -471,45 +471,66 @@ function fileOf(leaf: WorkspaceLeaf): string | null {
   return typeof file === 'string' ? file : null;
 }
 
+/** A settings row both drawn by display() and handed to Obsidian 1.13's settings search. */
+interface SettingRow extends SettingDefinitionRender {
+  draw(setting: Setting): void;
+}
+
 class TabletopSettingTab extends PluginSettingTab {
   constructor(app: App, private readonly plugin: TabletopPlugin) {
     super(app, plugin);
   }
 
+  /** Obsidian 1.13 and later read the settings from here (and search them); earlier versions draw display(). */
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    const items: SettingDefinitionItem[] = [...this.generalRows(), { type: 'group', heading: 'Dice', items: this.diceRows() }];
+    if (GpuSettings.here()) items.push({ type: 'group', heading: 'Graphics card', items: [this.graphicsRow()] });
+    return items;
+  }
+
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
-    new Setting(containerEl)
-      .setName('Minis folder')
-      .setDesc('Where imported GLB minis are kept. GLB files put in this folder by hand are listed too.')
-      .addText((text) => text.setPlaceholder(DEFAULT_MINIS_FOLDER).setValue(this.plugin.settings.folder).onChange((value) => { void this.plugin.setFolder('folder', value); }));
-    new Setting(containerEl)
-      .setName('Props folder')
-      .setDesc('Where imported GLB props (furniture, scenery) are kept. GLB files put in this folder by hand are listed too.')
-      .addText((text) => text.setPlaceholder(DEFAULT_PROPS_FOLDER).setValue(this.plugin.settings.propsFolder).onChange((value) => { void this.plugin.setFolder('propsFolder', value); }));
-    new Setting(containerEl)
-      .setName('Materials folder')
-      .setDesc('Where imported materials (Poly Haven texture sets) are kept, one folder each. Drag one from the gallery onto a wall or door on a 3D board to paint it.')
-      .addText((text) => text.setPlaceholder(DEFAULT_MATERIALS_FOLDER).setValue(this.plugin.settings.materialsFolder).onChange((value) => { void this.plugin.setFolder('materialsFolder', value); }));
-    new Setting(containerEl)
-      .setName('3D board quality')
-      .setDesc('Low draws fastest (no antialiasing, soft blob shadows). Medium is sharper. High gives minis their real shadows and draws at full resolution. On all of them the resolution drops a little while the board cannot keep up.')
-      .addDropdown((dropdown) => dropdown
-        .addOptions({ low: 'Low', medium: 'Medium', high: 'High' })
-        .setValue(this.plugin.settings.quality)
-        .onChange((value) => { void this.plugin.setQuality(readQuality(value)); }));
-    void this.diceSection(containerEl);
-    void this.graphicsCard(containerEl);
+    const draw = (rows: SettingRow[]): void => { for (const row of rows) row.draw(new Setting(containerEl)); };
+    draw(this.generalRows());
+    new Setting(containerEl).setName('Dice').setHeading();
+    draw(this.diceRows());
+    if (GpuSettings.here()) {
+      new Setting(containerEl).setName('Graphics card').setHeading();
+      draw([this.graphicsRow()]);
+    }
+  }
+
+  /** A settings row drawn imperatively: named and described here, so a search finds it before it is drawn. */
+  private row(name: string, desc: string, build: (setting: Setting) => void, aliases: string[] = []): SettingRow {
+    const draw = (setting: Setting): void => { setting.setName(name).setDesc(desc); build(setting); };
+    return { name, desc, aliases, draw, render: draw };
+  }
+
+  private generalRows(): SettingRow[] {
+    const { plugin } = this;
+    const folder = (name: string, desc: string, key: 'folder' | 'propsFolder' | 'materialsFolder', fallback: string): SettingRow => this.row(name, desc, (setting) => {
+      setting.addText((text) => text.setPlaceholder(fallback).setValue(plugin.settings[key]).onChange((value) => { void plugin.setFolder(key, value); }));
+    });
+    return [
+      folder('Minis folder', 'Where imported GLB minis are kept. GLB files put in this folder by hand are listed too.', 'folder', DEFAULT_MINIS_FOLDER),
+      folder('Props folder', 'Where imported GLB props (furniture, scenery) are kept. GLB files put in this folder by hand are listed too.', 'propsFolder', DEFAULT_PROPS_FOLDER),
+      folder('Materials folder', 'Where imported materials (Poly Haven texture sets) are kept, one folder each. Drag one from the gallery onto a wall or door on a 3D board to paint it.', 'materialsFolder', DEFAULT_MATERIALS_FOLDER),
+      this.row('3D board quality', 'Low draws fastest (no antialiasing, soft blob shadows). Medium is sharper. High gives minis their real shadows and draws at full resolution. On all of them the resolution drops a little while the board cannot keep up.', (setting) => {
+        setting.addDropdown((dropdown) => dropdown
+          .addOptions({ low: 'Low', medium: 'Medium', high: 'High' })
+          .setValue(plugin.settings.quality)
+          .onChange((value) => { void plugin.setQuality(readQuality(value)); }));
+      }),
+    ];
   }
 
   /** The GM's dice: their size, pack, shadows, the highlight of a die caught on an edge, how they are read, their colours. */
-  private async diceSection(containerEl: HTMLElement): Promise<void> {
+  private diceRows(): SettingRow[] {
     const { plugin } = this;
-    const dice = plugin.settings.dice;
-    new Setting(containerEl).setName('Dice').setHeading();
-    const number = (name: string, desc: string, key: 'dieSquares' | 'tolerance' | 'motionThreshold', bounds: { min: number; max: number }): void => {
-      new Setting(containerEl).setName(name).setDesc(`${desc} (${bounds.min} to ${bounds.max}; default ${DEFAULT_DICE_SETTINGS[key]}).`).addText((text) => {
-        text.setPlaceholder(String(DEFAULT_DICE_SETTINGS[key])).setValue(String(dice[key]));
+    const number = (name: string, desc: string, key: 'dieSquares' | 'tolerance' | 'motionThreshold', bounds: { min: number; max: number }): SettingRow => this.row(name, `${desc} (${bounds.min} to ${bounds.max}; default ${DEFAULT_DICE_SETTINGS[key]}).`, (setting) => {
+      setting.addText((text) => {
+        text.setPlaceholder(String(DEFAULT_DICE_SETTINGS[key])).setValue(String(plugin.settings.dice[key]));
         // Taken when the field is left (or Enter), not at each keystroke: a change clears the dice on the boards.
         text.inputEl.addEventListener('change', () => {
           const value = text.getValue();
@@ -519,20 +540,34 @@ class TabletopSettingTab extends PluginSettingTab {
           if (ok && read !== plugin.settings.dice[key]) plugin.setDice({ [key]: read });
         });
       });
-    };
-    number('Die size', 'How big a die is on the 3D board, in grid squares', 'dieSquares', DIE_SQUARES);
-    const pack = new Setting(containerEl).setName('Dice pack').setDesc(`The texture pack the dice wear, from the shared packs folder (${plugin.packsFolder}), which Interactive Dice for Atlas VTT reads too.`);
-    new Setting(containerEl).setName('Shadows').setDesc('Dice cast shadows on the board.').addToggle((toggle) => toggle.setValue(dice.shadows).onChange((value) => plugin.setDice({ shadows: value })));
-    new Setting(containerEl).setName('Highlight caught dice').setDesc('A die that lands caught on an edge, with no face up, is lit in this colour until it is thrown again.')
-      .addToggle((toggle) => toggle.setValue(dice.highlight).onChange((value) => plugin.setDice({ highlight: value })))
-      .addColorPicker((picker) => picker.setValue(dice.highlightColor).onChange((value) => plugin.setDice({ highlightColor: value })));
-    number('Face detection tolerance', 'How far from flat a die may rest and still be read; a die tilted more is caught', 'tolerance', TOLERANCE);
-    number('Motion threshold', 'Higher waits for stiller dice before reading them', 'motionThreshold', MOTION_THRESHOLD);
-    new Setting(containerEl).setName('Dice colours').setDesc("The colours a die can be thrown in (right-click a die in the board's dice picker), one a line: a name, then the colour as #rrggbb. The name shows in Atlas's roll log.")
-      .addTextArea((area) => {
-        area.setValue(colorsText(dice.colors)).onChange((value) => plugin.setDice({ colors: readColorsText(value) }));
-        area.inputEl.rows = 6;
-      });
+    });
+    const pack = this.row('Dice pack', `The texture pack the dice wear, from the shared packs folder (${plugin.packsFolder}), which Interactive Dice for Atlas VTT reads too.`, (setting) => { void this.packChoice(setting); });
+    return [
+      number('Die size', 'How big a die is on the 3D board, in grid squares', 'dieSquares', DIE_SQUARES),
+      pack,
+      this.row('Shadows', 'Dice cast shadows on the board.', (setting) => {
+        setting.addToggle((toggle) => toggle.setValue(plugin.settings.dice.shadows).onChange((value) => plugin.setDice({ shadows: value })));
+      }),
+      this.row('Highlight caught dice', 'A die that lands caught on an edge, with no face up, is lit in this colour until it is thrown again.', (setting) => {
+        const dice = plugin.settings.dice;
+        setting
+          .addToggle((toggle) => toggle.setValue(dice.highlight).onChange((value) => plugin.setDice({ highlight: value })))
+          .addColorPicker((picker) => picker.setValue(dice.highlightColor).onChange((value) => plugin.setDice({ highlightColor: value })));
+      }),
+      number('Face detection tolerance', 'How far from flat a die may rest and still be read; a die tilted more is caught', 'tolerance', TOLERANCE),
+      number('Motion threshold', 'Higher waits for stiller dice before reading them', 'motionThreshold', MOTION_THRESHOLD),
+      this.row('Dice colours', "The colours a die can be thrown in (right-click a die in the board's dice picker), one a line: a name, then the colour as #rrggbb. The name shows in Atlas's roll log.", (setting) => {
+        setting.addTextArea((area) => {
+          area.setValue(colorsText(plugin.settings.dice.colors)).onChange((value) => plugin.setDice({ colors: readColorsText(value) }));
+          area.inputEl.rows = 6;
+        });
+      }),
+    ];
+  }
+
+  /** The dice pack dropdown: the packs are listed from disk, so it is added once they are known. */
+  private async packChoice(pack: Setting): Promise<void> {
+    const { plugin } = this;
     let packs: string[] = [];
     try {
       packs = await listPacks(plugin.packFs, plugin.packsFolder);
@@ -541,10 +576,10 @@ class TabletopSettingTab extends PluginSettingTab {
     }
     if (!pack.settingEl.isConnected) return;
     // The pack chosen, and the default pack, are offered even when the folder cannot be listed.
-    const names = [...new Set([dice.pack, DEFAULT_PACK, ...packs])].sort();
+    const names = [...new Set([plugin.settings.dice.pack, DEFAULT_PACK, ...packs])].sort();
     pack.addDropdown((dropdown) => dropdown
       .addOptions(Object.fromEntries(names.map((name) => [name, name])))
-      .setValue(dice.pack)
+      .setValue(plugin.settings.dice.pack)
       .onChange((value) => plugin.setDice({ pack: value })));
   }
 
@@ -552,11 +587,15 @@ class TabletopSettingTab extends PluginSettingTab {
    * Windows only: which graphics card Obsidian draws on. Saving writes Windows' own per-app setting for Obsidian; it
    * takes effect when the GM restarts Obsidian, which Tabletop leaves to them.
    */
-  private async graphicsCard(containerEl: HTMLElement): Promise<void> {
+  private graphicsRow(): SettingRow {
+    return this.row('Card Obsidian draws on', 'The 3D board runs much faster on a dedicated graphics card. This is the same setting as Windows Settings → System → Display → Graphics, for Obsidian; it takes effect after you restart Obsidian.', (status) => { void this.graphicsCard(status); }, ['graphics card', 'gpu']);
+  }
+
+  private async graphicsCard(status: Setting): Promise<void> {
     const gpu = GpuSettings.here();
     if (!gpu) return;
-    new Setting(containerEl).setName('Graphics card').setHeading();
-    const status = new Setting(containerEl).setName('Checking the graphics cards…');
+    const containerEl = status.settingEl;
+    status.setName('Checking the graphics cards…').setDesc('');
     let adapters;
     let saved: GpuPreference;
     try {

@@ -102,7 +102,7 @@ export class SheetDrawer {
   }
 
   private el<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, into: HTMLElement | null, text?: string): HTMLElementTagNameMap[K] {
-    const made = this.parent.ownerDocument.createElement(tag);
+    const made = this.parent.ownerDocument.win.createEl(tag);
     if (className) made.className = className;
     if (text !== undefined) made.textContent = text;
     into?.appendChild(made);

@@ -145,7 +145,7 @@ export class DicePicker {
   constructor(private readonly parent: HTMLElement, private readonly opts: DicePickerOptions) {
     const doc = parent.ownerDocument;
     const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className: string, into: HTMLElement, text?: string): HTMLElementTagNameMap[K] => {
-      const made = doc.createElement(tag);
+      const made = doc.win.createEl(tag);
       made.className = className;
       if (text !== undefined) made.textContent = text;
       into.appendChild(made);
@@ -291,7 +291,7 @@ export class DicePicker {
       face.replaceChildren();
       const picture = this.opts.picture?.(die) ?? null;
       if (picture) {
-        const img = doc.createElement('img');
+        const img = doc.win.createEl('img');
         img.className = 'atlas-tabletop-die-picture';
         img.src = picture;
         img.alt = '';
@@ -299,13 +299,13 @@ export class DicePicker {
         img.draggable = false;
         face.appendChild(img);
       } else {
-        const name = doc.createElement('span');
+        const name = doc.win.createSpan();
         name.className = 'atlas-tabletop-dice-face-name';
         name.textContent = die;
         face.appendChild(name);
       }
       if (count > 0) {
-        const badge = doc.createElement('span');
+        const badge = doc.win.createSpan();
         badge.className = 'atlas-dice-tray__count';
         badge.setAttribute('aria-hidden', 'true');
         badge.textContent = String(count);
@@ -325,7 +325,7 @@ export class DicePicker {
       const cell = this.grips.get(die)!;
       cell.querySelector('.atlas-dice-tray__grip, .atlas-dice-tray__grip-space')?.remove();
       if (count > 0) {
-        const grip = doc.createElement('button');
+        const grip = doc.win.createEl('button');
         grip.type = 'button';
         grip.className = 'atlas-dice-tray__grip';
         grip.setAttribute('aria-label', `Take one ${die} back`);
@@ -333,7 +333,7 @@ export class DicePicker {
         grip.addEventListener('click', () => this.change(stepDie(this.pick, die, -1)));
         cell.appendChild(grip);
       } else {
-        const space = doc.createElement('span');
+        const space = doc.win.createSpan();
         space.className = 'atlas-dice-tray__grip-space';
         space.setAttribute('aria-hidden', 'true');
         cell.appendChild(space);
@@ -380,19 +380,19 @@ export class DicePicker {
     if (!die) return;
     const doc = this.parent.ownerDocument;
     this.swatches.replaceChildren();
-    const label = doc.createElement('span');
+    const label = doc.win.createSpan();
     label.className = 'atlas-dice-tray__modifier-label';
     label.textContent = `${die} colours`;
     this.swatches.appendChild(label);
-    const row = doc.createElement('div');
+    const row = doc.win.createDiv();
     row.className = 'atlas-dice-tray__dice atlas-tabletop-dice-colours';
     this.swatches.appendChild(row);
     const full = countOf(this.pick, die) >= DIE_LIMIT || pickedCount(this.pick) >= MAX_DICE;
     const cell = (color: string | null, name: string): void => {
       const count = countOf(this.pick, die, color);
-      const made = doc.createElement('div');
+      const made = doc.win.createDiv();
       made.className = 'atlas-dice-tray__die atlas-tabletop-dice-colour';
-      const face = doc.createElement('button');
+      const face = doc.win.createEl('button');
       face.type = 'button';
       face.className = `atlas-dice-tray__face atlas-tabletop-dice-colour__face${color ? '' : ' atlas-tabletop-dice-swatch--pack'}`;
       if (color) face.style.setProperty('--atlas-tabletop-swatch', color);
@@ -401,7 +401,7 @@ export class DicePicker {
       face.disabled = full;
       face.addEventListener('click', () => this.change(stepDie(this.pick, die, 1, color)));
       if (count > 0) {
-        const badge = doc.createElement('span');
+        const badge = doc.win.createSpan();
         badge.className = 'atlas-dice-tray__count';
         badge.setAttribute('aria-hidden', 'true');
         badge.textContent = String(count);
@@ -409,7 +409,7 @@ export class DicePicker {
       }
       made.appendChild(face);
       if (count > 0) {
-        const grip = doc.createElement('button');
+        const grip = doc.win.createEl('button');
         grip.type = 'button';
         grip.className = 'atlas-dice-tray__grip';
         grip.setAttribute('aria-label', `Take a ${name} ${die} back`);
@@ -417,7 +417,7 @@ export class DicePicker {
         grip.addEventListener('click', () => this.change(stepDie(this.pick, die, -1, color)));
         made.appendChild(grip);
       } else {
-        const space = doc.createElement('span');
+        const space = doc.win.createSpan();
         space.className = 'atlas-dice-tray__grip-space';
         space.setAttribute('aria-hidden', 'true');
         made.appendChild(space);

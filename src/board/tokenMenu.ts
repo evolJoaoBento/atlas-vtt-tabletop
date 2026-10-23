@@ -57,7 +57,7 @@ export function isLightBadgeColor(hex: string): boolean {
 
 /** A condition's badge as tokens show it in Atlas: its colour, and its icon (or its initial) in white or dark. */
 function conditionBadge(doc: Document, condition: ConditionDefinition): HTMLElement {
-  const badge = doc.createElement('span');
+  const badge = doc.win.createSpan();
   badge.className = `atlas-condition-badge${isLightBadgeColor(condition.color) ? ' atlas-condition-badge--light' : ''}`;
   badge.setAttribute('aria-hidden', 'true');
   badge.style.setProperty('--atlas-condition-color', condition.color);
@@ -67,12 +67,12 @@ function conditionBadge(doc: Document, condition: ConditionDefinition): HTMLElem
   const path = condition.icon ? CONDITION_ICON_PATHS[condition.icon] : undefined;
   if (path) {
     const size = Math.round(BADGE_SIZE * 0.62);
-    const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const svg = doc.win.createSvg('svg');
     svg.setAttribute('width', String(size));
     svg.setAttribute('height', String(size));
     svg.setAttribute('viewBox', '0 0 512 512');
     svg.setAttribute('fill', 'currentColor');
-    const glyph = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
+    const glyph = doc.win.createSvg('path');
     glyph.setAttribute('d', path);
     svg.appendChild(glyph);
     badge.appendChild(svg);
@@ -147,17 +147,17 @@ export function tokenMenuEntries(context: TokenMenuContext): MenuEntry[] {
   entries.push({
     type: 'custom',
     render: (doc, close) => {
-      const row = doc.createElement('div');
+      const row = doc.win.createDiv();
       row.className = 'atlas-ctx-destructive-row';
       const button = (icon: string, label: string, action: () => void): void => {
-        const made = doc.createElement('div');
+        const made = doc.win.createDiv();
         made.className = 'atlas-ctx-destructive-btn';
         made.setAttribute('role', 'menuitem');
         made.tabIndex = 0;
-        const glyph = doc.createElement('span');
+        const glyph = doc.win.createSpan();
         glyph.className = 'atlas-ctx-icon';
         context.icon(glyph, icon);
-        made.append(glyph, Object.assign(doc.createElement('span'), { textContent: label }));
+        made.append(glyph, Object.assign(doc.win.createSpan(), { textContent: label }));
         made.addEventListener('click', (event) => { event.stopPropagation(); action(); close(); });
         row.appendChild(made);
       };

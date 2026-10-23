@@ -146,7 +146,7 @@ export class GpuSettings {
 
 /** The chip this window's WebGL draws on, or null when it cannot tell. */
 export function currentChip(doc: Document): string | null {
-  const canvas = doc.createElement('canvas');
+  const canvas = doc.win.createEl('canvas');
   const gl = canvas.getContext('webgl2') ?? canvas.getContext('webgl');
   if (!gl) return null;
   const info = gl.getExtension('WEBGL_debug_renderer_info');

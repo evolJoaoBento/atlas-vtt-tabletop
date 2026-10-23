@@ -141,6 +141,7 @@ class FakeElement {
 class FakeDocument extends FakeElement {
   constructor() { super(null as unknown as FakeDocument); }
   createElement(tag: string): FakeElement { return new FakeElement(this, tag); }
+  get win() { return { createEl: (tag: string) => this.createElement(tag), createDiv: () => this.createElement('div'), createSpan: () => this.createElement('span') }; }
   importNode(node: FakeElement): FakeElement { return node; }
   createTextNode(text: string): FakeElement { const node = new FakeElement(this, '#text', true); node.textContent = text; return node; }
 }

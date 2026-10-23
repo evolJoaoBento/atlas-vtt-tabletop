@@ -16,18 +16,18 @@ export class DicePrompt {
 
   constructor(container: HTMLElement, onThrow: () => void, onClear?: () => void) {
     const doc = container.ownerDocument;
-    this.root = doc.createElement('div');
+    this.root = doc.win.createDiv();
     this.root.className = 'atlas-tabletop-dice-prompt';
     this.root.hidden = true;
     this.root.setAttribute('role', 'status');
-    this.text = doc.createElement('span');
+    this.text = doc.win.createSpan();
     this.text.className = 'atlas-tabletop-dice-prompt__text';
-    this.button = doc.createElement('button');
+    this.button = doc.win.createEl('button');
     this.button.type = 'button';
     this.button.className = 'atlas-tabletop-dice-prompt__throw';
     this.button.textContent = 'Throw all';
     this.button.addEventListener('click', () => onThrow());
-    this.clear = doc.createElement('button');
+    this.clear = doc.win.createEl('button');
     this.clear.type = 'button';
     this.clear.className = 'atlas-tabletop-dice-prompt__clear';
     this.clear.textContent = 'Clear';

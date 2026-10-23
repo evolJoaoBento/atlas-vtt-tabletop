@@ -342,11 +342,11 @@ export class Board {
   constructor(private readonly container: HTMLElement, private readonly host: BoardHost, private quality: QualityPreset, options: { audience?: BoardAudience } = {}) {
     this.audience = options.audience ?? 'gm';
     const doc = container.ownerDocument;
-    this.canvas = doc.createElement('canvas');
+    this.canvas = doc.win.createEl('canvas');
     this.canvas.className = 'atlas-tabletop-board';
     this.canvas.tabIndex = 0;
     container.appendChild(this.canvas);
-    this.tooltip = doc.createElement('div');
+    this.tooltip = doc.win.createDiv();
     this.tooltip.className = 'atlas-tabletop-tooltip';
     this.tooltip.hidden = true;
     container.appendChild(this.tooltip);
@@ -810,7 +810,7 @@ export class Board {
     const key = JSON.stringify([banner.text, banner.action?.label ?? null]);
     if (element && !element.hidden && element.dataset.key === key) return;
     if (!element) {
-      element = doc.createElement('div');
+      element = doc.win.createDiv();
       element.className = 'atlas-tabletop-banner';
       element.setAttribute('role', 'status');
       this.container.appendChild(element);
@@ -818,12 +818,12 @@ export class Board {
     element.hidden = false;
     element.dataset.key = key;
     element.replaceChildren();
-    const text = doc.createElement('span');
+    const text = doc.win.createSpan();
     text.textContent = banner.text;
     element.appendChild(text);
     if (banner.action) {
       const action = banner.action;
-      const button = doc.createElement('button');
+      const button = doc.win.createEl('button');
       button.type = 'button';
       button.textContent = action.label;
       button.addEventListener('click', () => action.run());
@@ -843,19 +843,19 @@ export class Board {
     const key = JSON.stringify([handout.title, handout.url]);
     if (element && !element.hidden && element.dataset.key === key) return;
     if (!element) {
-      element = doc.createElement('div');
+      element = doc.win.createDiv();
       element.className = 'atlas-tabletop-handout';
       this.container.appendChild(element);
     }
     element.hidden = false;
     element.dataset.key = key;
     element.replaceChildren();
-    const title = doc.createElement('div');
+    const title = doc.win.createDiv();
     title.className = 'atlas-tabletop-handout__title';
     title.textContent = `Shown to players: ${handout.title}`;
     element.appendChild(title);
     if (handout.url) {
-      const image = doc.createElement('img');
+      const image = doc.win.createEl('img');
       image.src = handout.url;
       image.alt = handout.title;
       element.appendChild(image);
@@ -1879,7 +1879,7 @@ export class Board {
     this.detachPlayer();
     const doc = container.ownerDocument;
     const win = doc.defaultView ?? window;
-    const canvas = doc.createElement('canvas');
+    const canvas = doc.win.createEl('canvas');
     canvas.className = 'atlas-tabletop-player-board';
     container.appendChild(canvas);
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: this.quality.antialias, powerPreference: 'high-performance' });

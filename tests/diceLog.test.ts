@@ -130,6 +130,7 @@ class FakeDocument extends FakeElement {
   };
   constructor() { super(null as unknown as FakeDocument); }
   createElement(): FakeElement { return new FakeElement(this); }
+  get win() { return { createEl: () => this.createElement(), createDiv: () => this.createElement(), createSpan: () => this.createElement() }; }
   tick(ms: number): void {
     this.now += ms;
     for (const [id, timer] of [...this.timers]) if (timer.at <= this.now) { this.timers.delete(id); timer.fn(); }

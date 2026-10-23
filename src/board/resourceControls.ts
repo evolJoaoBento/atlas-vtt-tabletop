@@ -48,7 +48,7 @@ export class ResourceControls {
 
   constructor(container: HTMLElement, private readonly actions: { step(key: string, delta: number): void; edit(key: string): void }) {
     const doc = container.ownerDocument;
-    this.root = doc.createElement('div');
+    this.root = doc.win.createDiv();
     this.root.className = 'atlas-tabletop-controls';
     container.appendChild(this.root);
   }
@@ -97,7 +97,7 @@ export class ResourceControls {
     if (parts) return parts;
     const doc = this.root.ownerDocument;
     const make = (className: string, label: string, svg: string | null, onPress: () => void): HTMLElement => {
-      const element = doc.createElement('div');
+      const element = doc.win.createDiv();
       element.className = className;
       element.setAttribute('aria-label', label);
       if (svg) setSvg(element, svg);
@@ -164,12 +164,12 @@ export function openValueEditor(options: {
 }): ValueEditor {
   const { doc, value, label, onCommit, onClose } = options;
   const win = doc.defaultView ?? window;
-  const root = doc.createElement('div');
+  const root = doc.win.createDiv();
   root.className = 'atlas-vtt-plugin atlas-token-value-editor atlas-tabletop-value-editor';
   root.setAttribute('role', 'dialog');
   root.setAttribute('aria-label', `Edit ${label}`);
   const field = (name: string, initial: number): HTMLInputElement => {
-    const input = doc.createElement('input');
+    const input = doc.win.createEl('input');
     input.className = 'atlas-token-value-editor__input';
     input.type = 'text';
     input.inputMode = 'numeric';
@@ -180,7 +180,7 @@ export function openValueEditor(options: {
     return input;
   };
   const currentInput = field(`Current ${label}`, value.current);
-  const separator = doc.createElement('span');
+  const separator = doc.win.createSpan();
   separator.className = 'atlas-token-value-editor__separator';
   separator.textContent = '/';
   root.appendChild(separator);

@@ -89,7 +89,7 @@ export class AtlasMenu {
   }
 
   private level(entries: () => MenuEntry[], trigger: HTMLElement | null): HTMLElement {
-    const element = this.doc.createElement('div');
+    const element = this.doc.win.createDiv();
     element.className = 'atlas-ctx-menu';
     element.setAttribute('role', 'menu');
     element.tabIndex = -1;
@@ -103,7 +103,7 @@ export class AtlasMenu {
   }
 
   private iconSpan(name: string): HTMLElement {
-    const span = this.doc.createElement('span');
+    const span = this.doc.win.createSpan();
     span.className = 'atlas-ctx-icon';
     this.icon(span, name);
     return span;
@@ -118,31 +118,31 @@ export class AtlasMenu {
     level.rows = [];
     for (const entry of level.entries()) {
       if (entry.type === 'separator') {
-        const line = this.doc.createElement('div');
+        const line = this.doc.win.createDiv();
         line.className = 'atlas-ctx-separator';
         line.setAttribute('role', 'separator');
         level.element.appendChild(line);
         continue;
       }
       if (entry.type === 'custom') {
-        const custom = this.doc.createElement('div');
+        const custom = this.doc.win.createDiv();
         custom.className = 'atlas-ctx-custom';
         custom.setAttribute('role', 'none');
         custom.appendChild(entry.render(this.doc, () => this.close()));
         level.element.appendChild(custom);
         continue;
       }
-      const row = this.doc.createElement('div');
+      const row = this.doc.win.createDiv();
       row.className = 'atlas-ctx-item';
       row.tabIndex = -1;
       if (entry.type === 'submenu') {
         row.classList.add('atlas-ctx-submenu-trigger');
         row.setAttribute('role', 'menuitem');
         row.setAttribute('aria-haspopup', 'menu');
-        const leading = this.doc.createElement('span');
+        const leading = this.doc.win.createSpan();
         leading.className = 'atlas-ctx-item__leading';
-        leading.append(this.iconSpan(entry.icon), Object.assign(this.doc.createElement('span'), { className: 'atlas-ctx-item__label', textContent: entry.label }));
-        const trailing = this.doc.createElement('span');
+        leading.append(this.iconSpan(entry.icon), Object.assign(this.doc.win.createSpan(), { className: 'atlas-ctx-item__label', textContent: entry.label }));
+        const trailing = this.doc.win.createSpan();
         trailing.className = 'atlas-ctx-item__trailing';
         trailing.appendChild(this.iconSpan('chevron-right'));
         row.append(leading, trailing);
@@ -157,9 +157,9 @@ export class AtlasMenu {
           row.setAttribute('data-disabled', '');
           row.setAttribute('aria-disabled', 'true');
         }
-        const label = Object.assign(this.doc.createElement('span'), { className: 'atlas-ctx-item__label', textContent: entry.label });
+        const label = Object.assign(this.doc.win.createSpan(), { className: 'atlas-ctx-item__label', textContent: entry.label });
         if (entry.leading) {
-          const leading = this.doc.createElement('span');
+          const leading = this.doc.win.createSpan();
           leading.className = 'atlas-ctx-item__leading';
           leading.append(entry.leading(this.doc), label);
           row.appendChild(leading);
@@ -167,11 +167,11 @@ export class AtlasMenu {
           row.append(entry.label);
         }
         if (entry.stepper || entry.checked !== undefined) {
-          const trailing = this.doc.createElement('span');
+          const trailing = this.doc.win.createSpan();
           trailing.className = 'atlas-ctx-item__trailing';
           if (entry.stepper) trailing.appendChild(this.stepper(entry.stepper));
           if (entry.checked !== undefined) {
-            const check = this.doc.createElement('span');
+            const check = this.doc.win.createSpan();
             check.className = 'atlas-ctx-item__check';
             check.setAttribute('data-state', entry.checked ? 'checked' : 'unchecked');
             check.appendChild(this.iconSpan('check'));
@@ -200,10 +200,10 @@ export class AtlasMenu {
   }
 
   private stepper(stepper: MenuStepper): HTMLElement {
-    const span = this.doc.createElement('span');
+    const span = this.doc.win.createSpan();
     span.className = 'atlas-ctx-stepper';
     const button = (icon: string, label: string, enabled: boolean, action: () => void): HTMLButtonElement => {
-      const made = this.doc.createElement('button');
+      const made = this.doc.win.createEl('button');
       made.type = 'button';
       made.tabIndex = -1;
       made.className = 'atlas-ctx-stepper__button';
@@ -220,7 +220,7 @@ export class AtlasMenu {
       });
       return made;
     };
-    const value = Object.assign(this.doc.createElement('span'), { className: 'atlas-ctx-stepper__value', textContent: stepper.value });
+    const value = Object.assign(this.doc.win.createSpan(), { className: 'atlas-ctx-stepper__value', textContent: stepper.value });
     span.append(button('minus', `Lower ${stepper.label}`, stepper.canDecrement, stepper.onDecrement), value, button('plus', `Raise ${stepper.label}`, true, stepper.onIncrement));
     return span;
   }

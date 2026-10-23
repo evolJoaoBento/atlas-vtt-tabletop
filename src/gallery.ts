@@ -26,7 +26,7 @@ export async function importWithNotice(library: MiniLibrary, files: readonly Fil
 /** Asks for .glb files with the system's file picker. */
 export function pickFiles(doc: Document): Promise<File[]> {
   return new Promise((resolve) => {
-    const input = doc.createElement('input');
+    const input = doc.win.createEl('input');
     input.type = 'file';
     input.accept = '.glb,model/gltf-binary';
     input.multiple = true;
@@ -132,7 +132,7 @@ async function importMaterials(library: MaterialLibrary, files: readonly File[])
 /** Asks for material files (Poly Haven zips, or their maps), or with `folder` for a folder of maps. */
 function pickMaterialFiles(doc: Document, folder: boolean): Promise<File[]> {
   return new Promise((resolve) => {
-    const input = doc.createElement('input');
+    const input = doc.win.createEl('input');
     input.type = 'file';
     input.multiple = true;
     if (folder) input.webkitdirectory = true;

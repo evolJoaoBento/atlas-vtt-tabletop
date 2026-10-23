@@ -54,7 +54,7 @@ export class DicePreviews {
 
   private render(pack: ChosenPack, types: readonly DieType[], textures: DiceTextures): void {
     if (this.disposed || textures !== this.textures) return;
-    const canvas = this.doc.createElement('canvas');
+    const canvas = this.doc.win.createEl('canvas');
     let renderer: THREE.WebGLRenderer;
     try {
       renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });

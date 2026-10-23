@@ -375,11 +375,11 @@ export class InitiativePanel {
   }
 
   private truce(): SVGSVGElement {
-    const svg = this.doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const svg = this.doc.win.createSvg('svg');
     svg.setAttribute('viewBox', '0 0 512 512');
     svg.setAttribute('fill', 'currentColor');
     svg.setAttribute('aria-hidden', 'true');
-    const path = this.doc.createElementNS('http://www.w3.org/2000/svg', 'path');
+    const path = this.doc.win.createSvg('path');
     path.setAttribute('d', TRUCE_PATH);
     svg.appendChild(path);
     return svg;
@@ -390,7 +390,7 @@ export class InitiativePanel {
   }
 
   private el<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, parent: HTMLElement, text?: string): HTMLElementTagNameMap[K] {
-    const made = this.doc.createElement(tag);
+    const made = this.doc.win.createEl(tag);
     if (className) made.className = className;
     if (text !== undefined) made.textContent = text;
     parent.appendChild(made);

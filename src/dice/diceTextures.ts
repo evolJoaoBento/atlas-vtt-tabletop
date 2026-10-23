@@ -35,7 +35,7 @@ export class DiceTextures {
     const key = `${url}|${color}|${rimUV.join(',')}`;
     const cached = this.cache.get(key);
     if (cached) return cached;
-    const canvas = this.doc.createElement('canvas');
+    const canvas = this.doc.win.createEl('canvas');
     const context = canvas.getContext('2d');
     // Until the sheet decodes the die wears its plain colour.
     canvas.width = canvas.height = 1;
@@ -50,7 +50,7 @@ export class DiceTextures {
     texture.colorSpace = THREE.SRGBColorSpace;
     this.cache.set(key, texture);
     if (!context) return texture;
-    const image = this.doc.createElement('img');
+    const image = this.doc.win.createEl('img');
     image.onload = () => {
       if (this.cache.get(key) !== texture) return;
       canvas.width = image.width;
@@ -85,7 +85,7 @@ export class DiceTextures {
  * half-transparent colour, the digits being the opaque end) over the die's colour, it matches the faces.
  */
 function paintRim(doc: Document, context: CanvasRenderingContext2D, canvas: HTMLCanvasElement, image: HTMLImageElement, color: string, rimUV: [number, number]): void {
-  const scratch = doc.createElement('canvas');
+  const scratch = doc.win.createEl('canvas');
   scratch.width = image.width;
   scratch.height = image.height;
   const sheet = scratch.getContext('2d', { willReadFrequently: true });

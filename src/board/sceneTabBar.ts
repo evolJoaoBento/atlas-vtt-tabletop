@@ -44,19 +44,19 @@ export class SceneTabBar {
 
   constructor(container: HTMLElement, private readonly host: SceneTabBarHost) {
     const doc = container.ownerDocument;
-    this.scope = doc.createElement('div');
+    this.scope = doc.win.createDiv();
     this.scope.className = 'atlas-vtt-plugin atlas-tabletop-scene-tabs';
-    const row = doc.createElement('div');
+    const row = doc.win.createDiv();
     row.className = 'atlas-top-bar-row';
-    this.bar = doc.createElement('div');
+    this.bar = doc.win.createDiv();
     this.bar.className = 'atlas-scene-tab-bar';
-    this.strip = doc.createElement('div');
+    this.strip = doc.win.createDiv();
     this.strip.className = 'atlas-scene-tab-bar__strip';
     this.strip.setAttribute('role', 'tablist');
     this.strip.setAttribute('aria-label', 'Open maps');
     this.bar.appendChild(this.strip);
     if (host.addTab) {
-      const add = doc.createElement('button');
+      const add = doc.win.createEl('button');
       add.type = 'button';
       add.className = 'atlas-scene-tab atlas-scene-tab-bar__button atlas-scene-tab-bar__add';
       add.setAttribute('aria-label', 'Open a scene');
@@ -85,7 +85,7 @@ export class SceneTabBar {
     this.scope.hidden = tabs.length === 0;
     const doc = this.strip.ownerDocument;
     this.strip.replaceChildren(...tabs.map((tab) => {
-      const element = doc.createElement('div');
+      const element = doc.win.createDiv();
       element.setAttribute('role', 'tab');
       element.setAttribute('aria-selected', String(tab.active));
       element.tabIndex = 0;
@@ -98,13 +98,13 @@ export class SceneTabBar {
       });
       // Show and close sit at opposite ends, so one is never clicked for the other.
       element.appendChild(this.action(EYE, tab.presented ? `${tab.name} is shown to players` : `Show ${tab.name} to players`, tab.presented, () => this.host.presentTab(tab.id)));
-      const name = doc.createElement('span');
+      const name = doc.win.createSpan();
       name.className = 'atlas-scene-tab__name';
       name.textContent = tab.name;
       name.title = tab.filePath;
       element.appendChild(name);
       if (tab.dirty) {
-        const dirty = doc.createElement('span');
+        const dirty = doc.win.createSpan();
         dirty.className = 'atlas-scene-tab__dirty';
         element.appendChild(dirty);
       }
@@ -127,7 +127,7 @@ export class SceneTabBar {
 
   /** An icon button inside a tab, which keeps its events from switching to the tab. */
   private action(svg: string, label: string, active: boolean | undefined, run: () => void): HTMLButtonElement {
-    const button = this.strip.ownerDocument.createElement('button');
+    const button = this.strip.ownerDocument.win.createEl('button');
     button.type = 'button';
     button.className = `atlas-scene-tab__action${active ? ' atlas-scene-tab__action--active' : ''}`;
     button.setAttribute('aria-label', label);

@@ -142,7 +142,7 @@ export class BoardToolbar {
   constructor(container: HTMLElement, private readonly actions: ToolbarActions) {
     const doc = container.ownerDocument;
     const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className: string, parent: HTMLElement, text?: string): HTMLElementTagNameMap[K] => {
-      const made = doc.createElement(tag);
+      const made = doc.win.createEl(tag);
       made.className = className;
       if (text !== undefined) made.textContent = text;
       parent.appendChild(made);
@@ -440,13 +440,13 @@ export class BoardToolbar {
   /** A button in the end slot that opens its panel, the other toolbar panels (and the other end slot panels) shut. */
   private endButton(label: string, svg: string, handlers: DiceButton, className: string, after: (() => HTMLElement | null) | null): EndButton {
     const doc = this.row.ownerDocument;
-    const anchor = doc.createElement('div');
+    const anchor = doc.win.createDiv();
     anchor.className = `atlas-dropdown-menu ${className}`;
-    const wrapper = doc.createElement('div');
+    const wrapper = doc.win.createDiv();
     wrapper.className = 'atlas-tool-button';
-    const span = doc.createElement('span');
+    const span = doc.win.createSpan();
     span.setCssStyles({ display: 'inline-flex' });
-    const button = doc.createElement('button');
+    const button = doc.win.createEl('button');
     button.className = 'btn btn--toolbar btn--icon atlas-tabletop-tool-button';
     button.type = 'button';
     setSvg(button, svg);

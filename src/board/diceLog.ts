@@ -109,7 +109,7 @@ export class DiceLogPanel {
   constructor(private readonly parent: HTMLElement, private readonly options: DiceLogOptions = {}) {
     const doc = parent.ownerDocument;
     const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className: string, into: HTMLElement, content?: string): HTMLElementTagNameMap[K] => {
-      const made = doc.createElement(tag);
+      const made = doc.win.createEl(tag);
       made.className = className;
       if (content !== undefined) made.textContent = content;
       into.appendChild(made);
@@ -194,7 +194,7 @@ export class DiceLogPanel {
   }
 
   private make<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, into: HTMLElement | null, content?: string): HTMLElementTagNameMap[K] {
-    const made = this.parent.ownerDocument.createElement(tag);
+    const made = this.parent.ownerDocument.win.createEl(tag);
     made.className = className;
     if (content !== undefined) made.textContent = content;
     into?.appendChild(made);
