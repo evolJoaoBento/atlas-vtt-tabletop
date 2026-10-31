@@ -1,10 +1,13 @@
 # Tabletop for Atlas VTT
 
+**Compatible with Atlas VTT 0.11.0** (Mosaic Canvas).
+
 Tabletop for Atlas VTT is a community extension. It is not made, endorsed or supported by Atlas VTT or Atlas Online.
 
 Opens Atlas VTT maps on a 3D board in Obsidian. The map image becomes a table, and tokens and note pins stand above
 where they are on the map. Tokens can carry 3D minis (GLB) and props can be placed on the board. Players joined
-through Connect for Atlas VTT see the minis too, if they have Tabletop installed.
+through Connect for Atlas VTT or Atlas Online see the minis too, if they have Tabletop installed. Tabletop works the same
+with either; it does not depend on one.
 
 ## Use
 
@@ -30,6 +33,24 @@ through Connect for Atlas VTT see the minis too, if they have Tabletop installed
   which players do not. Walls and doors under the fog of war are hidden from players. Right-click a wall to set its
   own height (or the whole wall's), in quarter squares, or **Ctrl + drag** it up or down (with Shift held when you let
   go, the whole wall); until set it stands as tall as the fog.
+- **Importing minis:** the gallery's **Import** button, or dropping files on it, takes `.glb` files, a HeroForge
+  **Unity3D** export (the `.unity3d` file, or the zip HeroForge gives you), a TaleSpire creature (`root.tsMod`, or the
+  zip from mod.io), and zips of them. These are converted inside Tabletop to a `.glb` in your minis folder, with their
+  colour picture (and, from Unity, normal, metal and smoothness, occlusion and glow pictures; at most 1024 pixels
+  wide), and then work like any other mini, including for players. They stand in the pose they were exported in:
+  skeletons and animations are not read.
+  - **Unity3D:** bundles must come from Unity 2019 or later, with DXT1 or DXT5 pictures (what HeroForge writes).
+  - **TaleSpire:** TaleSpire does not document `.tsMod`. Tabletop reads the layout of the creatures it has been tried
+    on (a mesh, a colour map, and a normal map or a mask when there is one), checks everything it assumes, and refuses
+    a file that does not fit with the reason. A creature that adds more (several meshes, other picture formats) may
+    be refused. TaleSpire creatures have no base: see **Bases** below.
+  - Anything else is refused with the reason. Check HeroForge's and the creator's terms before sharing a mini outside
+    your own table.
+- **Bases:** a mini made without a base (every TaleSpire creature) can stand on one drawn under it: right-click its
+  token and choose **Round base** or **Square base** (choose the one that is set to take it away), or pick one in
+  **Assign mini…**, which also shows the mini standing on its token's square at the size, turn and base you choose,
+  so you can judge the size against the square. The base is a thin dark coin as wide as the token's square, kept with the mini's assignment. Players
+  see it once Connect for Atlas VTT passes the base on (Tabletop offers it as `base` on each placement).
 - **Materials:** the gallery's **Materials** tab imports texture sets as Poly Haven gives them (the zip, its maps, or a
   folder of them), kept in `atlas-vtt/assets/materials`. Drag one onto a wall or door to paint that segment; hold
   **Shift** to paint the whole wall (the segments drawn in one stroke, or else those joined end to end up to a
@@ -37,27 +58,60 @@ through Connect for Atlas VTT see the minis too, if they have Tabletop installed
   material off. Right-click a material in the gallery and choose **Edit material…** to set how many grid squares one
   tile of its texture covers (kept in the material's folder, as `material.json`).
 - **Lights:** Atlas's lights (placed, and carried by tokens) shine on the board with their colour, bright and dim
-  radii, and flicker (in the dark). The board settings (⌘) have an ambient light slider: lower it and the map goes
-  dark; it starts at Atlas's ambient light when the map has Atlas's lighting on. Right-click a light's bulb, or a
+  radii, and flicker (in the dark). The toolbar's **Lighting** button (the bulb) has an ambient light slider: lower
+  it and the map goes dark; it starts at Atlas's ambient light when the map has Atlas's lighting on. Right-click a light's bulb, or a
   token carrying one, to set how high it hangs, or **Ctrl + drag** a bulb up or down. The lights nearest where the camera rests cast shadows (none on Low
   quality, 2 on Medium, 4 on High).
-- **Notes:** click a pin to open its note in a new tab.
+- **Lighting menu:** the toolbar's Lighting button chooses the board's look: **Classic** (plain white light), or
+  **Painted** under a dusk, day or night sky (warm sun and cool shadows, a painted sky round the table that turns with
+  the camera, the floor fading into it; tilt the camera nearly level to see the horizon). The same menu has the
+  ambient light slider, **Miniature look** (a tilt-shift blur towards the top and bottom edges) and **Contact shadows**
+  (darker creases where walls, minis and props meet the floor). They cost some frame rate on slow graphics cards.
+- **Groups of tokens:** Shift-click tokens to select several (rings show under them) and drag any to move them all.
+  A bar over the board turns them (45° a click), hurts or heals each one that tracks HP by an amount, or clears the
+  selection (Esc does too).
+- **Turns:** while a fight runs, a green ring shows under whose turn it is, a banner flashes when the turn passes, and
+  a clock marks a combatant holding its turn back.
+- **Animated maps:** a map whose background is a `.webm`, `.mp4`, `.m4v`, `.ogv` or `.mov` plays on the board, muted
+  and looped, in its own size.
+- **Small panes:** when the pane is too narrow for the toolbar, the tools farthest from the Move group go into a
+  **More tools** menu.
+- **Notes:** click a pin to open its note in a new tab. From a note, the command **Copy a link that opens this map
+  in 3D** gives a link that opens it (`obsidian://tabletop-board?...`); **Save a snapshot of the 3D board** saves the
+  picture in `Tabletop snapshots/` and copies its embed; and a code block
+  ```` ```tabletop ```` holding `[[Maps/Cave.atlasmap]]` shows a card with the map's latest snapshot and an **Open in
+  3D** button. Atlas's own map toolbar gets an **Open in 3D** button too.
 - **Props:** open the gallery (**Open minis gallery**) and go to the **Props** tab. Click a prop, then click the board
   where it should go. **Ctrl + drag** moves a prop, and right-clicking one removes it.
 - **Folders:** minis live in `atlas-vtt/assets/minis` and props in `atlas-vtt/assets/props`. Both can be changed in
   the settings.
 - **Dice:** the **Dice** button on the board's toolbar opens Atlas's dice tray. Pick dice (right-click a die for its
-  colours, each with how many of it are in that colour), a modifier and advantage, then **Roll**: the dice are laid
+  colours, each with how many of it are in that colour, and to roll it with advantage or disadvantage), a modifier and advantage, then **Roll**: the dice are laid
   on the table where the camera looks. Press a die and drag to carry it, and let go to throw it; **Ctrl** and a press
   gathers every die into one throw, and **Throw all** throws the rest. Dice bounce off tokens, props and walls, and
   only the map's edge stops them. Dice still to be thrown carry a line round them. A die caught on an edge gives no
   number and asks to be thrown again; an exploding die asks for another. Once every die has landed, the roll goes to
-  Atlas's roll log (and again whenever a die is thrown again). The **Dice log** and **Stat sheet** buttons beside it
-  show the rolls on the map and the selected token's sheet, whose rolls are thrown the same way. Dice packs are read
+  Atlas's roll log (and again whenever a die is thrown again). Formulas may be `4d6kh3`, `5d10>=8`, `2d6r<3`, Fate
+  dice (`4dF+1`, thrown as d6s: two faces minus, two blank, two plus) and labels (`2d6[fire]+1d6[cold]`); dice a roll
+  sets aside (dropped or thrown again) are dimmed on the table and struck through in the log. The **Dice log** and **Stat sheet** buttons beside it
+  show the rolls on the map and the selected token's sheet. A sheet's roll lays its dice on the table for you to throw; tick
+  **Throw stat sheet rolls automatically** under **Board settings** (the command button) to have them thrown at once. It covers the sheet drawer and the stat block that Ctrl (Cmd) + hover opens, Atlas's own
+  window included. The sheet drawer has a **pin**: pinned, it stays open under the other panels; unpinned, opening another
+  panel (Board settings, lighting, the dice tray) closes it. The pin is remembered across reloads. Dice packs are read
   from `.obsidian/atlas-dice-packs/`, shared with Interactive Dice for Atlas VTT. Players' windows never show the
   GM's dice; with Connect for Atlas VTT, players throw their own on their 3D view.
 
 GLBs must be self-contained and uncompressed (no Draco or Meshopt).
+
+### Large maps (Atlas 0.11, Mosaic Canvas)
+
+Atlas 0.11 takes maps of up to 1,000 megapixels and 65,535 pixels a side, with up to 20 million squares in a scene. A map
+file of 8 MB or more is read through Atlas's own tiles when an Atlas map view is open: the board gets a picture of the
+whole map (at most 8,192 pixels on its longer side, or what the graphics card takes) and keeps the map's true size for
+tokens and the grid. If Atlas is still cutting a huge map's tiles, the board shows a quicker, smaller picture first
+instead of waiting. Smaller maps, and any Atlas before 0.11, are read as the file, as before. On a map of millions of
+squares a solid or dashed square grid is drawn as whole lines, a hex grid too fine to draw cell by cell is left off, and
+cell numbers are worked out for the cell under the pointer, never listed.
 
 ## Build and test
 
@@ -75,7 +129,13 @@ npx esbuild harness/board.ts --bundle --outfile=<dir>/board.js --alias:obsidian=
 cp harness/board.html <dir>/index.html && cp styles.css <dir>/
 # optional, for screenshots in Atlas's look: cp <vault>/.obsidian/plugins/atlas-vtt/styles.css <dir>/atlas.css
 node harness/board-test.cjs <dir> <screenshot dir>
+node harness/make-test-video.cjs <dir>/sweep.webm      # the clip the animated map check plays (needs Playwright's ffmpeg)
+node harness/features-test.cjs <dir> <screenshot dir> [feature regex]   # the checks of the features added since
 ```
+
+The features checks drive the real board with real clicks and keys, check the DOM and the drawn picture, and save a
+screenshot for each feature (the turn banner, the group bar, the animated map, the narrow toolbar, the light theme, the
+snapshot card, Fate dice, auto roll). They print one line per check and exit 1 when one fails.
 
 The harnesses use Playwright's Chromium: install `playwright`, or point `PLAYWRIGHT_MODULE` at an installed copy.
 
@@ -86,6 +146,12 @@ npx esbuild harness/playerBoard.ts --bundle --outfile=<dir>/playerBoard.js --ali
 sed 's/board\.js/playerBoard.js/' harness/board.html > <dir>/playerBoard.html && cp styles.css <dir>/
 node harness/playerBoard-test.cjs <dir> <screenshot dir>
 ```
+
+## Language
+
+Tabletop's panels are in English, as Atlas's are: Atlas ships no translations, so Tabletop adds none. The layer is in place
+(`src/i18n.ts`; the newer controls already read their words through it), so a language can be added with one table once
+Atlas offers it.
 
 ## License
 
