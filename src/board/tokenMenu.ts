@@ -7,6 +7,7 @@
  */
 import type { CollectionRules, ConditionDefinition } from './conditions';
 import { CONDITION_ICON_PATHS } from './conditionIconData';
+import type { MiniBase } from '../assignments';
 import type { MenuEntry } from './atlasMenu';
 import type { BoardToken, TokenSettings } from './mapModel';
 import { isKillable, resetLabel, visibleResources } from './resources';
@@ -18,6 +19,8 @@ export interface TokenMenuActions {
   setInitiative(join: boolean): void;
   assignMini(): void;
   removeMini(): void;
+  /** The base drawn under the token's mini (a model with no base of its own stands on one). */
+  setBase(base: MiniBase): void;
   setStandee(standee: boolean): void;
   /** How high the light the token carries hangs, in grid squares. */
   setLightHeight(height: number): void;
@@ -33,6 +36,8 @@ export interface TokenMenuContext {
   settings(): TokenSettings;
   inInitiative(): boolean;
   hasMini(): boolean;
+  /** The base under the token's mini; none for a token with no mini. */
+  miniBase(): MiniBase;
   standee(): boolean;
   /** How high the light the token carries hangs, in squares; null when it carries none. */
   lightHeight(): number | null;
@@ -129,7 +134,13 @@ export function tokenMenuEntries(context: TokenMenuContext): MenuEntry[] {
   entries.push({ type: 'separator' });
   const hasMini = context.hasMini();
   entries.push({ type: 'item', label: hasMini ? 'Change mini…' : 'Assign mini…', onClick: () => actions.assignMini() });
-  if (hasMini) entries.push({ type: 'item', label: 'Remove mini', onClick: () => actions.removeMini() });
+  if (hasMini) {
+    entries.push({ type: 'item', label: 'Remove mini', onClick: () => actions.removeMini() });
+    // Picking the base that is set takes it away.
+    const base = context.miniBase();
+    entries.push({ type: 'item', label: 'Round base', checked: base === 'round', onClick: () => actions.setBase(base === 'round' ? 'none' : 'round') });
+    entries.push({ type: 'item', label: 'Square base', checked: base === 'square', onClick: () => actions.setBase(base === 'square' ? 'none' : 'square') });
+  }
   const standee = context.standee();
   entries.push({ type: 'item', label: standee ? 'Show as disc' : 'Show as standee', onClick: () => actions.setStandee(!standee) });
   const height = context.lightHeight();

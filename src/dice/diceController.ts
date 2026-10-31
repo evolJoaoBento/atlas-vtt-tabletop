@@ -10,7 +10,7 @@ import { RollSession } from './rollSession';
 import type { Flick } from './throwInput';
 
 export interface DiceControllerDeps {
-  table: Pick<DiceTable, 'placeRoll' | 'placeMissing' | 'throwDie' | 'remove' | 'clear' | 'busy'> & { onSettled: DiceTable['onSettled']; onLoosened: DiceTable['onLoosened']; mark?: DiceTable['mark'] };
+  table: Pick<DiceTable, 'placeRoll' | 'placeMissing' | 'throwDie' | 'remove' | 'clear' | 'busy'> & { onSettled: DiceTable['onSettled']; onLoosened: DiceTable['onLoosened']; mark?: DiceTable['mark']; setAside?: DiceTable['setAside'] };
   /** The rules of the map the roll is for, asked at each new roll. */
   rules: () => DiceRules;
   publish: (result: NonNullable<ReturnType<RollSession['result']>>) => void;
@@ -65,6 +65,7 @@ export class DiceController {
   /** The line round every die the roll waits on being thrown. */
   private markWaiting(session: RollSession): void {
     this.deps.table.mark?.(session.pendingThrows().map((pending) => pending.id));
+    this.deps.table.setAside?.(session.setAside());
   }
 
   /** A new roll, its dice laid on the table to be thrown; a roll still on the table goes, as it is. */

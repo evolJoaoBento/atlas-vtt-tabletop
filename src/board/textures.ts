@@ -7,6 +7,17 @@ import * as THREE from 'three';
 import { pinGlyph, pinTone } from './pinIcons';
 import type { BoardPin } from './mapModel';
 
+/** The longest side a map's texture keeps: a larger map (Atlas 0.11 allows 1,000 megapixels) is drawn from a smaller copy. */
+export const MAX_MAP_TEXTURE = 8192;
+
+/** `width` by `height` scaled down to at most `max` on its longest side, whole pixels; as it is when it already fits. */
+export function fitTexture(width: number, height: number, max: number = MAX_MAP_TEXTURE): { width: number; height: number } {
+  const longest = Math.max(width, height);
+  if (!(longest > max)) return { width, height };
+  const scale = max / longest;
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
+}
+
 /** Reads an image into a texture (sRGB, mipmapped). */
 export function loadImageTexture(url: string): Promise<THREE.Texture> {
   return new Promise((resolve, reject) => {
@@ -16,6 +27,101 @@ export function loadImageTexture(url: string): Promise<THREE.Texture> {
       resolve(texture);
     }, undefined, () => reject(new Error(`cannot read ${url}`)));
   });
+}
+
+/** Whether a map's background is a video (an animated map): WebM, MP4 and the other formats a browser plays. */
+export function isVideoPath(path: string): boolean {
+  return /\.(webm|mp4|m4v|ogv|mov)$/i.test(path.split(/[?#]/)[0] ?? '');
+}
+
+/**
+ * An animated map: the video plays muted and looped on the board's floor. It keeps its true size in `sourceSize` and the
+ * element in `userData.video`; disposing the texture stops the video and lets go of its file.
+ */
+export function loadVideoTexture(url: string): Promise<THREE.VideoTexture> {
+  return new Promise((resolve, reject) => {
+    const video = createEl('video');
+    video.muted = true;
+    video.loop = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    video.crossOrigin = 'anonymous';
+    video.preload = 'auto';
+    const fail = (): void => reject(new Error(`cannot read ${url}`));
+    video.addEventListener('error', fail, { once: true });
+    video.addEventListener('loadeddata', () => {
+      // The element's own size is what the grid's contrast colour is measured on.
+      video.width = video.videoWidth;
+      video.height = video.videoHeight;
+      const texture = new THREE.VideoTexture(video);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.generateMipmaps = false;
+      texture.minFilter = THREE.LinearFilter;
+      texture.userData.video = video;
+      texture.userData.sourceSize = { width: video.videoWidth, height: video.videoHeight };
+      texture.addEventListener('dispose', () => {
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+      });
+      void video.play().catch(() => undefined);
+      resolve(texture);
+    }, { once: true });
+    video.src = url;
+  });
+}
+
+/** What a map image measures, whatever size its texture is kept at (`userData.sourceSize` of a scaled-down one). */
+export function mapImageSize(texture: THREE.Texture | null): { width: number; height: number } | null {
+  const kept = texture?.userData.sourceSize as { width?: number; height?: number } | undefined;
+  const image = texture?.image as { width?: number; height?: number } | undefined;
+  const width = kept?.width ?? image?.width;
+  const height = kept?.height ?? image?.height;
+  return width && height ? { width, height } : null;
+}
+
+/**
+ * A map image's texture, kept to `MAX_MAP_TEXTURE` on its longest side so a huge map neither fills the graphics memory
+ * nor goes black. The map keeps its true size (`mapImageSize`): tokens and the grid live in its pixels.
+ */
+export async function loadMapTexture(url: string, path?: string, max: number = MAX_MAP_TEXTURE): Promise<THREE.Texture> {
+  if (path !== undefined && isVideoPath(path)) return loadVideoTexture(url);
+  const texture = await loadImageTexture(url);
+  const image = texture.image as CanvasImageSource & { width: number; height: number };
+  const fit = fitTexture(image.width, image.height, max);
+  if (fit.width === image.width && fit.height === image.height) return texture;
+  const canvas = createEl('canvas');
+  canvas.width = fit.width;
+  canvas.height = fit.height;
+  const context = canvas.getContext('2d');
+  if (!context) return texture;
+  context.drawImage(image, 0, 0, fit.width, fit.height);
+  const scaled = new THREE.CanvasTexture(canvas);
+  scaled.colorSpace = THREE.SRGBColorSpace;
+  scaled.anisotropy = 8;
+  scaled.userData.sourceSize = { width: image.width, height: image.height };
+  texture.dispose();
+  return scaled;
+}
+
+/**
+ * A map picture from Atlas's tiles (`atlasMosaic`) as the board's texture. A bitmap is not flipped by the texture, so it
+ * is drawn onto a canvas first, as a scaled-down map is; the map keeps its true size in `sourceSize`.
+ */
+export function mapTextureFromPicture(picture: { bitmap: ImageBitmap; width: number; height: number }): THREE.Texture | null {
+  const { bitmap } = picture;
+  const canvas = createEl('canvas');
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const context = canvas.getContext('2d');
+  if (context) context.drawImage(bitmap, 0, 0);
+  bitmap.close();
+  if (!context) return null;
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 8;
+  texture.userData.sourceSize = { width: picture.width, height: picture.height };
+  return texture;
 }
 
 /** A canvas texture `size` pixels square, drawn by `draw`. */
@@ -131,6 +237,43 @@ export function hiddenMarkerTexture(): THREE.CanvasTexture {
     context.moveTo(c - px * 0.27, c - px * 0.27);
     context.lineTo(c + px * 0.27, c + px * 0.27);
     context.stroke();
+  });
+}
+
+/** The marker on a token whose combatant holds its turn back: a dark disc with an amber hourglass. */
+export function delayedMarkerTexture(): THREE.CanvasTexture {
+  const px = 96;
+  return canvasTexture(px, px, (context) => {
+    const c = px / 2;
+    context.globalAlpha = 0.78;
+    context.fillStyle = '#111114';
+    context.beginPath();
+    context.arc(c, c, c - 3, 0, Math.PI * 2);
+    context.fill();
+    context.globalAlpha = 1;
+    context.strokeStyle = '#f5b73d';
+    context.fillStyle = '#f5b73d';
+    context.lineWidth = 5;
+    context.lineJoin = 'round';
+    context.lineCap = 'round';
+    const w = px * 0.26;
+    const h = px * 0.3;
+    // The two glass bulbs meeting at the waist, with a bar at each end, and the sand in the lower one.
+    context.beginPath();
+    context.moveTo(c - w, c - h);
+    context.lineTo(c + w, c - h);
+    context.lineTo(c, c);
+    context.lineTo(c + w, c + h);
+    context.lineTo(c - w, c + h);
+    context.lineTo(c, c);
+    context.closePath();
+    context.stroke();
+    context.beginPath();
+    context.moveTo(c - w * 0.55, c + h);
+    context.lineTo(c + w * 0.55, c + h);
+    context.lineTo(c, c + h * 0.35);
+    context.closePath();
+    context.fill();
   });
 }
 

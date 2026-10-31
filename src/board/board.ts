@@ -22,6 +22,7 @@
  * moves: the camera easing, a token gliding, a mini's clip playing.
  */
 import * as THREE from 'three';
+import { choiceOf, horizonColor, LIGHTING, lightingFor, room, setLook, type LightingChoice } from './look';
 import type { MiniPlacement } from '../assignments';
 import type { LoadedMini } from '../library';
 import type { PropPlacement, TokenStyle } from './boardData';
@@ -29,6 +30,10 @@ import { OrbitCamera, limitsFor } from './camera';
 import type { CollectionRules } from './conditions';
 import { formatDistance, pathLengthInCells, type Measurement } from './measure';
 import { hexCenter, ringDiameter, snapPoint } from './geometry';
+import { stretchPlacement, worldSize } from './mapStretch';
+import { groupFollow, groupLanding, type GroupMember } from './groupMove';
+import { ACTIVE_COLOR, GroupMarks } from './groupMarks';
+import { GroupBar, hpChange, hpKey, turned } from './groupActions';
 import { TokenLabels, type HoverTarget } from './labels';
 import type { BoardMap, BoardToken } from './mapModel';
 import { ResourceControls, openValueEditor, type ControlSpec, type EditorAnchor, type ScreenRect, type ValueEditor } from './resourceControls';
@@ -37,15 +42,17 @@ import { IconPiece, InkPiece, PinPiece, PropPiece, TextPiece, TokenPiece, type P
 import { numberCells, type CellNumbers } from './cellNumbers';
 import { stripGeometry } from './surface';
 import { ResolutionGovernor, type QualityPreset } from './quality';
+import { PostFx, type PostFxLook } from './postFx';
 import { BoardSurface } from './surface';
 import { FogVolume } from './fogVolume';
 import { LaserBeam } from './laserBeam';
 import { LaserTrail, beamWidth, smoothBeam, type LaserSettings } from './laser';
 import { BoardToolbar, type DiceButton } from './toolbar';
 import { pinTitle } from './pinIcons';
-import { NO_INSTANCE_NUMBERS, badgeNumberInView, insideFog, numberTokensInView, playerSees } from './playerView';
+import { insideFog, playerSees } from './playerView';
+import { instanceBadgeNumbers } from './levels';
 import { positionOf } from './camera';
-import { loadImageTexture, plateTexture, screenScale } from './textures';
+import { loadImageTexture, loadMapTexture, MAX_MAP_TEXTURE, mapImageSize, mapTextureFromPicture, plateTexture, screenScale } from './textures';
 import { WallSet } from './wallPieces';
 import { LightRig } from './lightRig';
 import { DarknessLayer } from './darkness';
@@ -66,6 +73,11 @@ function accent(element: HTMLElement): string {
 export interface BoardHost {
   /** A URL for a vault image, or null when it is missing. */
   readImage(path: string): Promise<string | null>;
+  /**
+   * A map too large to decode whole as a picture of at most `maxSide` pixels, and the map's own size (Atlas 0.11's
+   * Mosaic Canvas); null when the map is read as an ordinary image, which is every map where the host has no such way.
+   */
+  readPicture?(path: string, maxSide: number): Promise<{ bitmap: ImageBitmap; width: number; height: number } | null>;
   /** A GLB read into a model; rejects with the reason it cannot be drawn. */
   readMini(path: string): Promise<LoadedMini>;
   placement(tokenId: string): MiniPlacement | null;
@@ -73,6 +85,10 @@ export interface BoardHost {
   props(): readonly PropPlacement[];
   rules(): CollectionRules;
   moveToken(id: string, x: number, y: number): void;
+  /** Several tokens moved as one change; a host without it is given the moves one by one. */
+  moveTokens?(moves: ReadonlyArray<{ id: string; x: number; y: number }>): void;
+  /** Several tokens turned (degrees, 0 to 360); a host without it cannot turn a group. */
+  rotateTokens?(turns: ReadonlyArray<{ id: string; rotation: number }>): void;
   moveProp(id: string, x: number, y: number): void;
   addProp(glb: string, x: number, y: number): void;
   openNote(path: string): void;
@@ -80,6 +96,8 @@ export interface BoardHost {
   propMenu(id: string, event: MouseEvent): void;
   /** Shows a token's stat block (Ctrl/Cmd + hover). */
   statblockPreview(id: string, event: MouseEvent): void;
+  /** Closes the stat block card Ctrl/Cmd + hover opened (Ctrl/Cmd was let go). */
+  statblockPreviewEnd?(): void;
   /** Saves a copy of a token (Shift + Alt + drag) under `newId` at (x, y). */
   copyToken(id: string, newId: string, x: number, y: number): void;
   /**
@@ -103,6 +121,14 @@ export interface BoardHost {
   /** The laser's colour and size, kept for every map; and saving a change. */
   laser(): LaserSettings;
   setLaser(changes: Partial<LaserSettings>): void;
+  /** Chooses the board's lighting (classic, or painted under a sky), kept for every board; absent where it is not the GM's to choose. */
+  setLighting?(choice: LightingChoice): void;
+  /** The miniature look and the contact shadows, on or off, kept for every board. */
+  setTiltShift?(on: boolean): void;
+  setOcclusion?(on: boolean): void;
+  /** Whether a stat sheet's roll is thrown at once; changing it, kept for every board. */
+  autoRoll?(): boolean;
+  setAutoRoll?(on: boolean): void;
   /** Whether the initiative tracker shows on the board; showing or hiding it. */
   initiativeOpen(): boolean;
   toggleInitiative(): void;
@@ -178,14 +204,17 @@ const FLICKER_MS = 66;
 const CASTER_STEP_SQUARES = 3;
 /** Atlas's default lit threshold: below this ambient light a scene is dark. */
 const LIT_THRESHOLD = 0.25;
-/** The board's daylight at full ambient light: the sky's and the sun's strength. */
-const DAY_SKY = 1.5;
-const DAY_SUN = 2.2;
 /** A wall is never lower than this many squares, whatever the fog's height. */
 const MIN_WALL_SQUARES = 0.25;
 /** The plain looks of a wall (grey stone) and a door (dark wood) before a material is painted on. */
 const PLAIN_WALL = 0x8d8780;
 const PLAIN_DOOR = 0x6e4a2c;
+/** An animated map is redrawn this often, in milliseconds (about thirty frames a second). */
+const VIDEO_FRAME_MS = 33;
+
+/** How long the turn banner stays before it is gone, in milliseconds (it fades out over most of it). */
+const TURN_BANNER_MS = 2400;
+
 /** Room left around the map when it is framed, for the tilt's perspective. */
 const FRAME_MARGIN = 1.1;
 
@@ -214,6 +243,8 @@ interface PlayerScreen {
   shadowsDirty: boolean;
   /** Its camera is inside the fog: the picture is black. */
   blind: boolean;
+  /** The post-processing (miniature look, contact shadows), made when a setting asks for it. */
+  tilt: PostFx | null;
 }
 
 /** The cell under the pointer: where it is and what it is called. */
@@ -234,6 +265,10 @@ type Press =
     kind: 'token'; id: string; x: number; y: number; moved: boolean; grab: { dx: number; dy: number };
     /** Alt was held: the drop makes a copy and the token goes back. */
     copy: boolean;
+    /** Shift was held: a click without a drag adds the token to the selection, or takes it out. */
+    toggle?: boolean;
+    /** The tokens of a Shift-click selection dragged together, each with where it stood. */
+    members?: Map<string, GroupMember>;
     /** The ruler: where the drag began (snapped), and the waypoints Space dropped. */
     start: { x: number; y: number };
     waypoints: Array<{ x: number; y: number }>;
@@ -298,6 +333,13 @@ export class Board {
   rulerState: { points: Array<{ x: number; y: number }>; label: string } | null = null;
   /** The token whose resource controls show. */
   private selectedId: string | null = null;
+  /** The tokens of a Shift-click selection (two or more; empty without one). */
+  private readonly group = new Set<string>();
+  private readonly groupMarks = new GroupMarks();
+  private groupBar!: GroupBar;
+  /** The combatants whose turn it is (Atlas's tracker), ringed on the board. */
+  private active: readonly string[] = [];
+  private readonly activeMarks = new GroupMarks(ACTIVE_COLOR, 1.2);
   private readonly selectListeners = new Set<(id: string | null) => void>();
   private readonly controls: ResourceControls;
   private readonly fog = new FogVolume();
@@ -306,7 +348,7 @@ export class Board {
   private readonly wallMaterials = new Map<string, THREE.MeshStandardMaterial>();
   /** Atlas's lights, and the board's daylight they shine against (a level shown while the slider moves). */
   private readonly rig = new LightRig();
-  private readonly hemisphere = new THREE.HemisphereLight(0xfff4e6, 0x2a2430, DAY_SKY);
+  private readonly hemisphere = new THREE.HemisphereLight(LIGHTING.classic.skyColor, LIGHTING.classic.groundColor, 1);
   private ambientShown: number | null = null;
   /** The height being dragged (Ctrl + drag), shown before it is kept. */
   private heightDrag: { target: 'wall' | 'light'; id: string; value: number } | null = null;
@@ -316,7 +358,6 @@ export class Board {
   private readonly toolbar: BoardToolbar;
   private player: PlayerScreen | null = null;
   /** Copy numbers as players see them, kept from sync to sync so a token keeps its number. */
-  private playerNumbers = NO_INSTANCE_NUMBERS;
   /** The window whose animation frame is asked for: the GM's, or the players' while the GM's is hidden. */
   private frameWin: Window | null = null;
   /** The laser: whether it is on, the beam's trail, where the pointer is (on the screen and on the map). */
@@ -372,6 +413,15 @@ export class Board {
       laserOn: () => this.laserOn,
       selectTool: (tool) => this.setLaser(tool === 'laser'),
       laser: () => this.host.laser(),
+      canLight: () => this.host.setLighting !== undefined,
+      lighting: () => choiceOf(this.quality.painted, this.quality.sky),
+      setLighting: (choice) => this.host.setLighting?.(choice),
+      tiltShift: () => this.quality.tiltShift,
+      setTiltShift: (on) => this.host.setTiltShift?.(on),
+      occlusion: () => this.quality.occlusion,
+      setOcclusion: (on) => this.host.setOcclusion?.(on),
+      autoRoll: () => this.host.autoRoll?.() ?? false,
+      setAutoRoll: (on) => this.host.setAutoRoll?.(on),
       setLaser: (changes) => { this.host.setLaser(changes); this.wake(); },
       togglePlayerView: () => this.host.togglePlayerView(),
       playerFrozen: () => this.player?.frozen != null,
@@ -397,7 +447,8 @@ export class Board {
     });
     this.toolbar.setHidden(this.audience === 'player');
     this.tools.eraseAny = this.audience === 'gm';
-    this.scene.add(this.darkness.object3d, this.marks.object3d);
+    this.scene.add(this.darkness.object3d, this.marks.object3d, this.groupMarks.object3d, this.activeMarks.object3d);
+    this.groupBar = new GroupBar(container, { rotate: (delta) => this.rotateGroup(delta), hp: (delta) => this.changeGroupHp(delta), clear: () => this.clearGroup() });
     this.controls = new ResourceControls(container, {
       step: (key, delta) => this.stepResource(key, delta),
       edit: (key) => this.openEditor(key),
@@ -407,6 +458,7 @@ export class Board {
     // A stencil buffer: the line round a die still to be thrown is drawn only outside the die (dieOutline.ts).
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: quality.antialias, powerPreference: 'high-performance', stencil: true });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    setLook(this.renderer, this.quality.painted);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     // The resolution follows the quality setting, and drops while the board cannot keep up (adaptive resolution).
@@ -414,9 +466,13 @@ export class Board {
     this.renderer.setPixelRatio(this.governor.ratio);
     // Shadows are redrawn only when something on the board moves, not when only the camera does.
     this.renderer.shadowMap.autoUpdate = false;
-    this.scene.background = new THREE.Color(0x0f0c0a);
+    this.scene.background = room(doc, this.quality.painted, this.quality.sky);
     this.scene.add(this.hemisphere);
+    this.sun.color.setHex(lightingFor(this.quality.painted, this.quality.sky).sunColor);
+    this.hemisphere.color.setHex(lightingFor(this.quality.painted, this.quality.sky).skyColor);
+    this.hemisphere.groundColor.setHex(lightingFor(this.quality.painted, this.quality.sky).groundColor);
     this.sun.castShadow = true;
+    this.sun.shadow.radius = lightingFor(this.quality.painted, this.quality.sky).shadowRadius;
     this.sun.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
     this.sun.shadow.bias = -0.0005;
     this.scene.add(this.sun, this.sun.target);
@@ -436,7 +492,7 @@ export class Board {
     if (first || !sameImage || this.gridChanged(map)) await this.buildSurface(map);
     if (this.disposed) return;
     if (first) {
-      this.camera = new OrbitCamera({ target: { x: this.size.width / 2, y: 0, z: this.size.height / 2 }, pitch: 0.95 }, limitsFor(this.size.width, this.size.height));
+      this.camera = new OrbitCamera({ target: { x: this.size.width / 2, y: 0, z: this.size.height / 2 }, pitch: 0.95 }, limitsFor(this.size.width, this.size.height, this.quality.painted));
       this.frameMap();
       this.camera.snap();
     }
@@ -454,7 +510,17 @@ export class Board {
    */
   setQuality(preset: QualityPreset): boolean {
     if (preset.antialias !== this.quality.antialias) return false;
+    const repaint = preset.painted !== this.quality.painted || preset.sky !== this.quality.sky;
     this.quality = preset;
+    if (repaint) this.applyLook();
+    if (!preset.tiltShift && !preset.occlusion) {
+      this.tilt?.dispose();
+      this.tilt = null;
+      if (this.player) {
+        this.player.tilt?.dispose();
+        this.player.tilt = null;
+      }
+    }
     this.governor = new ResolutionGovernor(preset, this.container.ownerDocument.defaultView?.devicePixelRatio ?? 1);
     this.renderer.setPixelRatio(this.governor.ratio);
     this.fit();
@@ -465,6 +531,7 @@ export class Board {
     }
     for (const entry of this.tokens.values()) entry.piece.setMiniShadows(preset.miniShadows);
     this.applyLighting();
+    this.toolbar.refresh();
     this.wake(true);
     return true;
   }
@@ -494,39 +561,56 @@ export class Board {
   }
 
   private gridChanged(map: BoardMap): boolean {
-    return this.lastGrid !== JSON.stringify(map.grid);
+    return this.lastGrid !== JSON.stringify([map.grid, map.world ?? null]);
   }
 
   private lastGrid = '';
 
+  /** The video of an animated map, while the map is one: the board keeps drawing frames while it plays. */
+  private video: HTMLVideoElement | null = null;
+
   private async buildSurface(map: BoardMap): Promise<void> {
     let texture: THREE.Texture | null = null;
     if (map.background) {
-      const url = await this.host.readImage(map.background);
-      if (url) {
-        try {
-          texture = await loadImageTexture(url);
-        } catch {
-          this.host.warn(`Tabletop: cannot read the map image ${map.background}.`);
+      // Never larger than the graphics card takes in one texture, whatever Atlas allows.
+      const side = Math.min(MAX_MAP_TEXTURE, this.renderer.capabilities.maxTextureSize);
+      // A map too large to decode whole comes as a picture of Atlas's tiles.
+      const picture = await this.host.readPicture?.(map.background, side).catch(() => null);
+      if (picture) texture = mapTextureFromPicture(picture);
+      if (!texture) {
+        const url = await this.host.readImage(map.background);
+        if (url) {
+          try {
+            texture = await loadMapTexture(url, map.background, side);
+          } catch {
+            this.host.warn(`Tabletop: cannot read the map image ${map.background}.`);
+          }
+        } else {
+          this.host.warn(`Tabletop: the map image ${map.background} is missing.`);
         }
-      } else {
-        this.host.warn(`Tabletop: the map image ${map.background} is missing.`);
       }
     }
     if (this.disposed) { texture?.dispose(); return; }
-    const image = texture?.image as { width?: number; height?: number } | undefined;
-    const width = image?.width || FALLBACK_SIZE;
-    const height = image?.height || FALLBACK_SIZE;
+    const imageSize = mapImageSize(texture) ?? { width: FALLBACK_SIZE, height: FALLBACK_SIZE };
+    // A player's map comes in the world's own size, whatever the image sent (a shrunk copy, a stretched or turned map).
+    const world = map.world && map.world.width > 0 && map.world.height > 0 ? map.world : null;
+    // Atlas's grid alignment may have turned or stretched the image: the world, and so the board, is then bigger than it.
+    const stretch = texture && !world ? map.grid.mapStretch : undefined;
+    const { width, height } = world ?? (stretch ? worldSize(imageSize, stretch) : imageSize);
+    this.video = (texture?.userData.video as HTMLVideoElement | undefined) ?? null;
     this.surface?.object3d.removeFromParent();
     this.surface?.dispose();
-    this.surface = new BoardSurface(width, height, map.grid);
+    const matrix = world ? (world.matrix ?? ([width, 0, 0, height, 0, 0] as const)) : undefined;
+    this.surface = new BoardSurface(width, height, map.grid, stretch ? { image: imageSize, placement: stretchPlacement(imageSize, stretch) } : undefined, matrix);
     this.surface.setImage(texture);
     this.scene.add(this.surface.object3d);
     this.size = { width, height };
     this.hasImage = texture !== null;
     this.cells = numberCells(map.grid, width, height);
-    this.lastGrid = JSON.stringify(map.grid);
+    this.lastGrid = JSON.stringify([map.grid, map.world ?? null]);
     const span = Math.max(width, height);
+    this.span = span;
+    this.applyHorizon();
     this.sun.position.set(width / 2 - span * 0.5, span * 1.2, height / 2 - span * 0.7);
     this.sun.target.position.set(width / 2, 0, height / 2);
     const shadow = this.sun.shadow.camera;
@@ -556,19 +640,16 @@ export class Board {
     this.updateWalls();
     this.applyLighting();
     // Combatants kept beside the map (Atlas 0.9) are no part of it: not drawn, not counted, not seen.
-    const onMap = map.tokens.filter((token) => !token.offMap);
-    // Players count copies among the tokens they see, ordered by the GM's numbers (Atlas's player window).
-    this.playerNumbers = numberTokensInView(this.playerNumbers, onMap
-      .filter((token) => playerSees(token, this.tokens.get(token.id)?.goal ?? token, this.fog.areas))
-      .map((token) => ({ id: token.id, art: token.imagePath ?? '', rank: token.instanceNumber ?? Infinity })));
-    const artUse = new Map<string, number>();
-    for (const token of onMap) if (token.imagePath) artUse.set(token.imagePath, (artUse.get(token.imagePath) ?? 0) + 1);
+    // Tokens on another level (Atlas 0.10) stay in the map for the tracker, but are not drawn.
+    const onMap = map.tokens.filter((token) => !token.offMap && !token.offLevel);
+    // Players see the GM's numbers (Atlas 0.10): copies on a level are counted hidden or not, and a token they cannot see shows none.
+    const numbers = instanceBadgeNumbers(new Map(onMap.map((token) => [token.id, token])), map.tokenSettings.showInstanceBadges);
     const seen = new Set<string>();
     for (const token of onMap) {
       seen.add(token.id);
-      const shared = (artUse.get(token.imagePath ?? '') ?? 0) >= 2;
-      const gmLook = { viewer: 'gm' as const, badge: map.tokenSettings.showInstanceBadges && shared ? token.instanceNumber : null };
-      const playerLook = { viewer: 'player' as const, badge: badgeNumberInView(this.playerNumbers, token.id, map.tokenSettings.showInstanceBadges) };
+      const badge = numbers.get(token.id) ?? null;
+      const gmLook = { viewer: 'gm' as const, badge };
+      const playerLook = { viewer: 'player' as const, badge: badge !== null && playerSees(token, this.tokens.get(token.id)?.goal ?? token, this.fog.areas) ? badge : null };
       let entry = this.tokens.get(token.id);
       if (!entry) {
         const piece = new TokenPiece(token, map.grid, rules.definitions);
@@ -740,6 +821,44 @@ export class Board {
 
   // ── Drawing ───────────────────────────────────────────────────────────────
 
+  /** The post-processing (miniature look, contact shadows), made when a setting asks for it. */
+  private tilt: PostFx | null = null;
+
+  /** The farthest the camera looks, in map pixels, from the map's size. */
+  private span = 1000;
+
+  /** In the painted look the floor runs out to the horizon and fades into the sky's colour there. */
+  private applyHorizon(): void {
+    const painted = this.quality.painted;
+    this.surface?.widenFloor(painted ? 3 : 1);
+    this.camera.limits.minPitch = limitsFor(this.size.width, this.size.height, painted).minPitch;
+    this.scene.fog = painted ? new THREE.Fog(horizonColor(this.quality.sky), this.span * 4, this.span * 16) : null;
+  }
+
+  /** The painted look or the classic one: the lights, the tone mapping, the soft shadows, the room round the table. */
+  private applyLook(): void {
+    const lighting = lightingFor(this.quality.painted, this.quality.sky);
+    this.hemisphere.color.setHex(lighting.skyColor);
+    this.hemisphere.groundColor.setHex(lighting.groundColor);
+    this.sun.color.setHex(lighting.sunColor);
+    this.sun.shadow.radius = lighting.shadowRadius;
+    // The shadow map is made again for the new filter: drawing with the old one mismatches the shaders.
+    this.sun.shadow.map?.dispose();
+    this.sun.shadow.map = null;
+    setLook(this.renderer, this.quality.painted);
+    if (this.player) setLook(this.player.renderer, this.quality.painted);
+    const old = this.scene.background;
+    this.scene.background = room(this.container.ownerDocument, this.quality.painted, this.quality.sky);
+    this.applyHorizon();
+    if (old instanceof THREE.Texture) old.dispose();
+    this.shadowsDirty = true;
+  }
+
+  /** What the post-processing is asked for now. */
+  private looks(): PostFxLook {
+    return { tilt: this.quality.tiltShift, occlusion: this.quality.occlusion && { radius: (this.map?.grid.size ?? 50) * 0.5 } };
+  }
+
   /** The size and resolution the canvas was last given. */
   private fitted = { width: 0, height: 0, ratio: 0 };
 
@@ -780,7 +899,12 @@ export class Board {
       }
     }
     this.fog.face(this.view.position);
-    this.renderer.render(this.scene, this.view);
+    if (this.quality.tiltShift || this.quality.occlusion) {
+      this.tilt ??= new PostFx(this.renderer, this.quality.antialias);
+      this.tilt.render(this.scene, this.view, this.looks());
+    } else {
+      this.renderer.render(this.scene, this.view);
+    }
   }
 
   /** On a player's board: the GM's 3D view to glide to (the GM view button); null when there is none. */
@@ -972,6 +1096,8 @@ export class Board {
       this.shadowedAt = this.clock;
     }
     this.shadowsDirty = false;
+    if (this.group.size > 0) this.placeGroup();
+    if (this.active.length > 0) this.placeActive();
     this.drawMain();
     this.layoutControls();
     this.drawPlayers(shadows, context);
@@ -980,9 +1106,9 @@ export class Board {
     if (this.continuing) this.wake();
     // Flames flicker on a timer, a few times a second, not on every frame the screen can draw; those frames are
     // rests to the resolution governor.
-    else if (this.rig.animated && this.flickerTimer === 0) {
+    else if ((this.rig.animated || this.video !== null) && this.flickerTimer === 0) {
       const win = this.frameWin ?? this.container.ownerDocument.defaultView ?? window;
-      this.flickerTimer = win.setTimeout(() => { this.flickerTimer = 0; this.wake(); }, FLICKER_MS);
+      this.flickerTimer = win.setTimeout(() => { this.flickerTimer = 0; this.wake(); }, this.video !== null ? VIDEO_FRAME_MS : FLICKER_MS);
     }
   }
 
@@ -1108,8 +1234,9 @@ export class Board {
     const map = this.map;
     if (!map) return;
     const ambient = this.ambientShown ?? this.host.ambient();
-    this.hemisphere.intensity = DAY_SKY * ambient;
-    this.sun.intensity = DAY_SUN * ambient;
+    const lighting = lightingFor(this.quality.painted, this.quality.sky);
+    this.hemisphere.intensity = lighting.sky * ambient;
+    this.sun.intensity = lighting.sun * ambient;
     // Below Atlas's lit threshold the scene is dark: the sun casts no shadow there.
     const sunCasts = ambient >= LIT_THRESHOLD;
     if (this.sun.castShadow !== sunCasts) { this.sun.castShadow = sunCasts; this.shadowsDirty = true; }
@@ -1212,6 +1339,7 @@ export class Board {
       // A player's tools are Connect's: Escape goes back to Move, as in its 2D view.
       if (this.audience === 'player' && key === 'escape' && this.tools.tool !== 'move') { this.tools.select('move'); this.toolsChanged(); return; }
       if (key === 'v' && this.audience === 'gm' && !event.ctrlKey && !event.metaKey && !event.altKey) { this.setLaser(!this.laserOn); return; }
+      if (key === 'escape' && this.group.size > 0) { this.clearGroup(); return; }
       if (key === 'escape' && this.selectedId !== null) { this.select(null); return; }
       if (key === 'escape' && this.toolbar.isOpen) { this.toolbar.close(); this.toolbar.closeDice(); return; }
       if (key === 'home') { this.frameMap(); event.preventDefault(); return; }
@@ -1337,11 +1465,15 @@ export class Board {
         return;
       }
       if (id && entry && at) {
+        const toggle = event.shiftKey && !event.altKey;
+        const members = !toggle && this.group.size >= 2 && this.group.has(id) ? this.groupMembers() : undefined;
         this.press = {
           kind: 'token', id, x, y, moved: false, grab: { dx: entry.at.x - at.x, dy: entry.at.y - at.y },
-          copy: event.altKey && event.shiftKey, start: snapPoint(this.map!.grid, entry.token.x, entry.token.y), waypoints: [],
+          copy: event.altKey && event.shiftKey, start: snapPoint(this.map!.grid, entry.token.x, entry.token.y, entry.token.size), waypoints: [],
+          ...(toggle ? { toggle } : {}), ...(members ? { members } : {}),
         };
         entry.piece.carried = true;
+        for (const member of members?.keys() ?? []) { const other = this.tokens.get(member); if (other) other.piece.carried = true; }
         return;
       }
     }
@@ -1368,7 +1500,7 @@ export class Board {
       if (id && entry && at && this.host.canMove?.(id) === true) {
         this.press = {
           kind: 'token', id, x, y, moved: false, grab: { dx: entry.at.x - at.x, dy: entry.at.y - at.y },
-          copy: false, start: snapPoint(this.map!.grid, entry.token.x, entry.token.y), waypoints: [],
+          copy: false, start: snapPoint(this.map!.grid, entry.token.x, entry.token.y, entry.token.size), waypoints: [],
         };
         entry.piece.carried = true;
         return;
@@ -1500,6 +1632,12 @@ export class Board {
         entry.goal = point;
         entry.at = { ...point };
       }
+      if (press.members) {
+        for (const [id, place] of groupFollow(press.members, press.id, point, this.size.width, this.size.height)) {
+          const other = this.tokens.get(id);
+          if (other && id !== press.id) { other.goal = { ...place }; other.at = { ...place }; }
+        }
+      }
       this.drawRuler();
     } else {
       this.props.get(press.id)?.place(point.x, point.y);
@@ -1546,18 +1684,39 @@ export class Board {
       const entry = this.tokens.get(press.id);
       if (!entry) return;
       entry.piece.carried = false;
-      if (press.moved && press.copy) {
-        this.copyToken(entry, snapPoint(this.map!.grid, entry.at.x, entry.at.y));
-        return;
-      }
-      if (!press.moved) {
-        // A player's board has no resource controls to open.
-        if (this.audience === 'gm') this.select(press.id);
+      for (const member of press.members?.keys() ?? []) { const other = this.tokens.get(member); if (other) other.piece.carried = false; }
+      if (!press.moved && press.toggle && this.audience === 'gm') {
+        this.toggleGroup(press.id);
         entry.piece.shake(this.clock);
         this.wake(true);
         return;
       }
-      const snapped = snapPoint(this.map!.grid, entry.at.x, entry.at.y);
+      if (press.moved && press.copy) {
+        this.copyToken(entry, snapPoint(this.map!.grid, entry.at.x, entry.at.y, entry.token.size));
+        return;
+      }
+      if (!press.moved) {
+        // A player's board has no resource controls to open.
+        if (this.audience === 'gm') { this.clearGroup(); this.select(press.id); }
+        entry.piece.shake(this.clock);
+        this.wake(true);
+        return;
+      }
+      if (press.members) {
+        const landing = groupLanding(press.members, press.id, entry.at, this.map!.grid, this.size.width, this.size.height);
+        const moves: Array<{ id: string; x: number; y: number }> = [];
+        for (const [id, place] of landing) {
+          const other = this.tokens.get(id);
+          if (!other) continue;
+          other.goal = place;
+          moves.push({ id, x: place.x, y: place.y });
+        }
+        if (this.host.moveTokens) this.host.moveTokens(moves);
+        else for (const move of moves) this.host.moveToken(move.id, move.x, move.y);
+        this.wake(true);
+        return;
+      }
+      const snapped = snapPoint(this.map!.grid, entry.at.x, entry.at.y, entry.token.size);
       entry.goal = snapped;
       this.host.moveToken(press.id, snapped.x, snapped.y);
       this.wake(true);
@@ -1586,7 +1745,7 @@ export class Board {
       this.toggleDoor(press.door);
       return;
     }
-    if (press.button === 0 && !press.pin) this.select(null);
+    if (press.button === 0 && !press.pin) { this.clearGroup(); this.select(null); }
     if (press.button === 2 && press.token) this.host.tokenMenu(press.token, event);
     else if (press.button === 2 && press.prop) this.host.propMenu(press.prop, event);
     else if (press.button === 2 && press.light) this.host.lightMenu(press.light, event);
@@ -1616,6 +1775,10 @@ export class Board {
       if (entry) {
         entry.goal = { x: entry.token.x, y: entry.token.y };
         entry.piece.carried = false;
+      }
+      for (const member of press.members?.keys() ?? []) {
+        const other = this.tokens.get(member);
+        if (other) { other.goal = { x: other.token.x, y: other.token.y }; other.piece.carried = false; }
       }
     } else if (press?.kind === 'prop') {
       const piece = this.props.get(press.id);
@@ -1702,7 +1865,7 @@ export class Board {
     if (press?.kind !== 'token' || !this.map) return null;
     const entry = this.tokens.get(press.id);
     if (!entry) return null;
-    const landing = snapPoint(this.map.grid, entry.at.x, entry.at.y);
+    const landing = snapPoint(this.map.grid, entry.at.x, entry.at.y, entry.token.size);
     const points = [press.start, ...press.waypoints];
     const last = points[points.length - 1];
     if (Math.hypot(landing.x - last.x, landing.y - last.y) > 0.5) points.push(landing);
@@ -1714,7 +1877,7 @@ export class Board {
     if (press?.kind !== 'token' || !this.map) return;
     const entry = this.tokens.get(press.id);
     if (!entry) return;
-    const landing = snapPoint(this.map.grid, entry.at.x, entry.at.y);
+    const landing = snapPoint(this.map.grid, entry.at.x, entry.at.y, entry.token.size);
     const last = press.waypoints[press.waypoints.length - 1] ?? press.start;
     if (Math.hypot(landing.x - last.x, landing.y - last.y) <= 0.5) return;
     press.waypoints.push(landing);
@@ -1917,8 +2080,17 @@ export class Board {
     const canvas = doc.win.createEl('canvas');
     canvas.className = 'atlas-tabletop-player-board';
     container.appendChild(canvas);
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: this.quality.antialias, powerPreference: 'high-performance' });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: this.quality.antialias, powerPreference: 'high-performance' });
+    } catch (error) {
+      // A second WebGL context can be refused (a window holds few): the player window stays as it was.
+      console.warn('Tabletop: the player window could not get a WebGL context:', error);
+      canvas.remove();
+      return;
+    }
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    setLook(renderer, this.quality.painted);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.shadowMap.autoUpdate = false;
@@ -1936,7 +2108,7 @@ export class Board {
     });
     resize.observe(container);
     renderer.setSize(Math.max(1, container.clientWidth), Math.max(1, container.clientHeight), false);
-    this.player = { container, canvas, renderer, view, resize, frozen: null, shadowsDirty: true, blind: false };
+    this.player = { container, canvas, renderer, view, resize, frozen: null, shadowsDirty: true, blind: false, tilt: null };
     this.toolbar.refresh();
     this.wake(true);
   }
@@ -1947,6 +2119,7 @@ export class Board {
     if (!player) return;
     this.player = null;
     player.resize.disconnect();
+    player.tilt?.dispose();
     player.renderer.dispose();
     player.renderer.forceContextLoss();
     player.canvas.remove();
@@ -2048,7 +2221,12 @@ export class Board {
         player.renderer.clear();
       } else {
         this.fog.face(player.view.position);
-        player.renderer.render(this.scene, player.view);
+        if (this.quality.tiltShift || this.quality.occlusion) {
+          player.tilt ??= new PostFx(player.renderer, this.quality.antialias);
+          player.tilt.render(this.scene, player.view, this.looks());
+        } else {
+          player.renderer.render(this.scene, player.view);
+        }
       }
     } catch (error) {
       console.error('[Tabletop] The player view could not be drawn:', error);
@@ -2072,6 +2250,129 @@ export class Board {
     this.camera.lookAt({ x: entry.goal.x, y: 0, z: entry.goal.y });
     this.select(id);
     this.wake();
+  }
+
+  /** The camera goes to a point of the map, selecting nothing. */
+  lookAtPoint(x: number, y: number): void {
+    this.camera.lookAt({ x, y: 0, z: y });
+    this.wake();
+  }
+
+  /** The tokens of the selection, each with where it stands. */
+  private groupMembers(): Map<string, GroupMember> {
+    const members = new Map<string, GroupMember>();
+    for (const id of this.group) {
+      const entry = this.tokens.get(id);
+      if (entry) members.set(id, { origin: { x: entry.at.x, y: entry.at.y }, size: entry.token.size });
+    }
+    return members;
+  }
+
+  /** Shift-click: adds a token to the selection, or takes it out. The token with the controls joins it. */
+  private toggleGroup(id: string): void {
+    if (this.group.size === 0 && this.selectedId !== null && this.selectedId !== id) this.group.add(this.selectedId);
+    if (this.group.has(id)) this.group.delete(id);
+    else this.group.add(id);
+    // A selection of one is no selection: that token is the selected one.
+    if (this.group.size === 1) {
+      const [only] = this.group;
+      this.group.clear();
+      this.select(only ?? null);
+    } else if (this.group.size >= 2) {
+      this.select(null);
+    }
+    this.drawGroup();
+  }
+
+  private clearGroup(): void {
+    if (this.group.size === 0) return;
+    this.group.clear();
+    this.drawGroup();
+    this.wake();
+  }
+
+  /** Puts the rings under the selection's tokens, where they stand now. */
+  private placeGroup(): void {
+    this.groupMarks.update(this.group, (id) => {
+      const entry = this.tokens.get(id);
+      return entry && this.map ? { x: entry.at.x, y: entry.at.y, diameter: ringDiameter(this.map.grid, entry.token.size) } : null;
+    });
+  }
+
+  /** The board as it is drawn now, as a PNG; null when the canvas cannot give one. */
+  snapshot(): Promise<Blob | null> {
+    // The canvas keeps no picture between frames: it is drawn again, and read in the same step.
+    this.redraw();
+    return new Promise((resolve) => this.canvas.toBlob((blob) => resolve(blob), 'image/png'));
+  }
+
+  /** Marks the tokens of the combatants holding their turn back (a clock over each); none takes the marks away. */
+  setDelayedTokens(ids: readonly string[]): void {
+    const wanted = new Set(ids);
+    for (const [id, entry] of this.tokens) entry.piece.setDelayed(wanted.has(id));
+    this.wake();
+  }
+
+  /** Flashes a banner over the board for the turn that began: it fades by itself. */
+  flashTurn(text: string): void {
+    const doc = this.container.ownerDocument;
+    this.container.querySelector('.atlas-tabletop-turn-banner')?.remove();
+    const banner = doc.win.createDiv();
+    banner.className = 'atlas-tabletop-turn-banner';
+    banner.setAttribute('role', 'status');
+    banner.textContent = text;
+    this.container.appendChild(banner);
+    (doc.defaultView ?? window).setTimeout(() => banner.remove(), TURN_BANNER_MS);
+  }
+
+  /** Rings the tokens of the combatants whose turn it is; none takes the rings away. */
+  setActiveTokens(ids: readonly string[]): void {
+    if (ids.length === this.active.length && ids.every((id, index) => id === this.active[index])) return;
+    this.active = ids;
+    this.placeActive();
+    this.wake();
+  }
+
+  private placeActive(): void {
+    this.activeMarks.update(this.active, (id) => {
+      const entry = this.tokens.get(id);
+      return entry && this.map ? { x: entry.at.x, y: entry.at.y, diameter: ringDiameter(this.map.grid, entry.token.size) } : null;
+    });
+  }
+
+  private drawGroup(): void {
+    this.placeGroup();
+    const key = hpKey(this.host.rules().definitions);
+    this.groupBar.show(this.group.size, key !== null && [...this.group].some((id) => this.tokens.get(id)?.token.resources[key] !== undefined));
+    this.wake();
+  }
+
+  /** Turns every token of the selected group by `delta` degrees, shown at once and saved as the host does. */
+  rotateGroup(delta: number): void {
+    const turns: Array<{ id: string; rotation: number }> = [];
+    for (const id of this.group) {
+      const entry = this.tokens.get(id);
+      if (!entry) continue;
+      const rotation = turned(entry.token.rotation, delta);
+      turns.push({ id, rotation });
+      this.changeToken(id, { ...entry.token, rotation });
+    }
+    if (turns.length > 0) this.host.rotateTokens?.(turns);
+    this.placeGroup();
+    this.wake(true);
+  }
+
+  /** Hurts (a negative `delta`) or heals every token of the group that tracks HP, each by the same amount. */
+  changeGroupHp(delta: number): void {
+    const key = hpKey(this.host.rules().definitions);
+    if (key === null) return;
+    for (const id of this.group) {
+      const entry = this.tokens.get(id);
+      const next = entry ? hpChange(entry.token, key, delta) : null;
+      if (!entry || !next) continue;
+      this.showResource(id, key, next, false);
+      this.host.editResource(id, key, (stored) => withCurrent(stored, stored.current + delta), false);
+    }
   }
 
   select(id: string | null): void {
@@ -2270,6 +2571,11 @@ export class Board {
     return { x: THREE.MathUtils.clamp(x, 0, this.size.width), y: THREE.MathUtils.clamp(y, 0, this.size.height) };
   }
 
+  /** Ctrl/Cmd was let go: the stat block card closed, and pressing it again over the same token opens it again. */
+  previewEnded(): void {
+    this.previewed = null;
+  }
+
   /** Names a condition ring or stat badge under the pointer; with Ctrl/Cmd held, shows a token's stat block. */
   private hover(event: PointerEvent): void {
     if (this.audience === 'player') {
@@ -2280,9 +2586,14 @@ export class Board {
     }
     if (event.ctrlKey || event.metaKey) {
       const id = this.tokenAt(event.clientX, event.clientY);
-      if (id !== this.previewed && id && this.tokens.get(id)?.token.statblockPath) this.host.statblockPreview(id, event);
-      this.previewed = id;
-    } else {
+      // Over another token with a stat block its card opens; over none the card stays, so the pointer can go to it.
+      if (id && id !== this.previewed && this.tokens.get(id)?.token.statblockPath) {
+        this.host.statblockPreview(id, event);
+        this.previewed = id;
+      }
+    } else if (this.previewed !== null) {
+      // Letting go of Ctrl/Cmd closes the card (Atlas's own rule).
+      this.host.statblockPreviewEnd?.();
       this.previewed = null;
     }
     if (this.painting) {
@@ -2335,10 +2646,14 @@ export class Board {
     this.fog.dispose();
     this.walls.dispose();
     this.rig.dispose();
+    this.groupMarks.dispose();
+    this.groupBar.dispose();
+    this.activeMarks.dispose();
     for (const material of this.wallMaterials.values()) material.dispose();
     for (const piece of this.props.values()) piece.dispose();
     this.surface?.dispose();
     for (const art of this.arts.values()) void art.then((texture) => texture?.dispose());
+    this.tilt?.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
     this.canvas.remove();

@@ -1,12 +1,14 @@
 /**
  * The gallery (a view of its own, opened by the "Open minis gallery" command) with three tabs, Minis, Props and
  * Materials, and the picker "Assign mini…" opens from a token's menu on the 3D board. Minis and props show a library's
- * GLBs as cards with a drawn thumbnail, and import more: by the Import button or by dropping .glb files on them.
+ * GLBs as cards with a drawn thumbnail, and import more: by the Import button or by dropping .glb files (or HeroForge and TaleSpire exports) on them.
  * Clicking a prop puts it on the 3D board last used. Materials show their colour map, import Poly Haven's zips (or
  * its maps, or a folder of them), and are dragged onto a wall or door of a 3D board to paint it.
  */
 import { ItemView, Menu, Modal, Notice, setIcon, type App, type TFile, type TFolder, type WorkspaceLeaf } from 'obsidian';
+import type { MiniBase } from './assignments';
 import type { MiniLibrary } from './library';
+import { MiniPreview } from './miniPreview';
 import { MINI_DRAG_TYPE, MINI_TEXT_PREFIX } from './assignments';
 import { MATERIAL_DRAG_TYPE, MATERIAL_TEXT_PREFIX, type MaterialLibrary } from './materials';
 import { MAX_TEXTURE_SCALE, MIN_TEXTURE_SCALE } from './materialMaps';
@@ -23,19 +25,19 @@ export async function importWithNotice(library: MiniLibrary, files: readonly Fil
   return added;
 }
 
-/** Asks for .glb files with the system's file picker. */
+/** Asks for .glb files (or HeroForge Unity3D exports, or zips of them) with the system's file picker. */
 export function pickFiles(doc: Document): Promise<File[]> {
   return new Promise((resolve) => {
     const input = doc.win.createEl('input');
     input.type = 'file';
-    input.accept = '.glb,model/gltf-binary';
+    input.accept = '.glb,model/gltf-binary,.unity3d,.tsmod,.zip';
     input.multiple = true;
     input.addEventListener('change', () => resolve(Array.from(input.files ?? [])), { once: true });
     input.click();
   });
 }
 
-/** Lets `zone` take dropped .glb files. */
+/** Lets `zone` take dropped .glb, .unity3d, .tsMod and .zip files. */
 function acceptDrops(zone: HTMLElement, library: MiniLibrary): void {
   const has = (event: DragEvent): boolean => Array.from(event.dataTransfer?.items ?? []).some((item) => item.kind === 'file');
   zone.addEventListener('dragover', (event) => {
@@ -70,7 +72,7 @@ function drawGrid(grid: HTMLElement, library: MiniLibrary, options: GridOptions)
   if (files.length === 0) {
     grid.createDiv({
       cls: 'atlas-tabletop-empty',
-      text: library.list().length === 0 ? `No ${library.kind.many} yet. Import .glb files, or drop them here or in ${library.folderPath}.` : `No ${library.kind.one} matches.`,
+      text: library.list().length === 0 ? `No ${library.kind.many} yet. Import .glb, HeroForge .unity3d or TaleSpire .tsMod files, or drop them here or in ${library.folderPath}.` : `No ${library.kind.one} matches.`,
     });
     return;
   }
@@ -208,8 +210,8 @@ export class GalleryView extends ItemView {
     const button = bar.createEl('button', { cls: 'mod-cta', text: 'Import GLB' });
     button.addEventListener('click', () => { void pickFiles(body.ownerDocument).then((files) => importWithNotice(library, files)); });
     const hint = this.tab === 'minis'
-      ? `Drop .glb files here. Minis live in ${library.folderPath}. On a 3D board, right-click a token and choose "Assign mini…".`
-      : `Drop .glb files here. Props live in ${library.folderPath}. Click a prop, then click the 3D board to put it there; Ctrl + drag moves it.`;
+      ? `Drop .glb files (or a HeroForge or TaleSpire export) here. Minis live in ${library.folderPath}. On a 3D board, right-click a token and choose "Assign mini…".`
+      : `Drop .glb files (or a HeroForge or TaleSpire export) here. Props live in ${library.folderPath}. Click a prop, then click the 3D board to put it there; Ctrl + drag moves it.`;
     body.createDiv({ cls: 'atlas-tabletop-hint', text: hint });
     this.grid = body.createDiv({ cls: 'atlas-tabletop-grid' });
     acceptDrops(body, library);
@@ -385,6 +387,8 @@ export interface PickResult {
   mini: string;
   scale: number;
   turn: number;
+  /** The base under the mini; absent means none. */
+  base?: MiniBase;
 }
 
 /** "Assign mini…": picks a mini for a token, with its size and turn. */
@@ -393,6 +397,9 @@ export class MiniPicker extends Modal {
   private selected: string | null;
   private scale: number;
   private turn: number;
+  private base: MiniBase;
+  private preview: MiniPreview | null = null;
+  private previewed: string | null = null;
   private stop: (() => void) | null = null;
 
   constructor(
@@ -408,6 +415,7 @@ export class MiniPicker extends Modal {
     this.selected = current?.mini ?? null;
     this.scale = current?.scale ?? 1;
     this.turn = current?.turn ?? 0;
+    this.base = current?.base ?? 'none';
   }
 
   onOpen(): void {
@@ -428,7 +436,15 @@ export class MiniPicker extends Modal {
     const grid = root.createDiv({ cls: 'atlas-tabletop-grid' });
     acceptDrops(root, this.library);
 
-    const controls = root.createDiv({ cls: 'atlas-tabletop-picker-controls' });
+    // Below the cards: a square showing the mini on its token, and the controls that change it.
+    const lower = root.createDiv({ cls: 'atlas-tabletop-picker-lower' });
+    if (!this.options.fitted) {
+      const frame = lower.createDiv({ cls: 'atlas-tabletop-preview' });
+      const canvas = frame.createEl('canvas', { cls: 'atlas-tabletop-preview__canvas', attr: { 'aria-label': 'The mini on its token' } });
+      this.preview = new MiniPreview(canvas);
+      if (!this.preview.ok) { this.preview = null; frame.remove(); }
+    }
+    const controls = lower.createDiv({ cls: 'atlas-tabletop-picker-controls' });
     const slider = (label: string, min: number, max: number, stepBy: number, value: number, show: (v: number) => string, set: (v: number) => void): void => {
       const row = controls.createDiv({ cls: 'atlas-tabletop-slider' });
       row.createSpan({ text: label });
@@ -439,8 +455,15 @@ export class MiniPicker extends Modal {
     };
     // A fitted prop takes its size and turn from what it fits.
     if (!this.options.fitted) {
-      slider('Size', 0.3, 3, 0.05, this.scale, (v) => `${Math.round(v * 100)}%`, (v) => { this.scale = v; });
-      slider('Turn', 0, 345, 15, this.turn, (v) => `${v}°`, (v) => { this.turn = v; });
+      slider('Size', 0.3, 3, 0.05, this.scale, (v) => `${Math.round(v * 100)}%`, (v) => { this.scale = v; this.showPreview(); });
+      slider('Turn', 0, 345, 15, this.turn, (v) => `${v}°`, (v) => { this.turn = v; this.showPreview(); });
+      // A model with no base of its own (a TaleSpire creature) stands on one drawn under it.
+      const baseRow = controls.createDiv({ cls: 'atlas-tabletop-slider' });
+      baseRow.createSpan({ text: 'Base' });
+      const choice = baseRow.createEl('select');
+      for (const [value, text] of [['none', 'None'], ['round', 'Round'], ['square', 'Square']] as const) choice.createEl('option', { value, text });
+      choice.value = this.base;
+      choice.addEventListener('change', () => { this.base = choice.value as MiniBase; this.showPreview(); });
     }
 
     const buttons = root.createDiv({ cls: 'modal-button-container' });
@@ -450,6 +473,7 @@ export class MiniPicker extends Modal {
 
     const redraw = (): void => {
       place.disabled = this.selected === null;
+      this.loadPreview();
       drawGrid(grid, this.library, {
         filter: this.filter,
         selected: this.selected,
@@ -465,15 +489,34 @@ export class MiniPicker extends Modal {
     search.focus();
   }
 
+  /** The preview shows the chosen mini once its model is read (and nothing while none is chosen). */
+  private loadPreview(): void {
+    const preview = this.preview;
+    const path = this.selected;
+    if (!preview || path === this.previewed) return;
+    this.previewed = path;
+    if (!path) { preview.setMini(null); return; }
+    void this.library.load(path).then(
+      (model) => { if (this.preview === preview && this.selected === path) { preview.setMini(model); this.showPreview(); } },
+      () => { if (this.preview === preview && this.selected === path) preview.setMini(null); },
+    );
+  }
+
+  private showPreview(): void {
+    this.preview?.set({ scale: this.scale, turn: this.turn, base: this.base });
+  }
+
   private finish(): void {
     if (!this.selected) return;
-    const result = { mini: this.selected, scale: this.scale, turn: this.turn };
+    const result: PickResult = { mini: this.selected, scale: this.scale, turn: this.turn, ...(this.base !== 'none' ? { base: this.base } : {}) };
     this.close();
     this.done(result);
   }
 
   onClose(): void {
     this.stop?.();
+    this.preview?.dispose();
+    this.preview = null;
     this.contentEl.empty();
   }
 }

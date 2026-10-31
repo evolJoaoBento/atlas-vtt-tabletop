@@ -10,6 +10,7 @@
  * starts a fight; its fight state is kept as written, the fields a change makes stale are cleared, and a fight only
  * Atlas can run is refused in the file (`fileCannotRun`).
  */
+import { t } from '../i18n';
 
 export type InitiativeSide = 'players' | 'opponents';
 /** Atlas 0.9 adds fights by cards. */
@@ -53,6 +54,8 @@ export interface InitiativeEntry {
   isNPC: boolean;
   order: number;
   sitsOut?: boolean;
+  /** A combatant that held its turn back (Atlas 0.9's delay). */
+  delayed?: boolean;
   [field: string]: unknown;
 }
 
@@ -323,6 +326,28 @@ const byInitiative = (state: InitiativeState): void => {
   state.entries.sort((a, b) => b.initiative - a.initiative || tieBreakOf(b) - tieBreakOf(a));
   renumber(state.entries);
 };
+
+/** The combatants whose turn it is while a fight runs: those marked active, else the one at the current place. */
+export function currentEntries(state: InitiativeState): InitiativeEntry[] {
+  if (!state.isActive) return [];
+  const marked = state.entries.filter((entry) => entry.isActive && entry.sitsOut !== true);
+  if (marked.length > 0) return marked;
+  const at = Math.max(state.currentIndex, 0);
+  return state.entries.slice(at, at + 1);
+}
+
+/** What the board flashes when the turn passes: a key that changes with the turn (round and combatants) and the words. */
+export function turnAnnouncement(state: InitiativeState): { key: string; text: string } | null {
+  const current = currentEntries(state);
+  if (current.length === 0) return null;
+  const names = current.map((entry) => entry.name).join(' & ');
+  return { key: `${state.round}:${current.map((entry) => entry.id).join(',')}`, text: t('turn.banner', { round: Math.max(state.round, 1), names }) };
+}
+
+/** The tokens of the combatants holding their turn back, while a fight runs. */
+export function delayedTokens(state: InitiativeState): string[] {
+  return state.isActive ? state.entries.filter((entry) => entry.delayed === true).map((entry) => entry.tokenId) : [];
+}
 
 /** Whether a combatant takes its turn: not defeated, not sitting the round out, not delayed (Atlas 0.9's `actsInTurn`). */
 const actsInTurn = (entry: InitiativeEntry, defeated: ReadonlySet<string>): boolean => !defeated.has(entry.id) && !entry.sitsOut && !entry.delayed;

@@ -4,6 +4,9 @@
  * mini back; a deleted map or GLB takes its placements with it. Pure, so it is tested without Obsidian.
  */
 
+/** The base a mini stands on, drawn under it by Tabletop for a model that has none (TaleSpire's, for one). */
+export type MiniBase = 'none' | 'round' | 'square';
+
 export interface MiniPlacement {
   /** Vault path of the GLB. */
   readonly mini: string;
@@ -11,6 +14,8 @@ export interface MiniPlacement {
   readonly scale: number;
   /** Turn in degrees, on top of the token's own rotation. */
   readonly turn: number;
+  /** The base under it; absent means none. */
+  readonly base?: MiniBase;
 }
 
 /** A mini dragged from the gallery onto a token on the board: the GLB path, as its own type and as plain text. */
@@ -22,6 +27,8 @@ export type AssignmentData = Record<string, Record<string, MiniPlacement>>;
 export const DEFAULT_PLACEMENT: Omit<MiniPlacement, 'mini'> = Object.freeze({ scale: 1, turn: 0 });
 
 const clampScale = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? Math.min(4, Math.max(0.2, value)) : 1);
+/** The base to keep: round or square, and nothing for anything else (the saved data stays as it was without one). */
+const cleanBase = (value: unknown): { base?: MiniBase } => (value === 'round' || value === 'square' ? { base: value } : {});
 const cleanTurn = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? ((value % 360) + 360) % 360 : 0);
 
 /** Reads saved data, dropping anything malformed. */
@@ -34,7 +41,7 @@ export function readAssignments(raw: unknown): AssignmentData {
     for (const [id, entry] of Object.entries(tokens as Record<string, unknown>)) {
       const value = entry as Partial<MiniPlacement> | null;
       if (!value || typeof value.mini !== 'string' || value.mini === '') continue;
-      kept[id] = { mini: value.mini, scale: clampScale(value.scale), turn: cleanTurn(value.turn) };
+      kept[id] = { mini: value.mini, scale: clampScale(value.scale), turn: cleanTurn(value.turn), ...cleanBase(value.base) };
     }
     if (Object.keys(kept).length > 0) out[map] = kept;
   }
@@ -78,7 +85,7 @@ export class Assignments {
 
   set(mapPath: string, tokenId: string, placement: MiniPlacement): void {
     const map = { ...(this.data[mapPath] ?? {}) };
-    map[tokenId] = { mini: placement.mini, scale: clampScale(placement.scale), turn: cleanTurn(placement.turn) };
+    map[tokenId] = { mini: placement.mini, scale: clampScale(placement.scale), turn: cleanTurn(placement.turn), ...cleanBase(placement.base) };
     this.data = { ...this.data, [mapPath]: map };
     this.changed(mapPath);
   }

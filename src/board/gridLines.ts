@@ -33,6 +33,39 @@ function clip(x1: number, y1: number, x2: number, y2: number, width: number, hei
   return [x1 + dx * t0, y1 + dy * t0, x1 + dx * t1, y1 + dy * t1];
 }
 
+/**
+ * Most cell edges drawn one by one. Atlas 0.11's maps hold up to 20 million squares, whose edges would be tens of millions
+ * of segments: past this a square grid is drawn as whole lines across the map and a hex grid, whose cells cannot be
+ * merged, is left off.
+ */
+export const MAX_GRID_EDGES = 400_000;
+
+/** About how many cell edges the grid has on a `width` × `height` map. */
+export function gridEdgeCount(grid: BoardGrid, width: number, height: number): number {
+  const { size } = grid;
+  if (!(size > 0)) return 0;
+  if (grid.type === 'square') return (width / size + 1) * (height / size) + (height / size + 1) * (width / size);
+  // A hex is `size` across the flats and `size × 2/√3` across the points: 3 edges a hex, 0.866 size² of map each.
+  return (3 * width * height) / (size * size * (SQRT3 / 2));
+}
+
+/** The square grid as whole lines across the map, clipped to it: the same picture as `gridEdges` in a few segments. */
+export function gridLines(grid: BoardGrid, width: number, height: number): number[] {
+  const out: number[] = [];
+  const { size } = grid;
+  const offX = ((grid.offsetX % size) + size) % size;
+  const offY = ((grid.offsetY % size) + size) % size;
+  for (let x = offX - size; x <= width + size; x += size) {
+    const part = clip(x, 0, x, height, width, height);
+    if (part) out.push(...part);
+  }
+  for (let y = offY - size; y <= height + size; y += size) {
+    const part = clip(0, y, width, y, width, height);
+    if (part) out.push(...part);
+  }
+  return out;
+}
+
 /** Every cell edge of the grid, once, clipped to the map: x1, y1, x2, y2 per edge. */
 export function gridEdges(grid: BoardGrid, width: number, height: number): number[] {
   const out: number[] = [];
@@ -99,6 +132,11 @@ export function dashes(x1: number, y1: number, x2: number, y2: number): number[]
 
 /** The grid as segments to draw (x1, y1, x2, y2 each), in its line type. */
 export function styledGrid(grid: BoardGrid, width: number, height: number): { segments: number[] } {
+  const square = grid.type === 'square';
+  const crowded = gridEdgeCount(grid, width, height) > MAX_GRID_EDGES;
+  // Solid square lines need no cells; so do the lines of a grid too fine to draw cell by cell.
+  if (square && (grid.lineType === 'solid' || crowded)) return { segments: gridLines(grid, width, height) };
+  if (crowded) return { segments: [] };
   const edges = gridEdges(grid, width, height);
   if (grid.lineType === 'solid') return { segments: edges };
   const segments: number[] = [];

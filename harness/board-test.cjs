@@ -81,6 +81,9 @@ server.listen(0, async () => {
     const downed = await page.evaluate(() => ['fallen', 'fallenDisc', 'gob2'].map((id) => { const p = window.boardTest.board.tokens.get(id).piece; return { id, downed: p.downed, lying: Math.abs(p.fall.rotation.z) }; }));
     check('a 0 HP mini lies down', downed[0].downed && downed[0].lying > 1.4, downed[0]);
     check('a 0 HP disc is downed (grey, flat)', downed[1].downed, downed[1]);
+    const floors = await page.evaluate(() => { const t = window.boardTest.board.tokens; return { upstairs: t.has('upstairs'), hero: t.has('hero'), copies: ['gob', 'gob2'].map((id) => t.get(id).labels.hover.map((h) => h.label).find((l) => /^Copy /.test(l)) ?? null) }; });
+    check('a token on another floor is not drawn', floors.hero && !floors.upstairs, floors);
+    check('copies on another floor do not count: the goblins keep 1 and 2', JSON.stringify(floors.copies) === '["Copy 1","Copy 2"]', floors);
     check('a token with HP stands', !downed[2].downed && downed[2].lying < 0.01, downed[2]);
 
     // 1e. Icon stamps lie on the map.
@@ -138,15 +141,17 @@ server.listen(0, async () => {
       const from = await project(385, 665, 6);
       const to = await project(455, 665, 6);
       await page.keyboard.down('Alt');
+      await page.keyboard.down('Shift');
       await page.mouse.move(from.x, from.y);
       await page.mouse.down();
       for (let i = 1; i <= 8; i++) { await page.mouse.move(from.x + ((to.x - from.x) * i) / 8, from.y + ((to.y - from.y) * i) / 8); await wait(20); }
       await page.mouse.up();
       await page.keyboard.up('Alt');
+      await page.keyboard.up('Shift');
       await wait(400);
       r = await record();
       const copy = r.copies[0];
-      check('alt-drag copies the token where it is let go', copy && copy[0] === 'noart' && copy[2] === 455 && copy[3] === 665, r.copies);
+      check('shift + alt-drag copies the token where it is let go', copy && copy[0] === 'noart' && copy[2] === 455 && copy[3] === 665, r.copies);
       const state = await page.evaluate((id) => {
         const tokens = window.boardTest.board.tokens;
         return { original: tokens.get('noart').goal, copy: id ? tokens.get(id)?.goal ?? null : null };
@@ -556,7 +561,7 @@ server.listen(0, async () => {
         return [...menu.querySelectorAll(':scope > .atlas-ctx-item, .atlas-ctx-destructive-btn')].map((row) => { const r = row.getBoundingClientRect(); return { text: row.textContent, x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
       }));
       const labels = top.map((row) => row.text);
-      check('the token menu is Atlas\'s, in its order', JSON.stringify(labels) === JSON.stringify(['Conditions', 'Hide', 'Add to Initiative', 'Change mini…', 'Remove mini', 'Show as standee', 'Reset (Restore Resources, Clear Status)', 'Kill', 'Delete']), labels);
+      check('the token menu is Atlas\'s, in its order', JSON.stringify(labels) === JSON.stringify(['Conditions', 'Hide', 'Add to Initiative', 'Change mini…', 'Remove mini', 'Round base', 'Square base', 'Show as standee', 'Reset (Restore Resources, Clear Status)', 'Kill', 'Delete']), labels);
       await page.screenshot({ path: `${shots}/board-16-menu.png` });
       const conditionsRow = top[0];
       await page.mouse.move(conditionsRow.x, conditionsRow.y);
@@ -646,7 +651,7 @@ server.listen(0, async () => {
       window.boardTest.board.tokens.get('hero').piece.object3d.traverse((node) => { if (node.isMesh && !node.userData.blobShadow && node.visible !== false && node.material?.visible !== false) kinds.push(node.geometry.type); });
       return kinds;
     });
-    check('a mini has only its ring under it, no disc', heroParts.includes('TorusGeometry') && !heroParts.includes('CylinderGeometry') && !heroParts.includes('CircleGeometry'), heroParts);
+    check('a mini has no disc and no ring under it', !heroParts.includes('TorusGeometry') && !heroParts.includes('CylinderGeometry') && !heroParts.includes('CircleGeometry'), heroParts);
     check('a token without a mini floats', heights.gob2 > heights.d * 0.2, heights);
 
     // 4d. Shadows of minis: a soft blob at medium quality (the default), the model's own shadow at high.
@@ -1789,7 +1794,7 @@ server.listen(0, async () => {
       await drawer.locator('.atlas-tabletop-sheet__roll', { hasText: '2d6 - 1d4' }).click();
       await wait(300);
       const refused = await page.evaluate(() => ({ notice: document.querySelector('.atlas-tabletop-sheet__notice').hidden ? null : document.querySelector('.atlas-tabletop-sheet__notice').textContent, rolls: window.boardTest.atlasRolls.length - window.rollsBefore26b, dice: window.boardTest.board.dice.object3d.children.length, before: window.diceBefore26b, busy: window.boardTest.board.dice.busy }));
-      check('a subtracted die is not thrown: the drawer says so, no dice, nothing logged', refused.notice === "Can't roll 2d6-1d4 with physical dice." && refused.rolls === 0 && refused.dice === refused.before && !refused.busy, refused);
+      check('a subtracted die is not thrown: the drawer says so, no dice, nothing logged', refused.notice === "Can't roll 2d6-1d4: A group of dice cannot be subtracted." && refused.rolls === 0 && refused.dice === refused.before && !refused.busy, refused);
       await page.screenshot({ path: `${shots}/board-26b2-sheet-notice.png` });
       // The Longsword's attack: thrown with the d20, logged as the hero's Longsword.
       await drawer.locator('.atlas-tabletop-sheet__roll', { hasText: 'Attack: +5' }).click();
@@ -1905,6 +1910,34 @@ server.listen(0, async () => {
         return { heardBefore, listeners: other.listeners.size, oldListeners: t.atlasListeners.size, has: log.entries.some((entry) => entry.id === 'after'), threw, button: document.querySelectorAll('button[aria-label="Dice log"]').length, cards: document.querySelectorAll('.atlas-tabletop-dice-card, .atlas-tabletop-dice-log').length };
       });
       check('closing the board lets go of the Atlas view: nothing heard, nothing thrown, button and cards gone', closed.heardBefore === 1 && closed.listeners === 0 && !closed.has && closed.threw === null && closed.button === 0 && closed.cards === 0, closed);
+    }
+    // Atlas 0.11's Mosaic Canvas: a map of 65,535 pixels a side with 14 pixel cells (about 22 million squares).
+    {
+      const huge = await page.evaluate(async () => {
+        const t = window.boardTest;
+        const map = structuredClone(t.map);
+        map.background = 'mosaic.png';
+        map.grid = { ...map.grid, size: 14, lineType: 'solid', visible: true, numbers: 'sequential', lineWidth: 1 };
+        map.tokens = map.tokens.map((token, i) => ({ ...token, x: 30000 + i * 140, y: 30000 }));
+        const started = performance.now();
+        await t.board.load(map);
+        const loaded = performance.now() - started;
+        const board = t.board;
+        const gridMesh = board.surface.grid;
+        const texture = board.surface.image.map;
+        return {
+          loaded, size: board.size, hasImage: board.hasImage,
+          gridVertices: gridMesh ? gridMesh.geometry.attributes.position.count : -1,
+          texture: texture ? { w: texture.image.width, h: texture.image.height, source: texture.userData.sourceSize } : null,
+          label: board.cells.at(14 * 4000 + 7, 14 * 3000 + 7)?.label ?? null,
+        };
+      });
+      check('a map of 65,535 pixels a side loads from its picture within seconds', huge.loaded < 8000 && huge.size.width === 65535 && huge.size.height === 65535 && huge.hasImage, huge);
+      check('the picture is the board texture and keeps the true size', huge.texture && huge.texture.w === 512 && huge.texture.source.width === 65535, huge.texture);
+      check('its grid is a few thousand lines, not millions of edges', huge.gridVertices > 0 && huge.gridVertices < 200000, huge.gridVertices);
+      check('its cells are numbered without listing them', huge.label === String(3000 * 4681 + 4000 + 1), huge.label);
+      await wait(800);
+      await page.screenshot({ path: `${shots}/board-huge.png` });
     }
   } catch (error) {
     check('harness ran', false, String(error && error.stack || error));

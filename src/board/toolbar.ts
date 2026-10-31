@@ -9,6 +9,8 @@
 
 import { setSvg } from '../svg';
 import { DICES_SVG } from '../dice/dicePicker';
+import type { LightingChoice } from './look';
+import { t } from '../i18n';
 import { LASER_COLORS, LASER_COLOR_HINT, LASER_SIZE_MAX, LASER_SIZE_MIN, type LaserSettings } from './laser';
 
 export interface ToolbarActions {
@@ -39,6 +41,18 @@ export interface ToolbarActions {
   /** Whether the initiative tracker shows on the board; showing or hiding it. */
   initiativeOpen(): boolean;
   toggleInitiative(): void;
+  /** Whether the board's lighting is chosen here (a board of the GM's); the choice now; choosing one. */
+  canLight(): boolean;
+  lighting(): LightingChoice;
+  setLighting(choice: LightingChoice): void;
+  /** The miniature look (tilt-shift) and the contact shadows, on or off, kept for every board. */
+  tiltShift(): boolean;
+  setTiltShift(on: boolean): void;
+  occlusion(): boolean;
+  setOcclusion(on: boolean): void;
+  /** Whether a stat sheet's roll is thrown at once, or its dice lie on the table; changing it. Absent where dice are not the GM's. */
+  autoRoll(): boolean;
+  setAutoRoll(on: boolean): void;
   /** The board's ambient light (0–1); a new level, shown while the slider moves and kept when it is let go. */
   ambient(): number;
   setAmbient(level: number, keep: boolean): void;
@@ -64,6 +78,9 @@ const LOG_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 /** Lucide's `notebook-text` (ISC): the stat sheet's button. */
 const SHEET_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h4"/><path d="M2 10h4"/><path d="M2 14h4"/><path d="M2 18h4"/><rect width="16" height="20" x="4" y="2" rx="2"/><path d="M9.5 8h5"/><path d="M9.5 12H16"/><path d="M9.5 16H14"/></svg>';
 
+/** Lucide's `ellipsis` (ISC): the More tools button. */
+const MORE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>';
+
 /** Lucide's `command` icon (ISC), the glyph of Atlas's command palette button. */
 const COMMAND_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></svg>';
 
@@ -71,6 +88,16 @@ const COMMAND_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
 const LASER_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6c0 2-2 2-2 4v10a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2V10c0-2-2-2-2-4V2h12z"/><line x1="6" x2="18" y1="6" y2="6"/><line x1="12" x2="12" y1="12" y2="12"/></svg>';
 /** Lucide's `hand` (ISC): Atlas's Move/Select. */
 const HAND_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>';
+/** Lucide's `lightbulb`, `sunset`, `sun` and `moon` icons (ISC): the lighting choices. */
+const LIGHTING_ICONS: Readonly<Record<LightingChoice, string>> = {
+  classic: lucide2('<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/>'),
+  dusk: lucide2('<path d="M12 10V2"/><path d="m4.93 10.93 1.41 1.41"/><path d="M2 18h2"/><path d="M20 18h2"/><path d="m19.07 10.93-1.41 1.41"/><path d="M22 22H2"/><path d="m16 6-4 4-4-4"/><path d="M16 18a4 4 0 0 0-8 0"/>'),
+  day: lucide2('<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>'),
+  night: lucide2('<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>'),
+};
+const lightingLabel = (choice: LightingChoice): string => t(`lighting.${choice}`);
+const LIGHTING_ORDER: readonly LightingChoice[] = ['classic', 'dusk', 'day', 'night'];
+
 /** Atlas's Move/Select key, which also switches to the laser pointer and back. */
 const MOVE_KEY = 'V';
 const CHEVRON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:1rem;height:1rem"><path d="m6 9 6 6 6-6"/></svg>';
@@ -91,6 +118,10 @@ const TEMPLATE_SHAPES = [
 ] as const;
 const ERASER_SVG = lucide('<path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/>');
 
+function lucide2(body: string): string {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+}
+
 /** A height typed in the panel: a number of squares from 0, or null when it is not one. */
 export function readFogHeight(text: string): number | null {
   const value = Number(text.trim().replace(',', '.'));
@@ -105,6 +136,13 @@ export function readWallThickness(text: string): number | null {
 
 export class BoardToolbar {
   private readonly row: HTMLElement;
+  private readonly bar: HTMLElement;
+  /** Atlas's "More tools": the tools that do not fit a narrow pane move into its menu, in this order of leaving. */
+  private readonly moreGroup: HTMLElement;
+  private readonly moreButton: HTMLButtonElement;
+  private readonly moreMenu: HTMLElement;
+  private readonly fitOrder: HTMLElement[] = [];
+  private readonly fitWatch: ResizeObserver;
   private readonly panel: HTMLElement;
   private readonly button: HTMLButtonElement;
   /** Connect's Template tool, offered only while Connect hosts, and its shapes. */
@@ -112,7 +150,12 @@ export class BoardToolbar {
   private readonly templateGroup: HTMLElement;
   private readonly templateMenuButton: HTMLButtonElement;
   private readonly templatePanel: HTMLElement;
+  private readonly autoRollToggle: HTMLInputElement;
   private readonly laserButton: HTMLButtonElement;
+  /** The lighting button, and the menu above it that chooses the board's lighting. */
+  private readonly lightingGroup: HTMLElement;
+  private readonly lightingButton: HTMLButtonElement;
+  private readonly lightingPanel: HTMLElement;
   private readonly moveItem: HTMLButtonElement;
   private readonly laserItem: HTMLButtonElement;
   private readonly laserMenuButton: HTMLButtonElement;
@@ -127,6 +170,8 @@ export class BoardToolbar {
   private readonly initiativeToggle: HTMLInputElement;
   private readonly ambientInput: HTMLInputElement;
   private readonly ambientValue: HTMLElement;
+  private readonly tiltInput: HTMLInputElement;
+  private readonly occlusionInput: HTMLInputElement;
   /** Atlas's end slot, and the Dice button in it while the board has dice. */
   private readonly endSlot: HTMLElement;
   private dice: EndButton | null = null;
@@ -137,6 +182,8 @@ export class BoardToolbar {
     if (!this.panel.contains(target) && !this.button.contains(target)) this.close();
     if (!this.laserPanel.contains(target) && !this.laserMenuButton.contains(target)) this.closeLaser();
     if (!this.templatePanel.contains(target) && !this.templateMenuButton.contains(target)) this.closeTemplate();
+    if (!this.lightingPanel.contains(target) && !this.lightingButton.contains(target)) this.closeLighting();
+    if (!this.moreMenu.contains(target) && !this.moreButton.contains(target)) this.closeMore();
   };
 
   constructor(container: HTMLElement, private readonly actions: ToolbarActions) {
@@ -152,6 +199,7 @@ export class BoardToolbar {
     // Atlas's own class names under a root of Tabletop's: its look is copied in styles.css, without needing its styles.
     this.row = el('div', 'atlas-tabletop-toolbar-row atlas-tabletop-atlas', container);
     const bar = el('div', 'atlas-vtt-toolbar atlas-main-toolbar atlas-tabletop-toolbar', this.row);
+    this.bar = bar;
     bar.setAttribute('role', 'toolbar');
     // Atlas's ToolButton: a wrapper, a span, and the button itself (a toolbar icon button).
     const toolIn = (parent: HTMLElement, svg: string, onClick: () => void): HTMLButtonElement => {
@@ -284,6 +332,58 @@ export class BoardToolbar {
     for (const [shape, label, svg] of TEMPLATE_SHAPES) entry(shapes, svg, label, () => this.actions.selectTemplate(shape), shape);
     entry(el('div', 'atlas-dropdown-section', this.templatePanel), ERASER_SVG, 'Clear templates', () => this.actions.clearTemplates());
     this.templateMenuButton.addEventListener('click', () => (this.templatePanel.hidden ? this.openTemplate() : this.closeTemplate()));
+    // The board's lighting, chosen here: the classic look or the painted one under a dusk, day or night sky.
+    this.lightingGroup = el('div', 'atlas-dropdown-menu', bar);
+    this.lightingButton = toolIn(this.lightingGroup, LIGHTING_ICONS.classic, () => (this.lightingPanel.hidden ? this.openLighting() : this.closeLighting()));
+    this.lightingButton.setAttribute('aria-expanded', 'false');
+    this.lightingPanel = el('div', 'atlas-dropdown-content atlas-dropdown-content--top atlas-dropdown-content--left atlas-tabletop-lighting-options', this.lightingGroup);
+    this.lightingPanel.hidden = true;
+    this.lightingPanel.setAttribute('role', 'menu');
+    const choices = el('div', 'atlas-dropdown-section', this.lightingPanel);
+    for (const choice of LIGHTING_ORDER) {
+      const made = el('button', 'btn btn--ghost btn--sm atlas-dropdown-menu-item', choices);
+      made.type = 'button';
+      made.dataset.lighting = choice;
+      el('span', 'atlas-dropdown-menu-item__check', made);
+      setSvg(made, LIGHTING_ICONS[choice], true);
+      el('span', '', made, lightingLabel(choice));
+      made.addEventListener('click', () => { this.actions.setLighting(choice); this.closeLighting(); this.refresh(); });
+    }
+    // The board's own daylight: in the dark only Atlas's lights show the map.
+    const light = el('div', 'atlas-tabletop-palette__section atlas-tabletop-lighting-extra', this.lightingPanel);
+    const ambient = el('label', 'atlas-tabletop-palette__field', light);
+    el('span', 'atlas-tabletop-palette__label', ambient, t('lighting.ambient'));
+    this.ambientInput = el('input', 'atlas-tabletop-palette__range', ambient);
+    this.ambientInput.type = 'range';
+    this.ambientInput.min = '0';
+    this.ambientInput.max = '100';
+    this.ambientInput.step = '1';
+    this.ambientInput.setAttribute('aria-label', t('lighting.ambient'));
+    this.ambientValue = el('span', 'atlas-tabletop-palette__unit', ambient, '');
+    el('div', 'atlas-tabletop-palette__hint', light, t('lighting.ambientHint'));
+    const level = (keep: boolean): void => {
+      const value = Number(this.ambientInput.value) / 100;
+      this.ambientValue.textContent = `${Math.round(value * 100)}%`;
+      this.actions.setAmbient(value, keep);
+    };
+    this.ambientInput.addEventListener('input', () => level(false));
+    this.ambientInput.addEventListener('change', () => level(true));
+    // The two extra looks: each a checkbox, kept for every board.
+    const toggleIn = (label: string, hint: string, change: (on: boolean) => void): HTMLInputElement => {
+      const field = el('label', 'atlas-tabletop-palette__field', light);
+      const box = el('input', 'atlas-tabletop-palette__check', field);
+      box.type = 'checkbox';
+      el('span', 'atlas-tabletop-palette__label', field, label);
+      field.title = hint;
+      box.addEventListener('change', () => change(box.checked));
+      return box;
+    };
+    this.tiltInput = toggleIn(t('lighting.tilt'), t('lighting.tiltHint'), (on) => this.actions.setTiltShift(on));
+    this.occlusionInput = toggleIn(t('lighting.occlusion'), t('lighting.occlusionHint'), (on) => this.actions.setOcclusion(on));
+    this.lightingPanel.addEventListener('keydown', (event) => {
+      event.stopPropagation();
+      if (event.key === 'Escape') { event.preventDefault(); this.closeLighting(); }
+    });
     // Players are shown scenes with the eye on Atlas's scene tabs over the board: no player view or freeze button here.
     this.button = tool(COMMAND_SVG, () => (this.panel.hidden ? this.open() : this.close()));
     // Atlas's end slot, where Connect puts its buttons as it does in Atlas's own toolbar; Atlas's styles apply inside it.
@@ -314,26 +414,6 @@ export class BoardToolbar {
     this.thicknessInput.setAttribute('aria-label', 'Wall thickness in squares');
     el('span', 'atlas-tabletop-palette__unit', thick, 'squares');
     el('div', 'atlas-tabletop-palette__hint', fog, 'Walls without a height of their own stand this many grid squares tall, and so does the fog painted in Atlas (0 lays the fog flat on the map).');
-    // The board's own daylight: in the dark only Atlas's lights show the map.
-    const lighting = el('div', 'atlas-tabletop-palette__section', this.panel);
-    el('div', 'atlas-tabletop-palette__heading', lighting, 'Lighting');
-    const ambient = el('label', 'atlas-tabletop-palette__field', lighting);
-    el('span', 'atlas-tabletop-palette__label', ambient, 'Ambient light');
-    this.ambientInput = el('input', 'atlas-tabletop-palette__range', ambient);
-    this.ambientInput.type = 'range';
-    this.ambientInput.min = '0';
-    this.ambientInput.max = '100';
-    this.ambientInput.step = '1';
-    this.ambientInput.setAttribute('aria-label', 'Ambient light');
-    this.ambientValue = el('span', 'atlas-tabletop-palette__unit', ambient, '');
-    el('div', 'atlas-tabletop-palette__hint', lighting, "Lower it and the map goes dark: Atlas's lights shine in it. Right-click a light's bulb to set how high it hangs.");
-    const level = (keep: boolean): void => {
-      const value = Number(this.ambientInput.value) / 100;
-      this.ambientValue.textContent = `${Math.round(value * 100)}%`;
-      this.actions.setAmbient(value, keep);
-    };
-    this.ambientInput.addEventListener('input', () => level(false));
-    this.ambientInput.addEventListener('change', () => level(true));
     // Atlas's command palette shows or hides its initiative tracker; so does this, and its I key.
     const initiative = el('div', 'atlas-tabletop-palette__section', this.panel);
     el('div', 'atlas-tabletop-palette__heading', initiative, 'Initiative tracker');
@@ -344,6 +424,14 @@ export class BoardToolbar {
     this.initiativeToggle.addEventListener('change', () => {
       if (this.initiativeToggle.checked !== this.actions.initiativeOpen()) this.actions.toggleInitiative();
     });
+    const dice = el('div', 'atlas-tabletop-palette__section', this.panel);
+    el('div', 'atlas-tabletop-palette__heading', dice, t('dice.heading'));
+    const auto = el('label', 'atlas-tabletop-palette__field', dice);
+    this.autoRollToggle = el('input', 'atlas-tabletop-palette__check', auto);
+    this.autoRollToggle.type = 'checkbox';
+    el('span', 'atlas-tabletop-palette__label', auto, t('dice.autoRoll'));
+    auto.title = t('dice.autoRollHint');
+    this.autoRollToggle.addEventListener('change', () => this.actions.setAutoRoll(this.autoRollToggle.checked));
     const apply = (): void => {
       const height = readFogHeight(this.heightInput.value);
       this.heightInput.toggleAttribute('aria-invalid', height === null);
@@ -361,6 +449,23 @@ export class BoardToolbar {
       if (event.key === 'Enter') { event.preventDefault(); apply(); }
       else if (event.key === 'Escape') { event.preventDefault(); this.close(); }
     });
+    // Atlas's "More tools": when the pane is too narrow for the bar, the tools farthest from the Move group go into this
+    // menu, one by one, and come back as the pane widens.
+    this.moreGroup = el('div', 'atlas-dropdown-menu atlas-tabletop-more', bar);
+    this.moreButton = toolIn(this.moreGroup, MORE_SVG, () => (this.moreMenu.hidden ? this.openMore() : this.closeMore()));
+    this.moreButton.setAttribute('aria-label', t('toolbar.more'));
+    this.moreButton.setAttribute('aria-expanded', 'false');
+    this.moreButton.title = t('toolbar.more');
+    this.moreMenu = el('div', 'atlas-dropdown-content atlas-dropdown-content--top atlas-dropdown-content--right atlas-tabletop-more-menu', this.moreGroup);
+    this.moreMenu.hidden = true;
+    this.moreGroup.hidden = true;
+    this.moreGroup.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !this.moreMenu.hidden) { event.preventDefault(); event.stopPropagation(); this.closeMore(); }
+    });
+    // Left to right as they stand; they leave from the right.
+    this.fitOrder.push(laserGroup, this.templateGroup, this.lightingGroup, this.button.closest('.atlas-tool-button') as HTMLElement, this.endSlot);
+    this.fitWatch = new (doc.defaultView ?? window).ResizeObserver(() => this.fit());
+    this.fitWatch.observe(container);
     // Presses on the bar and the panel are not the board's: no camera drag, no deselecting.
     for (const part of [bar, this.panel]) part.addEventListener('pointerdown', (event) => event.stopPropagation());
     this.refresh();
@@ -379,6 +484,17 @@ export class BoardToolbar {
       const check = choice.querySelector('.atlas-dropdown-menu-item__check')!;
       const chosen = choice.dataset.shape === this.actions.templateShape();
       setSvg(check, chosen ? CHECK_SVG.replace('class="atlas-swatch-check"', 'class="atlas-dropdown-menu-item__tick"') : '');
+    }
+    const canLight = this.actions.canLight();
+    this.lightingGroup.style.display = canLight ? '' : 'none';
+    if (!canLight) this.closeLighting();
+    const lighting = this.actions.lighting();
+    setSvg(this.lightingButton, LIGHTING_ICONS[lighting]);
+    this.lightingButton.setAttribute('aria-label', t('lighting.title', { mode: lightingLabel(lighting) }));
+    this.lightingButton.title = t('lighting.title', { mode: lightingLabel(lighting) });
+    for (const choice of this.lightingPanel.querySelectorAll<HTMLElement>('[data-lighting]')) {
+      const check = choice.querySelector('.atlas-dropdown-menu-item__check')!;
+      setSvg(check, choice.dataset.lighting === lighting ? CHECK_SVG.replace('class="atlas-swatch-check"', 'class="atlas-dropdown-menu-item__tick"') : '');
     }
     for (const end of this.ends()) {
       const open = end.handlers.isOpen();
@@ -399,7 +515,7 @@ export class BoardToolbar {
   }
 
   get isOpen(): boolean {
-    return !this.panel.hidden || !this.laserPanel.hidden || this.ends().some((end) => end.handlers.isOpen());
+    return !this.panel.hidden || !this.laserPanel.hidden || !this.lightingPanel.hidden || !this.moreMenu.hidden || this.ends().some((end) => end.handlers.isOpen());
   }
 
   /** The end slot's buttons there now: Dice, its log and the stat sheet. */
@@ -458,6 +574,7 @@ export class BoardToolbar {
       this.close();
       this.closeLaser();
       this.closeTemplate();
+      this.closeLighting();
       for (const other of this.ends()) if (other !== made) other.handlers.close();
       handlers.toggle();
       this.refresh();
@@ -480,6 +597,7 @@ export class BoardToolbar {
   /** Shows the laser's options above the toolbar. */
   openLaser(): void {
     this.close();
+    this.closeDice();
     this.showLaser();
     this.laserPanel.hidden = false;
     this.laserMenuButton.classList.add('atlas-is-active');
@@ -489,10 +607,74 @@ export class BoardToolbar {
 
   openTemplate(): void {
     this.closeLaser();
+    this.closeDice();
     this.templatePanel.hidden = false;
     this.templateMenuButton.classList.add('atlas-is-active');
     this.templateMenuButton.setAttribute('aria-expanded', 'true');
     this.row.ownerDocument.addEventListener('pointerdown', this.onOutside, true);
+  }
+
+  /**
+   * Fits the bar to the pane: every tool back on the bar, then, while the bar is wider than the pane, the farthest tool
+   * moves into the More tools menu. The Move group never leaves.
+   */
+  fit(): void {
+    const room = Math.max(0, this.row.parentElement?.clientWidth ?? 0) - 32;
+    if (room <= 0) return;
+    const wasOpen = !this.moreMenu.hidden;
+    for (const item of this.fitOrder) this.bar.insertBefore(item, this.moreGroup);
+    this.moreGroup.hidden = true;
+    let moved = 0;
+    for (let at = this.fitOrder.length - 1; at > 0 && this.bar.getBoundingClientRect().width > room; at--) {
+      // The More button itself takes room once something is in it.
+      this.moreGroup.hidden = false;
+      this.moreMenu.prepend(this.fitOrder[at]);
+      moved++;
+    }
+    if (moved === 0) this.closeMore();
+    else if (wasOpen) this.moreMenu.hidden = false;
+    this.moreGroup.hidden = moved === 0;
+  }
+
+  openMore(): void {
+    this.close();
+    this.closeDice();
+    this.closeLaser();
+    this.closeLighting();
+    this.moreMenu.hidden = false;
+    this.moreButton.classList.add('is-active');
+    this.moreButton.setAttribute('aria-expanded', 'true');
+    this.row.ownerDocument.addEventListener('pointerdown', this.onOutside, true);
+  }
+
+  closeMore(): void {
+    if (this.moreMenu.hidden) return;
+    this.moreMenu.hidden = true;
+    this.moreButton.classList.remove('is-active');
+    this.moreButton.setAttribute('aria-expanded', 'false');
+  }
+
+  /** Shows the lighting choices above the toolbar. */
+  openLighting(): void {
+    this.close();
+    this.closeLaser();
+    this.closeTemplate();
+    this.closeDice();
+    this.ambientInput.value = String(Math.round(this.actions.ambient() * 100));
+    this.ambientValue.textContent = `${this.ambientInput.value}%`;
+    this.tiltInput.checked = this.actions.tiltShift();
+    this.occlusionInput.checked = this.actions.occlusion();
+    this.lightingPanel.hidden = false;
+    this.lightingButton.classList.add('is-active');
+    this.lightingButton.setAttribute('aria-expanded', 'true');
+    this.row.ownerDocument.addEventListener('pointerdown', this.onOutside, true);
+  }
+
+  closeLighting(): void {
+    if (this.lightingPanel.hidden) return;
+    this.lightingPanel.hidden = true;
+    this.lightingButton.classList.remove('is-active');
+    this.lightingButton.setAttribute('aria-expanded', 'false');
   }
 
   closeTemplate(): void {
@@ -538,13 +720,14 @@ export class BoardToolbar {
 
   open(): void {
     this.closeLaser();
+    // The panels of the end slot (the dice tray, the log, an unpinned sheet) give way to this one.
+    this.closeDice();
     this.heightInput.value = String(this.actions.fogHeight());
     this.heightInput.removeAttribute('aria-invalid');
     this.thicknessInput.value = String(this.actions.wallThickness());
     this.thicknessInput.removeAttribute('aria-invalid');
     this.initiativeToggle.checked = this.actions.initiativeOpen();
-    this.ambientInput.value = String(Math.round(this.actions.ambient() * 100));
-    this.ambientValue.textContent = `${this.ambientInput.value}%`;
+    this.autoRollToggle.checked = this.actions.autoRoll();
     this.panel.hidden = false;
     this.button.classList.add('is-active');
     this.button.setAttribute('aria-expanded', 'true');
@@ -567,6 +750,7 @@ export class BoardToolbar {
     this.setDice(null);
     this.setDiceLog(null);
     this.setSheet(null);
+    this.fitWatch.disconnect();
     this.row.remove();
   }
 }

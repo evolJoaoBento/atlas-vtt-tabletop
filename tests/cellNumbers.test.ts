@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { BoardGrid } from '../src/board/mapModel';
 import { columnLetters, numberCells } from '../src/board/cellNumbers';
+import { eagerNumberCells } from './cellNumbersEager';
 
 const grid = (over: Partial<BoardGrid> = {}): BoardGrid => ({
   enabled: true, visible: true, snap: true, type: 'square', size: 70, offsetX: 0, offsetY: 0, opacity: 0.7, lineWidth: 1, color: null,
@@ -46,4 +47,34 @@ test('flat hexes count each column from its first whole hex', () => {
 
 test('no numbering, no numbers', () => {
   assert.equal(numberCells(grid({ numbers: null }), 700, 700).at(35, 35), null);
+});
+
+test('worked out on demand, the numbers are those of listing every cell', () => {
+  let compared = 0;
+  for (const type of ['square', 'hex-vertical', 'hex-horizontal'] as const) {
+    for (const numbers of ['column-row', 'letter-number', 'sequential'] as const) {
+      for (const [size, offsetX, offsetY, width, height] of [[70, 0, 0, 700, 700], [64, 20, -13, 905, 611], [33, 7, 5, 410, 520], [100, 250, 90, 330, 280], [70, 0, 0, 60, 900]] as const) {
+        const g = grid({ type, numbers, size, offsetX, offsetY });
+        const fast = numberCells(g, width, height);
+        const slow = eagerNumberCells(g, width, height);
+        for (let y = -20; y < height + 20; y += size / 3) {
+          for (let x = -20; x < width + 20; x += size / 3) {
+            assert.deepEqual(fast.at(x, y), slow.at(x, y), `${type} ${numbers} ${size} ${offsetX},${offsetY} ${width}x${height} at ${x},${y}`);
+            compared++;
+          }
+        }
+      }
+    }
+  }
+  assert.ok(compared > 5000);
+});
+
+test('a map of 20 million squares is numbered without listing them', () => {
+  const started = Date.now();
+  const cells = numberCells(grid({ size: 14, numbers: 'sequential' }), 65535, 65535);
+  assert.equal(cells.at(14 * 4000 + 7, 14 * 3000 + 7)?.label, String(3000 * 4681 + 4000 + 1));
+  assert.equal(numberCells(grid({ size: 14, numbers: 'letter-number' }), 65535, 65535).at(7, 7)?.label, 'A1');
+  const hex = numberCells(grid({ size: 14, numbers: 'sequential', type: 'hex-horizontal' }), 65535, 65535);
+  assert.ok(hex.at(30000, 30000)?.label);
+  assert.ok(Date.now() - started < 1500, `took ${Date.now() - started} ms`);
 });

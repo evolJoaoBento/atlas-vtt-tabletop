@@ -3,7 +3,7 @@
  * mini, a standee, a hidden one and one whose art is missing; two pins and a prop) on a `Board` with a fake host that
  * records what the board asks of it. Driven by Playwright; not shipped.
  */
-import './dom-polyfill';
+import { equipWindow } from './dom-polyfill';
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { Board, type BoardHost } from '../src/board/board';
@@ -11,7 +11,10 @@ import { SceneTabBar } from '../src/board/sceneTabBar';
 import type { PropPlacement } from '../src/board/boardData';
 import { emptyRules } from '../src/board/conditions';
 import { QUALITY } from '../src/board/quality';
-import type { BoardMap, BoardToken } from '../src/board/mapModel';
+import { lookOf } from '../src/board/look';
+import { renderBoardCard } from '../src/boardCard';
+import { setLanguage } from '../src/i18n';
+import { readMap, type BoardMap, type BoardToken } from '../src/board/mapModel';
 import { insideFog } from '../src/board/playerView';
 import { AtlasMenu } from '../src/board/atlasMenu';
 import { tokenMenuEntries } from '../src/board/tokenMenu';
@@ -31,8 +34,9 @@ import { BoardDice } from '../src/dice/boardDice';
 import type { MapViewLike } from '../src/dice/atlasDice';
 import { vendoredPack } from '../src/dice/dicePack';
 import { DiceTextures } from '../src/dice/diceTextures';
-import { DEFAULT_DICE_SETTINGS } from '../src/dice/diceSettings';
+import { DEFAULT_DICE_SETTINGS, readDiceSettings } from '../src/dice/diceSettings';
 import { buildSheet } from '../src/sheets/sheet';
+import { routeAtlasWindowRolls } from '../src/sheets/atlasPreview';
 
 function exportGlb(root: THREE.Object3D, animations: THREE.AnimationClip[] = []): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => new GLTFExporter().parse(root, (out) => resolve(out as ArrayBuffer), reject, { binary: true, animations }));
@@ -127,6 +131,8 @@ const map: BoardMap = {
     token({ id: 'fallen', x: 1155, y: 525, imagePath: 'red.png', name: 'Fallen', resources: { hp: { current: 0, max: 9 } } }),
     // Inside the fogged room: the GM sees it, players do not.
     token({ id: 'lurker', x: 1015, y: 805, imagePath: 'red.png', name: 'Lurker', resources: { hp: { current: 9, max: 9 } } }),
+    // On another floor (Atlas 0.10): kept for the tracker, not drawn, and it does not count as a third goblin.
+    token({ id: 'upstairs', x: 245, y: 385, imagePath: 'green.png', name: 'Goblin', instanceNumber: 3, offLevel: true, levelId: 'upper' }),
     token({ id: 'fallenDisc', x: 1225, y: 525, imagePath: 'green.png', name: 'Fallen disc', resources: { hp: { current: 0, max: 9 } } }),
   ],
   rawGrid: null,
@@ -181,6 +187,8 @@ const map: BoardMap = {
 };
 
 async function main(): Promise<void> {
+  // ?lang=pt opens the board in Portuguese, as Obsidian's language does in the plugin.
+  setLanguage(new URLSearchParams(location.search).get('lang'));
   const hero: LoadedMini = await parseMini(await heroGlb());
   const barrel: LoadedMini = await parseMini(await barrelGlb());
   const images: Record<string, string> = { 'bg.png': background, 'red.png': face('#b03030'), 'green.png': face('#3a8a3a') };
@@ -192,6 +200,7 @@ async function main(): Promise<void> {
     heights: [] as unknown[][], doors: [] as string[], wallMenus: [] as string[], paints: [] as Array<[string, string, boolean]>, lightMenus: [] as string[], ambients: [] as number[], lasers: [] as Array<Record<string, unknown>>, fogHeights: [] as number[], thicknesses: [] as number[], toolActions: [] as unknown[], opened: 0, sceneTabs: [] as unknown[][],
     /** Resource edits as the host saved them: token, key, the value it held, the value written, max edited. */
     edits: [] as Array<[string, string, ResourceValue, ResourceValue, boolean]>,
+    rotations: [] as Array<Array<{ id: string; rotation: number }>>,
   };
   /** What the host holds, as Atlas or the file would: edits apply to it. */
   const stored = new Map(map.tokens.map((entry) => [entry.id, structuredClone(entry.resources)]));
@@ -219,10 +228,34 @@ async function main(): Promise<void> {
   const initiative = new Set<string>();
   let players: Window | null = null;
   let laser = { color: '#ff0059', size: 16 };
+  // The dice settings the board and its dice read; the Board settings tick changes `autoRoll`.
+  // Kept in the page's storage, as Tabletop keeps its settings in the vault, so a reload of the page shows them kept.
+  const kept = (): Partial<typeof DEFAULT_DICE_SETTINGS> => { try { return JSON.parse(window.localStorage.getItem('harness-dice') ?? '{}'); } catch { return {}; } };
+  let diceSettings = readDiceSettings({ ...DEFAULT_DICE_SETTINGS, ...kept() });
+  const keep = (changes: Partial<typeof DEFAULT_DICE_SETTINGS>): void => {
+    diceSettings = { ...diceSettings, ...changes };
+    try { window.localStorage.setItem('harness-dice', JSON.stringify({ ...kept(), ...changes })); } catch { /* storage is unavailable */ }
+  };
+  // The base under the hero's mini, set by the checks (the board reads placements when it syncs).
+  let heroBase: 'none' | 'round' | 'square' = 'none';
   const host: BoardHost = {
     readImage: async (path) => images[path] ?? null,
+    // Atlas 0.11's Mosaic Canvas: a map of 65,535 pixels a side arrives as a small picture and the size it stands for.
+    readPicture: async (path) => {
+      if (path !== 'mosaic.png') return null;
+      const canvas = document.createElement('canvas');
+      canvas.width = 512;
+      canvas.height = 512;
+      const context = canvas.getContext('2d')!;
+      const paint = context.createLinearGradient(0, 0, 512, 512);
+      paint.addColorStop(0, '#2f5d3a');
+      paint.addColorStop(1, '#8a6b3c');
+      context.fillStyle = paint;
+      context.fillRect(0, 0, 512, 512);
+      return { bitmap: await createImageBitmap(canvas), width: 65535, height: 65535 };
+    },
     readMini: async (path) => (path.includes('barrel') ? barrel : hero),
-    placement: (id) => (id === 'hero' || id === 'fallen' ? { mini: 'minis/hero.glb', scale: 1, turn: 0 } : null),
+    placement: (id) => (id === 'hero' || id === 'fallen' ? { mini: 'minis/hero.glb', scale: 1, turn: 0, ...(heroBase === 'none' ? {} : { base: heroBase }) } : null),
     style: (id) => (id === 'gob' ? 'standee' : 'disc'),
     props: () => props,
     rules: () => rules,
@@ -243,7 +276,7 @@ async function main(): Promise<void> {
       menu?.close();
       menu = new AtlasMenu(document, () => tokenMenuEntries({
         token, rules, settings: () => shown().tokenSettings,
-        inInitiative: () => initiative.has(id), hasMini: () => id === 'hero' || id === 'fallen', standee: () => id === 'gob',
+        inInitiative: () => initiative.has(id), hasMini: () => id === 'hero' || id === 'fallen', miniBase: () => 'none', standee: () => id === 'gob',
         lightHeight: () => (id === 'gob2' ? 1 : null),
         icon: (element, name) => { element.dataset.icon = name; },
         actions: {
@@ -253,6 +286,7 @@ async function main(): Promise<void> {
           setInitiative: (join) => { record.menuActions.push(['initiative', join]); if (join) initiative.add(id); else initiative.delete(id); },
           assignMini: () => record.menuActions.push(['assignMini']),
           removeMini: () => record.menuActions.push(['removeMini']),
+          setBase: (base) => record.menuActions.push(['base', base]),
           setStandee: (standee) => record.menuActions.push(['standee', standee]),
           setLightHeight: (height) => record.menuActions.push(['lightHeight', height]),
           reset: () => { record.menuActions.push(['reset']); const r = resetChange(token()!, rules.definitions); change({ resources: r.resources ?? token()!.resources, conditions: [], conditionValues: {} }); },
@@ -264,6 +298,7 @@ async function main(): Promise<void> {
     propMenu: (id) => { record.propMenus.push(id); },
     statblockPreview: (id) => { record.previews.push(id); },
     copyToken: (id, newId, x, y) => { record.copies.push([id, newId, x, y]); },
+    rotateTokens: (turns) => { record.rotations.push(turns.map((turn) => ({ ...turn }))); },
     editResource: (id, key, edit, maxEdited) => {
       const held = stored.get(id)?.[key];
       if (!held) return;
@@ -286,6 +321,7 @@ async function main(): Promise<void> {
       } else {
         players = window.open('', 'players', 'width=640,height=400');
         if (!players) return;
+        equipWindow(players);
         players.document.body.style.cssText = 'margin:0;background:#0f0c0a';
         const stage = players.document.createElement('div');
         stage.style.cssText = 'position:fixed;inset:0';
@@ -297,6 +333,11 @@ async function main(): Promise<void> {
     playerViewOpen: () => !!players && !players.closed,
     laser: () => laser,
     setLaser: (changes) => { laser = { ...laser, ...changes }; record.lasers.push(changes); },
+    autoRoll: () => diceSettings.autoRoll,
+    setAutoRoll: (on) => keep({ autoRoll: on }),
+    setTiltShift: (on) => { board.setQuality({ ...board.quality, tiltShift: on }); },
+    setOcclusion: (on) => { board.setQuality({ ...board.quality, occlusion: on }); },
+    setLighting: (choice) => { const { painted, sky } = lookOf(choice, 'dusk'); board.setQuality({ ...QUALITY.medium, painted, sky }); },
     initiativeOpen: () => panel.isOpen,
     toggleInitiative: () => panel.setOpen(!panel.isOpen),
     wallMaterial: (id) => wallPaint.get(id) ?? null,
@@ -441,7 +482,8 @@ async function main(): Promise<void> {
     container,
     mapPath: () => map.path,
     atlasView: () => current,
-    settings: () => DEFAULT_DICE_SETTINGS,
+    settings: () => diceSettings,
+    setSheetPinned: (pinned) => keep({ sheetPinned: pinned }),
     pack: () => vendoredPack(),
     warn: (message) => { diceWarnings.push(message); },
     // The hero's stat block, as Fantasy Statblocks would give it; markup in a note stays text.
@@ -456,7 +498,9 @@ async function main(): Promise<void> {
       ],
     }) : null),
   });
-  Object.assign(window, { boardTest: { boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, handoutUrl: images['green.png'], board, map, record, panel, rules, doorProps, wallHeights, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, insideFog, dice, ready: true } });
+  // Atlas's own Ctrl-hover window, as BoardView routes it: its dice links throw the board's dice for the hovered hero.
+  routeAtlasWindowRolls(document, (formula, label, side) => boardDice.cardRoll('hero', formula, label, side));
+  Object.assign(window, { boardTest: { setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, handoutUrl: images['green.png'], board, map, record, panel, rules, doorProps, wallHeights, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, insideFog, dice, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

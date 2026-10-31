@@ -4,8 +4,8 @@
  * goes through a map view's private objects; every member is checked before use and a failed check reads as "nothing
  * there" (Atlas's default rules, no route) rather than throwing.
  */
-import type { DieType } from './kit/faces';
-import { DEFAULT_RULES, defaultDie, type DiceRules, type RolledDie } from './rollRules';
+import { DIE_TYPES, type DieType } from './kit/faces';
+import { DEFAULT_RULES, defaultDie, type DiceRules, type DieGroup, type EdgeRule, type RolledDie } from './rollRules';
 
 /** Atlas's map view type. */
 const ATLAS_VIEW_TYPE = 'atlas-vtt';
@@ -29,6 +29,8 @@ export interface RollResult {
   modifier: number;
   total: number;
   crit?: 'success' | 'failure';
+  /** The kept dice that met a success rule (`5d10>=8`); the total is then this plus the modifier. */
+  successes?: number;
   label?: string;
 }
 
@@ -85,17 +87,46 @@ export function rollViewFor(views: readonly MapViewLike[], recent: MapViewLike |
 const CRITS: ReadonlySet<string> = new Set(['natural', 'roll-under', 'doubles', 'high-total', 'none']);
 const isFaceCount = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0;
 
-/** `NdS` of a dice set's groups (`[{count, sides}]`); null for mixed dice, which have no one default die. */
-function groupsRoll(groups: unknown[]): string | null {
-  let count = 0;
-  let sides: unknown = null;
-  for (const group of groups) {
-    if (!isObject(group) || !isFaceCount(group.count) || group.count < 1) return null;
-    if (sides !== null && group.sides !== sides) return null;
-    sides = group.sides;
-    count += group.count;
+/** A colour Atlas keeps for a die: `#rrggbb`. */
+const dieColour = (color: unknown): string | undefined => (typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color) ? color : undefined);
+
+/** The die of `sides` faces Tabletop has; null for any other. */
+const dieOf = (sides: unknown): DieType | null => {
+  const die = `d${String(sides)}`;
+  return typeof sides === 'number' && (DIE_TYPES as readonly string[]).includes(die) ? (die as DieType) : null;
+};
+
+/**
+ * A dice set's groups (`[{count, sides, colour?}]`) as the dice Tabletop throws, in the set's order; null when the set
+ * holds a die Tabletop has none of, which reads as Atlas's default.
+ */
+function setGroups(raw: unknown[]): DieGroup[] | null {
+  const groups: DieGroup[] = [];
+  for (const group of raw) {
+    const die = isObject(group) ? dieOf(group.sides) : null;
+    if (!isObject(group) || !die || !isFaceCount(group.count) || group.count < 1) return null;
+    const color = dieColour(group.colour);
+    groups.push({ die, count: group.count, ...(color ? { color } : {}) });
   }
-  return count > 0 && typeof sides === 'number' ? `${count}d${sides}` : null;
+  return groups.length > 0 ? groups : null;
+}
+
+/** What a dice set's advantage or disadvantage does (Atlas's `DiceEdge`); null for none, or one Tabletop cannot throw. */
+function edgeRule(raw: unknown): EdgeRule | null {
+  if (!isObject(raw)) return null;
+  switch (raw.kind) {
+    case 'keep':
+      return { kind: 'keep' };
+    case 'number':
+      return isFaceCount(raw.value) && raw.value >= 1 ? { kind: 'number', value: raw.value } : null;
+    case 'die': {
+      const die = dieOf(raw.sides);
+      const color = dieColour(raw.colour);
+      return die ? { kind: 'die', die, ...(color ? { color } : {}) } : null;
+    }
+    default:
+      return null;
+  }
 }
 
 /**
@@ -104,10 +135,20 @@ function groupsRoll(groups: unknown[]): string | null {
  * has no die for reads as the default.
  */
 function readRules(raw: Rec): DiceRules {
-  const written = Array.isArray(raw.dice) ? groupsRoll(raw.dice) : raw.defaultRoll;
+  const groups = Array.isArray(raw.dice) ? setGroups(raw.dice) : null;
+  const first = groups?.[0];
+  // One kind of die throughout reads as `NdS`; mixed dice read as their first group, with `groups` holding them all.
+  const sameKind = groups !== null && groups.every((group) => group.die === first?.die);
+  const written = groups && first ? `${sameKind ? groups.reduce((sum, group) => sum + group.count, 0) : first.count}${first.die}` : Array.isArray(raw.dice) ? null : raw.defaultRoll;
   const defaultRoll = typeof written === 'string' && defaultDie({ defaultRoll: written, crit: 'none' }) ? written : DEFAULT_RULES.defaultRoll;
   const crit = typeof raw.crit === 'string' && CRITS.has(raw.crit) ? raw.crit as DiceRules['crit'] : DEFAULT_RULES.crit;
   const rules: DiceRules = { defaultRoll, crit };
+  // A dice set says what advantage does (nothing, where it says nothing); a collection's own `dice` does not.
+  if (Array.isArray(raw.dice)) {
+    if (groups) rules.groups = groups;
+    rules.advantage = edgeRule(raw.advantage);
+    rules.disadvantage = edgeRule(raw.disadvantage);
+  }
   const explode = raw.explode;
   if (isObject(explode) && (explode.dice === 'default' || explode.dice === 'all') && typeof explode.repeats === 'boolean'
     && isFaceCount(explode.highFaces) && isFaceCount(explode.lowFaces)) {
@@ -157,11 +198,11 @@ function tagName(name: unknown): string | undefined {
   return trimmed && trimmed.length <= 32 && ![...trimmed].some(refusedInTag) ? trimmed : undefined;
 }
 
-/** `1d20+2d6+3`: the dice thrown (not those an explosion added, nor the one advantage set aside) and the modifier. */
+/** `1d20+2d6+3`: the dice thrown (not those an explosion added, nor the one advantage set aside, nor a die thrown again) and the modifier. */
 function formulaOf(result: RollResult): string {
-  const counts = new Map<DieType, number>();
+  const counts = new Map<string, number>();
   for (const roll of result.rolls) {
-    if (!roll.exploded && !roll.negative && !roll.dropped) counts.set(roll.die, (counts.get(roll.die) ?? 0) + 1);
+    if (!roll.exploded && !roll.negative && !roll.dropped && !roll.rerolled) counts.set(roll.fate ? 'dF' : roll.die, (counts.get(roll.fate ? 'dF' : roll.die) ?? 0) + 1);
   }
   const dice = [...counts].map(([die, count]) => `${count}${die}`).join('+');
   const modifier = result.modifier === 0 ? '' : `${result.modifier > 0 ? '+' : '-'}${Math.abs(result.modifier)}`;
@@ -184,13 +225,15 @@ export function stockRoll(result: RollResult, rolledBy?: string, from?: { abilit
       const colour = tagColour(roll.color);
       const name = tagName(roll.colorName);
       return {
-        die: roll.die,
+        die: roll.fate ? 'dF' : roll.die,
         value: roll.value,
         max: roll.max,
-        min: 1,
+        min: roll.fate ? -1 : 1,
+        ...(roll.label ? { label: roll.label } : {}),
         ...(roll.exploded ? { exploded: true } : {}),
         ...(roll.negative ? { negative: true } : {}),
         ...(roll.dropped ? { dropped: true } : {}),
+        ...(roll.rerolled ? { rerolled: true } : {}),
         ...(colour ? { colour } : {}),
         ...(name ? { name } : {}),
       };

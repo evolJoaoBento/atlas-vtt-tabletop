@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type { AtlasSceneState, AtlasView } from '../src/atlas';
 import { HP_RESOURCE, STRESS_RESOURCE } from '../src/board/resources';
-import { TokenWriter, copyTokenInText, deleteTokenInText, initiativeActionInText, initiativeInText, lockDoorInText, toggleDoorInText, killTokenInText, moveTokenInText, setResourceInText } from '../src/board/tokenWriter';
+import { TokenWriter, copyTokenInText, deleteTokenInText, initiativeActionInText, initiativeInText, lockDoorInText, toggleDoorInText, killTokenInText, moveTokenInText, moveTokensInText, setResourceInText } from '../src/board/tokenWriter';
 import { conditionChange, resetChange } from '../src/board/tokenEdits';
 
 const text = readFileSync('tests/fixtures/dungeon.atlasmap', 'utf8');
@@ -308,4 +308,22 @@ test('Atlas 0.9: removing a combatant kept beside the map, or Clear, takes its t
   await writer.initiativeAction('m.atlasmap', { type: 'next', defeated: ['e9'] });
   await writer.initiativeAction('m.atlasmap', { type: 'reset' });
   assert.deepEqual(calls, [['remove', 'e1', ['e9']], ['delete', ['side']], ['next', ['e9']], ['reset'], ['delete', ['side']]]);
+});
+
+test('moves several tokens as one Atlas change when it offers one, else one by one', async () => {
+  const batches: unknown[] = [];
+  const writer = new TokenWriter({ views: () => [fakeView('m.atlasmap', [], { updateTokens: (updates) => { batches.push(updates); } })], process: async () => {} });
+  assert.equal(await writer.moveMany('m.atlasmap', [{ id: 't', x: 1, y: 2 }, { id: 't', x: 3, y: 4 }]), 'atlas');
+  assert.deepEqual(batches, [[{ id: 't', changes: { x: 1, y: 2 } }, { id: 't', changes: { x: 3, y: 4 } }]]);
+  const calls: unknown[] = [];
+  const old = new TokenWriter({ views: () => [fakeView('m.atlasmap', calls)], process: async () => {} });
+  await old.moveMany('m.atlasmap', [{ id: 't', x: 1, y: 2 }]);
+  assert.deepEqual(calls, [['t', { x: 1, y: 2 }]]);
+});
+
+test('moveTokensInText moves each named token and nothing else', () => {
+  const out = JSON.parse(moveTokensInText(text, [{ id: ID, x: 9, y: 8 }]));
+  assert.equal(out.state.objects.tokens[ID].x, 9);
+  assert.equal(out.state.objects.tokens[ID].y, 8);
+  assert.throws(() => moveTokensInText(text, [{ id: 'nope', x: 0, y: 0 }]), /no token nope/);
 });

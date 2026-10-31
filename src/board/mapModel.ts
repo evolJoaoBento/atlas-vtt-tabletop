@@ -4,10 +4,12 @@
  * defaulted the way Atlas defaults it, so a field Atlas left out (an older map, a token never edited) reads as Atlas
  * would draw it. Pure, so it is tested without Obsidian.
  */
+import { readLevelAlignment, readMapStretch, type MapStretch } from './mapStretch';
 import { readFog, type FogOperation } from './fog';
 import { readInitiative, type InitiativeState, type SideId } from './initiative';
 import { readLights, readSceneLighting, readWalls, type BoardLight, type BoardWall, type SceneLighting } from './walls';
 import { hiddenResourcesOf, isDefeated, tokenFromFile, type ResourceDefinition, type ResourceValue } from './resources';
+import { levelBackground, onLevel, onLevelRecord, readLevels, resolveLevel, type BoardLevel } from './levels';
 
 export type GridType = 'square' | 'hex-vertical' | 'hex-horizontal';
 
@@ -29,6 +31,8 @@ export interface BoardGrid {
   /** How cells are numbered (`cellNumbers`, or `hexNumbers` in older Atlas), and how strongly; null when not. */
   numbers: CellNumbering | null;
   numberOpacity: number;
+  /** How Atlas's grid alignment laid the map image on the world (turned, stretched); unset when it lies as it is. */
+  mapStretch?: MapStretch;
 }
 
 export type CellNumbering = 'column-row' | 'sequential' | 'letter-number';
@@ -69,6 +73,10 @@ export interface BoardToken {
    * that is no part of the map. The board neither draws nor shows it; the tracker lists it.
    */
   offMap: boolean;
+  /** The level it stands on (Atlas 0.10); null for a scene of one level. */
+  levelId: string | null;
+  /** On another level than the one shown: it stays in the map for the tracker, but is not drawn. */
+  offLevel: boolean;
   /** On a Connect player's board: each bar's colour as Connect worked it out (yellow, then red as it runs low), by key. */
   resourceColors?: Record<string, string>;
 }
@@ -141,6 +149,15 @@ export interface TokenSettings {
 export interface BoardMap {
   path: string;
   background: string | null;
+  /**
+   * Set for a player's map (Connect sends the world, not the file): the world's size and where the image lies in it, as the
+   * matrix taking the image's unit square (u right, v down) to the world: x = a·u + c·v + e, y = b·u + d·v + f. Without a
+   * matrix the image fills the world.
+   */
+  world?: { width: number; height: number; matrix?: readonly [number, number, number, number, number, number] };
+  /** The scene's levels, bottom first (none for a scene of one level), and the one this map shows. */
+  levels: BoardLevel[];
+  level: string | null;
   grid: BoardGrid;
   tokenSettings: TokenSettings;
   tokens: BoardToken[];
@@ -181,6 +198,7 @@ function readGrid(raw: unknown): BoardGrid {
   const grid = isObj(raw) ? raw : {};
   const type: GridType = grid.type === 'hex-vertical' || grid.type === 'hex-horizontal' ? grid.type : 'square';
   const color = str(grid.color);
+  const mapStretch = readMapStretch(grid.mapStretch);
   return {
     enabled: bool(grid.enabled, true),
     visible: bool(grid.visible, true),
@@ -196,6 +214,7 @@ function readGrid(raw: unknown): BoardGrid {
     // Older Atlas numbered hex grids only (`hexNumbers`); newer Atlas numbers any grid (`cellNumbers`).
     numbers: readNumbering(grid.cellNumbers ?? (type === 'square' ? undefined : grid.hexNumbers)),
     numberOpacity: num(grid.cellNumberOpacity ?? grid.hexNumberOpacity, 0.8),
+    ...(mapStretch ? { mapStretch } : {}),
   };
 }
 
@@ -240,6 +259,8 @@ function readToken(token: Raw): BoardToken | null {
     statblockPath: str(token.statblockPath),
     side: typeof token.side === 'string' && token.side !== '' ? token.side : null,
     offMap: token.offMap === true,
+    levelId: null,
+    offLevel: false,
     sees: isObj(token.vision) && token.vision.enabled === true,
   };
 }
@@ -321,8 +342,16 @@ export function isDowned(token: BoardToken, definitions: readonly ResourceDefini
   return token.kind === 'character' && isDefeated(token, definitions);
 }
 
+/** The grid with the shown level's own alignment laid over the scene's stretch, as Atlas does (null level: the scene's own). */
+export function alignedGrid(grid: BoardGrid, alignments: unknown, level: string | null): BoardGrid {
+  const own = level !== null && typeof alignments === 'object' && alignments !== null ? readLevelAlignment((alignments as Record<string, unknown>)[level]) : undefined;
+  if (own === undefined) return grid;
+  const { mapStretch: _scene, ...rest } = grid;
+  return own === null ? rest : { ...rest, mapStretch: own };
+}
+
 /** Reads an `.atlasmap` file's text. Throws when it is not an Atlas map. */
-export function readMap(path: string, text: string): BoardMap {
+export function readMap(path: string, text: string, viewedLevel?: string | null): BoardMap {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -331,21 +360,33 @@ export function readMap(path: string, text: string): BoardMap {
   }
   const state = isObj(parsed) && isObj(parsed.state) ? parsed.state : null;
   if (!state || !isObj(state.objects)) throw new Error('not an Atlas map');
+  const levels = readLevels(state.levels);
+  const level = resolveLevel(levels, viewedLevel);
+  const here = (record: unknown): unknown => onLevelRecord(record, level, levels);
   const objects = state.objects;
+  const tokens = items(objects.tokens).map((raw) => {
+    const token = readToken(raw);
+    if (!token) return null;
+    if (level === null) return token;
+    const on = onLevel(raw, level, levels);
+    return { ...token, levelId: resolveLevel(levels, raw.level), offLevel: !on };
+  }).filter((token): token is BoardToken => token !== null);
   return {
     path,
-    background: str(state.background),
-    grid: readGrid(state.grid),
+    background: levelBackground(str(state.background), levels, level),
+    levels,
+    level,
+    grid: alignedGrid(readGrid(state.grid), state.levelAlignments, level),
     tokenSettings: readTokenSettings(state.tokenSettings),
-    tokens: items(objects.tokens).map(readToken).filter((token): token is BoardToken => token !== null),
-    pins: items(objects.pins).map(readPin).filter((pin): pin is BoardPin => pin !== null),
-    icons: items(objects.drawings).map(readIcon).filter((icon): icon is BoardIcon => icon !== null),
-    texts: items(objects.texts).map(readText).filter((text): text is BoardText => text !== null),
+    tokens,
+    pins: items(here(objects.pins)).map(readPin).filter((pin): pin is BoardPin => pin !== null),
+    icons: items(here(objects.drawings)).map(readIcon).filter((icon): icon is BoardIcon => icon !== null),
+    texts: items(here(objects.texts)).map(readText).filter((text): text is BoardText => text !== null),
     initiative: readInitiative(state.initiative),
-    inks: items(objects.drawings).map(readInk).filter((ink): ink is BoardInk => ink !== null),
-    fog: readFog(objects.fog),
-    walls: readWalls(objects.walls),
-    lights: readLights(objects.lights, objects.tokens),
+    inks: items(here(objects.drawings)).map(readInk).filter((ink): ink is BoardInk => ink !== null),
+    fog: readFog(here(objects.fog)),
+    walls: readWalls(here(objects.walls)),
+    lights: readLights(here(objects.lights), here(objects.tokens)),
     lighting: readSceneLighting(state.lighting),
     rawGrid: state.grid ?? null,
   };

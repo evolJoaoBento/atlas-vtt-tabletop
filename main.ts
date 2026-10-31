@@ -5,6 +5,11 @@ import { BOARD_VIEW_TYPE, BoardView, HOVER_SOURCE } from './src/board/BoardView'
 import { PLAYER_VIEW_TYPE, PlayerView } from './src/board/PlayerWindow';
 import { BoardData, readBoardData, type BoardDataJSON } from './src/board/boardData';
 import { DEFAULT_QUALITY, readQuality, type Quality } from './src/board/quality';
+import { lookOf, readSky, type LightingChoice, type Sky } from './src/board/look';
+import { AtlasOpenButton } from './src/atlasButton';
+import { setLanguage } from './src/i18n';
+import { BOARD_PROTOCOL_ACTION, boardLink, DEFAULT_SNAPSHOT_FOLDER, latestSnapshot, parseBoardBlock, readBoardLink, snapshotPath } from './src/boardLinks';
+import { renderBoardCard } from './src/boardCard';
 import { resolveLaser, type LaserSettings } from './src/board/laser';
 import { TokenWriter } from './src/board/tokenWriter';
 import { GALLERY_VIEW_TYPE, GalleryView, importWithNotice, pickFiles } from './src/gallery';
@@ -14,6 +19,7 @@ import { GpuSettings, currentChip, gpuChoices, type GpuPreference } from './src/
 import { playerMiniPainter, type PlayerMiniPainter } from './src/playerMinis';
 import { boardLookFor, MaterialIndex } from './src/boardLook';
 import { playerBoardFactory, type PlayerBoardFactory } from './src/playerBoard';
+import { documentHasWebgl } from './src/webgl';
 import type { BoardLook, BoardSession, GmCameraSource } from './src/connectContract';
 import { DEFAULT_PACK, defaultPackFiles, releaseDefaultPackSheets } from './src/dice/defaultPack';
 import { choosePack, vendoredPack, type ChosenPack } from './src/dice/dicePack';
@@ -34,6 +40,14 @@ interface TabletopSettings {
   materialsFolder: string;
   /** How hard the 3D board works to look good. */
   quality: Quality;
+  /** The miniature look: the 3D board blurred towards its top and bottom edges. */
+  tiltShift?: boolean;
+  /** Contact shadows: darker creases where things meet the floor. */
+  occlusion?: boolean;
+  /** The painted lighting. */
+  painted?: boolean;
+  /** The painted sky's palette. */
+  sky?: Sky;
   /** The laser pointer's colour and size (Atlas's options), for every map. */
   laser?: Partial<LaserSettings>;
   /** The GM's dice on the board. */
@@ -72,8 +86,8 @@ export interface TabletopApi {
   readAsset(path: string): Promise<ArrayBuffer>;
   /** The GM's 3D view of a map, for Connect's players' "GM view". */
   readonly gmCamera: GmCameraSource;
-  /** The 3D board in a Connect player's tab, drawn from what Connect receives. */
-  readonly playerBoard: PlayerBoardFactory;
+  /** The 3D board in a Connect player's tab, drawn from what Connect receives; absent while this window has no WebGL (Connect then draws its 2D map). */
+  readonly playerBoard?: PlayerBoardFactory;
   /** The 3D boards open now: their map and their root, whose toolbar has Atlas's end slot for Connect's buttons. */
   boardViews(): Array<{ key: string; mapPath: string; root: HTMLElement }>;
   /** Connect hands over its hosted session: the boards show its templates, marks and handout. Returns the release. */
@@ -109,6 +123,8 @@ export default class TabletopPlugin extends Plugin {
   materials!: MaterialLibrary;
   api: TabletopApi | null = null;
   private players: ReturnType<typeof playerMiniPainter> | null = null;
+  /** The "Open in 3D" button in stock Atlas's toolbar. */
+  private atlasButton: AtlasOpenButton | null = null;
   /** The 3D board used last: props from the gallery go to it. */
   private lastBoard: BoardView | null = null;
   /** The pack the dice are made from: the default pack Tabletop carries until the chosen one is read. */
@@ -118,6 +134,8 @@ export default class TabletopPlugin extends Plugin {
   }, 500, true);
 
   async onload(): Promise<void> {
+    // Obsidian's language, as Atlas follows it (`moment` holds it on versions before `getLanguage`).
+    setLanguage((window as unknown as { moment?: { locale?: () => string } }).moment?.locale?.() ?? window.localStorage.getItem('language'));
     const saved = ((await this.loadData()) ?? {}) as SavedData;
     this.settings = { ...DEFAULT_SETTINGS, ...(saved.settings ?? {}) };
     this.settings.quality = readQuality(this.settings.quality);
@@ -142,6 +160,15 @@ export default class TabletopPlugin extends Plugin {
       materials: this.materials,
       writer,
       quality: () => this.settings.quality,
+      tiltShift: () => this.settings.tiltShift === true,
+      occlusion: () => this.settings.occlusion === true,
+      painted: () => this.settings.painted === true,
+      sky: () => readSky(this.settings.sky),
+      setLighting: (choice) => { void this.setLighting(choice); },
+      setTiltShift: (on) => { void this.setTiltShift(on); },
+      setOcclusion: (on) => { void this.setOcclusion(on); },
+      setAutoRoll: (on) => this.setDice({ autoRoll: on }),
+      setSheetPinned: (pinned) => this.setDice({ sheetPinned: pinned }),
       laser: () => resolveLaser(this.settings.laser),
       setLaser: (changes) => {
         this.settings.laser = resolveLaser({ ...resolveLaser(this.settings.laser), ...changes });
@@ -184,10 +211,46 @@ export default class TabletopPlugin extends Plugin {
         return true;
       },
     });
+    // Notes: a link that opens a map in 3D, a `tabletop` code block that shows a map's card, and snapshots of the board.
+    this.registerObsidianProtocolHandler(BOARD_PROTOCOL_ACTION, (params) => {
+      const map = readBoardLink(params);
+      if (map && this.app.vault.getAbstractFileByPath(map) instanceof TFile) void this.openBoard(map);
+      else new Notice(map ? `Tabletop: the map ${map} is not in this vault.` : 'Tabletop: that link names no Atlas map.');
+    });
+    this.registerMarkdownCodeBlockProcessor('tabletop', (source, el, ctx) => this.renderBoardBlock(source, el, ctx.sourcePath));
+    this.addCommand({
+      id: 'copy-board-link',
+      name: 'Copy a link that opens this map in 3D',
+      checkCallback: (checking) => {
+        const path = this.currentMap();
+        if (!path) return false;
+        if (!checking) {
+          void navigator.clipboard.writeText(`[Open ${path.split('/').pop()?.replace(/\.atlasmap$/i, '') ?? 'map'} in 3D](${boardLink(this.app.vault.getName(), path)})`);
+          new Notice('Tabletop: link copied. Paste it in a note.');
+        }
+        return true;
+      },
+    });
+    this.addCommand({
+      id: 'save-snapshot',
+      name: 'Save a snapshot of the 3D board',
+      checkCallback: (checking) => {
+        const view = this.lastBoard;
+        if (!view?.mapPath) return false;
+        if (!checking) void this.saveSnapshot(view);
+        return true;
+      },
+    });
     this.registerEvent(this.app.workspace.on('file-menu', (menu, file) => {
       if (!(file instanceof TFile) || !isMapPath(file.path)) return;
       menu.addItem((item) => item.setTitle('Open in 3D').setIcon('cuboid').onClick(() => { void this.openBoard(file.path); }));
     }));
+    // An "Open in 3D" button in stock Atlas's own toolbar; Atlas redraws its toolbar now and then, so it is put back.
+    this.atlasButton = new AtlasOpenButton(this.app, (path) => { void this.openBoard(path); });
+    const syncButton = (): void => this.atlasButton?.sync();
+    this.app.workspace.onLayoutReady(syncButton);
+    this.registerEvent(this.app.workspace.on('layout-change', syncButton));
+    this.registerEvent(this.app.workspace.on('active-leaf-change', syncButton));
     this.addSettingTab(new TabletopSettingTab(this.app, this));
 
     this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
@@ -214,10 +277,12 @@ export default class TabletopPlugin extends Plugin {
     this.register(this.boardData.onChange((mapPath) => this.boardChanged(mapPath)));
     this.register(this.materials.onChange(() => { this.materialIndex?.forgetAll(); this.boardChanged(null); }));
     this.players = playerMiniPainter();
+    const board = playerBoardFactory(() => this.settings.quality, () => ({ tiltShift: this.settings.tiltShift === true, occlusion: this.settings.occlusion === true, painted: this.settings.painted === true, sky: readSky(this.settings.sky) }), { settings: () => this.settings.dice, pack: () => (this.dicePack ??= vendoredPack()) });
     this.api = Object.freeze({
       version: 1 as const,
       playerMinis: this.players.painter,
-      playerBoard: playerBoardFactory(() => this.settings.quality, { settings: () => this.settings.dice, pack: () => (this.dicePack ??= vendoredPack()) }),
+      // Read fresh by Connect on each use: offered only where this window can draw it.
+      get playerBoard(): PlayerBoardFactory | undefined { return documentHasWebgl(activeDocument) ? board : undefined; },
       attachSession: (session: BoardSession) => this.attachSession(session),
       boardViews: () => this.boards().flatMap((board) => (board.mapPath ? [{ key: `tabletop:${boardKey(board)}`, mapPath: board.mapPath, root: board.contentEl }] : [])),
       placementsFor: (mapPath: string) => this.assignments.forMap(mapPath),
@@ -250,6 +315,8 @@ export default class TabletopPlugin extends Plugin {
   }
 
   onunload(): void {
+    this.atlasButton?.stop();
+    this.atlasButton = null;
     this.app.workspace.trigger(API_UNLOAD_EVENT);
     this.app.workspace.trigger(OLD_API_UNLOAD_EVENT);
     this.api = null;
@@ -309,13 +376,74 @@ export default class TabletopPlugin extends Plugin {
     this.save();
     if (packChanged) void this.loadDicePack();
     // The colours are only the picker's: the dice on the table stay.
-    else if (Object.keys(changes).some((key) => key !== 'colors')) for (const view of this.boards()) view.diceChanged();
+    else if (Object.keys(changes).some((key) => key !== 'colors' && key !== 'autoRoll' && key !== 'sheetPinned')) for (const view of this.boards()) view.diceChanged();
+  }
+
+  async setTiltShift(on: boolean): Promise<void> {
+    this.settings.tiltShift = on;
+    this.save();
+    for (const view of this.boards()) await view.applyQuality();
+  }
+
+  async setOcclusion(on: boolean): Promise<void> {
+    this.settings.occlusion = on;
+    this.save();
+    for (const view of this.boards()) await view.applyQuality();
+  }
+
+  /** The lighting chosen on a board's toolbar: kept, and every open board follows. */
+  async setLighting(choice: LightingChoice): Promise<void> {
+    const { painted, sky } = lookOf(choice, readSky(this.settings.sky));
+    this.settings.painted = painted;
+    this.settings.sky = sky;
+    this.save();
+    for (const view of this.boards()) await view.applyQuality();
   }
 
   async setQuality(quality: Quality): Promise<void> {
     this.settings.quality = quality;
     this.save();
     for (const view of this.boards()) await view.applyQuality();
+  }
+
+  /** A `tabletop` code block: the card of a map, with its latest snapshot and a button that opens it in 3D. */
+  private renderBoardBlock(source: string, el: HTMLElement, sourcePath: string): void {
+    const block = parseBoardBlock(source);
+    if (!block) {
+      el.createEl('p', { text: 'Tabletop: write the path of an .atlasmap map in this block, for example [[Maps/Cave.atlasmap]].', cls: 'atlas-tabletop-board-card__error' });
+      return;
+    }
+    const file = this.app.metadataCache.getFirstLinkpathDest(block.map, sourcePath) ?? this.app.vault.getAbstractFileByPath(block.map);
+    if (!(file instanceof TFile)) {
+      el.createEl('p', { text: `Tabletop: the map ${block.map} is not in this vault.`, cls: 'atlas-tabletop-board-card__error' });
+      return;
+    }
+    const snapshot = latestSnapshot(this.app.vault.getFiles().map((candidate) => candidate.path), DEFAULT_SNAPSHOT_FOLDER, file.path);
+    const picture = snapshot ? this.app.vault.getAbstractFileByPath(snapshot) : null;
+    renderBoardCard(el, {
+      title: block.caption ?? file.basename,
+      snapshotUrl: picture instanceof TFile ? this.app.vault.getResourcePath(picture) : null,
+      open: () => { void this.openBoard(file.path); },
+    });
+  }
+
+  /** Saves what the board shows as a PNG in the snapshots folder, and copies the embed that shows it in a note. */
+  private async saveSnapshot(view: BoardView): Promise<void> {
+    const mapPath = view.mapPath;
+    const blob = await view.snapshot();
+    if (!mapPath || !blob) {
+      new Notice('Tabletop: the board could not give a picture.');
+      return;
+    }
+    const path = snapshotPath(DEFAULT_SNAPSHOT_FOLDER, mapPath, new Date());
+    try {
+      if (!(await this.app.vault.adapter.exists(DEFAULT_SNAPSHOT_FOLDER))) await this.app.vault.createFolder(DEFAULT_SNAPSHOT_FOLDER);
+      await this.app.vault.createBinary(path, await blob.arrayBuffer());
+      await navigator.clipboard.writeText(`![[${path}]]`);
+      new Notice(`Tabletop: snapshot saved as ${path}. Its embed is copied.`);
+    } catch (error) {
+      new Notice(`Tabletop: the snapshot could not be saved: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   /** The map to open in 3D: the open `.atlasmap` file, else the map of the Atlas view used last. */

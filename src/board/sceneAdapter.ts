@@ -21,7 +21,7 @@ type Point = { x: number; y: number };
 /** The fields of Connect's `PlayerScene` the board reads; loosely typed, as Tabletop does not import Connect. */
 export interface PlayerSceneLike {
   sceneId: string;
-  map: { asset: string | null; width: number; height: number; cellSize: number };
+  map: { asset: string | null; width: number; height: number; cellSize: number; matrix?: readonly [number, number, number, number, number, number] };
   grid: {
     type: 'square' | 'hex-horizontal' | 'hex-vertical'; size: number; offsetX: number; offsetY: number; color: string | null; opacity: number;
     lineType: 'solid' | 'dashed' | 'dotted'; lineWidth: number; hexNumbers: string | null; hexNumberOpacity: number | null;
@@ -32,7 +32,7 @@ export interface PlayerSceneLike {
     conditions: Array<{ id: string; value: number | null; name?: string; color?: string; icon?: string }>;
     name: string | null; hp: { current: number; max: number } | null; stress: { current: number; max: number } | null;
     resources?: Array<{ color: string; share: number; spent: boolean; current?: number; max?: number }>;
-    downed?: boolean; side?: string; instance?: number; mini?: { asset: string | null; scale: number; turn: number };
+    downed?: boolean; side?: string; instance?: number; mini?: { asset: string | null; scale: number; turn: number; base?: 'round' | 'square' };
   }>;
   fog: Record<string, { type: 'brush'; erase: boolean; order: number; radius: number; points: Point[] }
     | { type: 'lasso'; erase: boolean; order: number; points: Point[] }
@@ -64,7 +64,7 @@ export interface SceneBoard {
   map: BoardMap & { darkness: FogOperation[] };
   rules: CollectionRules;
   /** The minis standing on the tokens, by token id: their GLB's asset id. */
-  minis: Record<string, { glb: string; scale: number; turn: number }>;
+  minis: Record<string, { glb: string; scale: number; turn: number; base?: 'round' | 'square' }>;
   look: PlayerLook;
 }
 
@@ -105,14 +105,14 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
         conditions.set(condition.id, { name: condition.name, color: condition.color ?? '#888888', valued: condition.value !== null, ...(condition.icon ? { icon: condition.icon } : {}) });
       }
     }
-    if (token.mini?.asset) minis[id] = { glb: token.mini.asset, scale: token.mini.scale, turn: token.mini.turn };
+    if (token.mini?.asset) minis[id] = { glb: token.mini.asset, scale: token.mini.scale, turn: token.mini.turn, ...(token.mini.base === 'round' || token.mini.base === 'square' ? { base: token.mini.base } : {}) };
     return {
       id, x: token.x, y: token.y, size: token.size, rotation: token.rotation, imagePath: token.image,
       kind: 'character', name: token.name, hidden: false,
       showRing: token.ring !== null, ringColor: token.ring ?? '#ffffff', showNameplate: token.name !== null,
       conditions: token.conditions.map((condition) => condition.id), conditionValues: values,
       resources, overriddenMax: [], instanceNumber: token.instance ?? null, statblockPath: null,
-      side: token.side ?? null, sees: false, offMap: false,
+      side: token.side ?? null, sees: false, offMap: false, levelId: null, offLevel: false,
       ...(Object.keys(colors).length > 0 ? { resourceColors: colors } : {}),
     } satisfies BoardToken;
   });
@@ -170,6 +170,9 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
     map: {
       path: scene.sceneId,
       background: scene.map.asset,
+      world: { width: scene.map.width, height: scene.map.height, ...(scene.map.matrix ? { matrix: scene.map.matrix } : {}) },
+      levels: [],
+      level: null,
       grid: gridOf(scene),
       tokenSettings: { showNameplates: true, showInstanceBadges: true, hiddenResources: [] },
       tokens, pins, icons, texts, initiative, inks, fog, darkness, walls, lights,

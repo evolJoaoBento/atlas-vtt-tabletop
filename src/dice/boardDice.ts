@@ -13,6 +13,7 @@ import { diceRulesOf, onRolled, publishRoll, stockRoll, type MapViewLike, type R
 import { DiceController } from './diceController';
 import { SheetDrawer } from '../sheets/sheetDrawer';
 import type { AdvantageSide, PlayerSheet } from '../sheets/sheet';
+import type { CardHost } from '../sheets/atlasCard';
 import type { ChosenPack } from './dicePack';
 import { DicePicker } from './dicePicker';
 import { DicePreviews } from './dicePreviews';
@@ -22,7 +23,7 @@ import { DiceTable } from './diceTable';
 import { DiceTextures } from './diceTextures';
 import { listenForDiePresses } from './diePress';
 import { DIE_TYPES } from './kit/faces';
-import { parseFormula, type RollRequest } from './rollRules';
+import { explainFormula, parseFormula, type RollRequest } from './rollRules';
 import { GENTLE } from './throwInput';
 
 export interface BoardDiceDeps {
@@ -35,10 +36,14 @@ export interface BoardDiceDeps {
   atlasView(): MapViewLike | null;
   settings(): TabletopDiceSettings;
   pack(): ChosenPack;
+  /** Keeps whether the stat sheet drawer is pinned (read from `settings().sheetPinned`). */
+  setSheetPinned?(pinned: boolean): void;
   /** Shown once per message. */
   warn(message: string): void;
   /** The sheet of a token's stat block; null when it links none or it cannot be read. Without it, no sheet. */
   sheetOf?(tokenId: string): Promise<PlayerSheet | null>;
+  /** What draws Atlas's own card of a token's stat block, shown in place of the text sheet; null when it links none. */
+  cardOf?(tokenId: string): CardHost | null;
 }
 
 export class BoardDice {
@@ -105,11 +110,14 @@ export class BoardDice {
       const sheetAnchor = board.sheetButton({
         isOpen: () => this.sheet?.isOpen === true,
         toggle: () => this.sheet?.toggle(),
-        close: () => this.sheet?.close(),
+        // Other panels closing the end-slot panels leave a pinned sheet where it is.
+        close: () => this.sheet?.closeUnlessPinned(),
       });
       if (sheetAnchor) {
         this.sheet = new SheetDrawer(container, {
           onRoll: (formula, label, advantage) => this.sheetRoll(formula, label, advantage),
+          pinned: deps.settings().sheetPinned,
+          onPinChange: (pinned) => deps.setSheetPinned?.(pinned),
           onOpenChange: (open) => {
             if (open) this.readSheet();
             board.refreshToolbar();
@@ -189,7 +197,7 @@ export class BoardDice {
       // Another token was selected, or the drawer went, meanwhile: this read is no longer wanted.
       if (read !== this.sheetRead || this.disposed) return;
       this.sheetToken = tokenId;
-      sheet.show(found);
+      sheet.show(found, this.deps.cardOf?.(tokenId) ?? null);
     });
   }
 
@@ -198,17 +206,23 @@ export class BoardDice {
    * Logged as the ability of the token whose sheet it is.
    */
   private sheetRoll(formula: string, label: string, advantage?: AdvantageSide): void {
-    const tokenId = this.sheetToken;
+    this.cardRoll(this.sheetToken, formula, label, advantage);
+  }
+
+  /** A roll from a stat block card (the drawer's, or the one Ctrl/Cmd + hover opens) of the token `tokenId`. */
+  cardRoll(tokenId: string | null, formula: string, label: string, advantage?: AdvantageSide): void {
     if (this.disposed || tokenId === null) return;
     const parsed = parseFormula(formula, this.rules());
     if (!parsed) {
-      this.sheet?.notice(`Can't roll ${formula} with physical dice.`);
+      this.sheet?.notice(`Can't roll ${formula}: ${explainFormula(formula, this.rules()) ?? 'these dice cannot throw it.'}`);
       return;
     }
     const controller = this.ensureTable();
     this.lastResult = null;
     this.rollFrom = { abilityName: label, tokenId };
     controller.start({ ...parsed, label, ...(advantage ? { advantage } : {}) });
+    // Auto roll (the board settings' tick): thrown at once; otherwise the dice lie on the table for the GM to throw.
+    if (this.deps.settings().autoRoll) controller.throwPending(GENTLE);
   }
 
   /**
@@ -304,7 +318,7 @@ export class BoardDice {
     // The ability stays with the roll: thrown again, its dice are still that ability's.
     const from = this.rollFrom ?? undefined;
     const roll = stockRoll({ ...result, rolls }, undefined, from) as { formula: string; total: number };
-    const said = `${from ? `${from.abilityName}: ` : ''}${roll.formula} = ${roll.total}`;
+    const said = `${from ? `${from.abilityName}: ` : ''}${roll.formula} = ${roll.total}${result.successes !== undefined ? ` (${result.successes === 1 ? '1 success' : `${result.successes} successes`})` : ''}`;
     if (publishRoll(this.deps.atlasView(), roll)) {
       this.lastResult = said;
       return;

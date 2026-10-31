@@ -37,10 +37,11 @@ const clamp = (value: number, min: number, max: number): number => Math.min(max,
  * freedom, not much): a flatter low angle, nearly straight down at the top, farther out, and less of a push toward
  * looking down when pulled back. Distances scale with the map.
  */
-export function limitsFor(width: number, height: number): CameraLimits {
+export function limitsFor(width: number, height: number, painted = false): CameraLimits {
   const span = Math.max(width, height, 1);
   // Closest: about 19 wheel notches in from the framed map (it was 27 at 0.04, too close).
-  return { minPitch: 0.22, maxPitch: 1.5, farPitch: 1.12, minDistance: span * 0.13, maxDistance: span * 3 };
+  // With the painted sky the camera may go nearly level, so the horizon comes down to where a viewer expects it.
+  return { minPitch: painted ? 0.04 : 0.22, maxPitch: 1.5, farPitch: 1.12, minDistance: span * 0.13, maxDistance: span * 3 };
 }
 
 /**

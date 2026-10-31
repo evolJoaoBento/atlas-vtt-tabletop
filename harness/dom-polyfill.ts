@@ -1,14 +1,6 @@
 /** What Obsidian adds to every window and node (`node.win`, `win.createEl()` and friends), for the plain browser the harness runs in. */
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-Object.defineProperty(Node.prototype, 'win', {
-  configurable: true,
-  get(this: Node): Window {
-    const doc = this instanceof Document ? this : this.ownerDocument;
-    return doc?.defaultView ?? window;
-  },
-});
-
 function apply(element: Element, options?: string | { cls?: string | string[]; text?: string; attr?: Record<string, string> }): void {
   if (typeof options === 'string') element.className = options;
   else if (options) {
@@ -18,8 +10,8 @@ function apply(element: Element, options?: string | { cls?: string | string[]; t
   }
 }
 
-const target = window as unknown as Record<string, unknown>;
 const documentOf = function (this: Window | undefined): Document { return (this ?? window).document; };
+const target: Record<string, unknown> = {};
 target.createEl = function (this: Window, tag: string, options?: never): HTMLElement {
   const made = documentOf.call(this).createElement(tag);
   apply(made, options);
@@ -40,6 +32,24 @@ target.createSvg = function (this: Window, tag: string, options?: never): SVGEle
   apply(made, options);
   return made as SVGElement;
 };
+/**
+ * Obsidian gives every window, a popout's too, the create helpers, and every node its `win`. A window the harness opens
+ * is another realm, so it is handed to this to get the same.
+ */
+export function equipWindow(win: Window): Window {
+  const holder = win as unknown as Record<string, unknown>;
+  for (const name of ['createEl', 'createDiv', 'createSpan', 'createSvg']) holder[name] ??= target[name];
+  Object.defineProperty((win as unknown as { Node: typeof Node }).Node.prototype, 'win', {
+    configurable: true,
+    get(this: Node): Window {
+      const doc = this.nodeType === Node.DOCUMENT_NODE ? (this as Document) : this.ownerDocument;
+      return doc?.defaultView ?? win;
+    },
+  });
+  return win;
+}
+
+equipWindow(window);
 // Obsidian's own global helper, which `canvasTexture` and others use.
 (globalThis as Record<string, unknown>).createEl ??= target.createEl;
 

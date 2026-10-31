@@ -4,8 +4,21 @@ import { colorsText, DEFAULT_DICE_SETTINGS, readColorsText, readDiceSettings } f
 
 test('the dice settings default to the brief: 0.6 squares, tolerance 0.1, the default pack', () => {
   const { colors, ...rest } = readDiceSettings(undefined);
-  assert.deepEqual(rest, { dieSquares: 0.6, tolerance: 0.1, motionThreshold: 1, shadows: true, highlight: true, highlightColor: '#ffd54a', pack: 'Texture-Pack-Default' });
+  assert.deepEqual(rest, { dieSquares: 0.6, tolerance: 0.1, motionThreshold: 1, shadows: true, highlight: true, highlightColor: '#ffd54a', pack: 'Texture-Pack-Default', autoRoll: false, sheetPinned: false });
   assert.deepEqual(colors, DEFAULT_DICE_SETTINGS.colors);
+});
+
+test('auto roll is off (dice are laid for a manual throw) unless a saved setting turns it on', () => {
+  assert.equal(readDiceSettings({}).autoRoll, false);
+  assert.equal(readDiceSettings({ autoRoll: true }).autoRoll, true);
+  assert.equal(readDiceSettings({ autoRoll: 'yes' }).autoRoll, false);
+});
+
+test('a pinned stat sheet drawer is kept across reloads, and is not pinned unless a saved setting says so', () => {
+  assert.equal(readDiceSettings({}).sheetPinned, false);
+  assert.equal(readDiceSettings({ sheetPinned: true }).sheetPinned, true);
+  assert.equal(readDiceSettings(JSON.parse(JSON.stringify(readDiceSettings({ sheetPinned: true })))).sheetPinned, true);
+  assert.equal(readDiceSettings({ sheetPinned: 'yes' }).sheetPinned, false);
 });
 
 test('saved dice settings are read field by field; a wrong field falls back alone', () => {

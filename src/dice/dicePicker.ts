@@ -7,7 +7,7 @@
  */
 import { setSvg } from '../svg';
 import { DIE_TYPES, type DieType } from './kit/faces';
-import { defaultDie, MAX_DICE, type DiceRules, type RollRequest } from './rollRules';
+import { defaultDice, edgeOf, MAX_DICE, type DiceRules, type RollRequest } from './rollRules';
 
 export type AdvantageSide = NonNullable<RollRequest['advantage']>;
 
@@ -62,10 +62,34 @@ export function stepModifier(pick: Pick, delta: 1 | -1): Pick {
   return { ...pick, modifier: Math.max(-MODIFIER_LIMIT, Math.min(MODIFIER_LIMIT, pick.modifier + delta)) };
 }
 
-/** Whether advantage or disadvantage applies to the dice picked: exactly one of the collection's default die. */
-export function advantageApplies(pick: Pick, rules: DiceRules): boolean {
-  const die = defaultDie(rules);
-  return die !== null && countOf(pick, die) === 1 && pickedCount(pick) < MAX_DICE;
+/**
+ * Whether advantage or disadvantage (`side`; either, unset) applies to the dice picked, as the collection's dice set
+ * says it does: keeping the best asks for exactly one of its dice, a number or a die of its own for any, and a set
+ * that sets nothing for that side changes no roll.
+ */
+export function advantageApplies(pick: Pick, rules: DiceRules, side?: AdvantageSide): boolean {
+  if (pickedCount(pick) >= MAX_DICE) return false;
+  const own = defaultDice(rules).reduce((sum, die) => sum + countOf(pick, die), 0);
+  return (side ? [side] : (['advantage', 'disadvantage'] as const)).some((each) => {
+    const edge = edgeOf(rules, each);
+    return edge !== null && (edge.kind === 'keep' ? own === 1 : own > 0);
+  });
+}
+
+/**
+ * What right-clicking `die` and choosing `side` does to the tray: the die is added when none of it is picked, and the
+ * side is set; choosing the side the tray already has takes it back to Normal. Null when the side would change no roll
+ * (the dice set gives it no effect, the tray holds other dice, or a second d20 where keeping the best asks for one).
+ */
+export function edgeFor(pick: Pick, rules: DiceRules, die: DieType, side: AdvantageSide): Pick | null {
+  if (pick.advantage === side && countOf(pick, die) > 0 && advantageApplies(pick, rules, side)) {
+    const { advantage: _gone, ...rest } = pick;
+    return rest;
+  }
+  const withDie = countOf(pick, die) > 0 ? pick : stepDie(pick, die, 1);
+  if (countOf(withDie, die) === 0) return null;
+  const next = { ...withDie, advantage: side };
+  return advantageApplies(next, rules, side) ? next : null;
 }
 
 /** The roll the tray lays on the table; null with no dice picked (Roll is off, as in Atlas). */
@@ -83,7 +107,7 @@ export function pickedRequest(pick: Pick, rules: DiceRules): RollRequest | null 
     dice,
     modifier: pick.modifier,
     ...(Object.keys(dieColors).length > 0 ? { dieColors } : {}),
-    ...(pick.advantage && advantageApplies(pick, rules) ? { advantage: pick.advantage } : {}),
+    ...(pick.advantage && advantageApplies(pick, rules, pick.advantage) ? { advantage: pick.advantage } : {}),
   };
 }
 
@@ -169,7 +193,7 @@ export class DicePicker {
       const cell = el('div', 'atlas-dice-tray__die', dice);
       const face = button('atlas-dice-tray__face', cell, `Add a ${die}`, () => this.change(stepDie(this.pick, die, 1)));
       face.dataset.die = die;
-      face.title = `${die} · right-click: colour`;
+      face.title = `${die} · right-click: colour, advantage`;
       face.addEventListener('contextmenu', (event) => {
         event.preventDefault();
         this.showSwatches(die, face);
@@ -340,7 +364,8 @@ export class DicePicker {
       }
     }
     const applies = advantageApplies(this.pick, this.opts.rules());
-    const side = applies ? this.pick.advantage ?? 'normal' : 'normal';
+    // A side the set gives no effect shows as Normal, as the roll it makes.
+    const side = applies && (!this.pick.advantage || advantageApplies(this.pick, this.opts.rules(), this.pick.advantage)) ? this.pick.advantage ?? 'normal' : 'normal';
     this.sides.setAttribute('aria-disabled', String(!applies));
     for (const [value, option] of this.sideButtons) {
       const active = value === side;
@@ -426,6 +451,25 @@ export class DicePicker {
     };
     cell(null, "The pack's colour");
     for (const entry of this.opts.colors()) cell(entry.color, entry.name);
+    // Advantage and disadvantage for this die: the roll it makes with the other, as the segmented choice above does.
+    const edges = doc.win.createDiv();
+    edges.className = 'atlas-segmented atlas-segmented--fit atlas-tabletop-dice-edges';
+    edges.setAttribute('role', 'group');
+    edges.setAttribute('aria-label', `${die} with advantage or disadvantage`);
+    for (const side of ['advantage', 'disadvantage'] as const) {
+      const next = edgeFor(this.pick, this.opts.rules(), die, side);
+      const active = this.pick.advantage === side && advantageApplies(this.pick, this.opts.rules(), side);
+      const option = doc.win.createEl('button');
+      option.type = 'button';
+      option.className = `btn btn--ghost btn--sm atlas-segmented__option${active ? ' atlas-active' : ''}`;
+      option.textContent = side === 'advantage' ? 'Advantage' : 'Disadvantage';
+      option.setAttribute('aria-pressed', String(active));
+      option.disabled = next === null;
+      option.title = next === null ? `${option.textContent} changes no roll of ${die} here` : active ? `Back to Normal` : `Roll the ${die} with ${side}`;
+      option.addEventListener('click', () => { if (next) this.change(next); });
+      edges.appendChild(option);
+    }
+    this.swatches.appendChild(edges);
   }
 
   private hideSwatches(): void {

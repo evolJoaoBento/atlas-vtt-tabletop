@@ -6,7 +6,8 @@
  * Ported from Atlas VTT Connect (MIT, `sheetView.mts`).
  */
 import { setSvg } from '../svg';
-import { parseFormula } from '../dice/rollRules';
+import { explainFormula, parseFormula } from '../dice/rollRules';
+import { drawCard, routeCardRolls, type CardHost } from './atlasCard';
 import {
   ABILITY_NAMES, advantageSide, mayHaveAdvantage, modifierOf, sheetRollFormula, sheetRollLabel, signed, textParts,
   type AdvantageSide, type PlayerSheet, type SheetBonus, type SheetRollRef,
@@ -16,16 +17,31 @@ export interface SheetDrawerOptions {
   /** A roll on the sheet: its formula, what the log calls it and the side it is rolled with, if any. */
   onRoll(formula: string, label: string, advantage?: AdvantageSide): void;
   onOpenChange?(open: boolean): void;
+  /** The drawer starts pinned; and it is told when the pin is changed by hand, to keep it. */
+  pinned?: boolean;
+  onPinChange?(pinned: boolean): void;
+  /** Waits until a card has finished drawing; by default until it stops changing. */
+  settle?(element: Element): Promise<void>;
 }
 
 /** Lucide's `x` (ISC): the drawer's close button. */
 const CLOSE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
 
+/** Lucide's `pin` (ISC): the drawer's pin button. */
+const PIN_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>';
+
 export class SheetDrawer {
+  /** Pinned, the drawer stays open when another panel opens (and lies under it); unpinned, it closes then. */
+  private pinned = false;
+  private readonly pinButton: HTMLButtonElement;
   private readonly root: HTMLElement;
   private readonly title: HTMLElement;
   private readonly noticeLine: HTMLElement;
   private readonly body: HTMLElement;
+  /** Atlas's own card of the stat block, drawn here when this Atlas has one; the text sheet shows when it has not. */
+  private readonly cardBox: HTMLElement;
+  private card: { host: CardHost; stop: () => void } | null = null;
+  private drawing = 0;
   private sheet: PlayerSheet | null = null;
   private disposed = false;
 
@@ -36,6 +52,14 @@ export class SheetDrawer {
     this.root.setAttribute('aria-label', 'Stat sheet');
     const head = this.el('div', 'atlas-tabletop-sheet__head', this.root);
     this.title = this.el('h3', 'atlas-tabletop-sheet__name', head, 'Stat sheet');
+    this.pinButton = this.el('button', 'clickable-icon atlas-tabletop-sheet__pin', head);
+    this.pinButton.type = 'button';
+    setSvg(this.pinButton, PIN_SVG);
+    this.pinButton.addEventListener('click', () => {
+      this.setPinned(!this.pinned);
+      this.options.onPinChange?.(this.pinned);
+    });
+    this.setPinned(options.pinned === true);
     const close = this.el('button', 'clickable-icon atlas-tabletop-sheet__close', head);
     close.type = 'button';
     close.setAttribute('aria-label', 'Close');
@@ -47,6 +71,8 @@ export class SheetDrawer {
     this.noticeLine.setAttribute('role', 'status');
     this.noticeLine.hidden = true;
     this.body = this.el('div', 'atlas-tabletop-sheet__body', this.root);
+    this.cardBox = this.el('div', 'atlas-tabletop-sheet__card', this.root);
+    this.cardBox.hidden = true;
     // The board under the drawer must not take its presses, wheel or keys; Escape closes it.
     for (const type of ['pointerdown', 'pointerup', 'wheel', 'contextmenu', 'dblclick']) {
       this.root.addEventListener(type, (event) => event.stopPropagation());
@@ -62,13 +88,87 @@ export class SheetDrawer {
     return !this.root.hidden;
   }
 
-  /** The sheet to show (the selected token's); null for none. */
-  show(sheet: PlayerSheet | null): void {
+  get isPinned(): boolean {
+    return this.pinned;
+  }
+
+  /** Pins the drawer (it stays while other panels open, under them) or lets it go (they close it). */
+  setPinned(pinned: boolean): void {
+    this.pinned = pinned;
+    this.root.classList.toggle('is-pinned', pinned);
+    this.pinButton.classList.toggle('is-active', pinned);
+    this.pinButton.setAttribute('aria-pressed', String(pinned));
+    this.pinButton.setAttribute('aria-label', pinned ? 'Unpin' : 'Pin');
+    this.pinButton.title = pinned ? 'Unpin: other panels will close it' : 'Pin: keep it open under other panels';
+  }
+
+  /** Another panel opened: an unpinned drawer closes, a pinned one stays. */
+  closeUnlessPinned(): void {
+    if (!this.pinned) this.close();
+  }
+
+  /**
+   * The sheet to show (the selected token's); null for none. With `card`, Atlas's own card of the stat block is drawn
+   * in its place; the text sheet shows where this Atlas draws none, and while the card is being drawn the drawer says so.
+   */
+  show(sheet: PlayerSheet | null, card: CardHost | null = null): void {
     if (this.disposed) return;
+    this.dropCard();
     this.sheet = sheet;
     this.notice(null);
-    this.title.textContent = sheet?.name ?? 'Stat sheet';
-    this.body.replaceChildren(...(sheet ? this.content(sheet) : [this.el('p', 'atlas-tabletop-sheet__empty', null, 'Select a token with a stat block to see its sheet.')]));
+    this.title.textContent = sheet?.name ?? card?.name ?? 'Stat sheet';
+    this.cardBox.hidden = true;
+    this.body.hidden = false;
+    if (!card) {
+      this.body.replaceChildren(...this.text(sheet));
+      return;
+    }
+    const drawing = ++this.drawing;
+    this.body.replaceChildren(this.el('p', 'atlas-tabletop-sheet__empty', null, 'Drawing the stat block…'));
+    // Drawn in place but unseen (Atlas picks the card's columns from the width it has), on a stage of its own, so a card
+    // still drawing for the token before never lands in this one's place.
+    const stage = this.el('div', 'atlas-tabletop-sheet__stage', this.cardBox);
+    this.cardBox.className = 'atlas-tabletop-sheet__card is-drawing';
+    this.cardBox.hidden = false;
+    void drawCard(card, stage, this.options.settle).catch(() => false).then((drawn) => {
+      // Another token was shown, or the drawer went, meanwhile.
+      if (drawing !== this.drawing || this.disposed) { card.dispose(); return; }
+      if (!drawn) {
+        card.dispose();
+        this.cardBox.hidden = true;
+        this.cardBox.replaceChildren();
+        this.body.replaceChildren(...this.text(sheet));
+        return;
+      }
+      this.cardBox.className = 'atlas-tabletop-sheet__card';
+      this.card = { host: card, stop: routeCardRolls(this.cardBox, (formula, label, side) => this.cardRoll(formula, label, side)) };
+      this.body.hidden = true;
+    });
+  }
+
+  /** The text sheet, or what says there is none. */
+  private text(sheet: PlayerSheet | null): HTMLElement[] {
+    return sheet ? this.content(sheet) : [this.el('p', 'atlas-tabletop-sheet__empty', null, 'Select a token with a stat block to see its sheet.')];
+  }
+
+  /** Lets go of the card drawn now and any still being drawn. */
+  private dropCard(): void {
+    this.drawing += 1;
+    this.card?.stop();
+    this.card?.host.dispose();
+    this.card = null;
+    this.cardBox.replaceChildren();
+    this.cardBox.hidden = true;
+  }
+
+  /** A roll from Atlas's card, as Atlas's dice link names it: the board's dice throw it, or say they cannot. */
+  private cardRoll(formula: string, label: string, side?: AdvantageSide): void {
+    if (!parseFormula(formula)) {
+      this.notice(`Can't roll ${formula}: ${explainFormula(formula) ?? 'these dice cannot throw it.'}`);
+      return;
+    }
+    this.notice(null);
+    this.options.onRoll(formula, label, side && mayHaveAdvantage(formula) ? side : undefined);
   }
 
   /** A short line under the sheet's name; null takes it away. */
@@ -97,6 +197,7 @@ export class SheetDrawer {
   dispose(): void {
     if (this.disposed) return;
     this.close();
+    this.dropCard();
     this.disposed = true;
     this.root.remove();
   }
@@ -116,7 +217,7 @@ export class SheetDrawer {
     if (!sheet || !formula) return;
     // Never a roll other than the one asked for: what the dice cannot throw is not thrown at all.
     if (!parseFormula(formula)) {
-      this.notice(`Can't roll ${formula} with physical dice.`);
+      this.notice(`Can't roll ${formula}: ${explainFormula(formula) ?? 'these dice cannot throw it.'}`);
       return;
     }
     this.notice(null);

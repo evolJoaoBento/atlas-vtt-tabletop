@@ -4,6 +4,8 @@
  * or a soft blob under them. Pure.
  */
 
+import type { Sky } from './look';
+
 export type Quality = 'low' | 'medium' | 'high';
 
 export interface QualityPreset {
@@ -16,13 +18,26 @@ export interface QualityPreset {
   miniShadows: 'real' | 'blob';
   /** How many of Atlas's lights (the nearest the camera's target) cast shadows; each costs six shadow drawings. */
   lightShadows: number;
+  /** The miniature look: a blur towards the top and bottom edges (tiltShift.ts). Its own setting, not the preset's. */
+  tiltShift: boolean;
+  /** Contact shadows: darker creases where walls, minis and props meet the floor (postFx.ts). Its own setting too. */
+  occlusion: boolean;
+  /** The painted lighting: a warm key and cool fill, a tone mapper, softer shadows, a vignette (look.ts). Its own setting too. */
+  painted: boolean;
+  /** The painted sky's palette (look.ts). */
+  sky: Sky;
 }
 
 export const QUALITY: Readonly<Record<Quality, QualityPreset>> = {
-  low: { maxPixelRatio: 1, minPixelRatio: 0.6, antialias: false, shadowMapSize: 1024, miniShadows: 'blob', lightShadows: 0 },
-  medium: { maxPixelRatio: 1.5, minPixelRatio: 0.75, antialias: true, shadowMapSize: 2048, miniShadows: 'blob', lightShadows: 2 },
-  high: { maxPixelRatio: 2, minPixelRatio: 1, antialias: true, shadowMapSize: 4096, miniShadows: 'real', lightShadows: 4 },
+  low: { maxPixelRatio: 1, minPixelRatio: 0.6, antialias: false, shadowMapSize: 1024, miniShadows: 'blob', lightShadows: 0, tiltShift: false, occlusion: false, painted: false, sky: 'dusk' },
+  medium: { maxPixelRatio: 1.5, minPixelRatio: 0.75, antialias: true, shadowMapSize: 2048, miniShadows: 'blob', lightShadows: 2, tiltShift: false, occlusion: false, painted: false, sky: 'dusk' },
+  high: { maxPixelRatio: 2, minPixelRatio: 1, antialias: true, shadowMapSize: 4096, miniShadows: 'real', lightShadows: 4, tiltShift: false, occlusion: false, painted: false, sky: 'dusk' },
 };
+
+/** A preset with the miniature look, the contact shadows and the painted lighting on or off. */
+export function withLooks(preset: QualityPreset, looks: { tiltShift: boolean; occlusion: boolean; painted: boolean; sky: Sky }): QualityPreset {
+  return preset.tiltShift === looks.tiltShift && preset.occlusion === looks.occlusion && preset.painted === looks.painted && preset.sky === looks.sky ? preset : { ...preset, ...looks };
+}
 
 export const DEFAULT_QUALITY: Quality = 'medium';
 

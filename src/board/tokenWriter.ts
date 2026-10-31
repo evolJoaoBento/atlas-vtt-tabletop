@@ -51,6 +51,24 @@ export function moveTokenInText(text: string, id: string, x: number, y: number):
   return JSON.stringify(file);
 }
 
+/** The map file's text with several tokens moved. Throws when one is not on the map. */
+export function moveTokensInText(text: string, moves: ReadonlyArray<{ id: string; x: number; y: number }>): string {
+  const file = JSON.parse(text) as MapFile;
+  for (const move of moves) {
+    const token = tokenOf(file, move.id);
+    token.x = move.x;
+    token.y = move.y;
+  }
+  return JSON.stringify(file);
+}
+
+/** The map file's text with several tokens turned (degrees). Throws when one is not on the map. */
+export function turnTokensInText(text: string, turns: ReadonlyArray<{ id: string; rotation: number }>): string {
+  const file = JSON.parse(text) as MapFile;
+  for (const turn of turns) tokenOf(file, turn.id).rotation = turn.rotation;
+  return JSON.stringify(file);
+}
+
 /** The lowest copy number from 1 no token with the same art holds, as Atlas numbers copies. */
 function nextInstanceNumber(tokens: Record<string, RawToken>, imagePath: string | undefined): number {
   const taken = new Set(Object.values(tokens).filter((token) => token.imagePath === imagePath).map((token) => token.instanceNumber));
@@ -281,6 +299,42 @@ export class TokenWriter {
       return 'atlas';
     }
     await this.deps.process(path, (text) => moveTokenInText(text, id, x, y));
+    return 'file';
+  }
+
+  /** Moves several tokens as one change (one undo step in Atlas); says whether Atlas took it or the file was written. */
+  async moveMany(path: string, moves: ReadonlyArray<{ id: string; x: number; y: number }>): Promise<'atlas' | 'file'> {
+    const first = moves[0];
+    if (!first) return 'file';
+    const state = this.atlas(path, first.id);
+    if (state) {
+      if (state.updateTokens) {
+        state.updateTokens(moves.map(({ id, x, y }) => ({ id, changes: { x, y } })));
+        return 'atlas';
+      }
+      if (!state.updateToken) throw TokenWriter.missing('token update');
+      for (const { id, x, y } of moves) state.updateToken(id, { x, y });
+      return 'atlas';
+    }
+    await this.deps.process(path, (text) => moveTokensInText(text, moves));
+    return 'file';
+  }
+
+  /** Turns several tokens as one request each (degrees, 0 to 360); says whether Atlas took it or the file was written. */
+  async rotate(path: string, turns: ReadonlyArray<{ id: string; rotation: number }>): Promise<'atlas' | 'file'> {
+    const first = turns[0];
+    if (!first) return 'file';
+    const state = this.atlas(path, first.id);
+    if (state) {
+      if (state.updateTokens) {
+        state.updateTokens(turns.map(({ id, rotation }) => ({ id, changes: { rotation } })));
+        return 'atlas';
+      }
+      if (!state.updateToken) throw TokenWriter.missing('token update');
+      for (const { id, rotation } of turns) state.updateToken(id, { rotation });
+      return 'atlas';
+    }
+    await this.deps.process(path, (text) => turnTokensInText(text, turns));
     return 'file';
   }
 

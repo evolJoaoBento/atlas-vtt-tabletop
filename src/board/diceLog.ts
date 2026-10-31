@@ -12,7 +12,7 @@ export interface LogEntry {
   label?: string;
   formula: string;
   /** At most 100 dice are kept. */
-  dice: { die: string; value: number; dropped?: boolean; colour?: string }[];
+  dice: { die: string; value: number; dropped?: boolean; rerolled?: boolean; colour?: string; label?: string }[];
   /** How many more dice the roll had than are kept. */
   more?: number;
   total: number;
@@ -51,7 +51,8 @@ export function logEntryOf(roll: unknown): LogEntry | null {
     read++;
     if (dice.length >= MAX_SHOWN_DICE) continue;
     const colour = text(die.colour);
-    dice.push({ die: clip(die.die, 8), value: die.value, ...(die.dropped === true ? { dropped: true } : {}), ...(colour ? { colour: clip(colour, 32) } : {}) });
+    const named = text(die.label);
+    dice.push({ die: clip(die.die, 8), value: die.value, ...(named ? { label: clip(named, 24) } : {}), ...(die.dropped === true ? { dropped: true } : {}), ...(die.rerolled === true ? { rerolled: true } : {}), ...(colour ? { colour: clip(colour, 32) } : {}) });
   }
   if (read === 0) return null;
   const more = read - dice.length + Math.max(0, roll.rolls.length - MAX_SCANNED_DICE);
@@ -88,6 +89,7 @@ export interface DiceLogOptions {
 
 /** A die at its highest face reads as max, at 1 as min (as Atlas's log marks them). */
 function extreme(die: LogEntry['dice'][number]): 'max' | 'min' | null {
+  if (die.die === 'dF') return die.value === 1 ? 'max' : die.value === -1 ? 'min' : null;
   if (die.value === Number(die.die.slice(1))) return 'max';
   return die.value === 1 ? 'min' : null;
 }
@@ -215,10 +217,17 @@ export class DiceLogPanel {
 
   private dice(entry: LogEntry, className: string): HTMLElement {
     const list = this.make('div', className, null);
+    let group: string | undefined;
     for (const die of entry.dice) {
-      const mark = die.dropped ? ' is-dropped' : extreme(die) === 'max' ? ' is-max' : extreme(die) === 'min' ? ' is-min' : '';
-      const badge = this.make('span', `atlas-tabletop-dice-log__die${mark}`, list, String(die.value));
-      badge.title = die.die;
+      // A label names the run of dice that share it, once, before the first.
+      if (die.label !== group) {
+        group = die.label;
+        if (group) this.make('span', 'atlas-tabletop-dice-log__tag', list, group);
+      }
+      const mark = die.dropped ? ' is-dropped' : die.rerolled ? ' is-rerolled' : extreme(die) === 'max' ? ' is-max' : extreme(die) === 'min' ? ' is-min' : '';
+      const shown = die.die === 'dF' ? (die.value > 0 ? '+' : die.value < 0 ? '\u2212' : '0') : String(die.value);
+      const badge = this.make('span', `atlas-tabletop-dice-log__die${mark}`, list, shown);
+      badge.title = die.label ? `${die.die} \u00b7 ${die.label}` : die.die;
       if (die.colour) badge.style.setProperty('--die-tag-colour', die.colour);
     }
     if (entry.more) this.make('span', 'atlas-tabletop-dice-log__more', list, `+${entry.more} more`);

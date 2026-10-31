@@ -194,3 +194,29 @@ test('Atlas 0.9: removing the combatant with the turn passes it on, past the def
 test('Atlas 0.9: a Fantasy Statblocks creature\'s own modifier counts before the fallback', () => {
   assert.equal(statblockModifier({ modifier: 2, stats: [10, 18] }, collectionInitiativeRules({ systemPresetId: 'builtin:dnd5e' })), 2);
 });
+
+test('the turn announcement names the round and whose turn it is, and changes only when the turn does', async () => {
+  const { turnAnnouncement, currentEntries, delayedTokens } = await import('../src/board/initiative');
+  assert.equal(turnAnnouncement(fight()), null, 'no fight, no banner');
+  const started = applyInitiative(fight(), { type: 'start', rules: DEFAULT }, () => 0.5);
+  const first = turnAnnouncement(started)!;
+  assert.match(first.text, /^Round 1 · /);
+  assert.equal(currentEntries(started).length, 1);
+  const again = turnAnnouncement(started)!;
+  assert.equal(again.key, first.key, 'the same turn is the same key');
+  const next = applyInitiative(started, { type: 'next' }, () => 0.5);
+  assert.notEqual(turnAnnouncement(next)!.key, first.key);
+  assert.ok(turnAnnouncement(next)!.text.includes(currentEntries(next)[0]!.name));
+  // A round that wraps changes the key even when one combatant stands alone.
+  const solo = fight({ entries: [entry('a', 0)], isActive: true, round: 1, currentIndex: 0 });
+  const soloNext = { ...solo, round: 2 };
+  assert.notEqual(turnAnnouncement(solo)!.key, turnAnnouncement(soloNext)!.key);
+  assert.match(turnAnnouncement(soloNext)!.text, /^Round 2 /);
+  // Two combatants sharing a turn read as one banner.
+  const shared = fight({ entries: [entry('a', 0, { isActive: true }), entry('b', 1, { isActive: true })], isActive: true, round: 1 });
+  assert.match(turnAnnouncement(shared)!.text, /a & b/);
+  // Delayed combatants' tokens are listed only while a fight runs.
+  const held = fight({ entries: [entry('a', 0, { delayed: true }), entry('b', 1)], isActive: true });
+  assert.deepEqual(delayedTokens(held), ['t-a']);
+  assert.deepEqual(delayedTokens({ ...held, isActive: false }), []);
+});

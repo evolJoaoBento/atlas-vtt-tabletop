@@ -121,6 +121,7 @@ class FakeElement {
   get textContent(): string { return this.isText || this.children.length === 0 ? this.ownText : this.children.map((child) => child.textContent).join(''); }
   set textContent(value: string) { this.ownText = value; this.children = []; }
   setAttribute(name: string, value: string): void { this.attrs.set(name, value); }
+  classList = { toggle: (name: string, on: boolean): void => { const rest = this.className.split(' ').filter((c) => c !== '' && c !== name); this.className = (on ? [...rest, name] : rest).join(' '); } };
   getAttribute(name: string): string | null { return this.attrs.get(name) ?? null; }
   appendChild(child: FakeElement): FakeElement { child.remove(); child.parentElement = this; this.children.push(child); return child; }
   append(...kids: FakeElement[]): void { for (const kid of kids) this.appendChild(kid); }
@@ -134,6 +135,8 @@ class FakeElement {
     const full = { preventDefault: () => {}, stopPropagation: () => {}, shiftKey: false, altKey: false, ...event };
     for (const fn of this.listeners.get(type) ?? []) fn(full);
   }
+  querySelector(selector: string): FakeElement | null { return this.find(selector.slice(1))[0] ?? null; }
+  querySelectorAll(selector: string): FakeElement[] { return this.find(selector.slice(1)); }
   find(className: string): FakeElement[] { return [...(this.className.split(' ').includes(className) ? [this] : []), ...this.children.flatMap((child) => child.find(className))]; }
   all(tag: string): FakeElement[] { return [...(this.tagName === tag ? [this] : []), ...this.children.flatMap((child) => child.all(tag))]; }
 }
@@ -201,7 +204,7 @@ test("a roll physical dice cannot throw rolls nothing: the drawer says so", () =
   t.button('2d6 - 1d4').fire('click');
   assert.deepEqual(t.rolls, []);
   assert.equal(t.notice().hidden, false);
-  assert.equal(t.notice().textContent, "Can't roll 2d6-1d4 with physical dice.");
+  assert.equal(t.notice().textContent, "Can't roll 2d6-1d4: A group of dice cannot be subtracted.");
   // The next roll, or another sheet, takes the notice away.
   t.button('Attack: +6').fire('click');
   assert.equal(t.notice().hidden, true);
@@ -241,4 +244,105 @@ test('the drawer opens and closes, telling its owner; the board does not take it
   assert.equal(t.parent.children.length, 0);
   t.drawer.toggle();
   assert.equal(t.drawer.isOpen, false);
+});
+
+test('a pinned drawer stays when another panel opens; an unpinned one closes', () => {
+  const t = drawer();
+  const root = t.parent.find('atlas-tabletop-sheet')[0]!;
+  const pin = t.parent.find('atlas-tabletop-sheet__pin')[0]!;
+  t.drawer.open();
+  t.drawer.closeUnlessPinned();
+  assert.equal(t.drawer.isOpen, false, 'unpinned: closed');
+  t.drawer.open();
+  pin.fire('click');
+  assert.equal(t.drawer.isPinned, true);
+  assert.equal(pin.getAttribute('aria-pressed'), 'true');
+  assert.ok(root.className.split(' ').includes('is-pinned'));
+  t.drawer.closeUnlessPinned();
+  assert.equal(t.drawer.isOpen, true, 'pinned: stays');
+  t.parent.find('atlas-tabletop-sheet__close')[0]!.fire('click');
+  assert.equal(t.drawer.isOpen, false, 'its own close button still closes it');
+  t.drawer.open();
+  pin.fire('click');
+  assert.equal(t.drawer.isPinned, false);
+  assert.ok(!root.className.split(' ').includes('is-pinned'));
+  t.drawer.closeUnlessPinned();
+  assert.equal(t.drawer.isOpen, false, 'unpinned again: closes');
+});
+
+// ── Atlas's own card ─────────────────────────────────────────────────────
+
+/** What draws Atlas's card: it adds `.atlas-statblock` to what it is given, or nothing, as an Atlas without the fence does. */
+function cardHost(doc: FakeDocument, draws: boolean, name = 'Goblin') {
+  const log = { rendered: 0, disposed: 0 };
+  return {
+    log,
+    host: {
+      name,
+      render: async (into: HTMLElement) => {
+        log.rendered += 1;
+        if (!draws) return;
+        const card = doc.createElement('div');
+        card.className = 'atlas-statblock';
+        (into as unknown as FakeElement).append(card);
+      },
+      dispose: () => { log.disposed += 1; },
+    },
+  };
+}
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+function cardDrawer() {
+  const t = drawer();
+  const cardBox = () => t.parent.find('atlas-tabletop-sheet__card')[0]!;
+  const body = () => t.parent.find('atlas-tabletop-sheet__body')[0]!;
+  return { ...t, cardBox, body };
+}
+
+test("Atlas's card is shown in place of the text sheet once it is drawn, its title from the creature", async () => {
+  const t = cardDrawer();
+  const { host, log } = cardHost(t.doc, true);
+  const drawerOptions = t.drawer as unknown as { options: { settle: () => Promise<void> } };
+  drawerOptions.options.settle = async () => {};
+  t.drawer.show(null, host);
+  assert.equal(t.cardBox().hidden, false, 'drawn in place, unseen, so Atlas has the width to pick its columns');
+  assert.ok(t.cardBox().className.includes('is-drawing'));
+  assert.ok(t.body().textContent.includes('Drawing'));
+  await flush();
+  assert.equal(t.cardBox().className, 'atlas-tabletop-sheet__card');
+  assert.equal(t.body().hidden, true);
+  assert.equal(t.cardBox().find('atlas-statblock').length, 1);
+  assert.equal(t.parent.find('atlas-tabletop-sheet__name')[0]!.textContent, 'Goblin');
+  assert.equal(log.disposed, 0);
+  // Another token: the card goes with its host.
+  t.drawer.show(null);
+  assert.equal(log.disposed, 1);
+  assert.equal(t.cardBox().hidden, true);
+  assert.equal(t.body().hidden, false);
+});
+
+test('an Atlas that draws no card leaves the text sheet', async () => {
+  const t = cardDrawer();
+  const { host, log } = cardHost(t.doc, false);
+  (t.drawer as unknown as { options: { settle: () => Promise<void> } }).options.settle = async () => {};
+  t.drawer.show(ANNA, host);
+  await flush();
+  assert.equal(t.cardBox().hidden, true);
+  assert.equal(t.body().hidden, false);
+  assert.ok(t.parent.textContent.includes('Dagger. '));
+  assert.equal(log.disposed, 1);
+});
+
+test('a card still drawing for the token before never replaces the one shown now', async () => {
+  const t = cardDrawer();
+  (t.drawer as unknown as { options: { settle: () => Promise<void> } }).options.settle = async () => {};
+  const first = cardHost(t.doc, true, 'First');
+  const second = cardHost(t.doc, true, 'Second');
+  t.drawer.show(null, first.host);
+  t.drawer.show(null, second.host);
+  await flush();
+  assert.equal(first.log.disposed, 1);
+  assert.equal(second.log.disposed, 0);
+  assert.equal(t.parent.find('atlas-tabletop-sheet__name')[0]!.textContent, 'Second');
+  assert.equal(t.cardBox().find('atlas-statblock').length, 1);
 });

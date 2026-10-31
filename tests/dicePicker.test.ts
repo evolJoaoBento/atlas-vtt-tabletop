@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { advantageApplies, countOf, emptyPick, pickedRequest, pickFormula, stepDie, stepModifier } from '../src/dice/dicePicker';
+import { advantageApplies, countOf, edgeFor, emptyPick, pickedRequest, pickFormula, stepDie, stepModifier } from '../src/dice/dicePicker';
 import { DIE_TYPES } from '../src/dice/kit/faces';
 import { DEFAULT_RULES, MAX_DICE } from '../src/dice/rollRules';
 
@@ -75,4 +75,37 @@ test('the same die in several colours: counted by colour, each taken back on its
   assert.deepEqual(pick.dice.d6, ['#d64545', '#3b82f6', null], 'the last red one goes');
   assert.equal(stepDie(pick, 'd6', -1, '#00ff00'), pick, 'none in that colour: nothing changes');
   assert.equal(pickedRequest(stepDie(emptyPick(), 'd8', 1), DEFAULT_RULES)?.dieColors, undefined, "all in the pack's colour: no colours sent");
+});
+
+test("advantage applies as the collection's dice set says: nothing for a side it sets nothing for, any of its dice for a number or a die", () => {
+  const set = { defaultRoll: '2d10', crit: 'none' as const, groups: [{ die: 'd10' as const, count: 2 }], advantage: { kind: 'number' as const, value: 2 }, disadvantage: null };
+  const two = stepDie(stepDie(emptyPick(), 'd10', 1), 'd10', 1);
+  assert.equal(advantageApplies(two, set), true, 'a number is added to a roll of two of its dice');
+  assert.equal(advantageApplies(two, set, 'advantage'), true);
+  assert.equal(advantageApplies(two, set, 'disadvantage'), false, 'the set gives disadvantage no effect');
+  assert.equal(advantageApplies(stepDie(emptyPick(), 'd6', 1), set), false, 'none of its dice');
+  assert.deepEqual(pickedRequest({ ...two, advantage: 'advantage' }, set)?.advantage, 'advantage');
+  assert.equal(pickedRequest({ ...two, advantage: 'disadvantage' }, set)?.advantage, undefined);
+  assert.equal(advantageApplies(two, { ...set, advantage: null }), false, 'a set with no edge at all');
+});
+
+test('right-clicking a d20 for advantage adds it and sets the side, and again takes it back', () => {
+  const rules = DEFAULT_RULES;
+  const first = edgeFor(emptyPick(), rules, 'd20', 'advantage');
+  assert.ok(first);
+  assert.equal(countOf(first, 'd20'), 1);
+  assert.equal(first.advantage, 'advantage');
+  assert.deepEqual(pickedRequest(first, rules)?.advantage, 'advantage');
+  const other = edgeFor(first, rules, 'd20', 'disadvantage');
+  assert.equal(other?.advantage, 'disadvantage');
+  const back = edgeFor(first, rules, 'd20', 'advantage');
+  assert.ok(back);
+  assert.equal(back.advantage, undefined);
+  assert.equal(countOf(back, 'd20'), 1, 'the die stays');
+});
+
+test('advantage is refused where it changes no roll', () => {
+  assert.equal(edgeFor(emptyPick(), DEFAULT_RULES, 'd6', 'advantage'), null, "not the collection's die");
+  const two = stepDie(stepDie(emptyPick(), 'd20', 1), 'd20', 1);
+  assert.equal(edgeFor(two, DEFAULT_RULES, 'd20', 'advantage'), null, 'keeping the best asks for exactly one');
 });

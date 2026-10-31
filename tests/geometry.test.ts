@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { BoardGrid } from '../src/board/mapModel';
-import { conditionRingRadii, hexCenter, ringDiameter, sideBadgeSlots, snapPoint, tokenDiameter } from '../src/board/geometry';
+import { axialCenter, conditionRingRadii, hexCenter, ringDiameter, sideBadgeSlots, snapPoint, tokenDiameter } from '../src/board/geometry';
 
 const grid = (over: Partial<BoardGrid> = {}): BoardGrid => ({
   enabled: true, visible: true, snap: true, type: 'square', size: 70, offsetX: 0, offsetY: 0, opacity: 0.7, lineWidth: 1, color: null, ...over,
@@ -29,6 +29,21 @@ test('pointy-top hex snapping', () => {
 
 test('flat-top hex snapping', () => {
   near(snapPoint(grid({ type: 'hex-horizontal' }), 100, 71), 70 / Math.sqrt(3) * 2.5, 70);
+});
+
+test('a token covering an even number of cells snaps to the meeting of its cells', () => {
+  near(snapPoint(grid(), 100, 100, 1.5), 70, 70);
+  near(snapPoint(grid(), 100, 100, 2.5), 70, 70);
+  near(snapPoint(grid(), 100, 100, 2), 105, 105);
+  near(snapPoint(grid(), 100, 100, 1), 105, 105);
+  near(snapPoint(grid({ offsetX: 10, offsetY: 20 }), 100, 100, 1.5), 80, 90);
+});
+
+test('even-sized tokens on hex grids stand half a hex off a centre', () => {
+  const hex = grid({ type: 'hex-vertical' });
+  const c = axialCenter(hex, 1, 1);
+  near(snapPoint(hex, c.x + 36, c.y + 70 / Math.sqrt(3) / 2 + 1, 1.5), c.x + 35, c.y + 70 / Math.sqrt(3) / 2);
+  near(snapPoint(hex, c.x + 1, c.y + 1, 2), c.x, c.y);
 });
 
 test('no snapping when the map turns it off or has no grid', () => {

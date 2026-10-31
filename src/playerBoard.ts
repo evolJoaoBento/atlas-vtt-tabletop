@@ -10,7 +10,8 @@
 import { parseMini, type LoadedMini } from './library';
 import { Board, type BoardHost } from './board/board';
 import { boardFromScene, type PlayerSceneLike, type SceneBoard } from './board/sceneAdapter';
-import { QUALITY, type Quality } from './board/quality';
+import { QUALITY, withLooks, type Quality, type QualityPreset } from './board/quality';
+import type { Sky } from './board/look';
 import { materialFromUrls, type LoadedMaterial } from './materials';
 import type { BoardCamera, BoardExtras, PlayerDiceRequest, PlayerDiceResult } from './connectContract';
 import type { ChosenPack } from './dice/dicePack';
@@ -71,6 +72,8 @@ export interface PlayerBoardHandle {
   toolState(): PlayerBoardToolState;
   followGm(): void;
   fitMap(): void;
+  /** Moves the camera to a point of the map (Atlas's initiative card click). */
+  lookAt(x: number, y: number): void;
   receiveTemplates(sceneId: string, templates: readonly unknown[]): void;
   receivePing(ping: unknown): void;
   receiveLaser(laser: unknown): void;
@@ -79,6 +82,8 @@ export interface PlayerBoardHandle {
   dispose(): void;
   /** This board throws dice (`throwDice`): set when Connect can send a roll (`sendDiceResult`). */
   readonly diceAvailable?: true;
+  /** This board throws a reroll rule's dice again and marks the one thrown away `rerolled`, before its replacement (Connect sends a rule only to a board that says so). */
+  readonly rerolls?: true;
   /** Throws the roll on the board (one still settling is dropped, unsent); false when there are no dice or no scene. */
   throwDice?(request: PlayerDiceRequest): boolean;
 }
@@ -99,10 +104,10 @@ export interface PlayerBoardDice {
   pack(): ChosenPack;
 }
 
-export function playerBoardFactory(quality: () => Quality, dice: PlayerBoardDice): PlayerBoardFactory {
+export function playerBoardFactory(quality: () => Quality, looks: () => { tiltShift: boolean; occlusion: boolean; painted: boolean; sky: Sky }, dice: PlayerBoardDice): PlayerBoardFactory {
   return Object.freeze({
     version: 1 as const,
-    create: (parent: HTMLElement, host: PlayerBoardHost): PlayerBoardHandle => new PlayerBoard(parent, host, quality(), dice),
+    create: (parent: HTMLElement, host: PlayerBoardHost): PlayerBoardHandle => new PlayerBoard(parent, host, withLooks(QUALITY[quality()], looks()), dice),
   });
 }
 
@@ -127,14 +132,18 @@ class PlayerBoard implements PlayerBoardHandle {
   private loading: Promise<void> = Promise.resolve();
   private disposed = false;
   declare readonly diceAvailable?: true;
+  declare readonly rerolls?: true;
   private readonly dice: PlayerDice;
   /** The line over the board saying what the roll waits on, and its Throw (an explosion has no die to click). */
   private readonly prompt: DicePrompt;
   private readonly stopPresses: () => void;
 
-  constructor(private readonly parent: HTMLElement, private readonly host: PlayerBoardHost, quality: Quality, private readonly diceDeps: PlayerBoardDice) {
-    this.board = new Board(parent, this.boardHost(), QUALITY[quality], { audience: 'player' });
-    if (host.sendDiceResult) this.diceAvailable = true;
+  constructor(private readonly parent: HTMLElement, private readonly host: PlayerBoardHost, preset: QualityPreset, private readonly diceDeps: PlayerBoardDice) {
+    this.board = new Board(parent, this.boardHost(), preset, { audience: 'player' });
+    if (host.sendDiceResult) {
+      this.diceAvailable = true;
+      this.rerolls = true;
+    }
     this.dice = new PlayerDice({
       host,
       makeTable: () => this.makeDiceTable(),
@@ -243,6 +252,7 @@ class PlayerBoard implements PlayerBoardHandle {
 
   followGm(): void { this.board.followGm(); }
   fitMap(): void { this.board.frameMap(); }
+  lookAt(x: number, y: number): void { this.board.lookAtPoint(x, y); }
 
   receiveTemplates(sceneId: string, templates: readonly unknown[]): void {
     if (sceneId !== this.scene?.sceneId) return;
@@ -366,7 +376,7 @@ class PlayerBoard implements PlayerBoardHandle {
       },
       placement: (tokenId) => {
         const mini = this.shown?.minis[tokenId];
-        return mini ? { mini: mini.glb, scale: mini.scale, turn: mini.turn } : null;
+        return mini ? { mini: mini.glb, scale: mini.scale, turn: mini.turn, ...(mini.base ? { base: mini.base } : {}) } : null;
       },
       style: () => 'disc',
       props: () => (look()?.props ?? []).map((prop) => ({ id: prop.id, glb: prop.asset, x: prop.x, y: prop.y, rotation: prop.turn, scale: prop.scale })),

@@ -73,9 +73,9 @@ test('diceRulesOf reads the collection settings dice of the view map', () => {
 test("diceRulesOf prefers the dice tool's set, as Atlas's own toolbar rolls it", () => {
   const set = { id: 'builtin:d10-exploding', name: 'd10 exploding', builtIn: true, dice: [{ count: 1, sides: 10 }], crit: 'natural', explode: D10_EXPLODING.explode };
   const { view } = fakeView({ path: MAP, diceTool: { getDiceRules: () => set }, settings: { conditions: [], diceSetId: 'builtin:d10-exploding' } });
-  assert.deepEqual(diceRulesOf(view), D10_EXPLODING);
+  assert.deepEqual(diceRulesOf(view), { ...D10_EXPLODING, groups: [{ die: 'd10', count: 1 }], advantage: null, disadvantage: null });
   const power = fakeView({ path: MAP, diceTool: { getDiceRules: () => ({ dice: [{ count: 2, sides: 10 }], crit: 'high-total', advantage: { kind: 'number', value: 2 } }) } }).view;
-  assert.deepEqual(diceRulesOf(power), { defaultRoll: '2d10', crit: 'high-total' });
+  assert.deepEqual(diceRulesOf(power), { defaultRoll: '2d10', crit: 'high-total', groups: [{ die: 'd10', count: 2 }], advantage: { kind: 'number', value: 2 }, disadvantage: null });
 });
 
 test('diceRulesOf checks field by field', () => {
@@ -84,8 +84,10 @@ test('diceRulesOf checks field by field', () => {
   assert.deepEqual(rules({ defaultRoll: '1d7', crit: 'none' }), { defaultRoll: '1d20', crit: 'none' });
   assert.deepEqual(rules({ defaultRoll: '1d6', crit: 'none', explode: { dice: 'some', repeats: true, highFaces: 1, lowFaces: 0 } }), { defaultRoll: '1d6', crit: 'none' });
   assert.deepEqual(rules({ defaultRoll: '1d6', crit: 'none', explode: { dice: 'all', repeats: 'yes', highFaces: 1.5, lowFaces: -1 } }), { defaultRoll: '1d6', crit: 'none' });
-  // Mixed dice in a set have no one default die Tabletop can roll.
-  assert.deepEqual(rules({ dice: [{ count: 1, sides: 20 }, { count: 1, sides: 6 }], crit: 'none' }), { defaultRoll: '1d20', crit: 'none' });
+  // Mixed dice in a set are all rolled; the first group names the default die.
+  assert.deepEqual(rules({ dice: [{ count: 1, sides: 20 }, { count: 1, sides: 6 }], crit: 'none' }), { defaultRoll: '1d20', crit: 'none', groups: [{ die: 'd20', count: 1 }, { die: 'd6', count: 1 }], advantage: null, disadvantage: null });
+  // A die Tabletop has none of leaves the set as Atlas's default.
+  assert.deepEqual(rules({ dice: [{ count: 1, sides: 7 }], crit: 'none' }), { defaultRoll: '1d20', crit: 'none', advantage: null, disadvantage: null });
 });
 
 test('diceRulesOf gives the defaults for garbage, no collection and no view', () => {
@@ -112,7 +114,7 @@ test("diceRulesOf for a board's map reads that map's collection when the view sh
     },
   };
   // The view shows the board's map: its dice tool's set, as before.
-  assert.deepEqual(diceRulesOf(view, MAP), { defaultRoll: '1d6', crit: 'none' });
+  assert.deepEqual(diceRulesOf(view, MAP), { defaultRoll: '1d6', crit: 'none', groups: [{ die: 'd6', count: 1 }], advantage: null, disadvantage: null });
   // The view fell back from another map: the dice tool rolls the view's map, so the board's map's collection rules.
   assert.deepEqual(diceRulesOf(view, 'atlas-vtt/collections/c2/maps/vault.json'), { defaultRoll: '1d12', crit: 'roll-under' });
   assert.deepEqual(diceRulesOf(view, OTHER), DEFAULT_RULES);
@@ -192,4 +194,26 @@ test("onRolled hears the view's dice-rolled until let go", () => {
   assert.deepEqual(heard, [{ id: 'a' }]);
   assert.equal(listeners.get('dice-rolled')?.size, 0);
   assert.doesNotThrow(() => onRolled({ getViewType: () => 'atlas-vtt' }, () => undefined)());
+});
+
+// The dice set in the test vault (`atlas-vtt/dice-sets/duality dice.json`), as Atlas's Dice lab saved it.
+const DUALITY = {
+  format: 1, id: 'e69737c5-b0fa-41a6-812d-30914c6e66c2', name: 'duality dice',
+  dice: [{ count: 1, sides: 12, colour: '#7e22ce' }, { count: 1, sides: 12, colour: '#4d7c0f' }], crit: 'natural',
+};
+const rulesOfSet = (set: unknown) => diceRulesOf(fakeView({ path: MAP, diceTool: { getDiceRules: () => set } }).view);
+
+test("a dice set's dice keep their colours, and its advantage and disadvantage their kinds", () => {
+  assert.deepEqual(rulesOfSet(DUALITY), {
+    defaultRoll: '2d12', crit: 'natural', advantage: null, disadvantage: null,
+    groups: [{ die: 'd12', count: 1, color: '#7e22ce' }, { die: 'd12', count: 1, color: '#4d7c0f' }],
+  });
+  const edges = rulesOfSet({ dice: [{ count: 1, sides: 20 }], crit: 'natural', advantage: { kind: 'keep' }, disadvantage: { kind: 'die', sides: 6, colour: '#ff0000', name: 'Fear' } });
+  assert.deepEqual([edges.advantage, edges.disadvantage], [{ kind: 'keep' }, { kind: 'die', die: 'd6', color: '#ff0000' }]);
+  // What Tabletop cannot throw, or Atlas would not keep, is no edge.
+  const odd = rulesOfSet({ dice: [{ count: 1, sides: 20 }], crit: 'natural', advantage: { kind: 'die', sides: 7 }, disadvantage: { kind: 'number', value: 0 } });
+  assert.deepEqual([odd.advantage, odd.disadvantage], [null, null]);
+  // A collection that stores only `defaultRoll` has no edge fields: advantage keeps the best, as it always did.
+  const collection = diceRulesOf(fakeView({ path: MAP, settings: { conditions: [], dice: { defaultRoll: '1d20', crit: 'natural' } } }).view);
+  assert.equal(collection.advantage, undefined);
 });

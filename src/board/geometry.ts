@@ -73,12 +73,29 @@ export function hexCenter(grid: BoardGrid, x: number, y: number): Point {
   return axialCenter(grid, q, r);
 }
 
-/** Where a token dropped at (x, y) lands: its cell's centre, or where it was dropped when the map does not snap. */
-export function snapPoint(grid: BoardGrid, x: number, y: number): Point {
+/**
+ * How far from a cell's centre a token of `size` stands when snapped, as Atlas works it (`snapTokenCenter`): a token
+ * covering an odd number of cells across (`2 * size - 1`) is centred on a cell; one covering an even number (Large,
+ * Gargantuan) stands on the meeting of its cells, half a cell off, so it covers whole cells.
+ */
+function snapShift(grid: BoardGrid, size: number): Point {
+  if ((2 * size - 1) % 2 !== 0) return { x: 0, y: 0 };
+  if (grid.type === 'square') return { x: grid.size / 2, y: grid.size / 2 };
+  const radius = grid.size / SQRT3;
+  return grid.type === 'hex-horizontal' ? { x: radius / 2, y: grid.size / 2 } : { x: grid.size / 2, y: radius / 2 };
+}
+
+/**
+ * Where a token of `size` dropped at (x, y) lands: its cell's centre (the meeting of its cells when it covers an even
+ * number across), or where it was dropped when the map does not snap.
+ */
+export function snapPoint(grid: BoardGrid, x: number, y: number, size = 1): Point {
   if (!grid.enabled || !grid.snap) return { x, y };
-  if (grid.type !== 'square') return hexCenter(grid, x, y);
+  const shift = snapShift(grid, size);
+  const at = { x: x - shift.x, y: y - shift.y };
   const cell = (value: number, offset: number): number => Math.floor((value - offset) / grid.size) * grid.size + offset + grid.size / 2;
-  return { x: cell(x, grid.offsetX), y: cell(y, grid.offsetY) };
+  const centre = grid.type !== 'square' ? hexCenter(grid, at.x, at.y) : { x: cell(at.x, grid.offsetX), y: cell(at.y, grid.offsetY) };
+  return { x: centre.x + shift.x, y: centre.y + shift.y };
 }
 
 /** Beside the figure, the stat badges go left, right, left, right, a new row every two. */

@@ -9,34 +9,44 @@
 import type { BoardMark, BoardSession } from '../connectContract';
 import { ItemView, Menu, Notice, TFile, debounce, setIcon, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
 import { presentedSceneOf, tabViewOf, type AtlasView } from '../atlas';
+import { MOSAIC_FROM_BYTES, mapPicture } from '../atlasMosaic';
 import { SceneTabBar } from './sceneTabBar';
 import type { Assignments } from '../assignments';
 import { MiniPicker } from '../gallery';
 import type { LoadedMini, MiniLibrary } from '../library';
 import type { MaterialLibrary } from '../materials';
 import { Board, type BoardHost } from './board';
+import { isVideoPath } from './textures';
 import type { BoardData } from './boardData';
 import { ASSETS_METADATA_PATH, collectionOf, emptyRules, readCollectionRules, type CollectionRules } from './conditions';
+import { resolveLevel } from './levels';
 import { readMap, type BoardMap, type BoardToken } from './mapModel';
 import { readMeasurement } from './measure';
 import { defeatedResources, isDefeated, tokenFromFile } from './resources';
 import { AtlasMenu, type MenuEntry } from './atlasMenu';
 import { tokenMenuEntries } from './tokenMenu';
 import { addToInitiative, conditionChange, conditionStep, initiativeEntryFor, initiativeId, removeFromInitiative, resetChange, type ConditionFields } from './tokenEdits';
-import { applyInitiative, emptyInitiative, fileCannotRun, ownModifier, readInitiative, statblockModifier, type InitiativeAction, type InitiativeState } from './initiative';
+import { applyInitiative, currentEntries, delayedTokens, emptyInitiative, fileCannotRun, ownModifier, readInitiative, statblockModifier, turnAnnouncement, type InitiativeAction, type InitiativeState } from './initiative';
 import { InitiativePanel, type InitiativePanelHost } from './initiativePanel';
 import { wholeWall } from './walls';
 import type { TokenChange } from './tokenWriter';
 import type { LaserSettings } from './laser';
 import type { PlayerView } from './PlayerWindow';
-import { QUALITY, type Quality, type QualityPreset } from './quality';
+import { QUALITY, withLooks, type Quality, type QualityPreset } from './quality';
+import { DEFAULT_SKY, type LightingChoice, type Sky } from './look';
 import type { TokenWriter } from './tokenWriter';
 import { BoardDice } from '../dice/boardDice';
-import { buildSheet, type PlayerSheet } from '../sheets/sheet';
+import { buildAtlasSheet } from '../sheets/nativeSheet';
+import type { PlayerSheet } from '../sheets/sheet';
+import type { CardHost } from '../sheets/atlasCard';
+import { atlasCardHost } from '../sheets/atlasCardHost';
+import { atlasPreviews, previewAnchor, routeAtlasWindowRolls } from '../sheets/atlasPreview';
+import { StatblockHoverCard } from '../sheets/hoverCard';
 import { statblockFields, statblockOf } from '../sheets/statblock';
 import { rollViewFor, type MapViewLike } from '../dice/atlasDice';
 import type { ChosenPack } from '../dice/dicePack';
 import type { TabletopDiceSettings } from '../dice/diceSettings';
+import { documentHasWebgl, NO_WEBGL_HELP, NO_WEBGL_TITLE } from '../webgl';
 
 export const BOARD_VIEW_TYPE = 'atlas-tabletop-board';
 /** The hover source Tabletop registers, so Obsidian's page preview shows stat blocks from the board. */
@@ -56,9 +66,25 @@ export interface BoardServices {
   writer: TokenWriter;
   /** The quality setting the board draws with. */
   quality(): Quality;
+  /** Whether the board gets the miniature look (a blur towards the top and bottom). */
+  tiltShift?(): boolean;
+  /** Whether the board gets contact shadows (ambient occlusion). */
+  occlusion?(): boolean;
+  /** Whether the board gets the painted lighting. */
+  painted?(): boolean;
+  /** The painted sky's palette. */
+  sky?(): Sky;
   /** The laser's colour and size, kept for every map; and saving a change. */
   laser(): LaserSettings;
   setLaser(changes: Partial<LaserSettings>): void;
+  /** Chooses the board's lighting, for every board. */
+  setLighting?(choice: LightingChoice): void;
+  setTiltShift?(on: boolean): void;
+  setOcclusion?(on: boolean): void;
+  /** Changes whether a stat sheet's roll is thrown at once, for every board. */
+  setAutoRoll?(on: boolean): void;
+  /** Keeps whether the stat sheet drawer is pinned. */
+  setSheetPinned?(pinned: boolean): void;
   /** This tab was used last: props from the gallery go to it. */
   focused(view: BoardView): void;
   /** The local player view: open, switch to or close it for this board's map; whether one shows its map. */
@@ -82,6 +108,11 @@ export class BoardView extends ItemView {
   private board: Board | null = null;
   /** The GM's dice on the board: its picker, table and roll. */
   private dice: BoardDice | null = null;
+  /** The stat block card Ctrl/Cmd + hover opens over a token, and the token it is for. */
+  private hoverCard: StatblockHoverCard | null = null;
+  /** Stops the board's dice throwing the rolls of Atlas's own hover window. */
+  private stopWindowRolls: (() => void) | null = null;
+  private hoverToken: string | null = null;
   private map: BoardMap | null = null;
   private rules: CollectionRules = emptyRules();
   private readonly warned = new Set<string>();
@@ -230,7 +261,7 @@ export class BoardView extends ItemView {
   async applyQuality(): Promise<void> {
     const board = this.board;
     if (!board || !this.map) return;
-    const preset = QUALITY[this.services.quality()];
+    const preset = this.preset();
     if (board.setQuality(preset)) return;
     const camera = board.camera;
     this.dropBoard();
@@ -239,6 +270,16 @@ export class BoardView extends ItemView {
     fresh.camera = camera;
     if (this.playerWindow) fresh.attachPlayer(this.playerWindow.stage);
     fresh.wake(true);
+  }
+
+  /** The board as it is drawn now, as a PNG, for a snapshot saved in the vault. */
+  snapshot(): Promise<Blob | null> {
+    return this.board?.snapshot() ?? Promise.resolve(null);
+  }
+
+  /** The quality setting, with the miniature look if it is on. */
+  private preset(): QualityPreset {
+    return withLooks(QUALITY[this.services.quality()], { tiltShift: this.services.tiltShift?.() === true, occlusion: this.services.occlusion?.() === true, painted: this.services.painted?.() === true, sky: this.services.sky?.() ?? DEFAULT_SKY });
   }
 
   /** A board, and the GM's dice on it. */
@@ -253,7 +294,9 @@ export class BoardView extends ItemView {
       settings: () => this.services.diceSettings(),
       pack: () => this.services.dicePack(),
       warn: (message) => this.warn(message),
+      setSheetPinned: (pinned) => this.services.setSheetPinned?.(pinned),
       sheetOf: (tokenId) => this.sheetOf(tokenId),
+      cardOf: (tokenId) => this.cardOf(tokenId),
     });
     return board;
   }
@@ -262,7 +305,13 @@ export class BoardView extends ItemView {
   private async sheetOf(tokenId: string): Promise<PlayerSheet | null> {
     const token = this.map?.tokens.find((candidate) => candidate.id === tokenId);
     if (!token?.statblockPath) return null;
-    return buildSheet(await statblockOf(this.app, token), token.name);
+    return buildAtlasSheet(await statblockOf(this.app, token), token.name);
+  }
+
+  /** What draws Atlas's own card of a token's stat block; null when the token links none. */
+  private cardOf(tokenId: string): CardHost | null {
+    const token = this.map?.tokens.find((candidate) => candidate.id === tokenId);
+    return token?.statblockPath ? atlasCardHost(this.app, token.statblockPath, token.name ?? undefined) : null;
   }
 
   /** The board goes (another map, new quality, the tab closing): its dice first, the roll in play never logged. */
@@ -270,6 +319,10 @@ export class BoardView extends ItemView {
     this.dice?.sceneChanged();
     this.dice?.dispose();
     this.dice = null;
+    this.hoverCard?.dispose();
+    this.hoverCard = null;
+    this.stopWindowRolls?.();
+    this.stopWindowRolls = null;
     this.board?.dispose();
     this.board = null;
   }
@@ -306,6 +359,14 @@ export class BoardView extends ItemView {
     this.board?.placeProp(glb);
   }
 
+  /** The floor of the map Atlas shows (its view's), else the one players were sent; unset is the first. */
+  private shownLevel(path: string): string | null {
+    const held = tabViewOf(this.app, path)?.view.atlasStore.getState();
+    if (held?.viewedLevel) return held.viewedLevel;
+    const presented = presentedSceneOf(this.app)?.get();
+    return presented?.filePath === path ? presented.levelId ?? null : null;
+  }
+
   private async read(): Promise<void> {
     const path = this.path;
     if (!path) return;
@@ -318,23 +379,36 @@ export class BoardView extends ItemView {
     try {
       const text = await this.app.vault.read(file);
       if (this.closed) return;
-      map = readMap(path, text);
+      map = readMap(path, text, this.shownLevel(path));
     } catch (error) {
       this.warn(`Tabletop: cannot open ${path} in 3D: ${error instanceof Error ? error.message : String(error)}.`);
       return;
     }
     const rules = await this.readRules(path);
     if (this.closed || path !== this.path) return;
+    const fresh = !this.board;
+    let board = this.board;
+    if (!board) {
+      // No WebGL: say so where the board would be, instead of a blank tab; the next load tries again.
+      if (!documentHasWebgl(this.contentEl.ownerDocument)) return this.showNoWebgl();
+      try {
+        board = this.makeBoard(this.preset());
+      } catch (error) {
+        console.warn('Tabletop: the 3D board could not start:', error);
+        this.board = null;
+        this.contentEl.querySelectorAll(':scope > canvas').forEach((canvas) => canvas.remove());
+        return this.showNoWebgl();
+      }
+    }
+    this.hideNoWebgl();
     this.rules = rules;
     this.map = map;
-    const fresh = !this.board;
-    const board = this.board ?? this.makeBoard(QUALITY[this.services.quality()]);
     await board.load(map);
     this.menu?.refresh();
     this.watchAtlas();
     // The tracker shows when the map has combatants; the I key or the board settings show or hide it.
     if (fresh) this.initiative?.setOpen(this.liveInitiative().entries.length > 0);
-    this.initiative?.render();
+    this.showInitiative();
     this.sessionChanged();
     if (fresh && !this.closed) this.services.boardReady(this);
   }
@@ -404,6 +478,29 @@ export class BoardView extends ItemView {
     this.reload();
   }
 
+  private noWebgl: HTMLElement | null = null;
+
+  /** Where the board would be: why it cannot be drawn here. */
+  private showNoWebgl(): void {
+    if (this.noWebgl || this.closed) return;
+    const doc = this.contentEl.ownerDocument;
+    const box = doc.win.createEl('div');
+    box.className = 'atlas-tabletop-no-webgl';
+    box.setAttribute('role', 'alert');
+    const title = doc.win.createEl('strong');
+    title.textContent = NO_WEBGL_TITLE;
+    const help = doc.win.createEl('p');
+    help.textContent = NO_WEBGL_HELP;
+    box.append(title, help);
+    this.contentEl.appendChild(box);
+    this.noWebgl = box;
+  }
+
+  private hideNoWebgl(): void {
+    this.noWebgl?.remove();
+    this.noWebgl = null;
+  }
+
   private warn(message: string): void {
     if (this.warned.has(message)) return;
     this.warned.add(message);
@@ -423,6 +520,12 @@ export class BoardView extends ItemView {
         const file = this.app.vault.getAbstractFileByPath(path);
         return file instanceof TFile ? this.app.vault.getResourcePath(file) : null;
       },
+      readPicture: async (path, maxSide) => {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        // A small map decodes whole; a video is no picture of tiles.
+        if (!(file instanceof TFile) || file.stat.size < MOSAIC_FROM_BYTES || isVideoPath(path)) return null;
+        return mapPicture(this.app, file, maxSide);
+      },
       readMini: (path): Promise<LoadedMini> => this.library(path).load(path),
       placement: (id) => assignments.get(mapPath(), id),
       style: (id) => boardData.style(mapPath(), id),
@@ -430,6 +533,9 @@ export class BoardView extends ItemView {
       rules: () => this.rules,
       moveToken: (id, x, y) => {
         writer.move(mapPath(), id, x, y).catch((error: unknown) => this.unsaved('move', error));
+      },
+      moveTokens: (moves) => {
+        writer.moveMany(mapPath(), moves).catch((error: unknown) => this.unsaved('move', error));
       },
       moveProp: (id, x, y) => boardData.moveProp(mapPath(), id, x, y),
       addProp: (glb, x, y) => { boardData.addProp(mapPath(), { glb, x, y, rotation: 0, scale: 1 }); },
@@ -443,6 +549,9 @@ export class BoardView extends ItemView {
       copyToken: (id, newId, x, y) => {
         writer.copy(mapPath(), id, newId, x, y).catch((error: unknown) => this.unsaved('copy', error));
       },
+      rotateTokens: (turns) => {
+        writer.rotate(mapPath(), turns).catch((error: unknown) => this.unsaved('rotation', error));
+      },
       editResource: (id, key, edit, maxEdited) => {
         const name = this.rules.definitions.find((definition) => definition.key === key)?.name ?? key;
         writer.resource(mapPath(), id, key, edit, maxEdited).catch((error: unknown) => this.unsaved(`${name} change`, error));
@@ -454,17 +563,44 @@ export class BoardView extends ItemView {
       wallThickness: () => boardData.wallThickness(mapPath()),
       setWallThickness: (thickness) => boardData.setWallThickness(mapPath(), thickness),
       statblockPreview: (id, event) => {
-        const path = this.map?.tokens.find((token) => token.id === id)?.statblockPath;
-        if (!path || !this.board) return;
-        // Obsidian's page preview shows the note as it reads, the stat block drawn (Fantasy Statblocks) and its dice.
-        this.app.workspace.trigger('hover-link', {
-          event, source: HOVER_SOURCE, hoverParent: this, targetEl: this.board.canvas, linktext: path, sourcePath: mapPath(),
+        const token = this.map?.tokens.find((candidate) => candidate.id === id);
+        const path = token?.statblockPath;
+        if (!token || !path || !this.board) return;
+        this.hoverCard ??= new StatblockHoverCard(this.board.canvas.ownerDocument, (formula, label, side) => this.dice?.cardRoll(this.hoverToken, formula, label, side), () => this.board?.previewEnded());
+        this.hoverToken = id;
+        // The rolls of Atlas's own window (a click on a dice link) throw the board's dice too.
+        this.stopWindowRolls ??= routeAtlasWindowRolls(this.board.canvas.ownerDocument, (formula, label, side) => this.dice?.cardRoll(this.hoverToken, formula, label, side));
+        const { clientX, clientY } = event;
+        const board = this.board;
+        const card = this.hoverCard;
+        // Otherwise: Atlas's card drawn here, and where this Atlas draws none, Obsidian's page preview of the note.
+        const drawn = (): void => {
+          void card.show(atlasCardHost(this.app, path, token.name ?? undefined), { x: clientX, y: clientY }, () => {
+            this.app.workspace.trigger('hover-link', { event, source: HOVER_SOURCE, hoverParent: this, targetEl: board.canvas, linktext: path, sourcePath: mapPath() });
+          });
+        };
+        // Atlas's own window first: the same one its map opens, with the token's portrait and live HP.
+        const previews = atlasPreviews(this.rollView());
+        if (!previews) {
+          drawn();
+          return;
+        }
+        card.adopt(() => previews.hide(id));
+        previews.show(previewAnchor(token), clientX, clientY).catch((error: unknown) => {
+          console.warn('Tabletop: Atlas did not open its stat block window, drawing the card here instead:', error);
+          drawn();
         });
       },
+      statblockPreviewEnd: () => this.hoverCard?.hide(),
       warn: (message) => this.warn(message),
       togglePlayerView: () => this.services.togglePlayerView(this),
       laser: () => this.services.laser(),
       setLaser: (changes) => this.services.setLaser(changes),
+      setLighting: (choice) => this.services.setLighting?.(choice),
+      setTiltShift: (on) => this.services.setTiltShift?.(on),
+      setOcclusion: (on) => this.services.setOcclusion?.(on),
+      autoRoll: () => this.services.diceSettings().autoRoll,
+      setAutoRoll: (on) => this.services.setAutoRoll?.(on),
       playerViewOpen: () => this.services.playerViewOpen(mapPath()),
       initiativeOpen: () => this.initiative?.isOpen ?? false,
       toggleInitiative: () => this.initiative?.setOpen(!this.initiative.isOpen),
@@ -496,7 +632,7 @@ export class BoardView extends ItemView {
       },
       assignMini: (tokenId, glb) => {
         const have = assignments.get(mapPath(), tokenId);
-        assignments.set(mapPath(), tokenId, { mini: glb, scale: have?.scale ?? 1, turn: have?.turn ?? 0 });
+        assignments.set(mapPath(), tokenId, { mini: glb, scale: have?.scale ?? 1, turn: have?.turn ?? 0, ...(have?.base ? { base: have.base } : {}) });
       },
       paintWall: (id, material, whole) => {
         const walls = this.map?.walls ?? [];
@@ -613,14 +749,16 @@ export class BoardView extends ItemView {
         const state = view.atlasStore.getState();
         // Atlas moved to another map in that view: the file is this map's tracker again.
         if (state.mapPath !== this.path) { this.watchAtlas(); return; }
+        // The GM went to another floor (Atlas 0.10): the board shows that floor.
+        if (state.viewedLevel !== undefined && this.map && resolveLevel(this.map.levels, state.viewedLevel) !== this.map.level) this.reload();
         if (state.initiative === held) return;
         held = state.initiative;
-        this.initiative?.render();
+        this.showInitiative();
         this.menu?.refresh();
       });
       this.watched = { view, stop };
     }
-    this.initiative?.render();
+    this.showInitiative();
     // The dice log listens on the Atlas view holding the map.
     this.dice?.listen();
     // Atlas opened or closed the map: whether players see the board's changes may have changed with it.
@@ -682,6 +820,21 @@ export class BoardView extends ItemView {
   }
 
   /** The tracker as Atlas holds it while it has the map open, else as the file has it. */
+  /** Draws the tracker, and rings on the board the combatants whose turn it is. */
+  private showInitiative(): void {
+    this.initiative?.render();
+    const fight = this.liveInitiative();
+    this.board?.setActiveTokens(currentEntries(fight).map((entry) => entry.tokenId));
+    this.board?.setDelayedTokens(delayedTokens(fight));
+    // The turn passing flashes a banner; opening the board in the middle of a fight does not.
+    const turn = turnAnnouncement(fight);
+    if (turn && this.lastTurn !== null && this.lastTurn !== turn.key) this.board?.flashTurn(turn.text);
+    this.lastTurn = turn?.key ?? null;
+  }
+
+  /** The turn last announced, to flash the banner only when it changes. */
+  private lastTurn: string | null = null;
+
   private liveInitiative(): InitiativeState {
     const state = this.watched?.view.atlasStore.getState();
     if (state && state.mapPath === this.path && state.initiative) return readInitiative(state.initiative);
@@ -707,7 +860,7 @@ export class BoardView extends ItemView {
         return;
       }
       map.initiative = applyInitiative(map.initiative, action, () => { const draw = Math.random(); draws.push(draw); return draw; });
-      this.initiative?.render();
+      this.showInitiative();
     }
     this.services.writer.initiativeAction(map.path, action, () => draws[next++] ?? Math.random())
       .catch((error: unknown) => this.unsaved('initiative change', error));
@@ -815,6 +968,7 @@ export class BoardView extends ItemView {
       settings: () => this.map!.tokenSettings,
       inInitiative: () => this.liveInitiative().entries.some((entry) => entry.tokenId === id),
       hasMini: () => assignments.get(map.path, id) !== null,
+      miniBase: () => assignments.get(map.path, id)?.base ?? 'none',
       standee: () => boardData.style(map.path, id) === 'standee',
       lightHeight: () => (this.map?.lights.some((light) => light.tokenId === id) ? boardData.lightHeight(map.path, id) ?? DEFAULT_LIGHT_SQUARES : null),
       icon: (element, name) => setIcon(element, name),
@@ -828,6 +982,10 @@ export class BoardView extends ItemView {
           if (now) new MiniPicker(this.app, minis, tokenName(now), assignments.get(map.path, id), (result) => assignments.set(map.path, id, result)).open();
         },
         removeMini: () => assignments.remove(map.path, id),
+        setBase: (base) => {
+          const have = assignments.get(map.path, id);
+          if (have) assignments.set(map.path, id, { ...have, base });
+        },
         setStandee: (standee) => boardData.setStyle(map.path, id, standee ? 'standee' : 'disc'),
         setLightHeight: (height) => boardData.setLightHeight(map.path, id, Math.max(0, Math.round(height * 4) / 4)),
         reset: () => this.resetToken(id),
@@ -846,7 +1004,7 @@ export class BoardView extends ItemView {
     const token = this.map?.tokens.find((candidate) => candidate.id === id);
     if (!token) return;
     this.board?.changeToken(id, { ...token, ...shown });
-    this.initiative?.render();
+    this.showInitiative();
     this.services.writer.update(this.path ?? '', id, change).catch((error: unknown) => this.unsaved(what, error));
   }
 
@@ -880,7 +1038,7 @@ export class BoardView extends ItemView {
       const token = map.tokens.find((candidate) => candidate.id === id);
       const held = map.initiative as unknown as Parameters<typeof removeFromInitiative>[0];
       map.initiative = readInitiative(join && token ? addToInitiative(held, initiativeEntryFor(token), initiativeId()) : removeFromInitiative(held, id));
-      this.initiative?.render();
+      this.showInitiative();
     }
     this.services.writer.initiative(map.path, id, join).catch((error: unknown) => this.unsaved('initiative change', error));
   }

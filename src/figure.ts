@@ -10,7 +10,8 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
 import type { LoadedMini } from './library';
 
 /** Share of the token's diameter the mini's footprint fills at scale 1. */
-const FILL = 0.9;
+export const MINI_FILL = 0.9;
+const FILL = MINI_FILL;
 /** Lean per screen pixel per second of movement, and the most it leans. */
 const LEAN_PER_SPEED = 0.0009;
 const MAX_LEAN = THREE.MathUtils.degToRad(32);

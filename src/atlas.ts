@@ -1,5 +1,5 @@
 /**
- * What Tabletop reads of a stock Atlas VTT (0.7.x / 0.8.x), which has no extension API: the map views open in the
+ * What Tabletop reads of a stock Atlas VTT (0.7 to 0.11), which has no extension API: the map views open in the
  * workspace and their store. These are private shapes, so every member is checked before use and a failed check reads
  * as "nothing there" rather than throwing.
  */
@@ -23,9 +23,14 @@ export interface AtlasSceneState {
   mapLoaded?: boolean;
   isMapLoading?: boolean;
   objects: { tokens: Readonly<Record<string, AtlasToken>> };
+  /** Atlas 0.10's levels (floors) and the one this view shows; an older Atlas has neither. */
+  levels?: ReadonlyArray<{ id: string }>;
+  viewedLevel?: string | null;
   remoteView?: unknown;
   /** Atlas's own actions: change a token, add one (Atlas numbers it), delete some; Atlas saves the map. */
   updateToken?: (id: string, updates: Record<string, unknown>) => void;
+  /** Several tokens in one step (one undo): `[{ id, changes }]`. */
+  updateTokens?: (updates: Array<{ id: string; changes: Record<string, unknown> }>) => void;
   addToken?: (data: Record<string, unknown>) => string;
   deleteTokens?: (ids: string[]) => void;
   /** Atlas's initiative tracker: its state, opening it, and its actions (0.8.0's; an older Atlas lacks some). */
@@ -101,11 +106,11 @@ export function tabViewOf(app: App, mapPath: string): { view: AtlasTabView; leaf
 }
 
 /** Atlas's presented scene (the eye on its tabs): read, and followed. */
-export function presentedSceneOf(app: App): { get(): { tabId: string; filePath: string } | null; onChange(listener: () => void): () => void } | null {
+export function presentedSceneOf(app: App): { get(): { tabId: string; filePath: string; levelId?: string } | null; onChange(listener: () => void): () => void } | null {
   const scene = (app as unknown as { plugins?: { plugins?: Record<string, { presentedScene?: unknown } | undefined> } }).plugins?.plugins?.['atlas-vtt']?.presentedScene as
     { get?: unknown; onChange?: unknown } | undefined;
   return scene && typeof scene.get === 'function' && typeof scene.onChange === 'function'
-    ? scene as { get(): { tabId: string; filePath: string } | null; onChange(listener: () => void): () => void }
+    ? scene as { get(): { tabId: string; filePath: string; levelId?: string } | null; onChange(listener: () => void): () => void }
     : null;
 }
 

@@ -53,15 +53,46 @@ export function stripGeometry(segments: readonly number[], width: number): THREE
 
 export class BoardSurface {
   readonly object3d = new THREE.Group();
+  private floor: THREE.Mesh | null = null;
   private readonly image: THREE.MeshStandardMaterial;
   private grid: THREE.Mesh | null = null;
 
-  constructor(readonly width: number, readonly height: number, private readonly gridState: BoardGrid) {
+  /**
+   * `width` and `height`: the world's size. `laid`: the map image's own size and where Atlas's stretch puts it
+   * (`stretchPlacement`); without it the image fills the world.
+   */
+  constructor(
+    readonly width: number,
+    readonly height: number,
+    private readonly gridState: BoardGrid,
+    laid?: { image: { width: number; height: number }; placement: { rotation: number; centre: { x: number; y: number }; scale: { x: number; y: number } } },
+    /** Where the image lies in the world, as `BoardMap.world.matrix` (a player's map): it replaces `laid`. */
+    matrix?: readonly [number, number, number, number, number, number],
+  ) {
     const span = Math.max(width, height);
     this.image = new THREE.MeshStandardMaterial({ color: 0x55504a, roughness: 0.9, metalness: 0 });
-    const plane = new THREE.Mesh(new THREE.PlaneGeometry(width, height).rotateX(-Math.PI / 2), this.image);
-    plane.position.set(width / 2, 0, height / 2);
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(laid?.image.width ?? width, laid?.image.height ?? height).rotateX(-Math.PI / 2), this.image);
     plane.receiveShadow = true;
+    if (matrix) {
+      // The unit square (corner at the origin, the map's top toward -z) carried by the matrix into the world.
+      plane.geometry.dispose();
+      plane.geometry = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0.5, 0, 0.5);
+      const [a, b, c, d, e, f] = matrix;
+      plane.matrixAutoUpdate = false;
+      plane.matrix.set(a, 0, c, e, 0, 1, 0, 0, b, 0, d, f, 0, 0, 0, 1);
+    }
+    // A stretched image is a turned plane inside a group scaled across and along the map: scaling turned geometry shears it.
+    const laying = new THREE.Group();
+    if (matrix) {
+      // placed by its matrix above
+    } else if (laid) {
+      plane.position.set(laid.placement.centre.x, 0, laid.placement.centre.y);
+      plane.rotation.y = laid.placement.rotation;
+      laying.scale.set(laid.placement.scale.x, 1, laid.placement.scale.y);
+    } else {
+      plane.position.set(width / 2, 0, height / 2);
+    }
+    laying.add(plane);
 
     const border = span * 0.04;
     const depth = span * 0.03;
@@ -75,7 +106,13 @@ export class BoardSurface {
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(span * 30, span * 30).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: FLOOR_COLOR, roughness: 1 }));
     floor.position.set(width / 2, -depth * 3, height / 2);
     floor.receiveShadow = true;
-    this.object3d.add(floor, frame, plane);
+    this.floor = floor;
+    this.object3d.add(floor, frame, laying);
+  }
+
+  /** The floor beyond the table, made wider to run out to the horizon (it fades into the sky's colour there). */
+  widenFloor(factor: number): void {
+    this.floor?.scale.set(factor, 1, factor);
   }
 
   /** Lays the map image on the board (null keeps the plain board) and draws the grid in its colour. */

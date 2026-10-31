@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { FaceReading } from '../src/dice/kit/faces';
-import { DEFAULT_RULES, type DiceRules } from '../src/dice/rollRules';
+import { DEFAULT_RULES, parseFormula, type DiceRules } from '../src/dice/rollRules';
 import { RollSession, THROW_PROMPT } from '../src/dice/rollSession';
 
 const face = (n: number): FaceReading => ({ caught: false, face: n, confidence: 1 });
@@ -363,4 +363,211 @@ test('a d100 half knocked loose is read again', () => {
 test('each die of a type is thrown in its own colour; null is the pack\'s, and wins over the type\'s colour', () => {
   const session = new RollSession({ dice: { d6: 3 }, modifier: 0, colors: { d6: '#000000' }, dieColors: { d6: ['#d64545', null] } }, DEFAULT_RULES);
   assert.deepEqual(session.dice.map((state) => state.color), ['#d64545', undefined, '#000000']);
+});
+
+const duality: DiceRules = {
+  defaultRoll: '2d12', crit: 'natural', advantage: null, disadvantage: null,
+  groups: [{ die: 'd12', count: 1, color: '#7e22ce' }, { die: 'd12', count: 1, color: '#4d7c0f' }],
+};
+const settleAll = (session: RollSession, faces: number[]) => session.dice.forEach((die, index) => session.settle(die.id, face(faces[index] ?? 1)));
+
+test("a bare bonus rolls every group of the dice set, each die in the set's colour", () => {
+  const request = parseFormula('+3', duality)!;
+  assert.deepEqual(request.dice, { d12: 2 });
+  assert.deepEqual(request.dieColors, { d12: ['#7e22ce', '#4d7c0f'] });
+  const session = new RollSession(request, duality);
+  settleAll(session, [7, 4]);
+  assert.deepEqual(session.result()?.rolls.map((roll) => [roll.value, roll.color]), [[7, '#7e22ce'], [4, '#4d7c0f']]);
+  // Mixed kinds of die, and a set with no colours at all.
+  const mixed: DiceRules = { defaultRoll: '1d20', crit: 'none', groups: [{ die: 'd20', count: 1 }, { die: 'd6', count: 2 }] };
+  assert.deepEqual(parseFormula('+1', mixed), { dice: { d20: 1, d6: 2 }, modifier: 1 });
+  // Dice written into the roll are rolled as written.
+  assert.deepEqual(parseFormula('1d8+2', duality), { dice: { d8: 1 }, modifier: 2 });
+});
+
+test('a set that gives advantage no effect rolls as any other', () => {
+  const session = new RollSession({ dice: { d12: 2 }, modifier: 0, advantage: 'advantage' }, duality);
+  assert.equal(session.dice.length, 2);
+  settleAll(session, [3, 5]);
+  assert.equal(session.result()?.total, 8);
+});
+
+test("a set's advantage and disadvantage that add a number or a die of their own do so", () => {
+  const rules: DiceRules = {
+    defaultRoll: '2d10', crit: 'none', groups: [{ die: 'd10', count: 2 }],
+    advantage: { kind: 'number', value: 2 }, disadvantage: { kind: 'die', die: 'd6', color: '#ff0000' },
+  };
+  const up = new RollSession({ dice: { d10: 2 }, modifier: 1, advantage: 'advantage' }, rules);
+  settleAll(up, [4, 5]);
+  assert.deepEqual([up.result()?.modifier, up.result()?.total], [3, 12]);
+  const down = new RollSession({ dice: { d10: 2 }, modifier: 0, advantage: 'disadvantage' }, rules);
+  assert.deepEqual(down.dice.map((die) => [die.die, die.negative === true]), [['d10', false], ['d10', false], ['d6', true]]);
+  settleAll(down, [4, 5, 3]);
+  const result = down.result()!;
+  assert.equal(result.total, 6, 'the extra die is taken off');
+  assert.deepEqual(result.rolls.at(-1), { die: 'd6', value: 3, max: 6, negative: true, color: '#ff0000' });
+  // A roll with none of the set's dice is not changed.
+  const other = new RollSession({ dice: { d6: 1 }, modifier: 0, advantage: 'advantage' }, rules);
+  assert.equal(other.dice.length, 1);
+  settleAll(other, [2]);
+  assert.equal(other.result()?.modifier, 0);
+});
+
+test('advantage keeps the lowest where a low roll is the good one', () => {
+  const rules: DiceRules = { defaultRoll: '1d20', crit: 'roll-under' };
+  const session = new RollSession({ dice: { d20: 1 }, modifier: 0, advantage: 'advantage' }, rules);
+  settleAll(session, [5, 15]);
+  assert.equal(session.result()?.total, 5);
+});
+
+test('keep highest: the lowest die is set aside and does not count', () => {
+  const session = new RollSession(parseFormula('4d6kh3+1')!, DEFAULT_RULES);
+  [3, 6, 1, 4].forEach((value, i) => session.settle(session.dice[i].id, face(value)));
+  const result = session.result()!;
+  assert.deepEqual(result.rolls.map((roll) => [roll.value, roll.dropped === true]), [[3, false], [6, false], [1, true], [4, false]]);
+  assert.equal(result.total, 14);
+});
+
+test('drop lowest on advantage-style 2d20dl1, with the explosion of a dropped die leaving the roll', () => {
+  const rules: DiceRules = { defaultRoll: '1d20', crit: 'natural', explode: { dice: 'all', repeats: false, highFaces: 1, lowFaces: 0 } };
+  const session = new RollSession(parseFormula('2d20dl1', rules)!, rules);
+  const [a, b] = session.dice;
+  session.settle(a.id, face(20));
+  session.settle(b.id, face(13));
+  const [exploded] = session.dice.filter((die) => die.exploded);
+  assert.ok(exploded);
+  session.settle(exploded.id, face(5));
+  const result = session.result()!;
+  assert.deepEqual(result.rolls.map((roll) => [roll.value, roll.dropped === true]), [[20, false], [13, true], [5, false]]);
+  assert.equal(result.total, 25);
+});
+
+test('a success count totals the dice that meet it and drops the critical', () => {
+  const session = new RollSession(parseFormula('5d10>=8+1')!, DEFAULT_RULES);
+  [10, 8, 7, 1, 9].forEach((value, i) => session.settle(session.dice[i].id, face(value)));
+  const result = session.result()!;
+  assert.equal(result.successes, 3);
+  assert.equal(result.total, 4);
+  assert.equal(result.crit, undefined);
+});
+
+test('a die under a reroll rule is thrown again: it stays in the roll, struck out, and the new die counts', () => {
+  const session = new RollSession(parseFormula('2d6r<2+1')!, DEFAULT_RULES);
+  const [a, b] = session.dice;
+  session.settle(a.id, face(1));
+  session.settle(b.id, face(5));
+  assert.deepEqual(pending(session), [{ die: 'd6', reason: 'reroll' }]);
+  assert.equal(session.prompt(), 'd6 rerolled: throw another d6');
+  assert.equal(session.result(), null);
+  const [again] = session.dice.filter((die) => !die.value && die.status === 'waiting');
+  session.settle(again.id, face(4));
+  const result = session.result()!;
+  assert.deepEqual(result.rolls.map((roll) => [roll.value, roll.rerolled === true]), [[1, true], [4, false], [5, false]]);
+  assert.equal(result.total, 10);
+});
+
+test('ro rerolls once even when the new die meets the rule; rr goes on until a die stands', () => {
+  const once = new RollSession(parseFormula('1d6ro1')!, DEFAULT_RULES);
+  once.settle(once.dice[0].id, face(1));
+  once.settle(once.dice[1].id, face(1));
+  assert.equal(once.dice.length, 2);
+  assert.deepEqual(once.result()!.rolls.map((roll) => roll.rerolled === true), [true, false]);
+  assert.equal(once.result()!.total, 1);
+
+  const many = new RollSession(parseFormula('1d6rr<3')!, DEFAULT_RULES);
+  many.settle(many.dice[0].id, face(1));
+  many.settle(many.dice[1].id, face(2));
+  many.settle(many.dice[2].id, face(5));
+  assert.deepEqual(many.result()!.rolls.map((roll) => roll.rerolled === true), [true, true, false]);
+  assert.equal(many.result()!.total, 5);
+});
+
+test('a rerolled die earns no explosion; the die that replaces it can', () => {
+  const rules: DiceRules = { defaultRoll: '1d20', crit: 'natural', explode: { dice: 'all', repeats: false, highFaces: 1, lowFaces: 0 } };
+  const session = new RollSession(parseFormula('1d6r>=6', rules)!, rules);
+  session.settle(session.dice[0].id, face(6));
+  assert.deepEqual(pending(session), [{ die: 'd6', reason: 'reroll' }], 'only the reroll waits, no explosion');
+  session.settle(session.dice[1].id, face(6));
+  assert.deepEqual(pending(session), [{ die: 'd6', reason: 'explode-up' }]);
+});
+
+test('throwing a rerolled die again takes its replacement back and it stands on its new face', () => {
+  const session = new RollSession(parseFormula('1d6ro1')!, DEFAULT_RULES);
+  const [first] = session.dice;
+  session.settle(first.id, face(1));
+  assert.equal(session.dice.length, 2);
+  const removed = session.reroll(first.id);
+  assert.equal(removed.length, 1);
+  assert.equal(session.dice.length, 1);
+  assert.equal(session.dice[0].rerolled, undefined);
+  session.settle(first.id, face(4));
+  assert.equal(session.result()!.total, 4);
+});
+
+test('keep and advantage read the slot, not the die thrown away', () => {
+  const session = new RollSession(parseFormula('3d6ro1kh2')!, DEFAULT_RULES);
+  const [a, b, c] = session.dice;
+  session.settle(a.id, face(1));
+  session.settle(b.id, face(3));
+  session.settle(c.id, face(4));
+  session.settle(session.dice[3].id, face(6));
+  const result = session.result()!;
+  assert.deepEqual(result.rolls.map((roll) => [roll.value, roll.rerolled === true, roll.dropped === true]), [
+    [1, true, false], [6, false, false], [3, false, true], [4, false, false],
+  ]);
+  assert.equal(result.total, 10);
+});
+
+test('Fate dice are thrown as d6s and read minus, blank or plus, two faces each', () => {
+  const request = parseFormula('4dF+1')!;
+  assert.equal(request.fate, 4);
+  assert.deepEqual(request.dice, {}, 'no ordinary die is asked for');
+  const session = new RollSession(request, DEFAULT_RULES);
+  assert.deepEqual(session.dice.map((die) => die.die), ['d6', 'd6', 'd6', 'd6']);
+  settleAll(session, [1, 2, 3, 6]);
+  const result = session.result()!;
+  assert.deepEqual(result.rolls.map((roll) => roll.value), [-1, -1, 0, 1]);
+  assert.ok(result.rolls.every((roll) => roll.fate === true && roll.max === 1));
+  assert.equal(result.total, -1 - 1 + 0 + 1 + 1, 'the sum of the dice, and the modifier');
+  assert.equal(result.crit, undefined, 'a Fate die is no critical');
+  // Every face of the d6 reads one of the three.
+  const faces = [1, 2, 3, 4, 5, 6].map((n) => { const one = new RollSession(parseFormula('1dF')!, DEFAULT_RULES); settleAll(one, [n]); return one.result()!.rolls[0].value; });
+  assert.deepEqual(faces, [-1, -1, 0, 0, 1, 1]);
+});
+
+test('a Fate die never explodes, even under a rule that explodes every die, and mixes with ordinary dice', () => {
+  const session = new RollSession(parseFormula('2dF+1d6')!, explodeAll);
+  assert.deepEqual(session.dice.map((die) => die.die), ['d6', 'd6', 'd6']);
+  // The ordinary d6 sits first; a 6 on a Fate die (plus) must not throw another die.
+  settleAll(session, [6, 6, 6]);
+  assert.deepEqual(pending(session).map((one) => one.reason), ['explode-up'], 'only the ordinary d6 that showed its top face explodes');
+});
+
+test('labels name the dice of their group and ride with them through the result', () => {
+  const request = parseFormula('2d6[fire] + 1d6 [cold snap] + 1d4')!;
+  assert.deepEqual(request.dice, { d6: 3, d4: 1 });
+  assert.deepEqual(request.dieLabels, { d6: ['fire', 'fire', 'cold snap'] });
+  const session = new RollSession(request, DEFAULT_RULES);
+  settleAll(session, [1, 2, 3, 4]);
+  const result = session.result()!;
+  assert.deepEqual(result.rolls.map((roll) => [roll.die, roll.label ?? null]), [['d4', null], ['d6', 'fire'], ['d6', 'fire'], ['d6', 'cold snap']]);
+  const split = parseFormula('1d6[a]+1d6+1d6[b]')!;
+  assert.deepEqual(split.dieLabels, { d6: ['a', null, 'b'] }, 'a group without a label keeps its place');
+});
+
+test('the dice a finished roll sets aside are named for the table: dropped by a keep rule, thrown again by a reroll', () => {
+  const keep = new RollSession(parseFormula('4d6kh3')!, DEFAULT_RULES);
+  assert.deepEqual(keep.setAside(), [], 'nothing before the roll is complete');
+  settleAll(keep, [5, 1, 6, 3]);
+  assert.deepEqual(keep.setAside(), [keep.dice[1].id], 'the lowest die is set aside');
+  const reroll = new RollSession(parseFormula('2d6r<3')!, DEFAULT_RULES);
+  settleAll(reroll, [2, 5]);
+  const [first] = reroll.dice;
+  assert.deepEqual(reroll.setAside(), [], 'the roll waits for the die it threw again');
+  const replacement = reroll.dice.find((die) => die.id !== reroll.dice[0].id && die.id !== reroll.dice[1].id)!;
+  reroll.settle(replacement.id, face(6));
+  assert.deepEqual(reroll.setAside(), [first.id]);
+  const plain = new RollSession(parseFormula('2d6')!, DEFAULT_RULES);
+  settleAll(plain, [1, 2]);
+  assert.deepEqual(plain.setAside(), []);
 });

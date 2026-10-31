@@ -87,7 +87,7 @@ async function main(): Promise<void> {
     diceRules: () => null,
   };
   const container = document.getElementById('board')!;
-  const handle: PlayerBoardHandle = playerBoardFactory(() => 'medium', { settings: () => DEFAULT_DICE_SETTINGS, pack: () => pack }).create(container, host);
+  const handle: PlayerBoardHandle = playerBoardFactory(() => 'medium', () => ({ tiltShift: false, occlusion: false, painted: false, sky: 'dusk' }), { settings: () => DEFAULT_DICE_SETTINGS, pack: () => pack }).create(container, host);
   handle.setPlayers(['me', 'you'], 'me');
   handle.setConnected(true);
   handle.setControlled(['mine']);

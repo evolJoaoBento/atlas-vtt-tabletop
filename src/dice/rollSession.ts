@@ -6,7 +6,7 @@
  */
 import { caughtMessage } from './kit/caught';
 import { DIE_FACES, DIE_TYPES, type DieType, type FaceReading } from './kit/faces';
-import { critOf, defaultDie, explosion, MAX_DICE, total, type DiceRules, type RolledDie, type RollRequest } from './rollRules';
+import { critOf, defaultDice, edgeOf, explosion, FATE_FACES, isSuccess, keepDropped, MAX_DICE, successCount, total, type DiceRules, type KeepRule, type RolledDie, type RollRequest } from './rollRules';
 
 export type DieState = {
   id: number;
@@ -17,13 +17,19 @@ export type DieState = {
   value?: number;
   exploded?: true;
   negative?: true;
+  /** Thrown again under a reroll rule: its number counts for nothing, the die that replaced it follows. */
+  rerolled?: true;
+  /** A Fate die (thrown as a d6): it reads -1, 0 or +1 in the result. */
+  fate?: true;
+  /** The label its group had in the formula. */
+  label?: string;
   isDefault: boolean;
 };
 
 /** The line over the board while dice lie on the table unthrown. */
 export const THROW_PROMPT = 'Drag a die to throw it, or throw them all';
 
-type ThrowReason = 'placed' | 'caught' | 'explode-up' | 'explode-down';
+type ThrowReason = 'placed' | 'caught' | 'explode-up' | 'explode-down' | 'reroll';
 
 /** What the session knows of a die beyond its state. */
 interface DieLine {
@@ -35,33 +41,58 @@ interface DieLine {
   /** The percentile pair: the tens die names its ones die, the ones die its tens die. */
   pair?: number;
   ones?: true;
-  /** An explosion not yet thrown. */
-  awaiting?: 'explode-up' | 'explode-down';
+  /** An explosion or a reroll not yet thrown. */
+  awaiting?: 'explode-up' | 'explode-down' | 'reroll';
   /** The die this one's explosion added. */
   explodedInto?: number;
+  /** The die thrown to replace this one under a reroll rule. */
+  rerolledInto?: number;
+  /** How many dice before this one in its slot the reroll rule threw away. */
+  rerollDepth: number;
 }
 
 export class RollSession {
   private readonly states: DieState[] = [];
   private readonly lines = new Map<number, DieLine>();
-  private readonly defaultType: DieType | null;
+  private readonly defaultTypes: readonly DieType[];
   private readonly advantaged: [number, number] | null = null;
+  /** The roll's number: what was asked, and what the set's advantage or disadvantage adds or takes off. */
+  private modifier: number;
   private nextId = 1;
 
   constructor(private readonly request: RollRequest, private readonly rules: DiceRules) {
-    this.defaultType = defaultDie(rules);
+    this.defaultTypes = defaultDice(rules);
+    this.modifier = request.modifier;
     for (const die of DIE_TYPES) {
       const count = request.dice[die] ?? 0;
       for (let i = 0; i < count; i++) {
         const own = request.dieColors?.[die]?.[i];
         const color = own === null ? undefined : own ?? request.colors?.[die];
-        this.addDie(die, { isDefault: die === this.defaultType, ...(color !== undefined ? { color } : {}) });
+        const label = request.dieLabels?.[die]?.[i] ?? undefined;
+        this.addDie(die, { isDefault: this.defaultTypes.includes(die), ...(color !== undefined ? { color } : {}), ...(label !== undefined ? { label } : {}) });
       }
     }
+    // Fate dice are thrown as d6s and read as minus, blank or plus; never a default die, never exploding.
+    for (let i = 0; i < (request.fate ?? 0); i++) {
+      const label = request.fateLabels?.[i] ?? undefined;
+      this.addDie('d6', { isDefault: false, fate: true, ...(label !== undefined ? { label } : {}) });
+    }
     const defaults = this.states.filter((state) => state.isDefault && !this.lines.get(state.id)?.ones);
-    if (request.advantage && defaults.length === 1 && this.rollCount() < MAX_DICE) {
-      const second = this.addDie(defaults[0].die, { isDefault: true, color: defaults[0].color });
-      this.advantaged = [defaults[0].id, second];
+    // What the set's advantage or disadvantage does, only to a roll of the set's own dice (Atlas's rule).
+    const edge = request.advantage ? edgeOf(rules, request.advantage) : null;
+    if (request.advantage && edge && defaults.length > 0) {
+      const sign = request.advantage === 'advantage' ? 1 : -1;
+      if (edge.kind === 'keep') {
+        if (defaults.length === 1 && this.rollCount() < MAX_DICE) {
+          const second = this.addDie(defaults[0].die, { isDefault: true, color: defaults[0].color, ...(defaults[0].label !== undefined ? { label: defaults[0].label } : {}) });
+          this.advantaged = [defaults[0].id, second];
+        }
+      } else if (edge.kind === 'number') {
+        this.modifier += sign * edge.value;
+      } else if (this.rollCount() < MAX_DICE) {
+        // A die of its own, laid on the table with the rest; it subtracts for disadvantage.
+        this.addDie(edge.die, { isDefault: false, ...(edge.color !== undefined ? { color: edge.color } : {}), ...(sign < 0 ? { negative: true } : {}) });
+      }
     }
   }
 
@@ -83,7 +114,8 @@ export class RollSession {
     }
     state.status = 'settled';
     state.value = value;
-    this.explode(line.ones ? (line.pair as number) : id);
+    const head = line.ones ? (line.pair as number) : id;
+    if (!state.fate && !this.rerollIfDue(head)) this.explode(head);
   }
 
   /**
@@ -126,6 +158,14 @@ export class RollSession {
     const removed: number[] = [];
     if (head.explodedInto !== undefined) this.withdraw(head.explodedInto, removed);
     delete head.explodedInto;
+    // The die its face sent back for a reroll goes too: thrown again, the die stands on its new face.
+    if (head.rerolledInto !== undefined) {
+      this.withdraw(head.rerolledInto, removed);
+      delete head.rerolledInto;
+      const headId = line.ones ? (line.pair as number) : id;
+      const state = this.states.find((candidate) => candidate.id === headId);
+      if (state) delete state.rerolled;
+    }
     return removed;
   }
 
@@ -145,49 +185,74 @@ export class RollSession {
     const caught = this.states.filter((state) => state.status === 'caught').map((state) => ({ type: state.die }));
     if (caught.length > 0) return caughtMessage(caught);
     const explosions = this.states
-      .filter((state) => this.lines.get(state.id)?.awaiting && !this.lines.get(state.id)?.ones)
+      .filter((state) => ['explode-up', 'explode-down'].includes(this.lines.get(state.id)?.awaiting ?? '') && !this.lines.get(state.id)?.ones)
       .map((state) => `${state.die} exploded: throw another ${state.die}`);
-    if (explosions.length > 0) return explosions.join('\n');
+    const rerolls = this.states
+      .filter((state) => this.lines.get(state.id)?.awaiting === 'reroll' && !this.lines.get(state.id)?.ones)
+      .map((state) => `${state.die} rerolled: throw another ${state.die}`);
+    if (explosions.length > 0 || rerolls.length > 0) return [...rerolls, ...explosions].join('\n');
     return this.states.some((state) => state.status === 'waiting') ? THROW_PROMPT : null;
   }
 
   /** The roll once every die has settled and every explosion is thrown; null until then. The die set aside stays, marked dropped. */
-  result(): { rolls: RolledDie[]; modifier: number; total: number; crit?: 'success' | 'failure'; label?: string } | null {
+  result(): { rolls: RolledDie[]; modifier: number; total: number; crit?: 'success' | 'failure'; successes?: number; label?: string } | null {
     if (this.states.some((state) => state.status !== 'settled' || this.lines.get(state.id)?.awaiting)) return null;
-    const dropped = this.droppedRoot();
+    const dropped = this.droppedRoots();
     const rolls: RolledDie[] = [];
+    // As Atlas lists them: a die thrown again is followed at once by the die that replaced it.
+    const ordered: DieState[] = [];
     for (const state of this.states) {
+      if ((this.lines.get(state.id) as DieLine).rerollDepth > 0) continue;
+      ordered.push(state);
+      for (let next = this.lines.get(state.id)?.rerolledInto; next !== undefined; next = this.lines.get(next)?.rerolledInto) {
+        const replacement = this.states.find((candidate) => candidate.id === next);
+        if (replacement) ordered.push(replacement);
+      }
+    }
+    for (const state of ordered) {
       const line = this.lines.get(state.id) as DieLine;
       if (line.ones) continue;
       // A die set aside earns no explosion (Atlas explodes kept dice only): what its explosions threw leaves the roll.
-      if (dropped !== null && line.root === dropped && line.fromExplosion) continue;
-      const value = this.unitValue(state.id) as number;
+      if (dropped.has(line.root) && line.fromExplosion) continue;
+      const face = this.unitValue(state.id) as number;
+      const value = state.fate ? FATE_FACES[face - 1] : face;
+      const rerolled = state.rerolled === true;
       rolls.push({
         die: state.die,
         value,
-        max: DIE_FACES[state.die],
+        max: state.fate ? 1 : DIE_FACES[state.die],
+        ...(state.fate ? { fate: true } : {}),
+        ...(state.label !== undefined ? { label: state.label } : {}),
         ...(state.exploded ? { exploded: true } : {}),
         ...(state.negative ? { negative: true } : {}),
         ...(state.color !== undefined ? { color: state.color } : {}),
-        ...(dropped !== null && line.root === dropped ? { dropped: true } : {}),
+        ...(rerolled ? { rerolled: true } : {}),
+        ...(dropped.has(line.root) && !rerolled ? { dropped: true } : {}),
       });
     }
-    const crit = critOf(this.rules, rolls);
+    // A success count replaces the sum: its total is the successes (the modifier is added), and it has no critical.
+    const successes = this.request.success ? successCount(this.request.success, rolls) : undefined;
+    const crit = successes === undefined ? critOf(this.rules, rolls) : undefined;
     return {
       rolls,
-      modifier: this.request.modifier,
-      total: total(rolls, this.request.modifier),
+      modifier: this.modifier,
+      total: successes === undefined ? total(rolls, this.modifier) : successes + this.modifier,
       ...(crit ? { crit } : {}),
+      ...(successes !== undefined ? { successes } : {}),
       ...(this.request.label !== undefined ? { label: this.request.label } : {}),
     };
   }
 
   /** Adds a die (a d100 with its ones d10) and returns its id. */
-  private addDie(die: DieType, from: { isDefault: boolean; color?: string; parent?: DieState; up?: boolean }): number {
-    const parentLine = from.parent ? this.lines.get(from.parent.id) : undefined;
+  private addDie(die: DieType, from: { isDefault: boolean; color?: string; label?: string; fate?: true; parent?: DieState; up?: boolean; negative?: true; replaces?: DieState }): number {
+    const parentLine = from.parent ? this.lines.get(from.parent.id) : from.replaces ? this.lines.get(from.replaces.id) : undefined;
     const make = (type: DieType, ones: boolean): DieState => {
       const state: DieState = { id: this.nextId++, die: type, status: 'waiting', isDefault: from.isDefault };
       if (from.color !== undefined) state.color = from.color;
+      if (from.label !== undefined) state.label = from.label;
+      if (from.fate) state.fate = true;
+      if (from.negative) state.negative = true;
+      if (from.replaces?.negative) state.negative = true;
       if (from.parent) {
         state.exploded = true;
         // Up adds as the die it came from does; down always subtracts.
@@ -198,8 +263,9 @@ export class RollSession {
         root: parentLine?.root ?? state.id,
         defaultLine: parentLine?.defaultLine ?? from.isDefault,
         fromExplosion: from.parent !== undefined,
+        rerollDepth: from.replaces ? (parentLine?.rerollDepth ?? 0) + 1 : 0,
         ...(ones ? { ones: true } : {}),
-        ...(from.parent ? { awaiting: from.up ? 'explode-up' : 'explode-down' } : {}),
+        ...(from.parent ? { awaiting: from.up ? 'explode-up' : 'explode-down' } : from.replaces ? { awaiting: 'reroll' } : {}),
       });
       return state;
     };
@@ -238,6 +304,30 @@ export class RollSession {
     return this.states.filter((state) => !this.lines.get(state.id)?.ones).length;
   }
 
+  /** The value a die's slot stands on: its own, or the last die thrown to replace it under a reroll rule. */
+  private slotValue(id: number): number | null {
+    let current = id;
+    for (let next = this.lines.get(current)?.rerolledInto; next !== undefined; next = this.lines.get(current)?.rerolledInto) current = next;
+    return this.unitValue(current);
+  }
+
+  /**
+   * Marks the die rerolled and lays its replacement when the reroll rule of its kind asks for another throw, the slot
+   * has throws left and the roll has room. Returns whether it did (the die then earns no explosion).
+   */
+  private rerollIfDue(id: number): boolean {
+    const state = this.states.find((candidate) => candidate.id === id);
+    const line = this.lines.get(id);
+    const rule = state ? this.request.reroll?.[state.die] : undefined;
+    const value = this.unitValue(id);
+    // An explosion's die stands as thrown: rerolls are for the dice of the request.
+    if (!state || !line || !rule || value === null || line.fromExplosion || line.rerollDepth >= rule.limit || this.rollCount() >= MAX_DICE) return false;
+    if (!isSuccess({ die: state.die, op: rule.op, target: rule.value }, value)) return false;
+    state.rerolled = true;
+    line.rerolledInto = this.addDie(state.die, { isDefault: state.isDefault, color: state.color, ...(state.label !== undefined ? { label: state.label } : {}), replaces: state });
+    return true;
+  }
+
   /** Adds the die an explosion asks for, once the die has its value, while the roll has room for it. */
   private explode(id: number): void {
     const state = this.states.find((candidate) => candidate.id === id);
@@ -245,7 +335,7 @@ export class RollSession {
     const value = this.unitValue(id);
     if (!state || !line || value === null || this.rollCount() >= MAX_DICE) return;
     const direction = explosion(this.rules, state.die, value, line.defaultLine, line.fromExplosion);
-    if (direction) line.explodedInto = this.addDie(state.die, { isDefault: false, color: state.color, parent: state, up: direction === 'up' });
+    if (direction) line.explodedInto = this.addDie(state.die, { isDefault: false, color: state.color, ...(state.label !== undefined ? { label: state.label } : {}), parent: state, up: direction === 'up' });
   }
 
   /** Takes an explosion's die (a d100 with its ones die) out of the roll, and the explosions it earned in turn. */
@@ -259,15 +349,42 @@ export class RollSession {
       removed.push(gone);
     }
     if (line.explodedInto !== undefined) this.withdraw(line.explodedInto, removed);
+    if (line.rerolledInto !== undefined) this.withdraw(line.rerolledInto, removed);
+  }
+
+  /**
+   * The dice the finished roll sets aside, for the table to show: those a keep rule or advantage dropped (with their
+   * explosions) and those thrown again under a reroll rule. Nothing while the roll is not complete.
+   */
+  setAside(): number[] {
+    if (this.result() === null) return [];
+    const dropped = this.droppedRoots();
+    return this.states.filter((state) => state.rerolled === true || dropped.has(this.lines.get(state.id)?.root ?? -1)).map((state) => state.id);
+  }
+
+  /** The roots of the dice set aside (with their explosions): by advantage or disadvantage, and by keep rules. */
+  private droppedRoots(): Set<number> {
+    const gone = new Set<number>();
+    const edge = this.droppedRoot();
+    if (edge !== null) gone.add(edge);
+    for (const [die, rule] of Object.entries(this.request.keep ?? {}) as Array<[DieType, KeepRule]>) {
+      const roots = this.states
+        .filter((state) => state.die === die && !state.fate && this.lines.get(state.id)?.root === state.id && !this.lines.get(state.id)?.ones && !gone.has(state.id))
+        .map((state) => ({ id: state.id, value: this.slotValue(state.id) as number }));
+      for (const id of keepDropped(rule, roots)) gone.add(id);
+    }
+    return gone;
   }
 
   /** The root of the die advantage or disadvantage sets aside (with its explosions); null without one. */
   private droppedRoot(): number | null {
     if (!this.advantaged) return null;
     const [first, second] = this.advantaged;
-    const a = this.unitValue(first) as number;
-    const b = this.unitValue(second) as number;
-    const keepFirst = this.request.advantage === 'advantage' ? a >= b : a <= b;
+    const a = this.slotValue(first) as number;
+    const b = this.slotValue(second) as number;
+    // Advantage keeps the highest, disadvantage the lowest: the other way round where a low roll is the good one.
+    const highest = (this.request.advantage === 'advantage') !== (this.rules.crit === 'roll-under');
+    const keepFirst = highest ? a >= b : a <= b;
     return keepFirst ? second : first;
   }
 }

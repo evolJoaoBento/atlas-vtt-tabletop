@@ -9,6 +9,7 @@ import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { checkGlb } from './glbCheck';
 import { simplifyModel } from './simplify';
+import { convertToGlbs, isUnityImport } from './unity/importFile';
 
 export const DEFAULT_MINIS_FOLDER = 'atlas-vtt/assets/minis';
 export const DEFAULT_PROPS_FOLDER = 'atlas-vtt/assets/props';
@@ -148,16 +149,20 @@ export class MiniLibrary {
     const failed: Array<{ name: string; reason: string }> = [];
     await this.ensureFolder(this.folderPath);
     for (const file of files) {
-      if (!isGlbPath(file.name)) {
-        failed.push({ name: file.name, reason: 'only .glb files can be imported.' });
+      const glb = isGlbPath(file.name);
+      if (!glb && !isUnityImport(file.name)) {
+        failed.push({ name: file.name, reason: 'only .glb files, HeroForge Unity3D exports (.unity3d), TaleSpire creatures (.tsMod) and zips of them can be imported.' });
         continue;
       }
       try {
         const data = await file.arrayBuffer();
-        await parseMini(data.slice(0));
-        const path = this.freePath(file.name);
-        await this.app.vault.createBinary(path, data);
-        added.push(path);
+        const models = glb ? [{ name: file.name.replace(/\.glb$/i, ''), glb: data }] : await convertToGlbs(file.name, data);
+        for (const model of models) {
+          await parseMini(model.glb.slice(0));
+          const path = this.freePath(`${model.name}.glb`);
+          await this.app.vault.createBinary(path, model.glb);
+          added.push(path);
+        }
       } catch (error) {
         failed.push({ name: file.name, reason: explainLoadError(error) });
       }

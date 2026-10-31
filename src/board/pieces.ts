@@ -13,6 +13,7 @@ import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { MiniPlacement } from '../assignments';
 import { MiniFigure } from '../figure';
+import { MINI_BASE_COLOR, MINI_BASE_THICKNESS, miniBaseGeometry } from '../miniBase';
 import type { LoadedMini } from '../library';
 import type { TokenStyle, PropPlacement } from './boardData';
 import { hexCenter, ringDiameter, tokenDiameter } from './geometry';
@@ -21,7 +22,7 @@ import { inkTriangles } from './ink';
 import type { ResourceDefinition } from './resources';
 import { mapIconSvg } from './mapIcons';
 import { pinTitle } from './pinIcons';
-import { canvasTexture, downedMarkerTexture, hiddenMarkerTexture, loadImageTexture, pinTexture, plateTexture } from './textures';
+import { canvasTexture, delayedMarkerTexture, downedMarkerTexture, hiddenMarkerTexture, loadImageTexture, pinTexture, plateTexture } from './textures';
 
 /**
  * How far a token floats over the board, and how thick its disc is, as shares of its diameter. A token with a mini has
@@ -147,6 +148,7 @@ export class TokenPiece {
   private readonly body = new THREE.Group();
   private fallen = 0;
   private skull: THREE.Sprite | null = null;
+  private clock: THREE.Sprite | null = null;
   private readonly materials: THREE.Material[] = [];
   private art: THREE.Texture | null = null;
   private style: TokenStyle = 'disc';
@@ -187,7 +189,13 @@ export class TokenPiece {
   }
 
   private get thickness(): number {
-    return this.model ? 0 : this.diameter * DISC_THICKNESS;
+    if (this.model) return this.hasBase ? this.diameter * MINI_BASE_THICKNESS : 0;
+    return this.diameter * DISC_THICKNESS;
+  }
+
+  /** Whether a base is drawn under the mini: the mini stands on top of it. */
+  private get hasBase(): boolean {
+    return this.model !== null && (this.placement?.base ?? 'none') !== 'none';
   }
 
   /** The height of the disc's top face over the board, where a mini stands. */
@@ -235,6 +243,26 @@ export class TokenPiece {
     else if (wasDowned !== this.downed) this.markDowned();
   }
 
+  /** A clock over the token while its combatant holds its turn back. */
+  setDelayed(delayed: boolean): void {
+    if (delayed && !this.clock) {
+      this.clock = new THREE.Sprite(new THREE.SpriteMaterial({ map: delayedMarkerTexture(), sizeAttenuation: false, depthTest: false, transparent: true }));
+      this.clock.renderOrder = 10;
+      this.clock.position.y = this.diameter * 0.45;
+      this.object3d.add(this.clock);
+    } else if (!delayed && this.clock) {
+      this.clock.removeFromParent();
+      this.clock.material.map?.dispose();
+      this.clock.material.dispose();
+      this.clock = null;
+    }
+  }
+
+  /** Whether the clock shows. */
+  get delayed(): boolean {
+    return this.clock !== null;
+  }
+
   /** Greys the token and shows the skull while it is downed. */
   private markDowned(): void {
     setGrey(this.body, this.downed);
@@ -275,11 +303,12 @@ export class TokenPiece {
   }
 
   setMini(model: LoadedMini | null, placement: MiniPlacement | null): void {
-    if (model === this.model && placement?.mini === this.placement?.mini && placement?.scale === this.placement?.scale && placement?.turn === this.placement?.turn) return;
+    if (model === this.model && placement?.mini === this.placement?.mini && placement?.scale === this.placement?.scale && placement?.turn === this.placement?.turn && placement?.base === this.placement?.base) return;
     const changedModel = model !== this.model;
+    const changedBase = placement?.base !== this.placement?.base;
     this.model = model;
     this.placement = placement;
-    if (changedModel || !model) this.build();
+    if (changedModel || changedBase || !model) this.build();
   }
 
   /** Draws the token at (x, y) on the map this frame. */
@@ -296,6 +325,7 @@ export class TokenPiece {
     this.fall.rotation.z = tips ? -this.fallen * (Math.PI / 2) : 0;
     this.fall.position.set(tips ? -this.fallen * (this.uprightHeight() / 2) : 0, tips ? this.fallen * this.diameter * 0.2 : 0, 0);
     if (this.skull) this.skull.scale.setScalar(context.pixel * Math.min(40, this.diameter * 0.5) * 0.6);
+    if (this.clock) this.clock.scale.setScalar(context.pixel * Math.min(40, this.diameter * 0.5) * 0.6);
     this.object3d.position.set(x, this.carry * this.diameter * CARRY_HEIGHT, y);
     // A standee faces the camera while it stands; once it has fallen it stays as it lies.
     if (this.standee && this.fallen === 0) this.standee.rotation.y = context.yaw;
@@ -388,6 +418,15 @@ export class TokenPiece {
         face.receiveShadow = true;
         this.body.add(coin, face);
       }
+      if (this.model && this.hasBase) {
+        const { thickness } = this;
+        const base = new THREE.Mesh(miniBaseGeometry(this.placement?.base === 'square' ? 'square' : 'round', d), this.material({ color: MINI_BASE_COLOR, roughness: 0.55, metalness: 0.1 }));
+        base.position.y = thickness / 2;
+        base.castShadow = true;
+        base.receiveShadow = true;
+        base.userData.miniBase = true;
+        this.body.add(base);
+      }
       // A token with a mini stands on the board without a ring.
       if (this.token.showRing && !this.model) {
         const outer = ringDiameter(this.grid, this.token.size) / 2;
@@ -441,6 +480,10 @@ export class TokenPiece {
     if (this.skull) {
       this.skull.material.map?.dispose();
       this.skull.material.dispose();
+    }
+    if (this.clock) {
+      this.clock.material.map?.dispose();
+      this.clock.material.dispose();
     }
     if (this.marker) {
       this.marker.material.map?.dispose();

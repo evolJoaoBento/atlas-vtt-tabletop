@@ -96,6 +96,9 @@ const WALL_MATERIAL = new CANNON.Material({ friction: 0.3, restitution: 0.45 });
 /** Tokens, props and the map's walls: a die bounces off them as off the tray's walls. */
 const OBSTACLE_MATERIAL = new CANNON.Material({ friction: 0.4, restitution: 0.35 });
 
+/** How much of a die set aside shows: it is still on the table, but out of the roll. */
+const ASIDE_OPACITY = 0.35;
+
 interface ThrownDie {
   type: DieType;
   body: CANNON.Body;
@@ -285,6 +288,23 @@ export class DiceTable {
     for (const [id, die] of this.dice) {
       die.waited = wanted.has(id);
       changed = this.outline(die) || changed;
+    }
+    if (changed) this.host.wake();
+  }
+
+  /** Dims the dice the finished roll set aside (dropped or thrown again), and brings the others back to full. */
+  setAside(ids: readonly number[]): void {
+    const aside = new Set(ids);
+    let changed = false;
+    for (const [id, die] of this.dice) {
+      const want = aside.has(id);
+      const material = die.mesh.material;
+      if (want === material.transparent && (want ? ASIDE_OPACITY : 1) === material.opacity) continue;
+      material.transparent = want;
+      material.opacity = want ? ASIDE_OPACITY : 1;
+      material.depthWrite = !want;
+      material.needsUpdate = true;
+      changed = true;
     }
     if (changed) this.host.wake();
   }

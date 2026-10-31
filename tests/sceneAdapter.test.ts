@@ -105,3 +105,11 @@ test('each token\'s bars keep the colour Connect worked out for it (yellow, then
   // An older GM's plain HP bar: coloured as Atlas colours a defeating resource.
   assert.equal(rules.definitions.find((definition) => definition.key === 'hp')?.defeatedWhenSpent, true);
 });
+
+test("the world Connect sends, and where Atlas laid the map's image in it", () => {
+  const plain = boardFromScene(scene(), null).map;
+  assert.deepEqual(plain.world, { width: 1400, height: 900 });
+  const matrix = [1000, 20, -20, 1000, 12, 8] as const;
+  const turned = boardFromScene(scene({ map: { asset: 'MAP', width: 1400, height: 900, cellSize: 70, matrix } }), null).map;
+  assert.deepEqual(turned.world, { width: 1400, height: 900, matrix });
+});

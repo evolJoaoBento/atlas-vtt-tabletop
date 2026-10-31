@@ -11,6 +11,10 @@ export interface TabletopDiceSettings extends DiceSettings {
   pack: string;
   /** The colours a die can be thrown in (right-click a die in the picker); the name goes to Atlas's roll log. */
   colors: { name: string; color: string }[];
+  /** A roll from a stat sheet is thrown at once (true), or (the default) its dice are laid on the table to be thrown by hand. */
+  autoRoll: boolean;
+  /** The stat sheet drawer is pinned: it stays open under other panels. Kept across reloads. */
+  sheetPinned: boolean;
 }
 
 /** The colours Atlas suggests for a collection's dice, named. */
@@ -32,6 +36,8 @@ export const DEFAULT_DICE_SETTINGS: TabletopDiceSettings = {
   highlightColor: '#ffd54a',
   pack: DEFAULT_PACK,
   colors: DEFAULT_COLORS,
+  autoRoll: false,
+  sheetPinned: false,
 };
 
 /** The bounds each number may take; the settings tab offers them. */
@@ -70,6 +76,8 @@ export function readDiceSettings(saved: unknown): TabletopDiceSettings {
     highlightColor: isColor(raw.highlightColor) ? raw.highlightColor : d.highlightColor,
     pack: typeof raw.pack === 'string' && raw.pack.trim() !== '' ? raw.pack : d.pack,
     colors: readColors(raw.colors),
+    autoRoll: typeof raw.autoRoll === 'boolean' ? raw.autoRoll : d.autoRoll,
+    sheetPinned: typeof raw.sheetPinned === 'boolean' ? raw.sheetPinned : d.sheetPinned,
   };
 }
 
