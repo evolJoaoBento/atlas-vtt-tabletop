@@ -1,10 +1,12 @@
-import { Notice, Plugin, PluginSettingTab, Setting, TFile, debounce, type App, type ButtonComponent, type SettingDefinitionItem, type SettingDefinitionRender, type WorkspaceLeaf } from 'obsidian';
+import { Notice, addIcon, Plugin, PluginSettingTab, Setting, TFile, debounce, type App, type ButtonComponent, type SettingDefinitionItem, type SettingDefinitionRender, type WorkspaceLeaf } from 'obsidian';
 import { Assignments, readAssignments, type AssignmentData, type MiniPlacement } from './src/assignments';
 import { mapViews } from './src/atlas';
 import { BOARD_VIEW_TYPE, BoardView, HOVER_SOURCE } from './src/board/BoardView';
 import { PLAYER_VIEW_TYPE, PlayerView } from './src/board/PlayerWindow';
 import { BoardData, readBoardData, type BoardDataJSON } from './src/board/boardData';
-import { DEFAULT_QUALITY, readQuality, type Quality } from './src/board/quality';
+import { DEFAULT_QUALITY, readEdges, readQuality, readSeeThroughSize, readLayerLook, MAX_SEE_THROUGH_SIZE, MIN_SEE_THROUGH_SIZE, type LayerLook, type Quality, type WallEdges } from './src/board/quality';
+import { LayerModal } from './src/layerModal';
+import { TABLETOP_ICON, TABLETOP_ICON_BODY } from './src/tabletopIcon';
 import { lookOf, readSky, type LightingChoice, type Sky } from './src/board/look';
 import { AtlasOpenButton } from './src/atlasButton';
 import { setLanguage } from './src/i18n';
@@ -44,6 +46,13 @@ interface TabletopSettings {
   tiltShift?: boolean;
   /** Contact shadows: darker creases where things meet the floor. */
   occlusion?: boolean;
+  /** How round walls' edges are. */
+  wallEdges?: WallEdges;
+  /** Walls between the camera and what it looks at fade out. */
+  seeThrough?: boolean;
+  /** How wide that window is, in grid squares. */
+  seeThroughSize?: number;
+  layerLook?: LayerLook;
   /** The painted lighting. */
   painted?: boolean;
   /** The painted sky's palette. */
@@ -134,6 +143,7 @@ export default class TabletopPlugin extends Plugin {
   }, 500, true);
 
   async onload(): Promise<void> {
+    addIcon(TABLETOP_ICON, TABLETOP_ICON_BODY);
     // Obsidian's language, as Atlas follows it (`moment` holds it on versions before `getLanguage`).
     setLanguage((window as unknown as { moment?: { locale?: () => string } }).moment?.locale?.() ?? window.localStorage.getItem('language'));
     const saved = ((await this.loadData()) ?? {}) as SavedData;
@@ -164,6 +174,14 @@ export default class TabletopPlugin extends Plugin {
       occlusion: () => this.settings.occlusion === true,
       painted: () => this.settings.painted === true,
       sky: () => readSky(this.settings.sky),
+      wallEdges: () => readEdges(this.settings.wallEdges),
+      setWallEdges: (edges) => { void this.setWallEdges(edges); },
+      seeThrough: () => this.settings.seeThrough === true,
+      setSeeThrough: (on) => { void this.setSeeThrough(on); },
+      seeThroughSize: () => readSeeThroughSize(this.settings.seeThroughSize),
+      setSeeThroughSize: (squares) => { void this.setSeeThroughSize(squares); },
+      layerLook: () => readLayerLook(this.settings.layerLook),
+      setLayerLook: (look) => { void this.setLayerLook(look); },
       setLighting: (choice) => { void this.setLighting(choice); },
       setTiltShift: (on) => { void this.setTiltShift(on); },
       setOcclusion: (on) => { void this.setOcclusion(on); },
@@ -243,7 +261,11 @@ export default class TabletopPlugin extends Plugin {
     });
     this.registerEvent(this.app.workspace.on('file-menu', (menu, file) => {
       if (!(file instanceof TFile) || !isMapPath(file.path)) return;
-      menu.addItem((item) => item.setTitle('Open in 3D').setIcon('cuboid').onClick(() => { void this.openBoard(file.path); }));
+      menu.addItem((item) => item.setTitle('Open in 3D').setIcon(TABLETOP_ICON).onClick(() => { void this.openBoard(file.path); }));
+      const layer = this.boardData.layerOf(file.path);
+      menu.addItem((item) => item.setTitle(layer ? `Elevation layer of ${layer.base.replace(/^.*\//, '').replace(/\.[^.]+$/, '')} (${layer.elevation})…` : 'Elevation layer…').setIcon('layers').onClick(() => {
+        new LayerModal(this.app, this.boardData, file.path, this.app.vault.getFiles().filter((candidate) => isMapPath(candidate.path)).map((candidate) => candidate.path)).open();
+      }));
     }));
     // An "Open in 3D" button in stock Atlas's own toolbar; Atlas redraws its toolbar now and then, so it is put back.
     this.atlasButton = new AtlasOpenButton(this.app, (path) => { void this.openBoard(path); });
@@ -277,7 +299,7 @@ export default class TabletopPlugin extends Plugin {
     this.register(this.boardData.onChange((mapPath) => this.boardChanged(mapPath)));
     this.register(this.materials.onChange(() => { this.materialIndex?.forgetAll(); this.boardChanged(null); }));
     this.players = playerMiniPainter();
-    const board = playerBoardFactory(() => this.settings.quality, () => ({ tiltShift: this.settings.tiltShift === true, occlusion: this.settings.occlusion === true, painted: this.settings.painted === true, sky: readSky(this.settings.sky) }), { settings: () => this.settings.dice, pack: () => (this.dicePack ??= vendoredPack()) });
+    const board = playerBoardFactory(() => this.settings.quality, () => ({ tiltShift: this.settings.tiltShift === true, occlusion: this.settings.occlusion === true, painted: this.settings.painted === true, sky: readSky(this.settings.sky), edges: readEdges(this.settings.wallEdges), seeThrough: this.settings.seeThrough === true, seeThroughSize: readSeeThroughSize(this.settings.seeThroughSize), layerLook: readLayerLook(this.settings.layerLook) }), { settings: () => this.settings.dice, pack: () => (this.dicePack ??= vendoredPack()) });
     this.api = Object.freeze({
       version: 1 as const,
       playerMinis: this.players.painter,
@@ -381,6 +403,30 @@ export default class TabletopPlugin extends Plugin {
 
   async setTiltShift(on: boolean): Promise<void> {
     this.settings.tiltShift = on;
+    this.save();
+    for (const view of this.boards()) await view.applyQuality();
+  }
+
+  async setWallEdges(edges: WallEdges): Promise<void> {
+    this.settings.wallEdges = edges;
+    this.save();
+    for (const view of this.boards()) await view.applyQuality();
+  }
+
+  async setSeeThroughSize(squares: number): Promise<void> {
+    this.settings.seeThroughSize = readSeeThroughSize(squares);
+    this.save();
+    for (const view of this.boards()) await view.applyQuality();
+  }
+
+  async setLayerLook(look: LayerLook): Promise<void> {
+    this.settings.layerLook = readLayerLook(look);
+    this.save();
+    for (const view of this.boards()) await view.applyQuality();
+  }
+
+  async setSeeThrough(on: boolean): Promise<void> {
+    this.settings.seeThrough = on;
     this.save();
     for (const view of this.boards()) await view.applyQuality();
   }
@@ -644,7 +690,25 @@ class TabletopSettingTab extends PluginSettingTab {
       folder('Minis folder', 'Where imported GLB minis are kept. GLB files put in this folder by hand are listed too.', 'folder', DEFAULT_MINIS_FOLDER),
       folder('Props folder', 'Where imported GLB props (furniture, scenery) are kept. GLB files put in this folder by hand are listed too.', 'propsFolder', DEFAULT_PROPS_FOLDER),
       folder('Materials folder', 'Where imported materials (Poly Haven texture sets) are kept, one folder each. Drag one from the gallery onto a wall or door on a 3D board to paint it.', 'materialsFolder', DEFAULT_MATERIALS_FOLDER),
-      this.row('3D board quality', 'Low draws fastest (no antialiasing, soft blob shadows). Medium is sharper. High gives minis their real shadows and draws at full resolution. On all of them the resolution drops a little while the board cannot keep up.', (setting) => {
+      this.row('Wall edges', 'How round the edges of walls and doors are. Sharp is a plain box; Soft rounds the edges a little so they catch the light; Rounded is more pillowy. Walls are drawn with more triangles when rounded.', (setting) => {
+        setting.addDropdown((dropdown) => dropdown
+          .addOptions({ sharp: 'Sharp', soft: 'Soft', round: 'Rounded' })
+          .setValue(readEdges(plugin.settings.wallEdges))
+          .onChange((value) => { void plugin.setWallEdges(readEdges(value)); }));
+      }, ['rounded', 'bevel', 'corners']),
+      this.row('See-through walls', 'Walls between the camera and the point it turns around fade out, so they never hide what you are looking at. Also in the board settings on the toolbar.', (setting) => {
+        setting.addToggle((toggle) => toggle.setValue(plugin.settings.seeThrough === true).onChange((on) => { void plugin.setSeeThrough(on); }));
+      }, ['transparent', 'cutaway', 'fade']),
+      this.row('See-through window size', 'How wide the window is, in grid squares. Also in the board settings on the toolbar.', (setting) => {
+        setting.addSlider((slider) => slider.setLimits(MIN_SEE_THROUGH_SIZE, MAX_SEE_THROUGH_SIZE, 0.1).setValue(readSeeThroughSize(plugin.settings.seeThroughSize)).setDynamicTooltip().onChange((squares) => { void plugin.setSeeThroughSize(squares); }));
+      }, ['transparent', 'cutaway', 'window', 'size']),
+      this.row('Upper layers', 'How the floor image of a map stacked above another (set in the file menu of a map) is drawn in the combined 3D view: whole, half see-through, or hidden so only its walls, props and minis show. Transparent parts of the image always show what is below. Also in the board settings on the toolbar.', (setting) => {
+        setting.addDropdown((dropdown) => dropdown
+          .addOptions({ solid: 'Solid', faded: 'Faded', transparent: 'Hidden' })
+          .setValue(readLayerLook(plugin.settings.layerLook))
+          .onChange((value) => { void plugin.setLayerLook(readLayerLook(value)); }));
+      }, ['elevation', 'floor', 'stack']),
+      this.row('3D board quality', 'Low draws fastest (no antialiasing, soft blob shadows). Medium is sharper. High gives minis their real shadows and draws at full resolution. Displacement (walls whose material has a height map physically relief out) is off on Low, coarse on Medium and fine on High. On all of them the resolution drops a little while the board cannot keep up.', (setting) => {
         setting.addDropdown((dropdown) => dropdown
           .addOptions({ low: 'Low', medium: 'Medium', high: 'High' })
           .setValue(plugin.settings.quality)

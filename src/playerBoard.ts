@@ -10,7 +10,7 @@
 import { parseMini, type LoadedMini } from './library';
 import { Board, type BoardHost } from './board/board';
 import { boardFromScene, type PlayerSceneLike, type SceneBoard } from './board/sceneAdapter';
-import { QUALITY, withLooks, type Quality, type QualityPreset } from './board/quality';
+import { QUALITY, withLooks, type LayerLook, type Quality, type QualityPreset, type WallEdges } from './board/quality';
 import type { Sky } from './board/look';
 import { materialFromUrls, type LoadedMaterial } from './materials';
 import type { BoardCamera, BoardExtras, PlayerDiceRequest, PlayerDiceResult } from './connectContract';
@@ -104,7 +104,7 @@ export interface PlayerBoardDice {
   pack(): ChosenPack;
 }
 
-export function playerBoardFactory(quality: () => Quality, looks: () => { tiltShift: boolean; occlusion: boolean; painted: boolean; sky: Sky }, dice: PlayerBoardDice): PlayerBoardFactory {
+export function playerBoardFactory(quality: () => Quality, looks: () => { tiltShift: boolean; occlusion: boolean; painted: boolean; sky: Sky; edges?: WallEdges; seeThrough?: boolean; seeThroughSize?: number; layerLook?: LayerLook }, dice: PlayerBoardDice): PlayerBoardFactory {
   return Object.freeze({
     version: 1 as const,
     create: (parent: HTMLElement, host: PlayerBoardHost): PlayerBoardHandle => new PlayerBoard(parent, host, withLooks(QUALITY[quality()], looks()), dice),
@@ -371,8 +371,8 @@ class PlayerBoard implements PlayerBoardHandle {
         await Promise.all(ids.map((asset) => this.arrival(asset, () => this.host.image(asset) !== null)));
         const url = (role: string): string | null => (record.maps[role] ? this.host.image(record.maps[role]) : null);
         return materialFromUrls('', {
-          color: url('color'), normal: url('normal') ?? url('normal-dx'), roughness: url('roughness'), ao: url('ao'), arm: url('arm'), metalness: url('metalness'),
-        }, record.scale, record.maps['normal-dx'] !== undefined && record.maps.normal === undefined);
+          color: url('color'), normal: url('normal') ?? url('normal-dx'), roughness: url('roughness'), ao: url('ao'), arm: url('arm'), metalness: url('metalness'), height: url('height'),
+        }, record.scale, record.maps['normal-dx'] !== undefined && record.maps.normal === undefined, record.tuning);
       },
       placement: (tokenId) => {
         const mini = this.shown?.minis[tokenId];

@@ -1,6 +1,6 @@
 # Tabletop for Atlas VTT
 
-**Compatible with Atlas VTT 0.11.0** (Mosaic Canvas).
+**Compatible with Atlas VTT 0.12.0** (TrueScale and the player window bar), and 0.11.
 
 Tabletop for Atlas VTT is a community extension. It is not made, endorsed or supported by Atlas VTT or Atlas Online.
 
@@ -55,13 +55,20 @@ with either; it does not depend on one.
   folder of them), kept in `atlas-vtt/assets/materials`. Drag one onto a wall or door to paint that segment; hold
   **Shift** to paint the whole wall (the segments drawn in one stroke, or else those joined end to end up to a
   junction or a door). Or click a material, then click walls on the board (Esc stops). Right-click a wall to take its
-  material off. Right-click a material in the gallery and choose **Edit material…** to set how many grid squares one
-  tile of its texture covers (kept in the material's folder, as `material.json`).
+  material off. Right-click a material in the gallery and choose **Edit material…** to open a live 3D preview of a wall in
+  that material, lit from the side (move the pointer to move the light; drag to turn the view, right-drag to move it, scroll to zoom), and set how many grid squares one tile of its
+  texture covers and how strongly it shows: **Relief** (the normal map's strength, up to four times as made), **Crevices**
+  (how dark the occlusion map makes the gaps) and **Shine** (glossy light that picks out the relief) and **Depth** (parallax: the texture shifts as the camera moves, so bricks stand proud of their mortar; it reads the height map, Poly Haven's `_disp_` file, and costs some speed on big maps) and **Displacement** (the wall itself is pushed in where the height map is low, so mortar lines and gaps really recede and show from the side; walls using it are cut into many more triangles, so it is heavy on maps with very many walls: it is off on Low quality, coarse on Medium and fine on High, and a material with a small texture tile is cut finer) and **Outward** (which way Depth and Displacement go: 0 sinks the dark parts in, 1 makes the high parts stand out of the wall). A material with no normal map gets its relief worked out from its height map, or its colours, when Relief is raised above 1. **Reset texture**
+  puts the strength back as made. Kept in the material's folder, as `material.json`. Players see the strength once
+  Connect passes it on (Tabletop offers it as `tuning` on each material).
 - **Lights:** Atlas's lights (placed, and carried by tokens) shine on the board with their colour, bright and dim
   radii, and flicker (in the dark). The toolbar's **Lighting** button (the bulb) has an ambient light slider: lower
   it and the map goes dark; it starts at Atlas's ambient light when the map has Atlas's lighting on. Right-click a light's bulb, or a
   token carrying one, to set how high it hangs, or **Ctrl + drag** a bulb up or down. The lights nearest where the camera rests cast shadows (none on Low
   quality, 2 on Medium, 4 on High).
+- **Wall edges:** a setting (in the board settings, the wall button on the toolbar beside Wall thickness, and in Settings, Tabletop) for how round the edges of walls and doors are: **Sharp**, **Soft** (the default, a little rounding that catches the light) or **Rounded**. Walls that carry straight on into each other stay flush at the join.
+- **See-through walls:** a setting (the board settings on the toolbar, and Settings, Tabletop) that fades the walls between the camera and the point it turns around, so a wall in front never hides the action. It cuts a soft, dithered hole along the line of sight, a cone that is as wide as the slider says (1.2 squares to start) at the point the camera looks at and up to three times wider at the camera, leaving a faint ghost of the wall; shadows are unchanged. It is off by default.
+- **Elevation layers:** stack one scene on another for an upper floor, a balcony or a bridge. In the 3D board, click the layers icon on a scene's tab (or right-click the tab) and choose **Make a layer of…** to pick the scene underneath; the same menu changes the elevation one square at a time or takes the scene out of the stack. The file's right-click menu in Obsidian (**Elevation layer…**) does it too, with any elevation (a scene stacked on a layer joins that layer's stack; negative goes below). Opening either scene in 3D then shows the whole stack: the scene you opened is the one you edit and play, and the others are drawn read-only at their height, each with its walls, doors, props, lights and minis. Transparent parts of a layer's image show what is below. The **Upper layers** setting (board settings on the toolbar, and Settings, Tabletop) draws a layer's image **Solid**, **Faded** or **Hidden** (only what stands on it). Layers line up by their grid. The stack is the GM's: players see one scene at a time, and Connect treats each scene as its own, so present the scene you want players on.
 - **Lighting menu:** the toolbar's Lighting button chooses the board's look: **Classic** (plain white light), or
   **Painted** under a dusk, day or night sky (warm sun and cool shadows, a painted sky round the table that turns with
   the camera, the floor fading into it; tilt the camera nearly level to see the horizon). The same menu has the

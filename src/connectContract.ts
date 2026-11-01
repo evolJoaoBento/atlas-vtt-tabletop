@@ -49,7 +49,13 @@ export interface BoardLightRecord {
   activeBelowAmbient: number | null;
 }
 
-export interface BoardMaterialRecord { id: string; scale: number; maps: Record<string, string> }
+export interface BoardMaterialRecord {
+  id: string;
+  scale: number;
+  maps: Record<string, string>;
+  /** How strongly the material shows its texture (see MaterialTuning); absent as made. A Connect that does not pass it on draws the texture as made. */
+  tuning?: { relief: number; occlusion: number; shine: number; depth: number; displace: number; outward: number };
+}
 
 export interface BoardPropRecord { id: string; asset: string; x: number; y: number; scale: number; turn: number }
 

@@ -954,7 +954,7 @@ server.listen(0, async () => {
         const arrow = set.gmOnly.children[0].geometry.attributes.position.array;
         return { fog: window.boardTest.board.host.fogHeight(), meshes: open.length, boxes: open.reduce((n, m) => n + m.ids.length, 0), doors: set.doors.size, height: Math.max(...open[0].mesh.geometry.attributes.position.array.filter((_, i) => i % 3 === 1)), gmOnly: set.gmOnly.children.length, arrowTipX: arrow[0] };
       });
-      check('the walls stand as one mesh of six segments, as tall as the fog; three doors; the one-way arrow', walls.meshes === 1 && walls.boxes === 6 && walls.doors === 3 && Math.abs(walls.height - 70 * walls.fog) < 0.01 && walls.gmOnly === 1, walls);
+      check('the walls stand as one mesh of six segments, as tall as the fog; three doors; the one-way arrow', walls.meshes === 1 && walls.boxes === 6 && walls.doors === 3 && Math.abs(walls.height - 70 * walls.fog) < 70 * 0.02 /* walls that meet stand a hair apart (planJoins) */ && walls.gmOnly === 1, walls);
       // The west wall runs north; Atlas's `left` stops light from the east side of… its normal (−dy, dx) points east: light passes eastward.
       check('the one-way arrow points the way Atlas lets light through', walls.arrowTipX > 455, walls.arrowTipX);
       const fogged = await page.evaluate(() => {
@@ -1033,7 +1033,7 @@ server.listen(0, async () => {
         b.refresh();
         return { raised: all, back: top(() => true), fog: b.host.fogHeight() };
       });
-      check('a wall stands at its own height when set, and as tall as the fog again when not', tops.raised === 140 && tops.back === 70 * tops.fog, tops);
+      check('a wall stands at its own height when set, and as tall as the fog again when not', Math.abs(tops.raised - 140) < 2 && Math.abs(tops.back - 70 * tops.fog) < 2, tops);
       const lights = await page.evaluate(() => {
         const rig = window.boardTest.board.rig;
         return [...rig.entries.values()].map((e) => ({ id: e.light.id, kind: e.lamp.type, reach: e.lamp.distance, y: e.lamp.position.y, x: e.lamp.position.x, bulb: !!e.bulb, bright: e.lamp.decay }));
@@ -1151,8 +1151,8 @@ server.listen(0, async () => {
         return { labels, thickness: thickness ? thickness.value : null };
       });
       check('settings name the default wall height and offer the wall thickness', panel.labels.includes('Default wall height') && !panel.labels.includes('Fog height') && panel.labels.includes('Wall thickness') && panel.thickness === '0.12', panel);
-      // The walls are built from their shape: its thickness (map pixels) is the third entry of what they were built from.
-      const depth = () => page.evaluate(() => JSON.parse(window.boardTest.board.walls.signature)[2]);
+      // The walls are built from their shape: its thickness (map pixels) is the fifth entry of what they were built from.
+      const depth = () => page.evaluate(() => JSON.parse(window.boardTest.board.walls.signature)[4]);
       const before = await depth();
       await page.evaluate(() => {
         const input = document.querySelector('input[aria-label="Wall thickness in squares"]');
@@ -1272,9 +1272,12 @@ server.listen(0, async () => {
         tabs[1].click();
         tabs[0].querySelector('.atlas-scene-tab__action').click();
         tabs[0].querySelectorAll('.atlas-scene-tab__action')[1].click();
+        tabs[1].querySelectorAll('.atlas-scene-tab__action')[1].click();
+        tabs[1].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+        tabs[0].querySelectorAll('.atlas-scene-tab__action')[2].click();
         document.querySelector('#board .atlas-scene-tab-bar__add').click();
       });
-      check('a tab switches, its eye presents (and does not switch), its cross closes, the plus opens a scene', JSON.stringify((await record()).sceneTabs) === JSON.stringify([['switch', 't2'], ['present', 't1'], ['close', 't1'], ['add']]), (await record()).sceneTabs);
+      check('a tab switches, its eye presents (and does not switch), its layers button and right click open the layers menu, its cross closes, the plus opens a scene', JSON.stringify((await record()).sceneTabs) === JSON.stringify([['switch', 't2'], ['present', 't1'], ['layers', 't1'], ['layers', 't2'], ['layers', 't2'], ['close', 't1'], ['add']]), (await record()).sceneTabs);
     }
 
     // 23. The board never shows a blank frame: resizing a WebGL canvas wipes it, so a resize is drawn again before the

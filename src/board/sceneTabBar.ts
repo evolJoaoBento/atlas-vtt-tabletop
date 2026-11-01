@@ -16,6 +16,8 @@ export interface SceneTabEntry {
   /** Loaded in Atlas (drawn lighter while asleep), and changed since saved. */
   loaded: boolean;
   dirty: boolean;
+  /** Where it stands in a stack of scenes ("+2", "base"); unset for a scene on its own. */
+  layer?: string;
 }
 
 export interface SceneTabBarHost {
@@ -26,12 +28,15 @@ export interface SceneTabBarHost {
   /** Without them, no cross or plus (an Atlas that offers no way to). */
   closeTab?(id: string): void;
   addTab?(): void;
+  /** The tab's layer menu, opened at a point of the screen (its layers button, or a right click). Without it, no button. */
+  layerMenu?(id: string, at: { x: number; y: number }): void;
 }
 
 /** Lucide's icons, at Atlas's sizes. */
 const icon = (size: number, body: string): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
 const EYE = icon(12, '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>');
+const LAYERS = icon(12, '<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>');
 const CROSS = icon(12, '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>');
 const PLUS = icon(14, '<path d="M5 12h14"/><path d="M12 5v14"/>');
 
@@ -91,6 +96,11 @@ export class SceneTabBar {
       element.tabIndex = 0;
       element.className = `atlas-scene-tab ${tab.active ? 'atlas-scene-tab--active' : tab.loaded ? 'atlas-scene-tab--loaded' : 'atlas-scene-tab--sleeping'}`;
       element.addEventListener('click', () => this.host.switchTab(tab.id));
+      element.addEventListener('contextmenu', (event) => {
+        if (!this.host.layerMenu) return;
+        event.preventDefault();
+        this.host.layerMenu(tab.id, { x: event.clientX, y: event.clientY });
+      });
       element.addEventListener('keydown', (event) => {
         if (event.key !== 'Enter' && event.key !== ' ') return;
         event.preventDefault();
@@ -107,6 +117,14 @@ export class SceneTabBar {
         const dirty = doc.win.createSpan();
         dirty.className = 'atlas-scene-tab__dirty';
         element.appendChild(dirty);
+      }
+      if (this.host.layerMenu) {
+        const layers = this.action(LAYERS, tab.layer ? `${tab.name}: layer ${tab.layer}` : `Layers of ${tab.name}`, tab.layer !== undefined, () => {
+          const box = layers.getBoundingClientRect();
+          this.host.layerMenu?.(tab.id, { x: box.left, y: box.bottom });
+        });
+        if (tab.layer) layers.classList.add('atlas-tabletop-scene-tab__layer');
+        element.appendChild(layers);
       }
       if (this.host.closeTab) {
         element.appendChild(this.action(CROSS, `Close ${tab.name}`, undefined, () => this.host.closeTab?.(tab.id)));

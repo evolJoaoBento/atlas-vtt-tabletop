@@ -56,3 +56,9 @@ test('the props are this map\'s only, their rotation as the turn', () => {
   assert.equal(look.props.length, 1);
   assert.deepEqual({ ...look.props[0], id: 'x' }, { id: 'x', path: 'minis/barrel.glb', x: 10, y: 20, scale: 1.5, turn: 90 });
 });
+
+test('a material with its texture strengthened tells Connect how; one left as made says nothing', () => {
+  const look = boardLookFor(data(), { info: (folder) => (folder === 'mat/brick' ? { ...infos[folder]!, tuning: { relief: 2, occlusion: 1, shine: 0.3, depth: 0, displace: 0, outward: 0 } } : folder === 'mat/wood' ? { ...infos[folder]!, tuning: { relief: 1, occlusion: 1, shine: 0, depth: 0, displace: 0, outward: 0 } } : null) }, 'm.atlasmap');
+  assert.deepEqual(look.materials.find((material) => material.id === 'mat/brick')?.tuning, { relief: 2, occlusion: 1, shine: 0.3, depth: 0, displace: 0, outward: 0 });
+  assert.equal('tuning' in look.materials.find((material) => material.id === 'mat/wood')!, false);
+});

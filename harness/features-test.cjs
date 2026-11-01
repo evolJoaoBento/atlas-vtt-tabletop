@@ -579,6 +579,85 @@ feature('mini base', async ({ page, shot }) => {
   await page.evaluate(() => window.boardTest.board.tokens.get('hero') && window.boardTest.record.menuActions.splice(0));
 });
 
+// ── Scenes stacked above or below the one shown (elevation layers) ──────────────────────────────────────────────
+feature('elevation layers', async ({ page, shot }) => {
+  const stack = (elevation, extra = {}) => page.evaluate(([elevation, extra]) => {
+    const { board, map } = window.boardTest;
+    const upper = {
+      path: 'upper.atlasmap', elevation,
+      map: { ...map, path: 'upper.atlasmap', background: 'balcony.png', fog: [], inks: [], texts: [], icons: [], pins: [], initiative: null,
+        tokens: [{ ...map.tokens[0], id: 'archer', x: 420, y: 280, name: 'Archer', imagePath: 'green.png', resources: {} }],
+        walls: [{ id: 'rail', type: 'solid', p1: { x: 280, y: 420 }, p2: { x: 770, y: 420 }, direction: null, closed: true, locked: false, blocks: null, limited: false, chain: null }],
+        lights: [] },
+      wallHeight: () => null, wallMaterial: () => null, doorProp: () => null, lightHeight: () => 1, fogHeight: 1, wallThickness: 0.12, props: [],
+      placement: (id) => (id === 'archer' ? { mini: 'minis/hero.glb', scale: 1, turn: 0 } : null), style: () => 'disc', ...extra,
+    };
+    board.setStack(elevation === null ? [] : [upper]);
+  }, [elevation, extra]);
+  const probe = () => page.evaluate(() => {
+    const { board } = window.boardTest;
+    const view = [...board.layerViews.values()][0];
+    if (!view) return { layers: board.layerViews.size };
+    return { layers: board.layerViews.size, y: view.object3d.position.y, floor: view.floor.visible, alphaTest: view.image.alphaTest, transparent: view.image.transparent, opacity: view.image.opacity, casts: view.floor.castShadow, tokens: view.tokens.size, props: view.props.size };
+  });
+  const quality = (look) => page.evaluate((look) => { const { board, QUALITY } = window.boardTest; board.setQuality({ ...board.quality, layerLook: look }); }, look);
+  await stack(2);
+  await wait(900);
+  let now = await probe();
+  check('layers: a scene stacked above is drawn two squares up (140 px at a 70 px grid)', now.layers === 1 && now.y === 140, JSON.stringify(now));
+  check('layers: its image is a floor with its transparent parts cut out', now.floor && now.alphaTest === 0.5 && !now.transparent && now.casts, JSON.stringify(now));
+  check('layers: its token stands on it', now.tokens === 1, JSON.stringify(now));
+  await page.evaluate(() => { const { camera } = window.boardTest.board; camera.goal.yaw = 0.6; camera.goal.pitch = 0.6; camera.goal.distance = 900; camera.snap(); window.boardTest.board.wake(true); });
+  await shot('elevation-layer-solid');
+  const cut = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    const view = [...board.layerViews.values()][0];
+    const walls = [];
+    view.walls.object3d.traverse((node) => { if (node.isMesh) walls.push(node.material.onBeforeCompile?.cutaway === true); });
+    return { floor: view.image.onBeforeCompile?.cutaway === true, walls };
+  });
+  check('layers: the floor and the walls of a layer take the see-through cut', cut.floor && cut.walls.length > 0 && cut.walls.every(Boolean), JSON.stringify(cut));
+  await page.evaluate(() => { const { board } = window.boardTest; board.setQuality({ ...board.quality, seeThrough: true, seeThroughSize: 3 }); board.camera.goal.pitch = 1.3; board.camera.snap(); board.wake(true); });
+  await wait(500);
+  await shot('elevation-layer-seethrough');
+  await page.evaluate(() => { const { board } = window.boardTest; board.setQuality({ ...board.quality, seeThrough: false }); board.camera.goal.pitch = 0.6; board.camera.snap(); });
+  await quality('faded');
+  now = await probe();
+  check('layers: faded draws the image half see-through and casts no shadow', now.transparent && now.opacity === 0.5 && now.alphaTest === 0 && !now.casts, JSON.stringify(now));
+  await wait(300);
+  await shot('elevation-layer-faded');
+  await quality('transparent');
+  now = await probe();
+  check('layers: hidden leaves the image out and keeps what stands on it', !now.floor && now.tokens === 1, JSON.stringify(now));
+  await wait(300);
+  await shot('elevation-layer-hidden');
+  await quality('solid');
+  // Players are shown one scene: the stack is the GM's.
+  const seen = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    const view = [...board.layerViews.values()][0];
+    board.showFor('player');
+    const forPlayers = view.object3d.visible;
+    board.showFor('gm');
+    return { forPlayers, forGm: view.object3d.visible };
+  });
+  check('layers: players do not see a stacked scene, the GM does', seen.forPlayers === false && seen.forGm === true, JSON.stringify(seen));
+  // The shown scene stands above another: the table goes down to it and its own image is cut out like a layer's.
+  await stack(-2);
+  await wait(900);
+  const below = await page.evaluate(() => {
+    const surface = window.boardTest.board.surface;
+    return { table: surface.table.position.y, alphaTest: surface.image.alphaTest, plane: surface.plane.visible };
+  });
+  check('layers: with a scene below, the table goes down to it and the shown image is cut out too', below.table === -140 && below.alphaTest === 0.5 && below.plane, JSON.stringify(below));
+  await shot('elevation-layer-below');
+  await stack(null);
+  await wait(300);
+  now = await probe();
+  const plain = await page.evaluate(() => { const surface = window.boardTest.board.surface; return { table: surface.table.position.y, alphaTest: surface.image.alphaTest }; });
+  check('layers: taking the stack away leaves a plain map', now.layers === 0 && plain.table === 0 && plain.alphaTest === 0, JSON.stringify({ now, plain }));
+});
+
 server.listen(0, async () => {
   const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const errors = [];

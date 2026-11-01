@@ -11,7 +11,8 @@ import type { MiniLibrary } from './library';
 import { MiniPreview } from './miniPreview';
 import { MINI_DRAG_TYPE, MINI_TEXT_PREFIX } from './assignments';
 import { MATERIAL_DRAG_TYPE, MATERIAL_TEXT_PREFIX, type MaterialLibrary } from './materials';
-import { MAX_TEXTURE_SCALE, MIN_TEXTURE_SCALE } from './materialMaps';
+import { DEFAULT_TUNING, MAX_DEPTH, MAX_DISPLACE, MAX_OCCLUSION, MAX_RELIEF, MAX_TEXTURE_SCALE, MIN_TEXTURE_SCALE, tuningOf, type MaterialSettings, type MaterialTuning } from './materialMaps';
+import { MaterialPreview } from './materialPreview';
 
 export const GALLERY_VIEW_TYPE = 'atlas-tabletop-gallery';
 
@@ -326,6 +327,8 @@ export class GalleryView extends ItemView {
 
 /** Edits a material: how many grid squares one tile of its texture covers, shown on a preview of the tile. */
 class MaterialModal extends Modal {
+  private preview: MaterialPreview | null = null;
+
   constructor(app: App, private readonly library: MaterialLibrary, private readonly folder: TFolder) {
     super(app);
   }
@@ -334,38 +337,130 @@ class MaterialModal extends Modal {
     this.setTitle(`Edit ${this.folder.name}`);
     this.modalEl.addClass('atlas-tabletop-material-modal');
     const root = this.contentEl;
-    let scale = (await this.library.settings(this.folder.path)).scale;
-    // A wall two squares tall and four long, as the texture lies on it.
-    const preview = root.createDiv({ cls: 'atlas-tabletop-material-preview' });
+    const settings = await this.library.settings(this.folder.path);
+    let scale = settings.scale;
+    const tuning: MaterialTuning = tuningOf(settings);
+    // A wall two squares tall and four long, drawn as the board draws it, lit from the side: the light follows the pointer.
+    const canvas = root.createEl('canvas', { cls: 'atlas-tabletop-material-preview' });
+    const flat = root.createDiv({ cls: 'atlas-tabletop-material-preview', attr: { hidden: '' } });
     const url = this.library.thumbnail(this.folder.path);
-    if (url) preview.style.backgroundImage = `url("${url}")`;
-    const row = root.createDiv({ cls: 'atlas-tabletop-slider' });
-    row.createSpan({ text: 'Texture scale' });
-    const range = row.createEl('input', { type: 'range', attr: { min: String(MIN_TEXTURE_SCALE), max: '8', step: '0.05' } });
-    const number = row.createEl('input', { type: 'number', cls: 'atlas-tabletop-material-scale', attr: { min: String(MIN_TEXTURE_SCALE), max: String(MAX_TEXTURE_SCALE), step: '0.05' } });
-    row.createSpan({ cls: 'atlas-tabletop-slider-value', text: 'squares per tile' });
-    root.createDiv({ cls: 'atlas-tabletop-hint', text: 'How many grid squares one tile of the texture covers on a wall or door. Bigger stretches it, smaller repeats it more.' });
-    const show = (): void => {
-      range.value = String(Math.min(8, scale));
-      number.value = String(scale);
-      // The preview is four squares wide: a tile is a quarter of it per square.
-      preview.style.backgroundSize = `${scale * 25}% ${scale * 50}%`;
-    };
-    range.addEventListener('input', () => { scale = Number(range.value); show(); });
-    number.addEventListener('change', () => {
-      const value = Number(number.value);
-      if (Number.isFinite(value)) scale = Math.min(MAX_TEXTURE_SCALE, Math.max(MIN_TEXTURE_SCALE, value));
-      show();
+    if (url) flat.style.backgroundImage = `url("${url}")`;
+    // What the material came with: relief and depth read differently without a normal or a height map.
+    let what = { normal: true, height: true };
+    const preview = new MaterialPreview(canvas);
+    this.preview = preview;
+    if (preview.ok) {
+      try {
+        const editing = await this.library.loadForEditing(this.folder.path);
+        preview.show(editing.loaded, tuning, scale);
+        what = { normal: editing.loaded.hasNormal, height: editing.loaded.hasHeight };
+      } catch (error) {
+        preview.ok = false;
+        new Notice(`Tabletop: could not draw ${this.folder.name}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    if (!preview.ok) {
+      // No 3D preview: the texture flat, at the chosen scale (four squares wide, so a tile is a quarter of it per square).
+      canvas.hidden = true;
+      flat.hidden = false;
+    }
+    // Hovering moves the light; dragging turns the camera (right-drag or Shift-drag pans), the wheel zooms, a double click starts over.
+    let drag: { x: number; y: number; pan: boolean } | null = null;
+    canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+    canvas.addEventListener('pointerdown', (event) => {
+      drag = { x: event.clientX, y: event.clientY, pan: event.button === 2 || event.button === 1 || event.shiftKey };
+      canvas.setPointerCapture(event.pointerId);
     });
-    show();
+    canvas.addEventListener('pointermove', (event) => {
+      if (drag) {
+        const dx = event.clientX - drag.x;
+        const dy = event.clientY - drag.y;
+        drag.x = event.clientX;
+        drag.y = event.clientY;
+        if (drag.pan) preview.pan(dx, dy); else preview.orbit(dx, dy);
+        return;
+      }
+      const box = canvas.getBoundingClientRect();
+      preview.lightAt((event.clientX - box.left) / Math.max(1, box.width), (event.clientY - box.top) / Math.max(1, box.height));
+    });
+    const release = (): void => { drag = null; };
+    canvas.addEventListener('pointerup', release);
+    canvas.addEventListener('pointercancel', release);
+    canvas.addEventListener('wheel', (event) => {
+      event.preventDefault();
+      preview.zoom(event.deltaY > 0 ? 1.12 : 1 / 1.12);
+    }, { passive: false });
+    canvas.addEventListener('dblclick', () => preview.resetView());
+    root.createDiv({ cls: 'atlas-tabletop-hint', text: 'Move the pointer over the wall to move the light (a light from the side shows the relief best). Drag to turn the view, right-drag or Shift-drag to move it, scroll to zoom, double-click to start over.' });
+
+    const slider = (label: string, unit: string, hint: string, low: number, high: number, step: number, read: () => number, write: (value: number) => void, wide = high): { show: () => void } => {
+      const row = root.createDiv({ cls: 'atlas-tabletop-slider' });
+      row.createSpan({ text: label });
+      const range = row.createEl('input', { type: 'range', attr: { min: String(low), max: String(wide), step: String(step) } });
+      const number = row.createEl('input', { type: 'number', cls: 'atlas-tabletop-material-scale', attr: { min: String(low), max: String(high), step: String(step) } });
+      row.createSpan({ cls: 'atlas-tabletop-slider-value', text: unit });
+      root.createDiv({ cls: 'atlas-tabletop-hint', text: hint });
+      const show = (): void => {
+        range.value = String(Math.min(wide, read()));
+        number.value = String(Math.round(read() * 100) / 100);
+      };
+      range.addEventListener('input', () => { write(Number(range.value)); show(); });
+      number.addEventListener('change', () => {
+        const value = Number(number.value);
+        if (Number.isFinite(value)) write(Math.min(high, Math.max(low, value)));
+        show();
+      });
+      show();
+      return { show };
+    };
+    const controls = [
+      slider('Texture scale', 'squares per tile', 'How many grid squares one tile of the texture covers on a wall or door. Bigger stretches it, smaller repeats it more.',
+        MIN_TEXTURE_SCALE, MAX_TEXTURE_SCALE, 0.05, () => scale, (value) => {
+          scale = value;
+          preview.retile(scale);
+          flat.style.backgroundSize = `${scale * 25}% ${scale * 50}%`;
+        }, 8),
+      slider('Relief', '× as made', what.normal ? 'How strongly the texture stands out: bumps, grooves and mortar lines. 0 is flat, 1 is as the texture was made; more makes it deeper.'
+        : `This material has no normal map. Above 1, relief is worked out from its ${what.height ? 'height map' : 'colours (light is high, dark is low)'}; at 1 or less it stays flat.`,
+        0, MAX_RELIEF, 0.05, () => tuning.relief, (value) => { tuning.relief = value; preview.tune(tuning); }),
+      slider('Crevices', '× as made', 'How dark the creases and gaps are, from the texture\'s occlusion map (a material without one is not changed).',
+        0, MAX_OCCLUSION, 0.05, () => tuning.occlusion, (value) => { tuning.occlusion = value; preview.tune(tuning); }),
+      slider('Depth', '0 flat, 1 deep', what.height ? 'How deep the surface is: the texture shifts as the camera moves, so bricks stand proud of their mortar. Turn the view in the preview to see it. Costs some speed on big maps.'
+        : 'Needs a height (displacement) map, like the _disp_ file Poly Haven gives; this material has none.',
+        0, MAX_DEPTH, 0.05, () => tuning.depth, (value) => { tuning.depth = value; preview.tune(tuning); }),
+      slider('Displacement', '0 none, 1 deep', what.height ? 'Pushes the wall itself in where the height map is low, so mortar lines and gaps really recede and the surface profile shows from the side. Walls with it are cut into many more triangles: heavy on maps with very many walls.'
+        : 'Needs a height (displacement) map, like the _disp_ file Poly Haven gives; this material has none.',
+        0, MAX_DISPLACE, 0.05, () => tuning.displace, (value) => { tuning.displace = value; preview.tune(tuning); }),
+      slider('Outward', '0 sinks in, 1 stands out', what.height ? 'Which way Depth and Displacement go. At 0 the height-map white is the wall surface and the dark parts sink in; at 1 the dark parts are the surface and the high parts stand out of the wall (bricks proud of their mortar, studs). In between, a bit of both.'
+        : 'Needs a height (displacement) map, like the _disp_ file Poly Haven gives; this material has none.',
+        0, 1, 0.05, () => tuning.outward, (value) => { tuning.outward = value; preview.tune(tuning); }),
+      slider('Shine', '0 matte, 1 glossy', 'Glossy light glints on the relief and picks it out. Matte stone or plaster wants none; wet rock or polished marble wants some.',
+        0, 1, 0.05, () => tuning.shine, (value) => { tuning.shine = value; preview.tune(tuning); }),
+    ];
+    flat.style.backgroundSize = `${scale * 25}% ${scale * 50}%`;
     const buttons = root.createDiv({ cls: 'modal-button-container' });
+    buttons.createEl('button', { text: 'Reset texture' }).addEventListener('click', () => {
+      Object.assign(tuning, DEFAULT_TUNING);
+      preview.tune(tuning);
+      for (const control of controls) control.show();
+    });
     buttons.createEl('button', { cls: 'mod-cta', text: 'Save' }).addEventListener('click', () => {
-      void this.library.saveSettings(this.folder.path, { scale }).then(() => this.close(), (error: unknown) => new Notice(`Tabletop: could not save ${this.folder.name}: ${error instanceof Error ? error.message : String(error)}`));
+      const next: MaterialSettings = { scale };
+      // What stays as made is not written.
+      if (tuning.relief !== DEFAULT_TUNING.relief) next.relief = tuning.relief;
+      if (tuning.occlusion !== DEFAULT_TUNING.occlusion) next.occlusion = tuning.occlusion;
+      if (tuning.shine !== DEFAULT_TUNING.shine) next.shine = tuning.shine;
+      if (tuning.depth !== DEFAULT_TUNING.depth) next.depth = tuning.depth;
+      if (tuning.displace !== DEFAULT_TUNING.displace) next.displace = tuning.displace;
+      if (tuning.outward !== DEFAULT_TUNING.outward) next.outward = tuning.outward;
+      void this.library.saveSettings(this.folder.path, next).then(() => this.close(), (error: unknown) => new Notice(`Tabletop: could not save ${this.folder.name}: ${error instanceof Error ? error.message : String(error)}`));
     });
     buttons.createEl('button', { text: 'Cancel' }).addEventListener('click', () => this.close());
   }
 
   onClose(): void {
+    this.preview?.dispose();
+    this.preview = null;
     this.contentEl.empty();
   }
 }

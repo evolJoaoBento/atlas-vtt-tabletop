@@ -10,7 +10,9 @@ import type { BoardMark, BoardSession } from '../connectContract';
 import { ItemView, Menu, Notice, TFile, debounce, setIcon, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
 import { presentedSceneOf, tabViewOf, type AtlasView } from '../atlas';
 import { MOSAIC_FROM_BYTES, mapPicture } from '../atlasMosaic';
-import { SceneTabBar } from './sceneTabBar';
+import { SceneTabBar, type SceneTabEntry } from './sceneTabBar';
+import { LayerModal } from '../layerModal';
+import type { ElevationLayerData } from './elevationLayer';
 import type { Assignments } from '../assignments';
 import { MiniPicker } from '../gallery';
 import type { LoadedMini, MiniLibrary } from '../library';
@@ -32,7 +34,7 @@ import { wholeWall } from './walls';
 import type { TokenChange } from './tokenWriter';
 import type { LaserSettings } from './laser';
 import type { PlayerView } from './PlayerWindow';
-import { QUALITY, withLooks, type Quality, type QualityPreset } from './quality';
+import { DEFAULT_EDGES, DEFAULT_SEE_THROUGH_SIZE, QUALITY, withLooks, type LayerLook, type Quality, type QualityPreset, type WallEdges } from './quality';
 import { DEFAULT_SKY, type LightingChoice, type Sky } from './look';
 import type { TokenWriter } from './tokenWriter';
 import { BoardDice } from '../dice/boardDice';
@@ -47,6 +49,7 @@ import { rollViewFor, type MapViewLike } from '../dice/atlasDice';
 import type { ChosenPack } from '../dice/dicePack';
 import type { TabletopDiceSettings } from '../dice/diceSettings';
 import { documentHasWebgl, NO_WEBGL_HELP, NO_WEBGL_TITLE } from '../webgl';
+import { TABLETOP_ICON } from '../tabletopIcon';
 
 export const BOARD_VIEW_TYPE = 'atlas-tabletop-board';
 /** The hover source Tabletop registers, so Obsidian's page preview shows stat blocks from the board. */
@@ -68,6 +71,14 @@ export interface BoardServices {
   quality(): Quality;
   /** Whether the board gets the miniature look (a blur towards the top and bottom). */
   tiltShift?(): boolean;
+  wallEdges?(): WallEdges;
+  setWallEdges?(edges: WallEdges): void;
+  seeThrough?(): boolean;
+  setSeeThrough?(on: boolean): void;
+  seeThroughSize?(): number;
+  setSeeThroughSize?(squares: number): void;
+  layerLook?(): LayerLook;
+  setLayerLook?(look: LayerLook): void;
   /** Whether the board gets contact shadows (ambient occlusion). */
   occlusion?(): boolean;
   /** Whether the board gets the painted lighting. */
@@ -134,7 +145,7 @@ export class BoardView extends ItemView {
   }
 
   getViewType(): string { return BOARD_VIEW_TYPE; }
-  getIcon(): string { return 'cuboid'; }
+  getIcon(): string { return TABLETOP_ICON; }
   getDisplayText(): string {
     return this.path ? `3D: ${this.path.split('/').pop()!.replace(/\.atlasmap$/, '')}` : '3D board';
   }
@@ -168,6 +179,7 @@ export class BoardView extends ItemView {
     this.registerEvent(this.app.vault.on('modify', (file) => {
       if (file.path === this.path) this.reload();
       else if (file.path === ASSETS_METADATA_PATH) this.reload();
+      else if (this.stackPaths.has(file.path)) this.reloadStack();
     }));
     this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
       if (oldPath !== this.path) return;
@@ -187,6 +199,7 @@ export class BoardView extends ItemView {
         const found = this.path ? tabViewOf(this.app, this.path) : null;
         if (found?.view.closeTab) void found.view.closeTab(id);
       },
+      layerMenu: (id, at) => this.layerMenu(id, at),
       addTab: () => {
         const found = this.path ? tabViewOf(this.app, this.path) : null;
         if (found?.view.openSceneBrowser) found.view.openSceneBrowser();
@@ -279,7 +292,7 @@ export class BoardView extends ItemView {
 
   /** The quality setting, with the miniature look if it is on. */
   private preset(): QualityPreset {
-    return withLooks(QUALITY[this.services.quality()], { tiltShift: this.services.tiltShift?.() === true, occlusion: this.services.occlusion?.() === true, painted: this.services.painted?.() === true, sky: this.services.sky?.() ?? DEFAULT_SKY });
+    return withLooks(QUALITY[this.services.quality()], { tiltShift: this.services.tiltShift?.() === true, occlusion: this.services.occlusion?.() === true, painted: this.services.painted?.() === true, sky: this.services.sky?.() ?? DEFAULT_SKY, edges: this.services.wallEdges?.() ?? DEFAULT_EDGES, seeThrough: this.services.seeThrough?.() === true, seeThroughSize: this.services.seeThroughSize?.(), layerLook: this.services.layerLook?.() });
   }
 
   /** A board, and the GM's dice on it. */
@@ -342,6 +355,54 @@ export class BoardView extends ItemView {
   /** The minis, styles or props changed: the board draws them again. */
   refresh(): void {
     this.board?.refresh();
+    void this.readStack();
+  }
+
+  /** The scenes stacked with this one that were read, whose files are followed. */
+  private stackPaths = new Set<string>();
+  private stackRead = 0;
+  private readonly reloadStack = debounce(() => { void this.readStack(); }, RELOAD_MS, true);
+
+  /**
+   * Reads the scenes stacked with this one (elevation layers: this scene's data says which, and how high) and gives them
+   * to the board to draw beside it. A scene on its own has none.
+   */
+  private async readStack(): Promise<void> {
+    const path = this.path;
+    const board = this.board;
+    if (!path || !board) return;
+    const { assignments, boardData } = this.services;
+    const stack = boardData.stackOf(path);
+    const mine = stack.find((member) => member.path === path);
+    const turn = ++this.stackRead;
+    const layers: ElevationLayerData[] = [];
+    for (const member of mine ? stack : []) {
+      if (member.path === path) continue;
+      const file = this.app.vault.getAbstractFileByPath(member.path);
+      if (!(file instanceof TFile)) continue;
+      try {
+        const map = readMap(member.path, await this.app.vault.read(file), null);
+        layers.push({
+          path: member.path,
+          elevation: member.elevation - (mine?.elevation ?? 0),
+          map,
+          wallHeight: (id) => boardData.wallHeight(member.path, id),
+          wallMaterial: (id) => boardData.wallMaterial(member.path, id),
+          doorProp: (id) => boardData.doorProp(member.path, id),
+          lightHeight: (id) => boardData.lightHeight(member.path, id) ?? DEFAULT_LIGHT_SQUARES,
+          fogHeight: boardData.fogHeight(member.path),
+          wallThickness: boardData.wallThickness(member.path),
+          props: boardData.props(member.path),
+          placement: (id) => assignments.get(member.path, id),
+          style: (id) => boardData.style(member.path, id),
+        });
+      } catch (error) {
+        this.warn(`Tabletop: cannot show the stacked scene ${member.path}: ${error instanceof Error ? error.message : String(error)}.`);
+      }
+    }
+    if (this.closed || turn !== this.stackRead || path !== this.path) return;
+    this.stackPaths = new Set(layers.map((layer) => layer.path));
+    board.setStack(layers);
   }
 
   /** The next click on the board puts a prop of `glb` there. */
@@ -410,6 +471,7 @@ export class BoardView extends ItemView {
     if (fresh) this.initiative?.setOpen(this.liveInitiative().entries.length > 0);
     this.showInitiative();
     this.sessionChanged();
+    void this.readStack();
     if (fresh && !this.closed) this.services.boardReady(this);
   }
 
@@ -598,6 +660,10 @@ export class BoardView extends ItemView {
       setLaser: (changes) => this.services.setLaser(changes),
       setLighting: (choice) => this.services.setLighting?.(choice),
       setTiltShift: (on) => this.services.setTiltShift?.(on),
+      ...(this.services.setSeeThrough && { setSeeThrough: (on: boolean) => this.services.setSeeThrough?.(on) }),
+      ...(this.services.setSeeThroughSize && { setSeeThroughSize: (squares: number) => this.services.setSeeThroughSize?.(squares) }),
+      ...(this.services.setLayerLook && { setLayerLook: (look: LayerLook) => this.services.setLayerLook?.(look) }),
+      ...(this.services.setWallEdges && { setWallEdges: (edges: WallEdges) => this.services.setWallEdges?.(edges) }),
       setOcclusion: (on) => this.services.setOcclusion?.(on),
       autoRoll: () => this.services.diceSettings().autoRoll,
       setAutoRoll: (on) => this.services.setAutoRoll?.(on),
@@ -782,14 +848,73 @@ export class BoardView extends ItemView {
   }
 
   /** The scene tabs of the Atlas view holding this map: this board's scene marked, and the one players are shown. */
-  private sceneTabEntries(): Array<{ id: string; name: string; filePath: string; active: boolean; presented: boolean; loaded: boolean; dirty: boolean }> {
+  private sceneTabEntries(): SceneTabEntry[] {
     const found = this.path ? tabViewOf(this.app, this.path) : null;
     if (!found) return [];
     const presented = presentedSceneOf(this.app)?.get()?.tabId ?? null;
     return found.view.tabMetaStore.getState().tabs.map((tab) => ({
       id: tab.id, name: tab.displayName, filePath: tab.filePath, active: tab.filePath === this.path, presented: tab.id === presented,
       loaded: tab.isLoaded === true, dirty: tab.isDirty === true,
+      ...this.layerLabel(tab.filePath),
     }));
+  }
+
+  /** A scene's place in a stack, for its tab: "base", or its elevation ("+2", "-1"). */
+  private layerLabel(path: string): { layer?: string } {
+    const { boardData } = this.services;
+    const layer = boardData.layerOf(path);
+    if (layer) return { layer: layer.elevation > 0 ? `+${layer.elevation}` : String(layer.elevation) };
+    return boardData.layersOf(path).length > 0 ? { layer: 'base' } : {};
+  }
+
+  /**
+   * A scene tab's layers menu: stack the scene on another one at an elevation (an upper floor, a balcony), change that
+   * elevation, or take it out of the stack. Opening either scene of a stack in 3D shows them together.
+   */
+  private layerMenu(tabId: string, at: { x: number; y: number }): void {
+    const found = this.path ? tabViewOf(this.app, this.path) : null;
+    const tabs = found?.view.tabMetaStore.getState().tabs ?? [];
+    const tab = tabs.find((entry) => entry.id === tabId);
+    if (!tab) return;
+    const { boardData } = this.services;
+    const path = tab.filePath;
+    const others = (): Array<{ path: string; name: string }> => tabs.filter((entry) => entry.filePath !== path).map((entry) => ({ path: entry.filePath, name: entry.displayName }));
+    const entries = (): MenuEntry[] => {
+      const layer = boardData.layerOf(path);
+      const hasLayers = boardData.layersOf(path).length > 0;
+      const list: MenuEntry[] = [];
+      if (hasLayers) {
+        const names = boardData.layersOf(path).map((member) => member.path.replace(/^.*\//, '').replace(/\.[^.]+$/, ''));
+        list.push({ type: 'item', label: `Base of ${names.join(', ')}`, disabled: true, onClick: () => {} });
+      } else {
+        const base = layer?.base ?? null;
+        const stand = others();
+        list.push({
+          type: 'submenu', label: base ? 'Stand on…' : 'Make a layer of…', icon: 'layers',
+          children: () => [
+            ...stand.map((other): MenuEntry => ({ type: 'item', label: other.name, checked: other.path === base, onClick: () => { if (!boardData.setLayer(path, other.path, boardData.layerOf(path)?.elevation ?? 1)) new Notice('Tabletop: that scene cannot be stacked there.'); this.sceneTabs?.refresh(); } })),
+            ...(stand.length > 0 ? [{ type: 'separator' } as MenuEntry] : []),
+            { type: 'item', label: 'Another scene…', onClick: () => this.pickLayerBase(path) },
+          ],
+        });
+        if (layer) {
+          const elevation = layer.elevation;
+          const step = (delta: number): void => { boardData.setLayer(path, layer.base, Math.round((elevation + delta) * 100) / 100); this.sceneTabs?.refresh(); this.menu?.refresh(); };
+          list.push({ type: 'item', label: 'Elevation (squares)', keepOpen: true, onClick: () => {}, stepper: { value: String(elevation), label: 'elevation', canDecrement: true, onDecrement: () => step(-1), onIncrement: () => step(1) } });
+          list.push({ type: 'separator' });
+          list.push({ type: 'item', label: 'Remove from stack', destructive: true, onClick: () => { boardData.clearLayer(path); this.sceneTabs?.refresh(); } });
+        }
+      }
+      return list;
+    };
+    this.menu?.close();
+    this.menu = new AtlasMenu(this.contentEl.ownerDocument, entries, at, (element, name) => setIcon(element, name), () => { this.menu = null; });
+  }
+
+  /** Any scene of the vault as the base of a layer, by the modal. */
+  private pickLayerBase(path: string): void {
+    const maps = this.app.vault.getFiles().filter((file) => file.path.toLowerCase().endsWith('.atlasmap')).map((file) => file.path);
+    new LayerModal(this.app, this.services.boardData, path, maps).open();
   }
 
   /** A tab chosen over the board: Atlas switches to it, and the board shows its scene. */

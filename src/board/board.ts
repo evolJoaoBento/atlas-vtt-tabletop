@@ -41,7 +41,9 @@ import { resourceUpdate, withCurrent, type ResourceValue } from './resources';
 import { IconPiece, InkPiece, PinPiece, PropPiece, TextPiece, TokenPiece, type PoseContext } from './pieces';
 import { numberCells, type CellNumbers } from './cellNumbers';
 import { stripGeometry } from './surface';
-import { ResolutionGovernor, type QualityPreset } from './quality';
+import { addCutaway, newCutaway } from './cutaway';
+import { ElevationLayerView, type ElevationLayerData, type ElevationLayerShape } from './elevationLayer';
+import { EDGE_SHARE, ResolutionGovernor, type LayerLook, type QualityPreset, type WallEdges } from './quality';
 import { PostFx, type PostFxLook } from './postFx';
 import { BoardSurface } from './surface';
 import { FogVolume } from './fogVolume';
@@ -126,6 +128,13 @@ export interface BoardHost {
   /** The miniature look and the contact shadows, on or off, kept for every board. */
   setTiltShift?(on: boolean): void;
   setOcclusion?(on: boolean): void;
+  /** How round the walls' edges are, kept for every board. */
+  setWallEdges?(edges: WallEdges): void;
+  /** Whether walls between the camera and what it looks at fade out, kept for every board. */
+  setSeeThrough?(on: boolean): void;
+  /** How wide the see-through window is, in grid squares, kept for every board. */
+  setSeeThroughSize?(squares: number): void;
+  setLayerLook?(look: LayerLook): void;
   /** Whether a stat sheet's roll is thrown at once; changing it, kept for every board. */
   autoRoll?(): boolean;
   setAutoRoll?(on: boolean): void;
@@ -296,6 +305,9 @@ export class Board {
   private readonly resize: ResizeObserver;
   private readonly stops: Array<() => void> = [];
   private surface: BoardSurface | null = null;
+  /** The scenes stacked with this one (elevation layers), as the view gave them, and what draws each. */
+  private stackData: readonly ElevationLayerData[] = [];
+  private readonly layerViews = new Map<string, ElevationLayerView>();
   private map: BoardMap | null = null;
   private size = { width: 0, height: 0 };
   private hasImage = false;
@@ -346,6 +358,8 @@ export class Board {
   /** Atlas's walls and doors, and the materials they are painted with, by key (a folder, or the plain looks). */
   private readonly walls: WallSet;
   private readonly wallMaterials = new Map<string, THREE.MeshStandardMaterial>();
+  /** What fades the walls between a camera and its pivot, shared by every wall material. */
+  private readonly cutaway = newCutaway();
   /** Atlas's lights, and the board's daylight they shine against (a level shown while the slider moves). */
   private readonly rig = new LightRig();
   private readonly hemisphere = new THREE.HemisphereLight(LIGHTING.classic.skyColor, LIGHTING.classic.groundColor, 1);
@@ -399,6 +413,8 @@ export class Board {
     this.walls = new WallSet({
       look: (path, door) => this.wallLook(path, door),
       materialOf: (id) => this.host.wallMaterial(id),
+      displaces: (path) => (path ? this.wallMaterials.get(path)?.userData.displaces === true : false),
+      tileOf: (path) => (path ? (this.wallMaterials.get(path)?.userData.tileScale as number | undefined) ?? 1 : 1),
       heightOf: (id) => (this.heightDrag?.target === 'wall' && this.heightDrag.id === id ? this.heightDrag.value : this.host.wallHeight(id)),
       propOf: (id) => this.host.doorProp(id),
       prop: (glb) => this.model(glb),
@@ -409,6 +425,14 @@ export class Board {
       setFogHeight: (height) => this.host.setFogHeight(height),
       wallThickness: () => this.host.wallThickness(),
       setWallThickness: (thickness) => this.host.setWallThickness(thickness),
+      wallEdges: () => this.quality.edges,
+      seeThrough: () => this.quality.seeThrough,
+      seeThroughSize: () => this.quality.seeThroughSize,
+      ...(this.host.setSeeThroughSize && { setSeeThroughSize: (squares: number) => this.host.setSeeThroughSize?.(squares) }),
+      layerLook: () => this.quality.layerLook,
+      ...(this.host.setLayerLook && { setLayerLook: (look: LayerLook) => this.host.setLayerLook?.(look) }),
+      ...(this.host.setSeeThrough && { setSeeThrough: (on: boolean) => this.host.setSeeThrough?.(on) }),
+      ...(this.host.setWallEdges && { setWallEdges: (edges: WallEdges) => this.host.setWallEdges?.(edges) }),
       playerViewOpen: () => this.host.playerViewOpen(),
       laserOn: () => this.laserOn,
       selectTool: (tool) => this.setLaser(tool === 'laser'),
@@ -499,6 +523,65 @@ export class Board {
     this.sync();
   }
 
+  /**
+   * The scenes stacked with the one shown (their elevations measured from it). They are drawn read-only: the shown
+   * scene is the one edited and played.
+   */
+  setStack(layers: readonly ElevationLayerData[]): void {
+    this.stackData = layers;
+    this.applyStack();
+  }
+
+  private applyStack(): void {
+    const map = this.map;
+    const surface = this.surface;
+    if (!map || !surface || this.disposed) return;
+    const lowest = Math.min(0, ...this.stackData.map((layer) => layer.elevation));
+    surface.stack(lowest * map.grid.size, lowest < 0 ? this.quality.layerLook : null);
+    // An upper floor between the camera and the pivot fades like a wall does.
+    if (lowest < 0) addCutaway(surface.imageMaterial, this.cutaway);
+    const wanted = new Map(this.stackData.map((layer) => [layer.path, layer]));
+    for (const [path, view] of [...this.layerViews]) {
+      if (wanted.has(path)) continue;
+      view.dispose();
+      this.layerViews.delete(path);
+    }
+    const measurement = this.host.measurement();
+    const shape: ElevationLayerShape = {
+      cell: map.grid.size,
+      offsetX: map.grid.offsetX,
+      offsetY: map.grid.offsetY,
+      look: this.quality.layerLook,
+      minWall: MIN_WALL_SQUARES,
+      edge: EDGE_SHARE[this.quality.edges],
+      cuts: this.quality.displaceCuts,
+      miniShadows: this.quality.miniShadows,
+      ambient: this.ambientShown ?? this.host.ambient(),
+      litThreshold: LIT_THRESHOLD,
+      unitDistance: measurement.unitDistance > 0 ? measurement.unitDistance : 5,
+    };
+    for (const layer of wanted.values()) {
+      let view = this.layerViews.get(layer.path);
+      if (!view) {
+        view = new ElevationLayerView(layer, {
+          wallLook: (path, door) => this.wallLook(path, door),
+          displaces: (path) => (path ? this.wallMaterials.get(path)?.userData.displaces === true : false),
+          tileOf: (path) => (path ? (this.wallMaterials.get(path)?.userData.tileScale as number | undefined) ?? 1 : 1),
+          model: (path) => this.model(path),
+          image: (path) => this.mapTexture(path),
+          art: (path) => this.artTexture(path),
+          cut: (material) => addCutaway(material, this.cutaway),
+          wake: () => this.wake(true),
+        });
+        this.layerViews.set(layer.path, view);
+        this.scene.add(view.object3d);
+      }
+      view.update(layer, shape);
+    }
+    this.shadowsDirty = true;
+    this.wake(true);
+  }
+
   /** The drawing resolution now, as a share of the screen's pixels. */
   get pixelRatio(): number {
     return this.renderer.getPixelRatio();
@@ -511,8 +594,16 @@ export class Board {
   setQuality(preset: QualityPreset): boolean {
     if (preset.antialias !== this.quality.antialias) return false;
     const repaint = preset.painted !== this.quality.painted || preset.sky !== this.quality.sky;
+    const rounder = preset.edges !== this.quality.edges || preset.displaceCuts !== this.quality.displaceCuts;
+    const seeing = preset.seeThrough !== this.quality.seeThrough || preset.seeThroughSize !== this.quality.seeThroughSize;
+    const restack = (this.layerViews.size > 0 || this.stackData.length > 0)
+      && (preset.layerLook !== this.quality.layerLook || rounder || preset.miniShadows !== this.quality.miniShadows);
     this.quality = preset;
+    if (restack) this.applyStack();
+    if (seeing) this.wake(true);
     if (repaint) this.applyLook();
+    // Walls are stood again with their new edges.
+    if (rounder) { this.updateWalls(); this.wake(true); }
     if (!preset.tiltShift && !preset.occlusion) {
       this.tilt?.dispose();
       this.tilt = null;
@@ -569,27 +660,31 @@ export class Board {
   /** The video of an animated map, while the map is one: the board keeps drawing frames while it plays. */
   private video: HTMLVideoElement | null = null;
 
-  private async buildSurface(map: BoardMap): Promise<void> {
+  /** A map image as a texture; null when it cannot be read. */
+  private async mapTexture(background: string): Promise<THREE.Texture | null> {
     let texture: THREE.Texture | null = null;
-    if (map.background) {
-      // Never larger than the graphics card takes in one texture, whatever Atlas allows.
-      const side = Math.min(MAX_MAP_TEXTURE, this.renderer.capabilities.maxTextureSize);
-      // A map too large to decode whole comes as a picture of Atlas's tiles.
-      const picture = await this.host.readPicture?.(map.background, side).catch(() => null);
-      if (picture) texture = mapTextureFromPicture(picture);
-      if (!texture) {
-        const url = await this.host.readImage(map.background);
-        if (url) {
-          try {
-            texture = await loadMapTexture(url, map.background, side);
-          } catch {
-            this.host.warn(`Tabletop: cannot read the map image ${map.background}.`);
-          }
-        } else {
-          this.host.warn(`Tabletop: the map image ${map.background} is missing.`);
+    // Never larger than the graphics card takes in one texture, whatever Atlas allows.
+    const side = Math.min(MAX_MAP_TEXTURE, this.renderer.capabilities.maxTextureSize);
+    // A map too large to decode whole comes as a picture of Atlas's tiles.
+    const picture = await this.host.readPicture?.(background, side).catch(() => null);
+    if (picture) texture = mapTextureFromPicture(picture);
+    if (!texture) {
+      const url = await this.host.readImage(background);
+      if (url) {
+        try {
+          texture = await loadMapTexture(url, background, side);
+        } catch {
+          this.host.warn(`Tabletop: cannot read the map image ${background}.`);
         }
+      } else {
+        this.host.warn(`Tabletop: the map image ${background} is missing.`);
       }
     }
+    return texture;
+  }
+
+  private async buildSurface(map: BoardMap): Promise<void> {
+    const texture = map.background ? await this.mapTexture(map.background) : null;
     if (this.disposed) { texture?.dispose(); return; }
     const imageSize = mapImageSize(texture) ?? { width: FALLBACK_SIZE, height: FALLBACK_SIZE };
     // A player's map comes in the world's own size, whatever the image sent (a shrunk copy, a stretched or turned map).
@@ -624,6 +719,7 @@ export class Board {
     this.view.near = span * 0.005;
     this.view.far = span * 40;
     this.view.updateProjectionMatrix();
+    this.applyStack();
   }
 
   /** Brings tokens, pins and props in line with the map and the host. */
@@ -779,17 +875,22 @@ export class Board {
   private applyArt(entry: TokenEntry): void {
     const path = entry.token.imagePath;
     if (!path) { entry.piece.setArt(null); return; }
-    let art = this.arts.get(path);
-    if (!art) {
-      art = this.host.readImage(path).then((url) => (url ? loadImageTexture(url) : null)).catch(() => null);
-      this.arts.set(path, art);
-    }
-    void art.then((texture) => {
+    void this.artTexture(path).then((texture) => {
       if (this.tokens.get(entry.token.id) !== entry || entry.token.imagePath !== path) return;
       if (!texture) this.host.warn(`Tabletop: cannot show the token art ${path}.`);
       entry.piece.setArt(texture);
       this.wake(true);
     });
+  }
+
+  /** A token's art as a texture, kept: tokens share it. */
+  private artTexture(path: string): Promise<THREE.Texture | null> {
+    let art = this.arts.get(path);
+    if (!art) {
+      art = this.host.readImage(path).then((url) => (url ? loadImageTexture(url) : null)).catch(() => null);
+      this.arts.set(path, art);
+    }
+    return art;
   }
 
   private applyMini(entry: TokenEntry): void {
@@ -1042,7 +1143,8 @@ export class Board {
     };
     this.lastPose = context;
     if (this.drawLaser()) busy = true;
-    const doorsMoving = this.walls.step(dt);
+    let doorsMoving = this.walls.step(dt);
+    for (const view of this.layerViews.values()) if (view.step(dt, this.clock, context)) doorsMoving = true;
     if (doorsMoving) busy = true;
     if (this.marks.step(this.clock, context.pixel)) busy = true;
     this.rig.step(this.clock);
@@ -1106,7 +1208,7 @@ export class Board {
     if (this.continuing) this.wake();
     // Flames flicker on a timer, a few times a second, not on every frame the screen can draw; those frames are
     // rests to the resolution governor.
-    else if ((this.rig.animated || this.video !== null) && this.flickerTimer === 0) {
+    else if ((this.rig.animated || [...this.layerViews.values()].some((view) => view.animated) || this.video !== null) && this.flickerTimer === 0) {
       const win = this.frameWin ?? this.container.ownerDocument.defaultView ?? window;
       this.flickerTimer = win.setTimeout(() => { this.flickerTimer = 0; this.wake(); }, this.video !== null ? VIDEO_FRAME_MS : FLICKER_MS);
     }
@@ -1135,6 +1237,15 @@ export class Board {
     this.view.position.set(eye.x, eye.y, eye.z);
     this.view.lookAt(target.x, target.y, target.z);
     this.view.updateMatrixWorld();
+    this.aimCutaway(eye, target);
+  }
+
+  /** Aims the see-through cut from a camera at the point it looks at, for the drawing about to be made. */
+  private aimCutaway(eye: { x: number; y: number; z: number }, target: { x: number; y: number; z: number }): void {
+    this.cutaway.eye.value.set(eye.x, eye.y, eye.z);
+    this.cutaway.pivot.value.set(target.x, target.y, target.z);
+    this.cutaway.radius.value = (this.map?.grid.size ?? 50) * this.quality.seeThroughSize;
+    this.cutaway.strength.value = this.quality.seeThrough ? 1 : 0;
   }
 
   private ray(clientX: number, clientY: number): void {
@@ -1203,6 +1314,8 @@ export class Board {
       thickness: this.host.wallThickness() * map.grid.size,
       fogged: (x, y) => insideFog(fog, { x, y }),
       fogKey: map.fog.map((operation) => operation.id).join(','),
+      edge: EDGE_SHARE[this.quality.edges],
+      cuts: this.quality.displaceCuts,
     });
   }
 
@@ -1286,13 +1399,18 @@ export class Board {
     let material = this.wallMaterials.get(key);
     if (material) return material;
     material = new THREE.MeshStandardMaterial({ color: path ? 0xffffff : door ? PLAIN_DOOR : PLAIN_WALL, roughness: 0.9, metalness: 0 });
+    addCutaway(material, this.cutaway);
     this.wallMaterials.set(key, material);
     if (path) {
       const made = material;
       void this.host.readMaterial(path).then((loaded) => {
         if (this.disposed || !loaded) { if (!loaded) made.color.set(PLAIN_WALL); return; }
         loaded.apply(made);
+        // A material's own shader (parallax) replaces the cut: put it back.
+        addCutaway(made, this.cutaway);
         made.needsUpdate = true;
+        // Walls of a material that moves them are cut finely: stood again now that it is known.
+        if (made.userData.displaces) this.updateWalls();
         this.wake(true);
       });
     }
@@ -1314,6 +1432,14 @@ export class Board {
     on('pointermove', (event) => this.move(event));
     on('pointerup', (event) => this.up(event));
     on('pointercancel', () => this.cancel());
+    // A double click on a mini brings the camera to it (the same as a click on its initiative card, minus the selection).
+    on('dblclick', (event) => {
+      if (event.button !== 0) return;
+      const entry = this.tokens.get(this.tokenAt(event.clientX, event.clientY) ?? '');
+      if (!entry) return;
+      this.camera.lookAt({ x: entry.goal.x, y: 0, z: entry.goal.y });
+      this.wake();
+    });
     // The pointer was taken away mid-drag (Alt-Tab, a dialog): no pointerup will come, so the drag ends here. After a
     // normal release `press` is already cleared.
     on('lostpointercapture', () => { if (this.press) this.cancel(); });
@@ -2180,6 +2306,8 @@ export class Board {
     this.fog.show(viewer);
     this.walls.show(viewer);
     this.rig.show(viewer);
+    // Players see one scene at a time: what is stacked on it is the GM's.
+    for (const view of this.layerViews.values()) view.setVisible(gm);
   }
 
   /** The players' picture, after the GM's: the same scene through the players' camera, then back to the GM's look. */
@@ -2200,6 +2328,7 @@ export class Board {
     player.view.far = this.view.far;
     player.view.updateProjectionMatrix();
     player.view.updateMatrixWorld();
+    this.aimCutaway(eye, target);
     const distance = frozen?.distance ?? pose.distance;
     const context: PoseContext = {
       ...gm,
@@ -2646,6 +2775,8 @@ export class Board {
     this.fog.dispose();
     this.walls.dispose();
     this.rig.dispose();
+    for (const view of this.layerViews.values()) view.dispose();
+    this.layerViews.clear();
     this.groupMarks.dispose();
     this.groupBar.dispose();
     this.activeMarks.dispose();

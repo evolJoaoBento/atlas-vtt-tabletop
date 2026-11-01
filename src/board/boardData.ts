@@ -2,7 +2,8 @@
  * What the board remembers per map besides the minis: how each token without a mini is shown (a disc, the default, or
  * a standee), the props standing on the map, how tall its fog of war stands, the material painted on each wall and
  * door, the prop a door is replaced with, how high each light hangs, and how bright the board's ambient light is.
- * Kept in Tabletop's own data, never in the map file. Follows vault renames and deletions the way the mini assignments
+ * It also records which maps are elevation layers of another (a balcony, an upper floor), and how high. Kept in
+ * Tabletop's own data, never in the map file. Follows vault renames and deletions the way the mini assignments
  * do. Pure, so it is tested without Obsidian.
  */
 
@@ -37,6 +38,20 @@ interface MapData {
   ambient?: number;
   /** How thick its walls stand, as a share of a grid square; kept only when it is not the default. */
   wallThickness?: number;
+  /** This map is a layer of another, standing above it (or below, if negative). */
+  layer?: ElevationLayer;
+}
+
+/** A map stacked on another: the base map's path, and how many grid squares above it this one stands. */
+export interface ElevationLayer {
+  readonly base: string;
+  readonly elevation: number;
+}
+
+/** One map of a stack, with its height above the base map in grid squares. */
+export interface StackMember {
+  readonly path: string;
+  readonly elevation: number;
 }
 
 /** Fog stands one square tall unless the GM says otherwise. */
@@ -67,6 +82,7 @@ function tidy(map: MapData): MapData | null {
   if (map.wallHeights && Object.keys(map.wallHeights).length > 0) out.wallHeights = map.wallHeights;
   if (map.ambient !== undefined) out.ambient = map.ambient;
   if (map.wallThickness !== undefined && map.wallThickness !== DEFAULT_WALL_THICKNESS) out.wallThickness = map.wallThickness;
+  if (map.layer) out.layer = map.layer;
   return Object.keys(out).length > 0 ? out : null;
 }
 
@@ -84,6 +100,12 @@ function heights(raw: unknown): Record<string, number> {
   return out;
 }
 
+function readLayer(raw: unknown): ElevationLayer | undefined {
+  return isObj(raw) && typeof raw.base === 'string' && raw.base !== '' && typeof raw.elevation === 'number' && Number.isFinite(raw.elevation)
+    ? { base: raw.base, elevation: raw.elevation }
+    : undefined;
+}
+
 /** Reads saved data, dropping anything malformed. Only standees are stored: a disc is the default. */
 export function readBoardData(raw: unknown): BoardDataJSON {
   const out: BoardDataJSON = {};
@@ -96,8 +118,9 @@ export function readBoardData(raw: unknown): BoardDataJSON {
     const fogHeight = typeof value.fogHeight === 'number' && Number.isFinite(value.fogHeight) && value.fogHeight >= 0 ? value.fogHeight : undefined;
     const ambient = typeof value.ambient === 'number' && value.ambient >= 0 && value.ambient <= 1 ? value.ambient : undefined;
     const wallThickness = typeof value.wallThickness === 'number' && Number.isFinite(value.wallThickness) && value.wallThickness > 0 ? value.wallThickness : undefined;
+    const layer = readLayer(value.layer);
     const kept = tidy({
-      styles, props, ...(fogHeight !== undefined && { fogHeight }),
+      styles, props, ...(layer && { layer }), ...(fogHeight !== undefined && { fogHeight }),
       wallMaterials: strings(value.wallMaterials), doorProps: strings(value.doorProps), lightHeights: heights(value.lightHeights),
       wallHeights: heights(value.wallHeights),
       ...(ambient !== undefined && { ambient }),
@@ -273,6 +296,53 @@ export class BoardData {
     this.put(mapPath, { ...map, props: map.props.map((prop) => (prop.id === id ? { ...prop, x, y } : prop)) });
   }
 
+  /** The map this one is a layer of, and how high it stands above it; null for a map that is not a layer. */
+  layerOf(mapPath: string): ElevationLayer | null {
+    return this.data[mapPath]?.layer ?? null;
+  }
+
+  /**
+   * Stacks a map on another, `elevation` grid squares above it. A map stacked on a layer joins that layer's stack, and
+   * a map that has layers of its own cannot become one (nor a map be its own base). Returns whether it was done.
+   */
+  setLayer(mapPath: string, base: string, elevation: number): boolean {
+    if (!Number.isFinite(elevation)) return false;
+    const root = this.data[base]?.layer ?? null;
+    // On a layer, the elevation is given from that layer: the stack is measured from its base.
+    const target = root ? root.base : base;
+    const height = Math.round((root ? root.elevation + elevation : elevation) * 100) / 100;
+    if (target === mapPath || this.layersOf(mapPath).length > 0) return false;
+    const current = this.data[mapPath]?.layer;
+    if (current && current.base === target && current.elevation === height) return true;
+    this.put(mapPath, { ...(this.data[mapPath] ?? {}), layer: { base: target, elevation: height } });
+    return true;
+  }
+
+  clearLayer(mapPath: string): void {
+    const map = this.data[mapPath];
+    if (!map?.layer) return;
+    const { layer: _layer, ...rest } = map;
+    this.put(mapPath, rest);
+  }
+
+  /** The maps stacked directly on this base. */
+  layersOf(base: string): StackMember[] {
+    return Object.entries(this.data)
+      .filter(([, map]) => map.layer?.base === base)
+      .map(([path, map]) => ({ path, elevation: map.layer!.elevation }));
+  }
+
+  /**
+   * The stack a map belongs to, lowest first, with heights measured from the base map; empty for a map on its own.
+   * Opening any of them shows them all.
+   */
+  stackOf(mapPath: string): StackMember[] {
+    const base = this.data[mapPath]?.layer?.base ?? mapPath;
+    const layers = this.layersOf(base);
+    if (layers.length === 0) return [];
+    return [{ path: base, elevation: 0 }, ...layers].sort((a, b) => a.elevation - b.elevation || a.path.localeCompare(b.path));
+  }
+
   removeProp(mapPath: string, id: string): void {
     const map = this.data[mapPath];
     if (!map?.props?.some((prop) => prop.id === id)) return;
@@ -307,7 +377,9 @@ export class BoardData {
       };
       const wallMaterials = follow(map.wallMaterials);
       const doorProps = follow(map.doorProps);
-      next[to] = { ...map, ...(props ? { props } : {}), ...(wallMaterials ? { wallMaterials } : {}), ...(doorProps ? { doorProps } : {}) };
+      const base = map.layer ? moved(map.layer.base) : null;
+      if (base) touched = true;
+      next[to] = { ...map, ...(props ? { props } : {}), ...(wallMaterials ? { wallMaterials } : {}), ...(doorProps ? { doorProps } : {}), ...(map.layer && base ? { layer: { ...map.layer, base } } : {}) };
     }
     if (!touched) return;
     this.data = next;
@@ -329,7 +401,11 @@ export class BoardData {
         if (Object.keys(left).length !== Object.keys(paths).length) touched = true;
         return left;
       };
-      const kept = tidy({ ...map, props, wallMaterials: keep(map.wallMaterials), doorProps: keep(map.doorProps) });
+      // A layer whose base is gone is a map on its own again.
+      const orphan = map.layer !== undefined && under(map.layer.base);
+      if (orphan) touched = true;
+      const { layer: _layer, ...bare } = map;
+      const kept = tidy({ ...(orphan ? bare : map), props, wallMaterials: keep(map.wallMaterials), doorProps: keep(map.doorProps) });
       if (kept) next[mapPath] = kept;
     }
     if (!touched) return;

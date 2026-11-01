@@ -10,6 +10,7 @@
 import { setSvg } from '../svg';
 import { DICES_SVG } from '../dice/dicePicker';
 import type { LightingChoice } from './look';
+import { DEFAULT_EDGES, DEFAULT_SEE_THROUGH_SIZE, MAX_SEE_THROUGH_SIZE, MIN_SEE_THROUGH_SIZE, readSeeThroughSize, DEFAULT_LAYER_LOOK, type LayerLook, type WallEdges } from './quality';
 import { t } from '../i18n';
 import { LASER_COLORS, LASER_COLOR_HINT, LASER_SIZE_MAX, LASER_SIZE_MIN, type LaserSettings } from './laser';
 
@@ -20,6 +21,17 @@ export interface ToolbarActions {
   /** How thick the walls stand, as a share of a grid square. */
   wallThickness(): number;
   setWallThickness(thickness: number): void;
+  /** How round the walls' edges are, kept for every board; absent where it is not the GM's to choose. */
+  wallEdges?(): WallEdges;
+  setWallEdges?(edges: WallEdges): void;
+  /** Whether walls between the camera and what it looks at fade out, kept for every board; absent where it is not the GM's to choose. */
+  seeThrough?(): boolean;
+  setSeeThrough?(on: boolean): void;
+  seeThroughSize?(): number;
+  setSeeThroughSize?(squares: number): void;
+  /** How the image of an elevation layer is drawn; absent where it is not the GM's to choose. */
+  layerLook?(): LayerLook;
+  setLayerLook?(look: LayerLook): void;
   /** Whether Connect hosts a session: the Template tool shows then. */
   hosting(): boolean;
   templateOn(): boolean;
@@ -82,6 +94,9 @@ const SHEET_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const MORE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>';
 
 /** Lucide's `command` icon (ISC), the glyph of Atlas's command palette button. */
+/** Lucide's `brick-wall` icon (ISC): the board settings button, whose panel is about walls and fog first. */
+const WALL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 9v6"/><path d="M16 15v6"/><path d="M16 3v6"/><path d="M3 15h18"/><path d="M3 9h18"/><path d="M8 15v6"/><path d="M8 3v6"/></svg>';
+
 const COMMAND_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></svg>';
 
 /** Lucide's `flashlight`, `chevron-down` and `check` icons (ISC): Atlas's laser pointer, its options' chevron, a chosen swatch. */
@@ -167,6 +182,11 @@ export class BoardToolbar {
   private readonly sizeValue: HTMLElement;
   private readonly heightInput: HTMLInputElement;
   private readonly thicknessInput: HTMLInputElement;
+  private readonly seeThroughToggle: HTMLInputElement;
+  private readonly seeThroughSizeInput: HTMLInputElement;
+  private readonly seeThroughSizeValue: HTMLElement;
+  private readonly edgeButtons: Array<{ value: WallEdges; button: HTMLButtonElement }> = [];
+  private readonly layerButtons: Array<{ value: LayerLook; button: HTMLButtonElement }> = [];
   private readonly initiativeToggle: HTMLInputElement;
   private readonly ambientInput: HTMLInputElement;
   private readonly ambientValue: HTMLElement;
@@ -385,7 +405,7 @@ export class BoardToolbar {
       if (event.key === 'Escape') { event.preventDefault(); this.closeLighting(); }
     });
     // Players are shown scenes with the eye on Atlas's scene tabs over the board: no player view or freeze button here.
-    this.button = tool(COMMAND_SVG, () => (this.panel.hidden ? this.open() : this.close()));
+    this.button = tool(WALL_SVG, () => (this.panel.hidden ? this.open() : this.close()));
     // Atlas's end slot, where Connect puts its buttons as it does in Atlas's own toolbar; Atlas's styles apply inside it.
     this.endSlot = el('div', 'atlas-toolbar-end atlas-vtt-plugin atlas-tabletop-extensions', bar);
     this.button.setAttribute('aria-label', 'Board settings');
@@ -413,6 +433,57 @@ export class BoardToolbar {
     this.thicknessInput.inputMode = 'decimal';
     this.thicknessInput.setAttribute('aria-label', 'Wall thickness in squares');
     el('span', 'atlas-tabletop-palette__unit', thick, 'squares');
+    const edges = el('div', 'atlas-tabletop-palette__field', fog);
+    el('span', 'atlas-tabletop-palette__label', edges, 'Wall edges');
+    const edgeChoices = el('span', 'atlas-tabletop-palette__choices', edges);
+    edgeChoices.setAttribute('role', 'group');
+    edgeChoices.setAttribute('aria-label', 'How round the edges of walls and doors are');
+    for (const [value, label] of [['sharp', 'Sharp'], ['soft', 'Soft'], ['round', 'Round']] as const) {
+      const button = el('button', 'atlas-tabletop-palette__choice', edgeChoices, label);
+      button.type = 'button';
+      // Applies at once: the choice shows as chosen now, and the walls follow.
+      button.addEventListener('click', () => {
+        this.actions.setWallEdges?.(value);
+        this.showEdges(value);
+      });
+      this.edgeButtons.push({ value, button });
+    }
+    edges.title = 'Sharp is a plain box; Soft rounds the edges a little so they catch the light; Rounded is more pillowy. Walls are drawn with more triangles when rounded.';
+    const through = el('label', 'atlas-tabletop-palette__field', fog);
+    this.seeThroughToggle = el('input', 'atlas-tabletop-palette__check', through);
+    this.seeThroughToggle.type = 'checkbox';
+    el('span', 'atlas-tabletop-palette__label', through, 'See-through walls');
+    through.title = 'Walls between the camera and the point it turns around fade out, so they never hide what you are looking at.';
+    this.seeThroughToggle.addEventListener('change', () => this.actions.setSeeThrough?.(this.seeThroughToggle.checked));
+    const sizeField = el('label', 'atlas-tabletop-palette__field', fog);
+    el('span', 'atlas-tabletop-palette__label', sizeField, 'Window size');
+    this.seeThroughSizeInput = el('input', 'atlas-tabletop-palette__range', sizeField);
+    this.seeThroughSizeInput.type = 'range';
+    this.seeThroughSizeInput.min = String(MIN_SEE_THROUGH_SIZE);
+    this.seeThroughSizeInput.max = String(MAX_SEE_THROUGH_SIZE);
+    this.seeThroughSizeInput.step = '0.1';
+    this.seeThroughSizeInput.setAttribute('aria-label', 'How wide the see-through window is, in grid squares');
+    this.seeThroughSizeValue = el('span', 'atlas-tabletop-palette__unit', sizeField, '');
+    this.seeThroughSizeInput.addEventListener('input', () => {
+      const squares = readSeeThroughSize(Number(this.seeThroughSizeInput.value));
+      this.seeThroughSizeValue.textContent = `${squares.toFixed(1)} sq`;
+      this.actions.setSeeThroughSize?.(squares);
+    });
+    const layers = el('div', 'atlas-tabletop-palette__field', fog);
+    el('span', 'atlas-tabletop-palette__label', layers, 'Upper layers');
+    const layerChoices = el('span', 'atlas-tabletop-palette__choices', layers);
+    layerChoices.setAttribute('role', 'group');
+    layerChoices.setAttribute('aria-label', 'How the floor image of a map stacked above another is drawn');
+    for (const [value, label] of [['solid', 'Solid'], ['faded', 'Faded'], ['transparent', 'Hidden']] as const) {
+      const button = el('button', 'atlas-tabletop-palette__choice', layerChoices, label);
+      button.type = 'button';
+      button.addEventListener('click', () => {
+        this.actions.setLayerLook?.(value);
+        this.showLayerLook(value);
+      });
+      this.layerButtons.push({ value, button });
+    }
+    layers.title = 'Maps stacked above another (set in the file menu of a map): Solid draws their image whole, Faded half see-through, Hidden draws only their walls, props and minis. Transparent parts of the image always show what is below.';
     el('div', 'atlas-tabletop-palette__hint', fog, 'Walls without a height of their own stand this many grid squares tall, and so does the fog painted in Atlas (0 lays the fog flat on the map).');
     // Atlas's command palette shows or hides its initiative tracker; so does this, and its I key.
     const initiative = el('div', 'atlas-tabletop-palette__section', this.panel);
@@ -718,6 +789,19 @@ export class BoardToolbar {
     if (hidden) this.close();
   }
 
+  /** Marks the chosen wall edges in the settings. */
+  private showEdges(chosen: WallEdges): void {
+    for (const { value, button } of this.edgeButtons) button.classList.toggle('is-active', value === chosen);
+    for (const { value, button } of this.edgeButtons) button.setAttribute('aria-pressed', String(value === chosen));
+  }
+
+  private showLayerLook(chosen: LayerLook): void {
+    for (const { value, button } of this.layerButtons) {
+      button.classList.toggle('is-active', value === chosen);
+      button.setAttribute('aria-pressed', String(value === chosen));
+    }
+  }
+
   open(): void {
     this.closeLaser();
     // The panels of the end slot (the dice tray, the log, an unpinned sheet) give way to this one.
@@ -726,6 +810,16 @@ export class BoardToolbar {
     this.heightInput.removeAttribute('aria-invalid');
     this.thicknessInput.value = String(this.actions.wallThickness());
     this.thicknessInput.removeAttribute('aria-invalid');
+    this.showEdges(this.actions.wallEdges?.() ?? DEFAULT_EDGES);
+    this.seeThroughToggle.checked = this.actions.seeThrough?.() ?? false;
+    this.seeThroughToggle.closest('.atlas-tabletop-palette__field')?.toggleAttribute('hidden', this.actions.setSeeThrough === undefined);
+    const squares = this.actions.seeThroughSize?.() ?? DEFAULT_SEE_THROUGH_SIZE;
+    this.seeThroughSizeInput.value = String(squares);
+    this.seeThroughSizeValue.textContent = `${squares.toFixed(1)} sq`;
+    this.seeThroughSizeInput.closest('.atlas-tabletop-palette__field')?.toggleAttribute('hidden', this.actions.setSeeThroughSize === undefined);
+    this.edgeButtons[0]?.button.closest('.atlas-tabletop-palette__field')?.toggleAttribute('hidden', this.actions.setWallEdges === undefined);
+    this.showLayerLook(this.actions.layerLook?.() ?? DEFAULT_LAYER_LOOK);
+    this.layerButtons[0]?.button.closest('.atlas-tabletop-palette__field')?.toggleAttribute('hidden', this.actions.setLayerLook === undefined);
     this.initiativeToggle.checked = this.actions.initiativeOpen();
     this.autoRollToggle.checked = this.actions.autoRoll();
     this.panel.hidden = false;

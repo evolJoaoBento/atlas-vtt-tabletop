@@ -6,10 +6,11 @@
 import * as THREE from 'three';
 import { styledGrid } from './gridLines';
 import type { BoardGrid } from './mapModel';
+import { FADED_LAYER_OPACITY, type LayerLook } from './quality';
 
 const FRAME_COLOR = 0x3b2a1d;
 const FLOOR_COLOR = 0x17120e;
-/** The grid sits a hair above the image so it never fights it for depth. */
+/** The grid sits a hair above the image (and is drawn in front of it in depth) so it never fights it. */
 const GRID_LIFT = 0.4;
 
 /** Black or white, whichever stands out on the image, the way Atlas picks a grid colour that was not set. */
@@ -54,6 +55,9 @@ export function stripGeometry(segments: readonly number[], width: number): THREE
 export class BoardSurface {
   readonly object3d = new THREE.Group();
   private floor: THREE.Mesh | null = null;
+  /** The frame and the floor under the table: they go down with the lowest map of a stack. */
+  private readonly table = new THREE.Group();
+  private readonly plane: THREE.Mesh;
   private readonly image: THREE.MeshStandardMaterial;
   private grid: THREE.Mesh | null = null;
 
@@ -73,6 +77,7 @@ export class BoardSurface {
     this.image = new THREE.MeshStandardMaterial({ color: 0x55504a, roughness: 0.9, metalness: 0 });
     const plane = new THREE.Mesh(new THREE.PlaneGeometry(laid?.image.width ?? width, laid?.image.height ?? height).rotateX(-Math.PI / 2), this.image);
     plane.receiveShadow = true;
+    this.plane = plane;
     if (matrix) {
       // The unit square (corner at the origin, the map's top toward -z) carried by the matrix into the world.
       plane.geometry.dispose();
@@ -98,16 +103,42 @@ export class BoardSurface {
     const depth = span * 0.03;
     const frame = new THREE.Mesh(
       new THREE.BoxGeometry(width + border * 2, depth, height + border * 2),
-      new THREE.MeshStandardMaterial({ color: FRAME_COLOR, roughness: 0.75, metalness: 0.05 }),
+      new THREE.MeshStandardMaterial({ color: FRAME_COLOR, roughness: 0.75, metalness: 0.05, polygonOffset: true, polygonOffsetFactor: 4, polygonOffsetUnits: 4 }),
     );
-    frame.position.set(width / 2, -depth / 2 - 0.5, height / 2);
+    // Sunk by a share of the map, and pushed back in depth: far out the depth buffer cannot tell a half unit, and the frame showed through the map.
+    frame.position.set(width / 2, -depth / 2 - Math.max(0.5, span * 0.002), height / 2);
     frame.receiveShadow = true;
 
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(span * 30, span * 30).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: FLOOR_COLOR, roughness: 1 }));
     floor.position.set(width / 2, -depth * 3, height / 2);
     floor.receiveShadow = true;
     this.floor = floor;
-    this.object3d.add(floor, frame, laying);
+    this.table.add(floor, frame);
+    this.object3d.add(this.table, laying);
+  }
+
+  /**
+   * This map is stacked above others: the table goes down to `lowest` (in map pixels, negative), and its image is drawn
+   * as an upper layer would be (`look`): its transparent parts cut out, half see-through, or left out. Null look: a
+   * plain map again.
+   */
+  stack(lowest: number, look: LayerLook | null): void {
+    this.table.position.y = Math.min(0, lowest);
+    const { image } = this;
+    const upper = look !== null;
+    image.alphaTest = look === 'solid' ? 0.5 : 0;
+    image.transparent = look === 'faded';
+    image.opacity = look === 'faded' ? FADED_LAYER_OPACITY : 1;
+    image.depthWrite = look !== 'faded';
+    image.needsUpdate = true;
+    this.plane.castShadow = look === 'solid';
+    this.plane.visible = look !== 'transparent';
+    this.plane.renderOrder = upper && look === 'faded' ? 1 : 0;
+  }
+
+  /** The material of the map image, for the see-through cut. */
+  get imageMaterial(): THREE.Material {
+    return this.image;
   }
 
   /** The floor beyond the table, made wider to run out to the horizon (it fades into the sky's colour there). */
@@ -135,7 +166,7 @@ export class BoardSurface {
     const color = grid.color ?? (image ? contrastColor(image) : '#000000');
     // Atlas's line width, in map pixels: a strip, since WebGL draws lines one pixel thin whatever the width.
     const geometry = stripGeometry(styledGrid(grid, this.width, this.height).segments, Math.max(0.5, grid.lineWidth));
-    this.grid = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: grid.opacity, depthWrite: false, side: THREE.DoubleSide }));
+    this.grid = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: grid.opacity, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
     this.object3d.add(this.grid);
   }
 

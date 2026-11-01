@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { QUALITY, ResolutionGovernor, readQuality } from '../src/board/quality';
+import { EDGE_SHARE, QUALITY, ResolutionGovernor, readEdges, readLayerLook, readQuality, withLooks } from '../src/board/quality';
 
 test('quality presets go from cheap to sharp', () => {
-  assert.deepEqual(QUALITY.low, { maxPixelRatio: 1, minPixelRatio: 0.6, antialias: false, shadowMapSize: 1024, miniShadows: 'blob', lightShadows: 0, tiltShift: false, occlusion: false, painted: false, sky: 'dusk' });
-  assert.deepEqual(QUALITY.medium, { maxPixelRatio: 1.5, minPixelRatio: 0.75, antialias: true, shadowMapSize: 2048, miniShadows: 'blob', lightShadows: 2, tiltShift: false, occlusion: false, painted: false, sky: 'dusk' });
-  assert.deepEqual(QUALITY.high, { maxPixelRatio: 2, minPixelRatio: 1, antialias: true, shadowMapSize: 4096, miniShadows: 'real', lightShadows: 4, tiltShift: false, occlusion: false, painted: false, sky: 'dusk' });
+  assert.deepEqual(QUALITY.low, { maxPixelRatio: 1, minPixelRatio: 0.6, antialias: false, shadowMapSize: 1024, miniShadows: 'blob', lightShadows: 0, displaceCuts: 0, tiltShift: false, occlusion: false, painted: false, sky: 'dusk', edges: 'soft', seeThrough: false, seeThroughSize: 1.2, layerLook: 'solid' });
+  assert.deepEqual(QUALITY.medium, { maxPixelRatio: 1.5, minPixelRatio: 0.75, antialias: true, shadowMapSize: 2048, miniShadows: 'blob', lightShadows: 2, displaceCuts: 8, tiltShift: false, occlusion: false, painted: false, sky: 'dusk', edges: 'soft', seeThrough: false, seeThroughSize: 1.2, layerLook: 'solid' });
+  assert.deepEqual(QUALITY.high, { maxPixelRatio: 2, minPixelRatio: 1, antialias: true, shadowMapSize: 4096, miniShadows: 'real', lightShadows: 4, displaceCuts: 16, tiltShift: false, occlusion: false, painted: false, sky: 'dusk', edges: 'soft', seeThrough: false, seeThroughSize: 1.2, layerLook: 'solid' });
   assert.equal(readQuality('high'), 'high');
   assert.equal(readQuality('ultra'), 'medium');
   assert.equal(readQuality(undefined), 'medium');
@@ -48,4 +48,20 @@ test('a gap between frames (the board was idle) is not a slow frame', () => {
 test('a steady 45 fps changes nothing', () => {
   const governor = new ResolutionGovernor(QUALITY.medium, 2);
   assert.deepEqual(run(governor, 1 / 45, 20), []);
+});
+
+test('wall edges: read from a saved value, soft when unknown, and a looks change of them makes a new preset', () => {
+  assert.equal(readEdges('round'), 'round');
+  assert.equal(readEdges('nonsense'), 'soft');
+  const looks = { tiltShift: false, occlusion: false, painted: false, sky: 'dusk' as const };
+  assert.equal(withLooks(QUALITY.medium, { ...looks, edges: 'soft' }), QUALITY.medium);
+  assert.equal(withLooks(QUALITY.medium, looks), QUALITY.medium);
+  assert.equal(withLooks(QUALITY.medium, { ...looks, edges: 'round' }).edges, 'round');
+  assert.ok(EDGE_SHARE.sharp < EDGE_SHARE.soft && EDGE_SHARE.soft < EDGE_SHARE.round);
+});
+
+test('the look of an upper layer is read back as stored, and anything else is solid', () => {
+  for (const look of ['solid', 'faded', 'transparent'] as const) assert.equal(readLayerLook(look), look);
+  for (const bad of [undefined, null, 'hidden', 3]) assert.equal(readLayerLook(bad), 'solid');
+  assert.equal(withLooks(QUALITY.medium, { tiltShift: false, occlusion: false, painted: false, sky: 'dusk', layerLook: 'faded' }).layerLook, 'faded');
 });

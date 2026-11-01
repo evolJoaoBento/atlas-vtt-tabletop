@@ -117,3 +117,47 @@ test('wall thickness: a share of a square, 0.12 by default, kept per map and rea
   data.setWallThickness('m', DEFAULT_WALL_THICKNESS);
   assert.equal(data.toJSON()['m'], undefined, 'the default is not stored');
 });
+
+test('a map stacked on another is a layer of it, and either one opens the whole stack, lowest first', () => {
+  const data = new BoardData();
+  assert.equal(data.setLayer('upper', 'ground', 2), true);
+  assert.deepEqual(data.layerOf('upper'), { base: 'ground', elevation: 2 });
+  assert.equal(data.layerOf('ground'), null);
+  const stack = [{ path: 'ground', elevation: 0 }, { path: 'upper', elevation: 2 }];
+  assert.deepEqual(data.stackOf('ground'), stack);
+  assert.deepEqual(data.stackOf('upper'), stack);
+  assert.deepEqual(data.stackOf('alone'), []);
+});
+
+test('a map stacked on a layer joins that layer\'s stack, measured from the base', () => {
+  const data = new BoardData();
+  data.setLayer('upper', 'ground', 2);
+  assert.equal(data.setLayer('roof', 'upper', 1.5), true);
+  assert.deepEqual(data.layerOf('roof'), { base: 'ground', elevation: 3.5 });
+  assert.deepEqual(data.stackOf('roof').map((member) => member.path), ['ground', 'upper', 'roof']);
+});
+
+test('a map cannot be its own base, nor become a layer while it has layers of its own', () => {
+  const data = new BoardData();
+  assert.equal(data.setLayer('a', 'a', 1), false);
+  assert.equal(data.setLayer('a', 'b', Number.NaN), false);
+  data.setLayer('upper', 'ground', 2);
+  assert.equal(data.setLayer('ground', 'other', 1), false);
+  data.clearLayer('upper');
+  assert.deepEqual(data.stackOf('ground'), []);
+  assert.deepEqual(data.toJSON(), {});
+});
+
+test('layers survive a save and load, and follow a renamed or deleted base', () => {
+  const data = new BoardData();
+  data.setLayer('upper', 'ground', 2);
+  const loaded = new BoardData(readBoardData(JSON.parse(JSON.stringify(data.toJSON()))));
+  assert.deepEqual(loaded.layerOf('upper'), { base: 'ground', elevation: 2 });
+  assert.equal(readBoardData({ upper: { layer: { base: 'ground', elevation: 'high' } } }).upper, undefined);
+  loaded.rename('ground', 'floor/ground');
+  assert.deepEqual(loaded.layerOf('upper'), { base: 'floor/ground', elevation: 2 });
+  loaded.rename('upper', 'floor/upper');
+  assert.deepEqual(loaded.layerOf('floor/upper'), { base: 'floor/ground', elevation: 2 });
+  loaded.deleted('floor/ground');
+  assert.equal(loaded.layerOf('floor/upper'), null);
+});

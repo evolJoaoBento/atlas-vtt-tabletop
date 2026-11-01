@@ -8,13 +8,12 @@ import type { App, ItemView } from 'obsidian';
 import { setSvg } from './svg';
 import { t } from './i18n';
 import { mapViews, type AtlasView } from './atlas';
+import { TABLETOP_SVG } from './tabletopIcon';
 
 const END = '.atlas-main-toolbar > .atlas-toolbar-end';
 const ITEM = 'atlas-tabletop-open3d';
 const POLL_MS = 1500;
 
-/** Lucide's `cuboid` icon (ISC). */
-const CUBOID_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.12 6.4-6.05-4.06a2 2 0 0 0-2.17-.05L2.95 8.41a2 2 0 0 0-.95 1.7v5.82a2 2 0 0 0 .88 1.66l6.05 4.07a2 2 0 0 0 2.17.05l9.95-6.12a2 2 0 0 0 .95-1.7V8.06a2 2 0 0 0-.88-1.66Z"/><path d="M10 22v-8L2.25 9.15"/><path d="m10 14 11.77-6.87"/></svg>';
 
 interface Watched {
   view: AtlasView;
@@ -110,7 +109,7 @@ export class AtlasOpenButton {
     const holder = made('span', '');
     const button = made('button', 'btn btn--toolbar btn--icon');
     button.type = 'button';
-    setSvg(button, CUBOID_SVG);
+    setSvg(button, TABLETOP_SVG);
     button.setAttribute('aria-label', t('open3d'));
     button.title = t('open3d');
     button.addEventListener('click', () => {

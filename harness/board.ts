@@ -79,6 +79,13 @@ const background = drawn(1400, 1000, (context) => {
   context.fillStyle = '#3d6b8a';
   context.fillRect(980, 140, 280, 210);
 });
+/** A balcony drawn on a transparent image: an elevation layer shows the map below through what is not drawn. */
+const balcony = drawn(1400, 1000, (context) => {
+  context.fillStyle = '#c9a66b';
+  context.fillRect(280, 140, 490, 280);
+  context.fillStyle = '#8a6a3c';
+  context.fillRect(280, 140, 490, 12);
+});
 const face = (color: string): string => drawn(128, 128, (context) => {
   context.fillStyle = color;
   context.beginPath();
@@ -191,7 +198,7 @@ async function main(): Promise<void> {
   setLanguage(new URLSearchParams(location.search).get('lang'));
   const hero: LoadedMini = await parseMini(await heroGlb());
   const barrel: LoadedMini = await parseMini(await barrelGlb());
-  const images: Record<string, string> = { 'bg.png': background, 'red.png': face('#b03030'), 'green.png': face('#3a8a3a') };
+  const images: Record<string, string> = { 'bg.png': background, 'red.png': face('#b03030'), 'green.png': face('#3a8a3a'), 'balcony.png': balcony };
   const props: PropPlacement[] = [{ id: 'barrel', glb: 'props/barrel.glb', x: 910, y: 805, rotation: 0, scale: 1 }];
   const record = {
     moves: [] as Array<[string, number, number]>, propMoves: [] as Array<[string, number, number]>, added: [] as Array<[string, number, number]>,
@@ -368,12 +375,13 @@ async function main(): Promise<void> {
   const sceneTabs = new SceneTabBar(container, {
     tabs: () => [
       { id: 't1', name: 'Tavern', filePath: 'maps/tavern.atlasmap', active: true, presented: false, loaded: true, dirty: false },
-      { id: 't2', name: 'Crypt', filePath: 'maps/crypt.atlasmap', active: false, presented: true, loaded: false, dirty: false },
+      { id: 't2', name: 'Crypt', filePath: 'maps/crypt.atlasmap', active: false, presented: true, loaded: false, dirty: false, layer: '+2' },
     ],
     switchTab: (id) => { record.sceneTabs.push(['switch', id]); },
     presentTab: (id) => { record.sceneTabs.push(['present', id]); },
     closeTab: (id) => { record.sceneTabs.push(['close', id]); },
     addTab: () => { record.sceneTabs.push(['add']); },
+    layerMenu: (id) => { record.sceneTabs.push(['layers', id]); },
   });
   sceneTabs.refresh();
   await board.load(map);

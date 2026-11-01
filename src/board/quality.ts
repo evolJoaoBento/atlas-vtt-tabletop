@@ -8,6 +8,26 @@ import type { Sky } from './look';
 
 export type Quality = 'low' | 'medium' | 'high';
 
+/** How round the edges of walls and doors are. */
+export type WallEdges = 'sharp' | 'soft' | 'round';
+/** The radius of each, as a share of a grid square (a thin wall is rounded less). */
+export const EDGE_SHARE: Readonly<Record<WallEdges, number>> = { sharp: 0, soft: 0.025, round: 0.06 };
+export const DEFAULT_EDGES: WallEdges = 'soft';
+
+export function readEdges(value: unknown): WallEdges {
+  return value === 'sharp' || value === 'soft' || value === 'round' ? value : DEFAULT_EDGES;
+}
+
+/** How the image of a map stacked above another (an elevation layer) is drawn: whole, see-through, or only what stands on it. */
+export type LayerLook = 'solid' | 'faded' | 'transparent';
+export const DEFAULT_LAYER_LOOK: LayerLook = 'solid';
+/** How much of a faded layer's image is left. */
+export const FADED_LAYER_OPACITY = 0.5;
+
+export function readLayerLook(value: unknown): LayerLook {
+  return value === 'solid' || value === 'faded' || value === 'transparent' ? value : DEFAULT_LAYER_LOOK;
+}
+
 export interface QualityPreset {
   /** The drawing resolution, as a share of the screen's pixels: the best it starts at, and the least it drops to. */
   maxPixelRatio: number;
@@ -18,6 +38,8 @@ export interface QualityPreset {
   miniShadows: 'real' | 'blob';
   /** How many of Atlas's lights (the nearest the camera's target) cast shadows; each costs six shadow drawings. */
   lightShadows: number;
+  /** Cuts a texture tile of a displaced wall is given, in each direction (0: walls stay flat; the height map still shifts the texture). Part of the preset, not an own setting. */
+  displaceCuts: number;
   /** The miniature look: a blur towards the top and bottom edges (tiltShift.ts). Its own setting, not the preset's. */
   tiltShift: boolean;
   /** Contact shadows: darker creases where walls, minis and props meet the floor (postFx.ts). Its own setting too. */
@@ -26,17 +48,38 @@ export interface QualityPreset {
   painted: boolean;
   /** The painted sky's palette (look.ts). */
   sky: Sky;
+  /** How round walls' edges are (an own setting too). */
+  edges: WallEdges;
+  /** Walls between the camera and what it looks at fade out (cutaway.ts). An own setting too. */
+  seeThrough: boolean;
+  /** How wide that window is, in grid squares. */
+  seeThroughSize: number;
+  /** How the floor image of an elevation layer is drawn. An own setting too. */
+  layerLook: LayerLook;
+}
+
+export const DEFAULT_SEE_THROUGH_SIZE = 1.2;
+export const MIN_SEE_THROUGH_SIZE = 0.5;
+export const MAX_SEE_THROUGH_SIZE = 4;
+
+/** A stored see-through width, kept within what the slider offers. */
+export function readSeeThroughSize(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.min(MAX_SEE_THROUGH_SIZE, Math.max(MIN_SEE_THROUGH_SIZE, value)) : DEFAULT_SEE_THROUGH_SIZE;
 }
 
 export const QUALITY: Readonly<Record<Quality, QualityPreset>> = {
-  low: { maxPixelRatio: 1, minPixelRatio: 0.6, antialias: false, shadowMapSize: 1024, miniShadows: 'blob', lightShadows: 0, tiltShift: false, occlusion: false, painted: false, sky: 'dusk' },
-  medium: { maxPixelRatio: 1.5, minPixelRatio: 0.75, antialias: true, shadowMapSize: 2048, miniShadows: 'blob', lightShadows: 2, tiltShift: false, occlusion: false, painted: false, sky: 'dusk' },
-  high: { maxPixelRatio: 2, minPixelRatio: 1, antialias: true, shadowMapSize: 4096, miniShadows: 'real', lightShadows: 4, tiltShift: false, occlusion: false, painted: false, sky: 'dusk' },
+  low: { maxPixelRatio: 1, minPixelRatio: 0.6, antialias: false, shadowMapSize: 1024, miniShadows: 'blob', lightShadows: 0, displaceCuts: 0, tiltShift: false, occlusion: false, painted: false, sky: 'dusk', edges: DEFAULT_EDGES, seeThrough: false, seeThroughSize: DEFAULT_SEE_THROUGH_SIZE, layerLook: DEFAULT_LAYER_LOOK },
+  medium: { maxPixelRatio: 1.5, minPixelRatio: 0.75, antialias: true, shadowMapSize: 2048, miniShadows: 'blob', lightShadows: 2, displaceCuts: 8, tiltShift: false, occlusion: false, painted: false, sky: 'dusk', edges: DEFAULT_EDGES, seeThrough: false, seeThroughSize: DEFAULT_SEE_THROUGH_SIZE, layerLook: DEFAULT_LAYER_LOOK },
+  high: { maxPixelRatio: 2, minPixelRatio: 1, antialias: true, shadowMapSize: 4096, miniShadows: 'real', lightShadows: 4, displaceCuts: 16, tiltShift: false, occlusion: false, painted: false, sky: 'dusk', edges: DEFAULT_EDGES, seeThrough: false, seeThroughSize: DEFAULT_SEE_THROUGH_SIZE, layerLook: DEFAULT_LAYER_LOOK },
 };
 
 /** A preset with the miniature look, the contact shadows and the painted lighting on or off. */
-export function withLooks(preset: QualityPreset, looks: { tiltShift: boolean; occlusion: boolean; painted: boolean; sky: Sky }): QualityPreset {
-  return preset.tiltShift === looks.tiltShift && preset.occlusion === looks.occlusion && preset.painted === looks.painted && preset.sky === looks.sky ? preset : { ...preset, ...looks };
+export function withLooks(preset: QualityPreset, looks: { tiltShift: boolean; occlusion: boolean; painted: boolean; sky: Sky; edges?: WallEdges; seeThrough?: boolean; seeThroughSize?: number; layerLook?: LayerLook }): QualityPreset {
+  const edges = looks.edges ?? preset.edges;
+  const seeThrough = looks.seeThrough ?? preset.seeThrough;
+  const seeThroughSize = looks.seeThroughSize ?? preset.seeThroughSize;
+  const layerLook = looks.layerLook ?? preset.layerLook;
+  return preset.tiltShift === looks.tiltShift && preset.occlusion === looks.occlusion && preset.painted === looks.painted && preset.sky === looks.sky && preset.edges === edges && preset.seeThrough === seeThrough && preset.seeThroughSize === seeThroughSize && preset.layerLook === layerLook ? preset : { ...preset, ...looks, edges, seeThrough, seeThroughSize, layerLook };
 }
 
 export const DEFAULT_QUALITY: Quality = 'medium';

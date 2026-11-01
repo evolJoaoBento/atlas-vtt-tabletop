@@ -3,7 +3,7 @@
  * (`brick_wall_diff_1k.jpg`, `…_nor_gl_1k.jpg`, `…_rough_1k.jpg`, `…_arm_1k.jpg`), and what a material is called. Pure.
  */
 
-export type MapRole = 'color' | 'normal' | 'roughness' | 'ao' | 'arm' | 'metalness';
+export type MapRole = 'color' | 'normal' | 'roughness' | 'ao' | 'arm' | 'metalness' | 'height';
 
 /** The image formats a map is read from. */
 const IMAGE = /\.(jpe?g|png|webp)$/i;
@@ -16,8 +16,9 @@ const ROLE_WORDS: Record<string, MapRole | null> = {
   ao: 'ao', occlusion: 'ao', ambientocclusion: 'ao',
   metal: 'metalness', metallic: 'metalness', metalness: 'metalness',
   diff: 'color', diffuse: 'color', albedo: 'color', basecolor: 'color', col: 'color', color: 'color', colour: 'color',
+  disp: 'height', displacement: 'height', height: 'height',
   // Maps Tabletop does not use.
-  disp: null, displacement: null, height: null, bump: null, preview: null, thumb: null, thumbnail: null, mask: null, spec: null, specular: null,
+  bump: null, preview: null, thumb: null, thumbnail: null, mask: null, spec: null, specular: null,
 };
 
 /**
@@ -46,6 +47,8 @@ export interface MaterialMaps {
   ao?: string;
   arm?: string;
   metalness?: string;
+  /** A height (displacement) map: white is high. Read for parallax depth, and for relief where there is no normal map. */
+  height?: string;
 }
 
 /** The maps among a material's files: one per role, an OpenGL normal map before a DirectX one. A material needs a colour map. */
@@ -78,6 +81,38 @@ export function materialName(fileName: string): string {
 export interface MaterialSettings {
   /** How many grid squares one tile of the texture covers. */
   scale: number;
+  /** How strongly the normal map shows: 1 as made, 0 flat, up to 4. Kept only when changed. */
+  relief?: number;
+  /** How dark the ambient occlusion map makes the creases: 1 as made, up to 3. Kept only when changed. */
+  occlusion?: number;
+  /** How glossy the surface is: 0 as made (the roughness map alone) to 1, a polished stone that glints and shows its relief. Kept only when changed. */
+  shine?: number;
+  /** How deep the surface seems, from the height map (parallax): 0 as made, up to 1.5. Kept only when changed. */
+  depth?: number;
+  /** How far the height map pushes the wall's own surface in, edges included: 0 as made, up to 1.5. Kept only when changed. */
+  displace?: number;
+  /** How much of the relief stands out of the surface instead of sinking into it, for depth and displacement: 0 as made (the height map's white is the surface), up to 1 (its black is). Kept only when changed. */
+  outward?: number;
+}
+
+/** What a material's settings do to how it is drawn, with the defaults filled in. */
+export interface MaterialTuning {
+  relief: number;
+  occlusion: number;
+  shine: number;
+  depth: number;
+  displace: number;
+  outward: number;
+}
+
+export const MAX_DEPTH = 1.5;
+export const MAX_DISPLACE = 1.5;
+export const MAX_RELIEF = 4;
+export const MAX_OCCLUSION = 3;
+export const DEFAULT_TUNING: Readonly<MaterialTuning> = { relief: 1, occlusion: 1, shine: 0, depth: 0, displace: 0, outward: 0 };
+
+export function tuningOf(settings: Pick<MaterialSettings, 'relief' | 'occlusion' | 'shine' | 'depth' | 'displace' | 'outward'>): MaterialTuning {
+  return { relief: settings.relief ?? DEFAULT_TUNING.relief, occlusion: settings.occlusion ?? DEFAULT_TUNING.occlusion, shine: settings.shine ?? DEFAULT_TUNING.shine, depth: settings.depth ?? DEFAULT_TUNING.depth, displace: settings.displace ?? DEFAULT_TUNING.displace, outward: settings.outward ?? DEFAULT_TUNING.outward };
 }
 
 export const MATERIAL_SETTINGS_FILE = 'material.json';
@@ -93,8 +128,21 @@ export function readMaterialSettings(text: string | null): MaterialSettings {
   } catch {
     raw = null;
   }
-  const scale = typeof raw === 'object' && raw !== null ? (raw as { scale?: unknown }).scale : undefined;
-  return {
-    scale: typeof scale === 'number' && Number.isFinite(scale) ? Math.min(MAX_TEXTURE_SCALE, Math.max(MIN_TEXTURE_SCALE, scale)) : DEFAULT_MATERIAL_SETTINGS.scale,
-  };
+  const object = typeof raw === 'object' && raw !== null ? (raw as { scale?: unknown; relief?: unknown; occlusion?: unknown; shine?: unknown; depth?: unknown; displace?: unknown; outward?: unknown }) : {};
+  const within = (value: unknown, low: number, high: number): number | undefined => (typeof value === 'number' && Number.isFinite(value) ? Math.min(high, Math.max(low, value)) : undefined);
+  const out: MaterialSettings = { scale: within(object.scale, MIN_TEXTURE_SCALE, MAX_TEXTURE_SCALE) ?? DEFAULT_MATERIAL_SETTINGS.scale };
+  // Only what differs from how a material is made is kept.
+  const relief = within(object.relief, 0, MAX_RELIEF);
+  const occlusion = within(object.occlusion, 0, MAX_OCCLUSION);
+  const shine = within(object.shine, 0, 1);
+  const depth = within(object.depth, 0, MAX_DEPTH);
+  const displace = within(object.displace, 0, MAX_DISPLACE);
+  const outward = within(object.outward, 0, 1);
+  if (relief !== undefined && relief !== DEFAULT_TUNING.relief) out.relief = relief;
+  if (occlusion !== undefined && occlusion !== DEFAULT_TUNING.occlusion) out.occlusion = occlusion;
+  if (shine !== undefined && shine !== DEFAULT_TUNING.shine) out.shine = shine;
+  if (depth !== undefined && depth !== DEFAULT_TUNING.depth) out.depth = depth;
+  if (displace !== undefined && displace !== DEFAULT_TUNING.displace) out.displace = displace;
+  if (outward !== undefined && outward !== DEFAULT_TUNING.outward) out.outward = outward;
+  return out;
 }

@@ -8,7 +8,8 @@
 import { normalizePath, TFile, TFolder, type App } from 'obsidian';
 import * as THREE from 'three';
 import { unzipSync } from 'three/examples/jsm/libs/fflate.module.js';
-import { MATERIAL_SETTINGS_FILE, materialName, pickMaps, readMaterialSettings, roleOf, type MaterialMaps, type MaterialSettings } from './materialMaps';
+import { addParallax, PARALLAX_TILE_SHARE, type ParallaxUniforms } from './parallax';
+import { DEFAULT_TUNING, MATERIAL_SETTINGS_FILE, materialName, pickMaps, readMaterialSettings, roleOf, tuningOf, type MaterialMaps, type MaterialSettings, type MaterialTuning } from './materialMaps';
 
 export const DEFAULT_MATERIALS_FOLDER = 'atlas-vtt/assets/materials';
 /** What a material card carries when dragged from the gallery onto a wall: its folder. */
@@ -20,6 +21,66 @@ export interface LoadedMaterial {
   readonly name: string;
   /** Puts the maps on a material (it keeps them; they are shared by every material they are put on). */
   apply(material: THREE.MeshStandardMaterial): void;
+  /** Lays the texture at another scale (squares per tile), on every material it was put on. */
+  retile(scale: number): void;
+  /**
+   * How strongly a material shows its texture: the normal map's strength (`relief`), how dark the occlusion map makes the
+   * creases, how glossy it is (a lower roughness lets the light glint on the relief) and how deep the surface seems
+   * (`depth`, parallax from the height map). Called again with new numbers while the editor's preview is moved.
+   */
+  tune(material: THREE.MeshStandardMaterial, tuning: MaterialTuning): void;
+  /** Whether the material came with a normal map; without one its relief is worked out from its height or colour map. */
+  readonly hasNormal: boolean;
+  /** Whether the material came with a height map, which parallax depth needs. */
+  readonly hasHeight: boolean;
+}
+
+/**
+ * Relief for a material that has no normal map: the slopes of a picture (the height map, or else the colours' lightness)
+ * as a normal map. The strength is set on the material, not baked in.
+ */
+function normalMapFrom(picture: THREE.Texture): THREE.Texture | null {
+  const image = picture.image as (CanvasImageSource & { width: number; height: number }) | undefined;
+  if (!image || !(image.width > 0) || !(image.height > 0)) return null;
+  const side = (length: number): number => Math.max(8, Math.min(1024, length));
+  const width = side(image.width);
+  const height = side(image.height);
+  try {
+    const canvas = createEl('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) return null;
+    context.drawImage(image, 0, 0, width, height);
+    const { data } = context.getImageData(0, 0, width, height);
+    const lift = new Float32Array(width * height);
+    for (let i = 0; i < lift.length; i++) lift[i] = (0.299 * data[i * 4]! + 0.587 * data[i * 4 + 1]! + 0.114 * data[i * 4 + 2]!) / 255;
+    const at = (x: number, y: number): number => lift[((y + height) % height) * width + ((x + width) % width)]!;
+    const out = context.createImageData(width, height);
+    const strength = 3;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        // Sobel slopes, the texture wrapping at its edges as it does on the wall.
+        const dx = (at(x + 1, y - 1) + 2 * at(x + 1, y) + at(x + 1, y + 1)) - (at(x - 1, y - 1) + 2 * at(x - 1, y) + at(x - 1, y + 1));
+        const dy = (at(x - 1, y + 1) + 2 * at(x, y + 1) + at(x + 1, y + 1)) - (at(x - 1, y - 1) + 2 * at(x, y - 1) + at(x + 1, y - 1));
+        const length = Math.hypot(-dx * strength, dy * strength, 1);
+        const o = (y * width + x) * 4;
+        out.data[o] = Math.round(((-dx * strength) / length * 0.5 + 0.5) * 255);
+        out.data[o + 1] = Math.round(((dy * strength) / length * 0.5 + 0.5) * 255);
+        out.data[o + 2] = Math.round((1 / length * 0.5 + 0.5) * 255);
+        out.data[o + 3] = 255;
+      }
+    }
+    context.putImageData(out, 0, 0);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.NoColorSpace;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.anisotropy = 8;
+    return texture;
+  } catch {
+    return null;
+  }
 }
 
 /** A material's maps by role, as URLs; null for a role it has none of. */
@@ -30,32 +91,60 @@ export interface MaterialUrls {
   ao: string | null;
   arm: string | null;
   metalness: string | null;
+  /** The height (displacement) map, if there is one. */
+  height?: string | null;
 }
 
 /**
  * A material from its maps' URLs: the vault's (the GM's board) or the files Connect brought (a player's board). Walls
  * are mapped one tile to a grid square: a tile `scale` squares wide repeats 1 / scale times a square.
  */
-export async function materialFromUrls(name: string, urls: MaterialUrls, scale: number, normalDirectX: boolean): Promise<LoadedMaterial> {
+export async function materialFromUrls(name: string, urls: MaterialUrls, scale: number, normalDirectX: boolean, tuning: MaterialTuning = DEFAULT_TUNING): Promise<LoadedMaterial> {
   const texture = async (at: string | null, color = false): Promise<THREE.Texture | null> => (at ? readTexture(at, color) : null);
-  const [color, normal, roughness, ao, arm, metalness] = await Promise.all([
-    texture(urls.color, true), texture(urls.normal), texture(urls.roughness), texture(urls.ao), texture(urls.arm), texture(urls.metalness),
+  const [color, normal, roughness, ao, arm, metalness, height] = await Promise.all([
+    texture(urls.color, true), texture(urls.normal), texture(urls.roughness), texture(urls.ao), texture(urls.arm), texture(urls.metalness), texture(urls.height ?? null),
   ]);
-  for (const map of [color, normal, roughness, ao, arm, metalness]) map?.repeat.set(1 / scale, 1 / scale);
+  // Without a normal map, relief is worked out from the height map, or else from the colours.
+  const derived = normal ? null : normalMapFrom(height ?? color!);
+  const maps = [color, normal, roughness, ao, arm, metalness, height, derived];
+  for (const map of maps) map?.repeat.set(1 / scale, 1 / scale);
+  // One pair of uniforms for every material these maps are put on; the shader is only added where there is a height map.
+  const parallax: ParallaxUniforms = { map: { value: height }, depth: { value: 0 }, push: { value: 0 }, outward: { value: 0 } };
+  const tune = (material: THREE.MeshStandardMaterial, now: MaterialTuning): void => {
+    // A normal map as made stands at 1. One worked out is nothing at 1: Relief above it builds the relief, which is not in the material as made.
+    const strength = normal ? now.relief : Math.max(0, now.relief - 1);
+    // DirectX normal maps point green the other way.
+    material.normalScale.set(strength, normalDirectX ? -strength : strength);
+    if (!normal) {
+      const wanted = strength > 0 ? derived : null;
+      if (material.normalMap !== wanted) { material.normalMap = wanted; material.needsUpdate = true; }
+    }
+    material.aoMapIntensity = now.occlusion;
+    material.roughness = 1 - 0.85 * now.shine;
+    parallax.depth.value = height ? now.depth * PARALLAX_TILE_SHARE : 0;
+    parallax.push.value = height ? now.displace : 0;
+    parallax.outward.value = now.outward;
+    // Walls cut their faces finely only for a material that moves them (see WallSet).
+    material.userData.displaces = height !== null && now.displace > 0;
+    material.userData.tileScale = scale;
+  };
   return {
     name,
+    hasNormal: normal !== null,
+    hasHeight: height !== null,
+    retile: (next) => { for (const map of maps) map?.repeat.set(1 / next, 1 / next); },
+    tune,
     apply: (material) => {
       material.color.set(0xffffff);
       material.map = color;
       material.normalMap = normal;
-      // DirectX normal maps point green the other way.
-      if (normal) material.normalScale.set(1, normalDirectX ? -1 : 1);
       // An ARM map packs ambient occlusion (red), roughness (green) and metalness (blue), as three.js reads them.
       material.aoMap = ao ?? arm;
       material.roughnessMap = roughness ?? arm;
       material.metalnessMap = metalness ?? arm;
-      material.roughness = 1;
+      tune(material, tuning);
       material.metalness = metalness || arm ? 1 : 0;
+      if (height) addParallax(material, parallax);
     },
   };
 }
@@ -154,10 +243,27 @@ export class MaterialLibrary {
       const file = path ? this.app.vault.getAbstractFileByPath(path) : null;
       return file instanceof TFile ? this.app.vault.getResourcePath(file) : null;
     };
-    const { scale } = await this.settings(folderPath);
+    const settings = await this.settings(folderPath);
     return materialFromUrls(folder.name, {
-      color: url(maps.color), normal: url(maps.normal), roughness: url(maps.roughness), ao: url(maps.ao), arm: url(maps.arm), metalness: url(maps.metalness),
-    }, scale, maps.normalDirectX === true);
+      color: url(maps.color), normal: url(maps.normal), roughness: url(maps.roughness), ao: url(maps.ao), arm: url(maps.arm), metalness: url(maps.metalness), height: url(maps.height),
+    }, settings.scale, maps.normalDirectX === true, tuningOf(settings));
+  }
+
+  /** A material's own copy, for the editor's preview: its maps read afresh, so moving the preview changes no wall. */
+  async loadForEditing(folderPath: string): Promise<{ loaded: LoadedMaterial; settings: MaterialSettings }> {
+    const folder = this.app.vault.getAbstractFileByPath(folderPath);
+    if (!(folder instanceof TFolder)) throw new Error('the material is missing.');
+    const maps = this.mapsOf(folder);
+    if (!maps) throw new Error('it has no colour map.');
+    const url = (path: string | undefined): string | null => {
+      const file = path ? this.app.vault.getAbstractFileByPath(path) : null;
+      return file instanceof TFile ? this.app.vault.getResourcePath(file) : null;
+    };
+    const settings = await this.settings(folderPath);
+    const loaded = await materialFromUrls(folder.name, {
+      color: url(maps.color), normal: url(maps.normal), roughness: url(maps.roughness), ao: url(maps.ao), arm: url(maps.arm), metalness: url(maps.metalness), height: url(maps.height),
+    }, settings.scale, maps.normalDirectX === true, tuningOf(settings));
+    return { loaded, settings };
   }
 
   /**

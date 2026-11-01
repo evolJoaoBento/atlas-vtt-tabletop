@@ -6,10 +6,11 @@
 import type { TFile, TFolder, Vault } from 'obsidian';
 import type { BoardData } from './board/boardData';
 import type { BoardLook } from './connectContract';
-import { pickMaps, readMaterialSettings, MATERIAL_SETTINGS_FILE, type MaterialMaps } from './materialMaps';
+import { DEFAULT_TUNING, pickMaps, readMaterialSettings, tuningOf, MATERIAL_SETTINGS_FILE, type MaterialMaps, type MaterialTuning } from './materialMaps';
 
 export interface MaterialInfo {
   scale: number;
+  tuning?: MaterialTuning;
   /** Texture role to vault path; a DirectX normal map is the role `normal-dx`. */
   maps: Record<string, string>;
 }
@@ -18,11 +19,13 @@ export interface MaterialView {
   info(folder: string): MaterialInfo | null;
 }
 
+const isDefault = (tuning: MaterialTuning): boolean => tuning.relief === DEFAULT_TUNING.relief && tuning.occlusion === DEFAULT_TUNING.occlusion && tuning.shine === DEFAULT_TUNING.shine && tuning.depth === DEFAULT_TUNING.depth && tuning.displace === DEFAULT_TUNING.displace && tuning.outward === DEFAULT_TUNING.outward;
+
 export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: string): BoardLook {
   const used = data.usedMaterials(mapPath)
     .map((id) => ({ id, info: materials.info(id) }))
     .filter((entry): entry is { id: string; info: MaterialInfo } => entry.info !== null)
-    .map(({ id, info }) => ({ id, scale: info.scale, maps: { ...info.maps } }));
+    .map(({ id, info }) => ({ id, scale: info.scale, maps: { ...info.maps }, ...(!info.tuning || isDefault(info.tuning) ? {} : { tuning: { ...info.tuning } }) }));
   const fog = data.fogHeight(mapPath);
   return Object.freeze({
     wallHeight: (id: string) => data.wallHeight(mapPath, id),
@@ -40,7 +43,7 @@ export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: 
 /** A material's maps by role, as the wire names them. */
 export function rolesOf(maps: MaterialMaps): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const role of ['color', 'roughness', 'ao', 'arm', 'metalness'] as const) {
+  for (const role of ['color', 'roughness', 'ao', 'arm', 'metalness', 'height'] as const) {
     const path = maps[role];
     if (path) out[role] = path;
   }
@@ -81,7 +84,7 @@ export class MaterialIndex implements MaterialView {
       const maps = pickMaps(files);
       const settings = this.vault.getAbstractFileByPath(`${folder}/${MATERIAL_SETTINGS_FILE}`) as TFile | null;
       const text = settings && !('children' in settings) ? await this.vault.read(settings) : null;
-      this.known.set(folder, maps ? { scale: readMaterialSettings(text).scale, maps: rolesOf(maps) } : null);
+      this.known.set(folder, maps ? { scale: readMaterialSettings(text).scale, tuning: tuningOf(readMaterialSettings(text)), maps: rolesOf(maps) } : null);
     } catch (error) {
       console.warn('[Tabletop] Could not read a material for Connect:', error);
       this.known.set(folder, null);
