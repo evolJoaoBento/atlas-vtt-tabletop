@@ -164,9 +164,28 @@ export const DOOR_SWING = Math.PI / 2;
  * p1 → p2 as drawn, y down), −1 toward heading + 90°. A one-way door opens the way light passes through it, away
  * from the side it stops.
  */
-export function swingSide(wall: Pick<BoardWall, 'direction'>): 1 | -1 {
-  return wall.direction === 'left' ? -1 : 1;
+export function swingSide(wall: Pick<BoardWall, 'direction'>, flip?: DoorFlip): 1 | -1 {
+  const side: 1 | -1 = wall.direction === 'left' ? -1 : 1;
+  return flip?.side ? (side === 1 ? -1 : 1) : side;
 }
+
+/**
+ * How a door was turned by the GM from the way Atlas draws it: `hinge` puts its hinge at the segment's second end instead
+ * of the first, `side` makes it swing to the other side of the wall. Rotating it 180 degrees does both, mirroring it
+ * (its pivot switched, the side it opens to kept) only the hinge.
+ */
+export interface DoorFlip {
+  hinge: boolean;
+  side: boolean;
+}
+
+export const NO_FLIP: DoorFlip = Object.freeze({ hinge: false, side: false });
+
+/** The door turned a half turn (a point reflection): the hinge goes to the other end and it opens to the other side. */
+export const rotatedDoor = (flip: DoorFlip): DoorFlip => ({ hinge: !flip.hinge, side: !flip.side });
+
+/** The door mirrored across its middle: the hinge goes to the other end, and it opens to the side it did. */
+export const mirroredDoor = (flip: DoorFlip): DoorFlip => ({ hinge: !flip.hinge, side: flip.side });
 
 /** The heading (radians on the map) light passes a one-way wall in: away from the side it stops. */
 export function passHeading(wall: Pick<BoardWall, 'p1' | 'p2' | 'direction'>): number | null {
@@ -204,9 +223,11 @@ export function wholeWall(walls: readonly BoardWall[], id: string): string[] {
  * The door's leaf heading on the map at `openness` (0 shut, 1 open): its own heading turned toward the swing side.
  * On the map (y down) the left of a heading is a turn of −90°.
  */
-export function leafHeading(wall: Pick<BoardWall, 'p1' | 'p2' | 'direction'>, openness: number): number {
+export function leafHeading(wall: Pick<BoardWall, 'p1' | 'p2' | 'direction'>, openness: number, flip?: DoorFlip): number {
   const { heading } = segmentFrame(wall.p1, wall.p2);
-  return heading - swingSide(wall) * DOOR_SWING * Math.min(1, Math.max(0, openness));
+  const swing = swingSide(wall, flip) * DOOR_SWING * Math.min(1, Math.max(0, openness));
+  // A hinge at the far end: the leaf lies back along the wall, and turns toward the same side of it.
+  return flip?.hinge ? heading + Math.PI + swing : heading - swing;
 }
 
 /** Eases a door toward its goal: about half a second from shut to open. */

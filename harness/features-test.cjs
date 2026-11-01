@@ -650,12 +650,340 @@ feature('elevation layers', async ({ page, shot }) => {
     return { table: surface.table.position.y, alphaTest: surface.image.alphaTest, plane: surface.plane.visible };
   });
   check('layers: with a scene below, the table goes down to it and the shown image is cut out too', below.table === -140 && below.alphaTest === 0.5 && below.plane, JSON.stringify(below));
+  // Whatever the Upper layers look, the scene being played and the ones below it are solid; the look is for the ones above.
+  await page.evaluate(() => { const { board } = window.boardTest; board.setQuality({ ...board.quality, layerLook: 'faded' }); });
+  await wait(300);
+  const solidBelow = await page.evaluate(() => { const surface = window.boardTest.board.surface; const lower = [...window.boardTest.board.layerViews.values()][0]; return { shown: [surface.image.transparent, surface.image.opacity, surface.image.alphaTest], lower: [lower.image.transparent, lower.image.opacity, lower.image.alphaTest] }; });
+  check('layers: with Faded set, the scene played and the one below it stay solid', JSON.stringify(solidBelow) === JSON.stringify({ shown: [false, 1, 0.5], lower: [false, 1, 0.5] }), JSON.stringify(solidBelow));
+  await stack(2);
+  await wait(500);
+  const fadedAbove = await probe();
+  check('layers: with Faded set, the scene above is faded', fadedAbove.transparent === true && fadedAbove.opacity === 0.5, JSON.stringify(fadedAbove));
+  await quality('solid');
+  await stack(-2);
+  await wait(500);
+  const playedCut = await page.evaluate(() => window.boardTest.board.surface.image.onBeforeCompile?.cutaway === true);
+  check('layers: the floor of the scene being played is not given the see-through cut', playedCut === false, String(playedCut));
   await shot('elevation-layer-below');
   await stack(null);
   await wait(300);
   now = await probe();
   const plain = await page.evaluate(() => { const surface = window.boardTest.board.surface; return { table: surface.table.position.y, alphaTest: surface.image.alphaTest }; });
   check('layers: taking the stack away leaves a plain map', now.layers === 0 && plain.table === 0 && plain.alphaTest === 0, JSON.stringify({ now, plain }));
+});
+
+// ── Line of sight: what stands behind walls and shut doors is hidden from the tokens that see ───────────────────
+feature('line of sight', async ({ page, shot }) => {
+  const probe = () => page.evaluate(() => {
+    const { board } = window.boardTest;
+    const shown = {};
+    for (const [id, entry] of board.tokens) shown[id] = entry.piece.object3d.visible;
+    for (const [id, piece] of board.props) shown[`prop:${id}`] = piece.object3d.visible;
+    return { shown, sight: board.sight === null ? null : [...board.sight].sort() };
+  });
+  const mode = (look) => page.evaluate((look) => { const { board } = window.boardTest; board.setQuality({ ...board.quality, lineOfSight: look }); }, look);
+  // The hero stands in the room at the bottom (door shut in its north wall) and sees; the goblin is out in the common room.
+  await page.evaluate(() => {
+    const { board } = window.boardTest;
+    const hero = board.map.tokens.find((t) => t.id === 'hero');
+    board.changeToken('hero', { ...hero, x: 560, y: 910, sees: true });
+  });
+  await wait(600);
+  let now = await probe();
+  check('sight: off, nothing is hidden even where a token sees', now.sight === null && now.shown.gob === true && now.shown.hero === true, JSON.stringify(now));
+  await mode('everyone');
+  await wait(600);
+  now = await probe();
+  check('sight: the goblin outside the shut room is hidden from the hero inside it, and the hero is not', now.shown.gob === false && now.shown.hero === true, JSON.stringify(now));
+  check('sight: the prop outside is hidden too', now.shown['prop:barrel'] === false, JSON.stringify(now));
+  const veil = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    const mesh = board.veilSight.object3d;
+    return { visible: mesh.visible, vertices: mesh.geometry.getAttribute('position')?.count ?? 0 };
+  });
+  check('sight: the unseen squares are covered by dark blocks on the GM board under Everyone', veil.visible && veil.vertices > 0, JSON.stringify(veil));
+  await shot('line-of-sight-everyone');
+  await mode('players');
+  await wait(400);
+  now = await probe();
+  check('sight: set to players, the GM board still shows everything', now.shown.gob === true, JSON.stringify(now));
+  await mode('everyone');
+  await page.evaluate(async () => {
+    const { board, map } = window.boardTest;
+    const open = { ...board.map, walls: board.map.walls.map((w) => (w.id === 'door' ? { ...w, closed: false } : w)) };
+    await board.load(open);
+  });
+  await wait(600);
+  now = await probe();
+  check('sight: with the door open the goblin in line with it is in view again', now.shown.gob === true && now.sight.includes('t:gob'), JSON.stringify(now));
+  // Previewing a token's point of view, from its right-click menu, with the setting off.
+  await mode('off');
+  await page.evaluate(async () => {
+    const { board } = window.boardTest;
+    const closed = { ...board.map, walls: board.map.walls.map((w) => (w.id === 'door' ? { ...w, closed: true } : w)) };
+    await board.load(closed);
+  });
+  await wait(500);
+  const menu = (label) => page.evaluate((label) => {
+    window.boardTest.board.host.tokenMenu('hero', { clientX: 200, clientY: 200 });
+    const items = [...document.querySelectorAll('.atlas-ctx-item')];
+    const labels = items.map((item) => item.textContent.trim());
+    const found = items.find((item) => item.textContent.trim() === label);
+    found?.click();
+    return labels;
+  }, label);
+  const before = await menu('Preview POV');
+  check('pov: the token menu offers Preview POV', before.includes('Preview POV') && !before.includes('Stop POV'), JSON.stringify(before));
+  await wait(500);
+  now = await probe();
+  const chip = await page.evaluate(() => { const c = document.querySelector('.atlas-tabletop-pov'); return c && !c.hidden ? c.textContent : null; });
+  check('pov: from the hero inside the shut room the goblin is hidden on the GM board, with the setting off', now.shown.gob === false && now.shown.hero === true && chip && chip.includes('Stop POV'), JSON.stringify({ now, chip }));
+  await shot('pov-preview');
+  const again = await menu('Stop POV');
+  check('pov: its menu now offers Stop POV, and choosing it ends the preview', again.includes('Stop POV') && !again.includes('Preview POV'), JSON.stringify(again));
+  await wait(500);
+  now = await probe();
+  const gone = await page.evaluate(() => { const c = document.querySelector('.atlas-tabletop-pov'); return !c || c.hidden; });
+  check('pov: everything is shown again and the chip goes', now.shown.gob === true && gone, JSON.stringify({ now, gone }));
+  await mode('off');
+  await wait(400);
+  now = await probe();
+  // The cinematic style: the whole sealed room, then the whole outside once its door is open.
+  const style = (look) => page.evaluate((look) => { const { board } = window.boardTest; board.setQuality({ ...board.quality, sightStyle: look }); }, look);
+  const reload = (open) => page.evaluate(async (open) => {
+    const { board } = window.boardTest;
+    await board.load({ ...board.map, walls: board.map.walls.map((w) => (w.id === 'door' ? { ...w, closed: !open } : w)) });
+  }, open);
+  await reload(false);
+  await mode('everyone');
+  await style('cinematic');
+  await wait(600);
+  now = await probe();
+  const cells = () => page.evaluate(() => { const m = window.boardTest.board.sightMasks; return m && m.sight ? m.sight.reduce((a, b) => a + b, 0) : null; });
+  const sealed = await cells();
+  check('cinematic: sealed in the room the hero sees only the room (a handful of squares) and the goblin outside is hidden', sealed > 0 && sealed < 40 && now.shown.gob === false && now.shown.hero === true, JSON.stringify({ sealed, shown: now.shown }));
+  await shot('line-of-sight-cinematic-sealed');
+  await reload(true);
+  await wait(600);
+  now = await probe();
+  const opened = await cells();
+  check('cinematic: with the door open the hero sees the whole outside (most of the map), goblins included', opened > 150 && now.shown.gob === true && now.shown.gob2 === true, JSON.stringify({ opened, shown: now.shown }));
+  await shot('line-of-sight-cinematic-open');
+  // Scenes stacked above are blacked out under line of sight, the ones below stay.
+  await page.evaluate(() => {
+    const { board, map } = window.boardTest;
+    const layer = (path, elevation) => ({
+      path, elevation, map: { ...map, path, background: 'bg.png', fog: [], inks: [], texts: [], icons: [], pins: [], initiative: null, tokens: [], walls: [], lights: [] },
+      wallHeight: () => null, wallMaterial: () => null, doorProp: () => null, lightHeight: () => 1, fogHeight: 1, wallThickness: 0.12, props: [], placement: () => null, style: () => 'disc',
+    });
+    board.setStack([layer('up.atlasmap', 2), layer('down.atlasmap', -2)]);
+  });
+  await wait(800);
+  const levels = () => page.evaluate(() => Object.fromEntries([...window.boardTest.board.layerViews].map(([path, view]) => [path, view.object3d.visible])));
+  let seenLevels = await levels();
+  const shades = await page.evaluate(() => Object.fromEntries([...window.boardTest.board.layerViews].map(([path, view]) => [path, { shadow: view.floor.material === view.shade, content: view.content.visible, drawn: view.floor.visible }])));
+  check('sight layers: with line of sight on, the scene above is drawn as a black shadow (nothing standing on it) and the one below is shown as it is', seenLevels['up.atlasmap'] === true && seenLevels['down.atlasmap'] === true && shades['up.atlasmap'].shadow && !shades['up.atlasmap'].content && shades['up.atlasmap'].drawn && !shades['down.atlasmap'].shadow && shades['down.atlasmap'].content, JSON.stringify({ seenLevels, shades }));
+  await shot('line-of-sight-layer-shadow');
+  // Under Hidden the shadow is not drawn either, as the image is not.
+  await page.evaluate(() => { const { board } = window.boardTest; board.setQuality({ ...board.quality, layerLook: 'transparent' }); });
+  await wait(300);
+  const hiddenShadow = await page.evaluate(() => window.boardTest.board.layerViews.get('up.atlasmap').floor.visible);
+  check('sight layers: under Hidden the shadow of the layer above is not drawn', hiddenShadow === false);
+  await page.evaluate(() => { const { board } = window.boardTest; board.setQuality({ ...board.quality, layerLook: 'solid' }); });
+  // The layer menu down the right: highest first, the shown scene marked, one click on another switches.
+  await page.evaluate(() => window.boardTest.board.setLayerMenu([{ path: 'up.atlasmap', name: 'up', elevation: 2, active: false }, { path: 'maps/tavern.atlasmap', name: 'tavern', elevation: 0, active: true }, { path: 'down.atlasmap', name: 'down', elevation: -2, active: false }]));
+  const items = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-layers__item')].map((el) => [el.textContent, el.classList.contains('is-active'), Math.round(parseFloat(el.style.bottom))]));
+  const dashes = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-layers__tick')].map((el) => el.title));
+  check('layers ruler: a marker per scene on the rail, the lowest at the bottom and the highest at the top, the shown one marked', items.length === 3 && items[0][0] === '+2up' && items[1][1] === true && items[2][0] === '-2down' && items[2][2] === 0 && items[0][2] > items[1][2] && items[1][2] > items[2][2], JSON.stringify(items));
+  check('layers ruler: a dash every two squares between the lowest and the highest by default', JSON.stringify(dashes) === JSON.stringify(['-2', '0', '2']), JSON.stringify(dashes));
+  await page.evaluate(() => { const { board } = window.boardTest; board.setQuality({ ...board.quality, layerTick: 1 }); });
+  const finer = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-layers__tick')].map((el) => el.title));
+  check('layers ruler: the step is a setting: a dash every square when set to one', JSON.stringify(finer) === JSON.stringify(['-2', '-1', '0', '1', '2']), JSON.stringify(finer));
+  await page.evaluate(() => { const { board } = window.boardTest; board.setQuality({ ...board.quality, layerTick: 2 }); });
+  await shot('layer-menu');
+  await page.locator('.atlas-tabletop-layers__item').first().click();
+  await page.locator('.atlas-tabletop-layers__item.is-active').click({ force: true }).catch(() => {});
+  const switched = (await page.evaluate(() => window.boardTest.record.sceneTabs)).filter((entry) => entry[0] === 'layer');
+  check('layers menu: clicking another scene switches to it, clicking the shown one does nothing', JSON.stringify(switched) === JSON.stringify([['layer', 'up.atlasmap']]), JSON.stringify(switched));
+  // The camera glides: after a switch it stays on the old floor, then eases to the new one.
+  const glide = await page.evaluate(async () => {
+    const { board } = window.boardTest;
+    board.camera.pose.target.y = 0; board.camera.goal.target.y = 0;
+    board.reorigin(-140);
+    const start = board.camera.pose.target.y;
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    return { start, end: board.camera.pose.target.y };
+  });
+  check('layers menu: the camera starts on the old floor and glides to the new one', glide.start === -140 && Math.abs(glide.end) < 20, JSON.stringify(glide));
+  await page.evaluate(() => window.boardTest.board.setLayerMenu(null));
+  const menuHidden = await page.evaluate(() => document.querySelector('.atlas-tabletop-layers').hidden);
+  check('layers menu: it hides when there is no stack', menuHidden === true);
+  await mode('off');
+  await wait(500);
+  seenLevels = await levels();
+  check('sight layers: with it off both are shown again', seenLevels['up.atlasmap'] === true && seenLevels['down.atlasmap'] === true, JSON.stringify(seenLevels));
+  await page.evaluate(() => window.boardTest.board.setStack([]));
+  await style('rays');
+  await reload(false);
+  await wait(500);
+  now = await probe();
+  check('sight: off again, everything is shown', now.sight === null && Object.values(now.shown).every((v) => v === true || v === false) && now.shown.gob === true, JSON.stringify(now));
+});
+
+// ── Placing a scene of a stack on the plane beyond its height: handles in the middle of the view ───────────────
+feature('layer placement', async ({ page, shot }) => {
+  await page.evaluate(() => {
+    const { board, map } = window.boardTest;
+    const layer = (path, elevation) => ({
+      path, elevation, map: { ...map, path, background: 'balcony.png', fog: [], inks: [], texts: [], icons: [], pins: [], initiative: null, tokens: [], walls: [], lights: [] },
+      wallHeight: () => null, wallMaterial: () => null, doorProp: () => null, lightHeight: () => 1, fogHeight: 1, wallThickness: 0.12, props: [], placement: () => null, style: () => 'disc',
+    });
+    board.setStack([layer('up.atlasmap', 2)]);
+    board.setLayerMenu([{ path: 'up.atlasmap', name: 'up', elevation: 2, active: false }, { path: 'maps/tavern.atlasmap', name: 'tavern', elevation: 0, active: true }]);
+  });
+  await wait(800);
+  const events = () => page.evaluate(() => window.boardTest.record.sceneTabs);
+  const pillMenu = await page.evaluate(() => { const pill = document.querySelector('.atlas-tabletop-layers__item'); pill.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })); return pill.textContent; });
+  check('placement: right-clicking a scene\'s pill asks for its menu', JSON.stringify((await events()).filter((e) => e[0] === 'menu')) === JSON.stringify([['menu', 'up.atlasmap']]), pillMenu);
+  await page.evaluate(() => window.boardTest.board.setAdjust('up.atlasmap'));
+  await wait(400);
+  const chip = await page.evaluate(() => { const c = document.querySelector('.atlas-tabletop-adjust'); return c && !c.hidden ? c.textContent : null; });
+  check('placement: the handles appear and a chip names the scene being adjusted', chip && chip.includes('up') && chip.includes('Stop') && (await page.evaluate(() => window.boardTest.board.gizmo !== null)), String(chip));
+  await shot('layer-placement-handles');
+  // `project` takes the map's x and y and a height; the board's z is the map's y.
+  const at = (x, y, z) => page.evaluate(([x, y, z]) => window.boardTest.project(x, z, y), [x, y, z]);
+  const gizmo = () => page.evaluate(() => { const g = window.boardTest.board.gizmo.object3d; return { x: g.position.x, y: g.position.y, z: g.position.z, scale: g.scale.x }; });
+  const layerAt = () => page.evaluate(() => { const v = window.boardTest.board.layerViews.get('up.atlasmap'); return { x: v.object3d.position.x, z: v.object3d.position.z, turn: v.stands.turn, sx: v.stands.x, sy: v.stands.y }; });
+  const g0 = await gizmo();
+  const before = await layerAt();
+  // Drag the square in the middle: the scene follows.
+  const middle = await at(g0.x, g0.y, g0.z);
+  await page.mouse.move(middle.x, middle.y);
+  await page.mouse.down();
+  await page.mouse.move(middle.x + 60, middle.y + 20, { steps: 6 });
+  await page.mouse.up();
+  await wait(300);
+  const after = await layerAt();
+  const placed = (await events()).filter((e) => e[0] === 'placed');
+  check('placement: dragging the square slides the scene on the plane, and it is kept when let go', after.sx > 20 && placed.length === 1 && placed[0][1] === 'up.atlasmap' && Math.abs(placed[0][2].x - after.sx) < 1e-6, JSON.stringify({ before, after, placed }));
+  // Drag the ring: the scene turns about the middle of the handles.
+  const g1 = await gizmo();
+  const radius = 1.45 * g1.scale;
+  const start = await at(g1.x + radius, g1.y, g1.z);
+  const quarter = await at(g1.x, g1.y, g1.z + radius);
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move((start.x + quarter.x) / 2, (start.y + quarter.y) / 2, { steps: 4 });
+  await page.mouse.move(quarter.x, quarter.y, { steps: 4 });
+  await page.mouse.up();
+  await wait(300);
+  const turned = await layerAt();
+  check('placement: dragging the ring turns the scene, a quarter turn clockwise for a quarter of the way round', Math.abs(turned.turn - 90) < 8, JSON.stringify(turned));
+  check('placement: the turn snaps to a quarter turn by default (exactly 90 here)', turned.turn === 90, JSON.stringify(turned));
+  // Modifiers: Alt turns freely, Shift snaps to 45 degrees, Ctrl to 5. Each drag starts on the ring at 0 degrees and goes round by `degrees`.
+  const ringTurn = async (degrees, key) => {
+    const g = await gizmo();
+    const r = 1.45 * g.scale;
+    const rad = (degrees * Math.PI) / 180;
+    const from = await at(g.x + r, g.y, g.z);
+    const to = await at(g.x + r * Math.cos(rad), g.y, g.z + r * Math.sin(rad));
+    const half = await at(g.x + r * Math.cos(rad / 2), g.y, g.z + r * Math.sin(rad / 2));
+    if (key) await page.keyboard.down(key);
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(half.x, half.y, { steps: 4 });
+    await page.mouse.move(to.x, to.y, { steps: 4 });
+    await page.mouse.up();
+    if (key) await page.keyboard.up(key);
+    await wait(200);
+    return (await layerAt()).turn;
+  };
+  const free = await ringTurn(17, 'Alt');
+  check('placement: with Alt the turn is free (about 107 degrees here, on no step)', Math.abs(free - 107) < 4 && Math.abs(free - Math.round(free / 5) * 5) > 0.3, String(free));
+  const fortyFive = await ringTurn(30, 'Shift');
+  check('placement: with Shift the turn snaps to 45 degrees', Math.abs(fortyFive / 45 - Math.round(fortyFive / 45)) < 1e-6, String(fortyFive));
+  const five = await ringTurn(12, 'Control');
+  check('placement: with Ctrl the turn snaps to 5 degrees', Math.abs(five / 5 - Math.round(five / 5)) < 1e-6 && Math.abs(five % 45) > 1e-6, String(five));
+  await shot('layer-placement-turned');
+  const reset = await page.evaluate(() => { [...document.querySelectorAll('.atlas-tabletop-adjust button')].find((b) => b.textContent === 'Reset').click(); return window.boardTest.record.sceneTabs.filter((e) => e[0] === 'reset'); });
+  check('placement: Reset asks for the scene to go back to its grid', JSON.stringify(reset) === JSON.stringify([['reset', 'up.atlasmap']]), JSON.stringify(reset));
+  await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-adjust button')].find((b) => b.textContent === 'Stop').click());
+  const stopped = await page.evaluate(() => ({ gizmo: window.boardTest.board.gizmo, chip: document.querySelector('.atlas-tabletop-adjust').hidden }));
+  check('placement: Stop takes the handles and the chip away', stopped.gizmo === null && stopped.chip === true, JSON.stringify(stopped));
+  // Switching to a scene that stands turned on the plane carries the camera into its frame, keeping its view of the base.
+  const carried = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    for (const pose of [board.camera.pose, board.camera.goal]) { pose.target.x = 700; pose.target.z = 500; pose.yaw = 0.3; }
+    board.reorigin(0, { x: 100, y: 50, turn: 90 });
+    return { pose: [board.camera.pose.target.x, board.camera.pose.target.z, board.camera.pose.yaw], goal: [board.camera.goal.target.x, board.camera.goal.target.z, board.camera.goal.yaw] };
+  });
+  const expected = [-400, 750, 0.3 - Math.PI / 2];
+  check('placement: switching to a turned scene carries the camera into its frame, target and heading', carried.pose.every((v, i) => Math.abs(v - expected[i]) < 1e-6) && carried.goal.every((v, i) => Math.abs(v - expected[i]) < 1e-6), JSON.stringify(carried));
+});
+
+// ── Dragging tokens to another scene of a stack: drop them on its pill on the height ruler ──────────────────────
+feature('tokens to layers', async ({ page, shot }) => {
+  await page.evaluate(() => {
+    const { board, map } = window.boardTest;
+    const layer = (path, elevation) => ({
+      path, elevation, map: { ...map, path, background: 'balcony.png', fog: [], inks: [], texts: [], icons: [], pins: [], initiative: null, tokens: [], walls: [], lights: [] },
+      wallHeight: () => null, wallMaterial: () => null, doorProp: () => null, lightHeight: () => 1, fogHeight: 1, wallThickness: 0.12, props: [], placement: () => null, style: () => 'disc',
+    });
+    board.setStack([layer('up.atlasmap', 2)]);
+    board.setLayerMenu([{ path: 'up.atlasmap', name: 'up', elevation: 2, active: false }, { path: 'maps/tavern.atlasmap', name: 'tavern', elevation: 0, active: true }]);
+  });
+  await wait(800);
+  const pill = async (path) => { const box = await page.locator(`.atlas-tabletop-layers__item[data-path="${path}"]`).boundingBox(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; };
+  const heroAt = await page.evaluate(() => { const e = window.boardTest.board.tokens.get('hero'); return window.boardTest.project(e.at.x, e.at.y, 0); });
+  const up = await pill('up.atlasmap');
+  await page.mouse.move(heroAt.x, heroAt.y);
+  await page.mouse.down();
+  await page.mouse.move((heroAt.x + up.x) / 2, (heroAt.y + up.y) / 2, { steps: 6 });
+  await page.mouse.move(up.x, up.y, { steps: 6 });
+  const lit = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-layers__item')].map((el) => [el.dataset.path, el.classList.contains('is-drop-target')]));
+  check('tokens to layers: carried over a scene\'s pill, only that pill lights up', JSON.stringify(lit) === JSON.stringify([['up.atlasmap', true], ['maps/tavern.atlasmap', false]]), JSON.stringify(lit));
+  await shot('token-over-pill');
+  await page.mouse.up();
+  await wait(300);
+  const dropped = (await page.evaluate(() => window.boardTest.record.sceneTabs)).filter((e) => e[0] === 'toLayer');
+  check('tokens to layers: dropping it on the pill asks for it to go to that scene, and no ordinary move is made', JSON.stringify(dropped) === JSON.stringify([['toLayer', ['hero'], 'up.atlasmap']]) && (await page.evaluate(() => window.boardTest.record.moves.filter((m) => m[0] === 'hero').length)) === 0, JSON.stringify(dropped));
+  const back = await page.evaluate(() => { const e = window.boardTest.board.tokens.get('hero'); return { goal: [e.goal.x, e.goal.y], at: [e.token.x, e.token.y], lit: !!document.querySelector('.is-drop-target') }; });
+  check('tokens to layers: the token stays where it was until the move is done, and the pill stops glowing', back.goal[0] === back.at[0] && back.goal[1] === back.at[1] && back.lit === false, JSON.stringify(back));
+  // The pill of the scene being played is no place to drop a token: it is moved as an ordinary drag.
+  const here = await pill('maps/tavern.atlasmap');
+  const heroNow = await page.evaluate(() => { const e = window.boardTest.board.tokens.get('hero'); return window.boardTest.project(e.at.x, e.at.y, 0); });
+  await page.mouse.move(heroNow.x, heroNow.y);
+  await page.mouse.down();
+  await page.mouse.move(here.x, here.y, { steps: 8 });
+  const none = await page.evaluate(() => !!document.querySelector('.is-drop-target'));
+  await page.mouse.up();
+  await wait(200);
+  const toLayer = (await page.evaluate(() => window.boardTest.record.sceneTabs)).filter((e) => e[0] === 'toLayer').length;
+  check('tokens to layers: the pill of the scene being played is not a drop place', none === false && toLayer === 1, JSON.stringify({ none, toLayer }));
+});
+
+// ── A door turned half a turn, or mirrored: its hinge goes to the other end ─────────────────────────────────────
+feature('door flips', async ({ page, shot }) => {
+  const pivot = () => page.evaluate(() => { const door = window.boardTest.board.walls.doors.get('door'); return { x: door.pivot.position.x, z: door.pivot.position.z, turn: door.pivot.rotation.y }; });
+  const set = (flip) => page.evaluate((flip) => { const { board, doorFlips } = window.boardTest; if (flip) doorFlips.set('door', flip); else doorFlips.delete('door'); board.refresh(); }, flip);
+  // The room's north door runs from (525, 840) to (595, 840).
+  let now = await pivot();
+  check('door flips: as Atlas draws it, the hinge is at the first end', Math.abs(now.x - 525) < 1e-6 && Math.abs(now.z - 840) < 1e-6, JSON.stringify(now));
+  // Open, so the leaf shows which way it swings.
+  await page.evaluate(async () => { const { board } = window.boardTest; await board.load({ ...board.map, walls: board.map.walls.map((w) => (w.id === 'door' ? { ...w, closed: false } : w)) }); });
+  await wait(900);
+  await set({ hinge: true, side: true });
+  await wait(900);
+  const rotated = await pivot();
+  check('door flips: turned half a turn, it hangs from the other end', Math.abs(rotated.x - 595) < 1e-6 && Math.abs(rotated.z - 840) < 1e-6, JSON.stringify(rotated));
+  await set({ hinge: true, side: false });
+  await wait(900);
+  const mirrored = await pivot();
+  check('door flips: mirrored, it hangs from the other end too, and its leaf turns the other way from the half-turned door', Math.abs(mirrored.x - 595) < 1e-6 && Math.abs(mirrored.turn - rotated.turn) > 0.5, JSON.stringify({ rotated, mirrored }));
+  await set(null);
+  await wait(300);
+  now = await pivot();
+  check('door flips: put back, it is where Atlas draws it', Math.abs(now.x - 525) < 1e-6, JSON.stringify(now));
 });
 
 server.listen(0, async () => {

@@ -87,6 +87,26 @@ export function copyTokenInText(text: string, id: string, newId: string, x: numb
   return JSON.stringify(file);
 }
 
+/** A token's record as the map file holds it; throws when the token is not on the map. */
+export function readTokenInText(text: string, id: string): Record<string, unknown> {
+  return structuredClone(tokenOf(JSON.parse(text) as MapFile, id));
+}
+
+/** What a token keeps when it goes to another scene: everything but its copy number (the new scene numbers it) and the floor it stood on. */
+function arrivingToken(raw: Record<string, unknown>, id: string, x: number, y: number): RawToken {
+  const { instanceNumber: _number, level: _level, levels: _levels, offLevel: _offLevel, levelId: _levelId, ...kept } = raw;
+  return { ...structuredClone(kept), id, x, y } as RawToken;
+}
+
+/** The map file's text with a token that came from another scene, under `id`, at (x, y); it is numbered among the copies of its art. */
+export function addTokenInText(text: string, raw: Record<string, unknown>, id: string, x: number, y: number): string {
+  const file = JSON.parse(text) as MapFile;
+  const tokens = tokensOf(file);
+  const arrived = arrivingToken(raw, id, x, y);
+  tokens[id] = { ...arrived, instanceNumber: nextInstanceNumber(tokens, arrived.imagePath) };
+  return JSON.stringify(file);
+}
+
 /** The fields an older Atlas (and every map file) keeps a token's resources in. */
 const FILE_FIELDS = ['hp', 'stress', 'maxStress', 'hope', 'statblockResources', 'maxHpOverridden', 'maxStressOverridden', 'overriddenMax'];
 
@@ -467,6 +487,33 @@ export class TokenWriter {
   /** Kills the token, as Atlas's Kill does: every resource that defeats it spent. */
   kill(path: string, id: string, definitions: readonly ResourceDefinition[]): Promise<'atlas' | 'file'> {
     return this.change(path, id, kill(definitions));
+  }
+
+  /**
+   * Takes a token to another scene: added there (to Atlas's store when Atlas holds that scene, else to its file) under
+   * `newId` at (x, y), and only then removed from this one, so a failure leaves it where it was.
+   */
+  async transfer(from: string, id: string, to: string, newId: string, at: { x: number; y: number }): Promise<void> {
+    const state = this.atlas(from, id);
+    let raw: Record<string, unknown> | null = state ? structuredClone(state.objects.tokens[id]) as unknown as Record<string, unknown> : null;
+    if (!raw) {
+      await this.deps.process(from, (text) => {
+        raw = readTokenInText(text, id);
+        return text;
+      });
+    }
+    if (!raw) throw new Error(`no token ${id} on ${from}`);
+    const held = this.holder(to);
+    const target = held?.atlasStore.getState();
+    if (target) {
+      if (!target.addToken) throw TokenWriter.missing('way to add a token');
+      const { instanceNumber: _number, level: _level, levels: _levels, offLevel: _offLevel, levelId: _levelId, ...kept } = raw;
+      target.addToken({ ...kept, id: newId, x: at.x, y: at.y });
+    } else {
+      const arriving = raw;
+      await this.deps.process(to, (text) => addTokenInText(text, arriving, newId, at.x, at.y));
+    }
+    await this.remove(from, id);
   }
 
   /** Deletes the token from the map. */

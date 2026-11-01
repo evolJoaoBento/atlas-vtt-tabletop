@@ -23,7 +23,7 @@ import { defeatedResources } from '../src/board/resources';
 import { HP_RESOURCE, type ResourceDefinition, type ResourceValue } from '../src/board/resources';
 import { applyInitiative, readInitiative, type InitiativeAction } from '../src/board/initiative';
 import { InitiativePanel } from '../src/board/initiativePanel';
-import type { BoardWall } from '../src/board/walls';
+import { NO_FLIP, type BoardWall, type DoorFlip } from '../src/board/walls';
 import type { LoadedMaterial } from '../src/materials';
 import { parseMini, type LoadedMini } from '../src/library';
 import { DiceTable } from '../src/dice/diceTable';
@@ -228,6 +228,7 @@ async function main(): Promise<void> {
   let hosting = false;
   const wallPaint = new Map<string, string>();
   const doorProps = new Map<string, string>();
+  const doorFlips = new Map<string, DoorFlip>();
   const wallHeights = new Map<string, number>();
   const lightHeights = new Map<string, number>();
   let ambientLevel = 1;
@@ -283,13 +284,14 @@ async function main(): Promise<void> {
       menu?.close();
       menu = new AtlasMenu(document, () => tokenMenuEntries({
         token, rules, settings: () => shown().tokenSettings,
-        inInitiative: () => initiative.has(id), hasMini: () => id === 'hero' || id === 'fallen', miniBase: () => 'none', standee: () => id === 'gob',
+        inInitiative: () => initiative.has(id), pov: () => board.povToken === id, hasMini: () => id === 'hero' || id === 'fallen', miniBase: () => 'none', standee: () => id === 'gob',
         lightHeight: () => (id === 'gob2' ? 1 : null),
         icon: (element, name) => { element.dataset.icon = name; },
         actions: {
           setCondition: (condition, active) => { record.menuActions.push(['condition', condition, active]); conditions(conditionChange(token()!, condition, active)); },
           stepCondition: (condition, delta) => { record.menuActions.push(['step', condition, delta]); conditions(conditionStep(token()!, condition, delta)); },
           setHidden: (hidden) => { record.menuActions.push(['hidden', hidden]); change({ hidden }); },
+          setPov: (on) => { board.setPov(on ? id : null); },
           setInitiative: (join) => { record.menuActions.push(['initiative', join]); if (join) initiative.add(id); else initiative.delete(id); },
           assignMini: () => record.menuActions.push(['assignMini']),
           removeMini: () => record.menuActions.push(['removeMini']),
@@ -320,6 +322,11 @@ async function main(): Promise<void> {
     measurement: () => ({ mode: 'metric', unitType: 'feet', unitDistance: 5, diagonalRule: 'equidistant', bands: [] }),
     warn: (message) => { if (!record.warnings.includes(message)) record.warnings.push(message); },
     // A popup window stands in for Obsidian's pop-out: same process, another document.
+    switchLayer: (path) => { record.sceneTabs.push(['layer', path]); },
+    layerMenu: (path) => { record.sceneTabs.push(['menu', path]); },
+    layerPlaced: (path, placement) => { record.sceneTabs.push(['placed', path, { ...placement }]); },
+    layerReset: (path) => { record.sceneTabs.push(['reset', path]); },
+    moveTokensToLayer: (ids, path) => { record.sceneTabs.push(['toLayer', [...ids], path]); },
     togglePlayerView: () => {
       if (players && !players.closed) {
         board.detachPlayer();
@@ -352,6 +359,7 @@ async function main(): Promise<void> {
     setWallHeight: (id, squares, whole) => { record.heights.push(['wall', id, squares, whole]); wallHeights.set(id, squares); board.refresh(); },
     setLightHeight: (id, squares) => { record.heights.push(['light', id, squares]); lightHeights.set(id, squares); board.refresh(); },
     doorProp: (id) => doorProps.get(id) ?? null,
+    doorFlip: (id) => doorFlips.get(id) ?? NO_FLIP,
     readMaterial: async () => brickMaterial(),
     toggleDoor: (id) => { record.doors.push(id); },
     wallMenu: (id) => { record.wallMenus.push(id); },
@@ -508,7 +516,7 @@ async function main(): Promise<void> {
   });
   // Atlas's own Ctrl-hover window, as BoardView routes it: its dice links throw the board's dice for the hovered hero.
   routeAtlasWindowRolls(document, (formula, label, side) => boardDice.cardRoll('hero', formula, label, side));
-  Object.assign(window, { boardTest: { setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, handoutUrl: images['green.png'], board, map, record, panel, rules, doorProps, wallHeights, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, insideFog, dice, ready: true } });
+  Object.assign(window, { boardTest: { setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, handoutUrl: images['green.png'], board, map, record, panel, rules, doorProps, doorFlips, wallHeights, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, insideFog, dice, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

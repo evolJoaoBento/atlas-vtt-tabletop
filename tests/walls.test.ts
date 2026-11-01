@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  flicker, leafHeading, passHeading, readLights, readSceneLighting, readWalls, segmentFrame, seedOf, stepOpenness, swingSide, unitsToPx, wholeWall,
+  flicker, leafHeading, mirroredDoor, NO_FLIP, rotatedDoor, passHeading, readLights, readSceneLighting, readWalls, segmentFrame, seedOf, stepOpenness, swingSide, unitsToPx, wholeWall,
 } from '../src/board/walls';
 
 test('walls and doors are read as Atlas stores them; a segment of no length is left out', () => {
@@ -82,4 +82,28 @@ test('light passes a one-way wall away from the side Atlas says it stops', () =>
   assert.ok(Math.abs(passHeading({ ...east, direction: 'left' })! - Math.PI / 2) < 1e-9);
   assert.ok(Math.abs(passHeading({ ...east, direction: 'right' })! + Math.PI / 2) < 1e-9);
   assert.equal(passHeading({ ...east, direction: null }), null);
+});
+
+test('a door turned half a turn hangs from the other end and opens to the other side; mirrored, only the hinge moves', () => {
+  const door = { p1: { x: 0, y: 0 }, p2: { x: 100, y: 0 }, direction: null };
+  const leaf = (flip: ReturnType<typeof rotatedDoor>): { x: number; y: number } => {
+    const heading = leafHeading(door, 1, flip);
+    const hinge = flip.hinge ? door.p2 : door.p1;
+    return { x: hinge.x + Math.round(Math.cos(heading) * 100), y: hinge.y + Math.round(Math.sin(heading) * 100) };
+  };
+  // As Atlas draws it: hinged at the left end, the open leaf standing up the map.
+  assert.deepEqual(leaf(NO_FLIP), { x: 0, y: -100 });
+  // Half a turn about its middle: hinged at the right end, the leaf down the map.
+  assert.deepEqual(leaf(rotatedDoor(NO_FLIP)), { x: 100, y: 100 });
+  // Mirrored: hinged at the right end, the leaf still up the map.
+  assert.deepEqual(leaf(mirroredDoor(NO_FLIP)), { x: 100, y: -100 });
+  // Shut, whichever way it hangs, the leaf lies along the wall.
+  for (const flip of [NO_FLIP, rotatedDoor(NO_FLIP), mirroredDoor(NO_FLIP)]) {
+    const heading = leafHeading(door, 0, flip);
+    const hinge = flip.hinge ? door.p2 : door.p1;
+    const end = { x: hinge.x + Math.round(Math.cos(heading) * 100), y: hinge.y + Math.round(Math.sin(heading) * 100) };
+    assert.deepEqual(end, flip.hinge ? { x: 0, y: 0 } : { x: 100, y: 0 });
+  }
+  assert.equal(swingSide(door, rotatedDoor(NO_FLIP)), -1);
+  assert.equal(swingSide(door, mirroredDoor(NO_FLIP)), 1);
 });

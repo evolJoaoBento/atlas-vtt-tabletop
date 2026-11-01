@@ -17,6 +17,8 @@ export interface TokenMenuActions {
   stepCondition(id: string, delta: number): void;
   setHidden(hidden: boolean): void;
   setInitiative(join: boolean): void;
+  /** Looks at the board from this token's point of view (line of sight), or stops. Absent where the board has none. */
+  setPov?(on: boolean): void;
   assignMini(): void;
   removeMini(): void;
   /** The base drawn under the token's mini (a model with no base of its own stands on one). */
@@ -39,6 +41,8 @@ export interface TokenMenuContext {
   /** The base under the token's mini; none for a token with no mini. */
   miniBase(): MiniBase;
   standee(): boolean;
+  /** Whether the board is being looked at from this token's point of view now. */
+  pov?(): boolean;
   /** How high the light the token carries hangs, in squares; null when it carries none. */
   lightHeight(): number | null;
   actions: TokenMenuActions;
@@ -128,6 +132,10 @@ export function tokenMenuEntries(context: TokenMenuContext): MenuEntry[] {
 
   entries.push({ type: 'item', label: token.hidden ? 'Show' : 'Hide', onClick: () => actions.setHidden(!token.hidden) });
   const joined = context.inInitiative();
+  if (actions.setPov) {
+    const on = context.pov?.() === true;
+    entries.push({ type: 'item', label: on ? 'Stop POV' : 'Preview POV', onClick: () => actions.setPov?.(!on) });
+  }
   entries.push({ type: 'item', label: joined ? 'Remove from Initiative' : 'Add to Initiative', onClick: () => actions.setInitiative(!joined) });
 
   // Tabletop's own: what the token is drawn as on the 3D board.

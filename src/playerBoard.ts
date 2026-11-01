@@ -10,6 +10,7 @@
 import { parseMini, type LoadedMini } from './library';
 import { Board, type BoardHost } from './board/board';
 import { boardFromScene, type PlayerSceneLike, type SceneBoard } from './board/sceneAdapter';
+import type { SightMode, SightStyle } from './board/lineOfSight';
 import { QUALITY, withLooks, type LayerLook, type Quality, type QualityPreset, type WallEdges } from './board/quality';
 import type { Sky } from './board/look';
 import { materialFromUrls, type LoadedMaterial } from './materials';
@@ -104,7 +105,7 @@ export interface PlayerBoardDice {
   pack(): ChosenPack;
 }
 
-export function playerBoardFactory(quality: () => Quality, looks: () => { tiltShift: boolean; occlusion: boolean; painted: boolean; sky: Sky; edges?: WallEdges; seeThrough?: boolean; seeThroughSize?: number; layerLook?: LayerLook }, dice: PlayerBoardDice): PlayerBoardFactory {
+export function playerBoardFactory(quality: () => Quality, looks: () => { tiltShift: boolean; occlusion: boolean; painted: boolean; sky: Sky; edges?: WallEdges; seeThrough?: boolean; seeThroughSize?: number; layerLook?: LayerLook; lineOfSight?: SightMode; sightStyle?: SightStyle; layerTick?: number }, dice: PlayerBoardDice): PlayerBoardFactory {
   return Object.freeze({
     version: 1 as const,
     create: (parent: HTMLElement, host: PlayerBoardHost): PlayerBoardHandle => new PlayerBoard(parent, host, withLooks(QUALITY[quality()], looks()), dice),

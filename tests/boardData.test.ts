@@ -123,7 +123,8 @@ test('a map stacked on another is a layer of it, and either one opens the whole 
   assert.equal(data.setLayer('upper', 'ground', 2), true);
   assert.deepEqual(data.layerOf('upper'), { base: 'ground', elevation: 2 });
   assert.equal(data.layerOf('ground'), null);
-  const stack = [{ path: 'ground', elevation: 0 }, { path: 'upper', elevation: 2 }];
+  const none = { x: 0, y: 0, turn: 0 };
+  const stack = [{ path: 'ground', elevation: 0, placement: none }, { path: 'upper', elevation: 2, placement: none }];
   assert.deepEqual(data.stackOf('ground'), stack);
   assert.deepEqual(data.stackOf('upper'), stack);
   assert.deepEqual(data.stackOf('alone'), []);
@@ -160,4 +161,41 @@ test('layers survive a save and load, and follow a renamed or deleted base', () 
   assert.deepEqual(loaded.layerOf('floor/upper'), { base: 'floor/ground', elevation: 2 });
   loaded.deleted('floor/ground');
   assert.equal(loaded.layerOf('floor/upper'), null);
+});
+
+test('a layer can be placed on the plane beyond its height, and that survives a change of height, a save and a rename', () => {
+  const data = new BoardData();
+  assert.equal(data.setPlacement('upper', { x: 1, y: 2, turn: 3 }), false);
+  data.setLayer('upper', 'ground', 2);
+  assert.deepEqual(data.placementOf('upper'), { x: 0, y: 0, turn: 0 });
+  assert.equal(data.setPlacement('upper', { x: 35, y: -70, turn: 15 }), true);
+  assert.deepEqual(data.placementOf('upper'), { x: 35, y: -70, turn: 15 });
+  data.setLayer('upper', 'ground', 3);
+  assert.deepEqual(data.placementOf('upper'), { x: 35, y: -70, turn: 15 });
+  assert.deepEqual(data.stackOf('ground')[1]!.placement, { x: 35, y: -70, turn: 15 });
+  assert.deepEqual(data.stackOf('ground')[0]!.placement, { x: 0, y: 0, turn: 0 });
+  const loaded = new BoardData(readBoardData(JSON.parse(JSON.stringify(data.toJSON()))));
+  assert.deepEqual(loaded.placementOf('upper'), { x: 35, y: -70, turn: 15 });
+  loaded.rename('upper', 'floor/upper');
+  assert.deepEqual(loaded.placementOf('floor/upper'), { x: 35, y: -70, turn: 15 });
+  loaded.setPlacement('floor/upper', { x: 0, y: 0, turn: 0 });
+  assert.deepEqual(loaded.layerOf('floor/upper'), { base: 'ground', elevation: 3 });
+  assert.deepEqual(loaded.placementOf('ground'), { x: 0, y: 0, turn: 0 });
+});
+
+test('a door can be rotated half a turn or mirrored, which only moves its hinge; both undo themselves and survive a save', () => {
+  const data = new BoardData();
+  assert.deepEqual(data.doorFlip('m', 'd'), { hinge: false, side: false });
+  data.rotateDoor('m', 'd');
+  assert.deepEqual(data.doorFlip('m', 'd'), { hinge: true, side: true });
+  data.mirrorDoor('m', 'd');
+  // Half a turn then a mirror: the hinge is back, the door opens to the other side.
+  assert.deepEqual(data.doorFlip('m', 'd'), { hinge: false, side: true });
+  const loaded = new BoardData(readBoardData(JSON.parse(JSON.stringify(data.toJSON()))));
+  assert.deepEqual(loaded.doorFlip('m', 'd'), { hinge: false, side: true });
+  loaded.rotateDoor('m', 'd');
+  assert.deepEqual(loaded.doorFlip('m', 'd'), { hinge: true, side: false });
+  loaded.mirrorDoor('m', 'd');
+  assert.deepEqual(loaded.doorFlip('m', 'd'), { hinge: false, side: false });
+  assert.deepEqual(loaded.toJSON(), {});
 });

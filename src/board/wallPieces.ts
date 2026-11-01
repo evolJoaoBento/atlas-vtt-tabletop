@@ -12,7 +12,7 @@ import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { LoadedMini } from '../library';
 import { DISPLACE_TILE_SHARE } from '../parallax';
-import { easeSwing, isDoor, leafHeading, passHeading, segmentFrame, stepOpenness, swingSide, type BoardWall } from './walls';
+import { easeSwing, isDoor, leafHeading, NO_FLIP, passHeading, segmentFrame, stepOpenness, swingSide, type BoardWall, type DoorFlip } from './walls';
 
 export interface WallLookup {
   /** The material of a wall painted with `path` (null: the plain look of a wall, or of a door). */
@@ -27,6 +27,8 @@ export interface WallLookup {
   tileOf?(path: string | null): number;
   /** The prop standing in for a door, by id. */
   propOf(id: string): string | null;
+  /** How the GM turned a door from the way Atlas draws it (hinge at the other end, opening to the other side); none unless said. */
+  flipOf?(id: string): DoorFlip;
   /** Loads a prop's model. */
   prop(glb: string): Promise<LoadedMini | null>;
 }
@@ -70,6 +72,8 @@ interface Door {
   openness: number;
   goal: number;
   height: number;
+  /** How the GM turned it from the way Atlas draws it. */
+  flip: DoorFlip;
 }
 
 /**
@@ -330,7 +334,7 @@ export class WallSet {
    * opened or shut swings to its new place.
    */
   update(walls: readonly BoardWall[], shape: WallShape): void {
-    const signature = JSON.stringify([shape.height, shape.tile, shape.edge, shape.cuts, shape.thickness, shape.fogKey, walls.map((wall) => [wall.id, wall.type, wall.p1, wall.p2, wall.direction, wall.blocks, wall.limited, wall.chain, this.lookup.materialOf(wall.id), this.lookup.displaces?.(this.lookup.materialOf(wall.id)) ?? false, this.lookup.tileOf?.(this.lookup.materialOf(wall.id)) ?? 1, this.lookup.heightOf(wall.id), isDoor(wall) ? this.lookup.propOf(wall.id) : null])]);
+    const signature = JSON.stringify([shape.height, shape.tile, shape.edge, shape.cuts, shape.thickness, shape.fogKey, walls.map((wall) => [wall.id, wall.type, wall.p1, wall.p2, wall.direction, wall.blocks, wall.limited, wall.chain, this.lookup.materialOf(wall.id), this.lookup.displaces?.(this.lookup.materialOf(wall.id)) ?? false, this.lookup.tileOf?.(this.lookup.materialOf(wall.id)) ?? 1, this.lookup.heightOf(wall.id), isDoor(wall) ? this.lookup.propOf(wall.id) : null, isDoor(wall) ? this.lookup.flipOf?.(wall.id) ?? NO_FLIP : null])]);
     if (signature !== this.signature) {
       const openness = new Map([...this.doors].map(([id, door]) => [id, door.openness]));
       this.clear();
@@ -412,7 +416,10 @@ export class WallSet {
   private addDoor(wall: BoardWall, shape: WallShape, height: number, thick: number, openness: number, generation: number): void {
     const frame = segmentFrame(wall.p1, wall.p2);
     const pivot = new THREE.Group();
-    pivot.position.set(wall.p1.x, 0, wall.p1.y);
+    // The hinge is at the segment's first end, or the second where the door was turned or mirrored.
+    const flip = this.lookup.flipOf?.(wall.id) ?? NO_FLIP;
+    const hinge = flip.hinge ? wall.p2 : wall.p1;
+    pivot.position.set(hinge.x, 0, hinge.y);
     pivot.userData.doorId = wall.id;
     // A secret door wears the walls' look unless it was painted itself.
     const paint = this.lookup.materialOf(wall.id);
@@ -435,7 +442,7 @@ export class WallSet {
       pivot.add(accent);
     }
     this.object3d.add(pivot);
-    const door: Door = { wall, pivot, leaf, openness, goal: wall.closed ? 0 : 1, height };
+    const door: Door = { wall, pivot, leaf, openness, goal: wall.closed ? 0 : 1, height, flip };
     this.doors.set(wall.id, door);
     this.pose(door);
     const glb = this.lookup.propOf(wall.id);
@@ -473,7 +480,7 @@ export class WallSet {
   }
 
   private pose(door: Door): void {
-    door.pivot.rotation.y = -leafHeading(door.wall, easeSwing(door.openness));
+    door.pivot.rotation.y = -leafHeading(door.wall, easeSwing(door.openness), door.flip);
   }
 
   /** Builds the walls again at the next update (their materials changed). */
@@ -533,7 +540,7 @@ export class WallSet {
   /** The side a door swings to, for its menu. */
   swing(id: string): 1 | -1 | null {
     const door = this.doors.get(id);
-    return door ? swingSide(door.wall) : null;
+    return door ? swingSide(door.wall, door.flip) : null;
   }
 
   private clear(): void {

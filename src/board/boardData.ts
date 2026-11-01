@@ -7,6 +7,9 @@
  * do. Pure, so it is tested without Obsidian.
  */
 
+import { NO_PLACEMENT, readPlacement, type Placement } from './layerPlacement';
+import { mirroredDoor, NO_FLIP, rotatedDoor, type DoorFlip } from './walls';
+
 export type TokenStyle = 'disc' | 'standee';
 
 export interface PropPlacement {
@@ -34,6 +37,8 @@ interface MapData {
   wallHeights?: Record<string, number>;
   /** Light id (or the id of the token carrying it) to its height above the map, in grid squares. */
   lightHeights?: Record<string, number>;
+  /** Door id to how it was turned from the way Atlas draws it: its hinge at the other end, and/or opening to the other side. */
+  doorFlips?: Record<string, { hinge?: true; side?: true }>;
   /** The board's ambient light, 0 (pitch black) to 1 (daylight); unset follows Atlas's scene light. */
   ambient?: number;
   /** How thick its walls stand, as a share of a grid square; kept only when it is not the default. */
@@ -46,12 +51,18 @@ interface MapData {
 export interface ElevationLayer {
   readonly base: string;
   readonly elevation: number;
+  /** Where it stands on the plane beyond its height (a shift and a turn, in the base scene's frame); absent when it is where its grid puts it. */
+  readonly x?: number;
+  readonly y?: number;
+  readonly turn?: number;
 }
 
 /** One map of a stack, with its height above the base map in grid squares. */
 export interface StackMember {
   readonly path: string;
   readonly elevation: number;
+  /** Where it stands on the plane (the base scene's is none). */
+  readonly placement: Placement;
 }
 
 /** Fog stands one square tall unless the GM says otherwise. */
@@ -80,6 +91,7 @@ function tidy(map: MapData): MapData | null {
   if (map.doorProps && Object.keys(map.doorProps).length > 0) out.doorProps = map.doorProps;
   if (map.lightHeights && Object.keys(map.lightHeights).length > 0) out.lightHeights = map.lightHeights;
   if (map.wallHeights && Object.keys(map.wallHeights).length > 0) out.wallHeights = map.wallHeights;
+  if (map.doorFlips && Object.keys(map.doorFlips).length > 0) out.doorFlips = map.doorFlips;
   if (map.ambient !== undefined) out.ambient = map.ambient;
   if (map.wallThickness !== undefined && map.wallThickness !== DEFAULT_WALL_THICKNESS) out.wallThickness = map.wallThickness;
   if (map.layer) out.layer = map.layer;
@@ -101,9 +113,21 @@ function heights(raw: unknown): Record<string, number> {
 }
 
 function readLayer(raw: unknown): ElevationLayer | undefined {
-  return isObj(raw) && typeof raw.base === 'string' && raw.base !== '' && typeof raw.elevation === 'number' && Number.isFinite(raw.elevation)
-    ? { base: raw.base, elevation: raw.elevation }
-    : undefined;
+  if (!(isObj(raw) && typeof raw.base === 'string' && raw.base !== '' && typeof raw.elevation === 'number' && Number.isFinite(raw.elevation))) return undefined;
+  const placement = readPlacement(raw);
+  return { base: raw.base, elevation: raw.elevation, ...(placement && { x: placement.x, y: placement.y, turn: placement.turn }) };
+}
+
+/** The door turns kept: only the ones that turn something. */
+function flips(raw: unknown): Record<string, { hinge?: true; side?: true }> {
+  const out: Record<string, { hinge?: true; side?: true }> = {};
+  if (!isObj(raw)) return out;
+  for (const [id, value] of Object.entries(raw)) {
+    if (!isObj(value)) continue;
+    const kept = { ...(value.hinge === true && { hinge: true as const }), ...(value.side === true && { side: true as const }) };
+    if (Object.keys(kept).length > 0) out[id] = kept;
+  }
+  return out;
 }
 
 /** Reads saved data, dropping anything malformed. Only standees are stored: a disc is the default. */
@@ -122,7 +146,7 @@ export function readBoardData(raw: unknown): BoardDataJSON {
     const kept = tidy({
       styles, props, ...(layer && { layer }), ...(fogHeight !== undefined && { fogHeight }),
       wallMaterials: strings(value.wallMaterials), doorProps: strings(value.doorProps), lightHeights: heights(value.lightHeights),
-      wallHeights: heights(value.wallHeights),
+      wallHeights: heights(value.wallHeights), doorFlips: flips(value.doorFlips),
       ...(ambient !== undefined && { ambient }),
       ...(wallThickness !== undefined && { wallThickness }),
     });
@@ -240,6 +264,29 @@ export class BoardData {
   }
 
   /** The prop standing in for a door's leaf, or null for the plain door. */
+  /** How the GM turned a door from the way Atlas draws it. */
+  doorFlip(mapPath: string, doorId: string): DoorFlip {
+    const kept = this.data[mapPath]?.doorFlips?.[doorId];
+    return kept ? { hinge: kept.hinge === true, side: kept.side === true } : NO_FLIP;
+  }
+
+  private setDoorFlip(mapPath: string, doorId: string, flip: DoorFlip): void {
+    const flips = { ...(this.data[mapPath]?.doorFlips ?? {}) };
+    if (flip.hinge || flip.side) flips[doorId] = { ...(flip.hinge && { hinge: true as const }), ...(flip.side && { side: true as const }) };
+    else delete flips[doorId];
+    this.put(mapPath, { ...(this.data[mapPath] ?? {}), doorFlips: flips });
+  }
+
+  /** Turns a door half a turn: its hinge goes to the other end and it opens to the other side. */
+  rotateDoor(mapPath: string, doorId: string): void {
+    this.setDoorFlip(mapPath, doorId, rotatedDoor(this.doorFlip(mapPath, doorId)));
+  }
+
+  /** Mirrors a door: its hinge goes to the other end, and it opens to the side it did. */
+  mirrorDoor(mapPath: string, doorId: string): void {
+    this.setDoorFlip(mapPath, doorId, mirroredDoor(this.doorFlip(mapPath, doorId)));
+  }
+
   doorProp(mapPath: string, doorId: string): string | null {
     return this.data[mapPath]?.doorProps?.[doorId] ?? null;
   }
@@ -314,7 +361,24 @@ export class BoardData {
     if (target === mapPath || this.layersOf(mapPath).length > 0) return false;
     const current = this.data[mapPath]?.layer;
     if (current && current.base === target && current.elevation === height) return true;
-    this.put(mapPath, { ...(this.data[mapPath] ?? {}), layer: { base: target, elevation: height } });
+    // Changing its height keeps where it stands.
+    const { x, y, turn } = current ?? {};
+    this.put(mapPath, { ...(this.data[mapPath] ?? {}), layer: { base: target, elevation: height, ...(x !== undefined && { x }), ...(y !== undefined && { y }), ...(turn !== undefined && { turn }) } });
+    return true;
+  }
+
+  /** Where a scene of a stack stands on the plane; no placement for the base scene and for one that was never moved. */
+  placementOf(mapPath: string): Placement {
+    const layer = this.data[mapPath]?.layer;
+    return layer ? readPlacement(layer) ?? NO_PLACEMENT : NO_PLACEMENT;
+  }
+
+  /** Places a layer on the plane (no placement puts it back where its grid puts it); false for a scene that is no layer. */
+  setPlacement(mapPath: string, placement: Placement): boolean {
+    const layer = this.data[mapPath]?.layer;
+    if (!layer) return false;
+    const next = readPlacement(placement);
+    this.put(mapPath, { ...this.data[mapPath], layer: { base: layer.base, elevation: layer.elevation, ...(next && { x: next.x, y: next.y, turn: next.turn }) } });
     return true;
   }
 
@@ -329,7 +393,7 @@ export class BoardData {
   layersOf(base: string): StackMember[] {
     return Object.entries(this.data)
       .filter(([, map]) => map.layer?.base === base)
-      .map(([path, map]) => ({ path, elevation: map.layer!.elevation }));
+      .map(([path, map]) => ({ path, elevation: map.layer!.elevation, placement: readPlacement(map.layer) ?? NO_PLACEMENT }));
   }
 
   /**
@@ -340,7 +404,7 @@ export class BoardData {
     const base = this.data[mapPath]?.layer?.base ?? mapPath;
     const layers = this.layersOf(base);
     if (layers.length === 0) return [];
-    return [{ path: base, elevation: 0 }, ...layers].sort((a, b) => a.elevation - b.elevation || a.path.localeCompare(b.path));
+    return [{ path: base, elevation: 0, placement: NO_PLACEMENT }, ...layers].sort((a, b) => a.elevation - b.elevation || a.path.localeCompare(b.path));
   }
 
   removeProp(mapPath: string, id: string): void {

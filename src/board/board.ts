@@ -42,6 +42,11 @@ import { IconPiece, InkPiece, PinPiece, PropPiece, TextPiece, TokenPiece, type P
 import { numberCells, type CellNumbers } from './cellNumbers';
 import { stripGeometry } from './surface';
 import { addCutaway, newCutaway } from './cutaway';
+import { connectedTiles, inSight, seenTiles, tilesFor, visibilityPolygon, type SightMode, type SightStyle } from './lineOfSight';
+import { SightVeil } from './sightVeil';
+import { LayerRuler } from './layerRuler';
+import { PlacementGizmo, type GizmoPart } from './placementGizmo';
+import { carryView, isNoPlacement, NO_PLACEMENT, snapTurn, turnAbout, turnStep, wrapTurn, type Placement } from './layerPlacement';
 import { ElevationLayerView, type ElevationLayerData, type ElevationLayerShape } from './elevationLayer';
 import { EDGE_SHARE, ResolutionGovernor, type LayerLook, type QualityPreset, type WallEdges } from './quality';
 import { PostFx, type PostFxLook } from './postFx';
@@ -61,7 +66,7 @@ import { DarknessLayer } from './darkness';
 import { BoardMarks } from './marks';
 import { PlayerToolState, type TemplateMark, type TemplateShape, type ToolAction } from './playerTools';
 import type { FogOperation } from './fog';
-import { segmentFrame, type BoardLight } from './walls';
+import { NO_FLIP, segmentFrame, type BoardLight, type DoorFlip } from './walls';
 import { MINI_DRAG_TYPE, MINI_TEXT_PREFIX } from '../assignments';
 import { MATERIAL_DRAG_TYPE, MATERIAL_TEXT_PREFIX, type LoadedMaterial } from '../materials';
 import type { DiceObstacle, DiceTable, DiceTableHost } from '../dice/diceTable';
@@ -135,6 +140,18 @@ export interface BoardHost {
   /** How wide the see-through window is, in grid squares, kept for every board. */
   setSeeThroughSize?(squares: number): void;
   setLayerLook?(look: LayerLook): void;
+  setLineOfSight?(mode: SightMode): void;
+  setSightStyle?(style: SightStyle): void;
+  /** Shows another scene of the stack (the layer menu). */
+  switchLayer?(path: string): void;
+  /** A scene's pill on the height ruler was right-clicked. */
+  layerMenu?(path: string, event: MouseEvent): void;
+  /** A scene of the stack was put somewhere on the plane (seen from the scene being played); it is to be kept. */
+  layerPlaced?(path: string, placement: Placement): void;
+  /** The scene being adjusted is to go back where its grid puts it. */
+  layerReset?(path: string): void;
+  /** Tokens were dropped on another scene's pill on the height ruler: they are to go there. */
+  moveTokensToLayer?(ids: readonly string[], path: string): void;
   /** Whether a stat sheet's roll is thrown at once; changing it, kept for every board. */
   autoRoll?(): boolean;
   setAutoRoll?(on: boolean): void;
@@ -149,6 +166,8 @@ export interface BoardHost {
   setWallHeight(id: string, squares: number, whole: boolean): void;
   setLightHeight(id: string, squares: number): void;
   doorProp(id: string): string | null;
+  /** How the GM turned a door from the way Atlas draws it (hinge at the other end, opening to the other side). */
+  doorFlip?(id: string): DoorFlip;
   /** Loads a material of the gallery; null when it cannot be read. */
   readMaterial(path: string): Promise<LoadedMaterial | null>;
   /** Opens or shuts a door (Atlas's `toggleDoor`); the board shows it at once unless the door is locked. */
@@ -265,6 +284,12 @@ interface HoveredCell {
 
 type Press =
   | {
+    /** A handle of the placement gizmo being dragged: where the pointer last met the scene's plane, and its angle about the gizmo's middle. */
+    kind: 'gizmo'; part: GizmoPart; last: { x: number; z: number }; angle: number;
+    /** A turn: how far the pointer has gone round since the press (unsnapped), and where the scene stood then. */
+    turned: number; from: Placement;
+  }
+  | {
     kind: 'camera'; button: number; x: number; y: number; lastX: number; lastY: number; moved: boolean;
     token: string | null; prop: string | null; pin: string | null; door: string | null; light: string | null;
     /** The spot of the board a pan holds under the pointer. */
@@ -308,6 +333,29 @@ export class Board {
   /** The scenes stacked with this one (elevation layers), as the view gave them, and what draws each. */
   private stackData: readonly ElevationLayerData[] = [];
   private readonly layerViews = new Map<string, ElevationLayerView>();
+  /**
+   * What the tokens that see have in sight (line of sight, lineOfSight.ts): the keys `t:<token id>` and `p:<prop id>` of
+   * what stands in view, or null while the setting is off or no token sees (nothing is hidden then). `sightKey` is what
+   * it was worked out from, so it is worked out again only when a viewer, a piece or a shut door changed.
+   */
+  private sight: Set<string> | null = null;
+  private sightKey = '';
+  /** The token whose point of view the GM is previewing ("Preview POV"): its line of sight alone hides what is behind walls, on the GM's board only. */
+  private pov: string | null = null;
+  private povSight: Set<string> | null = null;
+  /** The unseen squares of the board as dark blocks: of the tokens that see, and of the point of view being previewed. */
+  private sightMasks: { tiles: ReturnType<typeof tilesFor>; sight: Uint8Array | null; pov: Uint8Array | null } | null = null;
+  private layerRuler: LayerRuler | null = null;
+  /** The scene of the stack being placed on the plane ("Adjust position"), its handles, and where it stands now (seen from the scene being played). */
+  private adjusting: string | null = null;
+  private gizmo: PlacementGizmo | null = null;
+  private adjustPlacement: Placement = NO_PLACEMENT;
+  private readonly veilSight = new SightVeil();
+  private readonly veilPov = new SightVeil();
+  /** The shut or open state and the shape of the map's walls as a string, kept while the map is the same one. */
+  private sightWalls: { map: BoardMap; signature: string } | null = null;
+  /** Whether the pieces were last drawn under the GM's sight setting: they are shown again when it goes. */
+  private sightApplied = false;
   private map: BoardMap | null = null;
   private size = { width: 0, height: 0 };
   private hasImage = false;
@@ -417,9 +465,10 @@ export class Board {
       tileOf: (path) => (path ? (this.wallMaterials.get(path)?.userData.tileScale as number | undefined) ?? 1 : 1),
       heightOf: (id) => (this.heightDrag?.target === 'wall' && this.heightDrag.id === id ? this.heightDrag.value : this.host.wallHeight(id)),
       propOf: (id) => this.host.doorProp(id),
+      flipOf: (id) => this.host.doorFlip?.(id) ?? NO_FLIP,
       prop: (glb) => this.model(glb),
     });
-    this.scene.add(this.fog.object3d, this.beam.object3d, this.walls.object3d, this.rig.object3d);
+    this.scene.add(this.fog.object3d, this.beam.object3d, this.walls.object3d, this.rig.object3d, this.veilSight.object3d, this.veilPov.object3d);
     this.toolbar = new BoardToolbar(container, {
       fogHeight: () => this.host.fogHeight(),
       setFogHeight: (height) => this.host.setFogHeight(height),
@@ -430,6 +479,10 @@ export class Board {
       seeThroughSize: () => this.quality.seeThroughSize,
       ...(this.host.setSeeThroughSize && { setSeeThroughSize: (squares: number) => this.host.setSeeThroughSize?.(squares) }),
       layerLook: () => this.quality.layerLook,
+      lineOfSight: () => this.quality.lineOfSight,
+      sightStyle: () => this.quality.sightStyle,
+      ...(this.host.setSightStyle && { setSightStyle: (style: SightStyle) => this.host.setSightStyle?.(style) }),
+      ...(this.host.setLineOfSight && { setLineOfSight: (mode: SightMode) => this.host.setLineOfSight?.(mode) }),
       ...(this.host.setLayerLook && { setLayerLook: (look: LayerLook) => this.host.setLayerLook?.(look) }),
       ...(this.host.setSeeThrough && { setSeeThrough: (on: boolean) => this.host.setSeeThrough?.(on) }),
       ...(this.host.setWallEdges && { setWallEdges: (edges: WallEdges) => this.host.setWallEdges?.(edges) }),
@@ -508,13 +561,15 @@ export class Board {
   }
 
   /** Shows a map: the first load frames it, later loads (the file changed) keep the camera where it is. */
-  async load(map: BoardMap): Promise<void> {
+  async load(map: BoardMap, shiftY = 0, carry: Placement = NO_PLACEMENT): Promise<void> {
     this.showCell(null);
     const first = this.map === null;
     const sameImage = this.map?.background === map.background;
     this.map = map;
     if (first || !sameImage || this.gridChanged(map)) await this.buildSurface(map);
     if (this.disposed) return;
+    // Another scene of the stack: the camera stays where it was in the world, then glides to the new floor.
+    if (!first) this.reorigin(shiftY, carry);
     if (first) {
       this.camera = new OrbitCamera({ target: { x: this.size.width / 2, y: 0, z: this.size.height / 2 }, pitch: 0.95 }, limitsFor(this.size.width, this.size.height, this.quality.painted));
       this.frameMap();
@@ -537,10 +592,13 @@ export class Board {
     const surface = this.surface;
     if (!map || !surface || this.disposed) return;
     const lowest = Math.min(0, ...this.stackData.map((layer) => layer.elevation));
-    surface.stack(lowest * map.grid.size, lowest < 0 ? this.quality.layerLook : null);
-    // An upper floor between the camera and the pivot fades like a wall does.
-    if (lowest < 0) addCutaway(surface.imageMaterial, this.cutaway);
+    // The scene being played is always drawn solid (its transparent parts cut out, so the scenes below show through); the Upper layers look is for the scenes above it.
+    surface.stack(lowest * map.grid.size, lowest < 0 ? 'solid' : null);
+    // The floor of the scene being played is never cut by the see-through window (only the floors above it, and walls, are).
     const wanted = new Map(this.stackData.map((layer) => [layer.path, layer]));
+    // The scene being placed is gone from the stack: no more handles.
+    if (this.adjusting !== null && !wanted.has(this.adjusting)) this.setAdjust(null);
+    else if (this.adjusting !== null && this.press?.kind !== 'gizmo') this.adjustPlacement = wanted.get(this.adjusting)?.stands ?? NO_PLACEMENT;
     for (const [path, view] of [...this.layerViews]) {
       if (wanted.has(path)) continue;
       view.dispose();
@@ -576,10 +634,140 @@ export class Board {
         this.layerViews.set(layer.path, view);
         this.scene.add(view.object3d);
       }
-      view.update(layer, shape);
+      view.update(layer, layer.elevation > 0 ? shape : { ...shape, look: 'solid' });
     }
     this.shadowsDirty = true;
     this.wake(true);
+  }
+
+  /** Works out what the tokens that see have in sight now, when anything that decides it changed; true when the answer changed. */
+  private refreshSight(): boolean {
+    const map = this.map;
+    if (this.pov !== null && !this.tokens.has(this.pov)) { this.pov = null; this.showPovChip(); }
+    if (!map || (this.quality.lineOfSight === 'off' && this.pov === null)) {
+      const had = this.sight !== null || this.povSight !== null;
+      this.sight = null;
+      this.povSight = null;
+      this.sightKey = '';
+      this.veilSight.clear();
+      this.veilPov.clear();
+      return had;
+    }
+    // A hidden token gives players no sight (Atlas 0.7); a token that sees is always in sight of itself. A point of view
+    // being previewed is that one token's, whatever it has vision on or not.
+    const viewers = [...this.tokens.values()].filter((entry) => entry.token.sees && !entry.token.hidden);
+    const lookingFrom = this.pov !== null ? this.tokens.get(this.pov) ?? null : null;
+    const pieces = [
+      ...[...this.tokens.values()].map((entry) => ({ key: `t:${entry.token.id}`, at: { x: entry.at.x, y: entry.at.y } })),
+      ...[...this.props.values()].map((piece) => ({ key: `p:${piece.id}`, at: { x: piece.object3d.position.x, y: piece.object3d.position.z } })),
+    ];
+    // Positions are judged to an eighth of a square, so a token gliding along does not ask again at every frame.
+    const quantum = Math.max(2, map.grid.size / 8);
+    const round = (value: number): number => Math.round(value / quantum) * quantum;
+    const viewerPoints = viewers.map((entry) => ({ x: round(entry.at.x), y: round(entry.at.y) }));
+    const piecePoints = pieces.map((piece) => ({ key: piece.key, at: { x: round(piece.at.x), y: round(piece.at.y) } }));
+    if (this.sightWalls?.map !== map) {
+      this.sightWalls = { map, signature: JSON.stringify(map.walls.map((wall) => [wall.id, wall.closed ? 1 : 0, wall.p1, wall.p2, wall.type, wall.blocks, wall.direction, wall.limited])) };
+    }
+    const povPoint = lookingFrom ? { x: round(lookingFrom.at.x), y: round(lookingFrom.at.y) } : null;
+    // The blocks stand as tall as the tallest wall, so nothing of an unseen square shows over them.
+    const wallHeights = map.walls.map((wall) => this.host.wallHeight(wall.id) ?? 0);
+    const veilHeight = Math.max(MIN_WALL_SQUARES, this.host.fogHeight(), ...wallHeights) * map.grid.size * 1.02;
+    const key = JSON.stringify([viewerPoints, povPoint, this.pov, this.quality.sightStyle, veilHeight, this.size, map.grid.size, map.grid.offsetX, map.grid.offsetY, piecePoints.map((piece) => [piece.key, piece.at.x, piece.at.y])]) + this.sightWalls.signature;
+    if (key === this.sightKey) return false;
+    this.sightKey = key;
+    // The squares no viewer has in sight, as blocks over the board; the pieces on them are hidden with them.
+    const tiles = tilesFor(this.size.width, this.size.height, map.grid.size, map.grid.offsetX, map.grid.offsetY);
+    const bounds = { x0: 0, y0: 0, x1: this.size.width, y1: this.size.height };
+    const cinematic = this.quality.sightStyle === 'cinematic';
+    const mask = (points: Array<{ x: number; y: number }>): Uint8Array => (cinematic
+      ? connectedTiles(points, map.walls, tiles)
+      : seenTiles(points.map((point) => visibilityPolygon(point, map.walls, bounds)), points, tiles));
+    // Cinematically a piece is seen when its square is; by rays, when a line from a viewer reaches it.
+    const onSeen = (squares: Uint8Array): Set<string> => new Set(piecePoints.filter((piece) => {
+      const col = Math.floor((piece.at.x - tiles.startX) / tiles.size);
+      const row = Math.floor((piece.at.y - tiles.startY) / tiles.size);
+      return col >= 0 && col < tiles.cols && row >= 0 && row < tiles.rows && squares[row * tiles.cols + col] === 1;
+    }).map((piece) => piece.key));
+    const sightMask = viewers.length === 0 || this.quality.lineOfSight === 'off' ? null : mask(viewerPoints);
+    const seen = sightMask === null ? null : cinematic ? onSeen(sightMask) : inSight(viewerPoints, piecePoints, map.walls);
+    for (const entry of viewers) seen?.add(`t:${entry.token.id}`);
+    const povMask = povPoint ? mask([povPoint]) : null;
+    const from = povMask === null ? null : cinematic ? onSeen(povMask) : inSight([povPoint!], piecePoints, map.walls);
+    from?.add(`t:${this.pov}`);
+    this.sightMasks = { tiles, sight: sightMask, pov: povMask };
+    this.veilSight.update(sightMask, tiles, this.size, veilHeight);
+    this.veilPov.update(povMask, tiles, this.size, veilHeight);
+    const differs = (a: Set<string> | null, b: Set<string> | null): boolean => (a === null) !== (b === null) || (a !== null && b !== null && (a.size !== b.size || [...a].some((item) => !b.has(item))));
+    const changed = differs(seen, this.sight) || differs(from, this.povSight);
+    this.sight = seen;
+    this.povSight = from;
+    return changed;
+  }
+
+  /** The token whose point of view is being previewed, or null. */
+  get povToken(): string | null {
+    return this.pov;
+  }
+
+  /** Looks at the board from a token's point of view: what it cannot see behind walls and shut doors is hidden on the GM's board. Null stops. */
+  setPov(id: string | null): void {
+    const next = id !== null && this.tokens.has(id) ? id : null;
+    if (next === this.pov) return;
+    this.pov = next;
+    this.sightKey = '';
+    this.shadowsDirty = true;
+    this.showPovChip();
+    this.wake(true);
+  }
+
+  /** A chip over the board says whose point of view this is, and stops it. */
+  private showPovChip(): void {
+    let chip = this.container.querySelector<HTMLElement>(':scope > .atlas-tabletop-pov');
+    const entry = this.pov !== null ? this.tokens.get(this.pov) : undefined;
+    if (!entry) {
+      if (chip) chip.hidden = true;
+      return;
+    }
+    const doc = this.container.ownerDocument;
+    if (!chip) {
+      chip = doc.win.createDiv();
+      chip.className = 'atlas-tabletop-pov';
+      chip.setAttribute('role', 'status');
+      this.container.appendChild(chip);
+    }
+    chip.hidden = false;
+    chip.replaceChildren();
+    const text = doc.win.createSpan();
+    text.textContent = `POV: ${entry.token.name ?? 'token'}`;
+    const stop = doc.win.createEl('button');
+    stop.type = 'button';
+    stop.textContent = 'Stop POV';
+    stop.addEventListener('click', () => this.setPov(null));
+    chip.append(text, stop);
+  }
+
+  /** Whether the map point (x, y) lies on a square no viewer has in sight, as `viewer` sees the board (for what is drawn over the veil, as the pins are). */
+  private pointBeyond(viewer: 'gm' | 'player', x: number, y: number): boolean {
+    const masks = this.sightMasks;
+    if (!masks) return false;
+    let mask: Uint8Array | null = null;
+    if (viewer === 'gm' && masks.pov) mask = masks.pov;
+    else if (masks.sight && (viewer === 'player' || this.quality.lineOfSight === 'everyone')) mask = masks.sight;
+    if (!mask) return false;
+    const { cols, rows, size, startX, startY } = masks.tiles;
+    const col = Math.floor((x - startX) / size);
+    const row = Math.floor((y - startY) / size);
+    return col >= 0 && col < cols && row >= 0 && row < rows && mask[row * cols + col] === 0;
+  }
+
+  /** Whether a piece is beyond what the tokens that see have in sight, as `viewer` sees the board. */
+  private beyondSight(viewer: 'gm' | 'player', key: string): boolean {
+    // A point of view being previewed is the GM's board alone: players are shown what the tokens that see have in sight.
+    if (viewer === 'gm' && this.povSight !== null) return !this.povSight.has(key);
+    if (this.sight === null) return false;
+    if (viewer === 'gm' && this.quality.lineOfSight !== 'everyone') return false;
+    return !this.sight.has(key);
   }
 
   /** The drawing resolution now, as a share of the screen's pixels. */
@@ -596,6 +784,8 @@ export class Board {
     const repaint = preset.painted !== this.quality.painted || preset.sky !== this.quality.sky;
     const rounder = preset.edges !== this.quality.edges || preset.displaceCuts !== this.quality.displaceCuts;
     const seeing = preset.seeThrough !== this.quality.seeThrough || preset.seeThroughSize !== this.quality.seeThroughSize;
+    if (preset.layerTick !== this.quality.layerTick) this.layerRuler?.setTick(preset.layerTick);
+    if (preset.lineOfSight !== this.quality.lineOfSight || preset.sightStyle !== this.quality.sightStyle) { this.sightKey = ''; this.wake(true); }
     const restack = (this.layerViews.size > 0 || this.stackData.length > 0)
       && (preset.layerLook !== this.quality.layerLook || rounder || preset.miniShadows !== this.quality.miniShadows);
     this.quality = preset;
@@ -999,6 +1189,14 @@ export class Board {
         return;
       }
     }
+    // The GM's board follows the line of sight when the setting says Everyone, and goes back to showing everything when it does not.
+    else if (this.povSight !== null || (this.sight !== null && this.quality.lineOfSight === 'everyone')) {
+      this.showFor('gm');
+      this.sightApplied = true;
+    } else if (this.sightApplied) {
+      this.showFor('gm');
+      this.sightApplied = false;
+    }
     this.fog.face(this.view.position);
     if (this.quality.tiltShift || this.quality.occlusion) {
       this.tilt ??= new PostFx(this.renderer, this.quality.antialias);
@@ -1029,6 +1227,156 @@ export class Board {
   }
 
   /** The line across the board's top (Connect hosting while Atlas does not hold the map); null takes it away. */
+  /**
+   * The shown scene changed to another of its stack: the world did not move, so the camera keeps what it looks at
+   * (the old scene's floor, now `shiftY` map pixels away) and glides to the new scene's floor.
+   */
+  reorigin(shiftY: number, carry: Placement = NO_PLACEMENT): void {
+    if (!shiftY && isNoPlacement(carry)) return;
+    // The new scene is the origin: its own placement on the plane is taken out of the world, so the camera is carried
+    // along (the point it looks at, and its heading) and keeps its view of the base.
+    for (const pose of [this.camera.pose, this.camera.goal]) {
+      const carried = carryView(pose.target, pose.yaw, carry);
+      pose.target.x = carried.x;
+      pose.target.z = carried.z;
+      pose.yaw = carried.yaw;
+    }
+    this.camera.pose.target.y += shiftY;
+    this.camera.goal.target.y = 0;
+    this.wake(true);
+  }
+
+  /** The size of a scene of the stack in its own pixels (its image's once read); null when it is not in the stack. */
+  layerSize(path: string): { width: number; height: number } | null {
+    return this.layerViews.get(path)?.size ?? null;
+  }
+
+  /** The scene being placed on the plane, or null. */
+  get adjustingPath(): string | null {
+    return this.adjusting;
+  }
+
+  /**
+   * Starts placing a scene of the stack on the plane (null stops): handles appear in the middle of the view, at the scene's
+   * height: two arrows and a square to slide it, a ring to turn it about the handles' middle. The scene moves as it is
+   * dragged and is saved when let go.
+   */
+  setAdjust(path: string | null): void {
+    const layer = path === null ? null : this.stackData.find((candidate) => candidate.path === path) ?? null;
+    const next = layer ? layer.path : null;
+    if (next === this.adjusting) return;
+    this.adjusting = next;
+    this.gizmo?.dispose();
+    this.gizmo = null;
+    if (layer) {
+      this.adjustPlacement = layer.stands ?? NO_PLACEMENT;
+      const gizmo = new PlacementGizmo();
+      const target = this.camera.goal.target;
+      gizmo.object3d.position.set(target.x, layer.elevation * (this.map?.grid.size ?? 70) + 0.5, target.z);
+      this.scene.add(gizmo.object3d);
+      this.gizmo = gizmo;
+    }
+    this.showAdjustChip();
+    this.wake(true);
+  }
+
+  /** A chip over the board says which scene is being placed, and stops it. */
+  private showAdjustChip(): void {
+    let chip = this.container.querySelector<HTMLElement>(':scope > .atlas-tabletop-adjust');
+    if (this.adjusting === null) {
+      if (chip) chip.hidden = true;
+      return;
+    }
+    const doc = this.container.ownerDocument;
+    if (!chip) {
+      chip = doc.win.createDiv();
+      chip.className = 'atlas-tabletop-adjust';
+      chip.setAttribute('role', 'status');
+      this.container.appendChild(chip);
+    }
+    chip.hidden = false;
+    chip.replaceChildren();
+    const path = this.adjusting;
+    const text = doc.win.createSpan();
+    text.textContent = `Adjusting: ${path.replace(/^.*\//, '').replace(/\.[^.]+$/, '')}`;
+    const reset = doc.win.createEl('button');
+    reset.type = 'button';
+    reset.textContent = 'Reset';
+    reset.addEventListener('click', () => this.host.layerReset?.(path));
+    const stop = doc.win.createEl('button');
+    stop.type = 'button';
+    stop.textContent = 'Stop';
+    stop.addEventListener('click', () => this.setAdjust(null));
+    chip.append(text, reset, stop);
+  }
+
+  /** The point of the placed scene's plane under the pointer (the ray from the camera meets it), as map coordinates (x, y on the map = x, z here). */
+  private adjustPoint(): { x: number; z: number } | null {
+    const gizmo = this.gizmo;
+    if (!gizmo) return null;
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -gizmo.object3d.position.y);
+    const hit = this.raycaster.ray.intersectPlane(plane, new THREE.Vector3());
+    return hit ? { x: hit.x, z: hit.z } : null;
+  }
+
+  /** A press on a handle: the scene follows the pointer from here. */
+  private beginGizmo(x: number, y: number): boolean {
+    const gizmo = this.gizmo;
+    if (!gizmo || this.adjusting === null) return false;
+    this.ray(x, y);
+    const part = gizmo.hit(this.raycaster);
+    const at = this.adjustPoint();
+    if (!part || !at) return false;
+    const middle = gizmo.object3d.position;
+    this.press = { kind: 'gizmo', part, last: at, angle: Math.atan2(at.z - middle.z, at.x - middle.x), turned: 0, from: this.adjustPlacement };
+    return true;
+  }
+
+  private dragGizmo(press: Extract<Press, { kind: 'gizmo' }>, x: number, y: number, keys: { shift?: boolean; ctrl?: boolean; alt?: boolean } = {}): void {
+    const gizmo = this.gizmo;
+    const path = this.adjusting;
+    if (!gizmo || path === null) return;
+    this.ray(x, y);
+    const at = this.adjustPoint();
+    if (!at) return;
+    const middle = gizmo.object3d.position;
+    let next = this.adjustPlacement;
+    if (press.part === 'turn') {
+      const angle = Math.atan2(at.z - middle.z, at.x - middle.x);
+      let delta = ((angle - press.angle) * 180) / Math.PI;
+      if (delta > 180) delta -= 360;
+      if (delta < -180) delta += 360;
+      // The turn follows the pointer round the middle, snapped: a quarter turn by default, 45 degrees with Shift, 5 with Ctrl, free with Alt.
+      press.turned += delta;
+      press.angle = angle;
+      const wanted = snapTurn(press.from.turn + press.turned, turnStep(keys));
+      next = turnAbout(press.from, { x: middle.x, y: middle.z }, wrapTurn(wanted - press.from.turn));
+    } else {
+      const dx = press.part === 'z' ? 0 : at.x - press.last.x;
+      const dz = press.part === 'x' ? 0 : at.z - press.last.z;
+      next = { ...next, x: next.x + dx, y: next.y + dz };
+      middle.x += dx;
+      middle.z += dz;
+    }
+    press.last = at;
+    this.adjustPlacement = next;
+    this.layerViews.get(path)?.place(next);
+    this.shadowsDirty = true;
+    this.wake(true);
+  }
+
+  /** The handles keep one size on screen, whatever the zoom. */
+  private sizeGizmo(): void {
+    const gizmo = this.gizmo;
+    if (gizmo) gizmo.object3d.scale.setScalar(this.view.position.distanceTo(gizmo.object3d.position) * 0.06);
+  }
+
+  /** The stack's scenes for the height ruler down the right of the board; fewer than two hide it. */
+  setLayerMenu(items: ReadonlyArray<{ path: string; name: string; elevation: number; active: boolean }> | null): void {
+    this.layerRuler ??= new LayerRuler(this.container, (path) => this.host.switchLayer?.(path), (path, event) => this.host.layerMenu?.(path, event));
+    this.layerRuler.show(items, this.quality.layerTick);
+  }
+
   setBanner(banner: { text: string; action?: { label: string; run(): void } } | null): void {
     let element = this.container.querySelector<HTMLElement>(':scope > .atlas-tabletop-banner');
     if (!banner) {
@@ -1200,6 +1548,8 @@ export class Board {
     this.shadowsDirty = false;
     if (this.group.size > 0) this.placeGroup();
     if (this.active.length > 0) this.placeActive();
+    this.sizeGizmo();
+    if (this.refreshSight()) this.shadowsDirty = true;
     this.drawMain();
     this.layoutControls();
     this.drawPlayers(shadows, context);
@@ -1537,6 +1887,8 @@ export class Board {
     this.canvas.setPointerCapture?.(event.pointerId);
     this.tooltip.hidden = true;
     const { clientX: x, clientY: y } = event;
+    // The handles of a scene being placed on the plane come first.
+    if (event.button === 0 && this.audience === 'gm' && this.beginGizmo(x, y)) return;
     if (event.button === 0 && this.placing) return;
     if (event.button === 0 && this.painting) return;
     if (event.button === 0 && this.laserOn) {
@@ -1695,6 +2047,10 @@ export class Board {
 
   private move(event: PointerEvent): void {
     const press = this.press;
+    if (press?.kind === 'gizmo') {
+      this.dragGizmo(press, event.clientX, event.clientY, { shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey, alt: event.altKey });
+      return;
+    }
     if (press?.kind === 'tool') {
       if (!press.moved && Math.hypot(event.clientX - press.x, event.clientY - press.y) >= DRAG_PX) press.moved = true;
       const at = this.boardPoint(event.clientX, event.clientY);
@@ -1753,6 +2109,8 @@ export class Board {
     if (!at) return;
     const point = this.clampToBoard(at.x + press.grab.dx, at.y + press.grab.dy);
     if (press.kind === 'token') {
+      // Over another scene's pill on the height ruler, the token would go to that scene.
+      this.layerRuler?.dropTarget(this.audience === 'gm' ? this.layerRuler.pathAt(x, y) : null);
       const entry = this.tokens.get(press.id);
       if (entry) {
         entry.goal = point;
@@ -1774,6 +2132,11 @@ export class Board {
   private up(event: PointerEvent): void {
     const press = this.press;
     this.press = null;
+    // A handle let go: the scene's new place is saved.
+    if (press?.kind === 'gizmo') {
+      if (this.adjusting !== null) this.host.layerPlaced?.(this.adjusting, this.adjustPlacement);
+      return;
+    }
     const { clientX: x, clientY: y } = event;
     // Painting: a click paints the wall under it (Shift: the whole wall), and painting goes on until Esc.
     if (event.button === 0 && this.painting) {
@@ -1819,6 +2182,19 @@ export class Board {
       }
       if (press.moved && press.copy) {
         this.copyToken(entry, snapPoint(this.map!.grid, entry.at.x, entry.at.y, entry.token.size));
+        return;
+      }
+      // Dropped on another scene's pill: the tokens go there (and stand where they were until it is done).
+      const dropped = this.audience === 'gm' && press.moved ? this.layerRuler?.pathAt(event.clientX, event.clientY) ?? null : null;
+      this.layerRuler?.dropTarget(null);
+      if (dropped) {
+        const ids = [...new Set([press.id, ...(press.members?.keys() ?? [])])];
+        for (const id of ids) {
+          const carried = this.tokens.get(id);
+          if (carried) carried.goal = { x: carried.token.x, y: carried.token.y };
+        }
+        this.host.moveTokensToLayer?.(ids, dropped);
+        this.wake(true);
         return;
       }
       if (!press.moved) {
@@ -1896,6 +2272,7 @@ export class Board {
       this.tooltip.hidden = true;
       this.wake(true);
     } else if (press?.kind === 'token') {
+      this.layerRuler?.dropTarget(null);
       this.clearRuler();
       const entry = this.tokens.get(press.id);
       if (entry) {
@@ -2295,19 +2672,28 @@ export class Board {
     const gm = viewer === 'gm';
     const fog = this.fog.areas;
     for (const entry of this.tokens.values()) {
-      entry.piece.object3d.visible = gm || playerSees(entry.token, entry.at, fog);
+      entry.piece.object3d.visible = (gm || playerSees(entry.token, entry.at, fog)) && !this.beyondSight(viewer, `t:${entry.token.id}`);
       entry.labels.object3d.visible = gm;
       entry.playerLabels.object3d.visible = !gm;
     }
-    for (const pin of this.pins) pin.object3d.visible = gm;
-    for (const piece of this.props.values()) piece.object3d.visible = gm || !insideFog(fog, { x: piece.object3d.position.x, y: piece.object3d.position.z });
+    for (const pin of this.pins) pin.object3d.visible = gm && !this.pointBeyond(viewer, pin.pin.x, pin.pin.y);
+    for (const piece of this.props.values()) piece.object3d.visible = (gm || !insideFog(fog, { x: piece.object3d.position.x, y: piece.object3d.position.z })) && !this.beyondSight(viewer, `p:${piece.id}`);
     if (this.cellOutline) this.cellOutline.visible = gm;
     if (this.cellLabel) this.cellLabel.visible = gm;
     this.fog.show(viewer);
     this.walls.show(viewer);
     this.rig.show(viewer);
+    if (this.gizmo) this.gizmo.object3d.visible = gm;
+    // The unseen squares: the players' view always, the GM's board under Everyone, or the point of view being previewed.
+    this.veilPov.object3d.visible = gm && this.povSight !== null;
+    this.veilSight.object3d.visible = this.sight !== null && (!gm || (this.quality.lineOfSight === 'everyone' && this.povSight === null));
     // Players see one scene at a time: what is stacked on it is the GM's.
-    for (const view of this.layerViews.values()) view.setVisible(gm);
+    // Under line of sight (the GM's board under Everyone, or a point of view) the scenes stacked above are blacked out as shadows, and the ones below stay.
+    const sighted = gm && (this.povSight !== null || (this.sight !== null && this.quality.lineOfSight === 'everyone'));
+    for (const view of this.layerViews.values()) {
+      view.setVisible(gm);
+      view.setBlackout(sighted && view.elevation > 0);
+    }
   }
 
   /** The players' picture, after the GM's: the same scene through the players' camera, then back to the GM's look. */
@@ -2777,6 +3163,10 @@ export class Board {
     this.rig.dispose();
     for (const view of this.layerViews.values()) view.dispose();
     this.layerViews.clear();
+    this.veilSight.dispose();
+    this.veilPov.dispose();
+    this.layerRuler?.dispose();
+    this.gizmo?.dispose();
     this.groupMarks.dispose();
     this.groupBar.dispose();
     this.activeMarks.dispose();

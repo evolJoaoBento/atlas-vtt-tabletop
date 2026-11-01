@@ -5,6 +5,8 @@
  */
 
 import type { Sky } from './look';
+import { DEFAULT_LAYER_TICK } from './layerRuler';
+import { DEFAULT_SIGHT_MODE, DEFAULT_SIGHT_STYLE, type SightMode, type SightStyle } from './lineOfSight';
 
 export type Quality = 'low' | 'medium' | 'high';
 
@@ -56,6 +58,12 @@ export interface QualityPreset {
   seeThroughSize: number;
   /** How the floor image of an elevation layer is drawn. An own setting too. */
   layerLook: LayerLook;
+  /** Pieces behind walls and shut doors, from the tokens that see, are hidden: from the players' view, or from the GM's board too (lineOfSight.ts). An own setting too. */
+  lineOfSight: SightMode;
+  /** How line of sight is judged: by rays from each viewer, or cinematically, by whole rooms. An own setting too. */
+  sightStyle: SightStyle;
+  /** The height ruler of a stack of scenes has a dash every this many squares. An own setting too. */
+  layerTick: number;
 }
 
 export const DEFAULT_SEE_THROUGH_SIZE = 1.2;
@@ -68,18 +76,21 @@ export function readSeeThroughSize(value: unknown): number {
 }
 
 export const QUALITY: Readonly<Record<Quality, QualityPreset>> = {
-  low: { maxPixelRatio: 1, minPixelRatio: 0.6, antialias: false, shadowMapSize: 1024, miniShadows: 'blob', lightShadows: 0, displaceCuts: 0, tiltShift: false, occlusion: false, painted: false, sky: 'dusk', edges: DEFAULT_EDGES, seeThrough: false, seeThroughSize: DEFAULT_SEE_THROUGH_SIZE, layerLook: DEFAULT_LAYER_LOOK },
-  medium: { maxPixelRatio: 1.5, minPixelRatio: 0.75, antialias: true, shadowMapSize: 2048, miniShadows: 'blob', lightShadows: 2, displaceCuts: 8, tiltShift: false, occlusion: false, painted: false, sky: 'dusk', edges: DEFAULT_EDGES, seeThrough: false, seeThroughSize: DEFAULT_SEE_THROUGH_SIZE, layerLook: DEFAULT_LAYER_LOOK },
-  high: { maxPixelRatio: 2, minPixelRatio: 1, antialias: true, shadowMapSize: 4096, miniShadows: 'real', lightShadows: 4, displaceCuts: 16, tiltShift: false, occlusion: false, painted: false, sky: 'dusk', edges: DEFAULT_EDGES, seeThrough: false, seeThroughSize: DEFAULT_SEE_THROUGH_SIZE, layerLook: DEFAULT_LAYER_LOOK },
+  low: { maxPixelRatio: 1, minPixelRatio: 0.6, antialias: false, shadowMapSize: 1024, miniShadows: 'blob', lightShadows: 0, displaceCuts: 0, tiltShift: false, occlusion: false, painted: false, sky: 'dusk', edges: DEFAULT_EDGES, seeThrough: false, seeThroughSize: DEFAULT_SEE_THROUGH_SIZE, layerLook: DEFAULT_LAYER_LOOK, lineOfSight: DEFAULT_SIGHT_MODE, sightStyle: DEFAULT_SIGHT_STYLE, layerTick: DEFAULT_LAYER_TICK },
+  medium: { maxPixelRatio: 1.5, minPixelRatio: 0.75, antialias: true, shadowMapSize: 2048, miniShadows: 'blob', lightShadows: 2, displaceCuts: 8, tiltShift: false, occlusion: false, painted: false, sky: 'dusk', edges: DEFAULT_EDGES, seeThrough: false, seeThroughSize: DEFAULT_SEE_THROUGH_SIZE, layerLook: DEFAULT_LAYER_LOOK, lineOfSight: DEFAULT_SIGHT_MODE, sightStyle: DEFAULT_SIGHT_STYLE, layerTick: DEFAULT_LAYER_TICK },
+  high: { maxPixelRatio: 2, minPixelRatio: 1, antialias: true, shadowMapSize: 4096, miniShadows: 'real', lightShadows: 4, displaceCuts: 16, tiltShift: false, occlusion: false, painted: false, sky: 'dusk', edges: DEFAULT_EDGES, seeThrough: false, seeThroughSize: DEFAULT_SEE_THROUGH_SIZE, layerLook: DEFAULT_LAYER_LOOK, lineOfSight: DEFAULT_SIGHT_MODE, sightStyle: DEFAULT_SIGHT_STYLE, layerTick: DEFAULT_LAYER_TICK },
 };
 
 /** A preset with the miniature look, the contact shadows and the painted lighting on or off. */
-export function withLooks(preset: QualityPreset, looks: { tiltShift: boolean; occlusion: boolean; painted: boolean; sky: Sky; edges?: WallEdges; seeThrough?: boolean; seeThroughSize?: number; layerLook?: LayerLook }): QualityPreset {
+export function withLooks(preset: QualityPreset, looks: { tiltShift: boolean; occlusion: boolean; painted: boolean; sky: Sky; edges?: WallEdges; seeThrough?: boolean; seeThroughSize?: number; layerLook?: LayerLook; lineOfSight?: SightMode; sightStyle?: SightStyle; layerTick?: number }): QualityPreset {
   const edges = looks.edges ?? preset.edges;
   const seeThrough = looks.seeThrough ?? preset.seeThrough;
   const seeThroughSize = looks.seeThroughSize ?? preset.seeThroughSize;
   const layerLook = looks.layerLook ?? preset.layerLook;
-  return preset.tiltShift === looks.tiltShift && preset.occlusion === looks.occlusion && preset.painted === looks.painted && preset.sky === looks.sky && preset.edges === edges && preset.seeThrough === seeThrough && preset.seeThroughSize === seeThroughSize && preset.layerLook === layerLook ? preset : { ...preset, ...looks, edges, seeThrough, seeThroughSize, layerLook };
+  const lineOfSight = looks.lineOfSight ?? preset.lineOfSight;
+  const sightStyle = looks.sightStyle ?? preset.sightStyle;
+  const layerTick = looks.layerTick ?? preset.layerTick;
+  return preset.tiltShift === looks.tiltShift && preset.occlusion === looks.occlusion && preset.painted === looks.painted && preset.sky === looks.sky && preset.edges === edges && preset.seeThrough === seeThrough && preset.seeThroughSize === seeThroughSize && preset.layerLook === layerLook && preset.lineOfSight === lineOfSight && preset.sightStyle === sightStyle && preset.layerTick === layerTick ? preset : { ...preset, ...looks, edges, seeThrough, seeThroughSize, layerLook, lineOfSight, sightStyle, layerTick };
 }
 
 export const DEFAULT_QUALITY: Quality = 'medium';

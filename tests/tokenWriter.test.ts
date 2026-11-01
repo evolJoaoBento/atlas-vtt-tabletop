@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type { AtlasSceneState, AtlasView } from '../src/atlas';
 import { HP_RESOURCE, STRESS_RESOURCE } from '../src/board/resources';
-import { TokenWriter, copyTokenInText, deleteTokenInText, initiativeActionInText, initiativeInText, lockDoorInText, toggleDoorInText, killTokenInText, moveTokenInText, moveTokensInText, setResourceInText } from '../src/board/tokenWriter';
+import { TokenWriter, addTokenInText, readTokenInText, copyTokenInText, deleteTokenInText, initiativeActionInText, initiativeInText, lockDoorInText, toggleDoorInText, killTokenInText, moveTokenInText, moveTokensInText, setResourceInText } from '../src/board/tokenWriter';
 import { conditionChange, resetChange } from '../src/board/tokenEdits';
 
 const text = readFileSync('tests/fixtures/dungeon.atlasmap', 'utf8');
@@ -326,4 +326,44 @@ test('moveTokensInText moves each named token and nothing else', () => {
   assert.equal(out.state.objects.tokens[ID].x, 9);
   assert.equal(out.state.objects.tokens[ID].y, 8);
   assert.throws(() => moveTokensInText(text, [{ id: 'nope', x: 0, y: 0 }]), /no token nope/);
+});
+
+test('a token that comes from another scene keeps its fields, is renumbered there, and loses the floor it stood on', () => {
+  const source = { ...readTokenInText(text, BUGBEAR), level: 'upper', levels: ['a'], levelId: 'upper', offLevel: true };
+  const out = JSON.parse(addTokenInText(text, source, 'tok_arrived', 15, 25));
+  const arrived = out.state.objects.tokens.tok_arrived;
+  const original = JSON.parse(text).state.objects.tokens[BUGBEAR];
+  assert.deepEqual(arrived, { ...original, id: 'tok_arrived', x: 15, y: 25, instanceNumber: 3 });
+  for (const gone of ['level', 'levels', 'levelId', 'offLevel']) assert.ok(!(gone in arrived), gone);
+  assert.deepEqual(out.state.objects.tokens[BUGBEAR], original);
+});
+
+test('taking a token to another scene adds it there first, then removes it here (files on both sides)', async () => {
+  const edits: Array<[string, string]> = [];
+  const writer = new TokenWriter({ views: () => [], process: async (path, edit) => { edits.push([path, edit(text)]); } });
+  await writer.transfer('from.atlasmap', BUGBEAR, 'to.atlasmap', 'tok_new', { x: 100, y: 200 });
+  assert.deepEqual(edits.map(([path]) => path), ['from.atlasmap', 'to.atlasmap', 'from.atlasmap']);
+  const added = JSON.parse(edits[1]![1]).state.objects.tokens.tok_new;
+  assert.equal(added.x, 100);
+  assert.equal(added.y, 200);
+  assert.equal(added.imagePath, readTokenInText(text, BUGBEAR).imagePath);
+  assert.ok(!(BUGBEAR in JSON.parse(edits[2]![1]).state.objects.tokens));
+});
+
+test('taking a token to a scene Atlas holds goes through that store, and a failure there leaves the token where it was', async () => {
+  const calls: unknown[] = [];
+  const edits: string[] = [];
+  const view = fakeView('to.atlasmap', calls, { addToken: ((data: Record<string, unknown>) => { calls.push(['add', data]); return 'id'; }) as never });
+  const writer = new TokenWriter({ views: () => [view], process: async (path, edit) => { edits.push(path); edit(text); } });
+  await writer.transfer('from.atlasmap', BUGBEAR, 'to.atlasmap', 'tok_new', { x: 5, y: 6 });
+  const added = (calls[0] as [string, Record<string, unknown>])[1];
+  assert.equal(added.id, 'tok_new');
+  assert.equal(added.x, 5);
+  assert.ok(!('instanceNumber' in added));
+  // Its own scene's file is where it is taken from and removed.
+  assert.deepEqual(edits, ['from.atlasmap', 'from.atlasmap']);
+  const failing = new TokenWriter({ views: () => [fakeView('to.atlasmap', [], { addToken: undefined })], process: async (path, edit) => { edits.push(`failing:${path}`); edit(text); } });
+  await assert.rejects(failing.transfer('from.atlasmap', BUGBEAR, 'to.atlasmap', 'tok_x', { x: 1, y: 1 }), /offers no way to add a token/);
+  // Only the read of the token happened: nothing was removed.
+  assert.deepEqual(edits.filter((entry) => entry.startsWith('failing:')), ['failing:from.atlasmap']);
 });
