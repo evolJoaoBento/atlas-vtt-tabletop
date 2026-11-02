@@ -2,7 +2,7 @@
  * A scene stacked above (or below) the one the board shows, drawn read-only in the same 3D space: its map image as a
  * floor at its elevation (transparent where the image is, solid, faded or left out by the "Upper layers" setting),
  * and its walls, doors, props, lights and minis standing on it. Nothing in it is picked or edited on this board;
- * players never see it (Connect treats each scene as its own). The layer's pixels are scaled so its grid squares
+ * a Connect player's board draws the same layers from what Connect sends (`layersFromExtras`). The layer's pixels are scaled so its grid squares
  * match the shown scene's, and shifted so the two grids line up.
  */
 import * as THREE from 'three';

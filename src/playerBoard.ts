@@ -13,6 +13,7 @@ import { boardFromScene, type PlayerSceneLike, type SceneBoard } from './board/s
 import type { SightMode, SightStyle } from './board/lineOfSight';
 import { QUALITY, withLooks, type LayerLook, type Quality, type QualityPreset, type WallEdges } from './board/quality';
 import type { Sky } from './board/look';
+import { NO_FLIP } from './board/walls';
 import { materialFromUrls, type LoadedMaterial } from './materials';
 import type { BoardCamera, BoardExtras, PlayerDiceRequest, PlayerDiceResult } from './connectContract';
 import type { ChosenPack } from './dice/dicePack';
@@ -334,6 +335,7 @@ class PlayerBoard implements PlayerBoardHandle {
     this.loading = this.loading.then(async () => {
       if (this.disposed || this.shown !== shown) return;
       await this.board.load(shown.map);
+      if (this.shown === shown) this.board.setStack(shown.layers);
       if (this.gmCamera && !this.followedOnce) {
         this.followedOnce = true;
         this.board.followGm();
@@ -405,14 +407,16 @@ class PlayerBoard implements PlayerBoardHandle {
       wallMaterial: (id) => look()?.wallMaterial(id) ?? null,
       wallHeight: (id) => look()?.wallHeight(id) ?? null,
       doorProp: (id) => look()?.doorProp(id) ?? null,
+      doorFlip: (id) => look()?.doorFlip(id) ?? NO_FLIP,
       lightHeight: (light) => look()?.lightHeight(light.id) ?? DEFAULT_LIGHT_SQUARES,
+      tint: () => look()?.tint ?? null,
       ambient: () => look()?.ambient ?? (this.shown?.map.lighting.enabled ? this.shown.map.lighting.ambient : 1),
       laser: () => ({ color: this.board.tools.laserColor || this.ownColor(), size: 16 }),
       // What a player's board never does: the GM's tools and settings.
       warn: none, moveProp: none, addProp: none, tokenMenu: none, propMenu: none, statblockPreview: none, copyToken: none, editResource: none,
       setFogHeight: none, setWallThickness: none, togglePlayerView: none, playerViewOpen: () => false, setLaser: none,
       initiativeOpen: () => false, toggleInitiative: none, setWallHeight: none, setLightHeight: none, toggleDoor: none, wallMenu: none,
-      setAmbient: none, lightMenu: none, paintWall: none,
+      setAmbient: none, lightMenu: none, paintWall: none, setTint: none, clearTint: none,
     };
   }
 }

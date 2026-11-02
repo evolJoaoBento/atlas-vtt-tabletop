@@ -204,7 +204,7 @@ async function main(): Promise<void> {
     moves: [] as Array<[string, number, number]>, propMoves: [] as Array<[string, number, number]>, added: [] as Array<[string, number, number]>,
     notes: [] as string[], menus: [] as string[], propMenus: [] as string[], previews: [] as string[], warnings: [] as string[],
     copies: [] as Array<[string, string, number, number]>, menuActions: [] as unknown[][], initiative: [] as unknown[], shown: [] as string[],
-    heights: [] as unknown[][], doors: [] as string[], wallMenus: [] as string[], paints: [] as Array<[string, string, boolean]>, lightMenus: [] as string[], ambients: [] as number[], lasers: [] as Array<Record<string, unknown>>, fogHeights: [] as number[], thicknesses: [] as number[], toolActions: [] as unknown[], opened: 0, sceneTabs: [] as unknown[][],
+    heights: [] as unknown[][], doors: [] as string[], wallMenus: [] as string[], paints: [] as Array<[string, string, boolean]>, lightMenus: [] as string[], ambients: [] as number[], tints: [] as Array<string | null>, lasers: [] as Array<Record<string, unknown>>, fogHeights: [] as number[], thicknesses: [] as number[], toolActions: [] as unknown[], opened: 0, sceneTabs: [] as unknown[][],
     /** Resource edits as the host saved them: token, key, the value it held, the value written, max edited. */
     edits: [] as Array<[string, string, ResourceValue, ResourceValue, boolean]>,
     rotations: [] as Array<Array<{ id: string; rotation: number }>>,
@@ -232,6 +232,7 @@ async function main(): Promise<void> {
   const wallHeights = new Map<string, number>();
   const lightHeights = new Map<string, number>();
   let ambientLevel = 1;
+  let tintKept: string | null = null;
   let menu: AtlasMenu | null = null;
   const initiative = new Set<string>();
   let players: Window | null = null;
@@ -372,6 +373,9 @@ async function main(): Promise<void> {
     },
     ambient: () => ambientLevel,
     setAmbient: (level) => { ambientLevel = level; record.ambients.push(level); board.refresh(); },
+    tint: () => tintKept,
+    setTint: (color) => { tintKept = color; record.tints.push(color); board.refresh(); },
+    clearTint: () => { tintKept = null; record.tints.push(null); board.refresh(); },
     lightHeight: (light) => lightHeights.get(light.id) ?? 1,
     lightMenu: (id) => { record.lightMenus.push(id); },
     hosting: () => hosting,

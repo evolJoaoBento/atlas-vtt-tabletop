@@ -22,6 +22,7 @@ import { DEFAULT_MATERIALS_FOLDER, MaterialLibrary } from './src/materials';
 import { GpuSettings, currentChip, gpuChoices, type GpuPreference } from './src/gpu';
 import { playerMiniPainter, type PlayerMiniPainter } from './src/playerMinis';
 import { boardLookFor, MaterialIndex } from './src/boardLook';
+import { LayerIndex, layersFor } from './src/boardLayers';
 import { playerBoardFactory, type PlayerBoardFactory } from './src/playerBoard';
 import { documentHasWebgl } from './src/webgl';
 import type { BoardLook, BoardSession, GmCameraSource } from './src/connectContract';
@@ -58,6 +59,8 @@ interface TabletopSettings {
   lineOfSight?: SightMode;
   sightStyle?: SightStyle;
   layerTick?: number;
+  /** Whether Connect's players see the scenes stacked with a map (their floors, walls and props, never what is on them); on unless false. */
+  shareLayers?: boolean;
   /** The painted lighting. */
   painted?: boolean;
   /** The painted sky's palette. */
@@ -130,6 +133,7 @@ export default class TabletopPlugin extends Plugin {
   private readonly boardListeners = new Set<(mapPath: string | null) => void>();
   private readonly cameraListeners = new Set<() => void>();
   private materialIndex: MaterialIndex | null = null;
+  private layerIndex: LayerIndex | null = null;
   /** Connect's hosted session, while it hands one over. */
   private session: BoardSession | null = null;
   library!: MiniLibrary;
@@ -299,14 +303,19 @@ export default class TabletopPlugin extends Plugin {
       this.props.fileChanged(file.path);
       this.materials.fileChanged(file.path);
     }));
-    const changed = (file: { path: string }): void => { this.library.fileChanged(file.path); this.props.fileChanged(file.path); this.materials.fileChanged(file.path); };
+    const changed = (file: { path: string }): void => {
+      // A scene stacked with another changed: Connect's players are sent it again.
+      if (this.layerIndex?.has(file.path)) { this.layerIndex.forget(file.path); this.boardChanged(null); }
+      this.library.fileChanged(file.path); this.props.fileChanged(file.path); this.materials.fileChanged(file.path); };
     this.registerEvent(this.app.vault.on('create', changed));
     this.registerEvent(this.app.vault.on('modify', changed));
 
     this.app.workspace.onLayoutReady(() => { this.library.emit(); this.props.emit(); void this.loadDicePack(); });
 
     this.materialIndex = new MaterialIndex(this.app.vault, () => this.boardChanged(null));
-    this.register(this.boardData.onChange((mapPath) => this.boardChanged(mapPath)));
+    this.layerIndex = new LayerIndex(this.app.vault, () => this.boardChanged(null));
+    // A scene of a stack changed (its height, place or walls): every map it is stacked with is sent again.
+    this.register(this.boardData.onChange((mapPath) => this.boardChanged(mapPath !== null && this.boardData.stackOf(mapPath).length > 1 ? null : mapPath)));
     this.register(this.materials.onChange(() => { this.materialIndex?.forgetAll(); this.boardChanged(null); }));
     this.players = playerMiniPainter();
     const board = playerBoardFactory(() => this.settings.quality, () => ({ tiltShift: this.settings.tiltShift === true, occlusion: this.settings.occlusion === true, painted: this.settings.painted === true, sky: readSky(this.settings.sky), edges: readEdges(this.settings.wallEdges), seeThrough: this.settings.seeThrough === true, seeThroughSize: readSeeThroughSize(this.settings.seeThroughSize), layerLook: readLayerLook(this.settings.layerLook) }), { settings: () => this.settings.dice, pack: () => (this.dicePack ??= vendoredPack()) });
@@ -324,7 +333,7 @@ export default class TabletopPlugin extends Plugin {
         if (!(file instanceof TFile) || file.extension.toLowerCase() !== 'glb') throw new Error(`No mini at ${path}.`);
         return this.app.vault.readBinary(file);
       },
-      boardLook: (mapPath: string) => boardLookFor(this.boardData, this.materialIndex!, mapPath),
+      boardLook: (mapPath: string) => boardLookFor(this.boardData, this.materialIndex!, mapPath, this.settings.shareLayers === false ? [] : layersFor(this.boardData, this.materialIndex!, this.layerIndex!, mapPath)),
       onBoardChange: (listener: (mapPath: string | null) => void) => {
         this.boardListeners.add(listener);
         return () => { this.boardListeners.delete(listener); };
@@ -445,6 +454,12 @@ export default class TabletopPlugin extends Plugin {
     this.settings.lineOfSight = readSightMode(mode);
     this.save();
     for (const view of this.boards()) await view.applyQuality();
+  }
+
+  async setShareLayers(on: boolean): Promise<void> {
+    this.settings.shareLayers = on;
+    this.save();
+    this.boardChanged(null);
   }
 
   async setLayerLook(look: LayerLook): Promise<void> {
@@ -751,6 +766,9 @@ class TabletopSettingTab extends PluginSettingTab {
           .setValue(readLayerLook(plugin.settings.layerLook))
           .onChange((value) => { void plugin.setLayerLook(readLayerLook(value)); }));
       }, ['elevation', 'floor', 'stack']),
+      this.row('Show layers to Connect players', 'With Atlas VTT Connect, the players\' 3D board draws the scenes stacked with the one they are on (Elevation layers): each floor, with its walls, doors, lights and props, at its height and place, as the Upper layers setting and line of sight show them. Players never get what is on those scenes (tokens, pins, notes, fog), and a layer is not hidden by its own fog: turn this off to keep the other floors from players.', (setting) => {
+        setting.addToggle((toggle) => toggle.setValue(plugin.settings.shareLayers !== false).onChange((on) => { void plugin.setShareLayers(on); }));
+      }, ['connect', 'players', 'layers', 'elevation', 'share']),
       this.row('3D board quality', 'Low draws fastest (no antialiasing, soft blob shadows). Medium is sharper. High gives minis their real shadows and draws at full resolution. Displacement (walls whose material has a height map physically relief out) is off on Low, coarse on Medium and fine on High. On all of them the resolution drops a little while the board cannot keep up.', (setting) => {
         setting.addDropdown((dropdown) => dropdown
           .addOptions({ low: 'Low', medium: 'Medium', high: 'High' })

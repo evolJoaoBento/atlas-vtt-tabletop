@@ -18,7 +18,7 @@ server.listen(0, async () => {
   const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const page = await browser.newPage({ viewport: { width: 1000, height: 640 } });
   const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(`${m.type()}: ${m.text()}`); });
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(`${m.type()}: ${m.text()} ${m.location().url ?? ''}`); });
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
   try {
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
@@ -279,6 +279,43 @@ server.listen(0, async () => {
     check('a scene change clears the dice and the roll in play is never sent', changed.dice === 0 && (await record()).diceResults.length === 2, { changed, sends: (await record()).diceResults.length });
     await page.evaluate(() => { const t = window.playerTest; t.handle.setScene(t.scene); });
     await wait(300);
+
+    // 11b. The GM's tint, a turned door, and a scene stacked above, all from the extras.
+    await page.evaluate(() => window.playerTest.handle.setExtras(window.playerTest.extras));
+    await wait(2500);
+    const plain = await page.evaluate(() => { const b = window.playerTest.board; return { sky: b.hemisphere.color.getHexString(), sun: b.sun.color.getHexString(), flip: b.walls.doors.get('d1')?.flip ?? null }; });
+    const stacked = await page.evaluate(async () => {
+      const t = window.playerTest;
+      const LAYER = 'L'.repeat(43);
+      const canvas = document.createElement('canvas');
+      canvas.width = 1400; canvas.height = 1000;
+      const context = canvas.getContext('2d');
+      context.fillStyle = '#4466aa'; context.fillRect(0, 0, 1400, 1000);
+      t.files.set(LAYER, canvas.toDataURL('image/png'));
+      t.handle.setExtras({
+        ...t.extras, tint: '#ff8844',
+        walls: t.extras.walls.map((wall) => (wall.id === 'd1' ? { ...wall, door: { ...wall.door, hinge: true, side: true } } : wall)),
+        layers: [{ id: 'layer-1', elevation: 3, stands: { x: 0, y: 0, turn: 0 }, image: LAYER, grid: { size: 70, offsetX: 0, offsetY: 0 },
+          walls: [{ id: 'lw', type: 'solid', p1: { x: 280, y: 280 }, p2: { x: 630, y: 280 }, height: null, material: null }, { id: 'ld', type: 'door', p1: { x: 630, y: 280 }, p2: { x: 700, y: 280 }, height: null, material: null, door: { open: false, swing: 'left', prop: null, hinge: true } }],
+          lights: [], props: [], fogHeight: null, wallThickness: null }],
+      });
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const b = t.board;
+      const view = [...b.layerViews.values()][0];
+      return { sky: b.hemisphere.color.getHexString(), sun: b.sun.color.getHexString(), flip: b.walls.doors.get('d1')?.flip ?? null, layers: b.layerViews.size, wallsAbove: view ? view.object3d.children.length : 0, y: view ? view.object3d.position.y : null };
+    });
+    check('the GM\'s tint colours the daylight of a player\'s board', stacked.sky !== plain.sky && stacked.sun !== plain.sun && parseInt(stacked.sky.slice(0, 2), 16) > parseInt(stacked.sky.slice(4, 6), 16), { plain, stacked });
+    check('a door the GM turned is hung the way they turned it on the player\'s board', plain.flip && plain.flip.hinge === false && stacked.flip && stacked.flip.hinge === true && stacked.flip.side === true, { plain: plain.flip, stacked: stacked.flip });
+    check('a scene stacked above is drawn on the player\'s board, with its walls', stacked.layers === 1 && stacked.wallsAbove > 0, stacked);
+    await page.screenshot({ path: `${shots}/player-11b-layers.png` });
+    const cleared = await page.evaluate(async () => {
+      const t = window.playerTest;
+      t.handle.setExtras(t.extras);
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const b = t.board;
+      return { sky: b.hemisphere.color.getHexString(), flip: b.walls.doors.get('d1')?.flip ?? null, layers: b.layerViews.size };
+    });
+    check('without them again the tint, the turn and the stacked scene are gone', cleared.sky === plain.sky && cleared.flip && cleared.flip.hinge === false && cleared.layers === 0, cleared);
 
     // 12. Disposed: the WebGL context is let go.
     await page.evaluate(() => window.playerTest.handle.dispose());

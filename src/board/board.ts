@@ -22,7 +22,7 @@
  * moves: the camera easing, a token gliding, a mini's clip playing.
  */
 import * as THREE from 'three';
-import { choiceOf, horizonColor, LIGHTING, lightingFor, room, setLook, type LightingChoice } from './look';
+import { choiceOf, horizonColor, LIGHTING, lightingFor, room, setLook, tinted, type LightingChoice } from './look';
 import type { MiniPlacement } from '../assignments';
 import type { LoadedMini } from '../library';
 import type { PropPlacement, TokenStyle } from './boardData';
@@ -177,6 +177,10 @@ export interface BoardHost {
   /** The board's ambient light (0–1), and keeping a new level. */
   ambient(): number;
   setAmbient(level: number): void;
+  /** The colour the daylight is tinted ('#rrggbb'), or null for none; keeping a new one, or taking it off. */
+  tint(): string | null;
+  setTint(color: string): void;
+  clearTint(): void;
   /** How high a light hangs, in grid squares. */
   lightHeight(light: BoardLight): number;
   /** A light's right-click menu (on its bulb). */
@@ -412,6 +416,8 @@ export class Board {
   private readonly rig = new LightRig();
   private readonly hemisphere = new THREE.HemisphereLight(LIGHTING.classic.skyColor, LIGHTING.classic.groundColor, 1);
   private ambientShown: number | null = null;
+  /** A tint shown while the colour picker moves, before it is kept; '' is none. */
+  private tintShown: string | null = null;
   /** The height being dragged (Ctrl + drag), shown before it is kept. */
   private heightDrag: { target: 'wall' | 'light'; id: string; value: number } | null = null;
   /** Where the camera was when the shadow-casting lights were last chosen. */
@@ -521,6 +527,19 @@ export class Board {
         if (keep) this.host.setAmbient(level);
         this.applyLighting();
       },
+      tint: () => this.tintShown ?? this.host.tint(),
+      setTint: (color, keep) => {
+        this.tintShown = keep ? null : color;
+        if (keep) this.host.setTint(color);
+        this.paintDaylight();
+        this.wake(true);
+      },
+      resetTint: () => {
+        this.tintShown = null;
+        this.host.clearTint();
+        this.paintDaylight();
+        this.wake(true);
+      },
     });
     this.toolbar.setHidden(this.audience === 'player');
     this.tools.eraseAny = this.audience === 'gm';
@@ -543,11 +562,8 @@ export class Board {
     this.renderer.setPixelRatio(this.governor.ratio);
     // Shadows are redrawn only when something on the board moves, not when only the camera does.
     this.renderer.shadowMap.autoUpdate = false;
-    this.scene.background = room(doc, this.quality.painted, this.quality.sky);
     this.scene.add(this.hemisphere);
-    this.sun.color.setHex(lightingFor(this.quality.painted, this.quality.sky).sunColor);
-    this.hemisphere.color.setHex(lightingFor(this.quality.painted, this.quality.sky).skyColor);
-    this.hemisphere.groundColor.setHex(lightingFor(this.quality.painted, this.quality.sky).groundColor);
+    this.paintDaylight();
     this.sun.castShadow = true;
     this.sun.shadow.radius = lightingFor(this.quality.painted, this.quality.sky).shadowRadius;
     this.sun.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
@@ -1123,25 +1139,39 @@ export class Board {
     const painted = this.quality.painted;
     this.surface?.widenFloor(painted ? 3 : 1);
     this.camera.limits.minPitch = limitsFor(this.size.width, this.size.height, painted).minPitch;
-    this.scene.fog = painted ? new THREE.Fog(horizonColor(this.quality.sky), this.span * 4, this.span * 16) : null;
+    this.scene.fog = painted ? new THREE.Fog(tinted(horizonColor(this.quality.sky), this.tintShown ?? this.host.tint()), this.span * 4, this.span * 16) : null;
+  }
+
+  /** What the sky behind the table was last painted for: its look, its sky and the tint. */
+  private backdropKey = '';
+
+  /** The colours of the daylight and of the sky behind the table: the look's, multiplied by the tint the GM gave the board. */
+  private paintDaylight(): void {
+    const lighting = lightingFor(this.quality.painted, this.quality.sky);
+    const tint = this.tintShown ?? this.host.tint();
+    this.hemisphere.color.copy(tinted(lighting.skyColor, tint));
+    this.hemisphere.groundColor.copy(tinted(lighting.groundColor, tint));
+    this.sun.color.copy(tinted(lighting.sunColor, tint));
+    const key = `${this.quality.painted}|${this.quality.sky}|${tint ?? ''}`;
+    if (key === this.backdropKey) return;
+    this.backdropKey = key;
+    const old = this.scene.background;
+    this.scene.background = room(this.container.ownerDocument, this.quality.painted, this.quality.sky, tint);
+    if (old instanceof THREE.Texture) old.dispose();
+    if (this.scene.fog instanceof THREE.Fog) this.scene.fog.color.copy(tinted(horizonColor(this.quality.sky), tint));
   }
 
   /** The painted look or the classic one: the lights, the tone mapping, the soft shadows, the room round the table. */
   private applyLook(): void {
     const lighting = lightingFor(this.quality.painted, this.quality.sky);
-    this.hemisphere.color.setHex(lighting.skyColor);
-    this.hemisphere.groundColor.setHex(lighting.groundColor);
-    this.sun.color.setHex(lighting.sunColor);
+    this.paintDaylight();
     this.sun.shadow.radius = lighting.shadowRadius;
     // The shadow map is made again for the new filter: drawing with the old one mismatches the shaders.
     this.sun.shadow.map?.dispose();
     this.sun.shadow.map = null;
     setLook(this.renderer, this.quality.painted);
     if (this.player) setLook(this.player.renderer, this.quality.painted);
-    const old = this.scene.background;
-    this.scene.background = room(this.container.ownerDocument, this.quality.painted, this.quality.sky);
     this.applyHorizon();
-    if (old instanceof THREE.Texture) old.dispose();
     this.shadowsDirty = true;
   }
 
@@ -1698,6 +1728,7 @@ export class Board {
     if (!map) return;
     const ambient = this.ambientShown ?? this.host.ambient();
     const lighting = lightingFor(this.quality.painted, this.quality.sky);
+    this.paintDaylight();
     this.hemisphere.intensity = lighting.sky * ambient;
     this.sun.intensity = lighting.sun * ambient;
     // Below Atlas's lit threshold the scene is dark: the sun casts no shadow there.

@@ -101,7 +101,7 @@ async function main(): Promise<void> {
   };
   /** Files the harness holds back: they "arrive" with `deliver`, then the board is told. */
   const deliver = (): void => { for (const [id, file] of late) files.set(id, file); late.clear(); handle.refresh(); };
-  Object.assign(window, { playerTest: { handle, board, record, project, deliver, scene, extras, ready: true } });
+  Object.assign(window, { playerTest: { handle, board, record, project, deliver, scene, extras, files, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

@@ -831,6 +831,31 @@ feature('line of sight', async ({ page, shot }) => {
 });
 
 // ── Placing a scene of a stack on the plane beyond its height: handles in the middle of the view ───────────────
+feature('daylight tint', async ({ page, shot }) => {
+  const read = () => page.evaluate(() => { const b = window.boardTest.board; const bg = b.scene.background; let backdrop = null; if (bg && bg.isColor) backdrop = [Math.round(bg.r * 255), Math.round(bg.g * 255), Math.round(bg.b * 255)]; else if (bg && bg.image && bg.image.getContext) { const d = bg.image.getContext('2d').getImageData(1500, 300, 1, 1).data; backdrop = [d[0], d[1], d[2]]; } return { sky: b.hemisphere.color.getHexString(), sun: b.sun.color.getHexString(), backdrop, fog: b.scene.fog ? b.scene.fog.color.getHexString() : null, tints: window.boardTest.record.tints }; });
+  const before = await read();
+  await page.locator('button[aria-label^="Lighting"]').click();
+  await wait(300);
+  const field = page.locator('.atlas-tabletop-lighting-extra input[type="color"]');
+  const reset = page.locator('.atlas-tabletop-lighting-extra button', { hasText: 'Reset' });
+  check('tint: the lighting menu has a colour and a Reset that is off while nothing is tinted', (await field.count()) === 1 && (await reset.count()) === 1 && await reset.isDisabled(), '');
+  // Picking a colour tints the daylight at once and keeps it when let go.
+  await field.evaluate((input) => { input.value = '#ff8844'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+  await wait(300);
+  const shown = await read();
+  check('tint: the daylight takes the colour while the picker moves, and nothing is kept yet', shown.sky !== before.sky && parseInt(shown.sky.slice(0, 2), 16) > parseInt(shown.sky.slice(4, 6), 16) && shown.tints.length === 0, shown);
+  check('tint: Reset turns on once a colour is picked', await reset.isEnabled(), '');
+  await field.evaluate((input) => input.dispatchEvent(new Event('change', { bubbles: true })));
+  await wait(300);
+  check('tint: letting go keeps the colour', (await read()).tints.join() === '#ff8844', await read());
+  check('tint: the sky behind the table and the horizon fog take the colour too', (shown.backdrop && shown.backdrop[0] > shown.backdrop[2] && shown.backdrop.join() !== before.backdrop.join() && shown.fog === (before.fog === null ? null : shown.fog) && (before.fog === null || shown.fog !== before.fog)), { before, shown });
+  await shot('tint-picked');
+  await reset.click();
+  await wait(300);
+  const after = await read();
+  check('tint: Reset takes it off, and the daylight is as it was', after.sky === before.sky && after.sun === before.sun && String(after.backdrop) === String(before.backdrop) && after.fog === before.fog && after.tints.at(-1) === null && await reset.isDisabled(), after);
+});
+
 feature('layer placement', async ({ page, shot }) => {
   await page.evaluate(() => {
     const { board, map } = window.boardTest;

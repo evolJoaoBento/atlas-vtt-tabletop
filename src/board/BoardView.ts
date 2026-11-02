@@ -768,6 +768,9 @@ export class BoardView extends ItemView {
       // Until the GM moves the slider, the board is as light as Atlas's scene (daylight when Atlas's lighting is off).
       ambient: () => boardData.ambient(mapPath()) ?? (this.map?.lighting.enabled ? this.map.lighting.ambient : 1),
       setAmbient: (level) => boardData.setAmbient(mapPath(), level),
+      tint: () => boardData.tint(mapPath()),
+      setTint: (color) => boardData.setTint(mapPath(), color),
+      clearTint: () => boardData.clearTint(mapPath()),
       lightHeight: (light) => boardData.lightHeight(mapPath(), light.id) ?? DEFAULT_LIGHT_SQUARES,
       lightMenu: (id, event) => this.lightMenu(id, event),
       miniTurn: (tokenId) => assignments.get(mapPath(), tokenId)?.turn ?? null,

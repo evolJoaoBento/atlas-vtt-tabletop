@@ -1872,3 +1872,11 @@ body.atlas-tabletop-player-window .view-header {
 /* A token being carried over a scene's pill: the pill lights up, as the place it will go to. */
 .atlas-tabletop-layers .atlas-tabletop-layers__item.is-drop-target .atlas-tabletop-layers__label { background: var(--interactive-accent, #7c5cff); border-color: transparent; color: var(--text-on-accent, #fff); }
 .atlas-tabletop-layers .atlas-tabletop-layers__item.is-drop-target .atlas-tabletop-layers__marker { transform: scale(1.5); }
+
+.atlas-tabletop-palette__color {
+  width: 32px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: none;
+}

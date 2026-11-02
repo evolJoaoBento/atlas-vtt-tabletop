@@ -5,13 +5,14 @@
  * player board needs (conditions' names and colours, the bars' colours) come with the scene, so they are made from it.
  * The darkness Connect lays over the fog for a lit scene goes to its own layer: the board draws it as black ground.
  */
-import type { BoardExtras, BoardMaterialRecord, BoardPropRecord } from '../connectContract';
+import type { BoardExtras, BoardLayerRecord, BoardMaterialRecord, BoardPropRecord } from '../connectContract';
+import type { ElevationLayerData } from './elevationLayer';
 import type { CollectionRules, ConditionDefinition } from './conditions';
 import type { FogOperation } from './fog';
 import { readInitiative, DEFAULT_INITIATIVE_RULES } from './initiative';
 import type { BoardGrid, BoardIcon, BoardInk, BoardMap, BoardPin, BoardText, BoardToken, Meter } from './mapModel';
 import type { ResourceDefinition } from './resources';
-import type { BoardLight, BoardWall } from './walls';
+import { NO_FLIP, type BoardLight, type BoardWall, type DoorFlip } from './walls';
 
 /** Connect's id of the darkness it adds to the fog (`darknessFog.ts`). */
 export const DARKNESS_FOG_ID = 'atlas-lighting-darkness';
@@ -52,12 +53,62 @@ export interface PlayerLook {
   wallHeight(id: string): number | null;
   wallMaterial(id: string): string | null;
   doorProp(id: string): string | null;
+  doorFlip(id: string): DoorFlip;
   lightHeight(id: string): number | null;
   fogHeight: number | null;
   wallThickness: number | null;
   ambient: number | null;
+  /** The colour the GM tinted the daylight, or null. */
+  tint: string | null;
   materials: readonly BoardMaterialRecord[];
   props: readonly BoardPropRecord[];
+}
+
+/** The scenes stacked with the one shown, as a player's board draws them (files are asset ids; nothing stands on them but their walls, lights and props). */
+export function layersFromExtras(extras: BoardExtras | null): ElevationLayerData[] {
+  return (extras?.layers ?? []).map((layer: BoardLayerRecord) => {
+    const byWall = new Map(layer.walls.map((wall) => [wall.id, wall]));
+    const byLight = new Map(layer.lights.map((light) => [light.id, light]));
+    const walls: BoardWall[] = layer.walls.map((wall) => ({
+      id: wall.id, type: wall.type, p1: { ...wall.p1 }, p2: { ...wall.p2 }, direction: wall.direction ?? null, closed: wall.door ? !wall.door.open : true, locked: false,
+      blocks: wall.blocks ?? null, limited: wall.limited === true, chain: wall.door?.chainId ?? null,
+    }));
+    const lights: BoardLight[] = layer.lights.map((light) => ({
+      id: light.id, x: light.x, y: light.y, bright: light.bright, dim: light.dim, color: light.color, intensity: light.intensity,
+      animation: light.animation === 'torch' || light.animation === 'candle' || light.animation === 'pulse' || light.animation === 'magic' ? light.animation : 'none',
+      angle: light.angle, rotation: light.rotation, hidden: false, darkness: light.darkness, activeBelowAmbient: light.activeBelowAmbient, tokenId: null,
+    }));
+    const map: BoardMap = {
+      path: layer.id,
+      background: layer.image,
+      levels: [],
+      level: null,
+      grid: { enabled: true, visible: false, snap: false, type: 'square', size: layer.grid.size, offsetX: layer.grid.offsetX, offsetY: layer.grid.offsetY, opacity: 0, lineWidth: 1, color: null, lineType: 'solid', numbers: null, numberOpacity: 0 },
+      tokenSettings: { showNameplates: true, showInstanceBadges: true, hiddenResources: [] },
+      tokens: [], pins: [], icons: [], texts: [], initiative: readInitiative(null), inks: [], fog: [], walls, lights,
+      lighting: { enabled: false, ambient: 1, ambientColor: null },
+      rawGrid: null,
+    };
+    return {
+      path: layer.id,
+      elevation: layer.elevation,
+      map,
+      wallHeight: (id) => byWall.get(id)?.height ?? null,
+      wallMaterial: (id) => byWall.get(id)?.material ?? null,
+      doorProp: (id) => byWall.get(id)?.door?.prop ?? null,
+      doorFlip: (id) => {
+        const door = byWall.get(id)?.door;
+        return door ? { hinge: door.hinge === true, side: door.side === true } : NO_FLIP;
+      },
+      lightHeight: (id) => byLight.get(id)?.height ?? 1,
+      fogHeight: layer.fogHeight ?? 1,
+      wallThickness: layer.wallThickness ?? 0.12,
+      props: layer.props.map((prop) => ({ id: prop.id, glb: prop.asset, x: prop.x, y: prop.y, rotation: prop.turn, scale: prop.scale })),
+      stands: { ...layer.stands },
+      placement: () => null,
+      style: () => 'disc' as const,
+    } satisfies ElevationLayerData;
+  });
 }
 
 export interface SceneBoard {
@@ -66,6 +117,8 @@ export interface SceneBoard {
   /** The minis standing on the tokens, by token id: their GLB's asset id. */
   minis: Record<string, { glb: string; scale: number; turn: number; base?: 'round' | 'square' }>;
   look: PlayerLook;
+  /** The scenes stacked with this one. */
+  layers: ElevationLayerData[];
 }
 
 /** The resource that marks a token Connect says is downed (its bars say nothing of it). */
@@ -159,10 +212,15 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
     wallHeight: (id) => byWall.get(id)?.height ?? null,
     wallMaterial: (id) => byWall.get(id)?.material ?? null,
     doorProp: (id) => byWall.get(id)?.door?.prop ?? null,
+    doorFlip: (id) => {
+      const door = byWall.get(id)?.door;
+      return door ? { hinge: door.hinge === true, side: door.side === true } : NO_FLIP;
+    },
     lightHeight: (id) => byLight.get(id)?.height ?? null,
     fogHeight: extras?.fogHeight ?? null,
     wallThickness: extras?.wallThickness ?? null,
     ambient: extras?.ambient ?? null,
+    tint: extras?.tint ?? null,
     materials: extras?.materials ?? [],
     props: extras?.props ?? [],
   };
@@ -182,6 +240,7 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
     rules: { conditions, definitions: [...definitions.values()], gridDefaults: null, initiative: DEFAULT_INITIATIVE_RULES },
     minis,
     look,
+    layers: layersFromExtras(extras),
   };
 }
 

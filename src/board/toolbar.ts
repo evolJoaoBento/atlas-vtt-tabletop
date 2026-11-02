@@ -75,6 +75,10 @@ export interface ToolbarActions {
   /** The board's ambient light (0–1); a new level, shown while the slider moves and kept when it is let go. */
   ambient(): number;
   setAmbient(level: number, keep: boolean): void;
+  /** The colour the daylight is tinted ('#rrggbb'), or null for none; a new one, shown while the picker moves and kept when it is let go; and taking it off. */
+  tint(): string | null;
+  setTint(color: string, keep: boolean): void;
+  resetTint(): void;
 }
 
 /** The board's dice picker, dice log and stat sheet, which open from buttons in the toolbar's end slot. */
@@ -199,6 +203,8 @@ export class BoardToolbar {
   private readonly initiativeToggle: HTMLInputElement;
   private readonly ambientInput: HTMLInputElement;
   private readonly ambientValue: HTMLElement;
+  private readonly tintInput: HTMLInputElement;
+  private readonly tintReset: HTMLButtonElement;
   private readonly tiltInput: HTMLInputElement;
   private readonly occlusionInput: HTMLInputElement;
   /** Atlas's end slot, and the Dice button in it while the board has dice. */
@@ -390,6 +396,23 @@ export class BoardToolbar {
     this.ambientInput.setAttribute('aria-label', t('lighting.ambient'));
     this.ambientValue = el('span', 'atlas-tabletop-palette__unit', ambient, '');
     el('div', 'atlas-tabletop-palette__hint', light, t('lighting.ambientHint'));
+    // A tint over the daylight, with a button that takes it off.
+    const tint = el('label', 'atlas-tabletop-palette__field', light);
+    el('span', 'atlas-tabletop-palette__label', tint, t('lighting.tint'));
+    this.tintInput = el('input', 'atlas-tabletop-palette__color', tint);
+    this.tintInput.type = 'color';
+    this.tintInput.setAttribute('aria-label', t('lighting.tint'));
+    this.tintReset = el('button', 'atlas-tabletop-palette__button', tint, t('lighting.tintReset'));
+    this.tintReset.type = 'button';
+    this.tintInput.addEventListener('input', () => { this.actions.setTint(this.tintInput.value, false); this.tintReset.disabled = false; });
+    this.tintInput.addEventListener('change', () => this.actions.setTint(this.tintInput.value, true));
+    this.tintReset.addEventListener('click', (event) => {
+      event.preventDefault();
+      this.actions.resetTint();
+      this.tintInput.value = '#ffffff';
+      this.tintReset.disabled = true;
+    });
+    el('div', 'atlas-tabletop-palette__hint', light, t('lighting.tintHint'));
     const level = (keep: boolean): void => {
       const value = Number(this.ambientInput.value) / 100;
       this.ambientValue.textContent = `${Math.round(value * 100)}%`;
@@ -772,6 +795,8 @@ export class BoardToolbar {
     this.closeDice();
     this.ambientInput.value = String(Math.round(this.actions.ambient() * 100));
     this.ambientValue.textContent = `${this.ambientInput.value}%`;
+    this.tintInput.value = this.actions.tint() ?? '#ffffff';
+    this.tintReset.disabled = this.actions.tint() === null;
     this.tiltInput.checked = this.actions.tiltShift();
     this.occlusionInput.checked = this.actions.occlusion();
     this.lightingPanel.hidden = false;

@@ -47,9 +47,15 @@ export function setLook(renderer: THREE.WebGLRenderer, painted: boolean): void {
   renderer.toneMappingExposure = 1;
 }
 
-/** The room round the table: a flat dark one, or a painted sky. */
-export function room(doc: Document, painted: boolean, sky: Sky): THREE.Texture | THREE.Color {
-  return painted ? paintSky(doc, sky) : new THREE.Color(0x0f0c0a);
+/** The room round the table: a flat dark one, or a painted sky; the GM's tint (#rrggbb) colours either. */
+export function room(doc: Document, painted: boolean, sky: Sky, tint: string | null = null): THREE.Texture | THREE.Color {
+  return painted ? paintSky(doc, sky, tint) : tinted(0x0f0c0a, tint);
+}
+
+/** A colour multiplied by the tint, as the daylight is. */
+export function tinted(hex: number, tint: string | null): THREE.Color {
+  const colour = new THREE.Color(hex);
+  return tint ? colour.multiply(new THREE.Color(tint)) : colour;
 }
 
 /** A small repeatable random run, so the painting is the same each time the board opens. */
@@ -141,13 +147,39 @@ const HEIGHT = 1536;
  * from the zenith to a glowing horizon, soft clouds laid on in broad horizontal strokes (wrapped round the seam), stars at
  * night, and a little grain to break the bands of a slow gradient. Below the horizon it is dark ground.
  */
-export function paintSky(doc: Document, sky: Sky): THREE.Texture | THREE.Color {
+export function paintSky(doc: Document, sky: Sky, tint: string | null = null): THREE.Texture | THREE.Color {
+  const painting = paintedSky(doc, sky);
+  if (!painting) return tinted(0x0f0c0a, tint);
+  let canvas = painting;
+  if (tint) {
+    // The tint is laid over the finished painting, so moving the picker does not paint the sky again.
+    canvas = doc.win.createEl('canvas');
+    canvas.width = WIDTH;
+    canvas.height = HEIGHT;
+    const context = canvas.getContext('2d');
+    if (!context) return tinted(0x0f0c0a, tint);
+    context.drawImage(painting, 0, 0);
+    context.globalCompositeOperation = 'multiply';
+    context.fillStyle = tint;
+    context.fillRect(0, 0, WIDTH, HEIGHT);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.mapping = THREE.EquirectangularReflectionMapping;
+  return texture;
+}
+
+/** The last sky painted, kept so that a tint, or the board opening again, does not paint it twice. */
+let lastPainting: { sky: Sky; canvas: HTMLCanvasElement } | null = null;
+
+function paintedSky(doc: Document, sky: Sky): HTMLCanvasElement | null {
+  if (lastPainting?.sky === sky && lastPainting.canvas.ownerDocument === doc) return lastPainting.canvas;
   const palette = PALETTES[sky];
   const canvas = doc.win.createEl('canvas');
   canvas.width = WIDTH;
   canvas.height = HEIGHT;
   const context = canvas.getContext('2d');
-  if (!context) return new THREE.Color(0x0f0c0a);
+  if (!context) return null;
   const gradient = context.createLinearGradient(0, 0, 0, HEIGHT);
   for (const [at, colour] of palette.stops) gradient.addColorStop(at, colour);
   context.fillStyle = gradient;
@@ -194,8 +226,6 @@ export function paintSky(doc: Document, sky: Sky): THREE.Texture | THREE.Color {
     pixels.data[i + 2] += grain;
   }
   context.putImageData(pixels, 0, 0);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.mapping = THREE.EquirectangularReflectionMapping;
-  return texture;
+  lastPainting = { sky, canvas };
+  return canvas;
 }

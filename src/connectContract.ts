@@ -15,6 +15,9 @@ export interface BoardDoor {
   /** The asset id of the GLB standing in the doorway, or null for Tabletop's own leaf. */
   prop: string | null;
   chainId?: string;
+  /** The door was turned by the GM: its hinge is at the segment's second end, and/or it opens to the other side of the wall. Absent as Atlas draws it. */
+  hinge?: true;
+  side?: true;
 }
 
 export interface BoardWallRecord {
@@ -61,6 +64,24 @@ export interface BoardPropRecord { id: string; asset: string; x: number; y: numb
 
 export interface BoardLighting { enabled: boolean; ambient: number; ambientColor: string | null }
 
+/** A scene stacked with the one shown (an elevation layer), as a player's board draws it: its floor and what stands in it, never what is on it. */
+export interface BoardLayerRecord {
+  id: string;
+  /** Grid squares above the shown scene (negative: below it). */
+  elevation: number;
+  /** Where it stands on the plane beyond its height, seen from the shown scene. */
+  stands: { x: number; y: number; turn: number };
+  /** The asset id of its floor image. */
+  image: string;
+  grid: { size: number; offsetX: number; offsetY: number };
+  /** Materials are those of `BoardExtras.materials`. */
+  walls: BoardWallRecord[];
+  lights: BoardLightRecord[];
+  props: BoardPropRecord[];
+  fogHeight: number | null;
+  wallThickness: number | null;
+}
+
 export interface BoardExtras {
   sceneId: string;
   walls: BoardWallRecord[];
@@ -68,10 +89,14 @@ export interface BoardExtras {
   props: BoardPropRecord[];
   materials: BoardMaterialRecord[];
   ambient: number | null;
+  /** The colour the GM tinted the board's daylight, '#rrggbb'; absent or null for none. */
+  tint?: string | null;
   lighting: BoardLighting;
   fogHeight: number | null;
   /** How thick walls stand, as a share of a grid square; null is the board's default. */
   wallThickness: number | null;
+  /** The scenes stacked with this one, lowest first; absent when it stands alone (or from an older Connect). */
+  layers?: BoardLayerRecord[];
 }
 
 /** A 3D camera in the board's world: x and z are the map's x and y in pixels, y is up. */
@@ -90,13 +115,40 @@ export interface BoardLook {
   wallMaterial(id: string): string | null;
   /** The vault path of the GLB standing in for a door's leaf, or null. */
   doorProp(id: string): string | null;
+  /** How the GM turned a door from the way Atlas draws it (Rotate 180°, Mirror); none unless said. */
+  doorFlip?(id: string): { hinge: boolean; side: boolean };
   lightHeight(id: string): number | null;
   readonly fogHeight: number | null;
   readonly wallThickness: number | null;
   readonly ambient: number | null;
+  readonly tint?: string | null;
+  /** The scenes stacked with this map, for players' boards; absent when sharing them is off. */
+  readonly layers?: ReadonlyArray<BoardLayerLook>;
   readonly props: ReadonlyArray<{ id: string; path: string; x: number; y: number; scale: number; turn: number }>;
   /** The materials this map's walls use, with their texture maps by role (vault paths). */
   readonly materials: ReadonlyArray<{ id: string; scale: number; maps: Record<string, string> }>;
+}
+
+/** A scene stacked with a map, as Tabletop hands it to Connect (vault paths, which Connect turns into asset ids). */
+export interface BoardLayerLook {
+  elevation: number;
+  stands: { x: number; y: number; turn: number };
+  /** The vault path of its floor image. */
+  image: string;
+  grid: { size: number; offsetX: number; offsetY: number };
+  walls: ReadonlyArray<{
+    id: string; type: 'solid' | 'door' | 'secret-door'; p1: BoardPoint; p2: BoardPoint; closed: boolean;
+    direction: 'left' | 'right' | null; blocks: 'sight' | 'light' | null; limited: boolean; chain: string | null;
+    height: number | null; material: string | null; doorProp: string | null; flip: { hinge: boolean; side: boolean };
+  }>;
+  lights: ReadonlyArray<{
+    id: string; x: number; y: number; height: number | null; bright: number; dim: number; color: string; intensity: number;
+    animation: string | null; angle: number | null; rotation: number; darkness: boolean; activeBelowAmbient: number | null;
+  }>;
+  props: ReadonlyArray<{ id: string; path: string; x: number; y: number; scale: number; turn: number }>;
+  readonly materials: ReadonlyArray<{ id: string; scale: number; maps: Record<string, string>; tuning?: { relief: number; occlusion: number; shine: number; depth: number; displace: number; outward: number } }>;
+  fogHeight: number | null;
+  wallThickness: number | null;
 }
 
 /** What players do on a map, for the GM's board: a ping, or new points of a laser. */

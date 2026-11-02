@@ -41,6 +41,8 @@ interface MapData {
   doorFlips?: Record<string, { hinge?: true; side?: true }>;
   /** The board's ambient light, 0 (pitch black) to 1 (daylight); unset follows Atlas's scene light. */
   ambient?: number;
+  /** The colour the board's daylight is tinted, '#rrggbb'; unset leaves it as it is. */
+  tint?: string;
   /** How thick its walls stand, as a share of a grid square; kept only when it is not the default. */
   wallThickness?: number;
   /** This map is a layer of another, standing above it (or below, if negative). */
@@ -93,6 +95,7 @@ function tidy(map: MapData): MapData | null {
   if (map.wallHeights && Object.keys(map.wallHeights).length > 0) out.wallHeights = map.wallHeights;
   if (map.doorFlips && Object.keys(map.doorFlips).length > 0) out.doorFlips = map.doorFlips;
   if (map.ambient !== undefined) out.ambient = map.ambient;
+  if (map.tint !== undefined) out.tint = map.tint;
   if (map.wallThickness !== undefined && map.wallThickness !== DEFAULT_WALL_THICKNESS) out.wallThickness = map.wallThickness;
   if (map.layer) out.layer = map.layer;
   return Object.keys(out).length > 0 ? out : null;
@@ -141,6 +144,7 @@ export function readBoardData(raw: unknown): BoardDataJSON {
     const props = Array.isArray(value.props) ? value.props.map(readProp).filter((prop): prop is PropPlacement => prop !== null) : [];
     const fogHeight = typeof value.fogHeight === 'number' && Number.isFinite(value.fogHeight) && value.fogHeight >= 0 ? value.fogHeight : undefined;
     const ambient = typeof value.ambient === 'number' && value.ambient >= 0 && value.ambient <= 1 ? value.ambient : undefined;
+    const tint = typeof value.tint === 'string' && /^#[0-9a-f]{6}$/i.test(value.tint) ? value.tint.toLowerCase() : undefined;
     const wallThickness = typeof value.wallThickness === 'number' && Number.isFinite(value.wallThickness) && value.wallThickness > 0 ? value.wallThickness : undefined;
     const layer = readLayer(value.layer);
     const kept = tidy({
@@ -148,6 +152,7 @@ export function readBoardData(raw: unknown): BoardDataJSON {
       wallMaterials: strings(value.wallMaterials), doorProps: strings(value.doorProps), lightHeights: heights(value.lightHeights),
       wallHeights: heights(value.wallHeights), doorFlips: flips(value.doorFlips),
       ...(ambient !== undefined && { ambient }),
+      ...(tint !== undefined && { tint }),
       ...(wallThickness !== undefined && { wallThickness }),
     });
     if (kept) out[path] = kept;
@@ -324,6 +329,23 @@ export class BoardData {
   setAmbient(mapPath: string, ambient: number): void {
     if (!Number.isFinite(ambient) || ambient < 0 || ambient > 1 || this.ambient(mapPath) === ambient) return;
     this.put(mapPath, { ...(this.data[mapPath] ?? {}), ambient });
+  }
+
+  /** The colour the board's daylight is tinted, '#rrggbb'; null when it is not tinted. */
+  tint(mapPath: string): string | null {
+    return this.data[mapPath]?.tint ?? null;
+  }
+
+  setTint(mapPath: string, tint: string): void {
+    if (!/^#[0-9a-f]{6}$/i.test(tint) || this.tint(mapPath) === tint.toLowerCase()) return;
+    this.put(mapPath, { ...(this.data[mapPath] ?? {}), tint: tint.toLowerCase() });
+  }
+
+  /** Takes the tint off: the daylight is as it was. */
+  clearTint(mapPath: string): void {
+    if (this.tint(mapPath) === null) return;
+    const { tint: _gone, ...rest } = this.data[mapPath] ?? {};
+    this.put(mapPath, rest);
   }
 
   props(mapPath: string): readonly PropPlacement[] {

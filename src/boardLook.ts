@@ -5,7 +5,7 @@
  */
 import type { TFile, TFolder, Vault } from 'obsidian';
 import type { BoardData } from './board/boardData';
-import type { BoardLook } from './connectContract';
+import type { BoardLayerLook, BoardLook } from './connectContract';
 import { DEFAULT_TUNING, pickMaps, readMaterialSettings, tuningOf, MATERIAL_SETTINGS_FILE, type MaterialMaps, type MaterialTuning } from './materialMaps';
 
 export interface MaterialInfo {
@@ -21,7 +21,7 @@ export interface MaterialView {
 
 const isDefault = (tuning: MaterialTuning): boolean => tuning.relief === DEFAULT_TUNING.relief && tuning.occlusion === DEFAULT_TUNING.occlusion && tuning.shine === DEFAULT_TUNING.shine && tuning.depth === DEFAULT_TUNING.depth && tuning.displace === DEFAULT_TUNING.displace && tuning.outward === DEFAULT_TUNING.outward;
 
-export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: string): BoardLook {
+export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: string, layers: ReadonlyArray<BoardLayerLook> = []): BoardLook {
   const used = data.usedMaterials(mapPath)
     .map((id) => ({ id, info: materials.info(id) }))
     .filter((entry): entry is { id: string; info: MaterialInfo } => entry.info !== null)
@@ -31,10 +31,13 @@ export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: 
     wallHeight: (id: string) => data.wallHeight(mapPath, id),
     wallMaterial: (id: string) => data.wallMaterial(mapPath, id),
     doorProp: (id: string) => data.doorProp(mapPath, id),
+    doorFlip: (id: string) => data.doorFlip(mapPath, id),
     lightHeight: (id: string) => data.lightHeight(mapPath, id),
     fogHeight: fog,
     wallThickness: data.wallThickness(mapPath),
     ambient: data.ambient(mapPath),
+    tint: data.tint(mapPath),
+    ...(layers.length > 0 ? { layers } : {}),
     props: data.props(mapPath).map((prop) => ({ id: prop.id, path: prop.glb, x: prop.x, y: prop.y, scale: prop.scale, turn: prop.rotation })),
     materials: used,
   });

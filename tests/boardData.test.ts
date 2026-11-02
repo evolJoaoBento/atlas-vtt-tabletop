@@ -199,3 +199,20 @@ test('a door can be rotated half a turn or mirrored, which only moves its hinge;
   assert.deepEqual(loaded.doorFlip('m', 'd'), { hinge: false, side: false });
   assert.deepEqual(loaded.toJSON(), {});
 });
+
+test('a tint is kept per map as a lower-case colour, read back, and taken off by clearing it, which leaves nothing behind', () => {
+  const data = new BoardData();
+  data.setTint('m', '#FFCC88');
+  assert.equal(data.tint('m'), '#ffcc88');
+  assert.equal(data.tint('other'), null);
+  data.setTint('m', 'orange');
+  data.setTint('m', '#fc8');
+  assert.equal(data.tint('m'), '#ffcc88');
+  assert.deepEqual(readBoardData(data.toJSON()), data.toJSON());
+  data.setAmbient('m', 0.3);
+  data.clearTint('m');
+  assert.equal(data.tint('m'), null);
+  assert.deepEqual(data.toJSON(), { m: { ambient: 0.3 } });
+  data.clearTint('m');
+  assert.deepEqual(readBoardData({ m: { tint: 'nope' } }), {});
+});
