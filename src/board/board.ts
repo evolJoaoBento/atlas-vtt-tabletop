@@ -2517,8 +2517,8 @@ export class Board {
 
   /**
    * A token the player may move under the pointer, for a press on a player's board: only those tokens are tried, so a
-   * name plate or another token in front (drawn or not: rays hit hidden objects too) never takes the press, and a
-   * press that misses the figure still grabs a token whose ground, widened by half, it lands on.
+   * name plate or another token in front (drawn or not: rays hit hidden objects too) never takes the press. A press
+   * that misses the figure still grabs one: by its figure widened by half (its whole height), else by its ground.
    */
   private movableTokenAt(clientX: number, clientY: number): string | null {
     const movable = [...this.tokens.values()].filter((entry) => entry.piece.object3d.visible && this.host.canMove?.(entry.token.id) === true);
@@ -2530,11 +2530,16 @@ export class Board {
     }
     const hit = this.hit(clientX, clientY, [...owners.keys()]);
     if (hit) return owners.get(hit) ?? null;
+    const targets = movable.map((entry) => entry.piece.hitTarget);
+    for (const target of targets) { target.scale.x *= GRAB_SLACK; target.scale.z *= GRAB_SLACK; }
+    const near = this.hit(clientX, clientY, targets);
+    for (const target of targets) { target.scale.x /= GRAB_SLACK; target.scale.z /= GRAB_SLACK; target.updateWorldMatrix(true, false); }
+    if (near) return (near.userData.tokenId as string | undefined) ?? null;
     const at = this.boardPoint(clientX, clientY);
     if (!at || !this.map) return null;
     const grid = this.map.grid;
-    const near = nearestFootprint(at, movable.map((entry) => ({ id: entry.token.id, x: entry.at.x, y: entry.at.y, radius: ringDiameter(grid, entry.token.size) / 2 })), GRAB_SLACK);
-    return near?.id ?? null;
+    const ground = nearestFootprint(at, movable.map((entry) => ({ id: entry.token.id, x: entry.at.x, y: entry.at.y, radius: ringDiameter(grid, entry.token.size) / 2 })), GRAB_SLACK);
+    return ground?.id ?? null;
   }
 
   private pinAt(clientX: number, clientY: number): string | null {
