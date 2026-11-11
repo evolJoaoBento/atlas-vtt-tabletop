@@ -47,6 +47,23 @@ interface Level {
   highlighted: number;
   /** The row of the menu above that opened this one. */
   trigger: HTMLElement | null;
+  /** The side of its parent a submenu opened on: its own submenus open the same way while there is room. */
+  side?: 'left' | 'right';
+}
+
+/**
+ * The side of its parent menu a submenu opens on: the way the menus above went (right to begin with) while it fits in
+ * the window, else the other side if that fits, else the side with more room. So a deeper submenu never doubles back
+ * over the menus that opened it.
+ */
+export function submenuSide(parent: { left: number; right: number }, width: number, windowWidth: number, preferred: 'left' | 'right', gap = GAP, padding = COLLISION_PADDING): 'left' | 'right' {
+  const rightRoom = windowWidth - padding - (parent.right + gap);
+  const leftRoom = parent.left - gap - padding;
+  const fits = (side: 'left' | 'right'): boolean => (side === 'right' ? rightRoom : leftRoom) >= width;
+  if (fits(preferred)) return preferred;
+  const other = preferred === 'right' ? 'left' : 'right';
+  if (fits(other)) return other;
+  return rightRoom >= leftRoom ? 'right' : 'left';
 }
 
 export class AtlasMenu {
@@ -245,8 +262,10 @@ export class AtlasMenu {
     const element = this.level(children, row);
     const rect = row.getBoundingClientRect();
     const parent = level.element.getBoundingClientRect();
-    // Beside its row (Radix: side offset 4, align offset −4), on the other side when there is no room.
-    this.place(element, { left: parent.left - GAP, right: parent.right + GAP, top: rect.top - GAP, bottom: rect.top - GAP }, 'beside');
+    // Beside its row (Radix: side offset 4, align offset −4), on the side the menus above went while there is room.
+    const opened = this.levels[this.levels.length - 1];
+    const side = this.place(element, { left: parent.left - GAP, right: parent.right + GAP, top: rect.top - GAP, bottom: rect.top - GAP }, 'beside', level.side ?? 'right');
+    if (opened) opened.side = side;
     if (focus) this.focusFirst(this.levels[this.levels.length - 1]);
   }
 
@@ -256,7 +275,7 @@ export class AtlasMenu {
   }
 
   /** Puts a menu at its anchor, kept within the window (collision padding 8) and flipped to the other side if need be. */
-  private place(element: HTMLElement, anchor: { left: number; right: number; top: number; bottom: number }, mode: 'below' | 'beside'): void {
+  private place(element: HTMLElement, anchor: { left: number; right: number; top: number; bottom: number }, mode: 'below' | 'beside', preferred: 'left' | 'right' = 'right'): 'left' | 'right' {
     const win = this.doc.defaultView ?? window;
     element.setCssStyles({ position: 'fixed', left: '0px', top: '0px' });
     const { width, height } = element.getBoundingClientRect();
@@ -264,15 +283,19 @@ export class AtlasMenu {
     const maxY = win.innerHeight - COLLISION_PADDING - height;
     let left: number;
     let top: number;
+    let side: 'left' | 'right' = 'right';
     if (mode === 'below') {
       left = anchor.left;
       top = anchor.top + height > win.innerHeight - COLLISION_PADDING ? anchor.top - 2 * GAP - height : anchor.top;
     } else {
-      left = anchor.right + width > win.innerWidth - COLLISION_PADDING ? anchor.left - width : anchor.right;
+      // `anchor` is the parent menu widened by the gap on both sides.
+      side = submenuSide({ left: anchor.left + GAP, right: anchor.right - GAP }, width, win.innerWidth, preferred);
+      left = side === 'right' ? anchor.right : anchor.left - width;
       top = anchor.top;
     }
     element.style.left = `${Math.max(COLLISION_PADDING, Math.min(maxX, left))}px`;
     element.style.top = `${Math.max(COLLISION_PADDING, Math.min(maxY, top))}px`;
+    return side;
   }
 
   private key(event: KeyboardEvent): void {
