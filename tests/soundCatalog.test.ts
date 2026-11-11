@@ -50,7 +50,7 @@ test('groups follow the id', () => {
 });
 
 test('the sound files stay under 1.5 MB together', () => {
-  const total = readdirSync(dir).filter((name) => name.endsWith('.mp3')).reduce((sum, name) => sum + statSync(`${dir}/${name}`).size, 0);
+  const total = readdirSync(dir).reduce((sum, name) => sum + statSync(`${dir}/${name}`).size, 0);
   assert.ok(total < 1_500_000, `total ${total}`);
 });
 

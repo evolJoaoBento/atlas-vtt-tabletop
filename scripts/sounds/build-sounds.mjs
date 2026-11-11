@@ -153,9 +153,12 @@ function measure(x, loop, reference) {
   const n = x.length;
   const window = Math.round(0.01 * SR);
   const mean = x.reduce((s, v) => s + v, 0) / n;
-  let bodyJump = 0;
-  for (let i = 1; i < n; i++) bodyJump = Math.max(bodyJump, Math.abs(x[i] - x[i - 1]));
-  const m = { peakDb: db(peakOf(x)), dc: mean, bodyJump, lengthDelta: n - reference.length };
+  const jumps = new Float32Array(n - 1);
+  for (let i = 1; i < n; i++) jumps[i - 1] = Math.abs(x[i] - x[i - 1]);
+  const sorted = jumps.slice().sort();
+  const bodyJump = sorted[sorted.length - 1];
+  const p99Jump = sorted[Math.floor(sorted.length * 0.99)];
+  const m = { peakDb: db(peakOf(x)), dc: mean, bodyJump, p99Jump, lengthDelta: n - reference.length };
   if (loop) {
     m.seamRms = Math.abs(rmsOf(x, 0, window) - rmsOf(x, n - window, n)) / rmsOf(x);
     m.wrapJump = Math.abs(x[0] - x[n - 1]);
@@ -166,11 +169,13 @@ function measure(x, loop, reference) {
 }
 function judge(m, loop) {
   const problems = [];
-  if (m.peakDb > -0.95) problems.push(`peak ${m.peakDb.toFixed(2)} dBFS`);
+  if (m.peakDb > -1) problems.push(`peak ${m.peakDb.toFixed(2)} dBFS`);
   if (Math.abs(m.dc) > 0.01) problems.push(`DC ${m.dc.toFixed(4)}`);
   if (loop) {
     if (m.seamRms > 0.5) problems.push(`seam RMS differs by ${(m.seamRms * 100).toFixed(0)}% of the loop RMS`);
-    if (m.wrapJump > Math.max(0.05, m.bodyJump * 1.25)) problems.push(`wrap jump ${m.wrapJump.toFixed(3)} vs body max ${m.bodyJump.toFixed(3)}`);
+    // The step from the last sample to the first must look like any other step in the loop.
+    // The lossy encode leaves a few hundredths of codec error at the ends, so the decoded step may exceed a natural one by 0.05.
+    if (m.wrapJump > m.p99Jump * 1.5 + 0.05) problems.push(`wrap jump ${m.wrapJump.toFixed(3)} vs 99th-percentile step ${m.p99Jump.toFixed(3)}`);
     if (Math.abs(m.lengthDelta) > 8) problems.push(`decoded length differs by ${m.lengthDelta} samples (encoder delay not trimmed?)`);
   } else {
     // The source ends are faded to exactly zero; the decoded ends carry a little codec smear around a sharp onset.
@@ -331,7 +336,7 @@ const kb = (b) => `${(b / 1024).toFixed(1)} kB`;
 const loops = report.filter((r) => r.seamRms !== undefined);
 console.log(`${report.length} files, ${kb(total)} (${(total / 1e6).toFixed(2)} MB) in ${OUT}`);
 console.log(`worst peak ${Math.max(...report.map((r) => r.peakDb)).toFixed(2)} dBFS; largest |DC| ${Math.max(...report.map((r) => Math.abs(r.dc))).toExponential(1)}`);
-console.log(`loops: ${loops.length}; worst seam RMS difference ${(Math.max(...loops.map((r) => r.seamRms)) * 100).toFixed(0)}%; worst wrap jump ${Math.max(...loops.map((r) => r.wrapJump)).toFixed(3)}; worst decoded length delta ${Math.max(...loops.map((r) => Math.abs(r.lengthDelta)))} samples`);
+console.log(`loops: ${loops.length}; worst seam RMS difference ${(Math.max(...loops.map((r) => r.seamRms)) * 100).toFixed(0)}%; worst wrap jump / 99th-percentile step ${Math.max(...loops.map((r) => r.wrapJump / r.p99Jump)).toFixed(2)} (${loops.reduce((w, r) => (r.wrapJump / r.p99Jump > w.v ? { v: r.wrapJump / r.p99Jump, n: r.name } : w), { v: 0, n: '' }).n}); worst decoded length delta ${Math.max(...loops.map((r) => Math.abs(r.lengthDelta)))} samples`);
 console.log(`conditions: closest pair ${nearest.a} / ${nearest.b}, correlation ${nearest.r.toFixed(2)}`);
 if (failures.length) {
   console.error(`FAILED checks:\n  ${failures.join('\n  ')}`);
