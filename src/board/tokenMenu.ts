@@ -11,6 +11,8 @@ import type { MiniBase } from '../assignments';
 import type { MenuEntry } from './atlasMenu';
 import type { BoardToken, TokenSettings } from './mapModel';
 import { isKillable, resetLabel, visibleResources } from './resources';
+import { playersSeeEntry } from './sessionMenus';
+import type { BoardResourceShows } from '../connectContract';
 
 export interface TokenMenuActions {
   setCondition(id: string, active: boolean): void;
@@ -34,6 +36,8 @@ export interface TokenMenuActions {
   setLightHeight(height: number): void;
   /** Gives the token to an online player or takes it away (Connect hosting). */
   setController?(playerId: string, controls: boolean): void;
+  /** Sets one of the "Players see" choices (Connect hosting): its id, and one of its options' values. */
+  setResourceShow?(choiceId: string, value: string): void;
   /** Cast, Player: asks the token's player for a spell (Connect hosting), the spell search open. */
   askSpell?(): void;
   reset(): void;
@@ -61,6 +65,8 @@ export interface TokenMenuContext {
   lightHeight(): number | null;
   /** The online session's players and whether each controls the token; null (or absent) while Connect hosts no session. */
   controllers?(): Array<{ playerId: string; name: string; controls: boolean }> | null;
+  /** What players see of the token's resources, as Connect offers the choice; null (or absent) without one. */
+  resourceShows?(): BoardResourceShows | null;
   /** Whether a spell asked of the token waits for its player. */
   spellAsked?(): boolean;
   actions: TokenMenuActions;
@@ -164,6 +170,10 @@ export function tokenMenuEntries(context: TokenMenuContext): MenuEntry[] {
       },
     });
   }
+
+  // Connect hosting: what players see of each resource, as Connect puts it in Atlas's Edit Token dialog.
+  const playersSee = actions.setResourceShow && context.resourceShows ? playersSeeEntry(() => context.resourceShows?.() ?? null, (choiceId, value) => actions.setResourceShow?.(choiceId, value)) : null;
+  if (playersSee) entries.push(playersSee);
 
   entries.push({ type: 'item', label: token.hidden ? 'Show' : 'Hide', onClick: () => actions.setHidden(!token.hidden) });
   const joined = context.inInitiative();

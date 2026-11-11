@@ -1747,6 +1747,7 @@ export class BoardView extends ItemView {
       seeing: () => this.board?.seeingFrom === id,
       lightHeight: () => (this.map?.lights.some((light) => light.tokenId === id) ? boardData.lightHeight(map.path, id) ?? DEFAULT_LIGHT_SQUARES : null),
       controllers: () => this.services.session?.()?.controllers?.(id) ?? null,
+      resourceShows: () => this.services.session?.()?.resourceShows?.(map.path, id) ?? null,
       spellAsked: () => this.services.session?.()?.spellRequest?.(map.path, id) != null,
       gate: () => this.board?.gateFor(id)?.name ?? null,
       icon: (element, name) => setIcon(element, name),
@@ -1772,6 +1773,10 @@ export class BoardView extends ItemView {
         setLightHeight: (height) => boardData.setLightHeight(map.path, id, Math.max(0, Math.round(height * 4) / 4)),
         setController: (playerId, controls) => {
           this.services.session?.()?.setController?.(id, playerId, controls);
+          this.menu?.refresh();
+        },
+        setResourceShow: (choiceId, value) => {
+          this.services.session?.()?.setResourceShow?.(map.path, id, choiceId, value);
           this.menu?.refresh();
         },
         ...(this.services.session?.()?.requestSpell ? { askSpell: () => this.askSpell(id) } : {}),

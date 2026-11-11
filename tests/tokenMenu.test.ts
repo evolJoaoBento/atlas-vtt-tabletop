@@ -80,3 +80,31 @@ test('Cast with no player goes into the eyes with the search; in them, Leave its
   leave.onClick();
   assert.deepEqual(inside, [['eyes', false]]);
 });
+
+test('Players see: while Connect offers the choice, the token menu has it next to Controlled by; without it, not', () => {
+  const token = { id: 't1', kind: 'character', name: 'Goblin', hidden: false, conditions: [], conditionValues: {}, resources: {} } as unknown as BoardToken;
+  const nothing = (): void => undefined;
+  const set: Array<[string, string]> = [];
+  const build = (shows: TokenMenuContext['resourceShows']): MenuEntry[] => tokenMenuEntries({
+    token: () => token,
+    rules: { conditions: new Map(), definitions: [] } as unknown as TokenMenuContext['rules'],
+    settings: () => ({ showNameplates: true, showInstanceBadges: true, hiddenResources: [] }),
+    inInitiative: () => false, hasMini: () => false, miniBase: () => 'none', standee: () => false, lightHeight: () => null,
+    ...(shows ? { resourceShows: shows } : {}),
+    icon: nothing,
+    actions: {
+      setCondition: nothing, stepCondition: nothing, setHidden: nothing, setInitiative: nothing, assignMini: nothing, removeMini: nothing,
+      setBase: nothing, setStandee: nothing, setLightHeight: nothing, reset: nothing, kill: nothing, remove: nothing,
+      setResourceShow: (id, value) => { set.push([id, value]); },
+    },
+  });
+  const options = [{ value: '', label: 'Map default (shown)' }, { value: 'bar', label: 'Bar only' }, { value: 'hidden', label: 'Hidden' }];
+  const entries = build(() => ({ title: 'Players see', columns: ['This token'], rows: [{ label: 'HP', choices: [{ id: 'token:hp', label: 'HP, this token', value: '', options }] }] }));
+  const hp = children(children(entries.find((entry) => entry.type === 'submenu' && entry.label === 'Players see'))[0]);
+  assert.deepEqual(hp.map((item) => (item.type === 'item' ? [item.label, item.checked] : null)), [['Map default (shown)', true], ['Bar only', false], ['Hidden', false]]);
+  const bar = hp[1];
+  if (bar?.type === 'item') bar.onClick();
+  assert.deepEqual(set, [['token:hp', 'bar']]);
+  assert.equal(build(() => null).some((entry) => entry.type === 'submenu' && entry.label === 'Players see'), false);
+  assert.equal(build(undefined).some((entry) => entry.type === 'submenu' && entry.label === 'Players see'), false);
+});

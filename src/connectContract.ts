@@ -252,6 +252,14 @@ export interface BoardSession {
   /** Everyone follows the presented scene again. */
   everyoneBack?(): void;
   /**
+   * What players see of each resource of a character token (Atlas's Edit Token "Players see", Connect's): a row per
+   * resource, one choice per column (this token, every token of its statblock); null while no session runs, no Atlas
+   * view holds the map, or the token has none. Absent from an older Connect.
+   */
+  resourceShows?(mapPath: string, tokenId: string): BoardResourceShows | null;
+  /** Sets one choice (its `id`) to one of its options' values. */
+  setResourceShow?(mapPath: string, tokenId: string, choiceId: string, value: string): void;
+  /**
    * Asks the players of `tokenId` to cast `ask` from it (they aim it; Connect takes it as asked): the number of its
    * players on the map's scene now, null when it cannot. Absent from an older Connect.
    */
@@ -269,6 +277,13 @@ export interface BoardPresentTo {
   noPlayers: string;
   capNote: string | null;
   everyoneBack: { label: string; disabled: boolean };
+}
+
+/** A token's "Players see" choices, as Connect words them (Connect's `BoardResourceShows`). */
+export interface BoardResourceShows {
+  title: string;
+  columns: string[];
+  rows: Array<{ label: string; choices: Array<{ id: string; label: string; value: string; options: Array<{ value: string; label: string }> }> }>;
 }
 
 /** The GM's 3D view of a map: its players' window when open, else the GM's board; null when neither shows it. */
