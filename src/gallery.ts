@@ -40,8 +40,11 @@ export function pickFiles(doc: Document): Promise<File[]> {
   });
 }
 
-/** Lets `zone` take dropped .glb, .unity3d, .tsMod and .zip files. */
-function acceptDrops(zone: HTMLElement, library: MiniLibrary): void {
+/**
+ * Lets `zone` take dropped files, handed to `take` (asked at each drop, so a zone whose contents change, the gallery's
+ * tabs, keeps one set of listeners and imports into what it shows then). Call it once per zone: each call adds listeners.
+ */
+function acceptDrops(zone: HTMLElement, take: (files: File[]) => void): void {
   const has = (event: DragEvent): boolean => Array.from(event.dataTransfer?.items ?? []).some((item) => item.kind === 'file');
   zone.addEventListener('dragover', (event) => {
     if (!has(event)) return;
@@ -54,7 +57,7 @@ function acceptDrops(zone: HTMLElement, library: MiniLibrary): void {
     const files = Array.from(event.dataTransfer?.files ?? []);
     if (files.length === 0) return;
     event.preventDefault();
-    void importWithNotice(library, files);
+    take(files);
   });
 }
 
@@ -187,6 +190,13 @@ export class GalleryView extends ItemView {
     const sync = (): void => { for (const { tab, button } of buttons) button.toggleClass('is-active', tab === this.tab); };
     sync();
     this.body = root.createDiv({ cls: 'atlas-tabletop-gallery-body' });
+    // One set of drop listeners for the body, which every tab is drawn into: a drop goes to the tab shown. (Added at each
+    // draw, they piled up: a HeroForge zip dropped on Minis after a look at Materials was also imported as a material,
+    // "holds no colour map", and a mini dropped after a few tab changes was imported once per visit.)
+    acceptDrops(this.body, (files) => {
+      if (this.tab === 'materials') void importMaterials(this.materials, files);
+      else void importWithNotice(this.library, files);
+    });
     this.stops.push(this.minis.onChange(() => { if (this.tab === 'minis') this.redraw(); }));
     this.stops.push(this.props.onChange(() => { if (this.tab === 'props') this.redraw(); }));
     this.stops.push(this.materials.onChange(() => { if (this.tab === 'materials') this.redraw(); }));
@@ -221,7 +231,6 @@ export class GalleryView extends ItemView {
       : `Drop .glb files (or a HeroForge or TaleSpire export) here. Props live in ${library.folderPath}. Click a prop, then click the 3D board to put it there; Ctrl + drag moves it.`;
     body.createDiv({ cls: 'atlas-tabletop-hint', text: hint });
     this.grid = body.createDiv({ cls: 'atlas-tabletop-grid' });
-    acceptDrops(body, library);
     this.redraw();
   }
 
@@ -240,19 +249,6 @@ export class GalleryView extends ItemView {
     });
     this.drawDefaults(body);
     this.grid = body.createDiv({ cls: 'atlas-tabletop-grid' });
-    body.addEventListener('dragover', (event) => {
-      if (!Array.from(event.dataTransfer?.items ?? []).some((item) => item.kind === 'file')) return;
-      event.preventDefault();
-      body.addClass('is-dropping');
-    });
-    body.addEventListener('dragleave', () => body.removeClass('is-dropping'));
-    body.addEventListener('drop', (event) => {
-      body.removeClass('is-dropping');
-      const files = Array.from(event.dataTransfer?.files ?? []);
-      if (files.length === 0) return;
-      event.preventDefault();
-      void importMaterials(library, files);
-    });
     this.redraw();
   }
 
@@ -610,7 +606,7 @@ export class MiniPicker extends Modal {
       })();
     });
     const grid = root.createDiv({ cls: 'atlas-tabletop-grid' });
-    acceptDrops(root, this.library);
+    acceptDrops(root, (files) => { void importWithNotice(this.library, files); });
 
     // Below the cards: a square showing the mini on its token, and the controls that change it.
     const lower = root.createDiv({ cls: 'atlas-tabletop-picker-lower' });
