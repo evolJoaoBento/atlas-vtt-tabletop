@@ -69,6 +69,14 @@ const SUPPORT_REACH = 1.5;
 const STILL_MS = 100;
 /** A die that never stops (jittering on another) is held after this long, and caught: it showed no face at rest. */
 const LONGEST_ROLL_MS = 12_000;
+/**
+ * A die whose speed flickers over the limits (cannon's contacts kicking a die that lies flat, every few steps) but that
+ * goes nowhere is at rest too: one that has moved less than this (die edges) and turned less than this (radians) for
+ * this long is read where it lies. Long enough that a die only pausing on an edge tips over first.
+ */
+const QUIET_MOVE = 0.01;
+const QUIET_TURN = 0.01;
+const QUIET_MS = 500;
 /** How high a die is let go from at least, and how far apart dice thrown together start. */
 const START_HEIGHT = 2;
 const SPREAD = 1.4;
@@ -117,6 +125,8 @@ interface ThrownDie {
   waited?: boolean;
   stillMs: number;
   rollingMs: number;
+  /** Where it lay, and since how long it has gone no farther (`QUIET_MS`); none while it moves. */
+  quiet?: { x: number; y: number; z: number; q: CANNON.Quaternion; ms: number };
 }
 
 export class DiceTable {
@@ -275,9 +285,26 @@ export class DiceTable {
       die.rollingMs += stepMs;
       const still = body.velocity.length() <= velocityLimit && body.angularVelocity.length() <= spinLimit;
       die.stillMs = still ? die.stillMs + stepMs : 0;
-      if (die.stillMs >= STILL_MS) this.settle(id, die, true);
+      const quiet = this.quietFor(die, stepMs);
+      if (die.stillMs >= STILL_MS || quiet >= QUIET_MS) this.settle(id, die, true);
       else if (die.rollingMs >= LONGEST_ROLL_MS) this.settle(id, die, false);
     }
+  }
+
+  /** How long the die has gone nowhere (moved and turned less than `QUIET_MOVE` / `QUIET_TURN`), counting this step. */
+  private quietFor(die: ThrownDie, stepMs: number): number {
+    const { position, quaternion } = die.body;
+    const was = die.quiet;
+    if (was) {
+      const moved = Math.hypot(position.x - was.x, position.y - was.y, position.z - was.z);
+      const dot = Math.min(1, Math.abs(was.q.x * quaternion.x + was.q.y * quaternion.y + was.q.z * quaternion.z + was.q.w * quaternion.w));
+      if (moved < QUIET_MOVE && 2 * Math.acos(dot) < QUIET_TURN) {
+        was.ms += stepMs;
+        return was.ms;
+      }
+    }
+    die.quiet = { x: position.x, y: position.y, z: position.z, q: quaternion.clone(), ms: 0 };
+    return 0;
   }
 
   /** Takes a die off the table (an explosion its die no longer earns); the dice resting on it fall. */
@@ -608,6 +635,7 @@ export class DiceTable {
     this.outline(die);
     die.stillMs = 0;
     die.rollingMs = 0;
+    delete die.quiet;
   }
 
   /**

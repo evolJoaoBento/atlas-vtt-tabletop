@@ -232,6 +232,36 @@ test('a die resting on another is read where it lies, and falls when the die und
   assert.equal(readings.get(over)?.length, 3, 'and is read again where it fell');
 }));
 
+test('a die lying flat that only jitters (speed flickering, going nowhere) is read, not caught', () => seeded(9, () => {
+  const { dice } = table(0);
+  const session = new RollSession({ dice: { d6: 1 }, modifier: 0 }, DEFAULT_RULES);
+  const readings: FaceReading[] = [];
+  dice.onSettled = (_id, reading) => { readings.push(reading); };
+  dice.throwRoll(session, { dx: 0, dy: -200, ms: 100 });
+  const body = bodyOf(dice, session.dice[0].id);
+  // The way cannon leaves a gently dropped die: square on the felt, still, but every few steps a contact kicks its
+  // speed over the limit for a step, and it lands back where it was.
+  const world = (dice as unknown as { world: CANNON.World }).world;
+  const half = (body.shapes[0] as CANNON.ConvexPolyhedron).vertices.reduce((low, v) => Math.min(low, v.y), 0) * -1;
+  let steps = 0;
+  world.addEventListener('postStep', () => {
+    steps += 1;
+    squareUp(body, half);
+    body.position.x = 0;
+    body.position.z = 0;
+    body.angularVelocity.set(0, 0, 0);
+    body.velocity.set(0, steps % 5 === 0 ? 0.09 : 0.005, 0);
+  });
+  let ms = 0;
+  while (dice.busy && ms < 15_000) {
+    dice.step(1000 / 60);
+    ms += 1000 / 60;
+  }
+  assert.ok(ms < 2_000, `read within a moment of lying still: ${ms} ms`);
+  assert.equal(readings.length, 1);
+  assert.equal(readings[0].caught, false, 'read for the number it shows');
+}));
+
 test('a die still tumbling at the longest roll is caught, never a number', () => seeded(9, () => {
   const { dice } = table(0);
   const session = new RollSession({ dice: { d6: 1 }, modifier: 0 }, DEFAULT_RULES);
