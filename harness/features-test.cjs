@@ -20,7 +20,7 @@ const features = [];
 const feature = (name, run, url) => features.push({ name, run, url });
 
 // ── Board sounds: the board hands its engine the camera, and calls it through Board.sound ──────────────────────────
-feature('sound settings', async ({ page }) => {
+feature('sound settings', async ({ page, shot }) => {
   const rec = () => page.evaluate(() => JSON.parse(JSON.stringify({ listeners: window.boardTest.sounds.listeners, plays: window.boardTest.sounds.plays, loops: window.boardTest.sounds.loops })));
   const first = await rec();
   check('sound: the engine is told where the camera is once the board is drawn', first.listeners.length >= 1 && first.listeners[0].span > 0 && !!first.listeners[0].listener.eye && !!first.listeners[0].listener.target);
@@ -33,6 +33,30 @@ feature('sound settings', async ({ page }) => {
   const after = await rec();
   check('sound: Board.sound reaches the engine', JSON.stringify(after.plays.at(-1)) === JSON.stringify(['dice.hit', { gain: 0.5 }]));
   check('sound: Board.soundLoop reaches the engine', JSON.stringify(after.loops.at(-1)) === JSON.stringify(['water', 'water.flow', 0.3]));
+  // The web speaker control: inside the board, and clear of the layers ruler (a stand-in for a tall stack is drawn).
+  await page.evaluate(() => {
+    const { board, mountSoundControl, webSound } = window.boardTest;
+    mountSoundControl(board.container, webSound(window));
+    board.container.querySelector('.atlas-tabletop-sound__button').click();
+    const ruler = document.createElement('div');
+    ruler.className = 'atlas-tabletop-layers';
+    ruler.innerHTML = '<div class="atlas-tabletop-layers__track" style="height:420px"><div class="atlas-tabletop-layers__rail" style="height:420px"></div></div>';
+    board.container.appendChild(ruler);
+  });
+  const overlap = () => page.evaluate(() => {
+    const c = document.querySelector('.atlas-tabletop-sound');
+    const r = [...document.querySelectorAll('.atlas-tabletop-layers__track')].at(-1);
+    const a = c.getBoundingClientRect(), b = r.getBoundingClientRect(), box = window.boardTest.board.container.getBoundingClientRect();
+    return { inside: a.left >= box.left && a.right <= box.right && a.top >= box.top && a.bottom <= box.bottom, hit: a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top };
+  });
+  let o = await overlap();
+  check('sound: the web control is inside the board and clear of the layers ruler', o.inside && !o.hit, JSON.stringify(o));
+  await shot('sound-control');
+  await page.setViewportSize({ width: 1000, height: 480 });
+  await wait(300);
+  o = await overlap();
+  check('sound: on a short board the control still clears the ruler', o.inside && !o.hit, JSON.stringify(o));
+  await shot('sound-control-short');
 });
 
 // ── Item 27: the turn banner and the delayed marker ─────────────────────────────────────────────────────────────

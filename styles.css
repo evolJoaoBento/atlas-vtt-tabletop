@@ -2069,3 +2069,5 @@ body.atlas-tabletop-player-window .view-header {
 .atlas-tabletop-sound__panel[hidden] { display: none; }
 .atlas-tabletop-sound__volume { width: 110px; }
 .atlas-tabletop-sound__mute { display: flex; align-items: center; cursor: pointer; }
+/* On a short board the layers ruler (centred, up to 430px tall) would reach the top-right corner: the control moves to the left. */
+@media (max-height: 560px) { .atlas-tabletop-sound { right: auto; left: 10px; align-items: flex-start; } }

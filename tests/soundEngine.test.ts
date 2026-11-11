@@ -315,3 +315,21 @@ test('a loop switched off by its group stops its running source', async () => {
   engine.configure({ ...DEFAULT_SOUND_SETTINGS, groups: { ...DEFAULT_SOUND_SETTINGS.groups, water: false } });
   assert.equal(context.started[0].stops.length, 1);
 });
+
+test('shared engines are counted per window: the last dispose closes the context and a later shared makes a new one', async () => {
+  const contexts: FakeContext[] = [];
+  const win = { document: new FakeDocument(), AudioContext: class extends FakeContext { constructor() { super(); contexts.push(this); } } } as unknown as Window;
+  const first = SoundEngine.shared(win, files);
+  const second = SoundEngine.shared(win, files);
+  assert.equal(first, second);
+  first?.dispose();
+  assert.equal(contexts[0].closed, false);
+  second?.dispose();
+  await settle();
+  assert.equal(contexts[0].closed, true);
+  assert.equal((win as unknown as { document: FakeDocument }).document.listening(), 0);
+  const third = SoundEngine.shared(win, files);
+  assert.notEqual(third, first);
+  assert.equal(contexts.length, 2);
+  third?.dispose();
+});

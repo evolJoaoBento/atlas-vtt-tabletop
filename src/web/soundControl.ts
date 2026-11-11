@@ -56,17 +56,29 @@ export function webSound(win: Window = window): WebSound & { set(changes: Partia
   };
 }
 
+/** An element with a class and attributes, made with plain DOM so it needs no Obsidian helpers. */
+function make<K extends keyof HTMLElementTagNameMap>(doc: Document, tag: K, cls: string, attr: Record<string, string> = {}): HTMLElementTagNameMap[K] {
+  const element = doc.createElement(tag);
+  element.className = cls;
+  for (const [name, value] of Object.entries(attr)) element.setAttribute(name, value);
+  return element;
+}
+
 /** Draws the speaker button and its panel into `parent`; returns what removes them. */
 export function mountSoundControl(parent: HTMLElement, sound: ReturnType<typeof webSound>): () => void {
-  const root = parent.createDiv({ cls: 'atlas-tabletop-sound' });
-  const button = root.createEl('button', { cls: 'atlas-tabletop-sound__button', attr: { type: 'button', 'aria-label': 'Sound', 'aria-expanded': 'false' } });
+  const doc = parent.ownerDocument;
+  const root = make(doc, 'div', 'atlas-tabletop-sound');
+  const button = make(doc, 'button', 'atlas-tabletop-sound__button', { type: 'button', 'aria-label': 'Sound', 'aria-expanded': 'false' });
   button.innerHTML = SPEAKER;
-  const panel = root.createDiv({ cls: 'atlas-tabletop-sound__panel' });
+  const panel = make(doc, 'div', 'atlas-tabletop-sound__panel');
   panel.hidden = true;
-  const slider = panel.createEl('input', { cls: 'atlas-tabletop-sound__volume', attr: { type: 'range', min: '0', max: '1', step: '0.05', 'aria-label': 'Volume' } });
-  const mute = panel.createEl('label', { cls: 'atlas-tabletop-sound__mute' });
-  const check = mute.createEl('input', { attr: { type: 'checkbox' } });
-  mute.appendChild(parent.ownerDocument.createTextNode(' Mute'));
+  const slider = make(doc, 'input', 'atlas-tabletop-sound__volume', { type: 'range', min: '0', max: '1', step: '0.05', 'aria-label': 'Volume' });
+  const mute = make(doc, 'label', 'atlas-tabletop-sound__mute');
+  const check = make(doc, 'input', '', { type: 'checkbox' });
+  mute.append(check, doc.createTextNode(' Mute'));
+  panel.append(slider, mute);
+  root.append(button, panel);
+  parent.appendChild(root);
   const show = (): void => {
     const now = sound.settings();
     slider.value = String(now.volume);
@@ -74,11 +86,10 @@ export function mountSoundControl(parent: HTMLElement, sound: ReturnType<typeof 
     button.classList.toggle('is-muted', now.muted || now.volume === 0);
   };
   show();
-  const toggle = (): void => {
+  button.addEventListener('click', () => {
     panel.hidden = !panel.hidden;
     button.setAttribute('aria-expanded', String(!panel.hidden));
-  };
-  button.addEventListener('click', toggle);
+  });
   slider.addEventListener('input', () => sound.set({ volume: Number(slider.value) }));
   check.addEventListener('change', () => sound.set({ muted: check.checked }));
   const stop = sound.onChange(show);

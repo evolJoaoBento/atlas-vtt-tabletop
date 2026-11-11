@@ -296,6 +296,7 @@ export class BoardView extends ItemView {
   private sound: { win: Window; engine: SoundEngine | null } | null = null;
 
   private soundEngine(): SoundEngine | null {
+    if (this.closed) return null;
     const win = this.contentEl.ownerDocument.defaultView;
     if (!win) return null;
     if (this.sound?.win !== win) {
@@ -319,7 +320,6 @@ export class BoardView extends ItemView {
 
   async onClose(): Promise<void> {
     this.closed = true;
-    this.releaseSound();
     this.stopTabs?.();
     this.stopTabs = null;
     this.sceneTabs?.dispose();
@@ -333,6 +333,8 @@ export class BoardView extends ItemView {
     this.initiative = null;
     this.reload.cancel();
     this.dropBoard();
+    // After the board: its disposal may still stop loops through the engine.
+    this.releaseSound();
     this.playerWindow?.waiting(true);
     this.playerWindow = null;
     this.atlasTools?.dispose();

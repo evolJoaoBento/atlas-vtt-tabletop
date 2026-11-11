@@ -4214,7 +4214,6 @@ export class Board {
     return player.frozen ? { eye: { ...player.frozen.eye }, target: { ...player.frozen.target } } : this.cameraPose();
   }
 
-  /** Whether the players' camera is frozen where the GM froze it. */
   /** Whether the engine has been told where the camera is since the board began. */
   private listening = false;
 
@@ -4237,6 +4236,7 @@ export class Board {
     this.host.sounds?.()?.loop(key, id, gain);
   }
 
+  /** Whether the players' camera is frozen where the GM froze it. */
   get playerFrozen(): boolean {
     return this.player?.frozen != null;
   }
