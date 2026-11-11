@@ -2949,6 +2949,8 @@ export class Board {
     on('keydown', (event) => {
       const key = event.key.toLowerCase();
       this.showName(null);
+      // Escape first takes away a spell's review still waiting over the board (it would sit over the next cast).
+      if (key === 'escape' && this.rulePanel?.showing) { this.rulePanel.dismiss(); return; }
       // Through the eyes, Escape steps back out of a spell being cast, else leaves the eyes.
       if (key === 'escape' && this.eye) {
         if (this.caster?.busy) this.caster.back(); else this.leaveEyes();
@@ -4654,6 +4656,8 @@ export class Board {
     if (tokenId === null || !this.tokens.has(tokenId)) {
       this.lockPointer(false);
       this.caster?.show(false);
+      // The caster closed: a spell's review still waiting goes with it.
+      this.rulePanel?.dismiss();
       // The GM's toolbar back, after the eyes.
       if (this.audience === 'gm') this.toolbar.setHidden(false);
       this.view.near = this.baseNear;
@@ -4986,6 +4990,8 @@ export class Board {
       handles: (spell) => this.spellHandles(spell),
       touch: () => this.lastPointer !== 'mouse',
       leave: () => this.leaveEyes(),
+      // A new cast begun: the reviews of the casts before it go.
+      began: () => this.rulePanel?.dismiss(),
       wake: () => this.wake(),
       book: () => this.host.spellBook?.() ?? null,
       unitDistance: () => feetPerSquare(this.host.measurement()),
@@ -5410,7 +5416,7 @@ export class Board {
           // Done: the mark goes.
           this.host.playerAction?.({ type: 'spell', change: { remove: cast.id } });
         },
-      });
+      }, cast.id);
     }
     if (rules.push) {
       const origin = spell.from === 'self' && caster ? { x: caster.at.x, y: caster.at.y } : middle;
@@ -5433,7 +5439,7 @@ export class Board {
             const chosen = moves.filter((move) => ids.includes(move.id)).map(({ id, x, y }) => ({ id, x, y }));
             if (chosen.length > 0) this.host.moveTokens?.(chosen);
           },
-        });
+        }, cast.id);
       }
     }
     if (rules.summon && this.host.summonTokens) {
@@ -5448,7 +5454,7 @@ export class Board {
           const made = this.host.summonTokens?.(spots.map((spot) => ({ name: summon.name, x: spot.x, y: spot.y, ...(summon.statblock ? { statblock: summon.statblock } : {}) }))) ?? [];
           if (made.length > 0) this.summoned.set(cast.id, made);
         },
-      });
+      }, cast.id);
     }
   }
 

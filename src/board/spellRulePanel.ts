@@ -1,7 +1,9 @@
 /**
  * The GM's review of what a cast spell would do to tokens (`spellRules.ts`): its title, one line per token with a tick
  * (whom it applies to: a push only moves those who failed their save), and Apply / Skip. Pure DOM over the board; the
- * board says what to do with the ticked ones. One shown at a time; more wait their turn.
+ * board says what to do with the ticked ones. One shown at a time; more of the same cast wait their turn. A review
+ * belongs to the cast it is about: a newer cast's review, a new cast begun, the caster closed or Escape dismisses the
+ * old ones (as Skip), so a stale review never sits over the next cast.
  */
 export interface RuleLine {
   id: string;
@@ -22,8 +24,10 @@ export interface RuleReview {
 }
 
 export class SpellRulePanel {
-  private readonly queue: RuleReview[] = [];
+  private readonly queue: Array<{ review: RuleReview; cast: string | null }> = [];
   private element: HTMLElement | null = null;
+  /** The review showing, and the cast it is about. */
+  private current: { review: RuleReview; cast: string | null } | null = null;
 
   constructor(private readonly root: HTMLElement) {}
 
@@ -37,9 +41,20 @@ export class SpellRulePanel {
     return this.element?.querySelector('.atlas-tabletop-spellpicker__title')?.textContent ?? null;
   }
 
-  offer(review: RuleReview): void {
-    this.queue.push(review);
+  /** Shows `review` (after the others of its cast); `cast` the spell it is about: reviews of any other are dismissed first. */
+  offer(review: RuleReview, cast: string | null = null): void {
+    if (cast !== null && [this.current, ...this.queue].some((each) => each !== null && each.cast !== cast)) this.dismiss();
+    this.queue.push({ review, cast });
     if (!this.element) this.next();
+  }
+
+  /** Takes every review away, unanswered (as Skip): a new cast begins, the caster closed, or Escape. */
+  dismiss(): void {
+    const dropped = [...(this.current ? [this.current] : []), ...this.queue.splice(0)];
+    this.current = null;
+    this.element?.remove();
+    this.element = null;
+    for (const each of dropped) each.review.skip?.();
   }
 
   /** Runs the review showing with what is ticked (as Apply would). */
@@ -49,6 +64,7 @@ export class SpellRulePanel {
 
   dispose(): void {
     this.queue.length = 0;
+    this.current = null;
     this.element?.remove();
     this.element = null;
   }
@@ -56,12 +72,16 @@ export class SpellRulePanel {
   private next(): void {
     this.element?.remove();
     this.element = null;
-    const review = this.queue.shift();
-    if (!review) return;
+    this.current = this.queue.shift() ?? null;
+    if (!this.current) return;
+    const { review } = this.current;
     const doc = this.root.ownerDocument;
     const panel = doc.createElement('div');
     panel.className = 'atlas-tabletop-spellpicker atlas-tabletop-spellrules';
-    panel.addEventListener('keydown', (event) => event.stopPropagation());
+    panel.addEventListener('keydown', (event) => {
+      event.stopPropagation();
+      if (event.key === 'Escape') { event.preventDefault(); this.dismiss(); }
+    });
     panel.addEventListener('pointerdown', (event) => event.stopPropagation());
     const head = doc.createElement('div');
     head.className = 'atlas-tabletop-spellpicker__head';

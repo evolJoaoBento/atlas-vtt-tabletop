@@ -63,6 +63,8 @@ export interface SpellCasterHost {
   /** Whether the last press was a finger (it aims with a drag and Place). */
   touch(): boolean;
   leave(): void;
+  /** A new cast begins (the choice, the search or an ask opened from rest): what was left of the casts before can go. */
+  began?(): void;
   wake(): void;
   /** The spell notes to search; absent or null where there are none (the web player board). */
   book?(): SpellBook | null;
@@ -210,6 +212,7 @@ export class SpellCaster {
     if (this.picker?.isOpen) return this.picker;
     if (this.stage !== 'idle' && this.stage !== 'form') this.cancel();
     if (this.host.locked()) this.host.lock(false);
+    if (this.stage === 'idle') this.host.began?.();
     this.hits = [];
     this.host.preview(null);
     const cell = this.host.cell();
@@ -394,6 +397,7 @@ export class SpellCaster {
   }
 
   private go(stage: Stage): void {
+    if (this.stage === 'idle' && stage !== 'idle') this.host.began?.();
     this.stage = stage;
     if (stage === 'aim') {
       this.set = null;
