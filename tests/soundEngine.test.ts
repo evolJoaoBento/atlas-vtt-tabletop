@@ -263,3 +263,16 @@ test('the catalogue decides the group: the doors toggle silences walls too', asy
   await settle();
   assert.equal(context.started.length, 1);
 });
+
+test('an id that is not in the catalogue is a silent no-op', async () => {
+  const { context, engine, loaded } = setup();
+  const unknown = 'spell.impact.nonsense' as unknown as Parameters<typeof engine.play>[0];
+  engine.play(unknown);
+  engine.loop('x', unknown, 0.5);
+  await settle();
+  assert.equal(context.started.length, 0);
+  assert.deepEqual(loaded, []);
+  engine.play('dice.hit');
+  await settle();
+  assert.equal(context.started.length, 1);
+});

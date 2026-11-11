@@ -103,7 +103,7 @@ function mixLayers(layers) {
 }
 
 /** Trims leading and trailing silence, caps the length, blocks DC, and fades the ends so nothing clicks. */
-function shapeOneShot(x, max) {
+function shapeOneShot(x, max, fadeInSec = 0.0015) {
   const peak = peakOf(x);
   let s = 0;
   while (s < x.length && Math.abs(x[s]) < 0.02 * peak) s++;
@@ -116,7 +116,7 @@ function shapeOneShot(x, max) {
   let px = 0;
   let py = 0;
   for (let i = 0; i < out.length; i++) { const y = out[i] - px + 0.9966 * py; px = out[i]; py = y; out[i] = y; }
-  const fadeIn = Math.min(Math.round(0.0015 * SR), out.length >> 2);
+  const fadeIn = Math.min(Math.round(fadeInSec * SR), out.length >> 2);
   const fadeOut = Math.min(Math.round(0.03 * SR), out.length >> 1);
   for (let i = 0; i < fadeIn; i++) out[i] *= i / fadeIn;
   for (let i = 0; i < fadeOut; i++) out[out.length - 1 - i] *= 0.5 - 0.5 * Math.cos(Math.PI * (i / fadeOut));
@@ -135,11 +135,11 @@ function normalise(x, peak = PEAK) {
 // The MP3 goes through a file, not a pipe: ffmpeg only writes the Xing/LAME header (frame count, encoder delay and
 // padding, which players use to play a loop gaplessly) when it can seek back in the output.
 const TMP = '.sound-src/tmp.mp3';
-function encodeMp3(x, loop) {
+function encodeMp3(x, kbps) {
   mkdirSync('.sound-src', { recursive: true });
-  const run = spawnSync('ffmpeg', ['-v', 'error', '-y', '-f', 'f32le', '-ar', String(SR), '-ac', '1', '-i', '-', '-ac', '1', '-ar', String(SR), '-codec:a', 'libmp3lame', '-b:a', loop ? '48k' : '64k', TMP],
+  const run = spawnSync('ffmpeg', ['-v', 'error', '-y', '-f', 'f32le', '-ar', String(SR), '-ac', '1', '-i', '-', '-ac', '1', '-ar', String(SR), '-codec:a', 'libmp3lame', '-b:a', `${kbps}k`, TMP],
     { input: Buffer.from(x.buffer, x.byteOffset, x.byteLength), maxBuffer: 1 << 26 });
-  if (run.status !== 0) throw new Error();
+  if (run.status !== 0) throw new Error(`ffmpeg could not encode: ${run.stderr}`);
   return readFileSync(TMP);
 }
 function decodeMp3() {
@@ -174,12 +174,11 @@ function judge(m, loop) {
   if (loop) {
     if (m.seamRms > 0.5) problems.push(`seam RMS differs by ${(m.seamRms * 100).toFixed(0)}% of the loop RMS`);
     // The step from the last sample to the first must look like any other step in the loop.
-    // The lossy encode leaves a few hundredths of codec error at the ends, so the decoded step may exceed a natural one by 0.05.
-    if (m.wrapJump > m.p99Jump * 1.5 + 0.05) problems.push(`wrap jump ${m.wrapJump.toFixed(3)} vs 99th-percentile step ${m.p99Jump.toFixed(3)}`);
+    if (m.wrapJump > m.p99Jump * 1.5) problems.push(`wrap jump ${m.wrapJump.toFixed(3)} vs 99th-percentile step ${m.p99Jump.toFixed(3)}`);
     if (Math.abs(m.lengthDelta) > 8) problems.push(`decoded length differs by ${m.lengthDelta} samples (encoder delay not trimmed?)`);
   } else {
     // The source ends are faded to exactly zero; the decoded ends carry a little codec smear around a sharp onset.
-    if (m.edge > 0.15) problems.push(`edge sample ${m.edge.toFixed(3)}`);
+    if (m.edge > 0.1) problems.push(`edge sample ${m.edge.toFixed(3)}`);
     if (m.bodyJump > 1.5) problems.push(`sample-to-sample jump ${m.bodyJump.toFixed(2)}`);
   }
   return problems;
@@ -228,16 +227,39 @@ for (const sound of SOUNDS) {
   sound.variants.forEach((layers, index) => {
     const name = `${sound.id}-${index + 1}.mp3`;
     let x = mixLayers(layers);
-    x = sound.loop ? shapeLoop(x) : shapeOneShot(x, sound.max);
+    x = sound.loop ? shapeLoop(x) : shapeOneShot(x, sound.max, layers.every((l) => l.own) ? 0.004 : undefined);
     x = normalise(x);
-    let mp3 = encodeMp3(x, sound.loop);
-    let decoded = decodeMp3();
-    // A lossy encode can overshoot the source peak a little; bring the decoded peak back under -1 dBFS.
-    for (let attempt = 0; attempt < 4 && peakOf(decoded) > PEAK * 0.999; attempt++) {
-      x = normalise(x, peakOf(x) * (PEAK * 0.99) / peakOf(decoded));
-      mp3 = encodeMp3(x, sound.loop);
-      decoded = decodeMp3();
-    }
+    let kbps = sound.loop ? 48 : 64;
+    let mp3;
+    let decoded;
+    // Encodes `signal`; a lossy encode can overshoot the source peak a little, so bring the decoded peak back under -1 dBFS.
+    const encodeChecked = (signal) => {
+      let m = encodeMp3(signal, kbps);
+      let d = decodeMp3();
+      for (let attempt = 0; attempt < 4 && peakOf(d) > PEAK * 0.999; attempt++) {
+        signal = normalise(signal, peakOf(signal) * (PEAK * 0.99) / peakOf(d));
+        m = encodeMp3(signal, kbps);
+        d = decodeMp3();
+      }
+      return { signal, mp3: m, decoded: d };
+    };
+    if (sound.loop) {
+      // The encoder knows nothing of the loop, so its error at the two file ends can open a small step at the seam.
+      // The loop is the same sound wherever it starts, so try other start points (then a higher bitrate) until the
+      // decoded seam is as smooth as the loop's own steps.
+      let best = null;
+      search: for (const rate of [kbps, 64, 96]) {
+        kbps = rate;
+        for (let r = 0; r < 24; r++) {
+          const shift = Math.round((r * x.length) / 24);
+          const trial = encodeChecked(Float32Array.from({ length: x.length }, (_, i) => x[(i + shift) % x.length]));
+          const ratio = measure(trial.decoded, true, trial.signal).wrapJump / measure(trial.decoded, true, trial.signal).p99Jump;
+          if (!best || ratio < best.ratio) best = { ...trial, ratio, kbps: rate };
+          if (ratio <= 1.5) break search;
+        }
+      }
+      ({ signal: x, mp3, decoded, kbps } = { ...best, decoded: best.decoded });
+    } else ({ signal: x, mp3, decoded } = encodeChecked(x));
     writeFileSync(`${OUT}/${name}`, mp3);
     total += mp3.length;
     files.push(name);
@@ -252,7 +274,7 @@ for (const sound of SOUNDS) {
     const pitches = layers.filter((l) => l.k && l.pitch).map((l) => `${l.pitch > 0 ? '+' : ''}${l.pitch} st`);
     if (pitches.length) changes.push(`pitch ${pitches.join(', ')}`);
     if (layers.length > 1) changes.push('layered');
-    changes.push(sound.loop ? 'DC removed, crossfaded loop, normalised -1 dBFS, mp3 48k' : 'trimmed, faded, normalised -1 dBFS, mp3 64k');
+    changes.push(sound.loop ? `DC removed, seamless loop, normalised -1 dBFS, mp3 ${kbps}k` : 'trimmed, faded, normalised -1 dBFS, mp3 64k');
     rows.push(`| ${sound.id} | ${name} | ${origin} | ${licence} | ${changes.join('; ')} |`);
   });
   entries.push({ ...sound, files });

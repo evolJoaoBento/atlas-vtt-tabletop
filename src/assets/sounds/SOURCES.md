@@ -15,7 +15,7 @@ or synthesised for this project (licence "own"). Nothing else is used. Rebuild w
 | dice.hit | dice.hit-6.mp3 | Kenney Impact Sounds: impactWood_light_000.ogg + Kenney Impact Sounds: impactPlate_light_000.ogg | CC0 | pitch +7 st, +9 st; layered; trimmed, faded, normalised -1 dBFS, mp3 64k |
 | dice.hit | dice.hit-7.mp3 | Kenney Impact Sounds: impactWood_light_001.ogg + Kenney Impact Sounds: impactPlate_light_001.ogg | CC0 | pitch +7 st, +9 st; layered; trimmed, faded, normalised -1 dBFS, mp3 64k |
 | dice.hit | dice.hit-8.mp3 | Kenney Impact Sounds: impactWood_light_002.ogg + Kenney Impact Sounds: impactPlate_light_002.ogg | CC0 | pitch +7 st, +9 st; layered; trimmed, faded, normalised -1 dBFS, mp3 64k |
-| dice.roll | dice.roll-1.mp3 | own: synth.mjs dice-roll | own | DC removed, crossfaded loop, normalised -1 dBFS, mp3 48k |
+| dice.roll | dice.roll-1.mp3 | own: synth.mjs dice-roll | own | DC removed, seamless loop, normalised -1 dBFS, mp3 48k |
 | dice.caught | dice.caught-1.mp3 | Kenney Interface Sounds: error_001.ogg | CC0 | trimmed, faded, normalised -1 dBFS, mp3 64k |
 | dice.caught | dice.caught-2.mp3 | Kenney Interface Sounds: error_004.ogg | CC0 | pitch -2 st; trimmed, faded, normalised -1 dBFS, mp3 64k |
 | mini.pickup | mini.pickup-1.mp3 | Kenney RPG Audio: cloth1.ogg | CC0 | trimmed, faded, normalised -1 dBFS, mp3 64k |
@@ -70,22 +70,22 @@ or synthesised for this project (licence "own"). Nothing else is used. Rebuild w
 | spell.impact.slashing | spell.impact.slashing-1.mp3 | own: synth.mjs spell-impact-slashing | own | trimmed, faded, normalised -1 dBFS, mp3 64k |
 | spell.impact.thunder | spell.impact.thunder-1.mp3 | own: synth.mjs spell-impact-thunder | own | trimmed, faded, normalised -1 dBFS, mp3 64k |
 | spell.impact.plain | spell.impact.plain-1.mp3 | own: synth.mjs spell-impact-plain | own | trimmed, faded, normalised -1 dBFS, mp3 64k |
-| spell.loop.acid | spell.loop.acid-1.mp3 | own: synth.mjs spell-loop-acid | own | DC removed, crossfaded loop, normalised -1 dBFS, mp3 48k |
-| spell.loop.bludgeoning | spell.loop.bludgeoning-1.mp3 | own: synth.mjs spell-loop-bludgeoning | own | DC removed, crossfaded loop, normalised -1 dBFS, mp3 48k |
-| spell.loop.cold | spell.loop.cold-1.mp3 | own: synth.mjs spell-loop-cold | own | DC removed, crossfaded loop, normalised -1 dBFS, mp3 48k |
-| spell.loop.explosion | spell.loop.explosion-1.mp3 | own: synth.mjs spell-loop-explosion | own | DC removed, crossfaded loop, normalised -1 dBFS, mp3 48k |
-| spell.loop.fire | spell.loop.fire-1.mp3 | own: synth.mjs spell-loop-fire | own | DC removed, crossfaded loop, normalised -1 dBFS, mp3 48k |
-| spell.loop.force | spell.loop.force-1.mp3 | own: synth.mjs spell-loop-force | own | DC removed, crossfaded loop, normalised -1 dBFS, mp3 48k |
-| spell.loop.lightning | spell.loop.lightning-1.mp3 | own: synth.mjs spell-loop-lightning | own | DC removed, crossfaded loop, normalised -1 dBFS, mp3 48k |
-| spell.loop.necrotic | spell.loop.necrotic-1.mp3 | own: synth.mjs spell-loop-necrotic | own | DC removed, crossfaded loop, normalised -1 dBFS, mp3 48k |
-| spell.loop.piercing | spell.loop.piercing-1.mp3 | own: synth.mjs spell-loop-piercing | own | DC removed, crossfaded loop, normalised -1 dBFS, mp3 48k |
-| spell.loop.poison | spell.loop.poison-1.mp3 | own: synth.mjs spell-loop-poison | own | DC removed, crossfaded loop, normalised -1 dBFS, mp3 48k |
-| spell.loop.psychic | spell.loop.psychic-1.mp3 | own: synth.mjs spell-loop-psychic | own | DC removed, crossfaded loop, normalised -1 dBFS, mp3 48k |
-| spell.loop.radiant | spell.loop.radiant-1.mp3 | own: synth.mjs spell-loop-radiant | own | DC removed, crossfaded loop, normalised -1 dBFS, mp3 48k |
-| spell.loop.slashing | spell.loop.slashing-1.mp3 | own: synth.mjs spell-loop-slashing | own | DC removed, crossfaded loop, normalised -1 dBFS, mp3 48k |
-| spell.loop.thunder | spell.loop.thunder-1.mp3 | own: synth.mjs spell-loop-thunder | own | DC removed, crossfaded loop, normalised -1 dBFS, mp3 48k |
-| spell.loop.plain | spell.loop.plain-1.mp3 | own: synth.mjs spell-loop-plain | own | DC removed, crossfaded loop, normalised -1 dBFS, mp3 48k |
-| water.ripples | water.ripples-1.mp3 | own: synth.mjs water-ripples | own | DC removed, crossfaded loop, normalised -1 dBFS, mp3 48k |
-| water.flow | water.flow-1.mp3 | own: synth.mjs water-flow | own | DC removed, crossfaded loop, normalised -1 dBFS, mp3 48k |
-| water.waves | water.waves-1.mp3 | own: synth.mjs water-waves | own | DC removed, crossfaded loop, normalised -1 dBFS, mp3 48k |
-| water.still | water.still-1.mp3 | own: synth.mjs water-still | own | DC removed, crossfaded loop, normalised -1 dBFS, mp3 48k |
+| spell.loop.acid | spell.loop.acid-1.mp3 | own: synth.mjs spell-loop-acid | own | DC removed, seamless loop, normalised -1 dBFS, mp3 48k |
+| spell.loop.bludgeoning | spell.loop.bludgeoning-1.mp3 | own: synth.mjs spell-loop-bludgeoning | own | DC removed, seamless loop, normalised -1 dBFS, mp3 48k |
+| spell.loop.cold | spell.loop.cold-1.mp3 | own: synth.mjs spell-loop-cold | own | DC removed, seamless loop, normalised -1 dBFS, mp3 48k |
+| spell.loop.explosion | spell.loop.explosion-1.mp3 | own: synth.mjs spell-loop-explosion | own | DC removed, seamless loop, normalised -1 dBFS, mp3 48k |
+| spell.loop.fire | spell.loop.fire-1.mp3 | own: synth.mjs spell-loop-fire | own | DC removed, seamless loop, normalised -1 dBFS, mp3 48k |
+| spell.loop.force | spell.loop.force-1.mp3 | own: synth.mjs spell-loop-force | own | DC removed, seamless loop, normalised -1 dBFS, mp3 48k |
+| spell.loop.lightning | spell.loop.lightning-1.mp3 | own: synth.mjs spell-loop-lightning | own | DC removed, seamless loop, normalised -1 dBFS, mp3 48k |
+| spell.loop.necrotic | spell.loop.necrotic-1.mp3 | own: synth.mjs spell-loop-necrotic | own | DC removed, seamless loop, normalised -1 dBFS, mp3 48k |
+| spell.loop.piercing | spell.loop.piercing-1.mp3 | own: synth.mjs spell-loop-piercing | own | DC removed, seamless loop, normalised -1 dBFS, mp3 48k |
+| spell.loop.poison | spell.loop.poison-1.mp3 | own: synth.mjs spell-loop-poison | own | DC removed, seamless loop, normalised -1 dBFS, mp3 48k |
+| spell.loop.psychic | spell.loop.psychic-1.mp3 | own: synth.mjs spell-loop-psychic | own | DC removed, seamless loop, normalised -1 dBFS, mp3 48k |
+| spell.loop.radiant | spell.loop.radiant-1.mp3 | own: synth.mjs spell-loop-radiant | own | DC removed, seamless loop, normalised -1 dBFS, mp3 48k |
+| spell.loop.slashing | spell.loop.slashing-1.mp3 | own: synth.mjs spell-loop-slashing | own | DC removed, seamless loop, normalised -1 dBFS, mp3 48k |
+| spell.loop.thunder | spell.loop.thunder-1.mp3 | own: synth.mjs spell-loop-thunder | own | DC removed, seamless loop, normalised -1 dBFS, mp3 48k |
+| spell.loop.plain | spell.loop.plain-1.mp3 | own: synth.mjs spell-loop-plain | own | DC removed, seamless loop, normalised -1 dBFS, mp3 48k |
+| water.ripples | water.ripples-1.mp3 | own: synth.mjs water-ripples | own | DC removed, seamless loop, normalised -1 dBFS, mp3 48k |
+| water.flow | water.flow-1.mp3 | own: synth.mjs water-flow | own | DC removed, seamless loop, normalised -1 dBFS, mp3 48k |
+| water.waves | water.waves-1.mp3 | own: synth.mjs water-waves | own | DC removed, seamless loop, normalised -1 dBFS, mp3 48k |
+| water.still | water.still-1.mp3 | own: synth.mjs water-still | own | DC removed, seamless loop, normalised -1 dBFS, mp3 48k |

@@ -65,6 +65,11 @@ interface LoopState {
   node: GainLike | null;
 }
 
+/** The catalogue entry of `id`, or null for an id that is not in it (such as one built from vault data at run time). */
+function knownEntry(id: SoundId): (typeof CATALOG)[SoundId] | null {
+  return (CATALOG as Record<string, (typeof CATALOG)[SoundId] | undefined>)[id] ?? null;
+}
+
 const engines = new WeakMap<Window, SoundEngine>();
 
 /**
@@ -142,6 +147,7 @@ export class SoundEngine {
   /** Keeps the looping sound `id` going under `key` at `gain`, eased over 400 ms. `null` fades it out and stops it. */
   loop(key: string, id: SoundId | null, gain: number): void {
     if (this.disposed) return;
+    if (id !== null && knownEntry(id) === null) return;
     const current = this.loops.get(key);
     if (id === null) {
       if (current) { this.fadeOut(current); this.loops.delete(key); }
@@ -189,7 +195,8 @@ export class SoundEngine {
   /** A sound plays only on a visible board, with an unlocked context, and when its group is on and the sound is not muted. */
   private canPlay(id: SoundId): boolean {
     if (this.disposed || this.document.hidden || this.context.state !== 'running') return false;
-    return !this.settings.muted && this.settings.groups[CATALOG[id].group];
+    const entry = knownEntry(id);
+    return entry !== null && !this.settings.muted && this.settings.groups[entry.group];
   }
 
   private destinationFor(id: SoundId): GainLike {
