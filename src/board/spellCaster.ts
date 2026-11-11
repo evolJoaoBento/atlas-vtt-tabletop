@@ -22,8 +22,8 @@
  * search (`spellPicker.ts`): the spell picked sets the shape, its sizes and its damage, and its words stay open over
  * the view while it is aimed. An ask carrying a spell's words shows them first, open, foldable (`SpellAboutCard`).
  *
- * Throughout, the board draws the shape and outlines what it hits (`preview`). Pure DOM over the board; the board gives
- * it the view, the aim and the handles (`SpellCasterHost`).
+ * While it is aimed, set and confirmed (never while the search is open), the board draws the shape and outlines what
+ * it hits (`preview`). Pure DOM over the board; the board gives it the view, the aim and the handles (`SpellCasterHost`).
  */
 import type { SpellRules } from './spellRules';
 import * as THREE from 'three';
@@ -210,16 +210,14 @@ export class SpellCaster {
     if (this.picker?.isOpen) return this.picker;
     if (this.stage !== 'idle' && this.stage !== 'form') this.cancel();
     if (this.host.locked()) this.host.lock(false);
+    this.hits = [];
+    this.host.preview(null);
     const cell = this.host.cell();
     this.picker = new SpellPicker(this.host.root, {
       book, title: 'Find a spell', cell: () => cell, unitDistance: () => this.host.unitDistance?.() ?? 5,
-      changed: (ask) => {
-        if (!ask) { this.host.preview(null); this.host.wake(); return; }
-        // While it is picked: the shape as it would go, from here.
-        this.useAsk(ask);
-        this.host.preview(this.aimed());
-        this.host.wake();
-      },
+      // While a spell is picked, its shape is only taken: nothing is drawn on the board until it is aimed (the
+      // search is no aim, and its flames would stand on the board before anything was placed or cast).
+      changed: (ask) => { if (ask) this.useAsk(ask); },
       actions: [
         { label: 'Aim', primary: true, run: (ask, entry) => {
           this.useAsk(ask);
