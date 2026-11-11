@@ -765,7 +765,9 @@ feature('elevation layers', async ({ page, shot }) => {
   check('layers: with Faded set, the scene played and the one below it stay solid', JSON.stringify(solidBelow) === JSON.stringify({ shown: [false, 1, 0.5], lower: [false, 1, 0.5] }), JSON.stringify(solidBelow));
   await stack(2);
   await wait(1500);
-  const fadedAbove = await probe();
+  // The look eases in by the clock, a frame at a time: under load it can still be on its way after any fixed wait.
+  let fadedAbove = await probe();
+  for (let tries = 0; tries < 20 && fadedAbove.opacity !== 0.5; tries++) { await wait(250); fadedAbove = await probe(); }
   check('layers: with Faded set, the scene above is faded', fadedAbove.transparent === true && fadedAbove.opacity === 0.5, JSON.stringify(fadedAbove));
   await quality('solid');
   await stack(-2);
@@ -1483,7 +1485,8 @@ feature('layer-water', async ({ page, shot }) => {
     });
     board.setStack([layer('wet.atlasmap', 3, { mask: saved, motion: null }), layer('dry.atlasmap', -3, null)]);
   }, saved);
-  await wait(800);
+  // The layer fades in by the clock, a frame at a time: under load that takes longer than any fixed wait.
+  await page.waitForFunction(() => (window.boardTest.board.layerViews.get('wet.atlasmap')?.presence ?? 0) > 0.99, null, { timeout: 10000 }).catch(() => {});
   const seen = await page.evaluate(() => { const views = window.boardTest.board.layerViews; const wet = views.get('wet.atlasmap'); const dry = views.get('dry.atlasmap'); const visible = (o) => { for (let n = o; n; n = n.parent) if (!n.visible) return false; return true; }; return { wet: !!wet?.water && visible(wet.water.object3d), dry: !!dry?.water, dbg: { water: !!wet?.water, presence: wet?.presence, look: wet?.look, lookLevel: wet?.lookLevel, content: wet?.content.visible, obj: wet?.object3d.visible, parentIsFloor: wet?.water?.object3d.parent === wet?.floor, parentName: wet?.water?.object3d.parent?.type } }; });
   check('a stacked scene that is shown draws its painted water; one with none draws none', seen.wet && !seen.dry, JSON.stringify(seen));
   await shot('layer-water');
@@ -2430,8 +2433,9 @@ feature('spell search', async ({ page, shot }) => {
   await pick('Fireball', 'SRD 2024');
   await wait(400);
   const fireball = await picker();
-  check('spell search: the spell picked shows its words and properties, sets its area and damage, and is drawn', /Level 3 Evocation/.test(fireball.words) && /8d6 fire/.test(fireball.words) && /A bright streak/.test(fireball.words)
-    && fireball.shape === 'sphere' && fireball.size === '4' && fireball.effect === 'fire' && fireball.preview, JSON.stringify(fireball));
+  // Nothing stands on the board while the search is open: the shape is drawn once it is aimed (below).
+  check('spell search: the spell picked shows its words and properties, sets its area and damage, and is not drawn yet', /Level 3 Evocation/.test(fireball.words) && /8d6 fire/.test(fireball.words) && /A bright streak/.test(fireball.words)
+    && fireball.shape === 'sphere' && fireball.size === '4' && fireball.effect === 'fire' && !fireball.preview, JSON.stringify(fireball));
   await shot('spell-search');
   await button('Aim');
   await wait(500);
@@ -2439,9 +2443,9 @@ feature('spell search', async ({ page, shot }) => {
     const { board } = window.boardTest;
     const card = board.container.querySelector('.atlas-tabletop-spellcard');
     const bar = board.container.querySelector('.atlas-tabletop-spellbar');
-    return { stage: bar?.dataset.stage, card: card && !card.hidden ? card.textContent : null, picker: !!board.container.querySelector('.atlas-tabletop-spellpicker'), text: bar?.querySelector('.atlas-tabletop-spellbar__text')?.textContent ?? '' };
+    return { stage: bar?.dataset.stage, card: card && !card.hidden ? card.textContent : null, picker: !!board.container.querySelector('.atlas-tabletop-spellpicker'), text: bar?.querySelector('.atlas-tabletop-spellbar__text')?.textContent ?? '', preview: !!board.spellPreview };
   });
-  check('spell search: Aim aims it, the spell\'s words open over the view', aiming.stage === 'aim' && !aiming.picker && /Fireball/.test(aiming.card ?? '') && /8d6/.test(aiming.card ?? '') && /^Fireball/.test(aiming.text), JSON.stringify(aiming));
+  check('spell search: Aim aims it and draws it, the spell\'s words open over the view', aiming.stage === 'aim' && aiming.preview && !aiming.picker && /Fireball/.test(aiming.card ?? '') && /8d6/.test(aiming.card ?? '') && /^Fireball/.test(aiming.text), JSON.stringify(aiming));
   await shot('spell-aim-card');
   const folded = await page.evaluate(() => {
     const { board } = window.boardTest;

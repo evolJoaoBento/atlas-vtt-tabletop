@@ -561,7 +561,7 @@ server.listen(0, async () => {
         return [...menu.querySelectorAll(':scope > .atlas-ctx-item, .atlas-ctx-destructive-btn')].map((row) => { const r = row.getBoundingClientRect(); return { text: row.textContent, x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
       }));
       const labels = top.map((row) => row.text);
-      check('the token menu is Atlas\'s, in its order', JSON.stringify(labels) === JSON.stringify(['Conditions', 'Hide', 'Add to Initiative', 'Change mini…', 'Remove mini', 'Round base', 'Square base', 'Show as standee', 'Reset (Restore Resources, Clear Status)', 'Kill', 'Delete']), labels);
+      check('the token menu is Atlas\'s, in its order', JSON.stringify(labels) === JSON.stringify(['Conditions', 'Hide', 'Preview POV', 'Add to Initiative', 'Change mini…', 'Remove mini', 'Round base', 'Square base', 'Show as standee', 'Reset (Restore Resources, Clear Status)', 'Kill', 'Delete']), labels);
       await page.screenshot({ path: `${shots}/board-16-menu.png` });
       const conditionsRow = top[0];
       await page.mouse.move(conditionsRow.x, conditionsRow.y);
@@ -689,7 +689,8 @@ server.listen(0, async () => {
     after = await goal();
     check('wheel zooms out', after.distance > before.distance, { before: before.distance, after: after.distance });
 
-    // 7. Ctrl + drag moves a prop.
+    // 7. Ctrl + drag moves a prop, in Play (while editing, Ctrl + drag scales it: the features checks cover that).
+    await page.evaluate(() => { const { modes, board } = window.boardTest; modes.on = true; modes.mode = 'play'; board.refreshToolbar(); });
     await wait(700);
     const barrel = await project(910, 805, 20);
     const barrelTo = await project(980, 860, 20);
@@ -697,6 +698,7 @@ server.listen(0, async () => {
     r = await record();
     check('ctrl-drag moves the prop', r.propMoves.length === 1 && r.propMoves[0][0] === 'barrel', r.propMoves);
     check('ctrl-drag on a prop moves no token', r.moves.length === movesBefore, r.moves);
+    await page.evaluate(() => { const { modes, board } = window.boardTest; modes.on = false; modes.mode = 'play'; board.refreshToolbar(); });
 
     // 7b. A right-click on a prop opens its menu.
     await wait(400);
