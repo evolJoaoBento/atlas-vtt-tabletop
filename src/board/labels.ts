@@ -77,12 +77,27 @@ function outlinedText(context: CanvasRenderingContext2D, text: string, x: number
 }
 
 /** Atlas's bar: a pill with ten faint ticks, filled in the resource's colour, "x / y" (a static value: its number). */
-function barTexture(definition: ResourceDefinition, value: ResourceValue): THREE.CanvasTexture {
+/**
+ * A bar as Atlas draws it: its track, its fill and its numbers. `show` 'bar' (Bar only) leaves the numbers out,
+ * 'numbers' (Number only) draws the number alone, with no track nor fill.
+ */
+export function barParts(show: 'both' | 'bar' | 'numbers'): { track: boolean; numbers: boolean } {
+  return { track: show !== 'numbers', numbers: show !== 'bar' };
+}
+
+function barTexture(definition: ResourceDefinition, value: ResourceValue, show: 'both' | 'bar' | 'numbers' = 'both'): THREE.CanvasTexture {
   const scale = 3;
   const width = BAR_PX.width * scale;
   const height = BAR_PX.height * scale;
   const fixed = definition.direction === 'static';
+  const parts = barParts(show);
   return canvasTexture(width, height, (context) => {
+    if (!parts.track) {
+      context.font = numberFont(Math.round(height * 0.7));
+      context.textBaseline = 'middle';
+      outlinedText(context, String(fixed ? value.max : value.current), width / 2, height / 2 + 1, 'center');
+      return;
+    }
     const border = 2;
     context.strokeStyle = LOOK.border;
     context.lineWidth = border;
@@ -112,6 +127,7 @@ function barTexture(definition: ResourceDefinition, value: ResourceValue): THREE
       context.roundRect(inner.x + inset, inner.y + inset, Math.max(fillHeight, (inner.width - inset * 2) * share), fillHeight, fillHeight / 2);
       context.fill();
     }
+    if (!parts.numbers) return;
     context.font = numberFont(Math.round(height * 0.7));
     context.textBaseline = 'middle';
     const middle = height / 2 + 1;
@@ -365,7 +381,7 @@ export class TokenLabels {
       this.stack.push({ sprite: name, width: NAME_PX * (plate.width / plate.height), height: NAME_PX, name: true });
     }
     for (const resource of shown.filter((entry) => entry.slot < BAR_SLOTS)) {
-      const bar = sprite(barTexture(resource.definition, resource.value));
+      const bar = sprite(barTexture(resource.definition, resource.value, token.resourceShows?.[resource.definition.key] ?? 'both'));
       this.stack.push({ sprite: bar, width: BAR_PX.width, height: BAR_PX.height });
       this.resources.push({ object: bar, definition: resource.definition, value: resource.value, kind: 'bar', width: BAR_PX.width, height: BAR_PX.height, side: 0 });
     }

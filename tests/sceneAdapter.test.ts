@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { boardFromScene, DARKNESS_FOG_ID, type PlayerSceneLike } from '../src/board/sceneAdapter';
 import type { BoardExtras } from '../src/connectContract';
+import { barParts } from '../src/board/labels';
 
 const scene = (overrides: Partial<PlayerSceneLike> = {}): PlayerSceneLike => ({
   sceneId: 's1',
@@ -112,4 +113,22 @@ test("the world Connect sends, and where Atlas laid the map's image in it", () =
   const matrix = [1000, 20, -20, 1000, 12, 8] as const;
   const turned = boardFromScene(scene({ map: { asset: 'MAP', width: 1400, height: 900, cellSize: 70, matrix } }), null).map;
   assert.deepEqual(turned.world, { width: 1400, height: 900, matrix });
+});
+
+test('Bar only comes as a bar without numbers, Number only as the number alone; a whole bar as both', () => {
+  const shown = scene();
+  shown.tokens.t1 = { ...shown.tokens.t1!, hp: null, resources: [
+    { color: '#22c55e', share: 0.43, spent: false },
+    { color: '#22c55e', share: 1, spent: false, current: 3, bar: false },
+    { color: '#22c55e', share: 0.5, spent: false, current: 3, max: 6 },
+  ] };
+  const goblin = boardFromScene(shown, null).map.tokens.find((token) => token.id === 't1')!;
+  assert.deepEqual(goblin.resourceShows, { r0: 'bar', r1: 'numbers' });
+  assert.deepEqual(goblin.resources.r0, { current: 43, max: 100 });
+  assert.deepEqual(goblin.resources.r1, { current: 3, max: 3 });
+  assert.deepEqual(goblin.resources.r2, { current: 3, max: 6 });
+  assert.equal(barParts('bar').numbers, false);
+  assert.equal(barParts('bar').track, true);
+  assert.deepEqual(barParts('numbers'), { track: false, numbers: true });
+  assert.deepEqual(barParts('both'), { track: true, numbers: true });
 });

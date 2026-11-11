@@ -32,7 +32,8 @@ export interface PlayerSceneLike {
     x: number; y: number; size: number; rotation: number; layer: number; image: string | null; ring: string | null;
     conditions: Array<{ id: string; value: number | null; name?: string; color?: string; icon?: string }>;
     name: string | null; hp: { current: number; max: number } | null; stress: { current: number; max: number } | null;
-    resources?: Array<{ color: string; share: number; spent: boolean; current?: number; max?: number }>;
+    /** Connect's bars: `share` alone for Bar only; `bar: false` and the one number players read for Number only. */
+    resources?: Array<{ color: string; share: number; spent: boolean; current?: number; max?: number; fixed?: boolean; bar?: false }>;
     downed?: boolean; side?: string; instance?: number; mini?: { asset: string | null; scale: number; turn: number; base?: 'round' | 'square' };
   }>;
   fog: Record<string, { type: 'brush'; erase: boolean; order: number; radius: number; points: Point[] }
@@ -145,14 +146,24 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
     // An older GM's plain HP bar: coloured as Atlas colours a defeating resource as it runs low.
     if (token.hp) { define('hp', 'HP', '#22c55e', true); resources.hp = { ...token.hp }; }
     const colors: Record<string, string> = {};
+    const shows: Record<string, 'bar' | 'numbers'> = {};
     if (token.stress) { define('stress', 'Stress', '#7b5cd6'); resources.stress = { ...token.stress }; }
     (token.resources ?? []).forEach((resource, index) => {
       const key = `r${index}`;
       define(key, key, resource.color);
       colors[key] = resource.color;
-      resources[key] = resource.current !== undefined && resource.max !== undefined
-        ? { current: resource.current, max: resource.max }
-        : { current: Math.round(resource.share * 100), max: 100 };
+      if (resource.bar === false) {
+        // Number only: the number players read (the current value, or a static one's), never a bar nor a maximum.
+        const number = resource.current ?? resource.max ?? 0;
+        resources[key] = { current: number, max: number };
+        shows[key] = 'numbers';
+      } else if (resource.current !== undefined && resource.max !== undefined) {
+        resources[key] = { current: resource.current, max: resource.max };
+      } else {
+        // Bar only: how full it is, never its numbers (the hundredths are no hit points).
+        resources[key] = { current: Math.round(resource.share * 100), max: 100 };
+        shows[key] = 'bar';
+      }
     });
     if (token.downed) {
       define(DOWNED_KEY, '', '#000000', true);
@@ -174,6 +185,7 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
       resources, overriddenMax: [], instanceNumber: token.instance ?? null, statblockPath: null,
       side: token.side ?? null, sees: false, offMap: false, levelId: null, offLevel: false,
       ...(Object.keys(colors).length > 0 ? { resourceColors: colors } : {}),
+      ...(Object.keys(shows).length > 0 ? { resourceShows: shows } : {}),
     } satisfies BoardToken;
   });
   const fog: FogOperation[] = [];

@@ -80,6 +80,11 @@ export interface BoardToken {
   offLevel: boolean;
   /** On a Connect player's board: each bar's colour as Connect worked it out (yellow, then red as it runs low), by key. */
   resourceColors?: Record<string, string>;
+  /**
+   * On a Connect player's board: a bar the GM shows players without its numbers ('bar', Bar only) or as its number alone
+   * ('numbers', Number only), by key; absent for one shown whole.
+   */
+  resourceShows?: Record<string, 'bar' | 'numbers'>;
 }
 
 export interface BoardPin {
