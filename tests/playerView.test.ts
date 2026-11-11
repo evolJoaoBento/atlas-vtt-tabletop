@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { fogAreas } from '../src/board/fog';
-import { insideFog, playerSees } from '../src/board/playerView';
+import { insideFog, pinsShown, playerSees } from '../src/board/playerView';
 import { HP_RESOURCE, visibleResources, type ResourceDefinition } from '../src/board/resources';
 
 const room = fogAreas([
@@ -31,4 +31,10 @@ test('players see the resources the collection shows them, whatever the map hide
   const token = { resources: { hp: { current: 5, max: 9 }, ac: { current: 15, max: 15 } } };
   assert.deepEqual(visibleResources(token, defs, ['ac'], 'player').map((r) => r.definition.key), ['ac']);
   assert.deepEqual(visibleResources(token, defs, ['ac']).map((r) => r.definition.key), ['hp']);
+});
+
+test("pins: the GM sees them; a Connect player's own board shows its readable ones; the GM's players' window none", () => {
+  assert.equal(pinsShown('gm', 'gm'), true);
+  assert.equal(pinsShown('player', 'player'), true);
+  assert.equal(pinsShown('player', 'gm'), false);
 });

@@ -13,7 +13,7 @@
  *   behind it. Players see it too. Right-drag still pans and the wheel zooms. V switches between it and moving (Atlas's
  *   Move/Select key), as the toolbar's Move/Select menu does; Escape turns it off.
  * - The local player view (a second window, for a screen the players look at) draws the same scene as players see it:
- *   no hidden tokens, nothing under the fog (which is solid), no pins, only the resources shown to players. It follows
+ *   no hidden tokens, nothing under the fog (which is solid), no pins (a Connect player's own board shows the readable ones Connect sends), only the resources shown to players. It follows
  *   the GM's camera, live, unless the GM froze it.
  * - Any other drag moves the camera: left or middle orbits, right pans. The wheel zooms. WASD or the arrow keys pan,
  *   Q and E turn, Home frames the map.
@@ -75,7 +75,7 @@ import { aboutElement, rulesWords } from './spellPicker';
 import { difficultGround } from './spellView';
 import { BoardToolbar, type AtlasToolButton, type DiceButton, type ToolbarActions, UNPAINT } from './toolbar';
 import { pinTitle } from './pinIcons';
-import { insideFog, playerSees } from './playerView';
+import { insideFog, pinsShown, playerSees } from './playerView';
 import { instanceBadgeNumbers } from './levels';
 import { positionOf } from './camera';
 import { isVideoPath, loadImageTexture, loadMapTexture, MAX_MAP_TEXTURE, mapImageSize, mapTextureFromPicture, plateTexture, screenScale } from './textures';
@@ -2493,7 +2493,9 @@ export class Board {
   }
 
   private pinAt(clientX: number, clientY: number): string | null {
-    const hit = this.hit(clientX, clientY, this.pins.map((pin) => pin.hitTarget));
+    // Only a pin drawn can be clicked: one hidden (beyond sight on a player's board) opens nothing.
+    const shown = this.audience === 'player' ? this.pins.filter((pin) => pin.object3d.visible) : this.pins;
+    const hit = this.hit(clientX, clientY, shown.map((pin) => pin.hitTarget));
     return (hit?.userData.pinId as string | undefined) ?? null;
   }
 
@@ -4171,8 +4173,8 @@ export class Board {
 
   /**
    * Shows the scene as `viewer` sees it, for the next drawing: the GM everything; players no hidden token, nothing
-   * whose centre is under the fog (tokens, Tabletop's props), no pins or cell highlight, the solid fog and their own
-   * labels.
+   * whose centre is under the fog (tokens, Tabletop's props), no cell highlight, the solid fog and their own labels; pins
+   * only on a Connect player's own board, which holds just the readable ones (`pinsShown`).
    */
   private showFor(viewer: 'gm' | 'player'): void {
     const gm = viewer === 'gm';
@@ -4183,7 +4185,8 @@ export class Board {
       entry.labels.object3d.visible = gm && !own;
       entry.playerLabels.object3d.visible = !gm && !own;
     }
-    for (const pin of this.pins) pin.object3d.visible = gm && !this.pointBeyond(viewer, pin.pin.x, pin.pin.y);
+    const pins = pinsShown(viewer, this.audience);
+    for (const pin of this.pins) pin.object3d.visible = pins && !this.pointBeyond(viewer, pin.pin.x, pin.pin.y);
     for (const piece of this.props.values()) piece.object3d.visible = (gm || !insideFog(fog, { x: piece.object3d.position.x, y: piece.object3d.position.z })) && !this.beyondSight(viewer, `p:${piece.id}`);
     if (this.cellOutline) this.cellOutline.visible = gm;
     if (this.cellLabel) this.cellLabel.visible = gm;

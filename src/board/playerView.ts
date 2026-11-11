@@ -29,3 +29,12 @@ export function insideFog(areas: readonly FogArea[], point: Point): boolean {
 export function playerSees(token: { hidden: boolean }, at: Point, fog: readonly FogArea[]): boolean {
   return !token.hidden && !insideFog(fog, at);
 }
+
+/**
+ * Whether a picture shows the map's note pins. The GM's sees them all. A Connect player's own board (`audience`
+ * 'player') holds only the pins the GM made readable for players (Connect sends no other), so it shows them, to be
+ * clicked and read. The GM's players' window has every pin, readable or not, so it shows none, as before.
+ */
+export function pinsShown(viewer: 'gm' | 'player', audience: 'gm' | 'player'): boolean {
+  return viewer === 'gm' || audience === 'player';
+}
