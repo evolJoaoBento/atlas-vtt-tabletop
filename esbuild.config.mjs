@@ -17,7 +17,7 @@ const context = await esbuild.context({
   jsx: 'automatic',
   define: { 'process.env.NODE_ENV': prod ? '"production"' : '"development"' },
   minify: prod,
-  loader: { '.png': 'binary' },
+  loader: { '.png': 'binary', '.mp3': 'binary' },
   outfile: 'main.js',
 });
 

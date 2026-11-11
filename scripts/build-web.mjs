@@ -15,7 +15,7 @@ await build({
   target: ['es2020', 'safari15', 'chrome100'],
   external: ['three', 'three/*'],
   alias: { obsidian: './src/web/obsidianStub.ts' },
-  loader: { '.png': 'binary' },
+  loader: { '.png': 'binary', '.mp3': 'binary' },
   jsx: 'automatic',
   define: { 'process.env.NODE_ENV': '"production"' },
   minify: true,

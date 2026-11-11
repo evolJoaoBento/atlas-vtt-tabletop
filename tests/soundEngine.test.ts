@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { CATALOG } from '../src/sound/catalog';
 import { SoundEngine, type ContextLike, type DocumentLike } from '../src/sound/soundEngine';
 import { DEFAULT_SOUND_SETTINGS, readSoundSettings } from '../src/sound/soundSettings';
 
@@ -160,7 +161,7 @@ test('a sound is placed by the listener and routed through its group gain', asyn
   const placed = context.started[1];
   assert.equal(placed.starts[0], 10.1);
   assert.ok(context.panners[1].pan.value > 0.59 && context.panners[1].pan.value <= 0.6);
-  assert.equal(context.gains[context.gains.length - 1].gain.value, 0.5 * 0.15);
+  assert.equal(context.gains[context.gains.length - 1].gain.value, 0.5 * CATALOG['dice.hit'].gain * 0.15);
   assert.equal(context.panners[0].pan.value, 0);
   assert.notEqual(context.panners[1].connections[0], context.gains[0]);
 });
@@ -173,10 +174,10 @@ test('loop eases', async () => {
   const source = context.started[0];
   assert.equal(source.loop, true);
   const node = context.gains[context.gains.length - 1];
-  assert.deepEqual(node.gain.ramps.at(-1), { value: 0.5, at: 10.4 });
+  assert.deepEqual(node.gain.ramps.at(-1), { value: 0.5 * CATALOG['water.ripples'].gain, at: 10.4 });
   engine.loop('w', 'water.ripples', 0.2);
   assert.equal(context.sources.length, 1);
-  assert.deepEqual(node.gain.ramps.at(-1), { value: 0.2, at: 10.4 });
+  assert.deepEqual(node.gain.ramps.at(-1), { value: 0.2 * CATALOG['water.ripples'].gain, at: 10.4 });
   engine.loop('w', null, 0);
   assert.deepEqual(node.gain.ramps.at(-1), { value: 0, at: 10.4 });
   assert.equal(source.stops.length, 1);
@@ -201,7 +202,7 @@ test('loops go silent while the board is hidden and return when shown', async ()
   assert.equal(node.gain.ramps.at(-1)?.value, 0);
   document.hidden = false;
   document.fire('visibilitychange');
-  assert.equal(node.gain.ramps.at(-1)?.value, 0.5);
+  assert.equal(node.gain.ramps.at(-1)?.value, 0.5 * CATALOG['water.flow'].gain);
 });
 
 test('a file that fails to load plays nothing and is not asked for again', async () => {
@@ -239,4 +240,26 @@ test('readSoundSettings fills in defaults and clamps the volume', () => {
   assert.deepEqual(readSoundSettings({ volume: 'loud', muted: 'yes', groups: 3 }), DEFAULT_SOUND_SETTINGS);
   assert.equal(readSoundSettings({ volume: -2, muted: true }).volume, 0);
   assert.equal(readSoundSettings({ muted: true }).muted, true);
+});
+
+test('the catalogue gain is the base level, multiplied by the caller gain', async () => {
+  const { context, engine } = setup();
+  engine.play('turn.horn', { gain: 0.5 });
+  await settle();
+  assert.equal(context.gains[context.gains.length - 1].gain.value, 0.5 * CATALOG['turn.horn'].gain);
+  engine.play('turn.horn');
+  await settle();
+  assert.equal(context.gains[context.gains.length - 1].gain.value, CATALOG['turn.horn'].gain);
+});
+
+test('the catalogue decides the group: the doors toggle silences walls too', async () => {
+  const { context, engine } = setup();
+  engine.configure({ ...DEFAULT_SOUND_SETTINGS, groups: { ...DEFAULT_SOUND_SETTINGS.groups, doors: false } });
+  engine.play('wall.crumble');
+  engine.play('door.open');
+  await settle();
+  assert.equal(context.started.length, 0);
+  engine.play('dice.hit');
+  await settle();
+  assert.equal(context.started.length, 1);
 });

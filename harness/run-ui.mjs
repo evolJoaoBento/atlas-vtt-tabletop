@@ -10,7 +10,7 @@ const all = process.argv.includes('--all');
 const only = process.argv.slice(2).find((arg) => !arg.startsWith('--'));
 rmSync(out, { recursive: true, force: true });
 mkdirSync(`${out}/shots`, { recursive: true });
-await build({ entryPoints: ['harness/board.ts'], bundle: true, outfile: `${out}/board.js`, alias: { obsidian: './harness/obsidian-stub.ts' }, loader: { '.png': 'binary' }, logLevel: 'warning', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"development"' } });
+await build({ entryPoints: ['harness/board.ts'], bundle: true, outfile: `${out}/board.js`, alias: { obsidian: './harness/obsidian-stub.ts' }, loader: { '.png': 'binary', '.mp3': 'binary' }, logLevel: 'warning', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"development"' } });
 copyFileSync('harness/board.html', `${out}/index.html`);
 copyFileSync('styles.css', `${out}/styles.css`);
 // Atlas's own styles, when the vault has them (the screenshots then look as Atlas's toolbar does).

@@ -1,10 +1,9 @@
+import { CATALOG, type SoundId } from './catalog';
 import { placeAt, type Listener } from './placement';
 import { DEFAULT_SOUND_SETTINGS, SOUND_GROUPS, type SoundGroup, type SoundSettings } from './soundSettings';
 
 export type { Listener } from './placement';
-
-/** The id of a board sound, such as `dice.hit` or `water.ripples`. */
-export type SoundId = string;
+export type { SoundId } from './catalog';
 
 export interface PlayOptions {
   /** Where the sound happens, in board space. Without it the sound is not placed. */
@@ -56,16 +55,6 @@ const LATE_START_MS = 300;
 const EASE_SECONDS = 0.4;
 const RATE_SPREAD = 0.04;
 const GESTURES = ['pointerdown', 'keydown'];
-
-const GROUP_OF_PREFIX: Record<string, SoundGroup> = {
-  dice: 'dice', mini: 'minis', spell: 'spells', condition: 'conditions', turn: 'turns', fog: 'fog',
-  door: 'doors', wall: 'doors', water: 'water',
-};
-
-/** The settings group a sound id belongs to, from the part before its first dot. */
-function groupOf(id: SoundId): SoundGroup | null {
-  return GROUP_OF_PREFIX[id.split('.')[0]] ?? null;
-}
 
 interface Bank { buffers: unknown[] | null; ready: Promise<void> }
 
@@ -200,13 +189,11 @@ export class SoundEngine {
   /** A sound plays only on a visible board, with an unlocked context, and when its group is on and the sound is not muted. */
   private canPlay(id: SoundId): boolean {
     if (this.disposed || this.document.hidden || this.context.state !== 'running') return false;
-    const group = groupOf(id);
-    return !this.settings.muted && (group === null || this.settings.groups[group]);
+    return !this.settings.muted && this.settings.groups[CATALOG[id].group];
   }
 
   private destinationFor(id: SoundId): GainLike {
-    const group = groupOf(id);
-    return (group && this.groupGains.get(group)) || this.master;
+    return this.groupGains.get(CATALOG[id].group) ?? this.master;
   }
 
   /** Asks for the files of `id` the first time it is needed, and decodes every variant that decodes. */
@@ -230,7 +217,7 @@ export class SoundEngine {
   private start(id: SoundId, buffers: unknown[], options: PlayOptions): void {
     if (buffers.length === 0) return;
     const context = this.context;
-    let gain = options.gain ?? 1;
+    let gain = (options.gain ?? 1) * CATALOG[id].gain;
     let pan = 0;
     if (options.at && this.listener) {
       const placed = placeAt(this.listener.listener, options.at, this.listener.span);
@@ -268,7 +255,7 @@ export class SoundEngine {
   }
 
   private easeLoop(state: LoopState): void {
-    if (state.node) this.ramp(state.node, this.document.hidden ? 0 : state.gain);
+    if (state.node) this.ramp(state.node, this.document.hidden ? 0 : state.gain * CATALOG[state.id].gain);
   }
 
   private fadeOut(state: LoopState): void {

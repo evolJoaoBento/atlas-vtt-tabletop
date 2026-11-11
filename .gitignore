@@ -7,3 +7,6 @@ main.js
 .claude/
 .ui-build/
 dist-web/
+
+# Sound sources and intermediate WAVs
+.sound-src/
