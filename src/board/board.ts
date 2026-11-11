@@ -293,6 +293,8 @@ export interface BoardHost {
   toggleDoor(id: string): void;
   /** A wall's or door's right-click menu. */
   wallMenu(id: string, event: MouseEvent): void;
+  /** A pin's right-click menu (the GM's board: Readable by players). Without it a right-click on a pin does nothing of its own. */
+  pinMenu?(id: string, event: MouseEvent): void;
   /** The board's ambient light (0–1), and keeping a new level. */
   ambient(): number;
   setAmbient(level: number): void;
@@ -3316,10 +3318,11 @@ export class Board {
     }
     const token = event.button === 2 ? this.tokenAt(x, y) : null;
     const prop = event.button === 2 && !token ? this.propAt(x, y) : null;
-    const pin = event.button === 0 ? this.pinAt(x, y) : null;
+    // A click on a pin opens its note; a right-click on one (over any wall behind it) opens its menu.
+    const pin = event.button === 0 || (event.button === 2 && !token && !prop && this.host.pinMenu) ? this.pinAt(x, y) : null;
     // A right-click on a light's bulb opens its menu; a click opens a door; a right-click on any wall opens its menu.
-    const light = event.button === 2 && !token && !prop ? this.lightAt(x, y) : null;
-    const door = event.button === 0 && !pin ? this.doorAt(x, y) : event.button === 2 && !token && !prop && !light ? this.wallAt(x, y) : null;
+    const light = event.button === 2 && !token && !prop && !pin ? this.lightAt(x, y) : null;
+    const door = event.button === 0 && !pin ? this.doorAt(x, y) : event.button === 2 && !token && !prop && !light && !pin ? this.wallAt(x, y) : null;
     const grab = event.button === 2 ? this.boardPoint(x, y) : null;
     this.press = { kind: 'camera', button: event.button, x, y, lastX: x, lastY: y, moved: false, token, prop, pin, door, light, grab };
   }
@@ -3796,6 +3799,7 @@ export class Board {
     if (press.button === 0 && !press.pin) { this.clearGroup(); this.select(null); }
     if (press.button === 2 && press.token) this.host.tokenMenu(press.token, event);
     else if (press.button === 2 && press.prop) this.host.propMenu(press.prop, event);
+    else if (press.button === 2 && press.pin) this.host.pinMenu?.(press.pin, event);
     else if (press.button === 2 && press.light) this.host.lightMenu(press.light, event);
     else if (press.button === 2 && press.door) this.host.wallMenu(press.door, event);
     else if (press.button === 0 && press.pin) {

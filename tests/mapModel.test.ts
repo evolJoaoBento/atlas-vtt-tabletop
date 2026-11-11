@@ -24,7 +24,7 @@ test('reads tokens and pins from a real map', () => {
   assert.equal(bandit.rotation, 180);
   assert.equal(bandit.instanceNumber, 1);
   const pin = map.pins[0]!;
-  assert.deepEqual(pin, { id: 'pin_1792170000001_area-1000', x: 1063.6, y: 1374.7, notePath: 'DotMM Full Test/Adventure/Level 1 - Dungeon Level.md#1. Entry Well', icon: 'number', label: '1', hex: false, name: null });
+  assert.deepEqual(pin, { id: 'pin_1792170000001_area-1000', x: 1063.6, y: 1374.7, notePath: 'DotMM Full Test/Adventure/Level 1 - Dungeon Level.md#1. Entry Well', icon: 'number', label: '1', hex: false, name: null, readable: true });
   assert.deepEqual(map.tokenSettings, { showNameplates: true, showInstanceBadges: true, hiddenResources: ['stress'] });
 });
 

@@ -40,6 +40,7 @@ import { readMeasurement } from './measure';
 import { defeatedResources, isDefeated, tokenFromFile } from './resources';
 import { AtlasMenu, type MenuEntry } from './atlasMenu';
 import { tokenMenuEntries } from './tokenMenu';
+import { pinMenuEntries } from './pinMenu';
 import { SpellAskModal } from '../spellAskModal';
 import { addToInitiative, conditionChange, conditionStep, initiativeEntryFor, initiativeId, removeFromInitiative, resetChange, type ConditionFields } from './tokenEdits';
 import { applyInitiative, currentEntries, delayedTokens, emptyInitiative, fileCannotRun, ownModifier, readInitiative, statblockModifier, turnAnnouncement, type InitiativeAction, type InitiativeState } from './initiative';
@@ -1179,6 +1180,7 @@ export class BoardView extends ItemView {
         writer.toggleDoor(mapPath(), id).catch((error: unknown) => this.unsaved('door', error));
       },
       wallMenu: (id, event) => this.wallMenu(id, event),
+      pinMenu: (id, event) => this.pinMenu(id, event),
       // Until the GM moves the slider, the board is as light as Atlas's scene (daylight when Atlas's lighting is off).
       ambient: () => boardData.ambient(mapPath()) ?? (this.map?.lighting.enabled ? this.map.lighting.ambient : 1),
       setAmbient: (level) => boardData.setAmbient(mapPath(), level),
@@ -1246,6 +1248,24 @@ export class BoardView extends ItemView {
   }
 
   /** A wall's or door's menu: a door opens, shuts, locks; any wall can lose its paint; a door can be a prop instead. */
+  /** A pin's right-click menu: whether players may read its note, as Atlas's pin menu has it. */
+  private pinMenu(id: string, event: MouseEvent): void {
+    const path = this.path;
+    const map = this.map;
+    if (!path || !map) return;
+    const entries = (): MenuEntry[] => {
+      const pin = this.map?.pins.find((each) => each.id === id);
+      return pin ? pinMenuEntries(pin, (readable) => {
+        pin.readable = readable;
+        this.board?.refresh();
+        this.services.writer.setPinReadable(path, id, readable).catch((error: unknown) => this.unsaved('pin', error));
+      }) : [];
+    };
+    if (entries().length === 0) return;
+    this.menu?.close();
+    this.menu = new AtlasMenu(this.contentEl.ownerDocument, entries, { x: event.clientX, y: event.clientY }, (element, name) => setIcon(element, name), () => { this.menu = null; });
+  }
+
   private wallMenu(id: string, event: MouseEvent): void {
     const path = this.path;
     if (!path || !this.map?.walls.some((candidate) => candidate.id === id)) return;

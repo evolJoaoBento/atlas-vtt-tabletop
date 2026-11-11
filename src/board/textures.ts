@@ -170,6 +170,8 @@ export function pinTexture(pin: BoardPin): THREE.CanvasTexture {
     context.lineWidth = 2;
     context.strokeStyle = 'rgba(255,255,255,0.4)';
     context.stroke();
+    // Readable by players (the GM's board): Atlas's open-book mark at the pin's upper right, over the glyph.
+    const mark = (): void => { if (pin.readable === true) readableMark(context, centre + radius * 0.62, centre - radius * 0.62, radius * 0.34); };
     const glyph = pinGlyph(pin.icon);
     if (glyph) {
       // Atlas: a 22 px glyph on a 20 px radius.
@@ -180,6 +182,7 @@ export function pinTexture(pin: BoardPin): THREE.CanvasTexture {
       context.fillStyle = pinTone(pin.icon);
       context.fill(new Path2D(glyph));
       context.restore();
+      mark();
       return;
     }
     const text = pin.label ?? '';
@@ -189,10 +192,43 @@ export function pinTexture(pin: BoardPin): THREE.CanvasTexture {
     context.textBaseline = 'middle';
     const width = context.measureText(text).width;
     const fit = Math.min(1, (radius * 1.5) / Math.max(1, width));
+    context.save();
     context.translate(centre, centre);
     context.scale(fit, fit);
     context.fillText(text, 0, 0);
+    context.restore();
+    mark();
   });
+}
+
+/**
+ * Atlas's mark on a pin players may read (`pin-readable-mark`): a light disc ringed in the plate's colour, an open book
+ * on it. Atlas draws it in a 9 px circle; the book's pages are its polygons, scaled to `r`.
+ */
+function readableMark(context: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+  context.save();
+  context.globalAlpha = 1;
+  context.fillStyle = '#e8e8e8';
+  context.beginPath();
+  context.arc(x, y, r, 0, Math.PI * 2);
+  context.fill();
+  context.lineWidth = Math.max(2, r * 0.17);
+  context.strokeStyle = PLATE_COLOR;
+  context.stroke();
+  const k = r / 9;
+  context.fillStyle = PLATE_COLOR;
+  for (const side of [-1, 1]) {
+    const page = [0.7, -2.8, 5.6, -4.2, 5.6, 3.4, 0.7, 4.6];
+    context.beginPath();
+    for (let i = 0; i < page.length; i += 2) {
+      const px = x + side * page[i]! * k;
+      const py = y + page[i + 1]! * k;
+      if (i === 0) context.moveTo(px, py); else context.lineTo(px, py);
+    }
+    context.closePath();
+    context.fill();
+  }
+  context.restore();
 }
 
 /** A text plate (a pill) for a name or a title. Returns the texture and its size in pixels. */

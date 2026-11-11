@@ -95,6 +95,8 @@ export interface BoardPin {
   hex: boolean;
   /** The name the GM gave it (Atlas 0.14), trimmed and cut to Atlas's 60; null where it has none (named by its note). */
   name?: string | null;
+  /** Players may read its note online (Atlas's "Readable by players"); the GM's board marks it. Never set on a player's board. */
+  readable?: boolean;
 }
 
 /** An icon stamp from Atlas's draw tool: a Lucide glyph lying on the map. */
@@ -280,6 +282,7 @@ function readPin(pin: Raw): BoardPin | null {
     label: typeof pin.label === 'string' ? pin.label : null,
     hex: pin.hex === true,
     name: typeof pin.name === 'string' && pin.name.trim() !== '' ? pin.name.trim().slice(0, 60) : null,
+    ...(pin.readable === true ? { readable: true } : {}),
   };
 }
 

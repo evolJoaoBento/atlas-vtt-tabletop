@@ -59,6 +59,8 @@ export interface AtlasSceneState {
   setSnapToGrid?: (on: boolean) => void;
   /** Changes a wall's fields; a field given as undefined is removed. */
   updateWall?: (id: string, changes: Record<string, unknown>) => void;
+  /** Changes a pin's fields (Atlas's pin menu: `readable`); a field given as undefined is removed. */
+  updateNotePin?: (id: string, changes: Record<string, unknown>) => void;
 }
 
 interface Store<T> {

@@ -21,7 +21,7 @@ import { applyInitiative, fileCannotRun, readInitiative, type InitiativeAction }
 
 type RawToken = Record<string, unknown> & { x?: number; y?: number; imagePath?: string; instanceNumber?: number };
 type RawWall = Record<string, unknown> & { type?: string; closed?: boolean; locked?: boolean };
-type MapFile = { state?: { objects?: { tokens?: Record<string, RawToken>; walls?: Record<string, RawWall> }; initiative?: InitiativeState } };
+type MapFile = { state?: { objects?: { tokens?: Record<string, RawToken>; walls?: Record<string, RawWall>; pins?: Record<string, Record<string, unknown>> }; initiative?: InitiativeState } };
 /**
  * What a change does to a token, given it as Atlas holds it in memory (its resources as `resources`): the fields it
  * sets, `undefined` for one it deletes; null when it changes nothing. `resources` and `overriddenMax` are written in
@@ -276,6 +276,15 @@ export function lockDoorInText(text: string, id: string, locked: boolean): strin
   } else {
     delete door.locked;
   }
+  return JSON.stringify(file);
+}
+
+/** The map file's text with a pin readable by players or not, as Atlas's pin menu sets it (`readable: true`, or none). */
+export function pinReadableInText(text: string, id: string, readable: boolean): string {
+  const file = JSON.parse(text) as MapFile;
+  const pin = file.state?.objects?.pins?.[id];
+  if (!pin) throw new Error(`no pin ${id} on this map`);
+  if (readable) pin.readable = true; else delete pin.readable;
   return JSON.stringify(file);
 }
 
@@ -609,6 +618,19 @@ export class TokenWriter {
       return 'atlas';
     }
     await this.deps.process(path, (text) => lockDoorInText(text, id, locked));
+    return 'file';
+  }
+
+  /** Lets players read a pin's note online, or not (Atlas's "Readable by players"); through Atlas when it holds the map. */
+  async setPinReadable(path: string, id: string, readable: boolean): Promise<'atlas' | 'file'> {
+    const view = this.holder(path);
+    if (view) {
+      const state = view.atlasStore.getState();
+      if (!state.updateNotePin) throw TokenWriter.missing('pin update');
+      state.updateNotePin(id, { readable: readable ? true : undefined });
+      return 'atlas';
+    }
+    await this.deps.process(path, (text) => pinReadableInText(text, id, readable));
     return 'file';
   }
 
