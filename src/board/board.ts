@@ -29,7 +29,7 @@ import type { PropLook, PropPlacement, TokenStyle } from './boardData';
 import { OrbitCamera, limitsFor } from './camera';
 import type { CollectionRules } from './conditions';
 import { feetPerSquare, formatDistance, pathLengthInCells, type Measurement } from './measure';
-import { hexCenter, ringDiameter, snapPoint } from './geometry';
+import { hexCenter, nearestFootprint, ringDiameter, snapPoint } from './geometry';
 import { imageToWorld, stretchPlacement, worldSize } from './mapStretch';
 import { groupFollow, groupLanding, type GroupMember } from './groupMove';
 import { ACTIVE_COLOR, GroupMarks } from './groupMarks';
@@ -122,6 +122,8 @@ const PARKED_LAYERS = 12;
 /** How long the camera glides to another layer's floor, seconds (the layers fade over most of it). */
 const LAYER_GLIDE_SECONDS = 0.9;
 const DOUBLE_CLICK_MS = 400;
+/** How far past its ring a press still grabs a token the player may move, on a player's board (1.5: half as far again). */
+const GRAB_SLACK = 1.5;
 
 /** Obsidian's accent colour, for highlights; Atlas's purple outside Obsidian. */
 function accent(element: HTMLElement): string {
@@ -2503,6 +2505,28 @@ export class Board {
     return hit ? owners.get(hit) ?? null : null;
   }
 
+  /**
+   * A token the player may move under the pointer, for a press on a player's board: only those tokens are tried, so a
+   * name plate or another token in front (drawn or not: rays hit hidden objects too) never takes the press, and a
+   * press that misses the figure still grabs a token whose ground, widened by half, it lands on.
+   */
+  private movableTokenAt(clientX: number, clientY: number): string | null {
+    const movable = [...this.tokens.values()].filter((entry) => entry.piece.object3d.visible && this.host.canMove?.(entry.token.id) === true);
+    if (movable.length === 0) return null;
+    const owners = new Map<THREE.Object3D, string>();
+    for (const entry of movable) {
+      owners.set(entry.piece.hitTarget, entry.token.id);
+      if (entry.playerLabels.object3d.visible) for (const sprite of entry.playerLabels.sprites) owners.set(sprite, entry.token.id);
+    }
+    const hit = this.hit(clientX, clientY, [...owners.keys()]);
+    if (hit) return owners.get(hit) ?? null;
+    const at = this.boardPoint(clientX, clientY);
+    if (!at || !this.map) return null;
+    const grid = this.map.grid;
+    const near = nearestFootprint(at, movable.map((entry) => ({ id: entry.token.id, x: entry.at.x, y: entry.at.y, radius: ringDiameter(grid, entry.token.size) / 2 })), GRAB_SLACK);
+    return near?.id ?? null;
+  }
+
   private pinAt(clientX: number, clientY: number): string | null {
     // Only a pin drawn can be clicked: one hidden (beyond sight on a player's board) opens nothing.
     const shown = this.audience === 'player' ? this.pins.filter((pin) => pin.object3d.visible) : this.pins;
@@ -3290,10 +3314,10 @@ export class Board {
   private playerDown(event: PointerEvent): void {
     const { clientX: x, clientY: y } = event;
     if (event.button === 0) {
-      const id = this.tokenAt(x, y);
+      const id = this.movableTokenAt(x, y);
       const entry = id ? this.tokens.get(id) : null;
       const at = this.boardPoint(x, y);
-      if (id && entry && at && this.host.canMove?.(id) === true) {
+      if (id && entry && at) {
         this.press = {
           kind: 'token', id, x, y, moved: false, grab: { dx: entry.at.x - at.x, dy: entry.at.y - at.y },
           copy: false, start: snapPoint(this.snapGrid('tokens'), entry.goal.x, entry.goal.y, entry.token.size), waypoints: [],

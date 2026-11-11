@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { BoardGrid } from '../src/board/mapModel';
-import { axialCenter, conditionRingRadii, hexCenter, ringDiameter, sideBadgeSlots, snapPoint, tokenDiameter } from '../src/board/geometry';
+import { axialCenter, conditionRingRadii, hexCenter, nearestFootprint, ringDiameter, sideBadgeSlots, snapPoint, tokenDiameter } from '../src/board/geometry';
 
 const grid = (over: Partial<BoardGrid> = {}): BoardGrid => ({
   enabled: true, visible: true, snap: true, type: 'square', size: 70, offsetX: 0, offsetY: 0, opacity: 0.7, lineWidth: 1, color: null, ...over,
@@ -62,4 +62,13 @@ test('side badges alternate left and right, two to a row', () => {
 
 test('condition rings widen one after another', () => {
   assert.deepEqual(conditionRingRadii(10, 3, 2, 1), [12, 15, 18]);
+});
+
+test('nearestFootprint grabs the nearest token whose widened ground holds the point, none beyond', () => {
+  const tokens = [{ id: 'a', x: 0, y: 0, radius: 35 }, { id: 'b', x: 100, y: 0, radius: 35 }];
+  assert.equal(nearestFootprint({ x: 10, y: 0 }, tokens)?.id, 'a');
+  assert.equal(nearestFootprint({ x: 45, y: 0 }, tokens), null);
+  assert.equal(nearestFootprint({ x: 45, y: 0 }, tokens, 1.5)?.id, 'a');
+  assert.equal(nearestFootprint({ x: 60, y: 0 }, tokens, 1.5)?.id, 'b');
+  assert.equal(nearestFootprint({ x: 50, y: 200 }, tokens, 1.5), null);
 });

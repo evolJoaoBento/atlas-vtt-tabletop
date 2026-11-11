@@ -107,3 +107,20 @@ export function sideBadgeSlots(count: number): Array<{ side: -1 | 1; row: number
 export function conditionRingRadii(baseRadius: number, count: number, width: number, gap: number): number[] {
   return Array.from({ length: count }, (_, index) => baseRadius + gap + width / 2 + index * (width + gap));
 }
+
+/**
+ * The candidate whose footprint (a circle of `radius` round its centre, widened `slack` times) holds `point`, the
+ * nearest centre first; null when none does. For grabbing a token by its ground when the pointer missed its figure.
+ */
+export function nearestFootprint<T extends { x: number; y: number; radius: number }>(point: Point, candidates: readonly T[], slack = 1): T | null {
+  let best: T | null = null;
+  let bestDistance = Infinity;
+  for (const candidate of candidates) {
+    const distance = Math.hypot(point.x - candidate.x, point.y - candidate.y);
+    if (distance <= candidate.radius * slack && distance < bestDistance) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
