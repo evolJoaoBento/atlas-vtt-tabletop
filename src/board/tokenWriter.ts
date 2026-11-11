@@ -358,7 +358,7 @@ export class TokenWriter {
   loading(path: string): boolean {
     return this.deps.views().some((view) => {
       const state = view.atlasStore.getState();
-      return state.mapPath === path && (state.mapLoaded === false || state.isMapLoading === true);
+      return state.mapPath === path && state.isMapLoading === true;
     });
   }
 

@@ -10,7 +10,7 @@ import type { MaterialDefaults } from '../materialDefaults';
 import { placeSurvey, type ArSurvey, type SavedArTable } from '../arTable';
 import type { BoardMark, BoardSession, BoardViewer } from '../connectContract';
 import { ItemView, Menu, Modal, Notice, TFile, debounce, setIcon, type App, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
-import { presentedSceneOf, tabViewOf, type AtlasView } from '../atlas';
+import { ATLAS_VIEW_TYPE, presentedSceneOf, tabViewOf, type AtlasView } from '../atlas';
 import { AtlasBridge } from '../atlasBridge';
 import { BoardAtlasTools } from './boardAtlasTools';
 import { tabletopCommands } from '../palette/tabletopCommands';
@@ -907,6 +907,15 @@ export class BoardView extends ItemView {
   private async openInAtlas(): Promise<void> {
     const file = this.path ? this.app.vault.getAbstractFileByPath(this.path) : null;
     if (!(file instanceof TFile)) return;
+    // An Atlas tab of Obsidian's not loaded yet (deferred, since the app started) with this map: it is loaded, not the
+    // map opened again.
+    const deferred = this.app.workspace.getLeavesOfType(ATLAS_VIEW_TYPE).find((leaf) => leaf.isDeferred && (leaf.getViewState().state as { file?: unknown } | undefined)?.file === file.path);
+    if (deferred) {
+      await deferred.loadIfDeferred();
+      this.watchAtlas();
+      this.sessionChanged();
+      return;
+    }
     // Atlas has a tab of this map already, not the one it shows: that tab is shown, not the map opened again.
     const found = tabViewOf(this.app, file.path);
     const tab = found?.view.tabMetaStore.getState().tabs.find((each) => each.filePath === file.path);
