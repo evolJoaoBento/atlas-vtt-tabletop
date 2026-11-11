@@ -354,6 +354,31 @@ export class TokenWriter {
     return null;
   }
 
+  /** Whether an open Atlas view has `path` but is still reading it (it will hold it in a moment). */
+  loading(path: string): boolean {
+    return this.deps.views().some((view) => {
+      const state = view.atlasStore.getState();
+      return state.mapPath === path && (state.mapLoaded === false || state.isMapLoading === true);
+    });
+  }
+
+  /**
+   * Calls `ready` once an open Atlas view holds `path` loaded (Atlas finished reading it, or switched its tab to it):
+   * the open views' stores are followed until then. Returns the stop. The views opened later are not followed (a new
+   * view is a layout change, which the caller watches).
+   */
+  whenHeld(path: string, ready: () => void): () => void {
+    let stops: Array<() => void> = [];
+    const stop = (): void => { for (const each of stops) each(); stops = []; };
+    const check = (): void => {
+      if (stops.length === 0 || this.holder(path) === null) return;
+      stop();
+      ready();
+    };
+    stops = this.deps.views().map((view) => view.atlasStore.subscribe(check));
+    return stop;
+  }
+
   /** Atlas holds the map but not the action needed: writing the file would be undone by its next save. */
   private static missing(action: string): Error {
     return new Error(`Atlas has this map open but offers no ${action} here; change it in Atlas`);

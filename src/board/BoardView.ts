@@ -294,6 +294,8 @@ export class BoardView extends ItemView {
     this.menu?.close();
     this.watched?.stop();
     this.watched = null;
+    this.stopWaiting?.();
+    this.stopWaiting = null;
     this.initiative?.dispose();
     this.initiative = null;
     this.reload.cancel();
@@ -871,7 +873,8 @@ export class BoardView extends ItemView {
     const handout = overlay.handout;
     const file = handout ? this.app.vault.getAbstractFileByPath(handout.path) : null;
     board.setHandout(handout ? { title: handout.title, url: file instanceof TFile ? this.app.vault.getResourcePath(file) : null } : null);
-    const held = this.services.writer.holder(path) !== null;
+    // Atlas still reading the map (a session just started, a tab just switched to) holds it in a moment: no banner.
+    const held = this.services.writer.holder(path) !== null || this.services.writer.loading(path);
     board.setBanner(held ? null : {
       text: "Players don't see changes made here: open this map in Atlas.",
       action: { label: 'Open in Atlas', run: () => { void this.openInAtlas(); } },
@@ -904,6 +907,15 @@ export class BoardView extends ItemView {
   private async openInAtlas(): Promise<void> {
     const file = this.path ? this.app.vault.getAbstractFileByPath(this.path) : null;
     if (!(file instanceof TFile)) return;
+    // Atlas has a tab of this map already, not the one it shows: that tab is shown, not the map opened again.
+    const found = tabViewOf(this.app, file.path);
+    const tab = found?.view.tabMetaStore.getState().tabs.find((each) => each.filePath === file.path);
+    if (found && tab && found.view.atlasStore.getState().mapPath !== file.path) {
+      await found.view.switchToTab(tab.id);
+      this.watchAtlas();
+      this.sessionChanged();
+      return;
+    }
     const leaf = this.app.workspace.getLeaf('tab');
     await leaf.openFile(file, { active: false });
     this.app.workspace.setActiveLeaf(this.leaf, { focus: true });
@@ -1330,6 +1342,10 @@ export class BoardView extends ItemView {
   /** Follows the store of the Atlas view holding this map, if one does; the tracker shows what it holds. */
   private watchAtlas(): void {
     const view = this.path && !this.closed ? this.services.writer.holder(this.path) : null;
+    // While no Atlas view holds the map (Atlas still reading it as a session starts, or its tab not the active one),
+    // its views are followed, so the board knows at once when one does (no layout change says so).
+    this.stopWaiting?.();
+    this.stopWaiting = view === null && this.path && !this.closed ? this.services.writer.whenHeld(this.path, () => { this.stopWaiting = null; this.watchAtlas(); }) : null;
     if (this.watched?.view === view) return;
     this.watched?.stop();
     this.watched = null;
@@ -1355,6 +1371,9 @@ export class BoardView extends ItemView {
     this.sessionChanged();
     this.followTabs();
   }
+
+  /** Stops following Atlas's views for one that holds this map (`watchAtlas`). */
+  private stopWaiting: (() => void) | null = null;
 
   /** Atlas's scene tabs over the board, followed in the view that holds this map. */
   private sceneTabs: SceneTabBar | null = null;

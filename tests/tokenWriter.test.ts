@@ -367,3 +367,27 @@ test('taking a token to a scene Atlas holds goes through that store, and a failu
   // Only the read of the token happened: nothing was removed.
   assert.deepEqual(edits.filter((entry) => entry.startsWith('failing:')), ['failing:from.atlasmap']);
 });
+
+test("whenHeld waits for Atlas to finish reading the map, or switch its tab to it; loading says it is on its way", () => {
+  let state: Partial<AtlasSceneState> = { mapPath: 'm.atlasmap', mapLoaded: false, isMapLoading: true };
+  const listeners = new Set<() => void>();
+  const view: AtlasView = { viewId: 'v', atlasStore: { getState: () => state as AtlasSceneState, subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); } } };
+  const writer = new TokenWriter({ views: () => [view], process: async () => {} });
+  const change = (next: Partial<AtlasSceneState>): void => { state = next; for (const listener of [...listeners]) listener(); };
+  assert.equal(writer.holder('m.atlasmap'), null);
+  assert.equal(writer.loading('m.atlasmap'), true);
+  let held = 0;
+  writer.whenHeld('m.atlasmap', () => { held++; });
+  change({ mapPath: 'm.atlasmap', mapLoaded: true, isMapLoading: false });
+  assert.equal(held, 1);
+  assert.equal(listeners.size, 0, 'it stops following once held');
+  // Another tab shown: not held, not loading; switching back to the map's tab is heard.
+  change({ mapPath: 'other.atlasmap', mapLoaded: true, isMapLoading: false });
+  assert.equal(writer.loading('m.atlasmap'), false);
+  const stop = writer.whenHeld('m.atlasmap', () => { held++; });
+  change({ mapPath: 'other.atlasmap', mapLoaded: true, isMapLoading: false });
+  assert.equal(held, 1);
+  change({ mapPath: 'm.atlasmap', mapLoaded: true, isMapLoading: false });
+  assert.equal(held, 2);
+  stop();
+});
