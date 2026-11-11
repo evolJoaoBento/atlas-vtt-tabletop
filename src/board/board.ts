@@ -78,6 +78,7 @@ import { pinTitle } from './pinIcons';
 import { insideFog, pinsShown, playerSees } from './playerView';
 import { instanceBadgeNumbers } from './levels';
 import { positionOf } from './camera';
+import type { PlayOptions, SoundEngine, SoundId } from '../sound/soundEngine';
 import { isVideoPath, loadImageTexture, loadMapTexture, MAX_MAP_TEXTURE, mapImageSize, mapTextureFromPicture, plateTexture, screenScale } from './textures';
 import { WallSet } from './wallPieces';
 import { LightRig } from './lightRig';
@@ -320,6 +321,8 @@ export interface BoardHost {
   setMiniTurn?(tokenId: string, turn: number): void;
   /** The GM's camera or the players' moved (Connect follows it for its players' "GM view"). */
   cameraMoved?(): void;
+  /** The sound engine of this board's window, set up from the player's sound settings; absent or null: the board is silent. */
+  sounds?(): SoundEngine | null;
   /** A Connect player's board: whether the player may drag this token now (one the GM lets them control). */
   canMove?(tokenId: string): boolean;
   /** A Connect player's board: the token under the pointer (null for none), the pointer in client pixels, Ctrl/Cmd down. */
@@ -2385,7 +2388,7 @@ export class Board {
     this.drawMain();
     this.layoutControls();
     this.drawPlayers(shadows, context);
-    if (cameraMoving) this.host.cameraMoved?.();
+    if (cameraMoving) { this.host.cameraMoved?.(); this.tellListener(); } else if (!this.listening) this.tellListener();
     this.continuing = busy || this.held.size > 0 || this.press !== null;
     if (this.continuing) this.wake();
     // Flames flicker on a timer, a few times a second, not on every frame the screen can draw; those frames are
@@ -4212,6 +4215,28 @@ export class Board {
   }
 
   /** Whether the players' camera is frozen where the GM froze it. */
+  /** Whether the engine has been told where the camera is since the board began. */
+  private listening = false;
+
+  /** Tells the sound engine where the camera is, so sounds are placed against it. */
+  private tellListener(): void {
+    const engine = this.host.sounds?.();
+    if (!engine) return;
+    const pose = this.camera.pose;
+    engine.setListener({ eye: positionOf(pose), target: { ...pose.target } }, pose.distance);
+    this.listening = true;
+  }
+
+  /** Plays a board sound; nothing happens when the host gives no engine (the local player window, a window without audio). */
+  sound(id: SoundId, options?: PlayOptions): void {
+    this.host.sounds?.()?.play(id, options);
+  }
+
+  /** Keeps (or with a null id stops) the looping sound under `key`, at `gain`. */
+  soundLoop(key: string, id: SoundId | null, gain: number): void {
+    this.host.sounds?.()?.loop(key, id, gain);
+  }
+
   get playerFrozen(): boolean {
     return this.player?.frozen != null;
   }

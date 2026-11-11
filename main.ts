@@ -34,6 +34,7 @@ import type { BoardLook, BoardSession, BoardSurvey, GmCameraSource } from './src
 import { DEFAULT_PACK, defaultPackFiles, releaseDefaultPackSheets } from './src/dice/defaultPack';
 import { choosePack, vendoredPack, type ChosenPack } from './src/dice/dicePack';
 import { SpellLibrary } from './src/spellLibrary';
+import { DEFAULT_SOUND_SETTINGS, readSoundSettings, SOUND_GROUPS, type SoundGroup, type SoundSettings } from './src/sound/soundSettings';
 import { colorsText, DEFAULT_DICE_SETTINGS, DIE_SQUARES, MOTION_THRESHOLD, readColorsText, readDiceSettings, TOLERANCE, type TabletopDiceSettings } from './src/dice/diceSettings';
 import { ensureDefaultPack, listPacks, packsFolder, type PackFs } from './src/dice/kit/packs';
 
@@ -79,11 +80,13 @@ interface TabletopSettings {
   laser?: Partial<LaserSettings>;
   /** The GM's dice on the board. */
   dice: TabletopDiceSettings;
+  /** Board sounds: volume, mute and a switch per group (per device, as the plugin's data is). */
+  sound: SoundSettings;
   /** The material each kind of wall wears when none is painted on it (the gallery's Defaults); none unless set. */
   materialDefaults?: MaterialDefaults;
 }
 
-const DEFAULT_SETTINGS: TabletopSettings = { folder: DEFAULT_MINIS_FOLDER, propsFolder: DEFAULT_PROPS_FOLDER, materialsFolder: DEFAULT_MATERIALS_FOLDER, quality: DEFAULT_QUALITY, dice: DEFAULT_DICE_SETTINGS };
+const DEFAULT_SETTINGS: TabletopSettings = { folder: DEFAULT_MINIS_FOLDER, propsFolder: DEFAULT_PROPS_FOLDER, materialsFolder: DEFAULT_MATERIALS_FOLDER, quality: DEFAULT_QUALITY, dice: DEFAULT_DICE_SETTINGS, sound: DEFAULT_SOUND_SETTINGS };
 
 interface SavedData {
   settings?: Partial<TabletopSettings>;
@@ -178,6 +181,7 @@ export default class TabletopPlugin extends Plugin {
     this.settings = { ...DEFAULT_SETTINGS, ...(saved.settings ?? {}) };
     this.settings.quality = readQuality(this.settings.quality);
     this.settings.dice = readDiceSettings(saved.settings?.dice);
+    this.settings.sound = readSoundSettings(saved.settings?.sound);
     this.assignments = new Assignments(readAssignments(saved.assignments));
     this.boardData = new BoardData(readBoardData(saved.board));
     this.register(this.assignments.onChange(() => { this.save(); this.refreshBoards(); }));
@@ -255,6 +259,7 @@ export default class TabletopPlugin extends Plugin {
       spellBook: () => this.spells(),
       materialDefaults: () => readMaterialDefaults(this.settings.materialDefaults),
       diceSettings: () => this.settings.dice,
+      soundSettings: () => this.settings.sound,
       dicePack: () => (this.dicePack ??= vendoredPack()),
       levelShown: (mapPath) => this.levelShown(mapPath),
       boardReady: (view) => {
@@ -367,7 +372,7 @@ export default class TabletopPlugin extends Plugin {
     this.register(this.boardData.onChange((changed) => { const mapPath = changed?.split("#")[0] ?? null; this.boardChanged(mapPath !== null && this.boardData.stackOf(mapPath).length > 1 ? null : mapPath); }));
     this.register(this.materials.onChange(() => { this.materialIndex?.forgetAll(); this.boardChanged(null); }));
     this.players = playerMiniPainter();
-    const board = playerBoardFactory(() => this.settings.quality, () => ({ tiltShift: this.settings.tiltShift === true, occlusion: this.settings.occlusion === true, painted: this.settings.painted === true, sky: readSky(this.settings.sky), edges: readEdges(this.settings.wallEdges), seeThrough: this.settings.seeThrough === true, seeThroughSize: readSeeThroughSize(this.settings.seeThroughSize), layerLook: readLayerLook(this.settings.layerLook) }), { settings: () => this.settings.dice, pack: () => (this.dicePack ??= vendoredPack()) }, () => this.spells());
+    const board = playerBoardFactory(() => this.settings.quality, () => ({ tiltShift: this.settings.tiltShift === true, occlusion: this.settings.occlusion === true, painted: this.settings.painted === true, sky: readSky(this.settings.sky), edges: readEdges(this.settings.wallEdges), seeThrough: this.settings.seeThrough === true, seeThroughSize: readSeeThroughSize(this.settings.seeThroughSize), layerLook: readLayerLook(this.settings.layerLook) }), { settings: () => this.settings.dice, pack: () => (this.dicePack ??= vendoredPack()) }, () => this.spells(), undefined, { settings: () => this.settings.sound, onChange: (listener) => { this.soundListeners.add(listener); return () => { this.soundListeners.delete(listener); }; } });
     this.api = Object.freeze({
       version: 1 as const,
       playerMinis: this.players.painter,
@@ -479,6 +484,17 @@ export default class TabletopPlugin extends Plugin {
     if (packChanged) void this.loadDicePack();
     // The colours are only the picker's: the dice on the table stay.
     else if (Object.keys(changes).some((key) => key !== 'colors' && key !== 'autoRoll' && key !== 'sheetPinned')) for (const view of this.boards()) view.diceChanged();
+  }
+
+  /** The boards and player boards that follow the sound settings (Connect's player tab asks to be told). */
+  private readonly soundListeners = new Set<() => void>();
+
+  /** A sound setting changed: saved, and every board's engine follows. */
+  setSound(changes: Partial<Omit<SoundSettings, 'groups'>> & { groups?: Partial<Record<SoundGroup, boolean>> }): void {
+    this.settings.sound = readSoundSettings({ ...this.settings.sound, ...changes, groups: { ...this.settings.sound.groups, ...changes.groups } });
+    this.save();
+    for (const view of this.boards()) view.refreshSound();
+    for (const listener of [...this.soundListeners]) listener();
   }
 
   async setTiltShift(on: boolean): Promise<void> {
@@ -817,7 +833,7 @@ class TabletopSettingTab extends PluginSettingTab {
 
   /** Obsidian 1.13 and later read the settings from here (and search them); earlier versions draw display(). */
   getSettingDefinitions(): SettingDefinitionItem[] {
-    const items: SettingDefinitionItem[] = [...this.generalRows(), { type: 'group', heading: 'Dice', items: this.diceRows() }];
+    const items: SettingDefinitionItem[] = [...this.generalRows(), { type: 'group', heading: 'Dice', items: this.diceRows() }, { type: 'group', heading: 'Sound', items: this.soundRows() }];
     if (GpuSettings.here()) items.push({ type: 'group', heading: 'Graphics card', items: [this.graphicsRow()] });
     return items;
   }
@@ -829,6 +845,8 @@ class TabletopSettingTab extends PluginSettingTab {
     draw(this.generalRows());
     new Setting(containerEl).setName('Dice').setHeading();
     draw(this.diceRows());
+    new Setting(containerEl).setName('Sound').setHeading();
+    draw(this.soundRows());
     if (GpuSettings.here()) {
       new Setting(containerEl).setName('Graphics card').setHeading();
       draw([this.graphicsRow()]);
@@ -892,6 +910,32 @@ class TabletopSettingTab extends PluginSettingTab {
           .setValue(plugin.settings.quality)
           .onChange((value) => { void plugin.setQuality(readQuality(value)); }));
       }),
+    ];
+  }
+
+  /** Board sounds, on this device: the volume, a mute, and a switch for each kind of sound. */
+  private soundRows(): SettingRow[] {
+    const { plugin } = this;
+    const names: Record<SoundGroup, [string, string]> = {
+      dice: ['Dice sounds', 'Dice hitting the table and each other.'],
+      minis: ['Mini sounds', 'Picking a mini up and putting it down.'],
+      spells: ['Spell sounds', 'Spells cast on the board.'],
+      conditions: ['Condition sounds', 'A condition put on a token.'],
+      turns: ['Turn sounds', 'The horn when a turn begins.'],
+      fog: ['Fog sounds', 'Fog being revealed.'],
+      doors: ['Door sounds', 'Doors opening, closing and locked; walls crumbling.'],
+      water: ['Water sounds', 'Painted water, by how it moves.'],
+    };
+    return [
+      this.row('Sound volume', 'How loud board sounds are, on this device.', (setting) => {
+        setting.addSlider((slider) => slider.setLimits(0, 1, 0.05).setValue(plugin.settings.sound.volume).setDynamicTooltip().onChange((volume) => plugin.setSound({ volume })));
+      }, ['audio', 'loud', 'effects']),
+      this.row('Mute board sounds', 'Silences every board sound, on this device.', (setting) => {
+        setting.addToggle((toggle) => toggle.setValue(plugin.settings.sound.muted).onChange((muted) => plugin.setSound({ muted })));
+      }, ['audio', 'silent']),
+      ...SOUND_GROUPS.map((group) => this.row(names[group][0], names[group][1], (setting) => {
+        setting.addToggle((toggle) => toggle.setValue(plugin.settings.sound.groups[group]).onChange((on) => plugin.setSound({ groups: { [group]: on } })));
+      }, ['audio'])),
     ];
   }
 

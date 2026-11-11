@@ -19,6 +19,22 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const features = [];
 const feature = (name, run, url) => features.push({ name, run, url });
 
+// ── Board sounds: the board hands its engine the camera, and calls it through Board.sound ──────────────────────────
+feature('sound settings', async ({ page }) => {
+  const rec = () => page.evaluate(() => JSON.parse(JSON.stringify({ listeners: window.boardTest.sounds.listeners, plays: window.boardTest.sounds.plays, loops: window.boardTest.sounds.loops })));
+  const first = await rec();
+  check('sound: the engine is told where the camera is once the board is drawn', first.listeners.length >= 1 && first.listeners[0].span > 0 && !!first.listeners[0].listener.eye && !!first.listeners[0].listener.target);
+  await page.evaluate(() => window.boardTest.board.camera.zoom(0.5));
+  await wait(800);
+  const moved = await rec();
+  const eye = (r) => r.listeners.at(-1).listener.eye;
+  check('sound: a camera move updates the listener', moved.listeners.length > first.listeners.length && JSON.stringify(eye(moved)) !== JSON.stringify(eye(first)), JSON.stringify([first.listeners.length, moved.listeners.length]));
+  await page.evaluate(() => { window.boardTest.board.sound('dice.hit', { gain: 0.5 }); window.boardTest.board.soundLoop('water', 'water.flow', 0.3); });
+  const after = await rec();
+  check('sound: Board.sound reaches the engine', JSON.stringify(after.plays.at(-1)) === JSON.stringify(['dice.hit', { gain: 0.5 }]));
+  check('sound: Board.soundLoop reaches the engine', JSON.stringify(after.loops.at(-1)) === JSON.stringify(['water', 'water.flow', 0.3]));
+});
+
 // ── Item 27: the turn banner and the delayed marker ─────────────────────────────────────────────────────────────
 feature('turn banner and delayed marker', async ({ page, shot }) => {
   await page.evaluate(() => window.boardTest.board.flashTurn('Round 2 · Goblin'));

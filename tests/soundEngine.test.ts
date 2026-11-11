@@ -276,3 +276,42 @@ test('an id that is not in the catalogue is a silent no-op', async () => {
   await settle();
   assert.equal(context.started.length, 1);
 });
+
+test('a touch or a pointer release unlocks the context, not only a key', async () => {
+  for (const gesture of ['pointerup', 'touchend', 'keydown']) {
+    const { context, document } = setup({ state: 'suspended' });
+    document.fire(gesture);
+    await settle();
+    assert.equal(context.resumed, 1, gesture);
+  }
+});
+
+test('shared engine is null where the window has no audio', () => {
+  const win = { document: new FakeDocument() } as unknown as Window;
+  assert.equal(SoundEngine.shared(win, files), null);
+  const broken = { document: new FakeDocument(), AudioContext: class { constructor() { throw new Error('no audio'); } } } as unknown as Window;
+  assert.equal(SoundEngine.shared(broken, files), null);
+});
+
+test('a loop for a group that is off or muted starts no source, and starts when switched on', async () => {
+  const { context, engine } = setup();
+  engine.configure({ ...DEFAULT_SOUND_SETTINGS, groups: { ...DEFAULT_SOUND_SETTINGS.groups, water: false } });
+  engine.loop('w', 'water.flow', 0.5);
+  await settle();
+  assert.equal(context.started.length, 0);
+  engine.configure(DEFAULT_SOUND_SETTINGS);
+  assert.equal(context.started.length, 1);
+  engine.configure({ ...DEFAULT_SOUND_SETTINGS, muted: true });
+  assert.equal(context.started[0].stops.length, 1);
+  engine.configure(DEFAULT_SOUND_SETTINGS);
+  assert.equal(context.started.length, 2);
+});
+
+test('a loop switched off by its group stops its running source', async () => {
+  const { context, engine } = setup();
+  engine.loop('w', 'water.flow', 0.5);
+  await settle();
+  assert.equal(context.started.length, 1);
+  engine.configure({ ...DEFAULT_SOUND_SETTINGS, groups: { ...DEFAULT_SOUND_SETTINGS.groups, water: false } });
+  assert.equal(context.started[0].stops.length, 1);
+});

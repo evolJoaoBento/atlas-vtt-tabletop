@@ -10,11 +10,12 @@ export interface SoundSettings {
   groups: Record<SoundGroup, boolean>;
 }
 
-export const DEFAULT_SOUND_SETTINGS: SoundSettings = {
+/** The defaults, frozen: shared by every reader, so nothing may change them (a copy is made to change one). */
+export const DEFAULT_SOUND_SETTINGS: SoundSettings = Object.freeze({
   volume: 0.6,
   muted: false,
-  groups: { dice: true, minis: true, spells: true, conditions: true, turns: true, fog: true, doors: true, water: true },
-};
+  groups: Object.freeze({ dice: true, minis: true, spells: true, conditions: true, turns: true, fog: true, doors: true, water: true }),
+});
 
 /** Reads stored sound settings; anything missing or malformed takes its default, and the volume is held to 0..1. */
 export function readSoundSettings(raw: unknown): SoundSettings {

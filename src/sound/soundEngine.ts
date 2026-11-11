@@ -54,7 +54,8 @@ type Loader = (id: SoundId) => Promise<ArrayBuffer[]>;
 const LATE_START_MS = 300;
 const EASE_SECONDS = 0.4;
 const RATE_SPREAD = 0.04;
-const GESTURES = ['pointerdown', 'keydown'];
+/** What unlocks the audio context: iOS only accepts a touch that ends, desktop a press or a key. */
+const GESTURES = ['pointerdown', 'pointerup', 'touchend', 'keydown'];
 
 interface Bank { buffers: unknown[] | null; ready: Promise<void> }
 
@@ -78,14 +79,23 @@ const engines = new WeakMap<Window, SoundEngine>();
  * source -> gain -> pan -> group gain -> master gain -> destination.
  */
 export class SoundEngine {
-  /** One engine per window, shared by every board in it; each `shared` call is balanced by one `dispose`. */
-  static shared(win: Window, load: Loader): SoundEngine {
+  /**
+   * One engine per window, shared by every board in it; each `shared` call that returns an engine is balanced by one
+   * `dispose`. Null where the window has no audio (some test and mobile environments): that board has no sound.
+   */
+  static shared(win: Window, load: Loader): SoundEngine | null {
     const existing = engines.get(win);
     if (existing) { existing.holders++; return existing; }
-    const Context = (win as unknown as { AudioContext: new () => ContextLike }).AudioContext;
-    const engine = new SoundEngine(() => new Context(), win.document, load, () => Date.now(), () => engines.delete(win));
-    engines.set(win, engine);
-    return engine;
+    const Context = (win as unknown as { AudioContext?: new () => ContextLike; webkitAudioContext?: new () => ContextLike });
+    const Make = Context.AudioContext ?? Context.webkitAudioContext;
+    if (!Make) return null;
+    try {
+      const engine = new SoundEngine(() => new Make(), win.document, load, () => Date.now(), () => engines.delete(win));
+      engines.set(win, engine);
+      return engine;
+    } catch {
+      return null;
+    }
   }
 
   /** An engine over stand-in audio parts, for tests. `now` is the clock for the late-start rule, in ms. */
@@ -179,6 +189,7 @@ export class SoundEngine {
       const node = this.groupGains.get(group);
       if (node) node.gain.value = settings.groups[group] ? 1 : 0;
     }
+    this.syncLoops();
   }
 
   dispose(): void {
@@ -245,8 +256,30 @@ export class SoundEngine {
     source.start(context.currentTime + (options.delayMs ?? 0) / 1000);
   }
 
+  /** Whether a loop can be heard: its group is on and the sound is not muted. */
+  private loopAudible(state: LoopState): boolean {
+    return !this.settings.muted && this.settings.groups[CATALOG[state.id].group];
+  }
+
+  /** A loop whose group went off (or that was muted) stops its source; one that is audible again starts it. */
+  private syncLoops(): void {
+    for (const state of this.loops.values()) {
+      if (!this.loopAudible(state)) {
+        if (!state.source) continue;
+        state.source.stop();
+        state.source.disconnect();
+        state.node?.disconnect();
+        state.source = null;
+        state.node = null;
+      } else if (!state.source) {
+        const buffers = this.banks.get(state.id)?.buffers;
+        if (buffers) this.startLoop(state, buffers);
+      }
+    }
+  }
+
   private startLoop(state: LoopState, buffers: unknown[]): void {
-    if (buffers.length === 0) return;
+    if (buffers.length === 0 || !this.loopAudible(state)) return;
     const context = this.context;
     const source = context.createBufferSource();
     source.buffer = buffers[Math.floor(Math.random() * buffers.length)];

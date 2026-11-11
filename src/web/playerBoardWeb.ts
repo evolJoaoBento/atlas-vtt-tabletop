@@ -10,6 +10,7 @@ import { vendoredPack } from '../dice/dicePack';
 import { DEFAULT_DICE_SETTINGS } from '../dice/diceSettings';
 import type { MemoryMode, Quality } from '../board/quality';
 import { guardMemory } from './memoryGuard';
+import { mountSoundControl, webSound } from './soundControl';
 import { DEFAULT_SKY } from '../board/look';
 
 export { deviceQuaternion, headingOf } from '../board/eyeView';
@@ -29,7 +30,8 @@ export function webPlayerBoard(quality: Quality = onPhone() ? 'low' : 'medium'):
   let memory: MemoryMode = 'normal';
   // The painted look, under its sky, as the GM's board has it by default; a board short of memory (a big sky picture,
   // 3072 by 1536) keeps the plain dark room.
-  const factory = playerBoardFactory(() => quality, () => ({ tiltShift: false, occlusion: false, painted: memory === 'normal', sky: DEFAULT_SKY }), { settings: () => DEFAULT_DICE_SETTINGS, pack: () => pack }, () => null, () => memory);
+  const sound = webSound();
+  const factory = playerBoardFactory(() => quality, () => ({ tiltShift: false, occlusion: false, painted: memory === 'normal', sky: DEFAULT_SKY }), { settings: () => DEFAULT_DICE_SETTINGS, pack: () => pack }, () => null, () => memory, sound);
   return Object.freeze({
     ...factory,
     create: (parent: HTMLElement, host: Parameters<PlayerBoardFactory['create']>[1]): PlayerBoardHandle => {
@@ -37,8 +39,9 @@ export function webPlayerBoard(quality: Quality = onPhone() ? 'low' : 'medium'):
       const guard = guardMemory(window);
       memory = guard.mode;
       const handle = factory.create(parent, host);
+      const unmount = mountSoundControl(parent, sound);
       const dispose = handle.dispose.bind(handle);
-      handle.dispose = () => { guard.stop(); dispose(); };
+      handle.dispose = () => { guard.stop(); unmount(); dispose(); };
       return handle;
     },
   });

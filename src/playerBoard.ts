@@ -23,6 +23,9 @@ import { DicePrompt } from './dice/dicePrompt';
 import { listenForDiePresses } from './dice/diePress';
 import { PlayerDice, type PlayerDiceTable } from './dice/playerDice';
 import type { TabletopDiceSettings } from './dice/diceSettings';
+import { loadSound } from './sound/catalog';
+import { SoundEngine } from './sound/soundEngine';
+import type { SoundSettings } from './sound/soundSettings';
 import { DiceTable } from './dice/diceTable';
 import { DiceTextures } from './dice/diceTextures';
 import type { DiceRules } from './dice/rollRules';
@@ -145,10 +148,16 @@ export interface PlayerBoardDice {
   pack(): ChosenPack;
 }
 
-export function playerBoardFactory(quality: () => Quality, looks: () => { tiltShift: boolean; occlusion: boolean; painted: boolean; sky: Sky; edges?: WallEdges; seeThrough?: boolean; seeThroughSize?: number; layerLook?: LayerLook; lineOfSight?: SightMode; sightStyle?: SightStyle; layerTick?: number }, dice: PlayerBoardDice, book: () => SpellBook | null = () => null, memory: () => MemoryMode = () => 'normal'): PlayerBoardFactory {
+/** The player's board sounds: their settings on this device, and a way to hear when the player changes them. */
+export interface PlayerBoardSounds {
+  settings(): SoundSettings;
+  onChange?(listener: () => void): () => void;
+}
+
+export function playerBoardFactory(quality: () => Quality, looks: () => { tiltShift: boolean; occlusion: boolean; painted: boolean; sky: Sky; edges?: WallEdges; seeThrough?: boolean; seeThroughSize?: number; layerLook?: LayerLook; lineOfSight?: SightMode; sightStyle?: SightStyle; layerTick?: number }, dice: PlayerBoardDice, book: () => SpellBook | null = () => null, memory: () => MemoryMode = () => 'normal', sound: PlayerBoardSounds | null = null): PlayerBoardFactory {
   return Object.freeze({
     version: 1 as const,
-    create: (parent: HTMLElement, host: PlayerBoardHost): PlayerBoardHandle => new PlayerBoard(parent, host, leaner(withLooks(QUALITY[quality()], looks()), memory()), dice, book),
+    create: (parent: HTMLElement, host: PlayerBoardHost): PlayerBoardHandle => new PlayerBoard(parent, host, leaner(withLooks(QUALITY[quality()], looks()), memory()), dice, book, sound),
   });
 }
 
@@ -180,7 +189,7 @@ class PlayerBoard implements PlayerBoardHandle {
   private readonly prompt: DicePrompt;
   private readonly stopPresses: () => void;
 
-  constructor(private readonly parent: HTMLElement, private readonly host: PlayerBoardHost, private preset: QualityPreset, private readonly diceDeps: PlayerBoardDice, private readonly book: () => SpellBook | null = () => null) {
+  constructor(private readonly parent: HTMLElement, private readonly host: PlayerBoardHost, private preset: QualityPreset, private readonly diceDeps: PlayerBoardDice, private readonly book: () => SpellBook | null = () => null, private readonly soundSettings: PlayerBoardSounds | null = null) {
     this.board = new Board(parent, this.boardHost(), preset, { audience: 'player' });
     if (host.sendDiceResult) {
       this.diceAvailable = true;
@@ -345,8 +354,27 @@ class PlayerBoard implements PlayerBoardHandle {
     return this.dice.throw(request);
   }
 
+  /** The sound engine of this board's window, asked for when the board first needs it; null with no sound settings or no audio. */
+  private sounds(): SoundEngine | null {
+    if (this.disposed || !this.soundSettings) return null;
+    if (this.engine === undefined) {
+      const win = this.parent.ownerDocument.defaultView;
+      this.engine = win ? SoundEngine.shared(win, loadSound) : null;
+      const settings = this.soundSettings;
+      this.engine?.configure(settings.settings());
+      this.stopSound = settings.onChange?.(() => this.engine?.configure(settings.settings())) ?? null;
+    }
+    return this.engine;
+  }
+
+  private engine: SoundEngine | null | undefined;
+  private stopSound: (() => void) | null = null;
+
   dispose(): void {
     this.disposed = true;
+    this.stopSound?.();
+    this.engine?.dispose();
+    this.engine = null;
     this.waiting.clear();
     this.dice.dispose();
     this.stopPresses();
@@ -419,6 +447,7 @@ class PlayerBoard implements PlayerBoardHandle {
     const look = () => this.shown?.look ?? null;
     const none = (): void => undefined;
     return {
+      sounds: () => this.sounds(),
       // The player's own spell notes, on Obsidian; none on the web page.
       spellBook: () => this.book(),
       readImage: async (id) => {

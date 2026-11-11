@@ -64,6 +64,9 @@ import { statblockFields, statblockOf } from '../sheets/statblock';
 import { rollViewFor, type MapViewLike } from '../dice/atlasDice';
 import type { ChosenPack } from '../dice/dicePack';
 import type { TabletopDiceSettings } from '../dice/diceSettings';
+import { loadSound } from '../sound/catalog';
+import { SoundEngine } from '../sound/soundEngine';
+import type { SoundSettings } from '../sound/soundSettings';
 import { documentHasWebgl, NO_WEBGL_HELP, NO_WEBGL_TITLE } from '../webgl';
 import { TABLETOP_ICON } from '../tabletopIcon';
 
@@ -151,6 +154,8 @@ export interface BoardServices {
   /** The dice settings, and the pack the dice are made from (the default pack Tabletop carries until it is read). */
   diceSettings(): TabletopDiceSettings;
   dicePack(): ChosenPack;
+  /** What the player chose for board sounds (per device). */
+  soundSettings(): SoundSettings;
 }
 
 const tokenName = (token: BoardToken): string => token.name ?? token.imagePath?.split('/').pop()?.replace(/\.[^.]+$/, '') ?? 'Token';
@@ -287,8 +292,34 @@ export class BoardView extends ItemView {
     });
   }
 
+  /** The sound engine of the window this tab is in, held while the tab lives; null where the window has no audio. */
+  private sound: { win: Window; engine: SoundEngine | null } | null = null;
+
+  private soundEngine(): SoundEngine | null {
+    const win = this.contentEl.ownerDocument.defaultView;
+    if (!win) return null;
+    if (this.sound?.win !== win) {
+      this.releaseSound();
+      const engine = SoundEngine.shared(win, loadSound);
+      engine?.configure(this.services.soundSettings());
+      this.sound = { win, engine };
+    }
+    return this.sound.engine;
+  }
+
+  private releaseSound(): void {
+    this.sound?.engine?.dispose();
+    this.sound = null;
+  }
+
+  /** The player changed the sound settings: the engine follows. */
+  refreshSound(): void {
+    this.sound?.engine?.configure(this.services.soundSettings());
+  }
+
   async onClose(): Promise<void> {
     this.closed = true;
+    this.releaseSound();
     this.stopTabs?.();
     this.stopTabs = null;
     this.sceneTabs?.dispose();
@@ -989,6 +1020,7 @@ export class BoardView extends ItemView {
     const { assignments, boardData, writer } = this.services;
     const mapPath = (): string => this.path ?? '';
     return {
+      sounds: () => this.soundEngine(),
       spellBook: () => this.services.spellBook?.() ?? null,
       layerHidden: (path) => path !== this.path && boardData.layerHidden(levelOfKey(path) !== null ? `${this.path ?? ''}#${path}` : path),
       water: () => { if (this.map && !onFirstLevel(this.map.levels, this.map.level)) return null; const path = mapPath(); const saved = boardData.water(path); const motion = boardData.waterMotion(path); return saved || motion ? { mask: saved?.mask ?? null, motion } : null; },
