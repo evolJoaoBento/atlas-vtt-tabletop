@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { fogAreas } from '../src/board/fog';
-import { insideFog, pinsShown, playerSees } from '../src/board/playerView';
+import { framesAnew, insideFog, pinsShown, playerSees } from '../src/board/playerView';
 import { HP_RESOURCE, visibleResources, type ResourceDefinition } from '../src/board/resources';
 
 const room = fogAreas([
@@ -37,4 +37,10 @@ test("pins: the GM sees them; a Connect player's own board shows its readable on
   assert.equal(pinsShown('gm', 'gm'), true);
   assert.equal(pinsShown('player', 'player'), true);
   assert.equal(pinsShown('player', 'gm'), false);
+});
+
+test("a player's board frames the first scene and each other scene the GM presents, not reloads of the same one", () => {
+  assert.equal(framesAnew(null, 'hall'), true);
+  assert.equal(framesAnew('hall', 'hall'), false);
+  assert.equal(framesAnew('hall', 'cellar'), true);
 });

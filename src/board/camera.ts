@@ -141,6 +141,14 @@ export class OrbitCamera {
     this.wanted = this.goal.pitch;
   }
 
+  /** Takes the limits of another map (another scene shown): the goal is held inside them at once. */
+  setLimits(limits: CameraLimits): void {
+    Object.assign(this.limits, limits);
+    this.wanted = clamp(this.wanted, limits.minPitch, limits.maxPitch);
+    this.goal.distance = clamp(this.goal.distance, limits.minDistance, limits.maxDistance);
+    this.seat();
+  }
+
   /** Looks at a point without changing distance or angle. */
   lookAt(target: { x: number; y: number; z: number }): void {
     this.goal.target = { ...target };

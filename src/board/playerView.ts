@@ -38,3 +38,8 @@ export function playerSees(token: { hidden: boolean }, at: Point, fog: readonly 
 export function pinsShown(viewer: 'gm' | 'player', audience: 'gm' | 'player'): boolean {
   return viewer === 'gm' || audience === 'player';
 }
+
+/** Whether a load of `next` frames its map: the first scene, or one other than the scene the camera last framed. */
+export function framesAnew(framed: string | null, next: string): boolean {
+  return framed !== next;
+}

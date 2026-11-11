@@ -1298,6 +1298,17 @@ export class Board {
     this.wake();
   }
 
+  /**
+   * Another map is shown on the same board (a Connect player's board when the GM presents another scene): the camera
+   * takes that map's limits and frames the whole of it at once, as the first map was, not the old map's pose.
+   */
+  frameNewMap(): void {
+    if (!this.map) return;
+    this.camera.setLimits(limitsFor(this.size.width, this.size.height, this.quality.painted));
+    this.frameMap();
+    this.camera.snap();
+  }
+
   private gridChanged(map: BoardMap): boolean {
     return this.lastGrid !== JSON.stringify([map.grid, map.world ?? null]);
   }

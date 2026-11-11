@@ -15,6 +15,7 @@ import type { SightMode, SightStyle } from './board/lineOfSight';
 import { leaner, QUALITY, withLooks, type LayerLook, type MemoryMode, type Quality, type QualityPreset, type WallEdges } from './board/quality';
 import type { Sky } from './board/look';
 import { NO_FLIP } from './board/walls';
+import { framesAnew } from './board/playerView';
 import { materialFromUrls, type LoadedMaterial } from './materials';
 import type { BoardCamera, BoardExtras, PlayerDiceRequest, PlayerDiceResult } from './connectContract';
 import type { ChosenPack } from './dice/dicePack';
@@ -162,9 +163,10 @@ class PlayerBoard implements PlayerBoardHandle {
   private self: string | null = null;
   private order: readonly string[] = [];
   private gmCamera: BoardCamera | null = null;
-  /** The GM's last 3D view, whatever its scene: used once that scene is shown. */
+  /** The GM's last 3D view, whatever its scene: offered (Follow GM) once that scene is shown. */
   private sentCamera: BoardCamera | null = null;
-  private followedOnce = false;
+  /** The scene the camera last framed: a load of another one frames its map. */
+  private framedScene: string | null = null;
   /** The map image was not here at the last load: the board loads again once it is. */
   private backgroundMissing = false;
   /** Files asked for before they arrived, by asset id: settled when `refresh` finds them. */
@@ -215,10 +217,7 @@ class PlayerBoard implements PlayerBoardHandle {
     // The scene's cone opens as its measuring says (Atlas's cone angle, degrees), for templates and spells alike.
     const cone = (this.scene as { measurement?: { coneAngle?: unknown } } | null)?.measurement?.coneAngle;
     if (typeof cone === 'number' && cone > 0 && cone < 180) this.board.tools.coneAngle = (cone * Math.PI) / 180;
-    if (this.scene && this.scene.sceneId !== before) {
-      this.followedOnce = false;
-      this.useCamera();
-    }
+    if (this.scene && this.scene.sceneId !== before) this.useCamera();
     this.reload();
   }
 
@@ -232,16 +231,14 @@ class PlayerBoard implements PlayerBoardHandle {
     this.useCamera();
   }
 
-  /** The GM's 3D view, when it is of the scene shown. */
+  /**
+   * The GM's 3D view, when it is of the scene shown, for the player's Follow GM. The board itself starts each scene
+   * framing its whole map: the GM's view may be close up, or of a corner the player has no reason to start on.
+   */
   private useCamera(): void {
     const camera = this.sentCamera;
     this.gmCamera = camera && camera.sceneId === this.scene?.sceneId ? camera : null;
     this.board.setGmView(this.gmCamera);
-    // The board starts on the GM's view, then the player looks where they like.
-    if (this.gmCamera && !this.followedOnce && this.shown) {
-      this.followedOnce = true;
-      this.board.followGm();
-    }
     this.host.toolsChanged();
   }
 
@@ -399,11 +396,12 @@ class PlayerBoard implements PlayerBoardHandle {
     this.loading = this.loading.then(async () => {
       if (this.disposed || this.shown !== shown) return;
       await this.board.load(shown.map);
-      if (this.shown === shown) this.board.setStack(shown.layers);
-      if (this.gmCamera && !this.followedOnce) {
-        this.followedOnce = true;
-        this.board.followGm();
-      }
+      if (this.shown !== shown) return;
+      this.board.setStack(shown.layers);
+      // The first scene, or another than the one framed (the GM presented another map): its whole map is framed, not
+      // looked at from the old scene's pose. Later loads of the same scene (news, files arriving) keep the camera.
+      if (framesAnew(this.framedScene, scene.sceneId)) this.board.frameNewMap();
+      this.framedScene = scene.sceneId;
     }).catch((error: unknown) => console.error('[Tabletop] The player board could not show the scene:', error));
   }
 

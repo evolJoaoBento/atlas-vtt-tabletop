@@ -77,3 +77,12 @@ test('a camera set to look from an eye at a target stands there (the GM view a p
   assert.ok(Math.abs(eye.x - 300) < 1e-6 && Math.abs(eye.y - 400) < 1e-6 && Math.abs(eye.z - 900) < 1e-6, JSON.stringify(eye));
   assert.deepEqual(camera.goal.target, { x: 300, y: 0, z: 500 });
 });
+
+test("setLimits takes another map's limits and holds the goal inside them", () => {
+  const cam = new OrbitCamera({ distance: 2500 }, limitsFor(1000, 800));
+  cam.setLimits(limitsFor(400, 300));
+  assert.equal(cam.limits.maxDistance, 1200);
+  assert.ok(cam.goal.distance <= 1200);
+  cam.zoom(0.0001);
+  close(cam.goal.distance, 400 * 0.13);
+});
