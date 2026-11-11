@@ -225,9 +225,9 @@ export class BoardDice {
     const controller = this.ensureTable();
     this.lastResult = null;
     this.rollFrom = { abilityName: label, tokenId };
-    controller.start({ ...parsed, label, ...(advantage ? { advantage } : {}) });
-    // Auto roll (the board settings' tick): thrown at once; otherwise the dice lie on the table for the GM to throw.
-    if (this.deps.settings().autoRoll) controller.throwPending(GENTLE);
+    // Auto roll (the board settings' tick): thrown at once, and a die caught on an edge or an explosion thrown again by
+    // itself; otherwise the dice lie on the table for the GM to throw.
+    controller.start({ ...parsed, label, ...(advantage ? { advantage } : {}) }, this.deps.settings().autoRoll ? { auto: GENTLE } : {});
   }
 
   /**

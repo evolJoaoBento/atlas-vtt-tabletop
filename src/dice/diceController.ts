@@ -25,9 +25,19 @@ export interface DieGrab {
   release(flick: Flick): void;
 }
 
+/** How many times an auto-thrown roll throws its dice again by itself (caught dice, explosions) before it leaves the rest to the hand. */
+export const AUTO_THROWS = 5;
+
+export interface StartOptions {
+  /** Auto roll: thrown at once with this flick, and whatever is caught or explodes is thrown again the same way. */
+  auto?: Flick;
+}
+
 export class DiceController {
   /** The roll on the table; none once it is cleared or dropped, so a die read late changes nothing. */
   private session: RollSession | null = null;
+  /** The auto roll's flick for the roll on the table, and how many throws again it has left; null for a roll thrown by hand. */
+  private auto: { flick: Flick; left: number } | null = null;
   /** Whether the roll as it lies now was published: a throw makes it new. */
   private published = false;
 
@@ -39,6 +49,13 @@ export class DiceController {
       // An explosion's die is laid on the table, to be thrown like the rest.
       deps.table.placeMissing();
       this.markWaiting(session);
+      // Auto roll: what the roll now waits on (a die caught on an edge, an explosion's) is thrown again by itself,
+      // a few times at most, so a die that keeps landing on an edge is left to the hand.
+      if (this.auto && this.auto.left > 0 && session.pendingThrows().length > 0) {
+        this.auto.left--;
+        this.throwPending(this.auto.flick);
+        return;
+      }
       const result = session.result();
       if (!result || this.published) {
         deps.prompt(session.prompt());
@@ -69,13 +86,15 @@ export class DiceController {
   }
 
   /** A new roll, its dice laid on the table to be thrown; a roll still on the table goes, as it is. */
-  start(request: RollRequest): void {
+  start(request: RollRequest, options: StartOptions = {}): void {
     const session = new RollSession(request, this.deps.rules());
     this.session = session;
     this.published = false;
+    this.auto = options.auto ? { flick: options.auto, left: AUTO_THROWS } : null;
     this.deps.table.placeRoll(session);
     this.markWaiting(session);
     this.deps.prompt(session.prompt());
+    if (options.auto) this.throwPending(options.auto);
   }
 
   /** Throws every die the roll waits on, together: dice laid on the table, caught dice, and explosions. */
@@ -161,6 +180,7 @@ export class DiceController {
 
   private drop(): void {
     this.session = null;
+    this.auto = null;
     this.published = false;
     this.deps.table.clear();
     this.deps.prompt(null);

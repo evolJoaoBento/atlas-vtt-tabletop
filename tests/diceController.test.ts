@@ -154,6 +154,48 @@ test('clear drops the roll: nothing is published, the table is cleared', () => {
   assert.equal(published.length, 0);
 });
 
+test('an auto-thrown roll throws its caught dice again by itself, and publishes', () => {
+  const { dice, table, published } = controller();
+  dice.start({ dice: { d20: 1 }, modifier: 0 }, { auto: FLICK });
+  const [d20] = table.ids();
+  assert.deepEqual(table.thrown, [d20], 'thrown at once');
+  table.onSettled(d20, CAUGHT);
+  assert.deepEqual(table.thrown, [d20, d20], 'the caught die is thrown again without a hand throw');
+  table.onSettled(d20, face(12));
+  assert.equal(published.length, 1);
+  assert.equal(published[0].total, 12);
+});
+
+test('an auto-thrown roll throws its explosions by itself', () => {
+  const { dice, table, published } = controller(explodeAll);
+  dice.start({ dice: { d6: 1 }, modifier: 0 }, { auto: FLICK });
+  const [d6] = table.ids();
+  table.onSettled(d6, face(6));
+  const extra = table.ids().find((id) => id !== d6) as number;
+  assert.ok(extra !== undefined, 'the explosion lays a die');
+  assert.ok(table.thrown.includes(extra), 'and throws it at once');
+  table.onSettled(extra, face(2));
+  assert.equal(published.at(-1)?.total, 8);
+});
+
+test('an auto-thrown roll stops throwing a die that keeps getting caught, and leaves it to the hand', () => {
+  const { dice, table, prompts } = controller();
+  dice.start({ dice: { d20: 1 }, modifier: 0 }, { auto: FLICK });
+  const [d20] = table.ids();
+  for (let i = 0; i < 20; i++) table.onSettled(d20, CAUGHT);
+  assert.ok(table.thrown.length <= 6, `thrown ${table.thrown.length} times`);
+  assert.match(prompts.at(-1) ?? '', /d20/, 'the line asks for a throw by hand');
+});
+
+test('a roll not auto-thrown waits for a hand throw when caught', () => {
+  const { dice, table } = controller();
+  dice.start({ dice: { d20: 1 }, modifier: 0 });
+  dice.throwPending(FLICK);
+  const [d20] = table.ids();
+  table.onSettled(d20, CAUGHT);
+  assert.deepEqual(table.thrown, [d20]);
+});
+
 test('throwPending throws every caught die once', () => {
   const { dice, table, published } = controller();
   dice.start({ dice: { d8: 2 }, modifier: 0 });
