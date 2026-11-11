@@ -5309,11 +5309,18 @@ export class Board {
     for (const cast of this.castSpells) {
       if (this.timedCasts.has(cast.id)) continue;
       this.timedCasts.add(cast.id);
-      if (me === null || cast.owner !== me || !isInstantaneous(cast)) continue;
-      this.instantTimers.set(cast.id, win.setTimeout(() => {
-        this.instantTimers.delete(cast.id);
-        if (this.castSpells.some((each) => each.id === cast.id)) this.host.playerAction?.({ type: 'spell', change: { remove: cast.id } });
-      }, INSTANT_HOLD_SECONDS * 1000));
+      // A summoning spell stays, though instantaneous (Find Familiar): its going is what offers to take its summons off.
+      if (me === null || cast.owner !== me || !isInstantaneous(cast) || cast.rules?.summon) continue;
+      const later = (): void => {
+        this.instantTimers.set(cast.id, win.setTimeout(() => {
+          this.instantTimers.delete(cast.id);
+          if (!this.castSpells.some((each) => each.id === cast.id)) return;
+          // Its review still open (Thunderwave's push, Misty Step's teleport): the mark waits for the answer.
+          if (this.rulePanel?.pendingFor(cast.id)) { later(); return; }
+          this.host.playerAction?.({ type: 'spell', change: { remove: cast.id } });
+        }, INSTANT_HOLD_SECONDS * 1000));
+      };
+      later();
     }
   }
 

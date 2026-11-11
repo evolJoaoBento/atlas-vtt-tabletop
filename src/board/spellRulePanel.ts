@@ -48,6 +48,11 @@ export class SpellRulePanel {
     if (!this.element) this.next();
   }
 
+  /** Whether a review of `cast` is showing or waiting. */
+  pendingFor(cast: string): boolean {
+    return [this.current, ...this.queue].some((each) => each !== null && each.cast === cast);
+  }
+
   /** Takes every review away, unanswered (as Skip): a new cast begins, the caster closed, or Escape. */
   dismiss(): void {
     const dropped = [...(this.current ? [this.current] : []), ...this.queue.splice(0)];

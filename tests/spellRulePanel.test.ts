@@ -49,3 +49,14 @@ test("one cast's reviews wait their turn; dismiss takes them all; Escape on the 
   assert.equal(panel.showing, false);
   assert.deepEqual(log.at(-1), 'skipped Summon');
 });
+
+test('pendingFor says whether a review of a cast is showing or waiting', () => {
+  const log: string[] = [];
+  const { panel } = panelOf();
+  panel.offer(review('Teleport', log), 'a');
+  panel.offer(review('Push', log), 'a');
+  assert.equal(panel.pendingFor('a'), true);
+  assert.equal(panel.pendingFor('b'), false);
+  panel.dismiss();
+  assert.equal(panel.pendingFor('a'), false);
+});
