@@ -189,6 +189,16 @@ export function readCastSpells(raw: unknown): CastSpell[] {
   return out;
 }
 
+/**
+ * Whether a cast spell is instantaneous, as its words say (Duration: Instantaneous, like Fireball or Thunderwave): it
+ * goes off and is gone, so its mark fades after the cast. A spell with a duration, concentration, or no words (a shape
+ * set by hand) stays until it is taken off.
+ */
+export function isInstantaneous(cast: Pick<CastSpell, 'about'>): boolean {
+  const duration = cast.about?.properties.find(([label]) => label.trim().toLowerCase() === 'duration')?.[1];
+  return duration !== undefined && /^\s*instantaneous\s*$/i.test(duration);
+}
+
 /** The spell's anchor in board space. */
 export function anchorOf(spell: Spell): THREE.Vector3 {
   return new THREE.Vector3(spell.at.x, spell.at.h, spell.at.y);

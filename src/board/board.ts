@@ -65,7 +65,7 @@ import { PieceOutline } from './pieceOutline';
 import { SpellCaster } from './spellCaster';
 import { SpellPicker, type SpellBook } from './spellPicker';
 import { SpellGizmo } from './spellGizmo';
-import { boxPoints, readCastSpells, type DamageType, readSpellRequests, spellHits, spellUnder, type CastSpell, type Spell, type SpellAsk, type SpellTarget, spellLabel } from './spells';
+import { boxPoints, isInstantaneous, readCastSpells, type DamageType, readSpellRequests, spellHits, spellUnder, type CastSpell, type Spell, type SpellAsk, type SpellTarget, spellLabel } from './spells';
 import { SpellView } from './spellView';
 import { hitAura, type SpellEffect } from './spellEffects';
 import { inDifficultSpell, pushTo, slide, spellFootprint, spellRuleLights, spellRuleWalls, type SpellRules } from './spellRules';
@@ -124,6 +124,10 @@ const LAYER_GLIDE_SECONDS = 0.9;
 const DOUBLE_CLICK_MS = 400;
 /** How far past its ring a press still grabs a token the player may move, on a player's board (1.5: half as far again). */
 const GRAB_SLACK = 1.5;
+/** An instantaneous spell (Fireball) stays this long after its cast, seconds, for everyone to see where it went off… */
+const INSTANT_HOLD_SECONDS = 3;
+/** …then fades out over this long. */
+const INSTANT_FADE_SECONDS = 1.5;
 
 /** Obsidian's accent colour, for highlights; Atlas's purple outside Obsidian. */
 function accent(element: HTMLElement): string {
@@ -507,7 +511,13 @@ export class Board {
   private caster: SpellCaster | null = null;
   /** The scene's spells, from Connect. */
   private castSpells: CastSpell[] = [];
-  private readonly spellViews = new Map<string, { key: string; view: SpellView }>();
+  private readonly spellViews = new Map<string, { key: string; view: SpellView; instant: boolean }>();
+  /** Instantaneous spells taken off the scene, fading out (`start` in seconds, the page's clock). */
+  private fadingSpells: Array<{ view: SpellView; start: number }> = [];
+  /** The casts seen, for timing this board's own instantaneous ones (null before the first list: those are left be). */
+  private timedCasts: Set<string> | null = null;
+  /** This board's own instantaneous casts waiting to be taken off, by id: their timers. */
+  private readonly instantTimers = new Map<string, number>();
   /** The spell being cast, drawn while it is aimed, moved and confirmed. */
   private spellPreview: { key: string; view: SpellView; spell: Spell } | null = null;
   /** The red lines round what the spells hit, by target. */
@@ -5243,6 +5253,7 @@ export class Board {
       }
     }
     this.castSpells = readCastSpells(list);
+    this.timeInstantaneous();
     this.drawSpells();
     if (this.audience === 'gm') this.landSpells();
     this.spellHitsAt = 0;
@@ -5262,14 +5273,42 @@ export class Board {
       const view = new SpellView(cast.spell, cast.color, walls, 0.4, this.map?.grid.size ?? 50);
       view.setRules(cast.rules);
       this.scene.add(view.object3d);
-      this.spellViews.set(cast.id, { key, view });
+      this.spellViews.set(cast.id, { key, view, instant: isInstantaneous(cast) });
     }
     for (const [id, kept] of this.spellViews) {
       if (wanted.has(id)) continue;
-      kept.view.dispose();
       this.spellViews.delete(id);
+      // An instantaneous spell taken off (after its cast) fades out; any other goes at once.
+      if (kept.instant && this.spellMap === this.map) { this.fadingSpells.push({ view: kept.view, start: this.spellClock() }); this.wake(); } else kept.view.dispose();
     }
     this.applyRules();
+  }
+
+  /** The page's clock, seconds (what spells are animated by). */
+  private spellClock(): number {
+    return (this.container.ownerDocument.defaultView ?? window).performance.now() / 1000;
+  }
+
+  /**
+   * This board's own instantaneous spells (the GM's on the GM's board, the player's on theirs), newly cast: each is taken
+   * off the scene a moment after, for everyone, and fades. Spells with a duration stay until they are taken off.
+   */
+  private timeInstantaneous(): void {
+    const present = new Set(this.castSpells.map((cast) => cast.id));
+    const win = this.container.ownerDocument.defaultView ?? window;
+    for (const [id, timer] of [...this.instantTimers]) if (!present.has(id)) { win.clearTimeout(timer); this.instantTimers.delete(id); }
+    if (this.timedCasts === null) { this.timedCasts = present; return; }
+    for (const id of [...this.timedCasts]) if (!present.has(id)) this.timedCasts.delete(id);
+    const me = this.spellOwner();
+    for (const cast of this.castSpells) {
+      if (this.timedCasts.has(cast.id)) continue;
+      this.timedCasts.add(cast.id);
+      if (me === null || cast.owner !== me || !isInstantaneous(cast)) continue;
+      this.instantTimers.set(cast.id, win.setTimeout(() => {
+        this.instantTimers.delete(cast.id);
+        if (this.castSpells.some((each) => each.id === cast.id)) this.host.playerAction?.({ type: 'spell', change: { remove: cast.id } });
+      }, INSTANT_HOLD_SECONDS * 1000));
+    }
   }
 
   /** The walls, lights and darkness the cast spells' rules make, worked out again when the spells or the scale change. */
@@ -5312,6 +5351,7 @@ export class Board {
   /** Another scene: its spells already cast are not carried out again. */
   forgetCasts(): void {
     this.seenCasts = null;
+    this.timedCasts = null;
   }
 
   /** Newly cast spells that move or make tokens: carried out (a push after the GM's review). Gone summons: offered for removal. */
@@ -5473,10 +5513,17 @@ export class Board {
     if (this.impacts.active) { this.impacts.step(); this.wake(); }
     const views = [...[...this.spellViews.values()].map((kept) => kept.view), ...(this.spellPreview ? [this.spellPreview.view] : [])];
     const moving = views.filter((view) => view.animated);
-    if (moving.length === 0 && this.spellAuras.size === 0) return;
-    const time = (this.container.ownerDocument.defaultView ?? window).performance.now() / 1000;
+    if (moving.length === 0 && this.spellAuras.size === 0 && this.fadingSpells.length === 0) return;
+    const time = this.spellClock();
     const height = this.renderer.domElement.height;
     for (const view of moving) view.tick(time, height);
+    this.fadingSpells = this.fadingSpells.filter((fading) => {
+      const left = 1 - (time - fading.start) / INSTANT_FADE_SECONDS;
+      if (left <= 0) { fading.view.dispose(); return false; }
+      if (fading.view.animated) fading.view.tick(time, height);
+      fading.view.fade(left);
+      return true;
+    });
     const box = new THREE.Box3();
     for (const aura of this.spellAuras.values()) {
       // With the thing as it moves.
@@ -5493,6 +5540,8 @@ export class Board {
       this.spellMap = this.map;
       for (const kept of this.spellViews.values()) kept.view.dispose();
       this.spellViews.clear();
+      for (const fading of this.fadingSpells) fading.view.dispose();
+      this.fadingSpells = [];
       this.drawSpells();
     }
     if (this.eye) this.caster?.frame();
@@ -6013,6 +6062,10 @@ export class Board {
     this.spellGizmo?.dispose();
     this.spellPreview?.view.dispose();
     for (const kept of this.spellViews.values()) kept.view.dispose();
+    for (const fading of this.fadingSpells) fading.view.dispose();
+    this.fadingSpells = [];
+    for (const timer of this.instantTimers.values()) (this.container.ownerDocument.defaultView ?? window).clearTimeout(timer);
+    this.instantTimers.clear();
     for (const kept of this.spellOutlines.values()) kept.outline.dispose();
     for (const aura of this.spellAuras.values()) aura.effect.dispose();
     this.spellAuras.clear();

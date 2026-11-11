@@ -38,3 +38,25 @@ test("points of a shape's volume lie inside it", () => {
     assert.ok(Math.hypot(point.x, point.y) <= (-point.z / 280) * 280 * Math.tan(0.5) + 1e-6, 'within its widening');
   }
 });
+
+test('an effect fades over what its movers do, and comes back whole at full', () => {
+  const effect = new SpellEffect('fire', base, 70, new THREE.Quaternion(), mask());
+  effect.tick(1, 800);
+  const opacities = (): number[] => {
+    const out: number[] = [];
+    effect.object3d.traverse((object) => {
+      const material = (object as THREE.Mesh).material as THREE.Material | undefined;
+      if (material && !Array.isArray(material)) out.push(material instanceof THREE.ShaderMaterial && material.uniforms.uAlpha ? material.uniforms.uAlpha.value as number : material.opacity);
+    });
+    return out;
+  };
+  const whole = opacities();
+  assert.ok(whole.some((value) => value > 0));
+  effect.fade(0.5);
+  opacities().forEach((value, i) => assert.ok(Math.abs(value - whole[i]! * 0.5) < 1e-9));
+  effect.tick(1, 800);
+  opacities().forEach((value, i) => assert.ok(Math.abs(value - whole[i]! * 0.5) < 1e-9, 'a frame on, still half'));
+  effect.fade(0);
+  assert.ok(opacities().every((value) => value === 0));
+  effect.dispose();
+});

@@ -347,6 +347,34 @@ export class SpellEffect {
       uniforms.uViewport!.value = viewport;
     }
     for (const move of this.movers) move(time);
+    if (this.fadeLevel < 1) this.applyFade();
+  }
+
+  /** How much of it shows, 1 to 0 (an instantaneous spell fading after its cast). */
+  private fadeLevel = 1;
+  /** Each material's and particle layer's own opacity (as its builder or mover last set it), and what the fade made of it. */
+  private readonly fadeBase = new Map<object, { base: number; set: number }>();
+
+  /** Shows `level` (1 to 0) of the effect, over whatever its movers do to its opacity. */
+  fade(level: number): void {
+    this.fadeLevel = Math.max(0, Math.min(1, level));
+    this.applyFade();
+  }
+
+  private applyFade(): void {
+    const scale = (key: object, now: number, write: (value: number) => void): void => {
+      const known = this.fadeBase.get(key);
+      // A mover set it anew this frame (or it is the first fade): that is its own opacity now.
+      const base = known && known.set === now ? known.base : now;
+      const set = base * this.fadeLevel;
+      write(set);
+      this.fadeBase.set(key, { base, set });
+    };
+    for (const material of this.materials) scale(material, material.opacity, (value) => { material.opacity = value; });
+    for (const uniforms of this.particleUniforms) {
+      const alpha = uniforms.uAlpha;
+      if (alpha && typeof alpha.value === 'number') scale(uniforms, alpha.value, (value) => { alpha.value = value; });
+    }
   }
 
   /** Something of a layer's own to free with the effect. */

@@ -115,6 +115,7 @@ export class SpellView {
       depthWrite: false,
       side: THREE.DoubleSide,
     });
+    this.baseOpacity = this.material.uniforms.opacity!.value as number;
     this.mesh = new THREE.Mesh(geometryOf(spell), this.material);
     this.mesh.renderOrder = 5;
     this.mesh.raycast = () => {};
@@ -275,6 +276,16 @@ export class SpellView {
   }
 
   /** Lights the shape up (the GM about to clear it). */
+  /** The shape's own opacity, before any fade. */
+  private baseOpacity = 0;
+
+  /** Shows `level` (1 to 0) of it: an instantaneous spell fading out after its cast. */
+  fade(level: number): void {
+    const k = Math.max(0, Math.min(1, level));
+    this.material.uniforms.opacity!.value = this.baseOpacity * k;
+    this.effect?.fade(k);
+  }
+
   highlight(on: boolean): void {
     this.material.uniforms.glow!.value = on ? 1 : 0;
   }

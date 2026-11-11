@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { boxPoints, clampWallEnd, readSpell, spellHits, spellHolds, spellReaches, spellUnder, type Spell } from '../src/board/spells';
+import { boxPoints, clampWallEnd, isInstantaneous, readSpell, spellHits, spellHolds, spellReaches, spellUnder, type Spell } from '../src/board/spells';
 import type { BoardWall } from '../src/board/walls';
 
 const V = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(x, y, z);
@@ -92,4 +92,14 @@ test('a spell keeps its damage; an unknown one is dropped', () => {
   const fire: Spell = { shape: 'sphere', from: 'point', at: { x: 0, y: 0, h: 0 }, yaw: 0, pitch: 0, roll: 0, size: 70, length: 0, angle: 1, effect: 'fire' };
   assert.equal(readSpell(fire)?.effect, 'fire');
   assert.equal(readSpell({ ...fire, effect: 'sparkles' })?.effect, undefined);
+});
+
+test("an instantaneous spell is one whose words say so; one with a duration, or with no words, stays", () => {
+  const about = (duration: string) => ({ about: { line: 'Level 3 Evocation', text: '', properties: [['Range', '150 feet'], ['Duration', duration]] as Array<[string, string]> } });
+  assert.equal(isInstantaneous(about('Instantaneous')), true);
+  assert.equal(isInstantaneous(about(' instantaneous ')), true);
+  assert.equal(isInstantaneous(about('Concentration, up to 1 minute')), false);
+  assert.equal(isInstantaneous(about('1 minute')), false);
+  assert.equal(isInstantaneous(about('Instantaneous or 1 hour (see below)')), false);
+  assert.equal(isInstantaneous({}), false);
 });
