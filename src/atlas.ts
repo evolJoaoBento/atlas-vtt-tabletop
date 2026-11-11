@@ -55,6 +55,10 @@ export interface AtlasSceneState {
   /** Atlas's doors: open or shut one (a locked one stays shut), lock or unlock one. */
   toggleDoor?: (id: string) => void;
   setDoorLocked?: (id: string, locked: boolean) => void;
+  /** Atlas's own Snap to grid for the map's tokens. */
+  setSnapToGrid?: (on: boolean) => void;
+  /** Changes a wall's fields; a field given as undefined is removed. */
+  updateWall?: (id: string, changes: Record<string, unknown>) => void;
 }
 
 interface Store<T> {

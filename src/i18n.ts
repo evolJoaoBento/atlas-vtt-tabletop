@@ -5,6 +5,7 @@
  * To add a language (only once Atlas has it): add its table to `TABLES` under its two-letter code, with the keys it translates
  * (the test checks every key exists in English and keeps its `{placeholders}`).
  */
+import { setAtlasLanguage } from './atlasPort/atlasText';
 
 const EN = {
   'lighting.title': 'Lighting: {mode}',
@@ -34,13 +35,16 @@ const EN = {
   'group.clear': 'Clear selection',
   'turn.banner': 'Round {round} · {names}',
   'open3d': 'Open in 3D',
+  'atlasTools.needsAtlas': 'needs Atlas',
+  'parity.newerAtlas': "Atlas {installed} is newer than the version these tools were checked against ({checked}): some of Atlas's newest tools may be missing on the board.",
 } as const;
 
 export type StringKey = keyof typeof EN;
 
 /**
- * The translations by language code; English is the base and needs none. Empty on purpose: Atlas ships no translations,
- * so Tabletop matches it and stays English until Atlas offers a language.
+ * The translations of Tabletop's own words by language code; English is the base and needs none. Empty for now. Atlas
+ * 0.12.0 speaks Russian and Chinese too: the copies of Atlas's panels take Atlas's own texts in those languages (`at`, in
+ * src/atlasPort/atlasText.ts), and a table here for `ru` or `zh` would translate the rest of the board.
  */
 export const TABLES: Record<string, Partial<Record<StringKey, string>>> = {};
 
@@ -54,9 +58,13 @@ export function languageOf(code: string | null | undefined): string {
 
 let current = 'en';
 
-/** Sets the language the next `t` speaks (Obsidian's, read once when the plugin loads). */
+/**
+ * Sets the language the next `t` speaks (Obsidian's, read once when the plugin loads), and the language of Atlas's own texts
+ * in the board's copies of Atlas's panels (`at`), which Atlas has in more languages than Tabletop's table.
+ */
 export function setLanguage(code: string | null | undefined): void {
   current = languageOf(code);
+  setAtlasLanguage(code);
 }
 
 export function language(): string {

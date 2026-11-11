@@ -89,3 +89,19 @@ test('a player\'s board makes a layer of each stacked scene sent: floor, grid, h
   assert.deepEqual(layersFromExtras(extras(undefined)), []);
   assert.deepEqual(layersFromExtras(null), []);
 });
+
+test('a layer can be hidden and shown again, and it stays in its stack while hidden', () => {
+  const data = new BoardData();
+  assert.equal(data.setLayer('upper.atlasmap', 'base.atlasmap', 3), true);
+  assert.equal(data.layerHidden('upper.atlasmap'), false);
+  data.setLayerHidden('upper.atlasmap', true);
+  assert.equal(data.layerHidden('upper.atlasmap'), true);
+  assert.equal(data.layerOf('upper.atlasmap')?.elevation, 3, 'hiding keeps its height');
+  assert.deepEqual(data.layersOf('base.atlasmap').map((member) => member.path), ['upper.atlasmap']);
+  data.setLayerHidden('upper.atlasmap', false);
+  assert.equal(data.layerHidden('upper.atlasmap'), false);
+  // Moving it keeps it hidden.
+  data.setLayerHidden('upper.atlasmap', true);
+  data.setPlacement('upper.atlasmap', { x: 70, y: 0, turn: 0 });
+  assert.equal(data.layerHidden('upper.atlasmap'), true);
+});

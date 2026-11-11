@@ -17,6 +17,12 @@ export interface TokenMenuActions {
   stepCondition(id: string, delta: number): void;
   setHidden(hidden: boolean): void;
   setInitiative(join: boolean): void;
+  /** Goes into the token's eyes (first person, casting spells there), or out. */
+  seeThrough?(on: boolean): void;
+  /** Cast, Myself: into the token's eyes, the spell search open (the shapes where there is none). */
+  castSelf?(): void;
+  /** Steps through the gate the token stands in (a portal spell), out of its twin. */
+  goThroughGate?(): void;
   /** Looks at the board from this token's point of view (line of sight), or stops. Absent where the board has none. */
   setPov?(on: boolean): void;
   assignMini(): void;
@@ -26,6 +32,10 @@ export interface TokenMenuActions {
   setStandee(standee: boolean): void;
   /** How high the light the token carries hangs, in grid squares. */
   setLightHeight(height: number): void;
+  /** Gives the token to an online player or takes it away (Connect hosting). */
+  setController?(playerId: string, controls: boolean): void;
+  /** Cast, Player: asks the token's player for a spell (Connect hosting), the spell search open. */
+  askSpell?(): void;
   reset(): void;
   kill(): void;
   remove(): void;
@@ -34,6 +44,8 @@ export interface TokenMenuActions {
 export interface TokenMenuContext {
   /** The token as it is now (read again whenever the menu redraws); null once it is gone. */
   token(): BoardToken | null;
+  /** The name of the gate the token stands in, when it leads somewhere (a portal spell and its twin); else null. */
+  gate?(): string | null;
   rules: CollectionRules;
   settings(): TokenSettings;
   inInitiative(): boolean;
@@ -41,10 +53,16 @@ export interface TokenMenuContext {
   /** The base under the token's mini; none for a token with no mini. */
   miniBase(): MiniBase;
   standee(): boolean;
+  /** Whether the board is seen through this token's eyes now. */
+  seeing?(): boolean;
   /** Whether the board is being looked at from this token's point of view now. */
   pov?(): boolean;
   /** How high the light the token carries hangs, in squares; null when it carries none. */
   lightHeight(): number | null;
+  /** The online session's players and whether each controls the token; null (or absent) while Connect hosts no session. */
+  controllers?(): Array<{ playerId: string; name: string; controls: boolean }> | null;
+  /** Whether a spell asked of the token waits for its player. */
+  spellAsked?(): boolean;
   actions: TokenMenuActions;
   /** Draws an Obsidian (Lucide) icon into an element. */
   icon(element: HTMLElement, name: string): void;
@@ -130,8 +148,46 @@ export function tokenMenuEntries(context: TokenMenuContext): MenuEntry[] {
     });
   }
 
+  // Connect hosting: which players control a character, as Atlas's own token menu offers it.
+  if (token.kind === 'character' && actions.setController && context.controllers?.()) {
+    entries.push({
+      type: 'submenu',
+      label: 'Controlled by',
+      icon: 'users',
+      children: () => {
+        const players = context.controllers?.() ?? [];
+        if (players.length === 0) return [{ type: 'item', label: 'No players connected', disabled: true, onClick: () => undefined }];
+        return players.map((player): MenuEntry => ({
+          type: 'item', label: player.name, checked: player.controls, keepOpen: true,
+          onClick: () => actions.setController?.(player.playerId, !player.controls),
+        }));
+      },
+    });
+  }
+
   entries.push({ type: 'item', label: token.hidden ? 'Show' : 'Hide', onClick: () => actions.setHidden(!token.hidden) });
   const joined = context.inInitiative();
+  // Cast: through the token's eyes (Myself), or by a player who controls it (Player); in its eyes, the way out.
+  const seeing = context.seeing?.() === true;
+  const players = (context.controllers?.() ?? []).filter((player) => player.controls);
+  if (seeing && actions.seeThrough) {
+    entries.push({ type: 'item', label: 'Leave its eyes', onClick: () => actions.seeThrough?.(false) });
+  } else if (actions.castSelf && actions.askSpell && players.length > 0) {
+    const names = players.map((player) => player.name).join(', ');
+    entries.push({
+      type: 'submenu', label: 'Cast', icon: 'sparkles',
+      children: () => [
+        { type: 'item', label: 'Myself', onClick: () => actions.castSelf?.() },
+        { type: 'item', label: context.spellAsked?.() ? `Player: ${names} (asked)…` : `Player: ${names}…`, onClick: () => actions.askSpell?.() },
+      ],
+    });
+  } else if (actions.castSelf) {
+    entries.push({ type: 'item', label: 'Cast', onClick: () => actions.castSelf?.() });
+  } else if (actions.seeThrough) {
+    entries.push({ type: 'item', label: 'See through its eyes', onClick: () => actions.seeThrough?.(true) });
+  }
+  const gate = context.gate?.() ?? null;
+  if (gate && actions.goThroughGate) entries.push({ type: 'item', label: `Go through ${gate}`, onClick: () => actions.goThroughGate?.() });
   if (actions.setPov) {
     const on = context.pov?.() === true;
     entries.push({ type: 'item', label: on ? 'Stop POV' : 'Preview POV', onClick: () => actions.setPov?.(!on) });

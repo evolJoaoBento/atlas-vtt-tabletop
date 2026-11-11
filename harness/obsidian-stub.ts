@@ -1,5 +1,30 @@
 // Just enough of Obsidian's runtime for the browser harness.
 export const normalizePath = (path: string): string => path.split('/').filter(Boolean).join('/');
-export class TFile {}
-export class TFolder {}
+export class TAbstractFile {
+  constructor(public path = '') {}
+  get name(): string { return this.path.split('/').pop() ?? ''; }
+}
+export class TFile extends TAbstractFile {
+  get extension(): string { return this.name.includes('.') ? this.name.split('.').pop() ?? '' : ''; }
+  get basename(): string { return this.name.replace(/\.[^.]*$/, ''); }
+}
+export class TFolder extends TAbstractFile {
+  children: TAbstractFile[] = [];
+}
 export const setIcon = (): void => undefined;
+export class Component { load(): void {} unload(): void {} addChild<T>(child: T): T { return child; } register(): void {} registerEvent(): void {} }
+export class View extends Component {}
+export class BasesView extends View {}
+export const MarkdownRenderer = { render: async (): Promise<void> => {} };
+export const requireApiVersion = (): boolean => true;
+export const parseYaml = (text: string): unknown => JSON.parse(text || 'null');
+export const stringifyYaml = (value: unknown): string => JSON.stringify(value);
+/** Notices go to `window.notices`, for the checks to read. */
+export class Notice {
+  constructor(message: string) { ((window as unknown as { notices?: string[] }).notices ??= []).push(message); }
+}
+export class Scope { register(): unknown { return {}; } unregister(): void {} }
+export class Modal extends Component { contentEl = document.createElement('div'); modalEl = document.createElement('div'); constructor(public app: unknown) { super(); } open(): void {} close(): void {} }
+export const Keymap = { isModEvent: (): boolean => false, isModifier: (): boolean => false };
+export const Platform = { isMacOS: false, isMobile: false, isDesktop: true, isWin: true };
+export const base64ToArrayBuffer = (text: string): ArrayBuffer => Uint8Array.from(atob(text), (c) => c.charCodeAt(0)).buffer;

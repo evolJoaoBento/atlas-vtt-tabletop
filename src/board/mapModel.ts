@@ -7,6 +7,7 @@
 import { readLevelAlignment, readMapStretch, type MapStretch } from './mapStretch';
 import { readFog, type FogOperation } from './fog';
 import { readInitiative, type InitiativeState, type SideId } from './initiative';
+import { readRooms, roomWalls } from './atlasRooms/rooms';
 import { readLights, readSceneLighting, readWalls, type BoardLight, type BoardWall, type SceneLighting } from './walls';
 import { hiddenResourcesOf, isDefeated, tokenFromFile, type ResourceDefinition, type ResourceValue } from './resources';
 import { levelBackground, onLevel, onLevelRecord, readLevels, resolveLevel, type BoardLevel } from './levels';
@@ -92,6 +93,8 @@ export interface BoardPin {
   label: string | null;
   /** Drawn at the centre of its hex on a hex grid. */
   hex: boolean;
+  /** The name the GM gave it (Atlas 0.14), trimmed and cut to Atlas's 60; null where it has none (named by its note). */
+  name?: string | null;
 }
 
 /** An icon stamp from Atlas's draw tool: a Lucide glyph lying on the map. */
@@ -276,6 +279,7 @@ function readPin(pin: Raw): BoardPin | null {
     icon: str(pin.icon) ?? 'pin',
     label: typeof pin.label === 'string' ? pin.label : null,
     hex: pin.hex === true,
+    name: typeof pin.name === 'string' && pin.name.trim() !== '' ? pin.name.trim().slice(0, 60) : null,
   };
 }
 
@@ -351,6 +355,23 @@ export function alignedGrid(grid: BoardGrid, alignments: unknown, level: string 
 }
 
 /** Reads an `.atlasmap` file's text. Throws when it is not an Atlas map. */
+/**
+ * Each level's own alignment, by level id: a scene file keeps it on the level (`levels[i].alignment`), Atlas's memory
+ * (and an older file) in `levelAlignments`, which wins where both have one.
+ */
+export function levelAlignmentsOf(alignments: unknown, levels: unknown): Record<string, unknown> | undefined {
+  const out: Record<string, unknown> = {};
+  if (Array.isArray(levels)) {
+    for (const level of levels) {
+      if (typeof level === 'object' && level !== null && typeof (level as { id?: unknown }).id === 'string' && (level as { alignment?: unknown }).alignment !== undefined) {
+        out[(level as { id: string }).id] = (level as { alignment: unknown }).alignment;
+      }
+    }
+  }
+  if (typeof alignments === 'object' && alignments !== null && !Array.isArray(alignments)) Object.assign(out, alignments);
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export function readMap(path: string, text: string, viewedLevel?: string | null): BoardMap {
   let parsed: unknown;
   try {
@@ -376,7 +397,7 @@ export function readMap(path: string, text: string, viewedLevel?: string | null)
     background: levelBackground(str(state.background), levels, level),
     levels,
     level,
-    grid: alignedGrid(readGrid(state.grid), state.levelAlignments, level),
+    grid: alignedGrid(readGrid(state.grid), levelAlignmentsOf(state.levelAlignments, state.levels), level),
     tokenSettings: readTokenSettings(state.tokenSettings),
     tokens,
     pins: items(here(objects.pins)).map(readPin).filter((pin): pin is BoardPin => pin !== null),
@@ -385,7 +406,8 @@ export function readMap(path: string, text: string, viewedLevel?: string | null)
     initiative: readInitiative(state.initiative),
     inks: items(here(objects.drawings)).map(readInk).filter((ink): ink is BoardInk => ink !== null),
     fog: readFog(here(objects.fog)),
-    walls: readWalls(here(objects.walls)),
+    // Atlas 0.14's rooms: the outline of the shown rooms on this level stands as solid walls (all outside is rock).
+    walls: [...readWalls(here(objects.walls)), ...readWalls(Object.fromEntries(roomWalls(readRooms(here(objects.rooms))).map((wall) => [wall.id, wall])))],
     lights: readLights(here(objects.lights), here(objects.tokens)),
     lighting: readSceneLighting(state.lighting),
     rawGrid: state.grid ?? null,

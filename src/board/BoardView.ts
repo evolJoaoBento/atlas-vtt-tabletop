@@ -6,9 +6,14 @@
  * right edge (`initiativePanel.ts`): it shows the tracker Atlas holds while Atlas has the map open, following its
  * store as it changes, else the one in the file.
  */
-import type { BoardMark, BoardSession } from '../connectContract';
-import { ItemView, Menu, Notice, TFile, debounce, setIcon, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
+import type { MaterialDefaults } from '../materialDefaults';
+import { placeSurvey, type ArSurvey, type SavedArTable } from '../arTable';
+import type { BoardMark, BoardSession, BoardViewer } from '../connectContract';
+import { ItemView, Menu, Modal, Notice, TFile, debounce, setIcon, type App, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
 import { presentedSceneOf, tabViewOf, type AtlasView } from '../atlas';
+import { AtlasBridge } from '../atlasBridge';
+import { BoardAtlasTools } from './boardAtlasTools';
+import { tabletopCommands } from '../palette/tabletopCommands';
 import { MOSAIC_FROM_BYTES, mapPicture } from '../atlasMosaic';
 import { SceneTabBar, type SceneTabEntry } from './sceneTabBar';
 import { LayerModal } from '../layerModal';
@@ -20,20 +25,26 @@ import type { Assignments } from '../assignments';
 import { MiniPicker } from '../gallery';
 import type { LoadedMini, MiniLibrary } from '../library';
 import type { MaterialLibrary } from '../materials';
-import { Board, type BoardHost } from './board';
+import { Board, GM_SPELL_OWNER, type BoardHost } from './board';
+import type { CastSpell, SpellAsk } from './spells';
+import type { SpellBook } from './spellPicker';
+import type { SpellChange } from './playerTools';
 import { isVideoPath } from './textures';
-import type { BoardData } from './boardData';
+import type { BoardData, PropLook, PropVariant } from './boardData';
+import { lookOf } from './boardData';
+import type { UndoHistory } from './undoHistory';
 import { ASSETS_METADATA_PATH, collectionOf, emptyRules, readCollectionRules, type CollectionRules } from './conditions';
-import { resolveLevel } from './levels';
+import { levelName, levelRise, onFirstLevel, propsOnLevel, resolveLevel } from './levels';
 import { readMap, type BoardMap, type BoardToken } from './mapModel';
 import { readMeasurement } from './measure';
 import { defeatedResources, isDefeated, tokenFromFile } from './resources';
 import { AtlasMenu, type MenuEntry } from './atlasMenu';
 import { tokenMenuEntries } from './tokenMenu';
+import { SpellAskModal } from '../spellAskModal';
 import { addToInitiative, conditionChange, conditionStep, initiativeEntryFor, initiativeId, removeFromInitiative, resetChange, type ConditionFields } from './tokenEdits';
 import { applyInitiative, currentEntries, delayedTokens, emptyInitiative, fileCannotRun, ownModifier, readInitiative, statblockModifier, turnAnnouncement, type InitiativeAction, type InitiativeState } from './initiative';
 import { InitiativePanel, type InitiativePanelHost } from './initiativePanel';
-import { wholeWall } from './walls';
+import { wholeWall, isWindow, windowSpan, WINDOW_STEP } from './walls';
 import type { TokenChange } from './tokenWriter';
 import type { LaserSettings } from './laser';
 import type { PlayerView } from './PlayerWindow';
@@ -55,6 +66,13 @@ import { documentHasWebgl, NO_WEBGL_HELP, NO_WEBGL_TITLE } from '../webgl';
 import { TABLETOP_ICON } from '../tabletopIcon';
 
 export const BOARD_VIEW_TYPE = 'atlas-tabletop-board';
+/** A wall's own width: its step in the wall's menu and its most, in grid squares. */
+const WIDTH_STEP = 0.02;
+const WIDTH_MAX = 2;
+
+/** Where the board's toolbar mode (Play or Edit) is kept, for this vault. */
+const BOARD_MODE_KEY = 'tabletop-board-mode';
+
 /** The hover source Tabletop registers, so Obsidian's page preview shows stat blocks from the board. */
 export const HOVER_SOURCE = 'tabletop-for-atlas';
 const RELOAD_MS = 300;
@@ -64,6 +82,10 @@ const HEIGHT_STEP = 0.25;
 
 /** What the board's tab uses of the plugin. */
 export interface BoardServices {
+  /** Keeps a prop as a variant in the gallery. */
+  saveVariant?(variant: Omit<PropVariant, 'id'>): void;
+  /** Tabletop's undo history (src/board/undoHistory.ts). */
+  history?: UndoHistory;
   assignments: Assignments;
   boardData: BoardData;
   minis: MiniLibrary;
@@ -78,6 +100,9 @@ export interface BoardServices {
   setWallEdges?(edges: WallEdges): void;
   seeThrough?(): boolean;
   setSeeThrough?(on: boolean): void;
+  /** Whether dropped props snap to the grid, kept for every board. */
+  snapProps?(): boolean;
+  setSnapProps?(on: boolean): void;
   seeThroughSize?(): number;
   setSeeThroughSize?(squares: number): void;
   layerLook?(): LayerLook;
@@ -111,10 +136,16 @@ export interface BoardServices {
   playerViewOpen(path: string): boolean;
   /** This board has drawn its map: a player view of that map can be drawn into. */
   boardReady(view: BoardView): void;
+  /** The board showed another level of its scene (Atlas levels): what players are sent changes with it. */
+  levelShown?(mapPath: string): void;
   /** The GM's camera or the players' moved on this board. */
   cameraMoved?(view: BoardView): void;
   /** Connect's hosted session, while Connect hands one over. */
   session?(): BoardSession | null;
+  /** The vault's spell notes, for the spell search. */
+  spellBook?(): SpellBook | null;
+  /** The materials walls and doors wear when none is painted on them, by kind. */
+  materialDefaults?(): MaterialDefaults;
   /** The dice settings, and the pack the dice are made from (the default pack Tabletop carries until it is read). */
   diceSettings(): TabletopDiceSettings;
   dicePack(): ChosenPack;
@@ -122,11 +153,17 @@ export interface BoardServices {
 
 const tokenName = (token: BoardToken): string => token.name ?? token.imagePath?.split('/').pop()?.replace(/\.[^.]+$/, '') ?? 'Token';
 
+
+/** The casts whose token changes a board of the GM's has carried out: map path and spell id. */
+const claimedSpells = new Set<string>();
+
 export class BoardView extends ItemView {
   private path: string | null = null;
   private board: Board | null = null;
   /** The GM's dice on the board: its picker, table and roll. */
   private dice: BoardDice | null = null;
+  /** Atlas's random tables, asset manager and command palette over this board. */
+  private atlasTools: BoardAtlasTools | null = null;
   /** The stat block card Ctrl/Cmd + hover opens over a token, and the token it is for. */
   private hoverCard: StatblockHoverCard | null = null;
   /** Stops the board's dice throwing the rolls of Atlas's own hover window. */
@@ -142,6 +179,11 @@ export class BoardView extends ItemView {
   private playerWindow: PlayerView | null = null;
   /** The token menu while it is open: it follows the map as it changes. */
   private menu: AtlasMenu | null = null;
+  /** The GM's spells while Connect does not host: on this board alone, per map. */
+  private localSpells: Array<CastSpell & { path: string }> = [];
+  /** The map whose spells the board was last given. */
+  private spellsPath: string | null = null;
+  private nextLocalSpell = 1;
   /** Atlas's initiative tracker on the board. */
   private initiative: InitiativePanel | null = null;
   /** The Atlas view holding this map, whose store is followed so its tracker shows each change at once. */
@@ -171,6 +213,7 @@ export class BoardView extends ItemView {
     if (typeof file === 'string' && file !== this.path) {
       this.path = file;
       this.map = null;
+      this.chosenLevel = null;
       this.dropBoard();
       // The player view shows the map this tab showed: it waits for that map's board again.
       this.playerWindow?.waiting(true);
@@ -219,6 +262,27 @@ export class BoardView extends ItemView {
     // Atlas's keys for its tracker, taken before the board's (whose arrows move the camera).
     this.registerDomEvent(this.contentEl, 'keydown', (event) => this.initiativeKey(event), { capture: true });
     this.registerEvent(this.app.workspace.on('layout-change', () => this.watchAtlas()));
+    // The toolbar's undo and redo follow the history.
+    const history = this.services.history;
+    if (history) this.register(history.onChange(() => this.board?.refreshToolbar()));
+  }
+
+  /** The maps this board's undo reaches: its own and the scenes stacked with it. */
+  private undoPaths(): string[] {
+    const path = this.path;
+    if (!path) return [];
+    return [...new Set([path, ...this.services.boardData.stackOf(path).map((member) => member.path)])];
+  }
+
+  /** Takes back (or brings back) the latest change on this board's maps; says so where there was none or it failed. */
+  private travel(way: 'undo' | 'redo'): void {
+    const history = this.services.history;
+    if (!history) return;
+    void history[way](this.undoPaths()).then((result) => {
+      if (!result) new Notice(way === 'undo' ? 'Tabletop: nothing to undo.' : 'Tabletop: nothing to redo.');
+      else if (!result.done) new Notice(`Tabletop: could not ${way} the ${result.label}: the map was changed elsewhere since.`);
+      this.board?.refreshToolbar();
+    });
   }
 
   async onClose(): Promise<void> {
@@ -236,6 +300,8 @@ export class BoardView extends ItemView {
     this.dropBoard();
     this.playerWindow?.waiting(true);
     this.playerWindow = null;
+    this.atlasTools?.dispose();
+    this.atlasTools = null;
   }
 
   /** Whether this board has drawn its map, and so can draw a player view of it. */
@@ -307,6 +373,8 @@ export class BoardView extends ItemView {
   private makeBoard(preset: QualityPreset): Board {
     const board = new Board(this.contentEl, this.host(), preset);
     this.board = board;
+    this.atlasTools ??= this.makeAtlasTools();
+    this.atlasTools.attach(board);
     this.dice = new BoardDice({
       board,
       container: this.contentEl,
@@ -348,6 +416,49 @@ export class BoardView extends ItemView {
     this.board = null;
   }
 
+  /** Atlas's toolbar tools for this board: what each asks of the board. */
+  private makeAtlasTools(): BoardAtlasTools {
+    const atlasView = () => (this.path ? tabViewOf(this.app, this.path) : null);
+    const openInAtlas = (page?: string): void => {
+      const found = atlasView();
+      const state = found?.view.atlasStore.getState() as { setCommandPaletteOpen?: (open: boolean, page?: string) => void } | undefined;
+      if (!found || typeof state?.setCommandPaletteOpen !== 'function') { new Notice('Tabletop: this needs Atlas with this map open.'); return; }
+      this.app.workspace.setActiveLeaf(found.leaf, { focus: true });
+      state.setCommandPaletteOpen(true, page && page !== 'customize-toolbar' ? page : undefined);
+    };
+    return new BoardAtlasTools({
+      app: this.app, leaf: this.leaf, container: this.contentEl, writer: this.services.writer,
+      board: () => this.board, mapPath: () => this.path,
+      undo: () => this.travel('undo'), redo: () => this.travel('redo'),
+      palette: {
+        selectTool: (tool) => {
+          if (tool === 'move') return;
+          if (tool === 'measure') { this.board?.toolbarActions().selectMeasure?.('line'); return; }
+          openInAtlas();
+        },
+        setDiceLogOpen: (open) => this.dice?.setLogOpen(open),
+        initiativeOpen: () => this.initiative?.isOpen ?? false,
+        setInitiativeOpen: (open) => this.initiative?.setOpen(open),
+        openSceneBrowser: () => { const found = atlasView(); if (found?.view.openSceneBrowser) found.view.openSceneBrowser(); else new Notice('Tabletop: open another scene in Atlas.'); },
+        playerViewOpen: () => this.services.playerViewOpen(this.path ?? ''),
+        togglePlayerView: () => this.services.togglePlayerView(this),
+        playerFrozen: () => this.board?.playerFrozen ?? false,
+        togglePlayerFreeze: () => this.board?.setPlayerFrozen(!(this.board?.playerFrozen ?? false)),
+        presentInAtlas: () => { if (!this.path || !new AtlasBridge(this.app).runInAtlas(this.path, 'atlas-vtt:send-map-to-player-view', this.leaf)) new Notice('Tabletop: Atlas could not show this scene to players.'); },
+        openInAtlas,
+        tabletopCommands: () => { const board = this.board; return board ? tabletopCommands(board.toolbarActions(), () => board.refreshToolbar()) : []; },
+      },
+      spawn: {
+        centre: () => this.board?.viewCentre() ?? { x: 0, y: 0 },
+        grid: () => this.map?.grid ?? null,
+        tokens: () => Object.fromEntries((this.map?.tokens ?? []).map((token) => [token.id, token as unknown as Record<string, unknown>])),
+        select: (ids) => this.board?.selectTokens(ids),
+        joinInitiative: async (ids) => { for (const id of ids) await this.services.writer.initiative(this.path ?? '', id, true); this.initiative?.setOpen(true); },
+        openMap: async (file) => { await this.leaf.setViewState({ type: BOARD_VIEW_TYPE, state: { file }, active: true }); },
+      },
+    });
+  }
+
   /** The Atlas map view a roll on this board's map is logged on: the one showing it, else the one used last. */
   private rollView(): MapViewLike | null {
     const views = this.app.workspace.getLeavesOfType('atlas-vtt').map((leaf) => leaf.view as unknown as MapViewLike);
@@ -364,7 +475,31 @@ export class BoardView extends ItemView {
   refresh(): void {
     this.board?.refresh();
     void this.readStack();
+    this.showTable();
   }
+
+  /** The players' AR table on this map, for the board to fine-tune (Board settings, AR table). */
+  private showTable(): void {
+    const board = this.board;
+    if (!board || !this.path) return;
+    board.setArTable(this.services.boardData.arTable(this.path));
+  }
+
+  /**
+   * A player's survey of the table's AR marker sheets, for this board's map: kept, placed where an earlier placing had
+   * the sheets they share (else in the middle of the view), and the handles put on it to place it.
+   */
+  takeSurvey(survey: ArSurvey): void {
+    const board = this.board;
+    const path = this.path;
+    if (!board || !path) return;
+    const before = this.services.boardData.arTable(path);
+    const middle = board.viewMiddle();
+    this.services.boardData.setArTable(path, placeSurvey(survey, before, middle));
+    this.showTable();
+    board.placeTable(true);
+  }
+
 
   /** The stacked scenes as last read (their maps, tokens included), and the places tokens were just dropped on them: the next read has those too. */
   private stackLayers: ElevationLayerData[] = [];
@@ -375,7 +510,7 @@ export class BoardView extends ItemView {
    * where that place is taken, to the next square of a spiral round it with room for it, and leaves this one. Its mini
    * and its look go with it.
    */
-  private async moveTokensToLayer(ids: readonly string[], target: string): Promise<void> {
+  private async moveTokensToLayer(ids: readonly string[], target: string, places?: Readonly<Record<string, { x: number; y: number }>>): Promise<void> {
     const board = this.board;
     const from = this.path;
     const map = this.map;
@@ -394,8 +529,16 @@ export class BoardView extends ItemView {
       const token = map.tokens.find((candidate) => candidate.id === id);
       if (!token) continue;
       const radius = reach(token.size);
-      const spot = spiralSpot({ center: { x: size.width / 2, y: size.height / 2 }, cell: grid.size, offsetX: grid.offsetX, offsetY: grid.offsetY, width: size.width, height: size.height, occupied, radius });
+      // Where it was let go over the layer, else its middle: the nearest free square to that.
+      const wanted = places?.[id];
+      const spot = spiralSpot({ center: wanted ? { x: wanted.x, y: wanted.y } : { x: size.width / 2, y: size.height / 2 }, cell: grid.size, offsetX: grid.offsetX, offsetY: grid.offsetY, width: size.width, height: size.height, occupied, radius });
       const newId = layer.map.tokens.some((candidate) => candidate.id === id) ? `tok_${Date.now()}_${Math.random().toString(36).slice(2, 11)}` : id;
+      // Connect hears first, so a player who controls the token keeps it there and is shown that scene.
+      try {
+        this.services.session?.()?.tokensMoved?.({ from, to: target, tokens: [{ id, newId }] });
+      } catch (error) {
+        console.warn('[Tabletop] Connect could not hear of the token moving:', error);
+      }
       try {
         await writer.transfer(from, id, target, newId, spot);
       } catch (error) {
@@ -421,6 +564,138 @@ export class BoardView extends ItemView {
     if (moved > 0) new Notice(`Tabletop: ${moved === 1 ? 'a token' : `${moved} tokens`} moved to ${target.replace(/^.*\//, '').replace(/\.[^.]+$/, '')}.`);
   }
 
+  /** The level the board was sent to from its height ruler, while Atlas (if it shows the scene) has not followed yet; null for Atlas's. */
+  private chosenLevel: string | null = null;
+
+  /** Game units a grid square spans on this map (the scene's own override, else the measuring rules'). */
+  private unitDistance(): number {
+    const grid = this.map?.rawGrid as { unitDistanceOverride?: unknown } | undefined;
+    const own = grid?.unitDistanceOverride;
+    if (typeof own === 'number' && Number.isFinite(own) && own > 0) return own;
+    const measured = readMeasurement(this.rules.gridDefaults, this.map?.rawGrid).unitDistance;
+    return measured > 0 ? measured : 5;
+  }
+
+  /**
+   * The other levels of a scene with Atlas levels, as layers: the same file read for each level (its own floor image,
+   * walls, lights and tokens), standing at its height above the level shown, on the scene's one grid.
+   */
+  private async readLevels(path: string, shown: BoardMap): Promise<ElevationLayerData[] | null> {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) return null;
+    let text: string;
+    try {
+      text = await this.app.vault.read(file);
+    } catch (error) {
+      this.warn(`Tabletop: cannot read the levels of ${path}: ${error instanceof Error ? error.message : String(error)}.`);
+      return null;
+    }
+    const { assignments, boardData } = this.services;
+    const unit = this.unitDistance();
+    const layers: ElevationLayerData[] = [];
+    for (const level of shown.levels) {
+      // The level shown is given too, kept ready (put away) as a layer for when another is shown.
+      const current = level.id === shown.level;
+      let map: BoardMap;
+      try {
+        map = readMap(path, text, level.id);
+      } catch {
+        continue;
+      }
+      // A light on several levels lights the shown one already: the layer does not light it twice.
+      const lit = new Set(shown.lights.map((light) => light.id));
+      if (!current) map = { ...map, lights: map.lights.filter((light) => !lit.has(light.id)) };
+      const water = onFirstLevel(shown.levels, level.id) ? boardData.water(path) : null;
+      layers.push({
+        path: levelKey(level.id),
+        elevation: levelRise(shown.levels, shown.level, level.id, unit),
+        map,
+        wallHeight: (id) => boardData.wallHeight(path, id),
+        windowOf: (id) => boardData.windowOf(path, id),
+        wallWidth: (id) => boardData.wallWidth(path, id),
+        wallMaterial: (id) => boardData.wallMaterial(path, id),
+        doorProp: (id) => boardData.doorProp(path, id),
+        doorFlip: (id) => boardData.doorFlip(path, id),
+        lightHeight: (id) => boardData.lightHeight(path, id) ?? DEFAULT_LIGHT_SQUARES,
+        fogHeight: boardData.fogHeight(path),
+        wallThickness: boardData.wallThickness(path),
+        props: propsOnLevel(boardData.props(path), level.id, shown.levels),
+        water: water ? { mask: water.mask, motion: boardData.waterMotion(path) } : null,
+        // Levels share the scene's grid: each lies where it is.
+        stands: NO_PLACEMENT,
+        placement: (id) => assignments.get(path, id),
+        style: (id) => boardData.style(path, id),
+        ...(current ? { current: true } : {}),
+      });
+    }
+    return layers;
+  }
+
+  /**
+   * Another level from the height ruler: the board stays, shows that level at once and glides the camera to its floor;
+   * Atlas, where it shows the scene, follows to the same level.
+   */
+  private async switchLevel(id: string): Promise<void> {
+    const map = this.map;
+    const path = this.path;
+    if (!this.board || !map || !path || map.level === id || !map.levels.some((level) => level.id === id)) return;
+    const rise = levelRise(map.levels, map.level, id, this.unitDistance());
+    this.chosenLevel = id;
+    this.board.switchingTo(levelKey(id));
+    await this.read(-rise * map.grid.size);
+    if (this.closed || this.path !== path) return;
+    // Atlas follows; once it shows the level, it is Atlas's choice again (and its change does not read the scene twice).
+    const store = tabViewOf(this.app, path)?.view.atlasStore;
+    const state = store?.getState() as { setViewedLevel?: (level: string | null) => void } | undefined;
+    if (state?.setViewedLevel) {
+      try {
+        state.setViewedLevel(id);
+        this.chosenLevel = null;
+      } catch (error) {
+        console.warn('[Tabletop] Atlas could not show the level:', error);
+      }
+    }
+  }
+
+  /** A level's pill on the height ruler: show it, or hide it on this board (Atlas sets its height and its order). */
+  private levelMenu(key: string, event: MouseEvent): void {
+    const id = levelOfKey(key);
+    const map = this.map;
+    const path = this.path;
+    if (id === null || !map || !path) return;
+    const { boardData } = this.services;
+    const hideKey = `${path}#${key}`;
+    const active = id === map.level;
+    const entries = (): MenuEntry[] => [
+      { type: 'item', label: active ? 'Showing this level' : 'Show this level', disabled: active, onClick: () => { void this.switchLevel(id); } },
+      { type: 'separator' },
+      { type: 'item', label: boardData.layerHidden(hideKey) ? 'Show this layer' : active ? 'Hide this layer (show another level to hide this one)' : 'Hide this layer', disabled: active && !boardData.layerHidden(hideKey), onClick: () => { boardData.setLayerHidden(hideKey, !boardData.layerHidden(hideKey)); void this.readStack(); } },
+    ];
+    this.menu?.close();
+    this.menu = new AtlasMenu(this.contentEl.ownerDocument, entries, { x: event.clientX, y: event.clientY }, (element, name) => setIcon(element, name), () => { this.menu = null; });
+  }
+
+  /** Tokens dropped on another level's pill on the height ruler: they go to that level, where they stand. */
+  private async moveTokensToLevel(ids: readonly string[], level: string, places?: Readonly<Record<string, { x: number; y: number }>>): Promise<void> {
+    const path = this.path;
+    const map = this.map;
+    if (!path || !map || !map.levels.some((entry) => entry.id === level)) return;
+    let moved = 0;
+    for (const id of ids) {
+      if (!map.tokens.some((token) => token.id === id)) continue;
+      try {
+        await this.services.writer.update(path, id, () => ({ level }));
+        // Let go over the level: where it was let go (levels share the scene's grid).
+        const place = places?.[id];
+        if (place) await this.services.writer.move(path, id, place.x, place.y);
+        moved++;
+      } catch (error) {
+        this.unsaved('move to another level', error);
+      }
+    }
+    if (moved > 0) new Notice(`Tabletop: ${moved === 1 ? 'a token' : `${moved} tokens`} moved to ${levelName(map.levels, level)}.`);
+  }
+
   /** The scenes stacked with this one that were read, whose files are followed. */
   private stackPaths = new Set<string>();
   private stackRead = 0;
@@ -435,12 +710,27 @@ export class BoardView extends ItemView {
     const board = this.board;
     if (!path || !board) return;
     const { assignments, boardData } = this.services;
+    // A scene with Atlas levels: its other levels are the layers (the scene stacks of older Tabletop are left aside).
+    const shown = this.map;
+    if (shown && shown.levels.length > 1) {
+      const turn = ++this.stackRead;
+      const layers = await this.readLevels(path, shown);
+      if (this.closed || turn !== this.stackRead || path !== this.path || !layers) return;
+      this.stackPaths = new Set();
+      this.stackLayers = layers.filter((layer) => !layer.current);
+      this.arrived.clear();
+      board.setStack(layers);
+      const unit = this.unitDistance();
+      board.setLayerMenu(shown.levels.map((level) => ({ path: levelKey(level.id), name: levelName(shown.levels, level.id), elevation: levelRise(shown.levels, shown.levels[0].id, level.id, unit), active: level.id === shown.level })).sort((a, b) => b.elevation - a.elevation));
+      return;
+    }
     const stack = boardData.stackOf(path);
     const mine = stack.find((member) => member.path === path);
     const turn = ++this.stackRead;
     const layers: ElevationLayerData[] = [];
     for (const member of mine ? stack : []) {
-      if (member.path === path) continue;
+      // The scene shown is given too, kept ready as a layer for when another is shown.
+      const current = member.path === path;
       const file = this.app.vault.getAbstractFileByPath(member.path);
       if (!(file instanceof TFile)) continue;
       try {
@@ -450,6 +740,8 @@ export class BoardView extends ItemView {
           elevation: member.elevation - (mine?.elevation ?? 0),
           map,
           wallHeight: (id) => boardData.wallHeight(member.path, id),
+          windowOf: (id) => boardData.windowOf(member.path, id),
+          wallWidth: (id) => boardData.wallWidth(member.path, id),
           wallMaterial: (id) => boardData.wallMaterial(member.path, id),
           doorProp: (id) => boardData.doorProp(member.path, id),
           doorFlip: (id) => boardData.doorFlip(member.path, id),
@@ -457,18 +749,20 @@ export class BoardView extends ItemView {
           fogHeight: boardData.fogHeight(member.path),
           wallThickness: boardData.wallThickness(member.path),
           props: boardData.props(member.path),
+          water: (() => { const saved = boardData.water(member.path); const motion = boardData.waterMotion(member.path); return saved ? { mask: saved.mask, motion } : null; })(),
           // Where it stands on the plane, seen from this scene: the one being played is drawn as it is.
           stands: relativeTo(mine?.placement ?? NO_PLACEMENT, member.placement),
           placement: (id) => assignments.get(member.path, id),
           style: (id) => boardData.style(member.path, id),
+          ...(current ? { current: true } : {}),
         });
       } catch (error) {
         this.warn(`Tabletop: cannot show the stacked scene ${member.path}: ${error instanceof Error ? error.message : String(error)}.`);
       }
     }
     if (this.closed || turn !== this.stackRead || path !== this.path) return;
-    this.stackPaths = new Set(layers.map((layer) => layer.path));
-    this.stackLayers = layers;
+    this.stackLayers = layers.filter((layer) => !layer.current);
+    this.stackPaths = new Set(this.stackLayers.map((layer) => layer.path));
     // What arrived since the last read is in the files now.
     this.arrived.clear();
     board.setStack(layers);
@@ -487,12 +781,13 @@ export class BoardView extends ItemView {
     this.board?.paintWith(material);
   }
 
-  placeProp(glb: string): void {
-    this.board?.placeProp(glb);
+  placeProp(glb: string, look?: PropLook): void {
+    this.board?.placeProp(glb, look);
   }
 
   /** The floor of the map Atlas shows (its view's), else the one players were sent; unset is the first. */
   private shownLevel(path: string): string | null {
+    if (this.chosenLevel !== null) return this.chosenLevel;
     const held = tabViewOf(this.app, path)?.view.atlasStore.getState();
     if (held?.viewedLevel) return held.viewedLevel;
     const presented = presentedSceneOf(this.app)?.get();
@@ -534,7 +829,10 @@ export class BoardView extends ItemView {
     }
     this.hideNoWebgl();
     this.rules = rules;
+    const levelChanged = this.map !== null && this.map.path === map.path && this.map.level !== map.level;
     this.map = map;
+    if (levelChanged) this.services.levelShown?.(path);
+    this.atlasTools?.setMap(path);
     await board.load(map, shiftY, carry);
     this.menu?.refresh();
     this.watchAtlas();
@@ -554,9 +852,13 @@ export class BoardView extends ItemView {
     const board = this.board;
     const path = this.path;
     if (!board || !path) return;
+    this.showTable();
+    if (this.spellsPath !== path) { this.spellsPath = path; board.forgetCasts(); }
     const session = this.services.session?.() ?? null;
     if (!session?.hosting()) {
       board.receiveTemplates([]);
+      // Not hosting: the GM's own spells, kept here alone.
+      board.receiveSpells(this.localSpells.filter((cast) => cast.path === path).map(({ path: _path, ...cast }) => cast));
       board.setHandout(null);
       board.setBanner(null);
       board.refreshToolbar();
@@ -565,6 +867,7 @@ export class BoardView extends ItemView {
     const overlay = session.overlay(path);
     board.tools.coneAngle = overlay.coneAngle;
     board.receiveTemplates(overlay.templates);
+    board.receiveSpells(overlay.spells ?? []);
     const handout = overlay.handout;
     const file = handout ? this.app.vault.getAbstractFileByPath(handout.path) : null;
     board.setHandout(handout ? { title: handout.title, url: file instanceof TFile ? this.app.vault.getResourcePath(file) : null } : null);
@@ -581,6 +884,20 @@ export class BoardView extends ItemView {
     if (!this.board || mark.mapPath !== this.path) return;
     if (mark.kind === 'ping') this.board.receivePing(mark.x, mark.y, mark.color);
     else this.board.receiveLaser(mark.from, mark.points, mark.lifted, mark.color);
+  }
+
+  /** Players in AR this board has said it heard of (once each, in the console). */
+  private readonly viewersSeen = new Set<string>();
+
+  /** A player's phone in augmented reality: its eye shows on this board while it looks at this board's map. */
+  viewer(viewer: BoardViewer): void {
+    if (!this.board) return;
+    if (viewer.pose && !this.viewersSeen.has(viewer.from)) {
+      this.viewersSeen.add(viewer.from);
+      const at = viewer.pose.position.map((v) => Math.round(v)).join(', ');
+      console.info(`[Tabletop] ${viewer.name} is in AR on ${viewer.mapPath}, at ${at}: ${viewer.mapPath === this.path ? 'their eye shows on this board' : `not this board's map (${this.path ?? 'none'})`}.`);
+    }
+    this.board.receiveViewer(viewer.from, viewer.name, viewer.color, viewer.mapPath === this.path ? viewer.pose : null);
   }
 
   /** Opens this board's map in an Atlas tab beside it, leaving the board in front. */
@@ -649,6 +966,16 @@ export class BoardView extends ItemView {
     const { assignments, boardData, writer } = this.services;
     const mapPath = (): string => this.path ?? '';
     return {
+      spellBook: () => this.services.spellBook?.() ?? null,
+      layerHidden: (path) => path !== this.path && boardData.layerHidden(levelOfKey(path) !== null ? `${this.path ?? ''}#${path}` : path),
+      water: () => { if (this.map && !onFirstLevel(this.map.levels, this.map.level)) return null; const path = mapPath(); const saved = boardData.water(path); const motion = boardData.waterMotion(path); return saved || motion ? { mask: saved?.mask ?? null, motion } : null; },
+      saveWater: (mask) => boardData.setWater(mapPath(), mask),
+      saveWaterMotion: (motion) => boardData.setWaterMotion(mapPath(), motion),
+      undo: () => this.travel('undo'),
+      redo: () => this.travel('redo'),
+      canUndo: () => this.services.history?.canUndo(this.undoPaths()) === true,
+      canRedo: () => this.services.history?.canRedo(this.undoPaths()) === true,
+      recordUndo: (step) => this.services.history?.push({ ...step, paths: [mapPath()] }),
       readImage: async (path) => {
         const file = this.app.vault.getAbstractFileByPath(path);
         return file instanceof TFile ? this.app.vault.getResourcePath(file) : null;
@@ -662,7 +989,7 @@ export class BoardView extends ItemView {
       readMini: (path): Promise<LoadedMini> => this.library(path).load(path),
       placement: (id) => assignments.get(mapPath(), id),
       style: (id) => boardData.style(mapPath(), id),
-      props: () => boardData.props(mapPath()),
+      props: () => propsOnLevel(boardData.props(mapPath()), this.map?.level ?? null, this.map?.levels ?? []),
       rules: () => this.rules,
       moveToken: (id, x, y) => {
         writer.move(mapPath(), id, x, y).catch((error: unknown) => this.unsaved('move', error));
@@ -670,12 +997,59 @@ export class BoardView extends ItemView {
       moveTokens: (moves) => {
         writer.moveMany(mapPath(), moves).catch((error: unknown) => this.unsaved('move', error));
       },
+      claimSpell: (id) => {
+        // Once for the map, whichever of the GM's boards sees the cast first.
+        const key = `${mapPath()}\u0000${id}`;
+        if (claimedSpells.has(key)) return false;
+        claimedSpells.add(key);
+        return true;
+      },
+      summonTokens: (tokens) => {
+        const path = mapPath();
+        const inputs = tokens.map((token) => {
+          // A statblock by link or name, when the vault has one.
+          const link = (token.statblock ?? token.name).replace(/^\[\[|\]\]$/g, '').split('|')[0]!.trim();
+          const file = this.app.metadataCache.getFirstLinkpathDest(link, path);
+          return { x: token.x, y: token.y, kind: 'character', name: token.name, imagePath: '', ...(file ? { statblockPath: file.path } : {}) };
+        });
+        try {
+          const { ids, done } = writer.addTokensNow(path, inputs);
+          done.catch((error: unknown) => this.unsaved('summons', error));
+          return ids;
+        } catch (error) {
+          this.unsaved('summons', error);
+          return [];
+        }
+      },
+      removeTokens: (ids) => { for (const id of ids) this.deleteToken(id); },
       moveProp: (id, x, y) => boardData.moveProp(mapPath(), id, x, y),
-      addProp: (glb, x, y) => { boardData.addProp(mapPath(), { glb, x, y, rotation: 0, scale: 1 }); },
+      scaleProp: (id, scale) => boardData.setPropScale(mapPath(), id, scale),
+      liftProp: (id, lift) => boardData.setPropLift(mapPath(), id, lift),
+      snapProps: () => this.services.snapProps?.() ?? true,
+      setSnap: (kind: 'tokens' | 'props', on: boolean) => {
+        if (kind === 'props') { this.services.setSnapProps?.(on); return; }
+        // Tokens: the map's own Snap to grid, as Atlas has it; shown at once, then saved to the map.
+        if (this.map) (this.map.grid as { snap: boolean }).snap = on;
+        this.board?.refreshToolbar();
+        writer.setSnapToGrid(mapPath(), on).catch((error: unknown) => this.unsaved('snap to grid', error));
+      },
+      addProp: (glb, x, y, look) => { const level = this.map && !onFirstLevel(this.map.levels, this.map.level) ? this.map.level : null; boardData.addProp(mapPath(), { glb, x, y, rotation: 0, ...lookOf(look), ...(level ? { level } : {}) }); },
       openNote: (path) => { void this.app.workspace.openLinkText(path, mapPath(), 'tab'); },
       tokenMenu: (id, event) => this.tokenMenu(id, event),
       propMenu: (id, event) => {
         const menu = new Menu();
+        const solid = boardData.props(mapPath()).find((prop) => prop.id === id)?.solid === true;
+        menu.addItem((item) => item.setTitle('Make solid').setIcon('box').setChecked(solid).onClick(() => boardData.setPropSolid(mapPath(), id, !solid)));
+        const prop = boardData.props(mapPath()).find((candidate) => candidate.id === id);
+        if (prop && this.services.saveVariant) {
+          menu.addItem((item) => item.setTitle('Save as variant').setIcon('copy-plus').onClick(() => {
+            const base = prop.glb.split('/').pop()?.replace(/\.glb$/i, '') ?? 'Prop';
+            new VariantModal(this.app, `${base} variant`, (name) => {
+              this.services.saveVariant?.({ name, glb: prop.glb, ...lookOf(prop) });
+              new Notice(`Tabletop: ${name} saved to the gallery's props.`);
+            }).open();
+          }));
+        }
         menu.addItem((item) => item.setTitle('Remove prop').setIcon('trash').onClick(() => boardData.removeProp(mapPath(), id)));
         menu.showAtMouseEvent(event);
       },
@@ -735,11 +1109,21 @@ export class BoardView extends ItemView {
       ...(this.services.setSeeThroughSize && { setSeeThroughSize: (squares: number) => this.services.setSeeThroughSize?.(squares) }),
       ...(this.services.setLayerLook && { setLayerLook: (look: LayerLook) => this.services.setLayerLook?.(look) }),
       ...(this.services.setLineOfSight && { setLineOfSight: (mode: SightMode) => this.services.setLineOfSight?.(mode) }),
-      switchLayer: (path: string) => { void this.switchMember(path); },
-      layerMenu: (path: string, event: MouseEvent) => this.rulerMenu(path, event),
+      switchLayer: (path: string) => { const level = levelOfKey(path); if (level !== null) void this.switchLevel(level); else void this.switchMember(path); },
+      layerMenu: (path: string, event: MouseEvent) => (levelOfKey(path) !== null ? this.levelMenu(path, event) : this.rulerMenu(path, event)),
       layerPlaced: (path: string, placement: Placement) => this.placeLayer(path, placement),
       layerReset: (path: string) => this.resetLayer(path),
-      moveTokensToLayer: (ids: readonly string[], path: string) => { void this.moveTokensToLayer(ids, path); },
+      tablePlaced: (table: SavedArTable) => { if (this.path) this.services.boardData.setArTable(this.path, table); },
+      tableRemoved: () => { if (this.path) this.services.boardData.setArTable(this.path, null); },
+      moveTokensToLayer: (ids, path, places, follow) => {
+        const level = levelOfKey(path);
+        void (async () => {
+          if (level !== null) await this.moveTokensToLevel(ids, level, places);
+          else await this.moveTokensToLayer(ids, path, places);
+          // Let go over the layer: it is the one shown now, the tokens on it.
+          if (follow && !this.closed) { if (level !== null) await this.switchLevel(level); else await this.switchMember(path); }
+        })();
+      },
       ...(this.services.setSightStyle && { setSightStyle: (style: SightStyle) => this.services.setSightStyle?.(style) }),
       ...(this.services.setWallEdges && { setWallEdges: (edges: WallEdges) => this.services.setWallEdges?.(edges) }),
       setOcclusion: (on) => this.services.setOcclusion?.(on),
@@ -749,8 +1133,17 @@ export class BoardView extends ItemView {
       initiativeOpen: () => this.initiative?.isOpen ?? false,
       toggleInitiative: () => this.initiative?.setOpen(!this.initiative.isOpen),
       wallMaterial: (id) => boardData.wallMaterial(mapPath(), id),
+      materialDefaults: () => this.services.materialDefaults?.() ?? {},
       wallHeight: (id) => boardData.wallHeight(mapPath(), id),
+      windowOf: (id) => boardData.windowOf(mapPath(), id),
+      wallWidth: (id) => boardData.wallWidth(mapPath(), id),
       setWallHeight: (id, squares, whole) => boardData.setWallHeight(mapPath(), whole ? wholeWall(this.map?.walls ?? [], id) : [id], squares),
+      setWallWidth: (id, squares, whole) => boardData.setWallWidth(mapPath(), whole ? wholeWall(this.map?.walls ?? [], id) : [id], squares),
+      setWindowSpan: (id, span, whole) => {
+        const walls = this.map?.walls ?? [];
+        const ids = whole ? wholeWall(walls, id).filter((other) => walls.some((candidate) => candidate.id === other && isWindow(candidate))) : [id];
+        boardData.setWindow(mapPath(), ids.length > 0 ? ids : [id], span);
+      },
       setLightHeight: (id, squares) => boardData.setLightHeight(mapPath(), id, squares),
       doorProp: (id) => boardData.doorProp(mapPath(), id),
       doorFlip: (id) => boardData.doorFlip(mapPath(), id),
@@ -782,6 +1175,9 @@ export class BoardView extends ItemView {
         const have = assignments.get(mapPath(), tokenId);
         assignments.set(mapPath(), tokenId, { mini: glb, scale: have?.scale ?? 1, turn: have?.turn ?? 0, ...(have?.base ? { base: have.base } : {}) });
       },
+      materials: () => this.services.materials.list().map((folder) => ({ path: folder.path, name: folder.name, thumb: this.services.materials.thumbnail(folder.path) })),
+      boardMode: () => (this.app.loadLocalStorage(BOARD_MODE_KEY) === 'edit' ? 'edit' : 'play'),
+      setBoardMode: (mode) => this.app.saveLocalStorage(BOARD_MODE_KEY, mode),
       paintWall: (id, material, whole) => {
         const walls = this.map?.walls ?? [];
         const wall = walls.find((candidate) => candidate.id === id);
@@ -796,7 +1192,9 @@ export class BoardView extends ItemView {
       playerAction: (action) => {
         const session = this.services.session?.();
         const path = this.path;
-        if (!session || !path || action.type !== 'template') return;
+        if (action.type === 'spell' && path) { this.gmSpell(path, action.change); return; }
+        if (!session || !path) return;
+        if (action.type !== 'template') return;
         const change = action.change;
         if ('add' in change) session.addTemplate(path, change.add);
         else if ('remove' in change) session.eraseTemplate(path, change.remove);
@@ -852,6 +1250,46 @@ export class BoardView extends ItemView {
       if (whole.length > 1) list.push({ type: 'item', label: 'Give the whole wall this height', onClick: () => boardData.setWallHeight(path, whole, height) });
       if (own !== null || whole.some((other) => boardData.wallHeight(path, other) !== null)) {
         list.push({ type: 'item', label: 'Back to the fog\'s height', onClick: () => boardData.setWallHeight(path, whole, null) });
+      }
+      // A plain wall can be made Atlas's window (it stops only tokens; sight and light pass both ways), and back. Not a
+      // room's outline (Atlas 0.14): it is the rooms' edge, never edited by hand, and has no wall in the file to change.
+      if (!door && wall.chain !== 'rooms') {
+        const glazed = isWindow(wall);
+        const makeWindow = (ids: readonly string[], on: boolean): void => {
+          for (const other of this.map?.walls ?? []) if (ids.includes(other.id) && other.type === 'solid') other.blocks = on ? 'movement' : null;
+          this.board?.refresh();
+          writer.setWindow(path, ids, on).catch((error: unknown) => this.unsaved('window', error));
+        };
+        list.push({ type: 'item', label: glazed ? 'Make plain wall' : 'Make window', onClick: () => makeWindow([id], !glazed) });
+        if (whole.length > 1) list.push({ type: 'item', label: glazed ? 'Make the whole wall plain' : 'Make the whole wall a window', onClick: () => makeWindow(whole, !glazed) });
+      }
+      // Its own width, by fiftieths of a square; until set, as thick as the map's walls.
+      const ownWidth = boardData.wallWidth(path, id);
+      const width = ownWidth ?? boardData.wallThickness(path);
+      const setWidth = (next: number): void => boardData.setWallWidth(path, [id], Math.min(WIDTH_MAX, Math.max(WIDTH_STEP, Math.round(next * 100) / 100)));
+      list.push({
+        type: 'item', label: ownWidth === null ? 'Width (default)' : 'Width', keepOpen: true, onClick: () => undefined,
+        stepper: { value: `${width} sq`, label: 'Width', canDecrement: width > WIDTH_STEP, onDecrement: () => setWidth(width - WIDTH_STEP), onIncrement: () => setWidth(width + WIDTH_STEP) },
+      });
+      if (whole.length > 1) list.push({ type: 'item', label: 'Give the whole wall this width', onClick: () => boardData.setWallWidth(path, whole, width) });
+      if (ownWidth !== null || whole.some((other) => boardData.wallWidth(path, other) !== null)) {
+        list.push({ type: 'item', label: 'Back to the default width', onClick: () => boardData.setWallWidth(path, whole, null) });
+      }
+      // Atlas's window: where its opening begins and ends, by quarter squares, inside the wall.
+      if (isWindow(wall)) {
+        const span = windowSpan(height, boardData.windowOf(path, id));
+        const setSpan = (ids: readonly string[], next: { bottom: number; top: number }): void => boardData.setWindow(path, ids, windowSpan(height, next));
+        list.push({
+          type: 'item', label: 'Window bottom', keepOpen: true, onClick: () => undefined,
+          stepper: { value: `${span.bottom} sq`, label: 'Window bottom', canDecrement: span.bottom > 0, onDecrement: () => setSpan([id], { ...span, bottom: span.bottom - WINDOW_STEP }), onIncrement: () => setSpan([id], { bottom: Math.min(span.bottom + WINDOW_STEP, span.top - WINDOW_STEP), top: span.top }) },
+        });
+        list.push({
+          type: 'item', label: 'Window top', keepOpen: true, onClick: () => undefined,
+          stepper: { value: `${span.top} sq`, label: 'Window top', canDecrement: span.top - WINDOW_STEP > span.bottom, onDecrement: () => setSpan([id], { ...span, top: span.top - WINDOW_STEP }), onIncrement: () => setSpan([id], { ...span, top: span.top + WINDOW_STEP }) },
+        });
+        const windowWall = wholeWall(this.map?.walls ?? [], id).filter((other) => this.map?.walls.some((candidate) => candidate.id === other && isWindow(candidate)));
+        if (windowWall.length > 1) list.push({ type: 'item', label: 'Give the whole window this opening', onClick: () => boardData.setWindow(path, windowWall, span) });
+        if (windowWall.some((other) => boardData.windowOf(path, other) !== null)) list.push({ type: 'item', label: 'Default window opening', onClick: () => boardData.setWindow(path, windowWall.length > 0 ? windowWall : [id], null) });
       }
       list.push({ type: 'separator' });
       if (door) {
@@ -954,8 +1392,8 @@ export class BoardView extends ItemView {
   }
 
   /**
-   * A scene tab's layers menu: stack the scene on another one at an elevation (an upper floor, a balcony), change that
-   * elevation, or take it out of the stack. Opening either scene of a stack in 3D shows them together.
+   * A scene tab's layers menu: stack the scene on another one (an upper floor, a balcony), or take it out of the stack;
+   * its elevation is set on the height ruler. Opening either scene of a stack in 3D shows them together.
    */
   private layerMenu(tabId: string, at: { x: number; y: number }): void {
     const found = this.path ? tabViewOf(this.app, this.path) : null;
@@ -972,25 +1410,11 @@ export class BoardView extends ItemView {
       if (hasLayers) {
         const names = boardData.layersOf(path).map((member) => member.path.replace(/^.*\//, '').replace(/\.[^.]+$/, ''));
         list.push({ type: 'item', label: `Base of ${names.join(', ')}`, disabled: true, onClick: () => {} });
-      } else {
-        const base = layer?.base ?? null;
-        const stand = others();
-        list.push({
-          type: 'submenu', label: base ? 'Stand on…' : 'Make a layer of…', icon: 'layers',
-          children: () => [
-            ...stand.map((other): MenuEntry => ({ type: 'item', label: other.name, checked: other.path === base, onClick: () => { if (!boardData.setLayer(path, other.path, boardData.layerOf(path)?.elevation ?? 1)) new Notice('Tabletop: that scene cannot be stacked there.'); this.sceneTabs?.refresh(); } })),
-            ...(stand.length > 0 ? [{ type: 'separator' } as MenuEntry] : []),
-            { type: 'item', label: 'Another scene…', onClick: () => this.pickLayerBase(path) },
-          ],
-        });
-        if (layer) {
-          const elevation = layer.elevation;
-          const step = (delta: number): void => { boardData.setLayer(path, layer.base, Math.round((elevation + delta) * 100) / 100); this.sceneTabs?.refresh(); this.menu?.refresh(); };
-          list.push({ type: 'item', label: 'Elevation (squares)', keepOpen: true, onClick: () => {}, stepper: { value: String(elevation), label: 'elevation', canDecrement: true, onDecrement: () => step(-1), onIncrement: () => step(1) } });
-          list.push({ type: 'separator' });
-          list.push({ type: 'item', label: 'Remove from stack', destructive: true, onClick: () => { boardData.clearLayer(path); this.sceneTabs?.refresh(); } });
-        }
+      } else if (layer) {
+        // A scene stacked by an older Tabletop: it can still leave its stack (floors are Atlas levels now).
+        list.push({ type: 'item', label: 'Remove from stack', destructive: true, onClick: () => { boardData.clearLayer(path); this.sceneTabs?.refresh(); } });
       }
+      if (list.length === 0) list.push({ type: 'item', label: 'Floors are Atlas levels: add one in Atlas', disabled: true, onClick: () => {} });
       return list;
     };
     this.menu?.close();
@@ -1003,7 +1427,7 @@ export class BoardView extends ItemView {
     new LayerModal(this.app, this.services.boardData, path, maps).open();
   }
 
-  /** The menu of a scene's pill on the height ruler: place it on the plane, or put it back. */
+  /** The menu of a scene's pill on the height ruler: its elevation, placing it on the plane or putting it back, hiding it. */
   private rulerMenu(path: string, event: MouseEvent): void {
     const board = this.board;
     const here = this.path;
@@ -1013,9 +1437,28 @@ export class BoardView extends ItemView {
     // The base scene is the reference every other scene is placed against: it never moves.
     const base = boardData.layerOf(path) === null;
     const adjusting = board.adjustingPath === path;
+    // Its elevation, a square at a time (the base scene is the ground every other one stands on).
+    const elevation = (): MenuEntry[] => {
+      const layer = boardData.layerOf(path);
+      if (!layer) return [];
+      const step = (delta: number): void => {
+        const now = boardData.layerOf(path);
+        if (!now) return;
+        boardData.setLayer(path, now.base, Math.round((now.elevation + delta) * 100) / 100);
+        this.sceneTabs?.refresh();
+        void this.readStack().then(() => this.menu?.refresh());
+      };
+      return [
+        { type: 'item', label: 'Elevation (squares)', keepOpen: true, onClick: () => {}, stepper: { value: String(layer.elevation), label: 'elevation', canDecrement: true, onDecrement: () => step(-1), onIncrement: () => step(1) } },
+        { type: 'separator' },
+      ];
+    };
     const entries = (): MenuEntry[] => [
+      ...elevation(),
       { type: 'item', label: adjusting ? 'Stop adjusting' : base ? 'Adjust position (the base scene never moves)' : active ? 'Adjust position (open another scene to move this one)' : 'Adjust position', disabled: base || active, onClick: () => board.setAdjust(adjusting ? null : path) },
       { type: 'item', label: 'Reset position', disabled: base || active || isNoPlacement(boardData.placementOf(path)), onClick: () => this.resetLayer(path) },
+      { type: 'separator' },
+      { type: 'item', label: boardData.layerHidden(path) ? 'Show this layer' : active ? 'Hide this layer (open another scene to hide this one)' : 'Hide this layer', disabled: active && !boardData.layerHidden(path), onClick: () => { boardData.setLayerHidden(path, !boardData.layerHidden(path)); void this.readStack(); } },
     ];
     this.menu?.close();
     this.menu = new AtlasMenu(this.contentEl.ownerDocument, entries, { x: event.clientX, y: event.clientY }, (element, name) => setIcon(element, name), () => { this.menu = null; });
@@ -1061,6 +1504,7 @@ export class BoardView extends ItemView {
     this.playerWindow = null;
     this.retitle();
     // The camera keeps its view of the base scene: carried by the change of frame between the two scenes' places on the plane.
+    board.switchingTo(path);
     await this.read((before.elevation - after.elevation) * cell, relativeTo(after.placement, before.placement));
     if (!this.closed && this.path === path) this.services.boardReady(this);
     this.sceneTabs?.refresh();
@@ -1085,10 +1529,7 @@ export class BoardView extends ItemView {
     const tab = found?.view.tabMetaStore.getState().tabs.find((entry) => entry.id === tabId);
     if (!found || !tab) return;
     await found.view.switchToTab(tabId);
-    this.app.workspace.setActiveLeaf(found.leaf, { focus: false });
-    const commands = (this.app as unknown as { commands?: { executeCommandById?(id: string): boolean } }).commands;
-    const ran = commands?.executeCommandById?.('atlas-vtt:send-map-to-player-view') === true;
-    this.app.workspace.setActiveLeaf(this.leaf, { focus: true });
+    const ran = new AtlasBridge(this.app).runInAtlas(tab.filePath, 'atlas-vtt:send-map-to-player-view', this.leaf);
     if (!ran) new Notice('Tabletop: Atlas could not show this scene to players.');
     if (tab.filePath !== this.path) await this.leaf.setViewState({ type: BOARD_VIEW_TYPE, state: { file: tab.filePath }, active: true });
     this.sceneTabs?.refresh();
@@ -1246,7 +1687,11 @@ export class BoardView extends ItemView {
       miniBase: () => assignments.get(map.path, id)?.base ?? 'none',
       standee: () => boardData.style(map.path, id) === 'standee',
       pov: () => this.board?.povToken === id,
+      seeing: () => this.board?.seeingFrom === id,
       lightHeight: () => (this.map?.lights.some((light) => light.tokenId === id) ? boardData.lightHeight(map.path, id) ?? DEFAULT_LIGHT_SQUARES : null),
+      controllers: () => this.services.session?.()?.controllers?.(id) ?? null,
+      spellAsked: () => this.services.session?.()?.spellRequest?.(map.path, id) != null,
+      gate: () => this.board?.gateFor(id)?.name ?? null,
       icon: (element, name) => setIcon(element, name),
       actions: {
         setCondition: (condition, active) => this.changeConditions(id, (now) => conditionChange(now, condition, active), 'condition'),
@@ -1254,6 +1699,9 @@ export class BoardView extends ItemView {
         setHidden: (hidden) => this.changeToken(id, { hidden }, () => ({ isHidden: hidden }), hidden ? 'hiding' : 'showing'),
         setInitiative: (join) => this.setInitiative(id, join),
         setPov: (on) => this.board?.setPov(on ? id : null),
+        seeThrough: (on) => { this.board?.seeFrom(on ? id : null); },
+        castSelf: () => { this.board?.castThrough(id); },
+        goThroughGate: () => { this.board?.goThroughGate(id); },
         assignMini: () => {
           const now = token();
           if (now) new MiniPicker(this.app, minis, tokenName(now), assignments.get(map.path, id), (result) => assignments.set(map.path, id, result)).open();
@@ -1265,12 +1713,75 @@ export class BoardView extends ItemView {
         },
         setStandee: (standee) => boardData.setStyle(map.path, id, standee ? 'standee' : 'disc'),
         setLightHeight: (height) => boardData.setLightHeight(map.path, id, Math.max(0, Math.round(height * 4) / 4)),
+        setController: (playerId, controls) => {
+          this.services.session?.()?.setController?.(id, playerId, controls);
+          this.menu?.refresh();
+        },
+        ...(this.services.session?.()?.requestSpell ? { askSpell: () => this.askSpell(id) } : {}),
         reset: () => this.resetToken(id),
         kill: () => this.killToken(id),
         remove: () => this.deleteToken(id),
       },
     });
     this.menu = new AtlasMenu(this.contentEl.ownerDocument, entries, { x: event.clientX, y: event.clientY }, (element, name) => setIcon(element, name), () => { this.menu = null; });
+  }
+
+  /**
+   * A spell change from the GM's board: one cast through a token's eyes (to every player of the scene while Connect
+   * hosts, else kept on this board alone), one erased (the Template tool's tap, Ctrl + click), or the scene's cleared.
+   */
+  private gmSpell(path: string, change: SpellChange): void {
+    const session = this.services.session?.();
+    if (session?.hosting()) {
+      if ('add' in change) {
+        const words = change.name ? { name: change.name, ...(change.about ? { about: change.about } : {}) } : undefined;
+        if (!session.castSpell?.(path, change.add, change.rules, words)) new Notice('Tabletop: this Connect cannot take the GM\'s spells; update it.');
+      } else if ('remove' in change) session.eraseSpell?.(path, change.remove);
+      else if ('clear' in change) session.clearSpells?.(path);
+      return;
+    }
+    if ('add' in change) {
+      this.localSpells.push({ path, id: `g${this.nextLocalSpell++}`, owner: GM_SPELL_OWNER, color: '#ffffff', spell: change.add, ...(change.rules ? { rules: change.rules } : {}), ...(change.name ? { name: change.name } : {}), ...(change.about ? { about: change.about } : {}) });
+    } else if ('remove' in change) {
+      this.localSpells = this.localSpells.filter((cast) => !(cast.path === path && cast.id === change.remove));
+    } else if ('clear' in change) {
+      this.localSpells = this.localSpells.filter((cast) => cast.path !== path);
+    } else return;
+    this.sessionChanged();
+  }
+
+  /**
+   * The GM asks the token's player for a spell (Cast, Player): the spell search over the board, the spell drawn at the
+   * token; without spell notes (or a board), the ask's form. Connect sends it.
+   */
+  private askSpell(id: string): void {
+    const map = this.map;
+    const session = this.services.session?.();
+    const token = map?.tokens.find((candidate) => candidate.id === id);
+    if (!map || !session?.requestSpell || !token) return;
+    const name = tokenName(token);
+    const waiting = session.spellRequest?.(map.path, id) ?? null;
+    const send = (ask: SpellAsk): void => {
+      let players = session.requestSpell?.(map.path, id, ask) ?? null;
+      let plain = false;
+      if (players === null && (ask.effect !== undefined || ask.about !== undefined || ask.rules !== undefined)) {
+        // An older Connect takes only the shape and sizes: the ask goes without the spell's words.
+        const { effect: _effect, about: _about, rules: _rules, ...shape } = ask;
+        players = session.requestSpell?.(map.path, id, shape) ?? null;
+        plain = players !== null;
+      }
+      if (players === null) new Notice('Tabletop: the spell could not be asked (is the scene shown to players?).');
+      else if (players === 0) new Notice(`Tabletop: asked. None of ${name}'s players has this scene now; they are asked when they do.`);
+      else new Notice(`Tabletop: asked ${name}'s player${players === 1 ? '' : 's'} for ${ask.name ?? 'the spell'}.`);
+      if (plain) new Notice('Tabletop: this Connect cannot send the spell\'s words; update it to show players the description.');
+    };
+    const withdraw = waiting && session.cancelSpellRequest ? () => session.cancelSpellRequest?.(map.path, id) : null;
+    const panel = this.board?.askSpellPanel(id, {
+      title: `Ask ${name}'s player for a spell`,
+      ...(waiting ? { note: `Waiting now: ${waiting.name ?? 'a spell'}. Sending another replaces it.` } : {}),
+      send, ...(withdraw ? { withdraw } : {}),
+    });
+    if (!panel) new SpellAskModal(this.app, name, map.grid.size, waiting, send, withdraw).open();
   }
 
   /**
@@ -1339,4 +1850,38 @@ export class BoardView extends ItemView {
       boardData.setStyle(path, id, 'disc');
     }).catch((error: unknown) => this.unsaved('deletion', error));
   }
+}
+
+/** Asks for a variant's name: Enter or Save keeps it, an empty one is not kept. */
+class VariantModal extends Modal {
+  constructor(app: App, private readonly suggested: string, private readonly save: (name: string) => void) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.setTitle('Save as variant');
+    const root = this.contentEl;
+    root.createEl('p', { text: 'A new prop in the gallery, placed with this one\'s size, solid setting and standing height.' });
+    const input = root.createEl('input', { type: 'text', value: this.suggested, attr: { 'aria-label': 'Variant name' } });
+    input.addClass('atlas-tabletop-variant-name');
+    const done = (): void => { const name = input.value.trim(); if (!name) return; this.close(); this.save(name); };
+    input.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); done(); } });
+    const row = root.createDiv({ cls: 'modal-button-container' });
+    row.createEl('button', { text: 'Save', cls: 'mod-cta' }).addEventListener('click', done);
+    row.createEl('button', { text: 'Cancel' }).addEventListener('click', () => this.close());
+    window.setTimeout(() => { input.focus(); input.select(); }, 0);
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
+/** A level's place on the height ruler and among the board's layers (scene stacks go by scene path, never this). */
+const LEVEL_KEY = 'atlas-level:';
+function levelKey(id: string): string {
+  return LEVEL_KEY + id;
+}
+function levelOfKey(key: string): string | null {
+  return key.startsWith(LEVEL_KEY) ? key.slice(LEVEL_KEY.length) : null;
 }

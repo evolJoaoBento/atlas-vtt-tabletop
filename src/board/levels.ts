@@ -7,7 +7,12 @@ export interface BoardLevel {
   id: string;
   name: string | null;
   background: string | null;
+  /** What it stands on, in game units (Atlas's `elevation.bottom`). */
+  bottom: number;
 }
+
+/** How tall Atlas makes a level it adds, in game units (`levelEdits.ts`'s `LEVEL_HEIGHT`). */
+export const LEVEL_HEIGHT = 10;
 
 type Raw = Record<string, unknown>;
 const isObj = (value: unknown): value is Raw => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -19,9 +24,39 @@ export function readLevels(raw: unknown): BoardLevel[] {
   const levels: BoardLevel[] = [];
   for (const entry of raw) {
     const id = isObj(entry) ? text(entry.id) : null;
-    if (id && isObj(entry)) levels.push({ id, name: text(entry.name), background: text(entry.background) });
+    if (!id || !isObj(entry)) continue;
+    const bottom = isObj(entry.elevation) && typeof entry.elevation.bottom === 'number' && Number.isFinite(entry.elevation.bottom) ? entry.elevation.bottom : Number.NaN;
+    levels.push({ id, name: text(entry.name), background: text(entry.background), bottom });
   }
-  return levels.length > 1 ? levels : [];
+  if (levels.length < 2) return [];
+  // Heights that do not tell the floors apart (missing, or all the same): one level's height apart, bottom first.
+  const known = levels.every((level) => Number.isFinite(level.bottom));
+  const apart = known && new Set(levels.map((level) => level.bottom)).size === levels.length;
+  return apart ? levels : levels.map((level, index) => ({ ...level, bottom: index * LEVEL_HEIGHT }));
+}
+
+/** The name a level goes by: its own, else its place ("Level 2"), as Atlas names it. */
+export function levelName(levels: readonly BoardLevel[], id: string): string {
+  const index = levels.findIndex((level) => level.id === id);
+  return levels[index]?.name ?? `Level ${index + 1}`;
+}
+
+/** How far level `id` stands above level `from`, in grid squares (game units over the units a square spans). */
+export function levelRise(levels: readonly BoardLevel[], from: string | null, id: string, unitDistance: number): number {
+  const bottom = (key: string | null): number => levels.find((level) => level.id === key)?.bottom ?? 0;
+  const units = unitDistance > 0 ? unitDistance : 5;
+  return Math.round(((bottom(id) - bottom(from)) / units) * 100) / 100;
+}
+
+/** The props on level `levelId` (a prop without a level stands on the first, as Atlas's objects do). */
+export function propsOnLevel<T extends { level?: string }>(props: readonly T[], levelId: string | null, levels: readonly BoardLevel[]): T[] {
+  if (levelId === null || levels.length === 0) return [...props];
+  return props.filter((prop) => onLevel(prop, levelId, levels));
+}
+
+/** Whether the level shown is the scene's first (its ground: the one painted water lies on). */
+export function onFirstLevel(levels: readonly BoardLevel[], levelId: string | null): boolean {
+  return levelId === null || levels.length === 0 || levels[0].id === levelId;
 }
 
 /** The level `id` names, else the first: what an unset or unknown level reads as. Null for a scene without levels. */

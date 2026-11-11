@@ -1,9 +1,12 @@
 import { Notice, addIcon, Plugin, PluginSettingTab, Setting, TFile, debounce, type App, type ButtonComponent, type SettingDefinitionItem, type SettingDefinitionRender, type WorkspaceLeaf } from 'obsidian';
+import { readMaterialDefaults, type MaterialDefaults } from './src/materialDefaults';
+import { readSurvey, type ArSurvey } from './src/arTable';
 import { Assignments, readAssignments, type AssignmentData, type MiniPlacement } from './src/assignments';
-import { mapViews } from './src/atlas';
+import { mapViews, presentedSceneOf, tabViewOf } from './src/atlas';
+import { resolveLevel } from './src/board/levels';
 import { BOARD_VIEW_TYPE, BoardView, HOVER_SOURCE } from './src/board/BoardView';
 import { PLAYER_VIEW_TYPE, PlayerView } from './src/board/PlayerWindow';
-import { BoardData, readBoardData, type BoardDataJSON } from './src/board/boardData';
+import { BoardData, readBoardData, readVariants, type BoardDataJSON, type PropLook } from './src/board/boardData';
 import { DEFAULT_QUALITY, readEdges, readQuality, readSeeThroughSize, readLayerLook, MAX_SEE_THROUGH_SIZE, MIN_SEE_THROUGH_SIZE, type LayerLook, type Quality, type WallEdges } from './src/board/quality';
 import { LayerModal } from './src/layerModal';
 import { MAX_LAYER_TICK, MIN_LAYER_TICK, readLayerTick } from './src/board/layerRuler';
@@ -16,6 +19,8 @@ import { BOARD_PROTOCOL_ACTION, boardLink, DEFAULT_SNAPSHOT_FOLDER, latestSnapsh
 import { renderBoardCard } from './src/boardCard';
 import { resolveLaser, type LaserSettings } from './src/board/laser';
 import { TokenWriter } from './src/board/tokenWriter';
+import { UndoHistory } from './src/board/undoHistory';
+import { recordAtlasWrites, recordedProcess, recordTabletopData } from './src/board/undoRecorders';
 import { GALLERY_VIEW_TYPE, GalleryView, importWithNotice, pickFiles } from './src/gallery';
 import { DEFAULT_MINIS_FOLDER, DEFAULT_PROPS_FOLDER, MiniLibrary, PROPS } from './src/library';
 import { DEFAULT_MATERIALS_FOLDER, MaterialLibrary } from './src/materials';
@@ -25,9 +30,10 @@ import { boardLookFor, MaterialIndex } from './src/boardLook';
 import { LayerIndex, layersFor } from './src/boardLayers';
 import { playerBoardFactory, type PlayerBoardFactory } from './src/playerBoard';
 import { documentHasWebgl } from './src/webgl';
-import type { BoardLook, BoardSession, GmCameraSource } from './src/connectContract';
+import type { BoardLook, BoardSession, BoardSurvey, GmCameraSource } from './src/connectContract';
 import { DEFAULT_PACK, defaultPackFiles, releaseDefaultPackSheets } from './src/dice/defaultPack';
 import { choosePack, vendoredPack, type ChosenPack } from './src/dice/dicePack';
+import { SpellLibrary } from './src/spellLibrary';
 import { colorsText, DEFAULT_DICE_SETTINGS, DIE_SQUARES, MOTION_THRESHOLD, readColorsText, readDiceSettings, TOLERANCE, type TabletopDiceSettings } from './src/dice/diceSettings';
 import { ensureDefaultPack, listPacks, packsFolder, type PackFs } from './src/dice/kit/packs';
 
@@ -53,6 +59,10 @@ interface TabletopSettings {
   wallEdges?: WallEdges;
   /** Walls between the camera and what it looks at fade out. */
   seeThrough?: boolean;
+  /** Props saved as variants: placed from the gallery with their look. */
+  propVariants?: unknown;
+  /** Dropped props snap to the grid (on unless turned off); tokens follow the map's own Snap to grid. */
+  snapProps?: boolean;
   /** How wide that window is, in grid squares. */
   seeThroughSize?: number;
   layerLook?: LayerLook;
@@ -69,6 +79,8 @@ interface TabletopSettings {
   laser?: Partial<LaserSettings>;
   /** The GM's dice on the board. */
   dice: TabletopDiceSettings;
+  /** The material each kind of wall wears when none is painted on it (the gallery's Defaults); none unless set. */
+  materialDefaults?: MaterialDefaults;
 }
 
 const DEFAULT_SETTINGS: TabletopSettings = { folder: DEFAULT_MINIS_FOLDER, propsFolder: DEFAULT_PROPS_FOLDER, materialsFolder: DEFAULT_MATERIALS_FOLDER, quality: DEFAULT_QUALITY, dice: DEFAULT_DICE_SETTINGS };
@@ -130,6 +142,8 @@ export default class TabletopPlugin extends Plugin {
   settings: TabletopSettings = { ...DEFAULT_SETTINGS };
   assignments = new Assignments();
   boardData = new BoardData();
+  /** Tabletop's undo history, shared by every board. */
+  readonly history = new UndoHistory();
   private readonly boardListeners = new Set<(mapPath: string | null) => void>();
   private readonly cameraListeners = new Set<() => void>();
   private materialIndex: MaterialIndex | null = null;
@@ -147,6 +161,11 @@ export default class TabletopPlugin extends Plugin {
   private lastBoard: BoardView | null = null;
   /** The pack the dice are made from: the default pack Tabletop carries until the chosen one is read. */
   private dicePack: ChosenPack | null = null;
+  /** The vault's spell notes, read on the first spell search. */
+  private spellLibrary: SpellLibrary | null = null;
+  private spells(): SpellLibrary {
+    return (this.spellLibrary ??= new SpellLibrary(this.app));
+  }
   private readonly save = debounce(() => {
     void this.saveData({ settings: this.settings, assignments: this.assignments.toJSON(), board: this.boardData.toJSON() } satisfies SavedData);
   }, 500, true);
@@ -163,15 +182,30 @@ export default class TabletopPlugin extends Plugin {
     this.boardData = new BoardData(readBoardData(saved.board));
     this.register(this.assignments.onChange(() => { this.save(); this.refreshBoards(); }));
     this.register(this.boardData.onChange(() => { this.save(); this.refreshBoards(); }));
+    this.register(recordTabletopData(this.history, this.boardData, this.assignments));
     this.library = new MiniLibrary(this.app, () => this.settings.folder);
     this.props = new MiniLibrary(this.app, () => this.settings.propsFolder, PROPS);
     this.materials = new MaterialLibrary(this.app, () => this.settings.materialsFolder);
     this.register(() => { this.library.dispose(); this.props.dispose(); this.materials.dispose(); });
     this.register(this.materials.onChange(() => { for (const view of this.boards()) view.refreshMaterials(); }));
-    const writer = new TokenWriter({ views: () => mapViews(this.app), process: (path, edit) => this.processFile(path, edit) });
+    const writer = new TokenWriter({ views: () => mapViews(this.app), process: recordedProcess(this.history, (path, edit) => this.processFile(path, edit)) });
+    recordAtlasWrites(this.history, writer);
 
-    this.registerView(GALLERY_VIEW_TYPE, (leaf) => new GalleryView(leaf, this.library, this.props, this.materials, (glb) => this.placeProp(glb), (material) => this.paintWith(material)));
+    this.registerView(GALLERY_VIEW_TYPE, (leaf) => new GalleryView(leaf, this.library, this.props, this.materials, (glb, look) => this.placeProp(glb, look), (material) => this.paintWith(material), {
+      list: () => readVariants(this.settings.propVariants),
+      remove: (id) => { this.settings.propVariants = readVariants(this.settings.propVariants).filter((variant) => variant.id !== id); this.save(); this.props.emit(); },
+    }, {
+      get: () => readMaterialDefaults(this.settings.materialDefaults),
+      set: (next) => {
+        this.settings.materialDefaults = readMaterialDefaults(next);
+        this.save();
+        // Every board wears them at once; Connect's players get them with the board.
+        for (const view of this.boards()) view.refreshMaterials();
+        this.boardChanged(null);
+      },
+    }));
     this.registerView(BOARD_VIEW_TYPE, (leaf) => new BoardView(leaf, {
+      history: this.history,
       assignments: this.assignments,
       boardData: this.boardData,
       minis: this.library,
@@ -187,6 +221,13 @@ export default class TabletopPlugin extends Plugin {
       setWallEdges: (edges) => { void this.setWallEdges(edges); },
       seeThrough: () => this.settings.seeThrough === true,
       setSeeThrough: (on) => { void this.setSeeThrough(on); },
+      saveVariant: (variant) => {
+        this.settings.propVariants = [...readVariants(this.settings.propVariants), { ...variant, id: `variant_${Date.now()}_${Math.random().toString(36).slice(2, 8)}` }];
+        this.save();
+        this.props.emit();
+      },
+      snapProps: () => this.settings.snapProps !== false,
+      setSnapProps: (on) => { this.settings.snapProps = on; this.save(); },
       seeThroughSize: () => readSeeThroughSize(this.settings.seeThroughSize),
       setSeeThroughSize: (squares) => { void this.setSeeThroughSize(squares); },
       layerLook: () => readLayerLook(this.settings.layerLook),
@@ -211,8 +252,11 @@ export default class TabletopPlugin extends Plugin {
       playerViewOpen: (path) => this.playerLeaves().some((leaf) => fileOf(leaf) === path),
       cameraMoved: () => { for (const listener of [...this.cameraListeners]) listener(); },
       session: () => this.session,
+      spellBook: () => this.spells(),
+      materialDefaults: () => readMaterialDefaults(this.settings.materialDefaults),
       diceSettings: () => this.settings.dice,
       dicePack: () => (this.dicePack ??= vendoredPack()),
+      levelShown: (mapPath) => this.levelShown(mapPath),
       boardReady: (view) => {
         for (const player of this.playerViews()) if (player.mapPath === view.mapPath) view.showPlayer(player);
         this.refreshPlayerButtons();
@@ -314,11 +358,16 @@ export default class TabletopPlugin extends Plugin {
 
     this.materialIndex = new MaterialIndex(this.app.vault, () => this.boardChanged(null));
     this.layerIndex = new LayerIndex(this.app.vault, () => this.boardChanged(null));
+    this.app.workspace.onLayoutReady(() => {
+      const presented = presentedSceneOf(this.app);
+      if (presented) this.register(presented.onChange(() => { const scene = presented.get(); this.boardChanged(scene?.filePath ?? null); }));
+    });
     // A scene of a stack changed (its height, place or walls): every map it is stacked with is sent again.
-    this.register(this.boardData.onChange((mapPath) => this.boardChanged(mapPath !== null && this.boardData.stackOf(mapPath).length > 1 ? null : mapPath)));
+    // A level hidden on the boards is kept under its scene path and level ("scene#atlas-level:id").
+    this.register(this.boardData.onChange((changed) => { const mapPath = changed?.split("#")[0] ?? null; this.boardChanged(mapPath !== null && this.boardData.stackOf(mapPath).length > 1 ? null : mapPath); }));
     this.register(this.materials.onChange(() => { this.materialIndex?.forgetAll(); this.boardChanged(null); }));
     this.players = playerMiniPainter();
-    const board = playerBoardFactory(() => this.settings.quality, () => ({ tiltShift: this.settings.tiltShift === true, occlusion: this.settings.occlusion === true, painted: this.settings.painted === true, sky: readSky(this.settings.sky), edges: readEdges(this.settings.wallEdges), seeThrough: this.settings.seeThrough === true, seeThroughSize: readSeeThroughSize(this.settings.seeThroughSize), layerLook: readLayerLook(this.settings.layerLook) }), { settings: () => this.settings.dice, pack: () => (this.dicePack ??= vendoredPack()) });
+    const board = playerBoardFactory(() => this.settings.quality, () => ({ tiltShift: this.settings.tiltShift === true, occlusion: this.settings.occlusion === true, painted: this.settings.painted === true, sky: readSky(this.settings.sky), edges: readEdges(this.settings.wallEdges), seeThrough: this.settings.seeThrough === true, seeThroughSize: readSeeThroughSize(this.settings.seeThroughSize), layerLook: readLayerLook(this.settings.layerLook) }), { settings: () => this.settings.dice, pack: () => (this.dicePack ??= vendoredPack()) }, () => this.spells());
     this.api = Object.freeze({
       version: 1 as const,
       playerMinis: this.players.painter,
@@ -333,7 +382,18 @@ export default class TabletopPlugin extends Plugin {
         if (!(file instanceof TFile) || file.extension.toLowerCase() !== 'glb') throw new Error(`No mini at ${path}.`);
         return this.app.vault.readBinary(file);
       },
-      boardLook: (mapPath: string) => boardLookFor(this.boardData, this.materialIndex!, mapPath, this.settings.shareLayers === false ? [] : layersFor(this.boardData, this.materialIndex!, this.layerIndex!, mapPath)),
+      boardLook: (mapPath: string) => {
+        // The level players are sent is the one the GM's Atlas view shows (Connect sends that level's objects).
+        const viewed = this.viewedLevel(mapPath);
+        const own = this.layerIndex!.map(mapPath);
+        const shown = own && own.levels.length > 1 ? { levels: own.levels, level: resolveLevel(own.levels, viewed) } : undefined;
+        const chosen = readMaterialDefaults(this.settings.materialDefaults);
+        const layers = this.settings.shareLayers === false ? [] : layersFor(this.boardData, this.materialIndex!, this.layerIndex!, mapPath, viewed, chosen);
+        // The walls players get: the scene's, and the level shown's.
+        const levelMap = shown?.level ? this.layerIndex!.mapAt(mapPath, shown.level) : null;
+        const walls = [...(own?.walls ?? []), ...(levelMap?.walls ?? [])];
+        return Object.freeze({ ...boardLookFor(this.boardData, this.materialIndex!, mapPath, layers, shown, { walls, chosen }), layerLook: readLayerLook(this.settings.layerLook) });
+      },
       onBoardChange: (listener: (mapPath: string | null) => void) => {
         this.boardListeners.add(listener);
         return () => { this.boardListeners.delete(listener); };
@@ -356,6 +416,7 @@ export default class TabletopPlugin extends Plugin {
   }
 
   onunload(): void {
+    this.spellLibrary?.dispose();
     this.atlasButton?.stop();
     this.atlasButton = null;
     this.app.workspace.trigger(API_UNLOAD_EVENT);
@@ -601,6 +662,10 @@ export default class TabletopPlugin extends Plugin {
     const stops = [
       session.onChange(() => { for (const board of this.boards()) board.sessionChanged(); }),
       session.onMark((mark) => { for (const board of this.boards()) board.mark(mark); }),
+      // Players in augmented reality, as eyes (a newer Connect).
+      ...(typeof session.onViewer === 'function' ? [session.onViewer((viewer) => { for (const board of this.boards()) board.viewer(viewer); })] : []),
+      // Players' surveys of the AR table: the GM is asked, then places it.
+      ...(typeof session.onSurvey === 'function' ? [session.onSurvey((heard) => this.surveyHeard(heard))] : []),
     ];
     this.session = session;
     for (const board of this.boards()) board.sessionChanged();
@@ -612,7 +677,59 @@ export default class TabletopPlugin extends Plugin {
     };
   }
 
+  /**
+   * A player sent a survey of the table's AR marker sheets for a map: the GM is asked whether to use it. Yes opens the
+   * map's board (if it is not open) and puts the handles on the table to place it.
+   */
+  private surveyHeard(heard: BoardSurvey): void {
+    const survey = readSurvey(heard.survey);
+    if (!survey || typeof heard.mapPath !== 'string') return;
+    const name = typeof heard.name === 'string' && heard.name !== '' ? heard.name.slice(0, 60) : 'A player';
+    const mapName = heard.mapPath.replace(/^.*\//, '').replace(/\.[^.]+$/, '');
+    const fragment = activeDocument.createDocumentFragment();
+    const text = activeDocument.createElement('div');
+    text.textContent = `${name} sent the AR table for ${mapName}: ${survey.groups.length} sheet${survey.groups.length === 1 ? '' : 's'}.`;
+    const use = activeDocument.createElement('button');
+    use.textContent = this.app.vault.getAbstractFileByPath(heard.mapPath) ? 'Place it on the map' : 'Map not found';
+    use.disabled = !this.app.vault.getAbstractFileByPath(heard.mapPath);
+    fragment.append(text, use);
+    const notice = new Notice(fragment, 0);
+    use.addEventListener('click', () => {
+      notice.hide();
+      void this.placeSurveyOn(heard.mapPath, survey);
+    });
+  }
+
+  private async placeSurveyOn(mapPath: string, survey: ArSurvey): Promise<void> {
+    let board = this.boards().find((view) => view.mapPath === mapPath && view.ready);
+    if (!board) {
+      await this.openBoard(mapPath);
+      for (let i = 0; i < 50 && !board; i++) {
+        await new Promise((resolve) => window.setTimeout(resolve, 100));
+        board = this.boards().find((view) => view.mapPath === mapPath && view.ready);
+      }
+    }
+    if (!board) { new Notice('Tabletop: the map\'s board did not open, so the AR table was not placed.'); return; }
+    board.takeSurvey(survey);
+  }
+
   /** A map's look changed for Connect: its listeners hear it, and a changed material is read again. */
+  /**
+   * The level players are on: the one presented to them when this scene is (Connect keeps them there while the GM looks
+   * at another floor), else the one the GM's Atlas view shows; null for none.
+   */
+  private viewedLevel(mapPath: string): string | null {
+    const presented = presentedSceneOf(this.app)?.get();
+    if (presented?.filePath === mapPath && typeof presented.levelId === 'string') return presented.levelId;
+    const held = tabViewOf(this.app, mapPath)?.view.atlasStore.getState() as { viewedLevel?: unknown } | undefined;
+    return typeof held?.viewedLevel === 'string' ? held.viewedLevel : null;
+  }
+
+  /** A board showed another level of `mapPath`: Connect's players are sent its layers again. */
+  levelShown(mapPath: string): void {
+    this.boardChanged(mapPath);
+  }
+
   private boardChanged(mapPath: string | null): void {
     for (const listener of [...this.boardListeners]) {
       try {
@@ -650,7 +767,7 @@ export default class TabletopPlugin extends Plugin {
   }
 
   /** A prop picked in the gallery goes to the 3D board used last: the next click on it puts the prop there. */
-  private placeProp(glb: string): void {
+  private placeProp(glb: string, look?: PropLook): void {
     const open = this.boards();
     const view = this.lastBoard && open.includes(this.lastBoard) ? this.lastBoard : open[0];
     if (!view) {
@@ -658,7 +775,7 @@ export default class TabletopPlugin extends Plugin {
       return;
     }
     void this.app.workspace.revealLeaf(view.leaf);
-    view.placeProp(glb);
+    view.placeProp(glb, look);
     new Notice('Tabletop: click the board where the prop goes (Esc to cancel).');
   }
 

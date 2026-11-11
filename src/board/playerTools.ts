@@ -4,6 +4,9 @@
  * player's own takes it off), Laser (points sent in batches with their timing) and Ping (a click). Points are on the
  * map, in pixels; this decides, the board draws (`marks.ts`) and Connect sends what it returns.
  */
+import type { Spell, SpellAbout } from './spells';
+import type { SpellRules } from './spellRules';
+
 type Point = { x: number; y: number };
 
 export type PlayerTool = 'move' | 'measure' | 'template' | 'laser' | 'ping';
@@ -21,8 +24,13 @@ export interface TemplateMark {
 
 export type TemplateChange = { add: { shape: TemplateShape; start: Point; end: Point } } | { remove: string } | { clear: true };
 
+/** A spell cast through a token's eyes (`spells.ts`), one of the caster's taken off, or all of theirs. */
+/** A spell cast (for the GM's ask `request`), one taken off, the player's cleared, or an ask turned down. */
+export type SpellChange = { add: Spell; request?: string; rules?: SpellRules; name?: string; about?: SpellAbout } | { remove: string } | { clear: true } | { decline: string };
+
 export type ToolAction =
   | { type: 'ping'; x: number; y: number }
+  | { type: 'spell'; change: SpellChange }
   | { type: 'template'; change: TemplateChange }
   | { type: 'laser'; points: Point[]; dt: number[]; lifted: boolean; color: string };
 
@@ -123,6 +131,11 @@ export class PlayerToolState {
 
   get shown(): readonly TemplateMark[] {
     return this.templates;
+  }
+
+  /** The player (or GM) these tools draw for, as Connect named them; null before it has. */
+  get selfId(): string | null {
+    return this.self;
   }
 
   ownTemplates(): boolean {

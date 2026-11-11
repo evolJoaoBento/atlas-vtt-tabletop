@@ -9,9 +9,10 @@
  */
 import { parseMini, type LoadedMini } from './library';
 import { Board, type BoardHost } from './board/board';
+import type { AugmentedView, RoomPlace } from './board/augmented';
 import { boardFromScene, type PlayerSceneLike, type SceneBoard } from './board/sceneAdapter';
 import type { SightMode, SightStyle } from './board/lineOfSight';
-import { QUALITY, withLooks, type LayerLook, type Quality, type QualityPreset, type WallEdges } from './board/quality';
+import { leaner, QUALITY, withLooks, type LayerLook, type MemoryMode, type Quality, type QualityPreset, type WallEdges } from './board/quality';
 import type { Sky } from './board/look';
 import { NO_FLIP } from './board/walls';
 import { materialFromUrls, type LoadedMaterial } from './materials';
@@ -25,8 +26,9 @@ import { DiceTable } from './dice/diceTable';
 import { DiceTextures } from './dice/diceTextures';
 import type { DiceRules } from './dice/rollRules';
 import { GENTLE } from './dice/throwInput';
-import type { MeasureShape, PlayerTool, TemplateMark, TemplateShape, TemplateChange } from './board/playerTools';
+import type { MeasureShape, PlayerTool, SpellChange, TemplateMark, TemplateShape, TemplateChange } from './board/playerTools';
 import type { Measurement } from './board/measure';
+import type { SpellBook } from './board/spellPicker';
 
 type Point = { x: number; y: number };
 
@@ -38,6 +40,10 @@ export interface PlayerBoardHost {
   sendLaser(points: Point[], lifted: boolean, dt: number[], color?: string): boolean;
   sendPing(x: number, y: number): boolean;
   sendTemplate(change: TemplateChange): boolean;
+  /** Casts a spell through a token's eyes (`spells.ts`), takes one of the player's off, or all of theirs; without it, no spells. */
+  sendSpell?(change: SpellChange): boolean;
+  /** The board left a token's eyes by itself (Escape, Leave): the eye button follows. */
+  eyeChanged?(): void;
   openPin(pinId: string): void;
   hover(tokenId: string | null, client: Point | null, modifier: boolean): void;
   toolsChanged(): void;
@@ -76,7 +82,39 @@ export interface PlayerBoardHandle {
   fitMap(): void;
   /** Moves the camera to a point of the map (Atlas's initiative card click). */
   lookAt(x: number, y: number): void;
+  /** This board sees through a token's eyes (`seeFrom`). */
+  readonly firstPerson?: true;
+  /**
+   * Sees through a token's eyes, the phone's gyroscope turning the view when `gyro` (the caller has the permission), a drag
+   * otherwise; null goes back to the usual camera. False for a token the board does not have.
+   */
+  seeFrom?(tokenId: string | null, gyro: boolean): boolean;
+  /** The token the view is seen through, or null. */
+  seeingFrom?(): string | null;
+  /** This board draws over a phone's camera picture (`setAugmented`). */
+  readonly augmentedReality?: true;
+  /**
+   * Augmented reality: the phone camera's pose over the printed marker sheet, for one frame (Tabletop's `AugmentedView`);
+   * null goes back to the usual camera. False for a pose the board cannot use.
+   */
+  setAugmented?(view: unknown): boolean;
+  /** This board draws into a WebXR immersive AR session (room tracking, Android's ARCore). */
+  readonly roomAr?: true;
+  /** Room tracking: draws into `session`; `onFrame` hears each XRFrame (and the local reference space) first. */
+  startRoomAr?(session: unknown, onFrame: ((frame: unknown, space: unknown) => void) | null): Promise<boolean>;
+  /** Room tracking: stands the board at a point of the room (Tabletop's `RoomPlace`); null hides it. */
+  placeRoomAr?(place: unknown): void;
+  /** Ends room tracking. */
+  stopRoomAr?(): void;
+  /** Room tracking's frame times and errors, for a look; null when it is off. */
+  roomStats?(): { frames: number; intervalMs: number; workMs: number; errors: number; lastError: string } | null;
+  /** In augmented reality: where the phone's camera is over the map (board units) and which way it looks; null otherwise. */
+  arViewer?(): { position: [number, number, number]; quaternion: [number, number, number, number] } | null;
   receiveTemplates(sceneId: string, templates: readonly unknown[]): void;
+  /** This board casts and draws spells (`receiveSpells`, the host's `sendSpell`). */
+  readonly spells?: true;
+  /** The scene's spells (`CastSpell`s), whenever they change, and what the GM asks of the player's tokens (`SpellRequest`s). */
+  receiveSpells?(sceneId: string, spells: readonly unknown[], asks?: readonly unknown[]): void;
   receivePing(ping: unknown): void;
   receiveLaser(laser: unknown): void;
   refresh(): void;
@@ -106,10 +144,10 @@ export interface PlayerBoardDice {
   pack(): ChosenPack;
 }
 
-export function playerBoardFactory(quality: () => Quality, looks: () => { tiltShift: boolean; occlusion: boolean; painted: boolean; sky: Sky; edges?: WallEdges; seeThrough?: boolean; seeThroughSize?: number; layerLook?: LayerLook; lineOfSight?: SightMode; sightStyle?: SightStyle; layerTick?: number }, dice: PlayerBoardDice): PlayerBoardFactory {
+export function playerBoardFactory(quality: () => Quality, looks: () => { tiltShift: boolean; occlusion: boolean; painted: boolean; sky: Sky; edges?: WallEdges; seeThrough?: boolean; seeThroughSize?: number; layerLook?: LayerLook; lineOfSight?: SightMode; sightStyle?: SightStyle; layerTick?: number }, dice: PlayerBoardDice, book: () => SpellBook | null = () => null, memory: () => MemoryMode = () => 'normal'): PlayerBoardFactory {
   return Object.freeze({
     version: 1 as const,
-    create: (parent: HTMLElement, host: PlayerBoardHost): PlayerBoardHandle => new PlayerBoard(parent, host, withLooks(QUALITY[quality()], looks()), dice),
+    create: (parent: HTMLElement, host: PlayerBoardHost): PlayerBoardHandle => new PlayerBoard(parent, host, leaner(withLooks(QUALITY[quality()], looks()), memory()), dice, book),
   });
 }
 
@@ -140,7 +178,7 @@ class PlayerBoard implements PlayerBoardHandle {
   private readonly prompt: DicePrompt;
   private readonly stopPresses: () => void;
 
-  constructor(private readonly parent: HTMLElement, private readonly host: PlayerBoardHost, preset: QualityPreset, private readonly diceDeps: PlayerBoardDice) {
+  constructor(private readonly parent: HTMLElement, private readonly host: PlayerBoardHost, private preset: QualityPreset, private readonly diceDeps: PlayerBoardDice, private readonly book: () => SpellBook | null = () => null) {
     this.board = new Board(parent, this.boardHost(), preset, { audience: 'player' });
     if (host.sendDiceResult) {
       this.diceAvailable = true;
@@ -174,6 +212,9 @@ class PlayerBoard implements PlayerBoardHandle {
     if ((this.scene?.sceneId ?? null) !== before) this.dice.sceneChanged();
     // No scene (the GM cleared it, or the player was moved to none): the board shows nothing until the next.
     this.board.canvas.style.visibility = this.scene ? '' : 'hidden';
+    // The scene's cone opens as its measuring says (Atlas's cone angle, degrees), for templates and spells alike.
+    const cone = (this.scene as { measurement?: { coneAngle?: unknown } } | null)?.measurement?.coneAngle;
+    if (typeof cone === 'number' && cone > 0 && cone < 180) this.board.tools.coneAngle = (cone * Math.PI) / 180;
     if (this.scene && this.scene.sceneId !== before) {
       this.followedOnce = false;
       this.useCamera();
@@ -255,10 +296,27 @@ class PlayerBoard implements PlayerBoardHandle {
   followGm(): void { this.board.followGm(); }
   fitMap(): void { this.board.frameMap(); }
   lookAt(x: number, y: number): void { this.board.lookAtPoint(x, y); }
+  readonly firstPerson = true as const;
+  seeFrom(tokenId: string | null, gyro: boolean): boolean { return this.board.seeFrom(tokenId, gyro); }
+  seeingFrom(): string | null { return this.board.seeingFrom; }
+  readonly augmentedReality = true as const;
+  setAugmented(view: unknown): boolean { return this.board.setAugmented(view as AugmentedView | null); }
+  readonly roomAr = true as const;
+  startRoomAr(session: unknown, onFrame: ((frame: unknown, space: unknown) => void) | null): Promise<boolean> { return this.board.startRoomAr(session as XRSession, onFrame); }
+  placeRoomAr(place: unknown): void { this.board.placeRoomAr(place as RoomPlace | null); }
+  stopRoomAr(): void { this.board.stopRoomAr(); }
+  roomStats(): { frames: number; intervalMs: number; workMs: number; errors: number; lastError: string } | null { return this.board.roomStats(); }
+  arViewer(): { position: [number, number, number]; quaternion: [number, number, number, number] } | null { return this.board.arViewer(); }
 
   receiveTemplates(sceneId: string, templates: readonly unknown[]): void {
     if (sceneId !== this.scene?.sceneId) return;
     this.board.receiveTemplates(templates as TemplateMark[]);
+  }
+
+  readonly spells = true as const;
+  receiveSpells(sceneId: string, spells: readonly unknown[], asks: readonly unknown[] = []): void {
+    if (sceneId !== this.scene?.sceneId) return;
+    this.board.receiveSpells(spells, asks);
   }
 
   receivePing(ping: unknown): void {
@@ -328,6 +386,12 @@ class PlayerBoard implements PlayerBoardHandle {
     const scene = this.scene;
     if (!scene) return;
     const shown = boardFromScene(scene, this.extras);
+    // The scenes stacked above, drawn as the GM draws them (Upper layers): solid, faded or hidden.
+    const layerLook = this.extras?.layerLook;
+    if ((layerLook === 'solid' || layerLook === 'faded' || layerLook === 'transparent') && layerLook !== this.preset.layerLook) {
+      this.preset = { ...this.preset, layerLook };
+      this.board.setQuality(this.preset);
+    }
     const background = shown.map.background;
     this.backgroundMissing = background !== null && this.host.image(background) === null;
     if (this.backgroundMissing) shown.map.background = null;
@@ -357,6 +421,8 @@ class PlayerBoard implements PlayerBoardHandle {
     const look = () => this.shown?.look ?? null;
     const none = (): void => undefined;
     return {
+      // The player's own spell notes, on Obsidian; none on the web page.
+      spellBook: () => this.book(),
       readImage: async (id) => {
         await this.arrival(id, () => this.host.image(id) !== null);
         return this.host.image(id);
@@ -382,7 +448,8 @@ class PlayerBoard implements PlayerBoardHandle {
         return mini ? { mini: mini.glb, scale: mini.scale, turn: mini.turn, ...(mini.base ? { base: mini.base } : {}) } : null;
       },
       style: () => 'disc',
-      props: () => (look()?.props ?? []).map((prop) => ({ id: prop.id, glb: prop.asset, x: prop.x, y: prop.y, rotation: prop.turn, scale: prop.scale })),
+      water: () => look()?.water ?? null,
+      props: () => (look()?.props ?? []).map((prop) => ({ id: prop.id, glb: prop.asset, x: prop.x, y: prop.y, rotation: prop.turn, scale: prop.scale, ...(prop.solid ? { solid: true } : {}), ...(prop.lift ? { lift: prop.lift } : {}) })),
       rules: () => this.shown!.rules,
       moveToken: (id, x, y) => { this.host.sendMove(id, x, y); },
       canMove: (id) => this.connected && !this.paused && this.controlled.has(id),
@@ -391,10 +458,12 @@ class PlayerBoard implements PlayerBoardHandle {
       playerAction: (action) => {
         if (action.type === 'ping') this.host.sendPing(action.x, action.y);
         else if (action.type === 'template') this.host.sendTemplate(action.change);
+        else if (action.type === 'spell') this.host.sendSpell?.(action.change);
         else this.host.sendLaser(action.points, action.lifted, action.dt, action.color || this.ownColor());
       },
       ownColor: () => this.board.tools.laserColor || this.ownColor(),
       toolsChanged: () => this.host.toolsChanged(),
+      eyeChanged: () => this.host.eyeChanged?.(),
       measurement: () => {
         const measurement = (this.scene as { measurement?: { mode?: string; unitType?: string; unitDistance?: number; diagonalRule?: string; rangeBands?: Array<{ name: string; maxSquares: number }> } } | null)?.measurement;
         return measurement?.mode ? {
@@ -408,6 +477,8 @@ class PlayerBoard implements PlayerBoardHandle {
       wallHeight: (id) => look()?.wallHeight(id) ?? null,
       doorProp: (id) => look()?.doorProp(id) ?? null,
       doorFlip: (id) => look()?.doorFlip(id) ?? NO_FLIP,
+      windowOf: (id) => look()?.windowOf(id) ?? null,
+      wallWidth: (id) => look()?.wallWidth(id) ?? null,
       lightHeight: (light) => look()?.lightHeight(light.id) ?? DEFAULT_LIGHT_SQUARES,
       tint: () => look()?.tint ?? null,
       ambient: () => look()?.ambient ?? (this.shown?.map.lighting.enabled ? this.shown.map.lighting.ambient : 1),

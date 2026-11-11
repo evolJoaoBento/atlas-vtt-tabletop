@@ -247,7 +247,8 @@ test('a die still tumbling at the longest roll is caught, never a number', () =>
     dice.step(1000 / 60);
     ms += 1000 / 60;
   }
-  assert.ok(ms >= 12_000 && ms < 12_100, `held at the longest roll: ${ms} ms`);
+  // The test's own sum of 1000/60 frames comes to 11999.99… at 12 seconds.
+  assert.ok(ms >= 12_000 - 1 && ms < 12_100, `held at the longest roll: ${ms} ms`);
   assert.deepEqual(readings, [{ caught: true, face: null, confidence: 0 }]);
 }));
 
@@ -489,3 +490,24 @@ test('a bundle in hand: every die held round the pointer, apart, none read, none
   run(dice);
   assert.equal(dice.busy, false);
 }));
+
+/** Throws the same seeded d20s and steps the table `frameMs` at a time; what each die read, in order. */
+function readingsAt(frameMs: number, seed: number): Array<number | null> {
+  return seeded(seed, () => {
+    const { dice } = table();
+    const session = new RollSession({ dice: { d20: 4 }, modifier: 0 }, DEFAULT_RULES);
+    const faces = new Map<number, number | null>();
+    dice.onSettled = (id, reading) => { faces.set(id, reading.face); session.settle(id, reading); };
+    dice.throwRoll(session, { dx: 40, dy: -320, ms: 140 });
+    let ms = 0;
+    while (dice.busy && ms < 60_000) { dice.step(frameMs); ms += frameMs; }
+    return session.dice.map((state) => faces.get(state.id) ?? null);
+  });
+}
+
+test('a slow frame rate reads the same faces: a die is never read while it only paused on an edge', () => {
+  // A zoomed-out board drawing faded layers runs slowly; the dice must read as they do at 60 frames a second.
+  for (const seed of [3, 11, 19, 27, 42]) {
+    assert.deepEqual(readingsAt(120, seed), readingsAt(1000 / 60, seed), `seed ${seed}`);
+  }
+});

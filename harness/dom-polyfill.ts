@@ -60,3 +60,9 @@ elementProto.setCssStyles ??= function (this: HTMLElement, styles: Record<string
 elementProto.setCssProps ??= function (this: HTMLElement, props: Record<string, string>): void {
   for (const [name, value] of Object.entries(props)) this.style.setProperty(name, value);
 };
+
+// Obsidian's globals for the window that has the focus.
+(globalThis as unknown as { activeDocument: Document; activeWindow: Window }).activeDocument = document;
+(globalThis as unknown as { activeDocument: Document; activeWindow: Window }).activeWindow = window;
+// Obsidian's `node.doc`: the document a node belongs to.
+if (!('doc' in Node.prototype)) Object.defineProperty(Node.prototype, 'doc', { get(this: Node) { return this.ownerDocument ?? document; } });

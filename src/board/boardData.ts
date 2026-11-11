@@ -7,6 +7,8 @@
  * do. Pure, so it is tested without Obsidian.
  */
 
+import { readSavedTable, type SavedArTable } from '../arTable';
+import { readWaterMotion, type SavedWaterMask, type WaterMotion } from './water';
 import { NO_PLACEMENT, readPlacement, type Placement } from './layerPlacement';
 import { mirroredDoor, NO_FLIP, rotatedDoor, type DoorFlip } from './walls';
 
@@ -22,9 +24,15 @@ export interface PropPlacement {
   /** Degrees, clockwise seen from above. */
   readonly rotation: number;
   readonly scale: number;
+  /** Tokens set on it stand on its top (its shape under them), not on the floor. */
+  readonly solid?: boolean;
+  /** How high it stands over what is under it, in grid squares (a prop that is not solid, raised by Alt + drag). */
+  readonly lift?: number;
+  /** The scene level it stands on (Atlas levels); unset is the first, as for Atlas's own objects. */
+  readonly level?: string;
 }
 
-interface MapData {
+export interface MapData {
   styles?: Record<string, TokenStyle>;
   props?: PropPlacement[];
   /** How tall the fog stands, in grid squares; kept only when it is not the default. */
@@ -35,8 +43,12 @@ interface MapData {
   doorProps?: Record<string, string>;
   /** Wall (or door) id to its own height, in grid squares; unset stands it as tall as the fog. */
   wallHeights?: Record<string, number>;
+  /** Wall or door id to its own width (thickness), in grid squares; absent: the map's wall thickness. */
+  wallWidths?: Record<string, number>;
   /** Light id (or the id of the token carrying it) to its height above the map, in grid squares. */
   lightHeights?: Record<string, number>;
+  /** Window (a wall Atlas lets only sight and light through) id to its opening, in grid squares from the floor. */
+  windows?: Record<string, { bottom: number; top: number }>;
   /** Door id to how it was turned from the way Atlas draws it: its hinge at the other end, and/or opening to the other side. */
   doorFlips?: Record<string, { hinge?: true; side?: true }>;
   /** The board's ambient light, 0 (pitch black) to 1 (daylight); unset follows Atlas's scene light. */
@@ -47,6 +59,12 @@ interface MapData {
   wallThickness?: number;
   /** This map is a layer of another, standing above it (or below, if negative). */
   layer?: ElevationLayer;
+  /** This layer is not drawn on the boards of its stack (the GM hid it); it stays in the stack. */
+  hidden?: true;
+  /** Water painted over the map (src/board/water.ts), and how all of it moves. */
+  water?: { mask: SavedWaterMask; motion?: WaterMotion };
+  /** Where the players' printed AR marker sheets lie on this map (`arTable.ts`). */
+  arTable?: SavedArTable;
 }
 
 /** A map stacked on another: the base map's path, and how many grid squares above it this one stands. */
@@ -78,9 +96,42 @@ export type BoardDataJSON = Record<string, MapData>;
 const isObj = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const finite = (value: unknown, fallback: number): number => (typeof value === 'number' && Number.isFinite(value) ? value : fallback);
 
+/** How a prop is set up, apart from where it stands: its size, whether tokens stand on it, how high it stands. */
+export interface PropLook {
+  readonly scale: number;
+  readonly solid?: boolean;
+  readonly lift?: number;
+}
+
+/** A prop saved as a variant: a model with its look, placed from the gallery as it was saved. */
+export interface PropVariant extends PropLook {
+  readonly id: string;
+  readonly name: string;
+  readonly glb: string;
+}
+
+/** The variants kept in the settings, the broken ones left out. */
+export function readVariants(raw: unknown): PropVariant[] {
+  if (!Array.isArray(raw)) return [];
+  const out: PropVariant[] = [];
+  for (const item of raw) {
+    if (!isObj(item) || typeof item.id !== 'string' || typeof item.name !== 'string' || typeof item.glb !== 'string' || item.glb === '') continue;
+    const lift = finite(item.lift, 0);
+    out.push({ id: item.id, name: item.name, glb: item.glb, scale: finite(item.scale, 1), ...(item.solid === true ? { solid: true } : {}), ...(lift > 0 ? { lift } : {}) });
+  }
+  return out;
+}
+
+/** The look a prop placed with `look` gets: its scale, and solid and height only when set. */
+export function lookOf(look: PropLook | undefined): Pick<PropPlacement, 'scale' | 'solid' | 'lift'> {
+  if (!look) return { scale: 1 };
+  return { scale: look.scale, ...(look.solid ? { solid: true } : {}), ...(look.lift && look.lift > 0 ? { lift: look.lift } : {}) };
+}
+
 function readProp(raw: unknown): PropPlacement | null {
   if (!isObj(raw) || typeof raw.id !== 'string' || typeof raw.glb !== 'string' || raw.glb === '') return null;
-  return { id: raw.id, glb: raw.glb, x: finite(raw.x, 0), y: finite(raw.y, 0), rotation: finite(raw.rotation, 0), scale: finite(raw.scale, 1) };
+  const lift = finite(raw.lift, 0);
+  return { id: raw.id, glb: raw.glb, x: finite(raw.x, 0), y: finite(raw.y, 0), rotation: finite(raw.rotation, 0), scale: finite(raw.scale, 1), ...(raw.solid === true ? { solid: true } : {}), ...(lift > 0 ? { lift } : {}), ...(typeof raw.level === 'string' && raw.level !== '' ? { level: raw.level } : {}) };
 }
 
 /** Drops empty parts, so a map with nothing left is not kept. */
@@ -93,11 +144,16 @@ function tidy(map: MapData): MapData | null {
   if (map.doorProps && Object.keys(map.doorProps).length > 0) out.doorProps = map.doorProps;
   if (map.lightHeights && Object.keys(map.lightHeights).length > 0) out.lightHeights = map.lightHeights;
   if (map.wallHeights && Object.keys(map.wallHeights).length > 0) out.wallHeights = map.wallHeights;
+  if (map.wallWidths && Object.keys(map.wallWidths).length > 0) out.wallWidths = map.wallWidths;
+  if (map.windows && Object.keys(map.windows).length > 0) out.windows = map.windows;
   if (map.doorFlips && Object.keys(map.doorFlips).length > 0) out.doorFlips = map.doorFlips;
   if (map.ambient !== undefined) out.ambient = map.ambient;
   if (map.tint !== undefined) out.tint = map.tint;
   if (map.wallThickness !== undefined && map.wallThickness !== DEFAULT_WALL_THICKNESS) out.wallThickness = map.wallThickness;
   if (map.layer) out.layer = map.layer;
+  if (map.hidden === true) out.hidden = true;
+  if (map.water) out.water = map.water;
+  if (map.arTable) out.arTable = map.arTable;
   return Object.keys(out).length > 0 ? out : null;
 }
 
@@ -109,10 +165,24 @@ function strings(raw: unknown): Record<string, string> {
 }
 
 /** The light heights: numbers from 0 up. */
+function widths(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (isObj(raw)) for (const [key, value] of Object.entries(raw)) if (typeof value === 'number' && Number.isFinite(value) && value > 0) out[key] = value;
+  return out;
+}
+
 function heights(raw: unknown): Record<string, number> {
   const out: Record<string, number> = {};
   if (isObj(raw)) for (const [key, value] of Object.entries(raw)) if (typeof value === 'number' && Number.isFinite(value) && value >= 0) out[key] = value;
   return out;
+}
+
+/** Painted water as saved: a mask's size and run lengths, and its motion (read again, with defaults, by the board). */
+function readWater(raw: unknown): { mask: SavedWaterMask; motion?: WaterMotion } | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const { mask, motion } = raw as { mask?: Partial<SavedWaterMask>; motion?: unknown };
+  if (!mask || typeof mask.width !== 'number' || typeof mask.height !== 'number' || typeof mask.data !== 'string') return undefined;
+  return { mask: { width: mask.width, height: mask.height, data: mask.data }, ...(motion !== undefined && { motion: readWaterMotion(motion) }) };
 }
 
 function readLayer(raw: unknown): ElevationLayer | undefined {
@@ -122,6 +192,17 @@ function readLayer(raw: unknown): ElevationLayer | undefined {
 }
 
 /** The door turns kept: only the ones that turn something. */
+function windows(raw: unknown): Record<string, { bottom: number; top: number }> {
+  const out: Record<string, { bottom: number; top: number }> = {};
+  if (!isObj(raw)) return out;
+  for (const [id, value] of Object.entries(raw)) {
+    if (!isObj(value)) continue;
+    const { bottom, top } = value;
+    if (typeof bottom === 'number' && typeof top === 'number' && Number.isFinite(bottom) && Number.isFinite(top) && bottom >= 0 && top > bottom) out[id] = { bottom, top };
+  }
+  return out;
+}
+
 function flips(raw: unknown): Record<string, { hinge?: true; side?: true }> {
   const out: Record<string, { hinge?: true; side?: true }> = {};
   if (!isObj(raw)) return out;
@@ -147,10 +228,12 @@ export function readBoardData(raw: unknown): BoardDataJSON {
     const tint = typeof value.tint === 'string' && /^#[0-9a-f]{6}$/i.test(value.tint) ? value.tint.toLowerCase() : undefined;
     const wallThickness = typeof value.wallThickness === 'number' && Number.isFinite(value.wallThickness) && value.wallThickness > 0 ? value.wallThickness : undefined;
     const layer = readLayer(value.layer);
+    const arTable = readSavedTable(value.arTable);
     const kept = tidy({
-      styles, props, ...(layer && { layer }), ...(fogHeight !== undefined && { fogHeight }),
+      ...(arTable && { arTable }),
+      styles, props, ...(layer && { layer }), ...(value.hidden === true && { hidden: true as const }), ...(readWater(value.water) && { water: readWater(value.water)! }), ...(fogHeight !== undefined && { fogHeight }),
       wallMaterials: strings(value.wallMaterials), doorProps: strings(value.doorProps), lightHeights: heights(value.lightHeights),
-      wallHeights: heights(value.wallHeights), doorFlips: flips(value.doorFlips),
+      wallHeights: heights(value.wallHeights), wallWidths: widths(value.wallWidths), windows: windows(value.windows), doorFlips: flips(value.doorFlips),
       ...(ambient !== undefined && { ambient }),
       ...(tint !== undefined && { tint }),
       ...(wallThickness !== undefined && { wallThickness }),
@@ -191,6 +274,21 @@ export class BoardData {
     const kept = tidy(map);
     const next = { ...this.data };
     if (kept) next[mapPath] = kept;
+    else delete next[mapPath];
+    this.data = next;
+    this.changed(mapPath);
+  }
+
+  /** The map's board data as it stands (records are never changed in place, so it serves as an undo snapshot). */
+  snapshot(mapPath: string): MapData | undefined {
+    return this.data[mapPath];
+  }
+
+  /** Puts back the map's board data as a snapshot held it (an undo or redo). */
+  restore(mapPath: string, map: MapData | undefined): void {
+    if (this.data[mapPath] === map) return;
+    const next = { ...this.data };
+    if (map) next[mapPath] = map;
     else delete next[mapPath];
     this.data = next;
     this.changed(mapPath);
@@ -254,6 +352,40 @@ export class BoardData {
   /** A wall's or door's own height in grid squares; null when it stands as tall as the fog. */
   wallHeight(mapPath: string, wallId: string): number | null {
     return this.data[mapPath]?.wallHeights?.[wallId] ?? null;
+  }
+
+  /** A wall's or door's own width (thickness) in grid squares; null when it is as thick as the map's walls. */
+  wallWidth(mapPath: string, wallId: string): number | null {
+    return this.data[mapPath]?.wallWidths?.[wallId] ?? null;
+  }
+
+  /** Sets walls' own width (one segment, or a whole wall); null makes them as thick as the map's walls again. */
+  setWallWidth(mapPath: string, wallIds: readonly string[], width: number | null): void {
+    if (width !== null && (!Number.isFinite(width) || width <= 0)) return;
+    const map = this.data[mapPath] ?? {};
+    const wallWidths = { ...(map.wallWidths ?? {}) };
+    for (const id of wallIds) {
+      if (width === null) delete wallWidths[id];
+      else wallWidths[id] = width;
+    }
+    this.put(mapPath, { ...map, wallWidths });
+  }
+
+  /** A window's opening as the GM set it (grid squares from the floor); null for the board's default. */
+  windowOf(mapPath: string, wallId: string): { bottom: number; top: number } | null {
+    return this.data[mapPath]?.windows?.[wallId] ?? null;
+  }
+
+  /** Sets windows' opening (one segment, or a whole window); null gives them the default again. */
+  setWindow(mapPath: string, wallIds: readonly string[], span: { bottom: number; top: number } | null): void {
+    if (span !== null && (!Number.isFinite(span.bottom) || !Number.isFinite(span.top) || span.bottom < 0 || span.top <= span.bottom)) return;
+    const map = this.data[mapPath] ?? {};
+    const kept = { ...(map.windows ?? {}) };
+    for (const id of wallIds) {
+      if (span === null) delete kept[id];
+      else kept[id] = { bottom: span.bottom, top: span.top };
+    }
+    this.put(mapPath, { ...map, windows: kept });
   }
 
   /** Sets walls' own height (one segment, or a whole wall); null stands them as tall as the fog again. */
@@ -331,6 +463,19 @@ export class BoardData {
     this.put(mapPath, { ...(this.data[mapPath] ?? {}), ambient });
   }
 
+  /** Where the players' AR marker sheets lie on the map; null for none. */
+  arTable(mapPath: string): SavedArTable | null {
+    return this.data[mapPath]?.arTable ?? null;
+  }
+
+  /** Keeps (or with null forgets) where the players' AR marker sheets lie on the map. */
+  setArTable(mapPath: string, table: SavedArTable | null): void {
+    const map = { ...(this.data[mapPath] ?? {}) };
+    if (table) map.arTable = table;
+    else delete map.arTable;
+    this.put(mapPath, map);
+  }
+
   /** The colour the board's daylight is tinted, '#rrggbb'; null when it is not tinted. */
   tint(mapPath: string): string | null {
     return this.data[mapPath]?.tint ?? null;
@@ -362,7 +507,9 @@ export class BoardData {
   moveProp(mapPath: string, id: string, x: number, y: number): void {
     const map = this.data[mapPath];
     if (!map?.props?.some((prop) => prop.id === id)) return;
-    this.put(mapPath, { ...map, props: map.props.map((prop) => (prop.id === id ? { ...prop, x, y } : prop)) });
+    // The prop moved goes last: dropped on a solid one, it stands on top of it.
+    const moved = map.props.find((prop) => prop.id === id)!;
+    this.put(mapPath, { ...map, props: [...map.props.filter((prop) => prop.id !== id), { ...moved, x, y }] });
   }
 
   /** The map this one is a layer of, and how high it stands above it; null for a map that is not a layer. */
@@ -404,6 +551,47 @@ export class BoardData {
     return true;
   }
 
+  /** The map's painted water and its motion; null while it has none. */
+  water(mapPath: string): { mask: SavedWaterMask; motion?: WaterMotion } | null {
+    return this.data[mapPath]?.water ?? null;
+  }
+
+  /** Keeps the map's painted water (null: none left); its motion is kept. */
+  setWater(mapPath: string, mask: SavedWaterMask | null): void {
+    const map = this.data[mapPath] ?? {};
+    const motion = map.water?.motion;
+    const { water: _water, ...rest } = map;
+    this.put(mapPath, mask ? { ...rest, water: { mask, ...(motion && { motion }) } } : rest);
+    if (!mask && motion) this.waterMotions.set(mapPath, motion);
+  }
+
+  /** How all of the map's water moves (kept with its water; remembered until water is painted). */
+  waterMotion(mapPath: string): WaterMotion | null {
+    return this.data[mapPath]?.water?.motion ?? this.waterMotions.get(mapPath) ?? null;
+  }
+
+  setWaterMotion(mapPath: string, motion: WaterMotion): void {
+    this.waterMotions.set(mapPath, motion);
+    const map = this.data[mapPath];
+    if (map?.water) this.put(mapPath, { ...map, water: { ...map.water, motion } });
+  }
+
+  /** Motions chosen for maps without water yet. */
+  private readonly waterMotions = new Map<string, WaterMotion>();
+
+  /** Whether this layer is hidden on the boards of its stack. */
+  layerHidden(mapPath: string): boolean {
+    return this.data[mapPath]?.hidden === true;
+  }
+
+  /** Hides a layer on the boards of its stack, or shows it again; it keeps its place in the stack either way. */
+  setLayerHidden(mapPath: string, hidden: boolean): void {
+    const map = this.data[mapPath] ?? {};
+    if ((map.hidden === true) === hidden) return;
+    const { hidden: _hidden, ...rest } = map;
+    this.put(mapPath, hidden ? { ...rest, hidden: true } : rest);
+  }
+
   clearLayer(mapPath: string): void {
     const map = this.data[mapPath];
     if (!map?.layer) return;
@@ -427,6 +615,37 @@ export class BoardData {
     const layers = this.layersOf(base);
     if (layers.length === 0) return [];
     return [{ path: base, elevation: 0, placement: NO_PLACEMENT }, ...layers].sort((a, b) => a.elevation - b.elevation || a.path.localeCompare(b.path));
+  }
+
+  /** Sets a prop's size, in cells across (a tenth to ten). */
+  setPropScale(mapPath: string, id: string, scale: number): void {
+    const map = this.data[mapPath];
+    const value = Math.min(10, Math.max(0.1, scale));
+    if (!map?.props?.some((prop) => prop.id === id && prop.scale !== value)) return;
+    this.put(mapPath, { ...map, props: map.props.map((prop) => (prop.id === id ? { ...prop, scale: value } : prop)) });
+  }
+
+  /** Sets how high a prop stands, in grid squares (0: on what is under it). */
+  setPropLift(mapPath: string, id: string, lift: number): void {
+    const map = this.data[mapPath];
+    const value = Math.max(0, Math.round(lift * 20) / 20);
+    if (!map?.props?.some((prop) => prop.id === id && (prop.lift ?? 0) !== value)) return;
+    this.put(mapPath, { ...map, props: map.props.map((prop) => {
+      if (prop.id !== id) return prop;
+      const { lift: _was, ...rest } = prop;
+      return value > 0 ? { ...rest, lift: value } : rest;
+    }) });
+  }
+
+  /** Makes a prop solid (tokens stand on it) or not. */
+  setPropSolid(mapPath: string, id: string, solid: boolean): void {
+    const map = this.data[mapPath];
+    if (!map?.props?.some((prop) => prop.id === id && (prop.solid === true) !== solid)) return;
+    this.put(mapPath, { ...map, props: map.props.map((prop) => {
+      if (prop.id !== id) return prop;
+      const { solid: _was, ...rest } = prop;
+      return solid ? { ...rest, solid: true } : rest;
+    }) });
   }
 
   removeProp(mapPath: string, id: string): void {

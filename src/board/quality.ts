@@ -64,6 +64,23 @@ export interface QualityPreset {
   sightStyle: SightStyle;
   /** The height ruler of a stack of scenes has a dash every this many squares. An own setting too. */
   layerTick: number;
+  /** The longest side a map's (or a layer's floor's) texture keeps; the board's own limit without it. */
+  textureSide?: number;
+  /** Only the scene shown is drawn: no other levels or stacked scenes as layers (the leanest memory). */
+  noLayers?: boolean;
+}
+
+/**
+ * A browser low on memory (an old tablet whose page reloads when the board fills it): `lean` keeps textures to 4096
+ * pixels and draws at most at the screen's own resolution; `leanest` keeps them to 2048, draws below it and draws no
+ * layers.
+ */
+export type MemoryMode = 'normal' | 'lean' | 'leanest';
+
+export function leaner(preset: QualityPreset, mode: MemoryMode): QualityPreset {
+  if (mode === 'normal') return preset;
+  if (mode === 'lean') return { ...preset, antialias: false, maxPixelRatio: Math.min(preset.maxPixelRatio, 1), minPixelRatio: Math.min(preset.minPixelRatio, 0.5), shadowMapSize: Math.min(preset.shadowMapSize, 512), lightShadows: 0, displaceCuts: 0, miniShadows: 'blob', textureSide: 4096 };
+  return { ...preset, antialias: false, maxPixelRatio: 0.75, minPixelRatio: 0.5, shadowMapSize: 256, lightShadows: 0, displaceCuts: 0, miniShadows: 'blob', textureSide: 2048, noLayers: true };
 }
 
 export const DEFAULT_SEE_THROUGH_SIZE = 1.2;

@@ -121,6 +121,8 @@ instead of waiting. Smaller maps, and any Atlas before 0.11, are read as the fil
 squares a solid or dashed square grid is drawn as whole lines, a hex grid too fine to draw cell by cell is left off, and
 cell numbers are worked out for the cell under the pointer, never listed.
 
+- **Atlas's toolbar tools on the board:** the toolbar has Atlas's **Random tables** (L), **Asset manager** (Shift+A; A moves the camera) and **Command palette** (Space), in the order you set in Atlas's toolbar (a tool you hid there is hidden here). They are Atlas's own windows, on the same data: the random tables roll your table notes and keep the same history as Atlas; the asset manager spawns tokens and encounters onto the board at the camera's centre (with Atlas's hit point rolls and formations), opens scenes on the board, and sends you to Atlas for the token creator, the encounter builder, new scenes and deleting tokens; the palette runs the board's tools and opens Atlas's own palette for Atlas's settings. They need Atlas VTT 0.12 with the map open in Atlas for its library. See `docs/atlas-parity.md` for how they follow Atlas.
+
 ## Build and test
 
 ```

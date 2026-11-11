@@ -167,6 +167,11 @@ export class BoardDice {
     };
   }
 
+  /** Opens or shuts the dice log (Atlas's command palette: Open dice log). */
+  setLogOpen(open: boolean): void {
+    if ((this.log?.isOpen === true) !== open) this.log?.toggle();
+  }
+
   /** The board shows another scene or map, or closes: the dice go, and the roll in play is never logged. */
   sceneChanged(): void {
     this.lastResult = null;

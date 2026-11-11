@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { BoardData, DEFAULT_WALL_THICKNESS, readBoardData } from '../src/board/boardData';
+import { BoardData, DEFAULT_WALL_THICKNESS, lookOf, readBoardData, readVariants } from '../src/board/boardData';
 
 test('tokens are discs by default; standee round-trips; disc deletes the entry', () => {
   const data = new BoardData();
@@ -215,4 +215,26 @@ test('a tint is kept per map as a lower-case colour, read back, and taken off by
   assert.deepEqual(data.toJSON(), { m: { ambient: 0.3 } });
   data.clearTint('m');
   assert.deepEqual(readBoardData({ m: { tint: 'nope' } }), {});
+});
+
+test('a solid prop and a raised one keep that when saved and read back; a moved prop goes last', () => {
+  const data = new BoardData();
+  const a = data.addProp('m', { glb: 'a.glb', x: 0, y: 0, rotation: 0, scale: 1 });
+  const b = data.addProp('m', { glb: 'b.glb', x: 0, y: 0, rotation: 0, scale: 1 });
+  data.setPropSolid('m', a.id, true);
+  data.setPropLift('m', b.id, 1.5);
+  const read = readBoardData(JSON.parse(JSON.stringify(data.toJSON())));
+  assert.equal(read.m?.props?.[0]?.solid, true);
+  assert.equal(read.m?.props?.[1]?.lift, 1.5);
+  data.setPropLift('m', b.id, 0);
+  assert.equal('lift' in data.props('m')[1]!, false);
+  data.moveProp('m', a.id, 5, 5);
+  assert.deepEqual(data.props('m').map((prop) => prop.id), [b.id, a.id]);
+});
+
+test('variants read back whole, the broken ones left out; a look gives scale, and solid and height only when set', () => {
+  assert.deepEqual(readVariants([{ id: 'v', name: 'Big crate', glb: 'c.glb', scale: 2, solid: true, lift: 1 }, { id: 'w', name: 'x' }, 5]), [{ id: 'v', name: 'Big crate', glb: 'c.glb', scale: 2, solid: true, lift: 1 }]);
+  assert.deepEqual(readVariants(null), []);
+  assert.deepEqual(lookOf({ scale: 1.5, solid: false, lift: 0 }), { scale: 1.5 });
+  assert.deepEqual(lookOf(undefined), { scale: 1 });
 });

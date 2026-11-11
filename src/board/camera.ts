@@ -154,15 +154,43 @@ export class OrbitCamera {
     Object.assign(this.pose, this.goal, { target: { ...this.goal.target } });
   }
 
+  /**
+   * A glide of the height looked at to another layer's floor: from `from` to the goal's height over `seconds`, eased in
+   * and out by the clock (not by the frames, so a slow frame does not make it jump). It starts on the first frame drawn
+   * after it is set, once the new floor is built.
+   */
+  private glide: { from: number; to: number; seconds: number; start: number | null } | null = null;
+
+  /** Glides the height looked at from `from` to the goal's (see `glide`). */
+  glideY(from: number, seconds: number): void {
+    this.pose.target.y = from;
+    this.glide = { from, to: this.goal.target.y, seconds, start: null };
+  }
+
+  /** Whether a glide to another floor is under way. */
+  get gliding(): boolean {
+    return this.glide !== null;
+  }
+
   /** Eases the drawn pose toward the goal, `dt` in seconds. Returns whether it moved. */
   update(dt: number): boolean {
     const t = 1 - Math.exp(-this.damping * Math.max(0, dt));
     const before = JSON.stringify(this.pose);
+    const glide = this.glide;
+    // The goal's height changed meanwhile (the GM moved off): the glide gives way to the usual easing.
+    if (glide && glide.to !== this.goal.target.y) this.glide = null;
+    if (this.glide) {
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      this.glide.start ??= now;
+      const progress = Math.min(1, (now - this.glide.start) / (this.glide.seconds * 1000));
+      this.pose.target.y = this.glide.from + (this.glide.to - this.glide.from) * smoother(progress);
+      if (progress >= 1) this.glide = null;
+    }
     this.pose.yaw += (this.goal.yaw - this.pose.yaw) * t;
     this.pose.pitch += (this.goal.pitch - this.pose.pitch) * t;
     this.pose.distance += (this.goal.distance - this.pose.distance) * t;
     this.pose.target.x += (this.goal.target.x - this.pose.target.x) * t;
-    this.pose.target.y += (this.goal.target.y - this.pose.target.y) * t;
+    if (!this.glide) this.pose.target.y += (this.goal.target.y - this.pose.target.y) * t;
     this.pose.target.z += (this.goal.target.z - this.pose.target.z) * t;
     // Settle exactly, scaled to the board, so a still camera stops asking for frames.
     const length = this.limits.minDistance * 1e-4;
@@ -172,11 +200,17 @@ export class OrbitCamera {
     for (const axis of ['x', 'y', 'z'] as const) {
       if (Math.abs(this.goal.target[axis] - this.pose.target[axis]) < length) this.pose.target[axis] = this.goal.target[axis];
     }
-    return JSON.stringify(this.pose) !== before;
+    return JSON.stringify(this.pose) !== before || this.glide !== null;
   }
 
   /** Where the camera is, for the drawn pose. */
   position(): CameraPosition {
     return positionOf(this.pose);
   }
+}
+
+/** Eases 0..1 in and out, with no jolt at either end (Perlin's smootherstep). */
+export function smoother(t: number): number {
+  const x = Math.min(1, Math.max(0, t));
+  return x * x * x * (x * (x * 6 - 15) + 10);
 }

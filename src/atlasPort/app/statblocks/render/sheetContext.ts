@@ -1,0 +1,22 @@
+// Atlas source: src/app/statblocks/render/sheetContext.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// @ts-nocheck
+import { createContext, useContext } from 'react';
+import type { App } from 'obsidian';
+import type { SheetState } from './sheetState';
+
+export interface SheetContextValue {
+  state: SheetState;
+  /** Renders Markdown and resolves images; without it values show as plain text. */
+  app: App | undefined;
+  /** The statblock note, which links and images resolve from. */
+  sourcePath: string | undefined;
+}
+
+export const SheetContext = createContext<SheetContextValue | null>(null);
+
+/** The statblock a block is rendered for. Blocks render only inside `StatblockSheet`. */
+export function useSheet(): SheetContextValue {
+  const sheet = useContext(SheetContext);
+  if (!sheet) throw new Error('A statblock block was rendered outside StatblockSheet.');
+  return sheet;
+}

@@ -3,9 +3,13 @@
  * and ambient light the GM gave it, from Tabletop's own data. Materials are listed only once their settings are read
  * (`MaterialIndex`), so nothing is guessed; Connect hears when they are.
  */
+import { onFirstLevel, propsOnLevel, type BoardLevel } from './board/levels';
 import type { TFile, TFolder, Vault } from 'obsidian';
 import type { BoardData } from './board/boardData';
-import type { BoardLayerLook, BoardLook } from './connectContract';
+import type { BoardWall } from './board/walls';
+import { defaultsUsed, materialWith, type MaterialDefaults } from './materialDefaults';
+import { placedTable, type ArTable } from './arTable';
+import type { BoardLayerLook, BoardLook, BoardWater } from './connectContract';
 import { DEFAULT_TUNING, pickMaps, readMaterialSettings, tuningOf, MATERIAL_SETTINGS_FILE, type MaterialMaps, type MaterialTuning } from './materialMaps';
 
 export interface MaterialInfo {
@@ -21,26 +25,51 @@ export interface MaterialView {
 
 const isDefault = (tuning: MaterialTuning): boolean => tuning.relief === DEFAULT_TUNING.relief && tuning.occlusion === DEFAULT_TUNING.occlusion && tuning.shine === DEFAULT_TUNING.shine && tuning.depth === DEFAULT_TUNING.depth && tuning.displace === DEFAULT_TUNING.displace && tuning.outward === DEFAULT_TUNING.outward;
 
-export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: string, layers: ReadonlyArray<BoardLayerLook> = []): BoardLook {
-  const used = data.usedMaterials(mapPath)
+export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: string, layers: ReadonlyArray<BoardLayerLook> = [], shown: { levels: readonly BoardLevel[]; level: string | null } = { levels: [], level: null }, defaults: { walls: readonly BoardWall[]; chosen: MaterialDefaults } | null = null): BoardLook {
+  // Walls with no material painted wear their kind's default, for players too.
+  const wallsById = new Map((defaults?.walls ?? []).map((wall) => [wall.id, wall]));
+  const wallMaterial = (id: string): string | null => {
+    const painted = data.wallMaterial(mapPath, id);
+    const wall = wallsById.get(id);
+    return wall ? materialWith(painted, wall, defaults?.chosen) : painted;
+  };
+  const fromDefaults = defaults ? defaultsUsed(defaults.walls, (index) => data.wallMaterial(mapPath, defaults.walls[index]!.id), defaults.chosen) : [];
+  const used = [...new Set([...data.usedMaterials(mapPath), ...fromDefaults])]
     .map((id) => ({ id, info: materials.info(id) }))
     .filter((entry): entry is { id: string; info: MaterialInfo } => entry.info !== null)
     .map(({ id, info }) => ({ id, scale: info.scale, maps: { ...info.maps }, ...(!info.tuning || isDefault(info.tuning) ? {} : { tuning: { ...info.tuning } }) }));
   const fog = data.fogHeight(mapPath);
   return Object.freeze({
     wallHeight: (id: string) => data.wallHeight(mapPath, id),
-    wallMaterial: (id: string) => data.wallMaterial(mapPath, id),
+    wallMaterial,
     doorProp: (id: string) => data.doorProp(mapPath, id),
     doorFlip: (id: string) => data.doorFlip(mapPath, id),
+    windowOf: (id: string) => data.windowOf(mapPath, id),
+    wallWidth: (id: string) => data.wallWidth(mapPath, id),
     lightHeight: (id: string) => data.lightHeight(mapPath, id),
     fogHeight: fog,
     wallThickness: data.wallThickness(mapPath),
     ambient: data.ambient(mapPath),
     tint: data.tint(mapPath),
     ...(layers.length > 0 ? { layers } : {}),
-    props: data.props(mapPath).map((prop) => ({ id: prop.id, path: prop.glb, x: prop.x, y: prop.y, scale: prop.scale, turn: prop.rotation })),
+    // Painted water lies on the scene's first level; props stand on their own level.
+    ...(onFirstLevel(shown.levels, shown.level) ? waterOf(data, mapPath) : {}),
+    ...arTableOf(data, mapPath),
+    props: propsOnLevel(data.props(mapPath), shown.level, shown.levels).map((prop) => ({ id: prop.id, path: prop.glb, x: prop.x, y: prop.y, scale: prop.scale, turn: prop.rotation, ...(prop.solid ? { solid: true } : {}), ...(prop.lift ? { lift: prop.lift } : {}) })),
     materials: used,
   });
+}
+
+/** Where the players' AR marker sheets lie on the map, placed, for their phones; nothing when the GM placed none. */
+export function arTableOf(data: BoardData, mapPath: string): { arTable?: ArTable } {
+  const saved = data.arTable(mapPath);
+  return saved ? { arTable: placedTable(saved) } : {};
+}
+
+/** The map's painted water with its motion, for players; nothing when it has none. */
+export function waterOf(data: BoardData, mapPath: string): { water?: BoardWater } {
+  const saved = data.water(mapPath);
+  return saved ? { water: { mask: { ...saved.mask }, motion: data.waterMotion(mapPath) } } : {};
 }
 
 /** A material's maps by role, as the wire names them. */

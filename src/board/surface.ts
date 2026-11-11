@@ -3,6 +3,7 @@
  * frame around it and a floor beneath, so nothing outside the map reads as a void. World (x, y) on the map is
  * (x, 0, y) here: screen right is +x, the map's top is toward -z.
  */
+import { releaseTexture } from './textures';
 import * as THREE from 'three';
 import { styledGrid } from './gridLines';
 import type { BoardGrid } from './mapModel';
@@ -146,6 +147,11 @@ export class BoardSurface {
     this.floor?.scale.set(factor, 1, factor);
   }
 
+  /** Shows the floor round the table, or leaves it out (augmented reality: the real table is round the map). */
+  showFloor(visible: boolean): void {
+    if (this.floor) this.floor.visible = visible;
+  }
+
   /** Lays the map image on the board (null keeps the plain board) and draws the grid in its colour. */
   setImage(texture: THREE.Texture | null): void {
     this.image.map = texture;
@@ -177,6 +183,6 @@ export class BoardSurface {
       mesh.geometry.dispose();
       for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) material.dispose();
     });
-    this.image.map?.dispose();
+    releaseTexture(this.image.map);
   }
 }

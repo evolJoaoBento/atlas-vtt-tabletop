@@ -13,6 +13,9 @@ const context = await esbuild.context({
   logLevel: 'info',
   sourcemap: prod ? false : 'inline',
   treeShaking: true,
+  // Atlas's copied React components (src/atlasPort/app) use the automatic JSX runtime, as in Atlas.
+  jsx: 'automatic',
+  define: { 'process.env.NODE_ENV': prod ? '"production"' : '"development"' },
   minify: prod,
   loader: { '.png': 'binary' },
   outfile: 'main.js',

@@ -12,15 +12,21 @@ import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { LoadedMini } from '../library';
 import { DISPLACE_TILE_SHARE } from '../parallax';
-import { easeSwing, isDoor, leafHeading, NO_FLIP, passHeading, segmentFrame, stepOpenness, swingSide, type BoardWall, type DoorFlip } from './walls';
+import { easeSwing, isDoor, isWindow, leafHeading, NO_FLIP, passHeading, segmentFrame, stepOpenness, swingSide, windowSpan, type BoardWall, type DoorFlip, type WindowSpan } from './walls';
 
 export interface WallLookup {
   /** The material of a wall painted with `path` (null: the plain look of a wall, or of a door). */
   look(path: string | null, door: boolean): THREE.Material;
   /** The material painted on a wall or door, by id. */
   materialOf(id: string): string | null;
+  /** The material a wall or door wears when none was painted on it (the defaults for its kind); none without. */
+  defaultOf?(wall: BoardWall): string | null;
   /** A wall's own height in grid squares; null for the default (the fog's, half that for a low wall). */
   heightOf(id: string): number | null;
+  /** A window's opening as the GM set it (grid squares from the floor); null for the default. */
+  windowOf?(id: string): WindowSpan | null;
+  /** A wall's own width (thickness) in grid squares; null for the map's. */
+  widthOf?(id: string): number | null;
   /** Whether walls painted with `path` are moved by a height map, so their faces are cut finely enough to follow it. */
   displaces?(path: string | null): boolean;
   /** How wide a tile of the texture painted with `path` stands, in grid squares (1 when unknown). */
@@ -210,7 +216,9 @@ const endKey = (p: { x: number; y: number }): string => `${Math.round(p.x * 4)},
  * another stops at the join instead of running into it; walls that meet at an angle or in a T still overlap, so each
  * takes a level that differs from every wall it touches (greedily: the first level none of the earlier ones has).
  */
-export function planJoins(walls: ReadonlyArray<Pick<BoardWall, 'id' | 'p1' | 'p2'>>, thick: number): Map<string, WallJoin> {
+export function planJoins(walls: ReadonlyArray<Pick<BoardWall, 'id' | 'p1' | 'p2'>>, thickness: number | ((id: string) => number)): Map<string, WallJoin> {
+  // Each wall its own thickness (a wall may be given its own width): a corner closes by the other wall's.
+  const thick = typeof thickness === 'number' ? (): number => thickness : thickness;
   const at = new Map<string, Array<{ id: string; end: 0 | 1 }>>();
   for (const wall of walls) {
     for (const end of [0, 1] as const) {
@@ -229,7 +237,7 @@ export function planJoins(walls: ReadonlyArray<Pick<BoardWall, 'id' | 'p1' | 'p2
     const length = Math.hypot(wall.p2.x - wall.p1.x, wall.p2.y - wall.p1.y) || 1;
     return { x: (wall.p2.x - wall.p1.x) / length, y: (wall.p2.y - wall.p1.y) / length };
   };
-  const joins = new Map<string, WallJoin>(walls.map((wall) => [wall.id, { extend: [thick / 2, thick / 2], level: 0 }]));
+  const joins = new Map<string, WallJoin>(walls.map((wall) => [wall.id, { extend: [thick(wall.id) / 2, thick(wall.id) / 2], level: 0 }]));
   const neighbours = new Map<string, Set<string>>(walls.map((wall) => [wall.id, new Set<string>()]));
   for (const meeting of at.values()) {
     if (meeting.length < 2) continue;
@@ -249,12 +257,12 @@ export function planJoins(walls: ReadonlyArray<Pick<BoardWall, 'id' | 'p1' | 'p2
       joins.get(b.id)!.extend[b.end] = 0;
       neighbours.get(a.id)!.delete(b.id);
       neighbours.get(b.id)!.delete(a.id);
-    } else if (Math.abs(da.x * db.y - da.y * db.x) > SQUARE_CORNER && length(a.id) >= thick * 2 && length(b.id) >= thick * 2) {
+    } else if (Math.abs(da.x * db.y - da.y * db.x) > SQUARE_CORNER && length(a.id) >= Math.max(thick(a.id), thick(b.id)) * 2 && length(b.id) >= Math.max(thick(a.id), thick(b.id)) * 2) {
       // A corner near a right angle: one wall takes the corner square, the other stops at its face, so no box overlaps another
       // (walls of different materials would otherwise show their tops and faces through each other there).
       const [taker, stopper] = a.id < b.id ? [a, b] : [b, a];
-      joins.get(taker.id)!.extend[taker.end] = thick / 2;
-      joins.get(stopper.id)!.extend[stopper.end] = -thick / 2;
+      joins.get(taker.id)!.extend[taker.end] = thick(stopper.id) / 2;
+      joins.get(stopper.id)!.extend[stopper.end] = -thick(taker.id) / 2;
       neighbours.get(a.id)!.delete(b.id);
       neighbours.get(b.id)!.delete(a.id);
     }
@@ -278,7 +286,7 @@ export function planJoins(walls: ReadonlyArray<Pick<BoardWall, 'id' | 'p1' | 'p2
  */
 function squareCrossing(
   meeting: Array<{ id: string; end: 0 | 1 }>, joins: Map<string, WallJoin>, neighbours: Map<string, Set<string>>,
-  direction: (id: string) => { x: number; y: number }, length: (id: string) => number, thick: number,
+  direction: (id: string) => { x: number; y: number }, length: (id: string) => number, thick: (id: string) => number,
 ): void {
   if (new Set(meeting.map((m) => m.id)).size !== meeting.length) return;
   const sine = (a: { id: string }, b: { id: string }): number => {
@@ -293,12 +301,14 @@ function squareCrossing(
   }
   const rest = meeting.filter((m) => !paired.has(m.id));
   const fits = (meeting.length === 3 && pairs.length === 1 && rest.length === 1) || (meeting.length === 4 && pairs.length === 2);
-  if (!fits || meeting.some((m) => length(m.id) < thick * 2)) return;
+  const widest = Math.max(...meeting.map((m) => thick(m.id)));
+  if (!fits || meeting.some((m) => length(m.id) < widest * 2)) return;
   const through = pairs.sort((x, y) => (x[0].id < y[0].id ? -1 : 1))[0]!;
   const across = meeting.filter((m) => m !== through[0] && m !== through[1]);
   if (across.some((m) => sine(m, through[0]) <= SQUARE_CORNER)) return;
   for (const m of through) joins.get(m.id)!.extend[m.end] = 0;
-  for (const m of across) joins.get(m.id)!.extend[m.end] = -thick / 2;
+  const throughThick = Math.max(thick(through[0].id), thick(through[1].id));
+  for (const m of across) joins.get(m.id)!.extend[m.end] = -throughThick / 2;
   for (const a of meeting) for (const b of meeting) neighbours.get(a.id)!.delete(b.id);
 }
 
@@ -324,6 +334,11 @@ export class WallSet {
   private signature = '';
   private generation = 0;
 
+  /** The material a wall wears: painted on it, else its kind's default. */
+  private paintOf(wall: BoardWall): string | null {
+    return this.lookup.materialOf(wall.id) ?? this.lookup.defaultOf?.(wall) ?? null;
+  }
+
   constructor(private readonly lookup: WallLookup) {
     this.object3d.name = 'walls';
     this.object3d.add(this.gmOnly);
@@ -334,7 +349,7 @@ export class WallSet {
    * opened or shut swings to its new place.
    */
   update(walls: readonly BoardWall[], shape: WallShape): void {
-    const signature = JSON.stringify([shape.height, shape.tile, shape.edge, shape.cuts, shape.thickness, shape.fogKey, walls.map((wall) => [wall.id, wall.type, wall.p1, wall.p2, wall.direction, wall.blocks, wall.limited, wall.chain, this.lookup.materialOf(wall.id), this.lookup.displaces?.(this.lookup.materialOf(wall.id)) ?? false, this.lookup.tileOf?.(this.lookup.materialOf(wall.id)) ?? 1, this.lookup.heightOf(wall.id), isDoor(wall) ? this.lookup.propOf(wall.id) : null, isDoor(wall) ? this.lookup.flipOf?.(wall.id) ?? NO_FLIP : null])]);
+    const signature = JSON.stringify([shape.height, shape.tile, shape.edge, shape.cuts, shape.thickness, shape.fogKey, walls.map((wall) => [wall.id, wall.type, wall.p1, wall.p2, wall.direction, wall.blocks, wall.limited, wall.chain, this.paintOf(wall), this.lookup.displaces?.(this.paintOf(wall)) ?? false, this.lookup.tileOf?.(this.paintOf(wall)) ?? 1, this.lookup.heightOf(wall.id), this.lookup.widthOf?.(wall.id) ?? null, isWindow(wall) ? this.lookup.windowOf?.(wall.id) ?? null : null, isDoor(wall) ? this.lookup.propOf(wall.id) : null, isDoor(wall) ? this.lookup.flipOf?.(wall.id) ?? NO_FLIP : null])]);
     if (signature !== this.signature) {
       const openness = new Map([...this.doors].map(([id, door]) => [id, door.openness]));
       this.clear();
@@ -349,8 +364,12 @@ export class WallSet {
 
   private build(walls: readonly BoardWall[], shape: WallShape, openness: Map<string, number>): void {
     const generation = ++this.generation;
-    const thick = shape.thickness;
-    const joins = planJoins(walls.filter((wall) => wall.type !== 'door' && wall.type !== 'secret-door'), thick);
+    // The map's wall thickness, or a wall's own width.
+    const thickOf = (id: string): number => {
+      const own = this.lookup.widthOf?.(id) ?? null;
+      return own !== null && own > 0 ? own * shape.tile : shape.thickness;
+    };
+    const joins = planJoins(walls.filter((wall) => wall.type !== 'door' && wall.type !== 'secret-door'), thickOf);
     // A level is a hair of height (a hundredth of a square) and of thickness: too small to see, larger than the depth buffer tells apart.
     const rise = shape.tile * 0.01;
     // A displaced wall's triangles grow with the square of its cuts: when the map's walls would be too many for it, they are all cut coarser.
@@ -358,7 +377,7 @@ export class WallSet {
     const sizes: [number, number, number][] = [];
     for (const wall of walls) {
       if (wall.type === 'door' || wall.type === 'secret-door' || wall.blocks === 'light' || wall.blocks === 'sight') continue;
-      const cuts = cutsOf(this.lookup.materialOf(wall.id));
+      const cuts = cutsOf(this.paintOf(wall));
       if (cuts <= 0) continue;
       const own = this.lookup.heightOf(wall.id);
       const squares = own !== null ? own : wall.limited ? shape.height / shape.tile / 2 : shape.height / shape.tile;
@@ -376,12 +395,13 @@ export class WallSet {
       if (height <= 0) continue;
       const frame = segmentFrame(wall.p1, wall.p2);
       if (wall.type === 'door' || wall.type === 'secret-door') {
-        this.addDoor(wall, shape, height, thick, openness.get(wall.id) ?? (wall.closed ? 0 : 1), generation);
+        this.addDoor(wall, shape, height, thickOf(wall.id), openness.get(wall.id) ?? (wall.closed ? 0 : 1), generation);
         this.doors.get(wall.id)!.pivot.userData.fogged = shape.fogged(frame.cx, frame.cy);
         continue;
       }
+      const thick = thickOf(wall.id);
       const glass = wall.blocks === 'light';
-      const paint = this.lookup.materialOf(wall.id);
+      const paint = this.paintOf(wall);
       // Walls under the fog (by their middle, as tokens are) go in meshes of their own, which players do not see.
       const fogged = shape.fogged(frame.cx, frame.cy);
       const key = `${glass ? 'glass' : wall.blocks === 'sight' ? `curtain|${paint ?? ''}` : `wall|${paint ?? ''}`}|${fogged ? 'fog' : ''}`;
@@ -397,7 +417,20 @@ export class WallSet {
       const join = joins.get(wall.id)!;
       const [before, after] = join.extend;
       const shift = (after - before) / 2;
-      pushBox(group.data, frame.cx + Math.cos(frame.heading) * shift, frame.cy + Math.sin(frame.heading) * shift, frame.heading, frame.length + before + after, thick - join.level * thick * 0.04, 0, height + join.level * rise, shape.tile, group.detail, { start: before > 0, end: after > 0, share: shape.edge });
+      const cx = frame.cx + Math.cos(frame.heading) * shift;
+      const cz = frame.cy + Math.sin(frame.heading) * shift;
+      const boxThick = thick - join.level * thick * 0.04;
+      const rounding = { start: before > 0, end: after > 0, share: shape.edge };
+      if (isWindow(wall)) {
+        // Atlas's window: a sill up to the opening and a lintel above it; sight and light pass between them.
+        const span = windowSpan(height / shape.tile, this.lookup.windowOf?.(wall.id) ?? null);
+        const sill = span.bottom * shape.tile;
+        const lintel = span.top * shape.tile;
+        if (sill > 0) pushBox(group.data, cx, cz, frame.heading, frame.length + before + after, boxThick, 0, sill, shape.tile, group.detail, rounding);
+        if (lintel < height) pushBox(group.data, cx, cz, frame.heading, frame.length + before + after, boxThick, lintel, height - lintel + join.level * rise, shape.tile, group.detail, rounding);
+      } else {
+        pushBox(group.data, cx, cz, frame.heading, frame.length + before + after, boxThick, 0, height + join.level * rise, shape.tile, group.detail, rounding);
+      }
       group.ids.push(wall.id);
       group.ends.push(group.data.positions.length / 9);
       if (wall.direction) this.addArrow(wall, frame, height, thick);
@@ -422,7 +455,7 @@ export class WallSet {
     pivot.position.set(hinge.x, 0, hinge.y);
     pivot.userData.doorId = wall.id;
     // A secret door wears the walls' look unless it was painted itself.
-    const paint = this.lookup.materialOf(wall.id);
+    const paint = this.paintOf(wall);
     const secret = wall.type === 'secret-door';
     const data = { positions: [] as number[], normals: [] as number[], uvs: [] as number[] };
     // A hair lower than the walls beside it, whose tops it would share.

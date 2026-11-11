@@ -1,0 +1,50 @@
+// Atlas source: src/app/../utils/debounce.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// @ts-nocheck
+/** A debounced function; `flush` runs a pending call immediately. */
+export interface DebouncedFunction<A extends unknown[]> {
+  (...args: A): void;
+  flush: () => void;
+}
+
+/**
+ * Creates a debounced function that delays invoking func until after wait milliseconds
+ * have elapsed since the last time the debounced function was invoked.
+ *
+ * @param func The function to debounce
+ * @param wait The number of milliseconds to delay
+ * @returns The debounced function
+ */
+export function debounce<A extends unknown[]>(
+  func: (...args: A) => unknown,
+  wait: number
+): DebouncedFunction<A> {
+  let timeout: number | undefined;
+  let lastArgs: A | undefined;
+
+  const invoke = (): void => {
+    timeout = undefined;
+    const args = lastArgs;
+    // Drop the arguments once used: a debounced save would otherwise keep a whole map snapshot alive
+    lastArgs = undefined;
+    if (args) {
+      func(...args);
+    }
+  };
+
+  const debounced = (...args: A): void => {
+    lastArgs = args;
+    if (timeout !== undefined) {
+      window.clearTimeout(timeout);
+    }
+    timeout = window.setTimeout(invoke, wait);
+  };
+
+  debounced.flush = (): void => {
+    if (timeout !== undefined) {
+      window.clearTimeout(timeout);
+      invoke();
+    }
+  };
+
+  return debounced;
+}

@@ -1,0 +1,18 @@
+// Atlas source: src/app/ui/dialogShell.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// @ts-nocheck
+export interface DialogShell {
+  /** Backdrop covering the window; removing it closes the dialog. */
+  root: HTMLElement;
+  dialog: HTMLElement;
+}
+
+/**
+ * Mounts a centred, titled dialog on `document.body`. It stacks above Atlas
+ * overlays such as the asset manager, which Obsidian's own modals do not.
+ */
+export function createDialogShell(title: string): DialogShell {
+  const root = document.body.createDiv({ cls: 'atlas-vtt-plugin atlas-text-dialog-backdrop' });
+  const dialog = root.createDiv({ cls: 'atlas-text-dialog' });
+  dialog.createEl('h3', { cls: 'atlas-text-dialog__title', text: title });
+  return { root, dialog };
+}

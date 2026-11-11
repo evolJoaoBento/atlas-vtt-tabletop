@@ -1,0 +1,37 @@
+import type { ParityRow } from './types';
+
+/** Atlas 0.14.0's command palette entries (0.12.0's, and 0.14's lighting pages) (`CommandPalette.tsx` `commandOptions`, sub-page entries included), in order. */
+export const ATLAS_PALETTE: readonly ParityRow[] = [
+  { id: 'move-tool', status: 'mapped', note: "The board's Move/Select tool." },
+  { id: 'fog-tool', status: 'not-yet', note: "Fog painting is a later round; the entry opens Atlas's palette." },
+  { id: 'measure-tool', status: 'native', note: "The board's Measure tool." },
+  { id: 'note-pin-tool', status: 'not-yet', note: "Placing note pins is a later round; the entry opens Atlas's palette." },
+  { id: 'open-scene-browser', status: 'native', note: "Atlas's scene browser, opened over the board." },
+  { id: 'scene-snapshots', status: 'atlas', note: "Opens Atlas's palette on its snapshots page (snapshots draw from Atlas's 2D map)." },
+  { id: 'scene-levels', status: 'atlas', note: "Opens Atlas's palette on its levels page; the board follows Atlas's level." },
+  { id: 'replace-map-image', status: 'atlas', note: "Hands off to Atlas (replacing the image goes through Atlas's 2D map)." },
+  { id: 'open-dice-log', status: 'native', note: "The board's dice log." },
+  { id: 'open-loot-roller', status: 'native', note: 'The random tables window on the board.' },
+  { id: 'toggle-player-mode', status: 'atlas', note: "Atlas's player mode, run in Atlas." },
+  { id: 'freeze-player-camera', status: 'native', note: "The board's player view freeze." },
+  { id: 'open-player-window', status: 'native', note: "The board's player view." },
+  { id: 'transfer-player-view', status: 'atlas', note: "Atlas's player-window transfer, run in Atlas." },
+  { id: 'show-map-in-player-window', status: 'atlas', note: "Atlas's send-map-to-player-view command." },
+  { id: 'grid-settings', status: 'atlas', note: "Grid settings write Atlas's map; opened in Atlas." },
+  { id: 'grid-all-settings', status: 'atlas', note: 'Sub-entry of grid settings.' },
+  { id: 'token-settings', status: 'atlas', note: "Token settings write Atlas's map; opened in Atlas." },
+  { id: 'token-all-settings', status: 'atlas', note: 'Sub-entry of token settings.' },
+  { id: 'widget-settings', status: 'atlas', note: "Widgets are Atlas's 2D overlay; opened in Atlas." },
+  { id: 'local-player-view-settings', status: 'atlas', note: "Atlas's local player view settings; opened in Atlas." },
+  { id: 'local-player-view-all-settings', status: 'atlas', note: 'Sub-entry of local player view settings.' },
+  { id: 'dice-settings', status: 'atlas', note: "Atlas's dice settings; opened in Atlas." },
+  { id: 'dice-all-settings', status: 'atlas', note: 'Sub-entry of dice settings.' },
+  // Atlas 0.14: the lighting settings became a palette page of their own.
+  { id: 'lighting-settings', status: 'atlas', note: "Atlas 0.14's lighting settings page (the scene's light, ambient, vision); they write Atlas's map, so they open in Atlas. The board has its own lighting menu." },
+  { id: 'lighting-all-settings', status: 'atlas', note: 'Sub-entry of lighting settings.' },
+  { id: 'graphics-settings', status: 'atlas', note: "Opens Atlas's palette on its graphics page (Atlas's 2D lighting); the board has its own lighting menu." },
+  { id: 'graphics-all-settings', status: 'atlas', note: "Sub-entry of graphics settings." },
+  { id: 'experimental-features', status: 'atlas', note: "Atlas's experimental switches; opened in Atlas." },
+  { id: 'experimental-all-features', status: 'atlas', note: 'Sub-entry of experimental features.' },
+  { id: 'customize-toolbar', status: 'atlas', note: "Opens Atlas's toolbar editor; the board follows the layout it saves." },
+];

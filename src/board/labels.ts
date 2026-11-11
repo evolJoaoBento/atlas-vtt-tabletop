@@ -20,8 +20,11 @@ import { BAR_SLOTS, resourceColor, visibleResources, wheelGauge, type ResourceDe
 import { isLightBadgeColor } from './tokenMenu';
 import { canvasTexture, plateTexture } from './textures';
 
-/** Sizes on screen, in pixels: Atlas's bar is 64 × 10 and its wheel two bar heights across. */
-const NAME_PX = 22;
+/**
+ * Sizes on screen, in pixels: Atlas's bar is 64 × 10 and its wheel two bar heights across. A token's name shows only
+ * while it is called up (a click on the token, `setNamed`), large enough to read from anywhere.
+ */
+const NAME_PX = 30;
 export const BAR_PX = { width: 96, height: 15 };
 export const WHEEL_PX = 30;
 const GAP_PX = 3;
@@ -303,7 +306,9 @@ export class TokenLabels {
   readonly object3d = new THREE.Group();
   private readonly top = new THREE.Group();
   private readonly side = new THREE.Group();
-  private stack: Array<{ sprite: THREE.Sprite; width: number; height: number }> = [];
+  private stack: Array<{ sprite: THREE.Sprite; width: number; height: number; name?: true }> = [];
+  /** Whether the name shows (a click on the token called it up). */
+  private named = false;
   private badges: THREE.Sprite[] = [];
   private conditionBadges: THREE.Sprite[] = [];
   private ringRadius = 0;
@@ -325,7 +330,17 @@ export class TokenLabels {
 
   /** Everything drawn over the token: a press on any of it is a press on the token. */
   get sprites(): THREE.Sprite[] {
-    return [...this.stack.map((entry) => entry.sprite), ...this.badges, ...this.conditionBadges];
+    return [...this.stack.filter((entry) => entry.sprite.visible).map((entry) => entry.sprite), ...this.badges, ...this.conditionBadges];
+  }
+
+  /** Shows the token's name (a click on it), or hides it again (anything else done). */
+  setNamed(on: boolean): void {
+    this.named = on;
+    for (const entry of this.stack) if (entry.name) entry.sprite.visible = on;
+  }
+
+  get isNamed(): boolean {
+    return this.named && this.stack.some((entry) => entry.name);
   }
 
   get hoverTargets(): readonly HoverTarget[] {
@@ -341,10 +356,13 @@ export class TokenLabels {
       const color = own?.[entry.definition.key];
       return color ? { ...entry, definition: { ...entry.definition, color, defeatedWhenSpent: false } } : entry;
     });
-    // Top to bottom: name, then the bars in socket order.
-    if (character && (settings.showNameplates || token.showNameplate) && token.name) {
+    // Top to bottom: name, then the bars in socket order. The name of any token that has one, shown only when called up.
+    void settings;
+    if (token.name) {
       const plate = plateTexture(token.name);
-      this.stack.push({ sprite: sprite(plate.texture), width: NAME_PX * (plate.width / plate.height), height: NAME_PX });
+      const name = sprite(plate.texture);
+      name.visible = this.named;
+      this.stack.push({ sprite: name, width: NAME_PX * (plate.width / plate.height), height: NAME_PX, name: true });
     }
     for (const resource of shown.filter((entry) => entry.slot < BAR_SLOTS)) {
       const bar = sprite(barTexture(resource.definition, resource.value));
@@ -416,6 +434,7 @@ export class TokenLabels {
     let rise = 0;
     for (let i = this.stack.length - 1; i >= 0; i--) {
       const entry = this.stack[i];
+      if (!entry.sprite.visible) continue;
       entry.sprite.scale.set(context.pixel * entry.width, context.pixel * entry.height, 1);
       entry.sprite.center.set(0.5, -rise / entry.height);
       rise += entry.height + GAP_PX;

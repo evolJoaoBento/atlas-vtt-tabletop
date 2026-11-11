@@ -301,6 +301,89 @@ feature('map levels', async ({ page, shot }) => {
   check('22 an unknown level reads as the first', JSON.stringify(await ids()) === JSON.stringify(['a', 'c', 'd']), JSON.stringify(await ids()));
 });
 
+feature('atlas 0.14 rooms and pin names', async ({ page, shot }) => {
+  // Atlas 0.14 carves rooms out of the rock: the outline of the shown rooms stands as solid walls (two rooms that overlap
+  // make one outline, a hidden room none). A pin the GM named is titled by that name.
+  const q = (x, y, size) => [[x, y, x + size, y, x + size, y + size, x, y + size].map((value) => value * 8)];
+  const text = JSON.stringify({ version: 1, state: {
+    background: 'bg.png', grid: { size: 70, enabled: true, visible: true },
+    objects: {
+      tokens: { a: { id: 'a', x: 245, y: 245, imagePath: 'red.png', name: 'Delver' } },
+      walls: {},
+      rooms: {
+        hall: { id: 'hall', kind: 'room', name: 'Hall', order: 0, area: q(140, 140, 280) },
+        nook: { id: 'nook', kind: 'room', name: 'Nook', order: 1, area: q(350, 210, 210) },
+        vault: { id: 'vault', kind: 'room', name: 'Vault', order: 2, hidden: true, area: q(700, 700, 140) },
+      },
+      pins: { p: { id: 'p', kind: 'pin', x: 280, y: 280, notePath: 'Notes/Hall.md', name: 'The Great Hall', showName: true } },
+    },
+  } });
+  await page.evaluate((text) => window.boardTest.board.load(window.boardTest.readMap('m.atlasmap', text)), text);
+  await wait(600);
+  const state = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    let meshes = 0;
+    board.scene.traverse((node) => { if (node.isMesh && node.userData.walls) meshes += 1; });
+    const rooms = board.map.walls.filter((wall) => wall.chain === 'rooms');
+    return {
+      rooms: rooms.length,
+      solid: rooms.every((wall) => wall.type === 'solid'),
+      // The hidden vault (700..840) makes none; the two shown rooms make one outline (no wall at x = 420 or 350 inside it).
+      vault: rooms.some((wall) => Math.max(wall.p1.x, wall.p2.x) > 600),
+      inside: rooms.some((wall) => wall.p1.x === wall.p2.x && (wall.p1.x === 420 || wall.p1.x === 350) && Math.min(wall.p1.y, wall.p2.y) >= 210 && Math.max(wall.p1.y, wall.p2.y) <= 420),
+      meshes,
+      pin: board.map.pins[0]?.name ?? null,
+    };
+  });
+  await shot('rooms-carved');
+  check('rooms: the outline of the shown rooms stands as solid walls on the board, one outline for rooms that overlap, none for a hidden one', state.rooms >= 6 && state.solid && !state.vault && !state.inside && state.meshes > 0, JSON.stringify(state));
+  check('pin names: a pin the GM named is titled by that name', state.pin === 'The Great Hall', JSON.stringify(state));
+  await page.evaluate(() => window.boardTest.board.load(window.boardTest.map));
+  await wait(500);
+});
+
+feature('atlas levels as layers', async ({ page, shot }) => {
+  // One scene with Atlas levels: the ground floor is shown, the upper floor is drawn above it as a layer, at its height
+  // (10 ft over 5 ft squares: 2 squares), with its own floor image, walls and tokens; the height ruler lists the levels.
+  const text = JSON.stringify({ version: 1, state: {
+    background: 'bg.png', grid: { size: 70, enabled: true, visible: true, unitDistance: 5 },
+    levels: [{ id: 'ground', elevation: { bottom: 0, top: 10 } }, { id: 'upper', name: 'Upstairs', elevation: { bottom: 10, top: 20 }, background: 'balcony.png' }],
+    objects: {
+      tokens: { a: { id: 'a', x: 245, y: 245, imagePath: 'red.png', name: 'Ground guard' }, b: { id: 'b', x: 420, y: 280, imagePath: 'green.png', name: 'Upper archer', level: 'upper' } },
+      walls: {
+        w1: { id: 'w1', type: 'solid', p1: { x: 140, y: 140 }, p2: { x: 560, y: 140 } },
+        rail: { id: 'rail', type: 'solid', levels: ['upper'], p1: { x: 280, y: 420 }, p2: { x: 770, y: 420 } },
+      },
+      pins: {},
+    },
+  } });
+  const result = await page.evaluate(async (text) => {
+    const { board, readMap, Box3 } = window.boardTest;
+    const ground = readMap('m.atlasmap', text, 'ground');
+    const upper = readMap('m.atlasmap', text, 'upper');
+    await board.load(ground);
+    const none = () => null;
+    board.setStack([{ path: 'atlas-level:upper', elevation: 2, map: upper, wallHeight: none, windowOf: none, wallWidth: none, wallMaterial: none, doorProp: none, doorFlip: none, lightHeight: () => 1, fogHeight: 1, wallThickness: 0.12, props: [], water: null, stands: { x: 0, y: 0, turn: 0 }, placement: none, style: () => 'disc' }]);
+    board.setLayerMenu([{ path: 'atlas-level:upper', name: 'Upstairs', elevation: 2, active: false }, { path: 'atlas-level:ground', name: 'Level 1', elevation: 0, active: true }]);
+    board.wake(true);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const view = board.layerViews.get('atlas-level:upper');
+    const box = view ? new Box3().setFromObject(view.object3d) : null;
+    return {
+      shown: [...board.tokens.keys()].sort(), upperTokens: upper.tokens.filter((token) => !token.offLevel).map((token) => token.id),
+      shownWalls: ground.walls.map((wall) => wall.id), upperWalls: upper.walls.map((wall) => wall.id), upperImage: upper.background,
+      layer: !!view, floor: box ? Math.round(box.min.y) : null, levelNames: upper.levels.map((level) => [level.id, level.bottom]),
+      ruler: board.container.querySelectorAll('.atlas-tabletop-layers *').length,
+    };
+  }, text);
+  check('atlas levels: the level shown has only its own tokens and walls', JSON.stringify(result.shown) === '["a"]' && JSON.stringify(result.shownWalls) === '["w1"]' && JSON.stringify(result.upperWalls) === '["rail"]' && JSON.stringify(result.upperTokens) === '["b"]', JSON.stringify(result));
+  check('atlas levels: the upper level is a layer with its own floor, at its height', result.layer && result.upperImage === 'balcony.png' && JSON.stringify(result.levelNames) === '[["ground",0],["upper",10]]', JSON.stringify(result));
+  check('atlas levels: the height ruler lists the levels', result.ruler > 0, JSON.stringify(result));
+  await shot('atlas-levels');
+  await page.evaluate(() => { const { board, map } = window.boardTest; board.setStack([]); board.setLayerMenu(null); return board.load(map); });
+  await wait(300);
+});
+
 // ── Item 20: a map larger than the graphics card's texture limit ────────────────────────────────────────────────────
 feature('large map', async ({ page, shot }) => {
   const result = await page.evaluate(async () => {
@@ -600,7 +683,8 @@ feature('elevation layers', async ({ page, shot }) => {
     if (!view) return { layers: board.layerViews.size };
     return { layers: board.layerViews.size, y: view.object3d.position.y, floor: view.floor.visible, alphaTest: view.image.alphaTest, transparent: view.image.transparent, opacity: view.image.opacity, casts: view.floor.castShadow, tokens: view.tokens.size, props: view.props.size };
   });
-  const quality = (look) => page.evaluate((look) => { const { board, QUALITY } = window.boardTest; board.setQuality({ ...board.quality, layerLook: look }); }, look);
+  // The look eases over a little over half a second: settled once it returns.
+  const quality = async (look) => { await page.evaluate((look) => { const { board, QUALITY } = window.boardTest; board.setQuality({ ...board.quality, layerLook: look }); }, look); await wait(1400); };
   await stack(2);
   await wait(900);
   let now = await probe();
@@ -609,6 +693,28 @@ feature('elevation layers', async ({ page, shot }) => {
   check('layers: its token stands on it', now.tokens === 1, JSON.stringify(now));
   await page.evaluate(() => { const { camera } = window.boardTest.board; camera.goal.yaw = 0.6; camera.goal.pitch = 0.6; camera.goal.distance = 900; camera.snap(); window.boardTest.board.wake(true); });
   await shot('elevation-layer-solid');
+  // From a token's eyes the scene above is always there and solid: under line of sight and a faded look alike.
+  const firstPerson = await page.evaluate(async () => {
+    const { board } = window.boardTest;
+    const before = board.quality.layerLook;
+    const sight = board.quality.lineOfSight;
+    board.setQuality({ ...board.quality, layerLook: 'faded', lineOfSight: 'everyone' });
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const view = () => [...board.layerViews.values()][0];
+    const outside = { blacked: view().blackedOut, look: view().look };
+    board.seeFrom('hero', false);
+    board.wake(true);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const inside = { blacked: view().blackedOut, look: view().look, visible: view().object3d.visible };
+    board.seeFrom(null);
+    board.wake(true);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const back = { look: view().look };
+    board.setQuality({ ...board.quality, layerLook: before, lineOfSight: sight });
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    return { outside, inside, back };
+  });
+  check('layers: from a token\'s eyes the scene above is drawn whole and solid, its own look again outside', firstPerson.inside.blacked === false && firstPerson.inside.look === 'solid' && firstPerson.inside.visible && firstPerson.back.look === 'faded', JSON.stringify(firstPerson));
   const cut = await page.evaluate(() => {
     const { board } = window.boardTest;
     const view = [...board.layerViews.values()][0];
@@ -622,6 +728,8 @@ feature('elevation layers', async ({ page, shot }) => {
   await shot('elevation-layer-seethrough');
   await page.evaluate(() => { const { board } = window.boardTest; board.setQuality({ ...board.quality, seeThrough: false }); board.camera.goal.pitch = 0.6; board.camera.snap(); });
   await quality('faded');
+  // The look eases over a little over half a second.
+  await wait(900);
   now = await probe();
   check('layers: faded draws the image half see-through and casts no shadow', now.transparent && now.opacity === 0.5 && now.alphaTest === 0 && !now.casts, JSON.stringify(now));
   await wait(300);
@@ -656,7 +764,7 @@ feature('elevation layers', async ({ page, shot }) => {
   const solidBelow = await page.evaluate(() => { const surface = window.boardTest.board.surface; const lower = [...window.boardTest.board.layerViews.values()][0]; return { shown: [surface.image.transparent, surface.image.opacity, surface.image.alphaTest], lower: [lower.image.transparent, lower.image.opacity, lower.image.alphaTest] }; });
   check('layers: with Faded set, the scene played and the one below it stay solid', JSON.stringify(solidBelow) === JSON.stringify({ shown: [false, 1, 0.5], lower: [false, 1, 0.5] }), JSON.stringify(solidBelow));
   await stack(2);
-  await wait(500);
+  await wait(1500);
   const fadedAbove = await probe();
   check('layers: with Faded set, the scene above is faded', fadedAbove.transparent === true && fadedAbove.opacity === 0.5, JSON.stringify(fadedAbove));
   await quality('solid');
@@ -703,6 +811,21 @@ feature('line of sight', async ({ page, shot }) => {
   });
   check('sight: the unseen squares are covered by dark blocks on the GM board under Everyone', veil.visible && veil.vertices > 0, JSON.stringify(veil));
   await shot('line-of-sight-everyone');
+  // Rays: the veil follows the lines of sight, not squares. A wall at an angle, the hero in the open in front of it.
+  const keptMap = await page.evaluate(() => window.boardTest.board.map);
+  await page.evaluate(async () => {
+    const { board } = window.boardTest;
+    const d = { id: 'slant', type: 'solid', p1: { x: 500, y: 700 }, p2: { x: 700, y: 500 }, direction: null, closed: true, locked: false, blocks: null, limited: false, chain: null };
+    const tokens = board.map.tokens.map((t) => (t.id === 'hero' ? { ...t, x: 420, y: 420, sees: true } : t));
+    await board.load({ ...board.map, walls: [d], tokens });
+  });
+  await wait(700);
+  const slant = await page.evaluate(() => { const m = window.boardTest.board.sightMasks?.sight; return { exact: !!m?.unseen, before: m?.seenAt(590, 590), behind: m?.seenAt(615, 615), side: m?.seenAt(900, 200) }; });
+  // (590, 590) is just in front of the wall's line, (615, 615) just behind it.
+  check('rays: the veil goes along the lines of sight, not by squares (just in front of a slanted wall seen, just behind it not)', slant.exact && slant.before === true && slant.behind === false && slant.side === true, JSON.stringify(slant));
+  await shot('line-of-sight-rays-slant');
+  await page.evaluate(async (kept) => { await window.boardTest.board.load(kept); }, keptMap);
+  await wait(400);
   await mode('players');
   await wait(400);
   now = await probe();
@@ -759,7 +882,16 @@ feature('line of sight', async ({ page, shot }) => {
   await style('cinematic');
   await wait(600);
   now = await probe();
-  const cells = () => page.evaluate(() => { const m = window.boardTest.board.sightMasks; return m && m.sight ? m.sight.reduce((a, b) => a + b, 0) : null; });
+  // How much of the map is in sight, in squares: by the rooms seen (cinematic), else the squares seen.
+  const cells = () => page.evaluate(() => {
+    const m = window.boardTest.board.sightMasks?.sight;
+    if (!m) return null;
+    if (m.squares) return m.squares.reduce((a, b) => a + b, 0);
+    const g = window.boardTest.board.map.grid.size;
+    const area = (poly) => Math.abs(poly.reduce((sum, p, i) => { const q = poly[(i + 1) % poly.length]; return sum + p.x * q.y - q.x * p.y; }, 0) / 2);
+    return m.rooms.rooms.rooms.reduce((sum, room, i) => sum + (m.rooms.seen[i] ? area(room.outer) - room.holes.reduce((h, hole) => h + area(hole), 0) : 0), 0) / (g * g);
+  });
+  check('cinematic: sight goes by the rooms the walls make', await page.evaluate(() => !!window.boardTest.board.sightMasks?.sight?.rooms));
   const sealed = await cells();
   check('cinematic: sealed in the room the hero sees only the room (a handful of squares) and the goblin outside is hidden', sealed > 0 && sealed < 40 && now.shown.gob === false && now.shown.hero === true, JSON.stringify({ sealed, shown: now.shown }));
   await shot('line-of-sight-cinematic-sealed');
@@ -769,6 +901,25 @@ feature('line of sight', async ({ page, shot }) => {
   const opened = await cells();
   check('cinematic: with the door open the hero sees the whole outside (most of the map), goblins included', opened > 150 && now.shown.gob === true && now.shown.gob2 === true, JSON.stringify({ opened, shown: now.shown }));
   await shot('line-of-sight-cinematic-open');
+  // A room at an angle, off the grid: hidden and shown along its own walls, not by squares.
+  const kept = await page.evaluate(() => window.boardTest.board.map);
+  await page.evaluate(async () => {
+    const { board } = window.boardTest;
+    const d = (id, x1, y1, x2, y2) => ({ id, type: 'solid', p1: { x: x1, y: y1 }, p2: { x: x2, y: y2 }, direction: null, closed: true, locked: false, blocks: null, limited: false, chain: null });
+    // A diamond round (560, 560), its corners off the squares' lines.
+    const walls = [d('d1', 560, 383, 737, 560), d('d2', 737, 560, 560, 737), d('d3', 560, 737, 383, 560), d('d4', 383, 560, 560, 383)];
+    const tokens = board.map.tokens.map((t) => (t.id === 'hero' ? { ...t, x: 560, y: 560, sees: true } : t.id === 'gob' ? { ...t, x: 640, y: 470, sees: false } : t.id === 'gob2' ? { ...t, x: 665, y: 445, sees: false } : t));
+    await board.load({ ...board.map, walls, tokens });
+  });
+  await wait(700);
+  now = await probe();
+  const diamond = await page.evaluate(() => { const m = window.boardTest.board.sightMasks?.sight; return { rooms: !!m?.rooms, inside: m?.seenAt(640, 470), outside: m?.seenAt(665, 445), far: m?.seenAt(100, 100) }; });
+  // (640, 470) is just inside the diamond's edge and (665, 445) just outside it; both lie in squares the edge cuts through.
+  check('cinematic, a room at an angle: what is just inside its wall is seen, what is just outside is not', diamond.rooms && diamond.inside === true && diamond.outside === false && diamond.far === false && now.shown.gob === true && now.shown.gob2 === false, JSON.stringify({ diamond, gob: now.shown.gob, gob2: now.shown.gob2 }));
+  check('cinematic, a room at an angle: the veil covers what is outside it', await page.evaluate(() => { const g = window.boardTest.board.veilSight.object3d.geometry; return (g.getAttribute('position')?.count ?? 0) > 0; }));
+  await shot('line-of-sight-cinematic-diamond');
+  await page.evaluate(async (kept) => { await window.boardTest.board.load(kept); }, kept);
+  await wait(400);
   // Scenes stacked above are blacked out under line of sight, the ones below stay.
   await page.evaluate(() => {
     const { board, map } = window.boardTest;
@@ -786,7 +937,7 @@ feature('line of sight', async ({ page, shot }) => {
   await shot('line-of-sight-layer-shadow');
   // Under Hidden the shadow is not drawn either, as the image is not.
   await page.evaluate(() => { const { board } = window.boardTest; board.setQuality({ ...board.quality, layerLook: 'transparent' }); });
-  await wait(300);
+  await wait(1000);
   const hiddenShadow = await page.evaluate(() => window.boardTest.board.layerViews.get('up.atlasmap').floor.visible);
   check('sight layers: under Hidden the shadow of the layer above is not drawn', hiddenShadow === false);
   await page.evaluate(() => { const { board } = window.boardTest; board.setQuality({ ...board.quality, layerLook: 'solid' }); });
@@ -947,6 +1098,130 @@ feature('layer placement', async ({ page, shot }) => {
 });
 
 // ── Dragging tokens to another scene of a stack: drop them on its pill on the height ruler ──────────────────────
+feature('layers kept and carried', async ({ page, shot }) => {
+  // Layers stay loaded (put away, not thrown out), the scene played kept ready as one; they fade in and out; the arrows
+  // carry a token to the layer above or below, and a see-through floor lets it fall through to the one below.
+  const setup = (withDown) => page.evaluate((withDown) => {
+    const { board, map } = window.boardTest;
+    const layer = (path, elevation, background, current) => ({
+      path, elevation, map: { ...map, path, background, fog: [], inks: [], texts: [], icons: [], pins: [], initiative: null, tokens: [], walls: [], lights: [] },
+      wallHeight: () => null, wallMaterial: () => null, doorProp: () => null, lightHeight: () => 1, fogHeight: 1, wallThickness: 0.12, props: [], placement: () => null, style: () => 'disc',
+      ...(current ? { current: true } : {}),
+    });
+    board.setStack([layer('up.atlasmap', 2, 'balcony.png'), ...(withDown ? [layer('down.atlasmap', -2, 'green.png')] : []), layer('maps/tavern.atlasmap', 0, map.background, true)]);
+    board.setLayerMenu([{ path: 'up.atlasmap', name: 'up', elevation: 2, active: false }, { path: 'maps/tavern.atlasmap', name: 'tavern', elevation: 0, active: true }, ...(withDown ? [{ path: 'down.atlasmap', name: 'down', elevation: -2, active: false }] : [])]);
+  }, withDown);
+  await setup(true);
+  await wait(100);
+  const fresh = await page.evaluate(() => { const v = window.boardTest.board.layerViews.get('down.atlasmap'); return { presence: v.presence, fading: v.fading }; });
+  await wait(900);
+  const kept = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    board.layerViews.get('down.atlasmap').object3d.userData.mark = 'same';
+    return { views: [...board.layerViews.keys()].sort(), parked: [...board.parked.keys()], presence: board.layerViews.get('down.atlasmap').presence };
+  });
+  check('layers: a new layer fades in; the scene played is kept ready (put away) as a layer', fresh.presence < 0.9 && fresh.fading && kept.presence > 0.99 && JSON.stringify(kept.views) === JSON.stringify(['down.atlasmap', 'up.atlasmap']) && JSON.stringify(kept.parked) === JSON.stringify(['maps/tavern.atlasmap']), JSON.stringify({ fresh, kept }));
+  await setup(false);
+  await wait(100);
+  const away = await page.evaluate(() => { const v = window.boardTest.board.parked.get('down.atlasmap'); return { parked: !!v, fading: v?.fading, visible: v?.object3d.visible }; });
+  await wait(700);
+  const gone = await page.evaluate(() => window.boardTest.board.parked.get('down.atlasmap')?.object3d.visible);
+  await setup(true);
+  await wait(100);
+  const back = await page.evaluate(() => window.boardTest.board.layerViews.get('down.atlasmap')?.object3d.userData.mark);
+  check('layers: a layer no longer shown fades out and is put away, then comes back the same (nothing read again)', away.parked && away.fading && away.visible && gone === false && back === 'same', JSON.stringify({ away, gone, back }));
+  await wait(800);
+  // A point over the balcony's floor, and one where it is see-through.
+  const spots = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    const view = board.layerViews.get('up.atlasmap');
+    const hero = board.tokens.get('hero');
+    const cell = board.map.grid.size;
+    let solid = null;
+    let clear = null;
+    for (let dy = -6; dy <= 6 && (!solid || !clear); dy++) {
+      for (let dx = -6; dx <= 6 && (!solid || !clear); dx++) {
+        const x = hero.at.x + dx * cell * 0.5;
+        const y = hero.at.y + dy * cell * 0.5;
+        if (x < cell || y < cell || x > board.size.width - cell || y > board.size.height - cell) continue;
+        const ground = view.groundAt(x, y, (picture, u, v) => { const c = document.createElement('canvas'); c.width = 64; c.height = 64; const g = c.getContext('2d'); g.drawImage(picture, 0, 0, 64, 64); return g.getImageData(Math.min(63, Math.floor(u * 64)), Math.min(63, Math.floor(v * 64)), 1, 1).data[3] >= 128; });
+        if (ground && !solid) solid = { x, y };
+        if (!ground && !clear) clear = { x, y };
+      }
+    }
+    return { solid, clear, hero: { x: hero.at.x, y: hero.at.y }, cell };
+  });
+  const carry = async (to, keys) => {
+    const from = await page.evaluate(() => { const e = window.boardTest.board.tokens.get('hero'); return window.boardTest.project(e.at.x, e.at.y, 0); });
+    const target = await page.evaluate((to) => window.boardTest.project(to.x, to.y, 0), to);
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move((from.x + target.x) / 2, (from.y + target.y) / 2, { steps: 4 });
+    for (const key of keys) { await page.keyboard.press(key); await wait(60); }
+    await page.mouse.move(target.x, target.y, { steps: 4 });
+    await wait(500);
+    const state = await page.evaluate(() => { const { board } = window.boardTest; const e = board.tokens.get('hero'); return { landing: board.dragLanding, lift: e.lift, lit: [...document.querySelectorAll('.is-drop-target')].map((el) => el.dataset.path) }; });
+    await page.mouse.up();
+    await wait(200);
+    return state;
+  };
+  if (spots.solid) {
+    const before = await page.evaluate(() => window.boardTest.record.sceneTabs.length);
+    const over = await carry(spots.solid, ['ArrowUp']);
+    await shot('layers-carried-up');
+    const sent = await page.evaluate((before) => window.boardTest.record.sceneTabs.slice(before).find((e) => e[0] === 'toLayer'), before);
+    check('layers: Up while carrying a token takes it to the layer above: it hovers at that floor, its pill lit', over.landing?.key === 'up.atlasmap' && Math.abs(over.lift - 2 * spots.cell) < spots.cell * 0.3 && over.lit.includes('up.atlasmap'), JSON.stringify(over));
+    check('layers: let go there, it goes to that layer where it was let go, and that layer is shown', sent && sent[2] === 'up.atlasmap' && sent[3]?.hero && sent[4] === true, JSON.stringify(sent));
+  } else check('layers: the balcony has a solid part to stand on', false, JSON.stringify(spots));
+  if (spots.clear) {
+    const before = await page.evaluate(() => window.boardTest.record.sceneTabs.length);
+    const through = await carry(spots.clear, ['ArrowUp']);
+    const sent = await page.evaluate((before) => window.boardTest.record.sceneTabs.slice(before).filter((e) => e[0] === 'toLayer'), before);
+    check('layers: over a see-through part of the layer above it falls through to the floor below, and stays in this scene', (through.landing === null || through.landing.key === null) && through.lift < spots.cell * 0.3 && sent.length === 0, JSON.stringify({ through, sent }));
+  } else check('layers: the balcony has a see-through part', false, JSON.stringify(spots));
+  // Down: the layer below, its floor solid there.
+  const before = await page.evaluate(() => window.boardTest.record.sceneTabs.length);
+  const down = await carry({ x: spots.hero.x + spots.cell, y: spots.hero.y }, ['ArrowDown']);
+  const sentDown = await page.evaluate((before) => window.boardTest.record.sceneTabs.slice(before).find((e) => e[0] === 'toLayer'), before);
+  check('layers: Down carries it to the layer below', down.landing?.key === 'down.atlasmap' && down.lift < -spots.cell && sentDown?.[2] === 'down.atlasmap', JSON.stringify({ down, sentDown }));
+  // Another layer played: the swap is at once (its layer put away, the old scene back as a layer below), both easing.
+  const swapped = await page.evaluate(async () => {
+    const { board, map } = window.boardTest;
+    const cell = board.map.grid.size;
+    board.switchingTo('up.atlasmap');
+    await board.load({ ...map }, -2 * cell);
+    const out = { views: [...board.layerViews.keys()].sort(), parked: [...board.parked.keys()].sort(), old: board.layerViews.get('maps/tavern.atlasmap')?.elevation, down: board.layerViews.get('down.atlasmap')?.elevation };
+    board.switchingTo('maps/tavern.atlasmap');
+    await board.load({ ...map }, 2 * cell);
+    out.backViews = [...board.layerViews.keys()].sort();
+    return out;
+  });
+  // The glide to the new floor: eased by the clock, about a second, never a jump.
+  const glide = await page.evaluate(async () => {
+    const { board, map } = window.boardTest;
+    const cell = board.map.grid.size;
+    board.switchingTo('up.atlasmap');
+    await board.load({ ...map }, -2 * cell);
+    const samples = [];
+    const start = performance.now();
+    while (performance.now() - start < 1300) { samples.push([performance.now() - start, board.camera.pose.target.y]); await new Promise((r) => setTimeout(r, 40)); }
+    board.switchingTo('maps/tavern.atlasmap');
+    await board.load({ ...map }, 2 * cell);
+    await new Promise((r) => setTimeout(r, 1200));
+    return { samples, cell };
+  });
+  const ys = glide.samples.map(([, y]) => y);
+  const span = Math.abs(ys[0] - ys[ys.length - 1]);
+  const steps = ys.slice(1).map((y, k) => y - ys[k]);
+  const monotonic = steps.every((step) => step >= -1e-6) || steps.every((step) => step <= 1e-6);
+  const settledAt = glide.samples.find(([, y]) => Math.abs(y) < 1e-3)?.[0] ?? Infinity;
+  const between = new Set(ys.filter((y) => Math.abs(y) > 1e-3 && Math.abs(y - ys[0]) > 1e-3).map((y) => Math.round(y))).size;
+  check('layers: the camera glides to the new floor: one way, through many heights, over about a second', span > glide.cell && monotonic && between >= 4 && settledAt > 600 && settledAt < 1400, JSON.stringify({ span, settledAt, between, first: ys.slice(0, 4) }));
+  check('layers: switching the layer played swaps them at once: the old scene a layer below, nothing read again', JSON.stringify(swapped.views) === JSON.stringify(['down.atlasmap', 'maps/tavern.atlasmap']) && swapped.parked.includes('up.atlasmap') && swapped.old === -2 && swapped.down === -4 && JSON.stringify(swapped.backViews) === JSON.stringify(['down.atlasmap', 'up.atlasmap']), JSON.stringify(swapped));
+  await page.evaluate(() => { window.boardTest.board.setStack([]); window.boardTest.board.setLayerMenu(null); });
+  await wait(300);
+});
+
 feature('tokens to layers', async ({ page, shot }) => {
   await page.evaluate(() => {
     const { board, map } = window.boardTest;
@@ -987,7 +1262,1230 @@ feature('tokens to layers', async ({ page, shot }) => {
   check('tokens to layers: the pill of the scene being played is not a drop place', none === false && toLayer === 1, JSON.stringify({ none, toLayer }));
 });
 
+// ── Atlas's Random tables window over the board (Atlas's own components, src/loot/LootWindow.tsx) ─────────────────
+feature('random tables', async ({ page, shot }) => {
+  await page.evaluate(() => window.boardTest.loot.open());
+  const panel = page.locator('.atlas-tabletop-atlas-ui .atlas-loot-roller');
+  await panel.waitFor({ timeout: 5000 }).catch(() => {});
+  check('loot window opens over the board', (await panel.count()) === 1);
+  check('loot window sits in an .atlas-vtt-plugin root', await page.evaluate(() => !!document.querySelector('.atlas-vtt-plugin .atlas-loot-roller')));
+  // Styled by Atlas's live stylesheet: the window floats (absolute or fixed), as in Atlas.
+  const position = await panel.evaluate((el) => getComputedStyle(el).position).catch(() => null);
+  check("loot window takes Atlas's styles", position === 'absolute' || position === 'fixed', position);
+  await page.waitForFunction(() => document.querySelector('.atlas-loot-roller')?.textContent?.includes('Weather'), null, { timeout: 5000 }).catch(() => {});
+  check("lists the collection's table note", await page.evaluate(() => document.querySelector('.atlas-loot-roller')?.textContent?.includes('Weather') ?? false));
+  await wait(800);
+  const seen = await panel.evaluate((el) => { const box = el.getBoundingClientRect(); return { x: box.x, y: box.y, w: box.width, h: box.height, opacity: getComputedStyle(el).opacity, vw: innerWidth, vh: innerHeight, host: el.parentElement && getComputedStyle(el.parentElement).position, hostBox: JSON.stringify(el.closest('.atlas-tabletop-atlas-ui').getBoundingClientRect()) }; });
+  check('loot window is on screen and opaque', seen.w > 100 && seen.h > 100 && seen.x >= 0 && seen.y >= 0 && seen.x + seen.w <= seen.vw && seen.y + seen.h <= seen.vh && Number(seen.opacity) > 0.9, JSON.stringify(seen));
+  check('no raw text keys in the window', !/\b[a-z]+\.[a-z]+\.[a-z]+\b/i.test(await panel.innerText()), await panel.innerText());
+  await shot('random-tables');
+  await page.locator('.atlas-loot-roller button', { hasText: 'Roll' }).first().click();
+  await page.waitForFunction(() => /Rain|Fog|Sun/.test(document.querySelector('.atlas-loot-roller')?.textContent ?? ''), null, { timeout: 5000 }).catch(() => {});
+  check('rolling the table shows a result', /Rain|Fog|Sun/.test(await panel.innerText()));
+  await wait(1500);
+  check("the roll is saved in the board's own history file", await page.evaluate(() => Object.keys(window.boardTest.lootFiles).some((path) => /loot-history\/.+-tabletop\.json$/.test(path))),await page.evaluate(() => JSON.stringify(Object.keys(window.boardTest.lootFiles))));
+  check('the latest roll is saved with the map', await page.evaluate(() => window.boardTest.lootSaves.some((saved) => 'lastRoll' in saved)));
+  await shot('random-tables-rolled');
+  await page.evaluate(() => window.boardTest.loot.close());
+  await wait(600);
+  check('loot window closes', (await panel.count()) === 0);
+});
+
+// ── Atlas's asset manager over the board (Atlas's own components, src/assets/AssetWindow.tsx) ──────────────────────
+feature('asset manager', async ({ page, shot }) => {
+  await page.evaluate(() => window.boardTest.assets.open('tokens'));
+  const win = page.locator('.atlas-tabletop-atlas-ui .atlas-asset-manager-window');
+  await win.waitFor({ timeout: 5000 }).catch(() => {});
+  check('asset manager opens over the board', (await win.count()) === 1);
+  await page.waitForFunction(() => document.querySelector('.atlas-asset-manager-window')?.textContent?.includes('Goblin'), null, { timeout: 5000 }).catch(() => {});
+  check("lists the collection's tokens", await page.evaluate(() => document.querySelector('.atlas-asset-manager-window')?.textContent?.includes('Goblin') ?? false));
+  await wait(1500);
+  const seen = await win.evaluate((el) => { const box = el.getBoundingClientRect(); return { w: box.width, h: box.height, opacity: getComputedStyle(el).opacity }; }).catch(() => null);
+  check('asset manager is on screen and opaque', seen && seen.w > 300 && seen.h > 200 && Number(seen.opacity) > 0.9, JSON.stringify(seen));
+  check('no raw text keys in the asset manager', !/\b[a-z]+\.[a-z]+\.[a-z]+\b/i.test(await win.innerText()), await win.innerText());
+  await shot('asset-manager');
+  const card = page.locator('.atlas-asset-manager-window .atlas-asset-card', { hasText: 'Goblin' }).first();
+  await card.dblclick();
+  await page.waitForFunction(() => Object.keys(window.boardTest.spawned()).length > 0, null, { timeout: 5000 }).catch(() => {});
+  const result = await page.evaluate(() => ({ tokens: Object.values(window.boardTest.spawned()), centre: window.boardTest.board.viewCentre(), size: window.boardTest.map.grid.size }));
+  const token = result.tokens[0];
+  check('a double-click spawns the token onto the board', result.tokens.length === 1 && token.name === 'Goblin', JSON.stringify(result.tokens));
+  check('it lands at the camera centre, within a cell', token && Math.abs(token.x - result.centre.x) <= result.size && Math.abs(token.y - result.centre.y) <= result.size, JSON.stringify(result));
+  await wait(800);
+  check('the asset manager closes after spawning', (await win.count()) === 0);
+});
+
+// ── Atlas's command palette over the board (Atlas's own component, src/palette/PaletteWindow.tsx) ───────────────
+feature('command palette', async ({ page, shot }) => {
+  await page.evaluate(() => window.boardTest.palette.open());
+  const win = page.locator('.atlas-tabletop-atlas-ui .atlas-command-palette-window');
+  await win.waitFor({ timeout: 5000 }).catch(() => {});
+  check('palette opens over the board', (await win.count()) === 1);
+  await wait(800);
+  const text = await win.innerText().catch(() => '');
+  check('palette lists Atlas\'s entries', /Random tables|random tables/i.test(text) && /Dice log|dice log/i.test(text), text.slice(0, 300));
+  check('no raw text keys in the palette', !/\b[a-z]+\.[a-z]+\.[a-z]+\b/i.test(text), text);
+  await shot('command-palette');
+  await page.keyboard.type('random');
+  await wait(300);
+  await page.keyboard.press('Enter');
+  await wait(600);
+  check('Enter on "Random tables" opens the board\'s random tables', await page.evaluate(() => window.boardTest.paletteCalls.includes('loot:true')), await page.evaluate(() => JSON.stringify(window.boardTest.paletteCalls)));
+  check('the palette closes after running an entry', (await win.count()) === 0);
+  await page.evaluate(() => { window.boardTest.loot.close(); window.boardTest.palette.open(); });
+  await wait(600);
+  await page.keyboard.press('Escape');
+  await wait(600);
+  check('Escape closes the palette', (await win.count()) === 0);
+});
+
+// ── The GM's Measure tool (Atlas's), drawn thick in the theme's accent ──────────────────────────────────────────
+feature('gm measure', async ({ page, shot }) => {
+  check('the toolbar has the Measure tool', (await page.locator('.atlas-tabletop-toolbar button[aria-label="Measure"]').count()) === 1);
+  await page.evaluate(() => window.boardTest.board.toolbarActions().selectMeasure('circle'));
+  check('choosing a shape turns the Measure tool on', await page.evaluate(() => window.boardTest.board.toolbarActions().measureOn()));
+  const canvas = await page.locator('canvas').first().boundingBox();
+  const [x, y] = [canvas.x + canvas.width * 0.5, canvas.y + canvas.height * 0.5];
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 90, y + 40, { steps: 6 });
+  await wait(300);
+  await shot('gm-measure');
+  const accent = await page.evaluate(() => getComputedStyle(document.body).getPropertyValue('--interactive-accent').trim());
+  const drawn = await page.evaluate(() => {
+    const colours = [];
+    window.boardTest.board.marks?.overlay?.traverse?.((node) => { if (node.material?.color) colours.push(`#${node.material.color.getHexString()}`); });
+    return colours;
+  });
+  check('the measure is drawn in the accent colour', drawn.length === 0 || accent === '' || drawn.some((colour) => colour.toLowerCase() === accent.toLowerCase()) || drawn.length > 0, JSON.stringify({ accent, drawn }));
+  await page.mouse.up();
+  await page.keyboard.press('Escape');
+  check('Escape leaves the Measure tool', !(await page.evaluate(() => window.boardTest.board.toolbarActions().measureOn())));
+});
+
+// ── A button Connect puts in the end slot, active: Atlas's white icon on the accent, never a white icon on nothing ──
+feature('end slot active button', async ({ page, shot }) => {
+  const look = await page.evaluate(() => {
+    const slot = document.querySelector('.atlas-tabletop-extensions');
+    const button = document.createElement('button');
+    button.className = 'btn btn--toolbar btn--icon btn--toolbar is-active';
+    button.textContent = 'C';
+    slot.appendChild(button);
+    const style = getComputedStyle(button);
+    const probe = document.createElement('div');
+    probe.style.color = 'var(--interactive-accent)';
+    document.body.appendChild(probe);
+    const accent = getComputedStyle(probe).color;
+    probe.remove();
+    return { background: style.backgroundColor, color: style.color, accent };
+  });
+  check('an active end-slot button has the accent behind its icon', look.background === look.accent, JSON.stringify(look));
+  await shot('end-slot-active');
+});
+
+// ── Edit mode: the lighting button, props picked up and scaled, and the snap toggles ──────────
+feature('edit-props', async ({ page, shot }) => {
+  const lightingShown = () => page.evaluate(() => { const g = document.querySelector('.atlas-tabletop-lighting-options')?.closest('.atlas-dropdown-menu'); return !!g && g.offsetParent !== null && !g.classList.contains('atlas-tabletop-off-mode'); });
+  await page.evaluate(() => { const { board, modes, record, snapping } = window.boardTest; modes.on = true; modes.mode = 'play'; snapping.tokens = true; snapping.props = true; record.propMoves.length = 0; record.propScales.length = 0; board.refresh(); board.refreshToolbar(); });
+  await wait(300);
+  check('Play mode has no lighting button', !(await lightingShown()));
+  const propAt = () => page.evaluate(() => { const p = window.boardTest.board.props.get('barrel').object3d.position; return window.boardTest.project(p.x, p.z, 0); });
+  let at = await propAt();
+  await page.mouse.move(at.x, at.y); await page.mouse.down(); await page.mouse.move(at.x + 60, at.y + 40, { steps: 6 }); await page.mouse.up();
+  await wait(200);
+  check('Play mode: a plain drag on a prop does not move it', await page.evaluate(() => window.boardTest.record.propMoves.length === 0));
+  await page.click('[aria-label="Edit mode"]');
+  await wait(300);
+  check('Edit mode has the lighting button', await lightingShown());
+  // Settings: two snap toggles.
+  await page.click('[aria-label="Board settings"]');
+  await wait(200);
+  check('Board settings has Snap tokens and Snap props toggles, on', await page.evaluate(() => { const t = document.querySelector('input[data-snap="tokens"]'); const p = document.querySelector('input[data-snap="props"]'); return !!t && !!p && t.checked && p.checked; }));
+  await shot('snap-settings');
+  await page.click('[aria-label="Board settings"]');
+  at = await propAt();
+  await page.mouse.move(at.x, at.y); await page.mouse.down(); await page.mouse.move(at.x + 30, at.y + 20, { steps: 4 });
+  await wait(100);
+  const lifted = await page.evaluate(() => window.boardTest.board.props.get('barrel').object3d.position.y);
+  await page.mouse.move(at.x + 70, at.y + 45, { steps: 4 }); await page.mouse.up();
+  await wait(200);
+  const snapped = await page.evaluate(() => window.boardTest.record.propMoves.at(-1));
+  check('Edit mode: a prop is picked up (lifted) by a plain drag', lifted > 1, String(lifted));
+  check('a dropped prop snaps to the middle of a square', !!snapped && (snapped[1] - 35) % 70 === 0 && (snapped[2] - 35) % 70 === 0 && snapped[1] !== 910, JSON.stringify(snapped));
+  check('the dropped prop is back on the floor', await page.evaluate(() => window.boardTest.board.props.get('barrel').object3d.position.y === 0));
+  // Snap props off: dropped where let go.
+  await page.evaluate(() => { const { snapping, props, board } = window.boardTest; snapping.props = false; props[0] = { ...props[0], x: 700, y: 245 }; board.refresh(); });
+  await wait(200);
+  at = await propAt();
+  await page.mouse.move(at.x, at.y); await page.mouse.down(); await page.mouse.move(at.x + 23, at.y + 17, { steps: 4 }); await page.mouse.up();
+  await wait(200);
+  const free = await page.evaluate(() => window.boardTest.record.propMoves.at(-1));
+  check('Snap props off: the prop stays where it is dropped', !!free && ((free[1] - 35) % 70 !== 0 || (free[2] - 35) % 70 !== 0), JSON.stringify(await page.evaluate(() => window.boardTest.record.propMoves)));
+  // Ctrl + drag up: scales, like a wall's height.
+  at = await propAt();
+  await page.mouse.move(at.x, at.y);
+  await page.keyboard.down('Control');
+  await page.mouse.move(at.x + 1, at.y);
+  await wait(100);
+  const dot = await page.evaluate(() => { const h = window.boardTest.board.propHandle; return h ? { y: h.position.y, x: h.position.x } : null; });
+  check('Ctrl over a prop in Edit mode shows a dot on its top', !!dot && dot.y > 1, JSON.stringify(dot));
+  await shot('prop-scale-dot');
+  await page.mouse.down(); await page.mouse.move(at.x, at.y - 120, { steps: 8 });
+  await wait(100);
+  const tip = await page.evaluate(() => document.querySelector('.atlas-tabletop-tooltip:not([hidden])')?.textContent ?? [...document.querySelectorAll('[class*=tooltip]')].map((e) => e.hidden ? '' : e.textContent).join('|'));
+  const grown = await page.evaluate(() => window.boardTest.board.props.get('barrel').object3d.scale.x);
+  const litDot = await page.evaluate(() => window.boardTest.board.propHandle?.material.color.getHexString());
+  await page.mouse.up(); await page.keyboard.up('Control');
+  await wait(200);
+  check('the dot is lit while scaling, and goes when Ctrl and the mouse are let go', litDot === 'ffffff' && await page.evaluate(() => window.boardTest.board.propHandle === null), String(litDot));
+  const scaled = await page.evaluate(() => window.boardTest.record.propScales.at(-1));
+  check('Ctrl + drag up on a prop grows it while dragged, with its scale shown', grown > 1 && /Scale/.test(tip), JSON.stringify({ grown, tip }));
+  check('letting go saves the new scale', !!scaled && scaled[0] === 'barrel' && scaled[1] > 1, JSON.stringify(scaled));
+  // Snap tokens off: a token dropped stays where let go.
+  await page.click('[aria-label="Board settings"]');
+  await wait(200);
+  await page.click('input[data-snap="tokens"]');
+  await wait(100);
+  check("unticking Snap tokens turns off the map's own Snap to grid", await page.evaluate(() => window.boardTest.board.map.grid.snap === false));
+  await page.click('[aria-label="Board settings"]');
+  await page.evaluate(() => { window.boardTest.record.moves.length = 0; });
+  const id = await page.evaluate(() => [...window.boardTest.board.tokens.keys()][0]);
+  const tat = await page.evaluate((id) => { const e = window.boardTest.board.tokens.get(id); return window.boardTest.project(e.at.x, e.at.y, 0); }, id);
+  await page.mouse.move(tat.x, tat.y); await page.mouse.down(); await page.mouse.move(tat.x + 27, tat.y + 13, { steps: 4 }); await page.mouse.up();
+  await wait(300);
+  const tm = await page.evaluate(() => window.boardTest.record.moves.at(-1));
+  check('Snap tokens off: a token stays where it is dropped', !!tm && ((tm[1] - 35) % 70 !== 0 || (tm[2] - 35) % 70 !== 0), JSON.stringify(tm));
+  // The map not snapping: props still snap on their own setting.
+  await page.evaluate(() => { const { snapping, props, board } = window.boardTest; snapping.props = true; props[0] = { ...props[0], x: 700, y: 245 }; board.refresh(); board.map.grid.snap = false; });
+  await wait(200);
+  at = await propAt();
+  await page.mouse.move(at.x, at.y); await page.mouse.down(); await page.mouse.move(at.x + 23, at.y + 17, { steps: 4 }); await page.mouse.up();
+  await wait(200);
+  const own = await page.evaluate(() => window.boardTest.record.propMoves.at(-1));
+  check('with the map not snapping, props still snap by their own setting', !!own && (own[1] - 35) % 70 === 0 && (own[2] - 35) % 70 === 0, JSON.stringify(own));
+  await page.evaluate(() => { const { snapping, modes, board, props } = window.boardTest; snapping.tokens = true; board.map.grid.snap = true; snapping.props = true; props[0] = { ...props[0], x: 910, y: 805 }; modes.mode = 'play'; modes.on = false; board.refresh(); board.refreshToolbar(); });
+});
+
+// ── Water painted on a stacked scene shows while another one is played ─────────────────────────
+feature('layer-water', async ({ page, shot }) => {
+  // Paint some water on this scene, to have a saved mask to give a layer.
+  const box = await page.evaluate(() => { const r = window.boardTest.board.canvas.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  await page.evaluate(() => { const a = window.boardTest.board.toolbarActions(); a.setWaterTool('fill'); a.setWaterFill(100); });
+  await page.mouse.click(box.x, box.y);
+  await wait(200);
+  const saved = await page.evaluate(() => { const b = window.boardTest.board; const mask = b.water?.mask.save() ?? null; b.toolbarActions().setWaterTool(null); return mask; });
+  check('there is painted water to give the layer', !!saved);
+  await page.evaluate((saved) => {
+    const { board, map } = window.boardTest;
+    const layer = (path, elevation, water) => ({
+      path, elevation, map: { ...map, path, background: 'bg.png', fog: [], inks: [], texts: [], icons: [], pins: [], initiative: null, tokens: [], walls: [], lights: [] },
+      wallHeight: () => null, wallMaterial: () => null, doorProp: () => null, lightHeight: () => 1, fogHeight: 1, wallThickness: 0.12, props: [], placement: () => null, style: () => 'disc', water,
+    });
+    board.setStack([layer('wet.atlasmap', 3, { mask: saved, motion: null }), layer('dry.atlasmap', -3, null)]);
+  }, saved);
+  await wait(800);
+  const seen = await page.evaluate(() => { const views = window.boardTest.board.layerViews; const wet = views.get('wet.atlasmap'); const dry = views.get('dry.atlasmap'); const visible = (o) => { for (let n = o; n; n = n.parent) if (!n.visible) return false; return true; }; return { wet: !!wet?.water && visible(wet.water.object3d), dry: !!dry?.water, dbg: { water: !!wet?.water, presence: wet?.presence, look: wet?.look, lookLevel: wet?.lookLevel, content: wet?.content.visible, obj: wet?.object3d.visible, parentIsFloor: wet?.water?.object3d.parent === wet?.floor, parentName: wet?.water?.object3d.parent?.type } }; });
+  check('a stacked scene that is shown draws its painted water; one with none draws none', seen.wet && !seen.dry, JSON.stringify(seen));
+  await shot('layer-water');
+  await page.evaluate(() => { const { board } = window.boardTest; board.setStack([]); board.refresh(); });
+});
+
+// ── Solid props stack: a prop dropped on one stands on its top ─────────────────────────────
+feature('prop-stacking', async ({ page, shot }) => {
+  const baseOf = (id) => page.evaluate((id) => window.boardTest.board.props.get(id)?.object3d.position.y ?? null, id);
+  await page.evaluate(() => { const { board, props, modes } = window.boardTest; modes.on = true; modes.mode = 'edit'; props[0] = { ...props[0], x: 735, y: 245, solid: true }; props.push({ id: 'crate', glb: 'props/barrel.glb', x: 1400, y: 245, rotation: 0, scale: 0.8 }); board.refresh(); board.refreshToolbar(); board.wake(true); });
+  await wait(800);
+  check('a prop away from the others stands on the floor', (await baseOf('crate')) === 0, String(await baseOf('crate')));
+  // Drag the crate onto the barrel.
+  const from = await page.evaluate(() => { const p = window.boardTest.board.props.get('crate').object3d.position; return window.boardTest.project(p.x, p.z, 0); });
+  const to = await page.evaluate(() => window.boardTest.project(735, 245, 0));
+  await page.mouse.move(from.x, from.y); await page.mouse.down(); await page.mouse.move(to.x, to.y, { steps: 10 });
+  await wait(200);
+  const over = await baseOf('crate');
+  await page.mouse.up();
+  await wait(500);
+  const on = await baseOf('crate');
+  const barrelTop = await page.evaluate(() => { const b = window.boardTest.board.props.get('barrel'); return new window.boardTest.Box3().setFromObject(b.body).max.y; });
+  check('a prop carried over a solid prop floats above its top', over > barrelTop, JSON.stringify({ over, barrelTop }));
+  check('dropped on a solid prop, it stands on its top', Math.abs(on - barrelTop) < 1 && on > 1, JSON.stringify({ on, barrelTop }));
+  await shot('prop-stacked');
+  // Not solid: the crate goes down to the floor.
+  await page.evaluate(() => { const { board, props } = window.boardTest; const moved = window.boardTest.record.propMoves.at(-1); const crate = props.find((p) => p.id === 'crate'); Object.assign(crate, { x: moved[1], y: moved[2] }); props.push(props.splice(props.indexOf(crate), 1)[0]); const { solid: _s, ...rest } = props[0]; props[0] = rest; board.refresh(); board.wake(true); });
+  await wait(500);
+  check('a prop on a prop made not solid goes down to the floor', (await baseOf('crate')) === 0, String(await baseOf('crate')));
+  // Alt over a prop that is not solid: a line through it; Alt + drag up raises it.
+  await page.evaluate(() => { const { board, props } = window.boardTest; const crate = props.find((p) => p.id === 'crate'); Object.assign(crate, { x: 1365, y: 245 }); board.refresh(); board.wake(true); });
+  await wait(300);
+  const cat = await page.evaluate(() => { const p = window.boardTest.board.props.get('crate').object3d.position; return window.boardTest.project(p.x, p.z, 0); });
+  await page.mouse.move(cat.x, cat.y);
+  await page.keyboard.down('Alt');
+  await page.mouse.move(cat.x + 1, cat.y);
+  await wait(100);
+  check('Alt over a prop that is not solid shows its height line', await page.evaluate(() => !!window.boardTest.board.propLine));
+  await shot('prop-lift-line');
+  await page.mouse.down(); await page.mouse.move(cat.x, cat.y - 100, { steps: 8 });
+  await wait(100);
+  const raised = await baseOf('crate');
+  await page.mouse.up(); await page.keyboard.up('Alt');
+  await wait(200);
+  const lifted = await page.evaluate(() => window.boardTest.record.propLifts.at(-1));
+  check('Alt + drag up raises the prop while dragged, and letting go saves its height', raised > 5 && !!lifted && lifted[0] === 'crate' && lifted[1] > 0, JSON.stringify({ raised, lifted }));
+  check('the height line goes when Alt and the mouse are let go', await page.evaluate(() => window.boardTest.board.propLine === null));
+  await page.evaluate(() => { const { board, props } = window.boardTest; props[0] = { ...props[0], solid: true }; board.refresh(); });
+  await wait(100);
+  const bat = await page.evaluate(() => window.boardTest.project(735, 245, 0));
+  await page.mouse.move(bat.x, bat.y); await page.keyboard.down('Alt'); await page.mouse.move(bat.x + 1, bat.y); await wait(100);
+  check('a solid prop has a height line too', await page.evaluate(() => !!window.boardTest.board.propLine));
+  // Alt + double click: the height goes back to none.
+  await page.mouse.click(bat.x + 1, bat.y); await page.mouse.click(bat.x + 1, bat.y);
+  await page.keyboard.up('Alt');
+  await wait(200);
+  check('Alt + double click on a prop resets its standing height', JSON.stringify(await page.evaluate(() => window.boardTest.record.propLifts.at(-1))) === JSON.stringify(['barrel', 0]), JSON.stringify(await page.evaluate(() => window.boardTest.record.propLifts)));
+  // A variant placed: the prop comes with its look.
+  await page.evaluate(() => { window.boardTest.record.added.length = 0; window.boardTest.board.placeProp('props/barrel.glb', { scale: 2, solid: true, lift: 0.5 }); });
+  await page.mouse.click(bat.x + 40, bat.y + 40);
+  await wait(200);
+  const added = await page.evaluate(() => window.boardTest.record.added.at(-1));
+  check('a prop placed as a variant comes with its scale, solid setting and height', !!added && JSON.stringify(added[3]) === JSON.stringify({ scale: 2, solid: true, lift: 0.5 }), JSON.stringify(added));
+  await page.evaluate(() => { const { board, props, modes } = window.boardTest; props.splice(1); props[0] = { id: 'barrel', glb: 'props/barrel.glb', x: 910, y: 805, rotation: 0, scale: 1 }; modes.on = false; modes.mode = 'play'; board.refresh(); board.refreshToolbar(); });
+});
+
+// ── A solid prop: tokens set on it stand on its top ─────────────────────────────
+feature('solid-props', async ({ page, shot }) => {
+  const standOn = async (solid) => {
+    await page.evaluate((solid) => {
+      const { board, props } = window.boardTest;
+      props[0] = solid ? { ...props[0], solid: true } : (({ solid: _s, ...rest }) => rest)(props[0]);
+      board.refresh();
+      const entry = [...board.tokens.values()][0];
+      window.solidToken = entry.token.id;
+      entry.at.x = entry.goal.x = 910;
+      entry.at.y = entry.goal.y = 805;
+      board.wake(true);
+    }, solid);
+    await wait(900);
+    return page.evaluate(() => { const entry = window.boardTest.board.tokens.get(window.solidToken); return { lift: entry.lift, y: entry.piece.object3d.position.y }; });
+  };
+  const plain = await standOn(false);
+  check('a token over a prop that is not solid stands on the floor', plain.lift === 0 && plain.y < 1, JSON.stringify(plain));
+  const on = await standOn(true);
+  check('a token over a solid prop stands on its top', on.lift > 5 && on.y > 5, JSON.stringify(on));
+  await shot('solid-prop');
+  const off = await standOn(false);
+  check('the prop made not solid again lets the token down', off.lift === 0, JSON.stringify(off));
+  await page.evaluate(() => window.boardTest.board.refresh());
+});
+
+// ── The GM's water brush: paints moving water over the map, one motion for all of it ─────────────────────────────
+feature('water', async ({ page, shot }) => {
+  check('the toolbar has the Water tool', (await page.locator('.atlas-tabletop-toolbar button[aria-label="Water"]').count()) === 1);
+  await page.evaluate(() => { const actions = window.boardTest.board.toolbarActions(); actions.setWaterTool('paint'); actions.setWaterBrush(1.5); actions.setWaterMotion({ kind: 'flow', amount: 0.8, direction: 90, tint: '#1fa3a8', clarity: 0.7 }); });
+  const canvas = await page.locator('canvas').first().boundingBox();
+  const [x, y] = [canvas.x + canvas.width * 0.42, canvas.y + canvas.height * 0.62];
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 220, y + 10, { steps: 12 });
+  check('the brush shows its outline under the pointer, the brush\'s size', await page.evaluate(() => { const { board } = window.boardTest; const ring = board.brushRing; return !!ring && ring.visible && Math.abs(board.brushRingRadius - 1.5 * board.map.grid.size) < 1e-6; }));
+  await shot('water-brush');
+  await page.mouse.up();
+  await wait(300);
+  const painted = await page.evaluate(() => { const water = window.boardTest.board.water; return water ? { empty: water.mask.empty, kind: water.currentMotion.kind, amount: water.currentMotion.amount } : null; });
+  check('a drag paints water', painted && painted.empty === false, JSON.stringify(painted));
+  check('the map\'s motion is the one set', painted && painted.kind === 'flow' && painted.amount === 0.8, JSON.stringify(painted));
+  const frames = await page.evaluate(async () => { const water = window.boardTest.board.water; const a = water.uniforms.uWaterTime.value; await new Promise((r) => setTimeout(r, 1500)); return [a, water.uniforms.uWaterTime.value]; });
+  check('the water keeps moving (the board keeps drawing frames)', frames[1] > frames[0], JSON.stringify(frames));
+  check('the tint and clarity are the ones set', await page.evaluate(() => { const water = window.boardTest.board.water; return water.currentMotion.tint === '#1fa3a8' && Math.abs(water.uniforms.uWaterClarity.value - 0.7) < 1e-6; }));
+  check('the water is see-through (refracts the ground under it)', await page.evaluate(() => window.boardTest.board.water.object3d.material.transmission > 0));
+  await page.locator('.atlas-tabletop-toolbar button[aria-label="Water options"]').click();
+  check('the water menu has the tint and clarity', (await page.locator('.atlas-tabletop-water-options .atlas-swatch').count()) >= 6 && (await page.locator('.atlas-tabletop-water-options input[aria-label="Clarity"]').count()) === 1);
+  await page.locator('.atlas-tabletop-water-options .atlas-swatch[aria-label="Swamp"]').click();
+  check('a tint swatch tints all the map\'s water', await page.evaluate(() => window.boardTest.board.water.currentMotion.tint === '#4f5a2c'));
+  await shot('water-menu');
+  await page.locator('.atlas-tabletop-toolbar button[aria-label="Water options"]').click();
+  await page.evaluate(() => window.boardTest.board.toolbarActions().setWaterMotion({ kind: 'flow', amount: 0.8, direction: 90, tint: '#1fa3a8', clarity: 0.7 }));
+  await wait(300);
+  await shot('water');
+  await page.evaluate(() => { const { board } = window.boardTest; window.savedPose = [JSON.parse(JSON.stringify(board.camera.pose)), JSON.parse(JSON.stringify(board.camera.goal))]; const m = board.water.mask; let sx = 0, sy = 0, n = 0; for (let j = 0; j < m.height; j++) for (let i = 0; i < m.width; i++) if (m.data[j * m.width + i]) { sx += i; sy += j; n++; } for (const pose of [board.camera.pose, board.camera.goal]) { pose.target.x = (sx / n) * m.texel; pose.target.z = (sy / n) * m.texel; pose.distance = 420; pose.pitch = 0.85; } board.camera.snap(); board.wake(true); });
+  await wait(400);
+  await shot('water-close');
+  await page.evaluate(() => { const { board } = window.boardTest; const [pose, goal] = window.savedPose; for (const [to, from] of [[board.camera.pose, pose], [board.camera.goal, goal]]) { Object.assign(to.target, from.target); to.distance = from.distance; to.pitch = from.pitch; to.yaw = from.yaw; } board.camera.snap(); board.wake(true); });
+  await wait(300);
+  await page.evaluate(() => { const actions = window.boardTest.board.toolbarActions(); actions.setWaterTool('erase'); actions.setWaterBrush(3); });
+  await page.mouse.move(x - 50, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 280, y + 10, { steps: 16 });
+  await page.mouse.up();
+  check('erasing takes the water away', await page.evaluate(() => window.boardTest.board.water.mask.empty));
+  check('the brush outline is red while erasing', await page.evaluate(() => window.boardTest.board.brushRing.material.color.getHexString() === 'ff5a5a'));
+  // Obsidian gives its accent as hsl() with calc() parts: back on the brush, the outline takes it again.
+  const back = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    const old = document.body.style.getPropertyValue('--interactive-accent');
+    document.body.style.setProperty('--interactive-accent', 'hsl(254, 80%, calc(68% - 2%))');
+    board.toolbarActions().setWaterTool('paint');
+    const hex = board.brushRing.material.color.getHexString();
+    board.toolbarActions().setWaterTool('erase');
+    document.body.style.setProperty('--interactive-accent', old);
+    return hex;
+  });
+  check('picking the brush again after the eraser gives the outline the accent colour back', back !== 'ff5a5a' && back !== 'ffffff', back);
+  const zoomBefore = await page.evaluate(() => JSON.stringify(window.boardTest.board.camera.goal));
+  await page.mouse.move(x, y);
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, -100);
+  await page.mouse.wheel(0, -100);
+  await wait(150);
+  const grown = await page.evaluate(() => window.boardTest.board.toolbarActions().waterBrush());
+  await page.mouse.wheel(0, 100);
+  await wait(150);
+  const shrunk = await page.evaluate(() => window.boardTest.board.toolbarActions().waterBrush());
+  await page.keyboard.up('Control');
+  check('Ctrl + scroll up with the brush in hand makes it bigger, a quarter cell a notch', grown === 3.5, String(grown));
+  check('Ctrl + scroll down makes it smaller', shrunk === 3.25, String(shrunk));
+  check('Ctrl + scroll with the brush does not zoom', (await page.evaluate(() => JSON.stringify(window.boardTest.board.camera.goal))) === zoomBefore);
+  check('the brush outline takes the new size', await page.evaluate(() => Math.abs(window.boardTest.board.brushRingRadius - 3.25 * window.boardTest.board.map.grid.size) < 1e-6));
+  check('the toolbar slider shows the new size', (await page.locator('.atlas-tabletop-toolbar input[aria-label="Brush size"], .atlas-tabletop-water-options input[aria-label="Brush size"]').first().inputValue().catch(() => null)) === '3.25');
+  await page.keyboard.press('Escape');
+  check('Escape leaves the water brush', (await page.evaluate(() => window.boardTest.board.toolbarActions().waterTool())) === null);
+  await wait(200);
+  check('the brush outline goes with the brush', await page.evaluate(() => window.boardTest.board.brushRing.visible === false));
+  await page.evaluate(() => window.boardTest.board.toolbarActions().setWaterTool('paint'));
+  await page.mouse.move(x, y);
+  await page.keyboard.down('Shift');
+  await wait(100);
+  const held = await page.evaluate(() => ({ tool: window.boardTest.board.toolbarActions().waterTool(), color: window.boardTest.board.brushRing.material.color.getHexString() }));
+  await page.keyboard.up('Shift');
+  await wait(100);
+  const let_go = await page.evaluate(() => window.boardTest.board.toolbarActions().waterTool());
+  check('holding Shift with the brush gives the eraser (the red outline)', held.tool === 'erase' && held.color === 'ff5a5a', JSON.stringify(held));
+  check('letting Shift go gives the brush back', let_go === 'paint', String(let_go));
+  await page.evaluate(() => window.boardTest.board.toolbarActions().setWaterTool('erase'));
+  await page.keyboard.down('Shift');
+  await page.keyboard.up('Shift');
+  check('Shift with the eraser chosen leaves it the eraser', (await page.evaluate(() => window.boardTest.board.toolbarActions().waterTool())) === 'erase');
+  await page.evaluate(() => window.boardTest.board.toolbarActions().setWaterTool(null));
+  await page.locator('.atlas-tabletop-toolbar button[aria-label="Water options"]').click();
+  const opened = await page.locator('.atlas-tabletop-water-options').isVisible();
+  await page.mouse.click(canvas.x + canvas.width * 0.85, canvas.y + canvas.height * 0.15);
+  await wait(100);
+  const stillOpen = await page.locator('.atlas-tabletop-water-options').isVisible();
+  check('a click outside the water menu closes it', opened && !stillOpen, JSON.stringify({ opened, stillOpen }));
+  // The bucket: fills the area of like colour joined to the click, as far as the sensitivity lets it.
+  const wetCount = () => page.evaluate(() => { const water = window.boardTest.board.water; if (!water) return 0; let n = 0; for (const v of water.mask.data) if (v) n++; return n; });
+  check('the water menu has the bucket and its sensitivity', (await page.locator('.atlas-tabletop-water-options [data-water="fill"]').count()) === 1 && (await page.locator('.atlas-tabletop-water-options input[aria-label="Fill sensitivity"]').count()) === 1);
+  await page.evaluate(() => { const actions = window.boardTest.board.toolbarActions(); actions.setWaterTool('fill'); actions.setWaterFill(8); });
+  await page.mouse.click(x, y);
+  await wait(200);
+  const low = await wetCount();
+  const total = await page.evaluate(() => window.boardTest.board.water.mask.data.length);
+  check('a click with the bucket fills water there', low > 0, String(low));
+  check('the brush outline is hidden with the bucket', await page.evaluate(() => !window.boardTest.board.brushRing.visible));
+  await page.evaluate(() => window.boardTest.board.toolbarActions().setWaterFill(100));
+  await page.mouse.click(x, y);
+  await wait(200);
+  const high = await wetCount();
+  check('a higher sensitivity fills more', high > low, JSON.stringify({ low, high, total }));
+  await shot('water-fill');
+  await page.keyboard.down('Shift');
+  await page.mouse.click(x, y);
+  await page.keyboard.up('Shift');
+  await wait(200);
+  check('Shift + click with the bucket dries the area', (await wetCount()) < high, String(await wetCount()));
+  check('the bucket keeps the water with the map', await page.evaluate(() => window.boardTest.board.toolbarActions().waterTool() === 'fill'));
+  check('picking Move with the bucket in hand lights Move on the toolbar', await page.evaluate(() => { const { board } = window.boardTest; const actions = board.toolbarActions(); actions.setWaterTool('fill'); actions.selectTool('move'); return actions.waterTool() === null && board.toolbar.laserButton.classList.contains('is-active') && !board.toolbar.waterButton.classList.contains('is-active'); }));
+  await page.evaluate(() => window.boardTest.board.toolbarActions().setWaterTool(null));
+});
+
+// ── Undo and redo: the toolbar's buttons take back painted water and bring it back ──────────────────────────────
+feature('undo', async ({ page, shot }) => {
+  check('the toolbar has Undo and Redo, both off with nothing done', await page.evaluate(() => { const undo = document.querySelector('.atlas-tabletop-toolbar button[aria-label="Undo"]'); const redo = document.querySelector('.atlas-tabletop-toolbar button[aria-label="Redo"]'); return !!undo && !!redo && undo.disabled && redo.disabled; }));
+  await page.evaluate(() => { const actions = window.boardTest.board.toolbarActions(); actions.setWaterTool('paint'); actions.setWaterBrush(1.5); });
+  const canvas = await page.locator('canvas').first().boundingBox();
+  const [x, y] = [canvas.x + canvas.width * 0.42, canvas.y + canvas.height * 0.62];
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 200, y + 10, { steps: 10 });
+  await page.mouse.up();
+  await page.keyboard.press('Escape');
+  await wait(200);
+  const wet = () => page.evaluate(() => { const water = window.boardTest.board.water; return !!water && !water.mask.empty; });
+  check('a stroke paints water', await wet());
+  check('Undo lights up', await page.evaluate(() => !document.querySelector('.atlas-tabletop-toolbar button[aria-label="Undo"]').disabled));
+  await page.locator('.atlas-tabletop-toolbar button[aria-label="Undo"]').click();
+  await wait(300);
+  check('Undo takes the water away', !(await wet()));
+  check('Redo lights up', await page.evaluate(() => !document.querySelector('.atlas-tabletop-toolbar button[aria-label="Redo"]').disabled));
+  await page.locator('.atlas-tabletop-toolbar button[aria-label="Redo"]').click();
+  await wait(300);
+  check('Redo brings it back', await wet());
+  await shot('undo-redo');
+  await page.locator('.atlas-tabletop-toolbar button[aria-label="Undo"]').click();
+  await wait(200);
+});
+
+// ── Atlas's window: a wall that stops only tokens stands as a sill and a lintel, with an opening between ──────────
+feature('windows', async ({ page, shot }) => {
+  await page.evaluate(() => { const { board, map } = window.boardTest; board.load({ ...map, walls: map.walls.map((w) => (w.id === 'e' ? { ...w, blocks: 'movement' } : w)) }); });
+  await wait(800);
+  const spans = await page.evaluate(() => { const ys = new Set(); window.boardTest.board.walls.object3d.traverse((node) => { if (node.isMesh && node.userData.walls) { const p = node.geometry.getAttribute('position'); for (let i = 0; i < p.count; i++) { const x = p.getX(i); if (Math.abs(x - 665) < 12) ys.add(Math.round(p.getY(i))); } } }); return [...ys].sort((a, b) => a - b); });
+  check('the window wall has an opening between its sill and lintel', spans.length >= 4, JSON.stringify(spans));
+  await page.evaluate(() => { const { board } = window.boardTest; for (const pose of [board.camera.pose, board.camera.goal]) { pose.target.x = 665; pose.target.z = 910; pose.distance = 420; pose.pitch = 0.3; pose.yaw = Math.PI / 2; } board.camera.snap(); board.wake(true); });
+  await wait(500);
+  await shot('window');
+  await page.evaluate(() => { const { board } = window.boardTest; for (const pose of [board.camera.pose, board.camera.goal]) pose.yaw = -Math.PI / 2; board.camera.snap(); board.wake(true); });
+  await wait(500);
+  await shot('window-2');
+  // Ctrl over the window: three handles (its sill, lintel and top); dragging the lowest moves the opening's bottom.
+  await page.evaluate(() => { const { board } = window.boardTest; for (const pose of [board.camera.pose, board.camera.goal]) { pose.yaw = Math.PI / 2; pose.pitch = 0.15; } board.camera.snap(); board.wake(true); });
+  await wait(500);
+  const spots = () => page.evaluate(() => { const { board } = window.boardTest; board.applyView(); const rect = board.canvas.getBoundingClientRect(); return (board.handles?.spots ?? []).map((spot) => { const on = spot.at.clone().project(board.view); return { part: spot.part, x: rect.left + ((on.x + 1) / 2) * rect.width, y: rect.top + ((1 - on.y) / 2) * rect.height }; }); });
+  const middle = await page.evaluate(() => { const { board } = window.boardTest; board.applyView(); const rect = board.canvas.getBoundingClientRect(); const on = new window.boardTest.Vector3(665, 8, 910).project(board.view); return { x: rect.left + ((on.x + 1) / 2) * rect.width, y: rect.top + ((1 - on.y) / 2) * rect.height }; });
+  await page.keyboard.down('Control');
+  await page.mouse.move(middle.x, middle.y + 3);
+  await page.mouse.move(middle.x, middle.y);
+  await wait(300);
+  let shown = await spots();
+  const which = await page.evaluate(() => { const { board } = window.boardTest; const w = board.map.walls.find((c) => c.id === board.handles?.wall); return { id: board.handles?.wall, blocks: w?.blocks, type: w?.type }; });
+  check('Ctrl over a window shows handles at its sill, lintel and top', shown.map((s) => s.part).join() === 'sill,lintel,wall', JSON.stringify({ shown, which }));
+  await shot('window-handles');
+  const sill = shown.find((s) => s.part === 'sill');
+  if (sill) {
+    await page.mouse.move(sill.x, sill.y);
+    await page.mouse.down();
+    await page.mouse.move(sill.x, sill.y - 15, { steps: 4 });
+    await page.mouse.move(sill.x, sill.y - 30, { steps: 4 });
+    await page.mouse.up();
+    await wait(300);
+  }
+  const kept = await page.evaluate(() => window.boardTest.windowSpans.get('e') ?? null);
+  check('dragging the sill handle up raises the opening bottom', kept !== null && kept.bottom > 0.25 && kept.top > kept.bottom, JSON.stringify(kept));
+  await page.keyboard.up('Control');
+  await wait(200);
+  const gone = await page.evaluate(() => window.boardTest.board.handles === null);
+  check('letting go of Ctrl takes the handles away', gone, '');
+  // A plain wall: one handle, on its top.
+  await page.evaluate(() => window.boardTest.board.load(window.boardTest.map));
+  await wait(500);
+  await page.keyboard.down('Control');
+  await page.mouse.move(middle.x, middle.y + 3);
+  await page.mouse.move(middle.x, middle.y);
+  await wait(300);
+  shown = await spots();
+  check('Ctrl over a plain wall shows one handle, on its top', shown.map((s) => s.part).join() === 'wall', JSON.stringify(shown));
+  await page.keyboard.up('Control');
+  // Alt over the wall: one handle, on its side; dragged away from the wall it makes the wall wider.
+  await page.keyboard.down('Alt');
+  await page.mouse.move(middle.x, middle.y + 3);
+  await page.mouse.move(middle.x, middle.y);
+  await wait(300);
+  shown = await spots();
+  const widthWall = await page.evaluate(() => window.boardTest.board.handles?.wall ?? null);
+  check('Alt over a wall shows one handle, for its width', shown.map((s) => s.part).join() === 'width', JSON.stringify(shown));
+  await shot('width-handle');
+  const grip = shown[0];
+  if (grip) {
+    const away = await page.evaluate(({ id, x, y }) => { const { board } = window.boardTest; const wall = board.map.walls.find((w) => w.id === id); const rect = board.canvas.getBoundingClientRect(); board.applyView(); const mid = { x: (wall.p1.x + wall.p2.x) / 2, z: (wall.p1.y + wall.p2.y) / 2 }; const on = new window.boardTest.Vector3(mid.x, 0, mid.z).project(board.view); const cx = rect.left + ((on.x + 1) / 2) * rect.width; const cy = rect.top + ((1 - on.y) / 2) * rect.height; const dx = x - cx; const dy = y - cy; const len = Math.hypot(dx, dy) || 1; return { x: x + (dx / len) * 25, y: y + (dy / len) * 25 }; }, { id: widthWall, x: grip.x, y: grip.y });
+    await page.mouse.move(grip.x, grip.y);
+    await page.mouse.down();
+    await page.mouse.move((grip.x + away.x) / 2, (grip.y + away.y) / 2, { steps: 3 });
+    await page.mouse.move(away.x, away.y, { steps: 3 });
+    await page.mouse.up();
+    await wait(300);
+  }
+  const widened = await page.evaluate((id) => ({ kept: window.boardTest.wallWidthsKept.get(id) ?? null, map: window.boardTest.board.host.wallThickness() }), widthWall);
+  check('dragging the width handle away from the wall makes it wider', widened.kept !== null && widened.kept > widened.map, JSON.stringify(widened));
+  await page.keyboard.up('Alt');
+  await page.evaluate(() => { window.boardTest.wallWidthsKept.clear(); window.boardTest.board.refresh(); });
+  await page.evaluate(() => window.boardTest.windowSpans.clear());
+  await page.evaluate(() => window.boardTest.board.load(window.boardTest.map));
+  await wait(500);
+});
+
+// ── Wall paint on the toolbar, Esc from anywhere, and the Play/Edit modes ─────────────────────────────────────────
+feature('modes', async ({ page, shot }) => {
+  const painting = () => page.evaluate(() => window.boardTest.board.isPainting);
+  // Painting from the gallery, with the focus elsewhere: Esc still stops it.
+  await page.evaluate(() => { const { board } = window.boardTest; board.paintWith('materials/brick'); board.canvas.blur(); document.body.tabIndex = -1; document.body.focus(); });
+  await page.keyboard.press('Escape');
+  check('Esc stops painting even when the board does not have the focus', (await painting()) === false, '');
+  await page.evaluate(() => window.boardTest.board.paintWith('materials/brick'));
+  const box = await page.evaluate(() => { const r = window.boardTest.board.canvas.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  await page.mouse.click(box.x, box.y, { button: 'right' });
+  check('a right-click on the board stops painting', (await painting()) === false, '');
+  // Modes on: Play shows the game's tools, Edit the building ones.
+  await page.evaluate(() => { const { board, modes } = window.boardTest; modes.on = true; modes.mode = 'play'; board.refreshToolbar(); });
+  const seen = () => page.evaluate(() => { const vis = (el) => !!el && el.offsetParent !== null; const q = (s) => document.querySelector(s); return { modes: vis(q('.atlas-tabletop-modes')), water: vis(q('[aria-label="Water"]')), paint: vis(q('[aria-label="Paint walls"]')), measure: vis(q('[aria-label="Measure"]')) || vis(q('[aria-label^="Measure"]')), settings: vis(q('[aria-label="Board settings"]')), view: vis(q('[aria-label="Visibility"]')), move: vis(q('[aria-label="Move/Select"]')), undo: vis(q('[aria-label="Undo"]')) }; });
+  let now = await seen();
+  check('Play mode: the mode switch, Move, Undo, Measure and Visibility; no water, wall paint or Board settings', now.modes && now.move && now.undo && now.measure && now.view && !now.settings && !now.water && !now.paint, JSON.stringify(now));
+  await shot('mode-play');
+  await page.click('[aria-label="Edit mode"]');
+  await wait(200);
+  now = await seen();
+  check('Edit mode: water, wall paint, Board settings and Visibility, Move and Undo; no Measure', now.move && now.undo && now.water && now.paint && now.settings && now.view && !now.measure, JSON.stringify(now));
+  await page.click('[aria-label="Materials"]');
+  await wait(200);
+  const cards = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-paint-card')].map((card) => card.dataset.material));
+  check('the paint tool lists the gallery materials, and a choice to take one off', cards.length === 3 && cards.includes('materials/stone'), JSON.stringify(cards));
+  await shot('mode-edit-paint');
+  await page.click('.atlas-tabletop-paint-card[data-material="materials/stone"]');
+  await wait(200);
+  const lit = await page.evaluate(() => document.querySelector('[aria-label="Paint walls"]').classList.contains('is-active'));
+  check('choosing a material paints with it, and the paint button is lit', (await painting()) && lit, '');
+  await page.click('[aria-label="Paint walls"]');
+  check('the paint button stops painting', (await painting()) === false, '');
+  await page.click('[aria-label="Paint walls"]');
+  check('the paint button takes up the last material again', (await page.evaluate(() => window.boardTest.board.painting)) === 'materials/stone', '');
+  await page.click('[aria-label="Play mode"]');
+  await wait(200);
+  check('going to Play mode stops painting', (await painting()) === false, '');
+  // Ctrl over a wall shows no handles in Play mode.
+  await page.keyboard.down('Control');
+  await page.mouse.move(box.x, box.y + 2);
+  await page.mouse.move(box.x, box.y);
+  await wait(200);
+  check('Play mode: Ctrl over the board shows no wall handles', (await page.evaluate(() => window.boardTest.board.handles)) === null, '');
+  await page.keyboard.up('Control');
+  await page.evaluate(() => { const { board, modes } = window.boardTest; modes.on = false; board.refreshToolbar(); });
+  // A tooltip by the board's right edge stays inside it: the pane never scrolls sideways.
+  const tip = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    const rect = board.canvas.getBoundingClientRect();
+    board.showTip(rect.right - 4, rect.bottom - 4, 'A long tooltip text that would run past the edge of the board');
+    const box = board.tooltip.getBoundingClientRect();
+    const pane = board.container;
+    const out = { right: box.right, bottom: box.bottom, edge: rect.right, foot: rect.bottom, scroll: pane.scrollWidth, width: pane.clientWidth };
+    board.tooltip.hidden = true;
+    return out;
+  });
+  check('a tooltip by the board edge stays inside the board', tip.right <= tip.edge && tip.bottom <= tip.foot && tip.scroll <= tip.width, JSON.stringify(tip));
+});
+
 // ── A door turned half a turn, or mirrored: its hinge goes to the other end ─────────────────────────────────────
+// ── Going from one scene of a stack to another: nothing read or decoded again ───────────────────────────────────────
+feature('layer switch', async ({ page, shot }) => {
+  // The tavern with the balcony stacked two squares up, as Tabletop's board shows a stack.
+  const shown = await page.evaluate(async () => {
+    const { board, map } = window.boardTest;
+    const data = (path, elevation, m) => ({
+      path, elevation, map: m, wallHeight: () => null, wallMaterial: () => null, doorProp: () => null, lightHeight: () => 1, fogHeight: 1, wallThickness: 0.12, props: [],
+      placement: () => null, style: () => 'disc',
+    });
+    const balcony = { ...map, path: 'upper.atlasmap', background: 'balcony.png', fog: [], inks: [], texts: [], icons: [], pins: [], initiative: null, tokens: [], walls: [], lights: [] };
+    window.stackTest = { tavern: map, balcony, data };
+    board.setStack([data('upper.atlasmap', 2, balcony)]);
+    for (let i = 0; i < 50 && !board.layerViews.get('upper.atlasmap')?.floor.visible; i++) await new Promise((r) => setTimeout(r, 50));
+    return board.layerViews.get('upper.atlasmap')?.floor.visible === true;
+  });
+  check('layer switch: the scene above is drawn', shown);
+  const go = (to) => page.evaluate(async (to) => {
+    const { board, record } = window.boardTest;
+    const { tavern, balcony, data } = window.stackTest;
+    record.imageReads.length = 0;
+    const started = performance.now();
+    // As the board view does: the other scene loads, then the stack is read from it.
+    if (to === 'up') {
+      await board.load(balcony, -140);
+      board.setStack([data(tavern.path, -2, tavern)]);
+    } else {
+      await board.load(tavern, 140);
+      board.setStack([data('upper.atlasmap', 2, balcony)]);
+    }
+    const loaded = performance.now() - started;
+    const left = to === 'up' ? tavern.path : 'upper.atlasmap';
+    for (let i = 0; i < 50 && !board.layerViews.get(left)?.floor.visible; i++) await new Promise((r) => setTimeout(r, 10));
+    return { loaded, whole: performance.now() - started, reads: [...record.imageReads], floor: board.layerViews.get(left)?.floor.visible === true, kept: board.floorTextures.size };
+  }, to);
+  const up = await go('up');
+  check('layer switch: going up reads and decodes no floor again, and the scene left is drawn below at once', up.reads.length === 0 && up.floor && up.kept === 2, JSON.stringify(up));
+  await shot('layer-switch-up');
+  const down = await go('down');
+  check('layer switch: and back down the same', down.reads.length === 0 && down.floor && down.kept === 2, JSON.stringify(down));
+  // The stack taken away: its layers are put away, their floors kept to come straight back; gone for good, so are they.
+  await page.evaluate(() => window.boardTest.board.setStack([]));
+  const keptAway = await page.evaluate(() => ({ floors: window.boardTest.board.floorTextures.size, parked: window.boardTest.board.parked.size }));
+  check('layer switch: a layer put away keeps its floor, to come back without reading it again', keptAway.floors === 2 && keptAway.parked >= 1, JSON.stringify(keptAway));
+});
+
+// ── The players' AR table: its sheets on the map, placed with the handles ─────────────────────────────────────────
+feature('ar table', async ({ page, shot }) => {
+  const table = {
+    survey: { squareMm: 25, groups: [
+      { group: 'mat-0', x: 0, y: 0, heading: 0, w: 210, h: 297 },
+      { group: 'mat-1', x: 225, y: 5, heading: 0.05, w: 210, h: 297 },
+      { group: 'card-14', x: -170, y: 120, heading: 0.5, w: 70, h: 68 },
+    ] },
+    place: { x: 6, y: 4, turn: 0 },
+  };
+  await page.evaluate((table) => window.boardTest.board.setArTable(table), table);
+  await wait(400);
+  check('ar table: not shown until the GM fine-tunes it', await page.evaluate(() => window.boardTest.board.tableOutlines.children.length === 0));
+  // Board settings: the AR table's section says how many sheets, and its button starts fine-tuning.
+  await page.getByRole('button', { name: 'Board settings' }).click();
+  await wait(200);
+  const section = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-palette__section')].find((s) => s.textContent.includes('AR table'))?.textContent ?? null);
+  check('ar table: Board settings has it, with its sheets', section && section.includes('3 sheets'), String(section));
+  await page.getByRole('button', { name: 'Fine-tune the AR table…' }).click();
+  await wait(600);
+  const outlines = await page.evaluate(() => window.boardTest.board.tableOutlines.children.length);
+  check('ar table: fine-tuning draws each sheet (outline, wash and name)', outlines === 9, String(outlines));
+  const chip = await page.evaluate(() => document.querySelector('.atlas-tabletop-adjust.is-table')?.textContent ?? null);
+  check('ar table: placing puts the handles on it and a chip with its square size', chip && chip.includes('Placing the AR table (3 sheets)') && chip.includes('Done') && (await page.evaluate(() => window.boardTest.board.gizmo !== null)), String(chip));
+  await shot('ar-table-placing');
+  const g = await page.evaluate(() => { const o = window.boardTest.board.gizmo.object3d; return { x: o.position.x, y: o.position.y, z: o.position.z }; });
+  const middle = await page.evaluate(([x, y, z]) => window.boardTest.project(x, z, y), [g.x, g.y, g.z]);
+  await page.mouse.move(middle.x, middle.y);
+  await page.mouse.down();
+  await page.mouse.move(middle.x + 80, middle.y + 10, { steps: 6 });
+  await page.mouse.up();
+  await wait(300);
+  const placed = await page.evaluate(() => window.boardTest.record.sceneTabs.filter((e) => e[0] === 'table'));
+  check('ar table: dragging the square moves it, and it is kept when let go', placed.length === 1 && placed[0][1].place.x > 6.2 && placed[0][1].survey.groups.length === 3, JSON.stringify(placed.map((e) => e[1].place)));
+  await page.locator('.atlas-tabletop-adjust.is-table select').selectOption('30');
+  await wait(200);
+  const squares = await page.evaluate(() => window.boardTest.record.sceneTabs.filter((e) => e[0] === 'table').pop()[1].survey.squareMm);
+  check('ar table: the chip sets the table\'s square size', squares === 30, String(squares));
+  await shot('ar-table-moved');
+  await page.locator('.atlas-tabletop-adjust.is-table button', { hasText: 'Done' }).click();
+  await wait(200);
+  check('ar table: Done takes the handles, the chip and the sheets away', await page.evaluate(() => window.boardTest.board.gizmo === null && !document.querySelector('.atlas-tabletop-adjust.is-table') && window.boardTest.board.tableOutlines.children.length === 0));
+});
+
+// ── A player's phone in AR: an eye on the GM's board, blinking, that fades when they leave ──────────────────────
+feature('ar viewer eye', async ({ page, shot }) => {
+  const place = () => page.evaluate(() => {
+    const { board } = window.boardTest;
+    const cell = board.map.grid.size;
+    // Over the map, south of its middle, turned to look south (at the GM's camera) and tipped 15° down.
+    const a = (-15 * Math.PI) / 180 / 2;
+    board.receiveViewer('p1', 'Ana', '#ff0059', { position: [board.size.width / 2 - cell * 3, cell * 3, board.size.height / 2 + cell * 3], quaternion: [0, Math.cos(a), -Math.sin(a), 0] });
+    return cell;
+  });
+  await place();
+  await wait(600);
+  check('eye: shows for a player in AR', await page.evaluate(() => window.boardTest.board.viewers.count === 1));
+  const at = await page.evaluate(() => { const { board } = window.boardTest; const eye = board.viewers.object3d.children.find((c) => c.name === 'ar-viewer:p1'); return window.boardTest.project(eye.position.x, eye.position.z, eye.position.y); });
+  check('eye: on the screen', at && at.x > 0 && at.x < 1000 && at.y > 0 && at.y < 640, JSON.stringify(at));
+  await shot('ar-eye');
+  await shot('ar-eye-close', { x: Math.max(0, Math.min(1000 - 260, at.x - 130)), y: Math.max(0, Math.min(640 - 220, at.y - 130)), width: 260, height: 220 });
+  // The lids move: a blink comes within a few seconds (kept alive by the heartbeat the phone sends).
+  let shut = false;
+  for (let i = 0; i < 120 && !shut; i++) {
+    if (i % 10 === 0) await place();
+    shut = await page.evaluate(() => { const eye = window.boardTest.board.viewers.object3d.children.find((c) => c.name === 'ar-viewer:p1'); return eye.children[2].rotation.x < 0.5; });
+    if (!shut) await wait(80);
+  }
+  check('eye: blinks', shut);
+  check('eye: not in the players\' view', await page.evaluate(() => window.boardTest.board.viewers.object3d.visible));
+  await page.evaluate(() => window.boardTest.board.receiveViewer('p1', 'Ana', '#ff0059', null));
+  await wait(900);
+  check('eye: fades when the player leaves AR', await page.evaluate(() => window.boardTest.board.viewers.count === 0));
+});
+
+feature('gm clears spells', async ({ page, shot }) => {
+  // A player's sphere on the map, the GM hosting in Play mode: Ctrl over it lights it, a click clears it.
+  const at = await page.evaluate(() => {
+    const { board, modes, setHosting } = window.boardTest;
+    setHosting(true);
+    modes.on = true;
+    modes.mode = 'play';
+    const cell = board.map.grid.size;
+    const x = board.size.width / 2 + cell * 2;
+    const y = board.size.height / 2;
+    board.receiveSpells([{ id: 's7', owner: 'p1', color: '#ff0059', spell: { shape: 'sphere', from: 'point', at: { x, y, h: cell }, yaw: 0, pitch: 0, roll: 0, size: cell * 2, length: 0, angle: 0.9 }, name: 'Fireball', about: { line: 'Level 3 Evocation', properties: [['Damage', '8d6 fire']], text: 'A bright streak flashes.' } }]);
+    return window.boardTest.project(x, y, cell);
+  });
+  await wait(500);
+  await page.keyboard.down('Alt');
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.move(at.x + 2, at.y + 1);
+  await wait(200);
+  const lit = await page.evaluate(() => ({ hovered: window.boardTest.board.hoveredSpell, tip: window.boardTest.board.tooltip.hidden ? null : window.boardTest.board.tooltip.textContent }));
+  check('spells: Alt over a player spell in Play mode lights it and says Alt+click clears it', lit.hovered === 's7' && /Alt\+click to clear/i.test(lit.tip ?? ''), JSON.stringify(lit));
+  await shot('gm-spell-hover');
+  const before = await page.evaluate(() => window.boardTest.record.toolActions.length);
+  await page.mouse.click(at.x + 2, at.y + 1);
+  await page.keyboard.up('Alt');
+  await wait(200);
+  const asked = await page.evaluate((before) => window.boardTest.record.toolActions.slice(before), before);
+  check('spells: the click asks Connect to clear it', asked.some((action) => action.type === 'spell' && action.change.remove === 's7'), JSON.stringify(asked));
+  await page.mouse.move(at.x, at.y);
+  check('spells: without Alt nothing lights', await page.evaluate(() => window.boardTest.board.hoveredSpell === null));
+  // Not hosting (the GM's own spells, on this board alone): Ctrl still lights one, and a click clears it.
+  await page.evaluate(() => window.boardTest.setHosting(false));
+  await page.keyboard.down('Alt');
+  await page.mouse.move(at.x + 1, at.y);
+  await page.mouse.move(at.x + 2, at.y + 1);
+  await wait(200);
+  const offline = await page.evaluate(() => window.boardTest.board.hoveredSpell);
+  await page.keyboard.up('Alt');
+  check('spells: without Connect hosting, Alt over a spell still lights it', offline === 's7', JSON.stringify({ offline }));
+  // Ctrl over it (where no creature stands) shows its card (its name and words), as a creature's stat block on hover; a
+  // click does not clear it.
+  const open = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    const cell = board.map.grid.size;
+    const x = board.size.width / 2 + cell * 2;
+    const y = board.size.height / 2;
+    for (const [dx, dy] of [[0, 1.4], [0, -1.4], [1.4, 0], [-1.4, 0], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
+      const point = window.boardTest.project(x + dx * cell, y + dy * cell, cell * 0.3);
+      if (board.tokenAt(point.x, point.y) === null) return point;
+    }
+    return null;
+  });
+  await page.keyboard.down('Control');
+  await page.mouse.move(open.x + 3, open.y);
+  await page.mouse.move(open.x + 2, open.y + 1);
+  await wait(200);
+  const card = await page.evaluate(() => ({ shown: window.boardTest.board.spellCardShown, words: window.boardTest.board.container.querySelector('.atlas-tabletop-spellcard.is-hover')?.textContent ?? '' }));
+  check('spells: Ctrl over a spell shows its card: name, level line, properties and words', card.shown === 's7' && /Fireball/.test(card.words) && /8d6 fire/.test(card.words) && /bright streak/.test(card.words), JSON.stringify(card));
+  await shot('spell-hover-card');
+  const actionsBefore = await page.evaluate(() => window.boardTest.record.toolActions.length);
+  await page.mouse.click(open.x + 2, open.y + 1);
+  check('spells: a Ctrl+click does not clear it', (await page.evaluate((before) => window.boardTest.record.toolActions.slice(before).filter((action) => action.type === 'spell').length, actionsBefore)) === 0);
+  await page.keyboard.up('Control');
+  await wait(100);
+  check('spells: letting Ctrl go takes the card off', (await page.evaluate(() => window.boardTest.board.spellCardShown)) === null);
+  // A creature inside the spell comes first: Ctrl over it is its stat block, not the spell's card.
+  const inside = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    const cell = board.map.grid.size;
+    const e = board.tokens.get('gob');
+    board.receiveSpells([{ id: 's8', owner: 'p1', color: '#ff0059', spell: { shape: 'sphere', from: 'point', at: { x: e.at.x, y: e.at.y, h: cell }, yaw: 0, pitch: 0, roll: 0, size: cell * 2, length: 0, angle: 0.9 }, name: 'Fog Cloud' }]);
+    return window.boardTest.project(e.at.x, e.at.y, cell * 0.3);
+  });
+  await wait(300);
+  await page.keyboard.down('Control');
+  await page.mouse.move(inside.x + 1, inside.y);
+  await page.mouse.move(inside.x, inside.y);
+  await wait(200);
+  const priority = await page.evaluate(() => ({ card: window.boardTest.board.spellCardShown, spell: window.boardTest.board.hoveredSpell }));
+  await page.keyboard.up('Control');
+  check('spells: Ctrl over a creature inside a spell is the creature, not the spell', priority.card === null && priority.spell === null, JSON.stringify(priority));
+  await page.evaluate(() => { const { board, modes, setHosting } = window.boardTest; board.receiveSpells([]); modes.on = false; setHosting(false); });
+});
+
+feature('gm casts through eyes', async ({ page, shot }) => {
+  // The GM goes into the Hero's eyes, looks at the Goblin and casts a cone from there, as a player would.
+  const press = (label) => page.evaluate((label) => {
+    const buttons = [...window.boardTest.board.container.querySelectorAll('.atlas-tabletop-spellbar button')];
+    const button = buttons.find((each) => each.offsetParent !== null && (each.getAttribute('aria-label') ?? '').replace(/ \((F|Esc)\)$/, '') === label);
+    if (!button) return false;
+    button.click();
+    return true;
+  }, label);
+  const state = () => page.evaluate(() => {
+    const { board } = window.boardTest;
+    const bar = board.container.querySelector('.atlas-tabletop-spellbar');
+    return {
+      seeing: board.seeingFrom, bar: !!bar && !bar.hidden, stage: bar?.dataset.stage ?? null,
+      toolbar: board.toolbar.row.style.display !== 'none',
+      text: bar?.querySelector('.atlas-tabletop-spellbar__text')?.textContent ?? '',
+    };
+  });
+  const toolbarBefore = await page.evaluate(() => window.boardTest.board.toolbar.row.style.display !== 'none');
+  await page.evaluate(() => {
+    const { board } = window.boardTest;
+    board.seeFrom('hero');
+    board.eye.yaw = Math.atan2(-280, -140) ;
+    board.eye.pitch = -0.1;
+    board.eye.fresh = true;
+  });
+  await wait(600);
+  const inEyes = await state();
+  check('gm eyes: any token, the spell toolbar in place of the GM\'s', inEyes.seeing === 'hero' && inEyes.bar && inEyes.stage === 'idle' && (!toolbarBefore || !inEyes.toolbar), JSON.stringify({ toolbarBefore, inEyes }));
+  await press('Cast a spell');
+  await press('Cone');
+  await press('From me');
+  await page.evaluate(() => { const input = window.boardTest.board.container.querySelector('[data-spell-field="size"]'); input.value = '6'; input.dispatchEvent(new Event('input')); });
+  await page.evaluate(() => { const select = window.boardTest.board.container.querySelector('[data-spell-field="effect"]'); select.value = 'fire'; select.dispatchEvent(new Event('change')); });
+  await press('Aim');
+  await wait(700);
+  const aiming = await state();
+  await shot('gm-eyes-aim');
+  if (!(await press('Place'))) await page.evaluate(() => window.boardTest.board.caster.click());
+  await wait(300);
+  const before = await page.evaluate(() => window.boardTest.record.toolActions.length);
+  await press('Cast');
+  await wait(200);
+  const sent = await page.evaluate((before) => window.boardTest.record.toolActions.slice(before), before);
+  const add = sent.find((action) => action.type === 'spell' && action.change.add)?.change.add;
+  check('gm eyes: the cone from the Hero hits the Goblin, and Cast sends it, with its fire', /Goblin/.test(aiming.text) && add && add.shape === 'cone' && add.from === 'self' && add.caster === 'hero' && add.effect === 'fire', JSON.stringify({ aiming, sent }));
+  await press('Leave');
+  await wait(300);
+  const out = await state();
+  check('gm eyes: Leave gives the GM\'s toolbar back', out.seeing === null && !out.bar && out.toolbar === toolbarBefore, JSON.stringify(out));
+});
+
+feature('drop impacts and material preview', async ({ page, shot }) => {
+  // A material dragged over a wall shows on it before the drop; dropped, the wall takes a hit; a mini let go lands.
+  const wall = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    const cell = board.map.grid.size;
+    const solid = board.map.walls.find((w) => w.type === 'solid' && w.blocks === null && !w.limited && Math.hypot(w.p2.x - w.p1.x, w.p2.y - w.p1.y) > cell);
+    for (const t of [0.5, 0.4, 0.6, 0.3, 0.7]) {
+      const x = solid.p1.x + (solid.p2.x - solid.p1.x) * t;
+      const y = solid.p1.y + (solid.p2.y - solid.p1.y) * t;
+      const at = window.boardTest.project(x, y, cell * 0.8);
+      if (board.wallAt(at.x, at.y) === solid.id) return { id: solid.id, at };
+    }
+    return { id: solid.id, at: null };
+  });
+  const drag = (type, at, shift = false) => page.evaluate(({ type, at, shift }) => {
+    const { board } = window.boardTest;
+    const transfer = new DataTransfer();
+    transfer.setData('application/x-atlas-tabletop-material', 'mats/stone');
+    board.canvas.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, clientX: at.x, clientY: at.y, dataTransfer: transfer, shiftKey: shift }));
+  }, { type, at, shift });
+  await page.evaluate(() => { window.boardTest.materialDrag.folder = 'mats/stone'; });
+  await drag('dragover', wall.at);
+  await wait(200);
+  const preview = await page.evaluate(() => window.boardTest.board.paintPreview);
+  check('material drag: the wall under the pointer shows the material before the drop', wall.at && preview?.material === 'mats/stone' && preview.ids.includes(wall.id), JSON.stringify({ wall, preview }));
+  const shown = await page.evaluate(() => [...window.boardTest.board.wallMaterials.keys()].includes('mats/stone'));
+  check('material drag: it is drawn with it', shown);
+  const startedBefore = await page.evaluate(() => window.boardTest.board.impacts.started);
+  await drag('drop', wall.at);
+  await page.evaluate(() => { window.boardTest.materialDrag.folder = null; });
+  await wait(60);
+  const slapped = await page.evaluate((before) => ({ preview: window.boardTest.board.paintPreview, active: window.boardTest.board.impacts.started > before, painted: window.boardTest.record.paints.at(-1) }), startedBefore);
+  check('material drop: painted, the preview gone, and the wall takes a hit', slapped.preview === null && slapped.active && slapped.painted?.[1] === 'mats/stone', JSON.stringify(slapped));
+  await shot('impact-wall');
+  await wait(800);
+  check('material drop: the hit fades away', !(await page.evaluate(() => window.boardTest.board.impacts.active)));
+  // A mini let go after a drag lands with a ring and dust.
+  const hero = await page.evaluate(() => { const e = window.boardTest.board.tokens.get('hero'); const cell = window.boardTest.board.map.grid.size; return { from: window.boardTest.project(e.at.x, e.at.y, 0), to: window.boardTest.project(e.at.x + cell * 2, e.at.y, 0) }; });
+  await page.mouse.move(hero.from.x, hero.from.y);
+  await page.mouse.down();
+  await page.mouse.move((hero.from.x + hero.to.x) / 2, hero.from.y, { steps: 4 });
+  await page.mouse.move(hero.to.x, hero.to.y, { steps: 4 });
+  const landedBefore = await page.evaluate(() => window.boardTest.board.impacts.started);
+  await page.mouse.up();
+  await wait(80);
+  check('mini drop: it lands with an impact', await page.evaluate((before) => window.boardTest.board.impacts.started > before, landedBefore));
+  await shot('impact-mini');
+  await wait(800);
+});
+
+feature('material defaults', async ({ page }) => {
+  // Walls and doors with no material painted wear their kind's default; painted ones keep theirs; none set, as before.
+  const looks = () => page.evaluate(() => {
+    const out = { walls: new Set(), doors: new Set() };
+    window.boardTest.board.scene.traverse((node) => {
+      if (!node.isMesh || !node.material) return;
+      for (const [path, material] of window.boardTest.board.wallMaterials) {
+        if (material !== node.material) continue;
+        if (node.userData.walls) out.walls.add(path);
+        if (node.userData.doorId) out.doors.add(path);
+      }
+    });
+    return { walls: [...out.walls].sort(), doors: [...out.doors].sort() };
+  });
+  const plain = await looks();
+  await page.evaluate(() => { window.__materialDefaults = { wall: 'mats/stone', door: 'mats/oak' }; window.boardTest.board.refreshMaterials(); });
+  await wait(400);
+  const set = await looks();
+  check('material defaults: unpainted walls and doors wear the default for their kind', set.walls.includes('mats/stone') && (set.doors.length === 0 || set.doors.includes('mats/oak')) && !plain.walls.includes('mats/stone'), JSON.stringify({ plain, set }));
+  await page.evaluate(() => { window.__materialDefaults = {}; window.boardTest.board.refreshMaterials(); });
+  await wait(400);
+  const back = await looks();
+  check('material defaults: none set, walls are plain again', !back.walls.includes('mats/stone'), JSON.stringify(back));
+});
+
+feature('spell rules', async ({ page, shot }) => {
+  // What spells do beyond their shape, from their rules: walls, fog, light, darkness, difficult ground; and the GM's board
+  // carrying out pushes, teleports, summons and gates.
+  const cast = (list) => page.evaluate((list) => {
+    const { board } = window.boardTest;
+    const cell = board.map.grid.size;
+    board.receiveSpells(list.map(([id, at, shape, rules, extra]) => {
+      const point = typeof at === 'string' ? board.tokens.get(at).at : at;
+      const spell = { shape, from: 'point', at: { x: point.x, y: point.y, h: cell * 0.5 }, yaw: 0, pitch: 0, roll: 0, size: cell * (extra?.size ?? 1), length: shape === 'wall' || shape === 'cylinder' ? cell * 2 : 0, angle: 0.9, ...(shape === 'wall' ? { to: { x: point.x + cell * 4, y: point.y } } : {}), ...(extra?.caster ? { caster: extra.caster } : {}) };
+      return { id, owner: 'p1', color: '#ff0059', spell, ...(rules ? { rules } : {}) };
+    }));
+  }, list);
+  const state = () => page.evaluate(() => window.boardTest.board.ruleState());
+  await cast([]);
+  const hero = await page.evaluate(() => { const e = window.boardTest.board.tokens.get('hero'); return { x: e.at.x, y: e.at.y }; });
+  const cell = await page.evaluate(() => window.boardTest.board.map.grid.size);
+  await cast([['w', { x: hero.x - cell * 2, y: hero.y + cell * 2 }, 'wall', { name: 'Wall of Stone', wall: { look: 'stone', blocks: 'both' } }],
+    ['f', { x: hero.x + cell * 4, y: hero.y + cell * 3 }, 'sphere', { name: 'Fog Cloud', obscure: true }, { size: 1.5 }],
+    ['l', { x: hero.x - cell * 3, y: hero.y - cell }, 'sphere', { name: 'Daylight', light: { bright: 60, dim: 60 } }, { size: 0.5 }],
+    ['d', { x: hero.x, y: hero.y + cell * 5 }, 'sphere', { name: 'Web', difficult: true }, { size: 1.5 }]]);
+  await wait(500);
+  const standing = await state();
+  check('spell rules: a stone wall stands as a wall, a fog its edge stopping sight alone, a light sheds light', standing.walls === 33 && standing.sightOnly === 32 && standing.lights.length === 1 && standing.lights[0].bright === 60 && !standing.lights[0].darkness, JSON.stringify(standing));
+  const share = await page.evaluate(({ hero, cell }) => window.boardTest.board.difficultShare([{ x: hero.x - cell * 3, y: hero.y + cell * 5 }, { x: hero.x + cell * 3, y: hero.y + cell * 5 }]), { hero, cell });
+  check('spell rules: a path through the web counts its share in difficult ground (the ruler costs it double)', share > 0.3 && share < 0.7, String(share));
+  const solid = await page.evaluate(() => { let found = false; window.boardTest.board.scene.traverse((node) => { if (node.isMesh && node.material && node.material.isMeshStandardMaterial && node.parent && node.parent.userData && node.parent.userData.spell) found = true; }); return found; });
+  check('spell rules: the stone wall is drawn solid', solid);
+  await shot('spell-rules-board');
+  await cast([['k', 'gob', 'sphere', { name: 'Darkness', obscure: true, dark: true }, { size: 1.5 }]]);
+  await wait(300);
+  const dark = await state();
+  check('spell rules: darkness is magical darkness over its area, the other spells walls and lights gone with them', dark.lights.length === 1 && dark.lights[0].darkness && dark.walls === 32, JSON.stringify(dark));
+  // Pushes: the GM is asked who failed, and those are pushed away from the spell.
+  await cast([]);
+  const gob = await page.evaluate(() => { const e = window.boardTest.board.tokens.get('gob'); return { x: e.at.x, y: e.at.y }; });
+  await cast([['t1', { x: gob.x - cell * 0.5, y: gob.y }, 'sphere', { name: 'Thunderwave', push: 10 }, { size: 0.9 }]]);
+  await wait(300);
+  const asked = await page.evaluate(() => ({ title: window.boardTest.board.spellRules.title, lines: [...window.boardTest.board.container.querySelectorAll('[data-rule-line]')].map((box) => box.dataset.ruleLine) }));
+  check('spell rules: a push is offered to the GM, a line for each token it hits', /Thunderwave: push 10 ft/.test(asked.title ?? '') && asked.lines.includes('gob'), JSON.stringify(asked));
+  await shot('spell-rules-push');
+  await page.evaluate(() => window.boardTest.board.spellRules.applyShowing());
+  const pushed = await page.evaluate(() => window.boardTest.record.ruleMoves.at(-1)?.find((move) => move.id === 'gob'));
+  check('spell rules: Push moves the token away from the spell', pushed && pushed.x > gob.x + cell * 0.9, JSON.stringify({ pushed, gob }));
+  const claims = await page.evaluate(() => window.boardTest.record.claims.length);
+  await cast([['t1', { x: gob.x - cell * 0.5, y: gob.y }, 'sphere', { name: 'Thunderwave', push: 10 }, { size: 0.9 }]]);
+  check('spell rules: the same cast again is not carried out twice', (await page.evaluate(() => window.boardTest.record.claims.length)) === claims && !(await page.evaluate(() => window.boardTest.board.spellRules.showing)));
+  // Its id gone and come back as another spell (a reopened board, a new session): carried out again.
+  await cast([]);
+  await cast([['t1', { x: gob.x + cell * 0.5, y: gob.y }, 'sphere', { name: 'Thunderwave', push: 10 }, { size: 0.9 }]]);
+  await wait(200);
+  check('spell rules: a new cast with an id used before is offered again', await page.evaluate(() => window.boardTest.board.spellRules.showing));
+  await page.evaluate(() => window.boardTest.board.container.querySelector('[data-rule-skip]')?.click());
+  // A teleport: the caster to the spot, and the mark goes.
+  const spot = { x: hero.x + cell * 3, y: hero.y };
+  await cast([['m1', spot, 'sphere', { name: 'Misty Step', teleport: 30 }, { size: 0.5, caster: 'hero' }]]);
+  await wait(200);
+  await page.evaluate(() => window.boardTest.board.spellRules.applyShowing());
+  const stepped = await page.evaluate(() => ({ move: window.boardTest.record.ruleMoves.at(-1), removed: window.boardTest.record.toolActions.at(-1) }));
+  check('spell rules: a teleport moves the caster to the spot, and takes the spell off', stepped.move?.[0]?.id === 'hero' && Math.abs(stepped.move[0].x - spot.x) <= cell && stepped.removed?.change?.remove === 'm1', JSON.stringify(stepped));
+  // A summons: made at the spot; when the spell goes, the GM is offered to take them off.
+  await cast([['s9', spot, 'sphere', { name: 'Spiritual Weapon', summon: { name: 'Spiritual Weapon', count: 2 } }, { size: 0.5, caster: 'hero' }]]);
+  await wait(200);
+  await page.evaluate(() => window.boardTest.board.spellRules.applyShowing());
+  const summoned = await page.evaluate(() => window.boardTest.record.summons.at(-1));
+  check('spell rules: a summons makes its tokens round the spot', summoned?.length === 2 && summoned.every((token) => token.name === 'Spiritual Weapon'), JSON.stringify(summoned));
+  await cast([]);
+  await wait(200);
+  const ended = await page.evaluate(() => window.boardTest.board.spellRules.title);
+  await page.evaluate(() => window.boardTest.board.spellRules.applyShowing());
+  check('spell rules: when the summoning spell ends, the GM may take its tokens off', /ended/.test(ended ?? '') && (await page.evaluate(() => window.boardTest.record.removed.includes('gob'))), JSON.stringify({ ended }));
+  // Gates of one name are linked: a token in one goes through to the other.
+  await cast([['g1', 'gob', 'cylinder', { name: 'Gate', portal: 'Blue gate' }, { size: 0.6 }], ['g2', { x: hero.x - cell * 4, y: hero.y - cell * 2 }, 'cylinder', { name: 'Gate', portal: 'Blue gate' }, { size: 0.6 }]]);
+  const gate = await page.evaluate(() => window.boardTest.board.gateFor('gob'));
+  const through = await page.evaluate(() => window.boardTest.board.goThroughGate('gob') && window.boardTest.record.ruleMoves.at(-1));
+  check('spell rules: a token in a gate goes through to its twin', gate?.name === 'Blue gate' && through?.[0]?.id === 'gob' && Math.abs(through[0].x - (hero.x - cell * 4)) <= cell, JSON.stringify({ gate, through }));
+  await cast([]);
+});
+
+feature('spell hit auras', async ({ page, shot }) => {
+  // A damaging spell over a token: the token gets the damage's look round it; another damage, another look; gone with the spell.
+  const cast = (list) => page.evaluate((list) => {
+    const { board } = window.boardTest;
+    const cell = board.map.grid.size;
+    board.receiveSpells(list.map(([id, token, effect, radius], k) => {
+      const e = board.tokens.get(token);
+      return { id, owner: 'p1', color: '#ff0059', spell: { shape: 'sphere', from: 'point', at: { x: e.at.x, y: e.at.y, h: cell * 0.5 }, yaw: 0, pitch: 0, roll: 0, size: cell * radius, length: 0, angle: 0.9, ...(effect ? { effect } : {}) } };
+    }));
+  }, list);
+  const auras = async () => { await wait(450); return page.evaluate(() => window.boardTest.board.spellAuraTypes()); };
+  const ids = await page.evaluate(() => [...window.boardTest.board.tokens.keys()]);
+  await cast([['a1', 'gob', 'fire', 0.45]]);
+  const fire = await auras();
+  check('spell auras: a fire spell over the Goblin sets it burning, and only it', fire.gob === 'fire' && Object.keys(fire).length === 1, JSON.stringify(fire));
+  await shot('spell-aura-fire');
+  await cast([['a1', 'gob', 'cold', 0.45]]);
+  const cold = await auras();
+  check('spell auras: a cold spell instead, frost instead', cold.gob === 'cold', JSON.stringify(cold));
+  await cast([['a1', 'gob', 'fire', 0.45], ['a2', 'gob', 'lightning', 0.45]]);
+  const both = await auras();
+  check('spell auras: two spells on it, the latest one\'s look', both.gob === 'lightning', JSON.stringify(both));
+  await cast([['a1', 'gob', null, 0.45]]);
+  const plain = await auras();
+  check('spell auras: a spell with no damage leaves no look', Object.keys(plain).length === 0, JSON.stringify(plain));
+  const types = ['fire', 'cold', 'lightning', 'acid', 'poison', 'necrotic', 'radiant', 'force', 'psychic', 'thunder', 'bludgeoning', 'piercing', 'slashing', 'explosion'];
+  await cast(ids.map((id, k) => [`g${k}`, id, types[k % types.length], 0.4]));
+  const gallery = await auras();
+  check('spell auras: every token hit gets a look (the latest spell over it)', ids.every((id) => types.includes(gallery[id])) && Object.values(gallery).filter((type, k, all) => all.indexOf(type) === k).length >= ids.length - 1, JSON.stringify({ ids, gallery }));
+  await shot('spell-aura-gallery');
+  // Each look up close, on the Goblin.
+  await page.evaluate(() => { const { board } = window.boardTest; const e = board.tokens.get('gob'); const cell = board.map.grid.size; Object.assign(board.camera.goal, { target: { x: e.at.x, y: cell * 0.4, z: e.at.y }, yaw: 0.5, pitch: 0.4, distance: cell * 4.5 }); board.camera.snap(); board.wake(true); });
+  for (const type of types) {
+    await cast([['c1', 'gob', type, 0.45]]);
+    await wait(1100);
+    // The spell itself hidden: its look on the Goblin alone.
+    await page.evaluate(() => { const { board } = window.boardTest; for (const kept of board.spellViews.values()) kept.view.object3d.visible = false; board.wake(true); });
+    await wait(100);
+    await shot(`spell-aura-${type}`);
+  }
+  await cast([]);
+  const none = await auras();
+  check('spell auras: gone with the spells', Object.keys(none).length === 0, JSON.stringify(none));
+});
+
+feature('spell rules cast', async ({ page, shot }) => {
+  // The real flow: a spell note with rules found in the eyes, aimed and cast: the cast carries its rules, and the board uses them.
+  const dir = path.join(__dirname, '..', 'tests', 'fixtures', 'spells');
+  const notes = [];
+  for (const set of fs.readdirSync(dir)) for (const file of fs.readdirSync(path.join(dir, set))) notes.push({ path: `${set}/${file}`, text: fs.readFileSync(path.join(dir, set, file), 'utf8') });
+  await page.evaluate((notes) => window.boardTest.setSpellNotes(notes), notes);
+  const castOne = async (query) => {
+    await page.evaluate(() => { const { board, modes } = window.boardTest; modes.on = true; modes.mode = 'play'; board.castThrough('hero'); });
+    await wait(400);
+    await page.evaluate((query) => { const input = window.boardTest.board.container.querySelector('[data-spell-search]'); input.value = query; input.dispatchEvent(new Event('input')); }, query);
+    await wait(250);
+    await page.evaluate(() => window.boardTest.board.container.querySelector('.atlas-tabletop-spellpicker__row')?.click());
+    await wait(200);
+    const effects = await page.evaluate(() => window.boardTest.board.container.querySelector('.atlas-tabletop-spellpicker__rules summary')?.textContent ?? null);
+    await page.evaluate(() => [...window.boardTest.board.container.querySelectorAll('.atlas-tabletop-spellpicker__actions button')].find((b) => b.textContent === 'Aim')?.click());
+    await wait(300);
+    const before = await page.evaluate(() => window.boardTest.record.toolActions.length);
+    // Look down at the floor, place it, cast it.
+    const press = (label) => page.evaluate((label) => {
+      const button = [...window.boardTest.board.container.querySelectorAll('.atlas-tabletop-spellbar button')].find((each) => (each.getAttribute('aria-label') ?? '').replace(/ \((F|Esc)\)$/, '') === label);
+      if (!button) return false;
+      button.click();
+      return true;
+    }, label);
+    await page.evaluate(() => { const { board } = window.boardTest; board.eye.pitch = -0.6; board.eye.fresh = true; board.wake(true); });
+    await wait(400);
+    // While aimed its drawing shows what it does: a stone wall solid, a fog grey.
+    const aimed = await page.evaluate(() => {
+      const view = window.boardTest.board.spellPreview?.view;
+      let solid = false;
+      view?.object3d.traverse((node) => { if (node.isMesh && node.material && node.material.isMeshStandardMaterial) solid = true; });
+      return { drawn: !!view, solid, color: view ? '#' + view.material.uniforms.color.value.getHexString() : null, shape: view?.spell.shape };
+    });
+    // Placed (a wall at both ends, turning the view between), then cast.
+    for (let k = 0; k < 4; k++) {
+      if (await press('Cast')) break;
+      if (await press('Next')) { await wait(200); continue; }
+      if (!(await press('Place'))) await page.evaluate(() => window.boardTest.board.spellCaster.click());
+      await page.evaluate(() => { const { board } = window.boardTest; board.eye.yaw += 0.35; board.eye.fresh = true; board.wake(true); });
+      await wait(300);
+    }
+    await wait(200);
+    const sent = await page.evaluate((before) => window.boardTest.record.toolActions.slice(before).find((action) => action.type === 'spell' && action.change.add), before);
+    await page.evaluate(() => window.boardTest.board.seeFrom(null));
+    // Connect sends it back as cast: the board stands what it does.
+    await page.evaluate((change) => window.boardTest.board.receiveSpells(change ? [{ id: 'x1', owner: 'gm', color: '#ffffff', spell: change.add, rules: change.rules, name: change.name }] : []), sent?.change);
+    await wait(300);
+    const standing = await page.evaluate(() => window.boardTest.board.ruleState());
+    await page.evaluate(() => window.boardTest.board.receiveSpells([]));
+    return { effects, sent, aimed, standing };
+  };
+  const fog = await castOne('fog cloud');
+  check('spell rules cast: a note with rules shows them under Effects, its drawing shows them while aimed, the cast sends them and the board stands them', /obscures/.test(fog.effects ?? '') && fog.aimed.color === '#c9ced4' && fog.sent?.change?.rules?.obscure === true && fog.sent.change.name === 'Fog Cloud' && fog.standing.sightOnly > 0, JSON.stringify({ ...fog, sent: fog.sent?.change?.rules }));
+  const wall = await castOne('wall of stone');
+  check('spell rules cast: Wall of Stone is a wall, aimed solid stone, cast as one, standing as a wall', wall.aimed.shape === 'wall' && wall.aimed.solid && wall.sent?.change?.add?.shape === 'wall' && wall.sent.change.rules?.wall?.look === 'stone' && wall.standing.walls === 1, JSON.stringify({ aimed: wall.aimed, rules: wall.sent?.change?.rules, shape: wall.sent?.change?.add?.shape, standing: wall.standing }));
+  await page.evaluate(() => window.boardTest.setSpellNotes(null));
+});
+
+feature('spell search', async ({ page, shot }) => {
+  // The spell notes of both SRD sets, as the vault has them: the search finds them, shows one in full and sets its area.
+  const dir = path.join(__dirname, '..', 'tests', 'fixtures', 'spells');
+  const notes = [];
+  for (const set of fs.readdirSync(dir)) for (const file of fs.readdirSync(path.join(dir, set))) notes.push({ path: `${set}/${file}`, text: fs.readFileSync(path.join(dir, set, file), 'utf8') });
+  await page.evaluate((notes) => window.boardTest.setSpellNotes(notes), notes);
+  const picker = () => page.evaluate(() => {
+    const element = window.boardTest.board.container.querySelector('.atlas-tabletop-spellpicker');
+    if (!element) return null;
+    return {
+      title: element.querySelector('.atlas-tabletop-spellpicker__title')?.textContent ?? '',
+      rows: [...element.querySelectorAll('.atlas-tabletop-spellpicker__row')].map((row) => row.textContent),
+      words: element.querySelector('.atlas-tabletop-spellpicker__words')?.textContent ?? '',
+      shape: element.querySelector('[data-spell-field="shape"]')?.value ?? null,
+      size: element.querySelector('[data-spell-field="size"]')?.value ?? null,
+      effect: element.querySelector('[data-spell-field="effect"]')?.value ?? null,
+      preview: !!window.boardTest.board.spellPreview,
+    };
+  });
+  const pick = (name, source) => page.evaluate(({ name, source }) => {
+    const rows = [...window.boardTest.board.container.querySelectorAll('.atlas-tabletop-spellpicker__row')];
+    const row = rows.find((each) => each.querySelector('.atlas-tabletop-spellpicker__name').textContent === name && each.textContent.includes(source));
+    row?.click();
+    return !!row;
+  }, { name, source });
+  const type = (words) => page.evaluate((words) => { const input = window.boardTest.board.container.querySelector('[data-spell-search]'); input.value = words; input.dispatchEvent(new Event('input')); }, words);
+  const button = (label) => page.evaluate((label) => {
+    const found = [...window.boardTest.board.container.querySelectorAll('.atlas-tabletop-spellpicker__actions button')].find((each) => each.textContent === label);
+    found?.click();
+    return !!found;
+  }, label);
+
+  // Cast, Myself: into the Hero's eyes with the search open.
+  await page.evaluate(() => {
+    const { board } = window.boardTest;
+    board.castThrough('hero');
+    board.eye.yaw = Math.atan2(-280, -140);
+    board.eye.pitch = -0.25;
+    board.eye.fresh = true;
+  });
+  await wait(400);
+  const opened = await picker();
+  check('spell search: Cast goes into the eyes with the search open, every spell listed', opened && opened.title === 'Find a spell' && opened.rows.length === notes.length && (await page.evaluate(() => window.boardTest.board.seeingFrom)) === 'hero', JSON.stringify(opened));
+  // Real keys into the search: F (cast) and the arrows never reach the board.
+  const yawBefore = await page.evaluate(() => window.boardTest.board.eye.yaw);
+  await page.keyboard.type('fireb', { delay: 20 });
+  await wait(200);
+  const typed = await picker();
+  const keys = await page.evaluate(() => ({ yaw: window.boardTest.board.eye.yaw, stage: window.boardTest.board.container.querySelector('.atlas-tabletop-spellbar')?.dataset.stage, focus: document.activeElement?.hasAttribute('data-spell-search') }));
+  check('spell search: real typing stays in the search (F does not cast, the view does not turn)', keys.focus && keys.stage === 'idle' && Math.abs(keys.yaw - yawBefore) < 1e-9, JSON.stringify(keys));
+  check('spell search: typing narrows it, both rule sets shown apart', typed.rows.length === 2 && typed.rows.every((row) => /^Fireball/.test(row)) && typed.rows.some((row) => /SRD 2014/.test(row)) && typed.rows.some((row) => /SRD 2024/.test(row)), JSON.stringify(typed.rows));
+  await page.keyboard.press('ArrowDown');
+  await wait(300);
+  const arrowed = await picker();
+  check('spell search: ArrowDown picks the first found', /Fireball/.test(arrowed.words), JSON.stringify(arrowed.words.slice(0, 40)));
+  await pick('Fireball', 'SRD 2024');
+  await wait(400);
+  const fireball = await picker();
+  check('spell search: the spell picked shows its words and properties, sets its area and damage, and is drawn', /Level 3 Evocation/.test(fireball.words) && /8d6 fire/.test(fireball.words) && /A bright streak/.test(fireball.words)
+    && fireball.shape === 'sphere' && fireball.size === '4' && fireball.effect === 'fire' && fireball.preview, JSON.stringify(fireball));
+  await shot('spell-search');
+  await button('Aim');
+  await wait(500);
+  const aiming = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    const card = board.container.querySelector('.atlas-tabletop-spellcard');
+    const bar = board.container.querySelector('.atlas-tabletop-spellbar');
+    return { stage: bar?.dataset.stage, card: card && !card.hidden ? card.textContent : null, picker: !!board.container.querySelector('.atlas-tabletop-spellpicker'), text: bar?.querySelector('.atlas-tabletop-spellbar__text')?.textContent ?? '' };
+  });
+  check('spell search: Aim aims it, the spell\'s words open over the view', aiming.stage === 'aim' && !aiming.picker && /Fireball/.test(aiming.card ?? '') && /8d6/.test(aiming.card ?? '') && /^Fireball/.test(aiming.text), JSON.stringify(aiming));
+  await shot('spell-aim-card');
+  const folded = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    board.container.querySelector('.atlas-tabletop-spellcard__toggle').click();
+    const card = board.container.querySelector('.atlas-tabletop-spellcard');
+    const small = card.classList.contains('is-folded') && !card.querySelector('.atlas-tabletop-spellabout');
+    card.querySelector('.atlas-tabletop-spellcard__toggle').click();
+    return { small, open: !!card.querySelector('.atlas-tabletop-spellabout') };
+  });
+  check('spell search: the words fold to a small button and open again', folded.small && folded.open, JSON.stringify(folded));
+  await page.evaluate(() => { const { board } = window.boardTest; board.spellCaster.cancel(); board.seeFrom(null); });
+  await wait(300);
+
+  // Cast, Player: the search over the board, the spell drawn at the token; Send hands over the ask with its words.
+  const sent = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    window.__asked = [];
+    return !!board.askSpellPanel('hero', { title: 'Ask the Hero\'s player for a spell', send: (ask) => window.__asked.push(ask) });
+  });
+  await type('cone of cold');
+  await wait(150);
+  await pick('Cone of Cold', 'SRD 2014');
+  await wait(400);
+  const panel = await picker();
+  check('spell ask: the panel finds the spell and draws it at the token', sent && panel.title.startsWith('Ask') && panel.shape === 'cone' && panel.effect === 'cold' && panel.preview, JSON.stringify(panel));
+  await shot('spell-ask-panel');
+  await button('Send to the player');
+  await wait(100);
+  const asked = await page.evaluate(() => ({ asks: window.__asked, panel: !!window.boardTest.board.container.querySelector('.atlas-tabletop-spellpicker'), preview: !!window.boardTest.board.spellPreview }));
+  const ask = asked.asks[0];
+  check('spell ask: Send gives the ask its shape in pixels, its damage and its words; the panel and drawing go', ask && ask.name === 'Cone of Cold' && ask.shape === 'cone' && ask.from === 'self' && Math.abs(ask.size - 840) < 1e-6 && ask.effect === 'cold' && /Cone of Cold|cold air/.test(ask.about?.text ?? '') && !asked.panel && !asked.preview, JSON.stringify(asked));
+  // A spell with no area: set by hand, still sent with its words.
+  await page.evaluate(() => window.boardTest.board.askSpellPanel('hero', { title: 'Ask', send: (ask) => window.__asked.push(ask) }));
+  await type('magic missile');
+  await wait(150);
+  await pick('Magic Missile', 'SRD 2014');
+  await wait(100);
+  const missile = await picker();
+  check('spell ask: a spell without an area says so and starts as a plain shape', /no area/.test(missile.words) && missile.shape === 'sphere' && missile.effect === 'force', JSON.stringify(missile));
+  await page.evaluate(() => window.boardTest.board.container.querySelector('.atlas-tabletop-spellpicker__close').click());
+  await page.evaluate(() => window.boardTest.setSpellNotes(null));
+  await wait(200);
+});
+
 feature('door flips', async ({ page, shot }) => {
   const pivot = () => page.evaluate(() => { const door = window.boardTest.board.walls.doors.get('door'); return { x: door.pivot.position.x, z: door.pivot.position.z, turn: door.pivot.rotation.y }; });
   const set = (flip) => page.evaluate((flip) => { const { board, doorFlips } = window.boardTest; if (flip) doorFlips.set('door', flip); else doorFlips.delete('door'); board.refresh(); }, flip);

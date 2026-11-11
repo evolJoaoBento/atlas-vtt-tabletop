@@ -18,6 +18,14 @@ export function fitTexture(width: number, height: number, max: number = MAX_MAP_
   return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
 }
 
+/**
+ * Lets go of a texture, unless it is shared (`userData.shared`: a stacked map's floor the board keeps for every scene
+ * of the stack; the board lets go of those itself).
+ */
+export function releaseTexture(texture: THREE.Texture | null | undefined): void {
+  if (texture && texture.userData.shared !== true) texture.dispose();
+}
+
 /** Reads an image into a texture (sRGB, mipmapped). */
 export function loadImageTexture(url: string): Promise<THREE.Texture> {
   return new Promise((resolve, reject) => {

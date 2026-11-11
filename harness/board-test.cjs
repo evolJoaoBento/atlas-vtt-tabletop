@@ -445,7 +445,7 @@ server.listen(0, async () => {
       // The page styles every button as Obsidian's theme does (white, bordered, shadowed): the toolbar's must not show it.
       const looks = await page.evaluate(() => {
         const style = (el) => getComputedStyle(el);
-        const face = document.querySelector('.atlas-tool-group .atlas-tabletop-tool-button');
+        const face = document.querySelector('.atlas-tool-group:not(.atlas-tabletop-history):not(.atlas-tabletop-modes) .atlas-tabletop-tool-button');
         const command = document.querySelector('.atlas-tabletop-tool-button[aria-label="Board settings"]');
         return {
           command: { bg: style(command).backgroundColor, border: style(command).borderTopWidth, shadow: style(command).boxShadow, size: command.getBoundingClientRect().width },

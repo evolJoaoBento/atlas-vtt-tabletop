@@ -19,9 +19,9 @@ export function readSightMode(value: unknown): SightMode {
 /** How a wall treats sight coming from a viewer: stops it, lets it through, or (a limited wall) lets one through. */
 type Effect = 'stops' | 'passes' | 'limited';
 
-function effectOn(wall: BoardWall, viewer: Point): Effect {
+export function effectOn(wall: BoardWall, viewer: Point): Effect {
   if (wall.type !== 'solid' && !wall.closed) return 'passes';
-  if (wall.blocks === 'light') return 'passes';
+  if (wall.blocks === 'light' || wall.blocks === 'movement') return 'passes';
   if (wall.direction !== null) {
     // The side of p1 -> p2 the viewer is on, by the normal (-dy, dx) of the wall: positive is its left.
     const side = -(wall.p2.y - wall.p1.y) * (viewer.x - wall.p1.x) + (wall.p2.x - wall.p1.x) * (viewer.y - wall.p1.y);
@@ -71,7 +71,7 @@ export interface SightPiece {
 export function inSight(viewers: readonly Point[], pieces: readonly SightPiece[], walls: readonly BoardWall[]): Set<string> {
   if (viewers.length === 0) return new Set(pieces.map((piece) => piece.key));
   // Only walls that could stop anything matter: an open door and glass never do.
-  const stopping = walls.filter((wall) => !(wall.type !== 'solid' && !wall.closed) && wall.blocks !== 'light');
+  const stopping = walls.filter((wall) => !(wall.type !== 'solid' && !wall.closed) && wall.blocks !== 'light' && wall.blocks !== 'movement');
   const seen = new Set<string>();
   for (const piece of pieces) {
     if (viewers.some((viewer) => canSee(viewer, piece.at, stopping))) seen.add(piece.key);
@@ -197,7 +197,7 @@ export function connectedTiles(viewers: readonly Point[], walls: readonly BoardW
   // The walls that could stop anything, by the squares they pass through.
   const buckets = new Map<number, BoardWall[]>();
   for (const wall of walls) {
-    if ((wall.type !== 'solid' && !wall.closed) || wall.blocks === 'light') continue;
+    if ((wall.type !== 'solid' && !wall.closed) || wall.blocks === 'light' || wall.blocks === 'movement') continue;
     const length = Math.hypot(wall.p2.x - wall.p1.x, wall.p2.y - wall.p1.y);
     const steps = Math.max(1, Math.ceil(length / (size / 4)));
     const touched = new Set<number>();

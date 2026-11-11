@@ -24,6 +24,18 @@ Checked against the 0.11.0 release build (the vault still runs 0.10.2; 0.11.0 wa
 - [x] 20 million squares: the grid is whole lines (or none for a hex grid too fine to draw) instead of tens of millions of edges, and `numberCells` no longer lists every cell (it also overflowed `Math.max(...)` at that size). Board check: a 65,535 px world with 14 px cells loads in seconds.
 - [ ] Not tried live: the tile service route, which needs Atlas 0.11 running with a map over 8 MB.
 
+## Atlas 0.14.0 (Rooms, pin names), 2026-11-10
+
+Checked against the 0.14.0 release build and source (the vaults still run 0.13.1 and 0.12.1; 0.14.0 was never run live).
+- [x] Private members: `npm run check:atlas` finds all 24 in 0.14.0. No name Tabletop, Connect or Interactive Dice reads went missing from 0.13.1's build.
+- [x] Parity: 0.14's palette pages `lighting-settings` and `lighting-all-settings` listed (`atlas`); `ATLAS_CHECKED_VERSION` 0.14.0. Checked against 0.13.1, the check now reports those two as gone, as expected.
+- [x] Rooms (`objects.rooms`): on a level with rooms everything outside them is rock, and the outline of the shown rooms stands as solid walls (Atlas's `blockingWalls`). The board reads them into its walls (`src/board/atlasRooms/`, Atlas's own code with clipper2-ts), for drawing, sight and movement, on each level. Room walls offer no "Make window" (Atlas never edits them by hand). Unit tests (`tests/atlasRooms.test.ts`) and a harness check.
+- [x] Pin names (`name`, `showName`): a pin's title on the board is the GM's name, else its note's. The player board takes Connect's.
+- [x] Defeated tokens give no sight (Atlas 0.14): the board drops a token with a defeating resource spent from the viewers; when every token that sees is defeated, players see nothing.
+- [ ] Not ported: the rooms panel and room drawing (Atlas's lighting tool), the rock drawn dark outside rooms, the names' layout that keeps them from overlapping. The board's palette is still Atlas 0.12's port, so it has no lighting settings page.
+- [ ] Not checked against Tabletop's port: 0.14's fixes to recovery buttons (resources with the same name) and to the new maximum when a resource points at another statblock field (`resources.ts`).
+- [ ] Not tried live: all of the above in a running Obsidian with Atlas 0.14.0.
+
 ## Phase 1: Protect what is shipped (compat)
 - [x] 1. Audit pop-out windows. Atlas 0.10.2 moves itself back to the main window. Check the board, drawer and dice delivery to Atlas.
   - Audited: Atlas 0.10.2 detaches extra atlas-vtt leaves on layout-change and keeps one in the main window. Tabletop's rollView() uses getLeavesOfType('atlas-vtt') and picks by map path, so it still finds that one leaf. No code change. Not tested live in Obsidian.

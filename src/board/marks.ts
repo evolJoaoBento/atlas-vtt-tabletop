@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import { conePoints, squareCorners, type MeasureShape, type TemplateMark, type TemplateShape } from './playerTools';
 import { plateTexture } from './textures';
+import { stripGeometry } from './surface';
 
 type Point = { x: number; y: number };
 
@@ -63,10 +64,10 @@ export class BoardMarks {
   }
 
   /** The measure or template being dragged, with the measure's distance; nulls clear it. */
-  setOverlay(measure: { shape: MeasureShape; start: Point; end: Point; label: string } | null, draft: { shape: TemplateShape; start: Point; end: Point; color: string } | null, coneAngle: number, pixel: number): void {
+  setOverlay(measure: { shape: MeasureShape; start: Point; end: Point; label: string; color?: string; cell?: number } | null, draft: { shape: TemplateShape; start: Point; end: Point; color: string } | null, coneAngle: number, pixel: number): void {
     clear(this.overlay);
     if (measure) {
-      this.overlay.add(this.shape(measure.shape, measure.start, measure.end, MEASURE_COLOR, coneAngle, 0.12));
+      this.overlay.add(this.measureShape(measure.shape, measure.start, measure.end, measure.color ?? MEASURE_COLOR, coneAngle, measure.cell ?? 70));
       const plate = plateTexture(measure.label, 24);
       const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: plate.texture, sizeAttenuation: false, transparent: true, depthTest: false }));
       // As the board's ruler labels: 22 screen pixels tall, whatever the distance.
@@ -145,6 +146,42 @@ export class BoardMarks {
   private drawLaser(laser: Laser): void {
     laser.line.geometry.dispose();
     laser.line.geometry = flat(laser.points, false);
+  }
+
+  /**
+   * A measurement as Atlas draws one, in the theme's accent: an even wash inside the area, its outline as a thick strip
+   * over a dark edge (as the token drag ruler), a ring where it starts and a dot where it ends.
+   */
+  private measureShape(shape: MeasureShape, start: Point, end: Point, color: string, coneAngle: number, cell: number): THREE.Group {
+    const group = new THREE.Group();
+    const { points, closed } = shapeOutline(shape, start, end, coneAngle);
+    const path = shape === 'line' ? [start, end] : points;
+    const segments: number[] = [];
+    for (let i = 1; i < path.length; i++) segments.push(path[i - 1].x, path[i - 1].y, path[i].x, path[i].y);
+    if (closed && path.length > 2) segments.push(path[path.length - 1].x, path[path.length - 1].y, path[0].x, path[0].y);
+    const flatMaterial = (tint: THREE.ColorRepresentation, opacity: number) => new THREE.MeshBasicMaterial({ color: tint, transparent: true, opacity, depthWrite: false, depthTest: false, side: THREE.DoubleSide });
+    const edge = new THREE.Mesh(stripGeometry(segments, cell * 0.15), flatMaterial(0x000000, 0.3));
+    const line = new THREE.Mesh(stripGeometry(segments, cell * 0.09), flatMaterial(color, 0.95));
+    edge.position.y = LIFT;
+    line.position.y = LIFT + 0.2;
+    edge.renderOrder = 9;
+    line.renderOrder = 10;
+    group.add(edge, line);
+    if (closed && points.length >= 3) {
+      const area = new THREE.Shape(points.map((point) => new THREE.Vector2(point.x, point.y)));
+      const wash = new THREE.Mesh(new THREE.ShapeGeometry(area).rotateX(Math.PI / 2), flatMaterial(color, 0.16));
+      wash.position.y = LIFT;
+      wash.renderOrder = 8;
+      group.add(wash);
+    }
+    const ring = new THREE.Mesh(new THREE.RingGeometry(cell * 0.1, cell * 0.17, 32).rotateX(-Math.PI / 2), flatMaterial(color, 0.95));
+    ring.position.set(start.x, LIFT + 0.4, start.y);
+    const dot = new THREE.Mesh(new THREE.CircleGeometry(cell * 0.14, 24).rotateX(-Math.PI / 2), flatMaterial(color, 0.95));
+    dot.position.set(end.x, LIFT + 0.4, end.y);
+    ring.renderOrder = 11;
+    dot.renderOrder = 11;
+    group.add(ring, dot);
+    return group;
   }
 
   private shape(shape: TemplateShape | MeasureShape, start: Point, end: Point, color: string, coneAngle: number, fill: number): THREE.Group {

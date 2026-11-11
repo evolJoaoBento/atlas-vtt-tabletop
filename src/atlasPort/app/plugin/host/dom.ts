@@ -1,0 +1,15 @@
+// Atlas source: src/app/plugin/host/dom.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// @ts-nocheck
+import type { DomHost } from '../../host/dom';
+
+/** Resolve ownership for each call so detached windows keep their own DOM resources. */
+export const pluginDomHost: DomHost = {
+  createCanvas(doc, size) {
+    const canvas = size ? createEl('canvas', { attr: size }) : createEl('canvas');
+    return doc ? doc.adoptNode(canvas) : canvas;
+  },
+  createDiv: (parent, cls) => parent.createDiv({ cls }),
+  createVideo: (doc) => doc.adoptNode(createEl('video')),
+  ownerWindow: node => node.win,
+  activeDocument: () => activeDocument,
+};

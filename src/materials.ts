@@ -16,6 +16,11 @@ export const DEFAULT_MATERIALS_FOLDER = 'atlas-vtt/assets/materials';
 export const MATERIAL_DRAG_TYPE = 'application/x-atlas-tabletop-material';
 /** The same as plain text, for where the custom type does not get through: this prefix, then the folder. */
 export const MATERIAL_TEXT_PREFIX = 'atlas-tabletop-material:';
+/**
+ * The material being dragged from the gallery, while it is: a drag's data can be read only on the drop, and the board
+ * shows the material on the wall under the pointer before that. The gallery sets it on dragstart and clears it on dragend.
+ */
+export const materialDrag: { folder: string | null } = { folder: null };
 
 export interface LoadedMaterial {
   readonly name: string;

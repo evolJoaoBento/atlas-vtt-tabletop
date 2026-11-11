@@ -11,6 +11,8 @@ export interface RulerItem {
   /** Grid squares above the base scene. */
   elevation: number;
   active: boolean;
+  /** The GM hid this scene on the board: its pill is dimmed and crossed. */
+  hidden?: boolean;
 }
 
 export const DEFAULT_LAYER_TICK = 2;
@@ -136,7 +138,7 @@ export class LayerRuler {
     items.forEach((item, index) => {
       const button = doc.win.createEl('button');
       button.type = 'button';
-      button.className = `atlas-tabletop-layers__item${item.active ? ' is-active' : ''}`;
+      button.className = `atlas-tabletop-layers__item${item.active ? ' is-active' : ''}${item.hidden ? ' is-hidden' : ''}`;
       button.setAttribute('aria-pressed', String(item.active));
       button.dataset.path = item.path;
       button.style.bottom = `${positions[index]}px`;

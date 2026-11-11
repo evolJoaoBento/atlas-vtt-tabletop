@@ -6,11 +6,13 @@
  * its maps, or a folder of them), and are dragged onto a wall or door of a 3D board to paint it.
  */
 import { ItemView, Menu, Modal, Notice, setIcon, type App, type TFile, type TFolder, type WorkspaceLeaf } from 'obsidian';
+import type { PropLook, PropVariant } from './board/boardData';
 import type { MiniBase } from './assignments';
 import type { MiniLibrary } from './library';
 import { MiniPreview } from './miniPreview';
 import { MINI_DRAG_TYPE, MINI_TEXT_PREFIX } from './assignments';
-import { MATERIAL_DRAG_TYPE, MATERIAL_TEXT_PREFIX, type MaterialLibrary } from './materials';
+import { MATERIAL_DRAG_TYPE, MATERIAL_TEXT_PREFIX, materialDrag, type MaterialLibrary } from './materials';
+import { MATERIAL_KIND_NAMES, MATERIAL_KINDS, type MaterialDefaults } from './materialDefaults';
 import { DEFAULT_TUNING, MAX_DEPTH, MAX_DISPLACE, MAX_OCCLUSION, MAX_RELIEF, MAX_TEXTURE_SCALE, MIN_TEXTURE_SCALE, tuningOf, type MaterialSettings, type MaterialTuning } from './materialMaps';
 import { MaterialPreview } from './materialPreview';
 
@@ -156,9 +158,13 @@ export class GalleryView extends ItemView {
     private readonly minis: MiniLibrary,
     private readonly props: MiniLibrary,
     private readonly materials: MaterialLibrary,
-    private readonly placeProp: (glb: string) => void,
+    private readonly placeProp: (glb: string, look?: PropLook) => void,
     /** A material clicked: the board used last paints walls with it on click. */
     private readonly paintWith: (material: string) => void = () => undefined,
+    /** The props saved as variants, and forgetting one. */
+    private readonly variants: { list(): readonly PropVariant[]; remove(id: string): void } = { list: () => [], remove: () => undefined },
+    /** The materials walls and doors wear when none is painted on them, by kind (the Materials tab's Defaults). */
+    private readonly defaults: { get(): MaterialDefaults; set(next: MaterialDefaults): void } = { get: () => ({}), set: () => undefined },
   ) {
     super(leaf);
   }
@@ -232,6 +238,7 @@ export class GalleryView extends ItemView {
       cls: 'atlas-tabletop-hint',
       text: `Import a texture set as Poly Haven gives it (the zip, or its colour, normal, roughness and AO maps). Materials live in ${library.folderPath}. Drag one onto a wall or door of a 3D board to paint that segment, or click it and then click walls on the board (Esc stops); hold Shift to paint the whole wall.`,
     });
+    this.drawDefaults(body);
     this.grid = body.createDiv({ cls: 'atlas-tabletop-grid' });
     body.addEventListener('dragover', (event) => {
       if (!Array.from(event.dataTransfer?.items ?? []).some((item) => item.kind === 'file')) return;
@@ -247,6 +254,46 @@ export class GalleryView extends ItemView {
       void importMaterials(library, files);
     });
     this.redraw();
+  }
+
+  /**
+   * Defaults: for each kind of wall (walls, doors, secret doors, windows, low walls, curtains) the material it wears when
+   * none is painted on it; each None to begin with. A painted wall keeps its own.
+   */
+  private drawDefaults(body: HTMLElement): void {
+    const box = body.createEl('details', { cls: 'atlas-tabletop-defaults' });
+    const chosen = this.defaults.get();
+    const count = MATERIAL_KINDS.filter((kind) => chosen[kind]).length;
+    box.createEl('summary', { text: count > 0 ? `Defaults (${count} set)` : 'Defaults' });
+    box.createDiv({ cls: 'atlas-tabletop-hint', text: 'The material each kind wears when none is painted on it. Painted walls and doors keep their own.' });
+    const rows = box.createDiv({ cls: 'atlas-tabletop-defaults__rows' });
+    const folders = this.materials.list();
+    for (const kind of MATERIAL_KINDS) {
+      const row = rows.createDiv({ cls: 'atlas-tabletop-defaults__row' });
+      const thumb = row.createDiv({ cls: 'atlas-tabletop-defaults__thumb' });
+      row.createSpan({ cls: 'atlas-tabletop-defaults__name', text: MATERIAL_KIND_NAMES[kind] });
+      const select = row.createEl('select', { cls: 'dropdown', attr: { 'data-material-default': kind } });
+      select.createEl('option', { value: '', text: kind === 'secretDoor' ? 'None (as walls)' : 'None' });
+      for (const folder of folders) select.createEl('option', { value: folder.path, text: folder.name });
+      const current = chosen[kind] ?? '';
+      // A default whose material is gone shows as such until changed.
+      if (current && !folders.some((folder) => folder.path === current)) select.createEl('option', { value: current, text: `${current.split('/').pop() ?? current} (missing)` });
+      select.value = current;
+      const showThumb = (): void => {
+        thumb.empty();
+        const url = select.value ? this.materials.thumbnail(select.value) : null;
+        if (url) thumb.createEl('img', { attr: { src: url, alt: '' } });
+      };
+      showThumb();
+      select.addEventListener('change', () => {
+        const next = { ...this.defaults.get() };
+        if (select.value) next[kind] = select.value; else delete next[kind];
+        this.defaults.set(next);
+        showThumb();
+        const set = MATERIAL_KINDS.filter((each) => next[each]).length;
+        box.querySelector('summary')!.textContent = set > 0 ? `Defaults (${set} set)` : 'Defaults';
+      });
+    }
   }
 
   private redrawMaterials(grid: HTMLElement): void {
@@ -268,12 +315,14 @@ export class GalleryView extends ItemView {
       card.createDiv({ cls: 'atlas-tabletop-name', text: folder.name });
       card.addEventListener('dragstart', (event) => {
         if (!event.dataTransfer) return;
+        materialDrag.folder = folder.path;
         event.dataTransfer.setData(MATERIAL_DRAG_TYPE, folder.path);
         event.dataTransfer.setData('text/plain', MATERIAL_TEXT_PREFIX + folder.path);
         event.dataTransfer.effectAllowed = 'copy';
         const image = thumb.querySelector('img');
         if (image) event.dataTransfer.setDragImage(image, 24, 24);
       });
+      card.addEventListener('dragend', () => { materialDrag.folder = null; });
       card.addEventListener('click', () => this.paintWith(folder.path));
       card.addEventListener('contextmenu', (event) => {
         event.preventDefault();
@@ -322,6 +371,38 @@ export class GalleryView extends ItemView {
         menu.showAtMouseEvent(event);
       },
     });
+    if (this.tab === 'props') this.drawVariants(this.grid);
+  }
+
+  /** The variants after the props: the model's picture, the variant's name and what it changes; a click places it. */
+  private drawVariants(grid: HTMLElement): void {
+    const needle = this.filter.trim().toLowerCase();
+    const variants = this.variants.list().filter((variant) => needle === '' || variant.name.toLowerCase().includes(needle) || variant.glb.toLowerCase().includes(needle));
+    if (variants.length === 0) return;
+    grid.querySelector('.atlas-tabletop-empty')?.remove();
+    for (const variant of variants) {
+      const look = [variant.solid ? 'solid' : '', variant.scale !== 1 ? `× ${variant.scale}` : '', variant.lift ? `${variant.lift} sq up` : ''].filter(Boolean).join(' · ');
+      const card = grid.createDiv({ cls: 'atlas-tabletop-card atlas-tabletop-variant', attr: { title: `${variant.name}\nA variant of ${variant.glb}${look ? ` (${look})` : ''}`, tabindex: '0', role: 'button' } });
+      card.dataset.variant = variant.id;
+      const thumb = card.createDiv({ cls: 'atlas-tabletop-thumb is-loading' });
+      card.createDiv({ cls: 'atlas-tabletop-name', text: variant.name });
+      if (look) card.createDiv({ cls: 'atlas-tabletop-heavy', text: look });
+      void this.props.thumbnail(variant.glb).then((url) => {
+        thumb.removeClass('is-loading');
+        if (url) thumb.createEl('img', { attr: { src: url, alt: variant.name, draggable: 'false' } });
+        else { thumb.addClass('is-broken'); setIcon(thumb, 'file-warning'); }
+      });
+      const place = (): void => this.placeProp(variant.glb, variant);
+      card.addEventListener('click', place);
+      card.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); place(); } });
+      card.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        const menu = new Menu();
+        menu.addItem((item) => item.setTitle('Place on board').setIcon('map-pin').onClick(place));
+        menu.addItem((item) => item.setTitle('Delete variant').setIcon('trash').setWarning(true).onClick(() => this.variants.remove(variant.id)));
+        menu.showAtMouseEvent(event);
+      });
+    }
   }
 }
 

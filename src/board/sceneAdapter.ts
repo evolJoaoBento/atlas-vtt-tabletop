@@ -45,7 +45,7 @@ export interface PlayerSceneLike {
   drawings: Record<string, { type: string; order: number; points: Point[]; color: string; width: number; opacity: number; icon: string | null }>;
   initiative: { round: number; active: boolean; entries: Array<{ id: string; tokenId: string; initiative: number; isActive: boolean; sitsOut?: true }>; sides?: { first: string; active?: string } } | null;
   measurement: { snapToGrid: boolean; snapGrid?: { type: 'square' | 'hex-horizontal' | 'hex-vertical'; size: number; offsetX: number; offsetY: number } | null };
-  pins?: Array<{ id: string; x: number; y: number; label: string | null; title: string | null; icon?: string }>;
+  pins?: Array<{ id: string; x: number; y: number; label: string | null; title: string | null; icon?: string; name?: string }>;
 }
 
 /** What the GM gave the board, as the player's board reads it: by asset id where the GM's reads vault paths. */
@@ -54,12 +54,16 @@ export interface PlayerLook {
   wallMaterial(id: string): string | null;
   doorProp(id: string): string | null;
   doorFlip(id: string): DoorFlip;
+  windowOf(id: string): { bottom: number; top: number } | null;
+  wallWidth(id: string): number | null;
   lightHeight(id: string): number | null;
   fogHeight: number | null;
   wallThickness: number | null;
   ambient: number | null;
   /** The colour the GM tinted the daylight, or null. */
   tint: string | null;
+  /** The scene's painted water, or null. */
+  water: { mask: unknown; motion: unknown } | null;
   materials: readonly BoardMaterialRecord[];
   props: readonly BoardPropRecord[];
 }
@@ -94,6 +98,8 @@ export function layersFromExtras(extras: BoardExtras | null): ElevationLayerData
       elevation: layer.elevation,
       map,
       wallHeight: (id) => byWall.get(id)?.height ?? null,
+      windowOf: (id) => byWall.get(id)?.window ?? null,
+      wallWidth: (id) => byWall.get(id)?.width ?? null,
       wallMaterial: (id) => byWall.get(id)?.material ?? null,
       doorProp: (id) => byWall.get(id)?.door?.prop ?? null,
       doorFlip: (id) => {
@@ -103,8 +109,9 @@ export function layersFromExtras(extras: BoardExtras | null): ElevationLayerData
       lightHeight: (id) => byLight.get(id)?.height ?? 1,
       fogHeight: layer.fogHeight ?? 1,
       wallThickness: layer.wallThickness ?? 0.12,
-      props: layer.props.map((prop) => ({ id: prop.id, glb: prop.asset, x: prop.x, y: prop.y, rotation: prop.turn, scale: prop.scale })),
+      props: layer.props.map((prop) => ({ id: prop.id, glb: prop.asset, x: prop.x, y: prop.y, rotation: prop.turn, scale: prop.scale, ...(prop.solid ? { solid: true } : {}), ...(prop.lift ? { lift: prop.lift } : {}) })),
       stands: { ...layer.stands },
+      water: layer.water ? { mask: layer.water.mask, motion: layer.water.motion ?? null } : null,
       placement: () => null,
       style: () => 'disc' as const,
     } satisfies ElevationLayerData;
@@ -190,7 +197,7 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
     backgroundColor: text.backgroundColor, padding: text.padding, borderRadius: text.borderRadius, opacity: text.opacity,
     align: text.align, bold: text.bold, italic: text.italic, rotation: text.rotation, scale: text.scale,
   }));
-  const pins: BoardPin[] = (scene.pins ?? []).map((pin) => ({ id: pin.id, x: pin.x, y: pin.y, notePath: pin.id, icon: pin.icon ?? 'number', label: pin.label, hex: false }));
+  const pins: BoardPin[] = (scene.pins ?? []).map((pin) => ({ id: pin.id, x: pin.x, y: pin.y, notePath: pin.id, icon: pin.icon ?? 'number', label: pin.label, hex: false, name: pin.name ?? pin.title }));
   const initiative = readInitiative(scene.initiative
     ? { entries: scene.initiative.entries.map((entry, order) => ({ ...entry, order })), round: scene.initiative.round, isActive: scene.initiative.active, ...(scene.initiative.sides ? { sides: scene.initiative.sides } : {}) }
     : null);
@@ -210,6 +217,8 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
   const byLight = new Map((extras?.lights ?? []).map((light) => [light.id, light]));
   const look: PlayerLook = {
     wallHeight: (id) => byWall.get(id)?.height ?? null,
+    windowOf: (id) => byWall.get(id)?.window ?? null,
+    wallWidth: (id) => byWall.get(id)?.width ?? null,
     wallMaterial: (id) => byWall.get(id)?.material ?? null,
     doorProp: (id) => byWall.get(id)?.door?.prop ?? null,
     doorFlip: (id) => {
@@ -221,6 +230,7 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
     wallThickness: extras?.wallThickness ?? null,
     ambient: extras?.ambient ?? null,
     tint: extras?.tint ?? null,
+    water: extras?.water ? { mask: extras.water.mask, motion: extras.water.motion ?? null } : null,
     materials: extras?.materials ?? [],
     props: extras?.props ?? [],
   };

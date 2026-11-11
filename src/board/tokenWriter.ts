@@ -92,6 +92,24 @@ export function readTokenInText(text: string, id: string): Record<string, unknow
   return structuredClone(tokenOf(JSON.parse(text) as MapFile, id));
 }
 
+/** A new token id as Atlas makes them (`addTokens` in its store). */
+export const newTokenId = (): string => `tok_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+
+/**
+ * The map file's text with spawned tokens added (each input carries its id), as Atlas's `addTokens` adds them: a token
+ * unless it says otherwise, numbered among the copies of its art, kept in the file's form of its resources.
+ */
+export function addTokensInText(text: string, inputs: ReadonlyArray<Record<string, unknown> & { id: string }>): string {
+  const file = JSON.parse(text) as MapFile;
+  const tokens = tokensOf(file);
+  for (const input of inputs) {
+    const imagePath = typeof input.imagePath === 'string' ? input.imagePath : undefined;
+    const token = { ...input, kind: input.kind ?? 'token', instanceNumber: nextInstanceNumber(tokens, imagePath) };
+    tokens[input.id] = tokenToFile(token as Parameters<typeof tokenToFile>[0]) as RawToken;
+  }
+  return JSON.stringify(file);
+}
+
 /** What a token keeps when it goes to another scene: everything but its copy number (the new scene numbers it) and the floor it stood on. */
 function arrivingToken(raw: Record<string, unknown>, id: string, x: number, y: number): RawToken {
   const { instanceNumber: _number, level: _level, levels: _levels, offLevel: _offLevel, levelId: _levelId, ...kept } = raw;
@@ -208,12 +226,43 @@ function doorOf(file: MapFile, id: string): RawWall {
   return wall;
 }
 
+/**
+ * The map file's text with the random tables window's saved choices changed, as Atlas's `updateLootRoller` does (it keeps
+ * the rest of the block). Atlas's store saves this block with the map (`lootRoller`).
+ */
+export function lootRollerInText(text: string, settings: Readonly<Record<string, unknown>>): string {
+  const file = JSON.parse(text) as MapFile & { state?: { lootRoller?: Record<string, unknown> } };
+  if (!file.state) throw new Error('this is not a map file');
+  file.state.lootRoller = { ...(file.state.lootRoller ?? {}), ...settings };
+  return JSON.stringify(file);
+}
+
 /** The map file's text with a door opened or shut, as Atlas's `toggleDoor` does: a locked door stays shut. */
 export function toggleDoorInText(text: string, id: string): string {
   const file = JSON.parse(text) as MapFile;
   const door = doorOf(file, id);
   if (door.locked === true) return text;
   door.closed = !(door.closed ?? true);
+  return JSON.stringify(file);
+}
+
+/** The map file's text with walls made windows (stopping only tokens) or plain walls again, as Atlas's `updateWall` does. */
+export function wallsWindowInText(text: string, ids: readonly string[], window: boolean): string {
+  const file = JSON.parse(text) as MapFile;
+  for (const id of ids) {
+    const wall = file.state?.objects?.walls?.[id];
+    if (!wall || wall.type !== 'solid') continue;
+    if (window) wall.blocks = 'movement';
+    else delete wall.blocks;
+  }
+  return JSON.stringify(file);
+}
+
+/** The map file's text with Atlas's Snap to grid turned on or off, as Atlas's `setSnapToGrid` does. */
+export function snapToGridInText(text: string, on: boolean): string {
+  const file = JSON.parse(text) as { state?: { grid?: Record<string, unknown> } };
+  if (!file.state) return text;
+  file.state.grid = { ...(file.state.grid ?? {}), snapToGrid: on };
   return JSON.stringify(file);
 }
 
@@ -458,6 +507,34 @@ export class TokenWriter {
     return action === 'reset' ? typeof state.resetInitiative === 'function' : typeof state.setInitiativeSitsOut === 'function';
   }
 
+  /**
+   * Adds spawned tokens (Atlas's token inputs) and gives their ids at once, as Atlas's `addTokens` does: through Atlas's
+   * store when it holds the map (one undo step there), else into the file (`done` settles once it is written).
+   */
+  addTokensNow(path: string, inputs: ReadonlyArray<Record<string, unknown>>): { ids: string[]; via: 'atlas' | 'file'; done: Promise<unknown> } {
+    const view = this.holder(path);
+    if (view) {
+      const add = (view.atlasStore.getState() as { addTokens?: (inputs: ReadonlyArray<Record<string, unknown>>) => string[] }).addTokens;
+      if (typeof add !== 'function') throw TokenWriter.missing('way to add tokens');
+      return { ids: add(inputs), via: 'atlas', done: Promise.resolve() };
+    }
+    const withIds = inputs.map((input) => ({ ...input, id: typeof input.id === 'string' ? input.id : newTokenId() }));
+    return { ids: withIds.map((input) => input.id), via: 'file', done: this.deps.process(path, (text) => addTokensInText(text, withIds)) };
+  }
+
+  /** Saves the random tables window's choices for the map: through Atlas's `updateLootRoller`, or in the file. */
+  async lootRoller(path: string, settings: Readonly<Record<string, unknown>>): Promise<'atlas' | 'file'> {
+    const view = this.holder(path);
+    if (view) {
+      const update = (view.atlasStore.getState() as { updateLootRoller?: (settings: Readonly<Record<string, unknown>>) => void }).updateLootRoller;
+      if (typeof update !== 'function') throw TokenWriter.missing('random tables');
+      update(settings);
+      return 'atlas';
+    }
+    await this.deps.process(path, (text) => lootRollerInText(text, settings));
+    return 'file';
+  }
+
   /** Opens or shuts a door (a locked one stays shut): through Atlas, or in the file. */
   async toggleDoor(path: string, id: string): Promise<'atlas' | 'file'> {
     const view = this.holder(path);
@@ -468,6 +545,32 @@ export class TokenWriter {
       return 'atlas';
     }
     await this.deps.process(path, (text) => toggleDoorInText(text, id));
+    return 'file';
+  }
+
+  /** Makes walls Atlas's windows (they stop only tokens; sight and light pass both ways), or plain walls again. */
+  async setWindow(path: string, ids: readonly string[], window: boolean): Promise<'atlas' | 'file'> {
+    const view = this.holder(path);
+    if (view) {
+      const state = view.atlasStore.getState();
+      if (!state.updateWall) throw TokenWriter.missing('wall update');
+      for (const id of ids) state.updateWall(id, { blocks: window ? 'movement' : undefined });
+      return 'atlas';
+    }
+    await this.deps.process(path, (text) => wallsWindowInText(text, ids, window));
+    return 'file';
+  }
+
+  /** Turns Atlas's Snap to grid (for tokens) on or off for the map. */
+  async setSnapToGrid(path: string, on: boolean): Promise<'atlas' | 'file'> {
+    const view = this.holder(path);
+    if (view) {
+      const state = view.atlasStore.getState();
+      if (!state.setSnapToGrid) throw TokenWriter.missing('snap to grid');
+      state.setSnapToGrid(on);
+      return 'atlas';
+    }
+    await this.deps.process(path, (text) => snapToGridInText(text, on));
     return 'file';
   }
 

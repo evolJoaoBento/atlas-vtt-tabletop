@@ -83,6 +83,21 @@ export class Assignments {
     return this.data[mapPath] ?? {};
   }
 
+  /** The map's minis as they stand (never changed in place, so an undo snapshot). */
+  snapshot(mapPath: string): Readonly<Record<string, MiniPlacement>> | undefined {
+    return this.data[mapPath];
+  }
+
+  /** Puts back the map's minis as a snapshot held them (an undo or redo). */
+  restore(mapPath: string, minis: Readonly<Record<string, MiniPlacement>> | undefined): void {
+    if (this.data[mapPath] === minis) return;
+    const next = { ...this.data };
+    if (minis) next[mapPath] = { ...minis };
+    else delete next[mapPath];
+    this.data = next;
+    this.changed(mapPath);
+  }
+
   set(mapPath: string, tokenId: string, placement: MiniPlacement): void {
     const map = { ...(this.data[mapPath] ?? {}) };
     map[tokenId] = { mini: placement.mini, scale: clampScale(placement.scale), turn: cleanTurn(placement.turn), ...cleanBase(placement.base) };

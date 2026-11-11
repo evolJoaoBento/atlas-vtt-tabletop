@@ -26,7 +26,9 @@ export function pinGlyph(icon: string): string | null {
 }
 
 /** The title over a pin: the note's heading when it links to one, else the note's name, else the pin's label. */
-export function pinTitle(pin: Pick<BoardPin, 'notePath' | 'label'>): string {
+export function pinTitle(pin: Pick<BoardPin, 'notePath' | 'label' | 'name'>): string {
+  // Atlas 0.14: the name the GM gave the pin, else its note's.
+  if (pin.name) return pin.name;
   if (pin.notePath) {
     const [file, heading] = pin.notePath.split('#', 2);
     if (heading) return heading;

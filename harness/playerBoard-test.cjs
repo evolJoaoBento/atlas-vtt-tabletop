@@ -317,6 +317,313 @@ server.listen(0, async () => {
     });
     check('without them again the tint, the turn and the stacked scene are gone', cleared.sky === plain.sky && cleared.flip && cleared.flip.hinge === false && cleared.layers === 0, cleared);
 
+    {
+      // 11b2. Names: none shown on the board; a click on a token shows its name, large; anything done next hides it.
+      const nameState = () => page.evaluate(() => {
+        const b = window.playerTest.board;
+        const shownNames = [...b.tokens.values()].filter((entry) => entry.playerLabels.isNamed || entry.labels.isNamed).map((entry) => entry.token.id);
+        return { named: b.namedToken, shownNames };
+      });
+      await page.evaluate(() => window.playerTest.handle.setGmCamera({ sceneId: 's1', eye: { x: 455, y: 700, z: 900 }, target: { x: 455, y: 0, z: 385 } }));
+      await page.evaluate(() => window.playerTest.handle.followGm());
+      await wait(1500);
+      const none = await nameState();
+      check('no name tags on the 3D board', none.named === null && none.shownNames.length === 0, none);
+      const goblin = await project(525, 385, 10);
+      await page.mouse.click(goblin.x, goblin.y);
+      await wait(300);
+      const clicked = await nameState();
+      check('a click on a token shows its name', clicked.named === 'theirs' && clicked.shownNames.join() === 'theirs', clicked);
+      await page.screenshot({ path: `${shots}/player-11b2-name.png` });
+      await page.mouse.wheel(0, 40);
+      await wait(300);
+      const after = await nameState();
+      check('anything done next (a scroll) hides it again', after.named === null && after.shownNames.length === 0, after);
+    }
+    {
+    // 11c. Spells through the token's eyes: the toolbar, a cone from the caster aimed at the Goblin, its confirmation, the
+    // cast sent; the scene's spells drawn and what they hit outlined; a cube at a point moved and turned by its handles; a
+    // wall no longer than set.
+    const spellState = () => page.evaluate(() => {
+      const b = window.playerTest.board;
+      const bar = b.container.querySelector('.atlas-tabletop-spellbar');
+      const cross = b.container.querySelector('.atlas-tabletop-crosshair');
+      return {
+        seeing: b.seeingFrom, cross: !!cross && !cross.hidden, bar: !!bar && !bar.hidden, stage: bar?.dataset.stage ?? null,
+        text: bar?.querySelector('.atlas-tabletop-spellbar__text')?.textContent ?? '', hits: b.spellHitIds(),
+        views: b.spellViews.size, preview: !!b.spellPreview, gizmo: !!b.spellGizmo,
+      };
+    });
+    const press = (label) => page.evaluate((label) => {
+      const buttons = window.playerTest.board.container.querySelectorAll('.atlas-tabletop-spellbar button');
+      const button = [...buttons].find((each) => each.offsetParent !== null && (each.getAttribute('aria-label') ?? '').replace(/ \((F|Esc)\)$/, '') === label);
+      if (!button) return false;
+      button.click();
+      return true;
+    }, label);
+    const middle = await page.evaluate(() => { const r = window.playerTest.board.canvas.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+    const place = async () => {
+      if (await press('Place')) return;
+      await page.mouse.click(middle.x, middle.y);
+    };
+    const field = (name, value) => page.evaluate(([name, value]) => {
+      const input = window.playerTest.board.container.querySelector(`[data-spell-field="${name}"]`);
+      input.value = value;
+      input.dispatchEvent(new Event('input'));
+    }, [name, value]);
+    const look = () => page.evaluate(() => { const eye = window.playerTest.board.eye; eye.yaw = -Math.PI / 2; eye.pitch = -0.15; eye.fresh = true; });
+    await page.evaluate(() => { const t = window.playerTest; t.handle.selectTool('move'); t.handle.seeFrom('mine', false); });
+    await look();
+    await wait(600);
+    const eyes = await spellState();
+    check('through the eyes: the crosshair and the spell toolbar show', eyes.seeing === 'mine' && eyes.cross && eyes.bar && eyes.stage === 'idle', eyes);
+    // A click holds the mouse to look; F then opens the spell's choice (no cursor to click with), still through the eyes.
+    await page.mouse.click(middle.x, middle.y);
+    await wait(300);
+    const locked = await page.evaluate(() => window.playerTest.board.pointerLocked);
+    await page.keyboard.press('f');
+    await wait(300);
+    const formed = await spellState();
+    const freed = await page.evaluate(() => window.playerTest.board.pointerLocked);
+    check('with the mouse held, F opens the spell toolbar\'s choice and lets go of the mouse, still through the eyes', locked && formed.stage === 'form' && formed.seeing === 'mine' && !freed, { locked, formed, freed });
+    await page.screenshot({ path: `${shots}/player-11c-form.png` });
+    await press('Cone');
+    await press('From me');
+    await field('size', '4');
+    await look();
+    await press('Aim');
+    await wait(800);
+    const aiming = await spellState();
+    check('aiming a cone from the caster: it is drawn, and the Goblin it reaches is outlined red', aiming.stage === 'aim' && aiming.preview && aiming.hits.includes('theirs') && !aiming.hits.includes('mine') && /hits 1: Goblin/.test(aiming.text), aiming);
+    await page.screenshot({ path: `${shots}/player-11c-aim.png` });
+    await place();
+    await wait(300);
+    const confirming = await spellState();
+    check('the confirmation names the cone and what it hits', confirming.stage === 'confirm' && /Cone, length 4/.test(confirming.text) && /Goblin/.test(confirming.text), confirming);
+    await press('Cast');
+    await wait(200);
+    const castSent = await record();
+    const cast = castSent.spells.at(-1)?.add;
+    check('Cast sends the cone from the caster, its tip at their eyes and its length in pixels', cast && cast.shape === 'cone' && cast.from === 'self' && Math.abs(cast.size - 280) < 1e-6 && cast.caster === 'mine' && Math.abs(cast.at.x - 385) < 1 && Math.abs(cast.at.y - 385) < 1 && cast.at.h > 0, cast);
+    const after = await spellState();
+    check('after casting, the toolbar is back at rest and the preview gone', after.bar && after.stage === 'idle' && !after.preview, after);
+    await page.evaluate((spell) => window.playerTest.handle.receiveSpells('s1', [{ id: 'sp1', owner: 'me', color: '#3366ff', spell }]), cast);
+    await wait(500);
+    const shownSpell = await spellState();
+    check('the scene\'s spells are drawn and what they hit stays outlined', shownSpell.views === 1 && shownSpell.hits.includes('theirs'), shownSpell);
+    check('Clear my spells shows for the caster\'s own', await press('Clear my spells') && (await record()).spells.some((change) => change.clear === true));
+
+    // A cube at a point: its handles move it (the green arrow, up) and turn it (the green ring, round the vertical).
+    await press('Cast a spell');
+    await press('Cube');
+    await press('At a point');
+    await look();
+    await press('Aim');
+    await wait(500);
+    await place();
+    await wait(400);
+    const adjusting = await spellState();
+    check('a cube at a point: then its handles show round it', adjusting.stage === 'adjust' && adjusting.gizmo, adjusting);
+    await page.screenshot({ path: `${shots}/player-11c-gizmo.png` });
+    const handleAt = (local) => page.evaluate((local) => {
+      const b = window.playerTest.board;
+      const g = b.spellGizmo.object3d;
+      g.updateMatrixWorld(true);
+      const point = g.localToWorld(g.position.clone().set(local[0], local[1], local[2])).project(b.view);
+      const r = b.canvas.getBoundingClientRect();
+      return { x: r.left + ((point.x + 1) / 2) * r.width, y: r.top + ((1 - point.y) / 2) * r.height };
+    }, local);
+    const before = await page.evaluate(() => { const s = window.playerTest.board.spellPreview.spell; return { h: s.at.h, yaw: s.yaw }; });
+    const arrow = await handleAt([0, 0.7, 0]);
+    await page.mouse.move(arrow.x, arrow.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 6; i++) await page.mouse.move(arrow.x, arrow.y - i * 12);
+    await page.mouse.up();
+    await wait(200);
+    const lifted = await page.evaluate(() => window.playerTest.board.spellPreview.spell.at.h);
+    check('dragging the up arrow lifts it, by quarter squares', lifted > before.h + 1 && Math.abs(((lifted - before.h) / 17.5) - Math.round((lifted - before.h) / 17.5)) < 1e-6, { before: before.h, lifted });
+    const ring = await handleAt([0.884, 0, -0.884]);
+    const ringFar = await handleAt([0.884, 0, 0.884]);
+    await page.mouse.move(ring.x, ring.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 8; i++) await page.mouse.move(ring.x + ((ringFar.x - ring.x) * i) / 8, ring.y + ((ringFar.y - ring.y) * i) / 8);
+    await page.mouse.up();
+    await wait(200);
+    const turned = await page.evaluate(() => window.playerTest.board.spellPreview.spell.yaw);
+    const turnBy = Math.atan2(Math.sin(turned - before.yaw), Math.cos(turned - before.yaw));
+    check('dragging the ring round the vertical turns it, by 15 degrees', Math.abs(turnBy) > 0.2 && Math.abs(turnBy / (Math.PI / 12) - Math.round(turnBy / (Math.PI / 12))) < 1e-3, { before: before.yaw, turned, turnBy });
+    await press('Next');
+    await wait(200);
+    check('Next takes the handles away', !(await spellState()).gizmo, await spellState());
+    await press('Cast');
+    const cube = (await record()).spells.at(-1)?.add;
+    check('the cube cast is the one moved and turned', cube && cube.shape === 'cube' && cube.from === 'point' && Math.abs(cube.at.h - lifted) < 1e-6 && Math.abs(cube.yaw - turned) < 1e-6, cube);
+
+    // A wall: two points, the second no farther than the longest set.
+    await press('Cast a spell');
+    await press('Wall');
+    await field('longest', '1');
+    await look();
+    await press('Aim');
+    await wait(400);
+    await place();
+    await page.evaluate(() => { const eye = window.playerTest.board.eye; eye.yaw = -Math.PI / 2 + 0.9; });
+    await wait(600);
+    await place();
+    await wait(300);
+    await press('Cast');
+    fs.writeFileSync(path.join(shots, 'spells.json'), JSON.stringify((await record()).spells));
+    const built = (await record()).spells.at(-1)?.add;
+    const run = built && built.to ? Math.hypot(built.to.x - built.at.x, built.to.y - built.at.y) : -1;
+    check('a wall cast by two points is no longer than its longest', built && built.shape === 'wall' && run > 0 && run <= 70 + 1e-6 && built.length === 280 && built.size === 70, { built, run });
+
+    // Escape with the focus off the board (on a toolbar button, as after the eye button) leaves the eyes, and Connect is told.
+    const toldBefore = (await record()).eyeChanged;
+    await page.evaluate(() => window.playerTest.board.container.querySelector('.atlas-tabletop-spellbar button').focus());
+    await page.keyboard.press('Escape');
+    await wait(300);
+    const left = await spellState();
+    check('Escape leaves the eyes: the toolbar goes, Connect hears of it', left.seeing === null && !left.bar && !left.cross && (await record()).eyeChanged === toldBefore + 1, left);
+    const sentNow = (await record()).spells.filter((change) => change.add).map((change, index) => ({ id: 'v' + index, owner: 'me', color: '#3366ff', spell: change.add }));
+    await page.evaluate((list) => window.playerTest.handle.receiveSpells('s1', list), sentNow);
+    await page.evaluate(() => window.playerTest.handle.setGmCamera({ sceneId: 's1', eye: { x: 385, y: 700, z: 900 }, target: { x: 450, y: 0, z: 385 } }));
+    await page.evaluate(() => window.playerTest.handle.followGm());
+    await wait(1500);
+    await page.screenshot({ path: shots + '/player-11c-overview.png' });
+    await page.evaluate(() => window.playerTest.handle.receiveSpells('s1', []));
+    await wait(400);
+    const gone = await spellState();
+    check('with the spells gone, so are their lines', gone.hits.length === 0 && gone.views === 0, gone);
+
+    // 11d. The GM asks the player's token for a spell: offered out of the eyes; Aim goes into them, straight to aiming
+    // it as asked (no choice); Cast answers the ask. Decline turns another down.
+    const about = { line: 'Level 3 Evocation (Sorcerer, Wizard)', properties: [['Range', '150 feet'], ['Area', '20 ft radius sphere'], ['Damage', '8d6 fire'], ['Save', 'Dexterity']], text: 'A bright streak flashes from you to a point you choose within range and then blossoms with a low roar into a **fiery** explosion.' };
+    const fireball = { id: 'a1', tokenId: 'mine', ask: { name: 'Fireball', shape: 'sphere', from: 'point', size: 140, length: 0, effect: 'fire', about } };
+    await page.evaluate((ask) => window.playerTest.handle.receiveSpells('s1', [], [ask]), fireball);
+    await wait(300);
+    const offered = await page.evaluate(() => {
+      const bar = window.playerTest.board.container.querySelector('.atlas-tabletop-spellbar');
+      return { seeing: window.playerTest.board.seeingFrom, shown: !!bar && !bar.hidden, ask: bar?.classList.contains('is-ask'), stage: bar?.dataset.stage, text: bar?.textContent ?? '' };
+    });
+    check('a spell the GM asks is offered out of the eyes, named, at the top', offered.seeing === null && offered.shown && offered.ask && offered.stage === 'ask' && /GM asks .*Fireball \(Sphere, radius 2 sq, at a point\)/.test(offered.text), offered);
+    const card = () => page.evaluate(() => {
+      const element = window.playerTest.board.container.querySelector('.atlas-tabletop-spellcard');
+      return { shown: !!element && !element.hidden, folded: element?.classList.contains('is-folded') ?? false, text: element?.textContent ?? '', bold: element?.querySelector('strong')?.textContent ?? null };
+    });
+    const offeredCard = await card();
+    check('the spell asked shows its words first, open: level line, properties, description (bold kept as bold, no markup)', offeredCard.shown && !offeredCard.folded && /Level 3 Evocation/.test(offeredCard.text) && /8d6 fire/.test(offeredCard.text) && /A bright streak/.test(offeredCard.text) && offeredCard.bold === 'fiery' && !/\*\*/.test(offeredCard.text), offeredCard);
+    const noSearch = await page.evaluate(() => [...window.playerTest.board.container.querySelectorAll('button')].some((each) => each.getAttribute('aria-label') === 'Find a spell'));
+    check('the web player board has no spell search (no spell notes there)', !noSearch, noSearch);
+    await page.screenshot({ path: `${shots}/player-11d-ask.png` });
+    await page.evaluate(() => window.playerTest.board.container.querySelector('.atlas-tabletop-spellcard__toggle').click());
+    const foldedCard = await card();
+    await page.screenshot({ path: `${shots}/player-11d-ask-folded.png` });
+    await page.evaluate(() => window.playerTest.board.container.querySelector('.atlas-tabletop-spellcard__toggle').click());
+    const reopened = await card();
+    check('the player folds the words to a small button and opens them again', foldedCard.shown && foldedCard.folded && /^Fireball$/.test(foldedCard.text.trim()) && reopened.shown && !reopened.folded, { foldedCard, reopened });
+    // The mouse already at the middle: under the held mouse, a jump there would turn the view.
+    await page.mouse.move(middle.x, middle.y);
+    await press('Aim the spell asked');
+    await look();
+    await wait(600);
+    const askAim = await spellState();
+    const shapeButtons = await page.evaluate(() => [...window.playerTest.board.container.querySelectorAll('.atlas-tabletop-spellbar button')].filter((each) => each.getAttribute('aria-label') === 'Sphere').length);
+    check('Aim goes into the token\'s eyes and straight to aiming it, the shape not the player\'s to pick', askAim.seeing === 'mine' && askAim.stage === 'aim' && askAim.preview && shapeButtons === 0 && /^Fireball/.test(askAim.text), { askAim, shapeButtons });
+    const aimCard = await card();
+    check('the words stay over the view while it is aimed', aimCard.shown && /8d6 fire/.test(aimCard.text), aimCard);
+    await page.screenshot({ path: `${shots}/player-11d-ask-aim.png` });
+    await place();
+    await wait(300);
+    await press('Next');
+    await wait(200);
+    await press('Cast');
+    await wait(200);
+    const answered = (await record()).spells.at(-1);
+    check('Cast answers the ask: the spell as asked, tagged with it, its damage the ask\'s', answered && answered.request === 'a1' && answered.add.shape === 'sphere' && Math.abs(answered.add.size - 140) < 1e-6 && answered.add.caster === 'mine' && answered.add.effect === 'fire', answered);
+    await page.evaluate((ask) => window.playerTest.handle.receiveSpells('s1', [], [{ ...ask, id: 'a2', ask: { ...ask.ask, name: 'Wall of fire', shape: 'wall', size: 35, length: 140, longest: 210 } }]), fireball);
+    await wait(300);
+    const inEyes = await spellState();
+    check('an ask reaching the eyes is offered on the toolbar there', inEyes.seeing === 'mine' && inEyes.stage === 'ask' && await page.evaluate(() => /Wall of fire/.test(window.playerTest.board.container.querySelector('.atlas-tabletop-spellbar').textContent)), inEyes);
+    await press('Decline');
+    await wait(200);
+    const declined = (await record()).spells.at(-1);
+    const afterDecline = await page.evaluate(() => /Wall of fire/.test(window.playerTest.board.container.querySelector('.atlas-tabletop-spellbar').textContent));
+    check('Decline turns the ask down, and it goes from the toolbar', declined && declined.decline === 'a2' && !afterDecline, { declined, afterDecline });
+    await press('Leave');
+    await page.evaluate(() => window.playerTest.handle.receiveSpells('s1', [], []));
+    await wait(300);
+
+    // 11d'. A player on Obsidian, with spell notes of their own: Find in the eyes, a spell picked, aimed and cast.
+    {
+      const dir = require('path').join(__dirname, '..', 'tests', 'fixtures', 'spells');
+      const fsx = require('fs');
+      const notes = [];
+      for (const set of fsx.readdirSync(dir)) for (const file of fsx.readdirSync(require('path').join(dir, set))) notes.push({ path: `${set}/${file}`, text: fsx.readFileSync(require('path').join(dir, set, file), 'utf8') });
+      await page.evaluate((notes) => window.playerTest.setSpellNotes(notes), notes);
+      await page.evaluate(() => window.playerTest.handle.seeFrom('mine', false));
+      await look();
+      await wait(400);
+      const found = await press('Find a spell');
+      await wait(300);
+      await page.evaluate(() => { const input = window.playerTest.board.container.querySelector('[data-spell-search]'); input.value = 'burning'; input.dispatchEvent(new Event('input')); });
+      await wait(200);
+      const listed = await page.evaluate(() => [...window.playerTest.board.container.querySelectorAll('.atlas-tabletop-spellpicker__row')].map((row) => row.textContent));
+      // None of the fixtures is Burning Hands: the 2014 Cone of Cold then.
+      await page.evaluate(() => { const input = window.playerTest.board.container.querySelector('[data-spell-search]'); input.value = 'cone'; input.dispatchEvent(new Event('input')); });
+      await wait(200);
+      await page.evaluate(() => [...window.playerTest.board.container.querySelectorAll('.atlas-tabletop-spellpicker__row')].find((row) => /SRD 2014/.test(row.textContent))?.click());
+      await wait(200);
+      await page.evaluate(() => [...window.playerTest.board.container.querySelectorAll('.atlas-tabletop-spellpicker__actions button')].find((each) => each.textContent === 'Aim')?.click());
+      await look();
+      await wait(600);
+      const aimingCone = await spellState();
+      check('a player on Obsidian finds a spell of their own in the eyes and aims it, its words open', found && listed.length === 0 && aimingCone.stage === 'aim' && /^Cone of Cold/.test(aimingCone.text)
+        && await page.evaluate(() => /8d8 cold/.test(window.playerTest.board.container.querySelector('.atlas-tabletop-spellcard')?.textContent ?? '')), { found, listed, aimingCone });
+      await page.screenshot({ path: `${shots}/player-11d-find.png` });
+      const before = await page.evaluate(() => window.playerTest.record.spells.length);
+      await place();
+      await wait(300);
+      await press('Cast');
+      await wait(200);
+      const castCone = await page.evaluate((before) => window.playerTest.record.spells.slice(before).find((change) => change.add)?.add, before);
+      check('Cast sends the spell found: a 60 ft cone from the caster (12 squares), its cold look', castCone && castCone.shape === 'cone' && castCone.from === 'self' && Math.abs(castCone.size - 12 * 70) < 1e-6 && castCone.effect === 'cold', castCone);
+      await page.evaluate(() => window.playerTest.handle.sendSpell?.({ clear: true }));
+      await press('Leave');
+      await page.evaluate(() => window.playerTest.setSpellNotes(null));
+      await wait(300);
+    }
+
+    // 11e. Each damage type's look, on a sphere by the Goblin and a cone from the caster, seen from above.
+    await page.evaluate(() => window.playerTest.handle.setGmCamera({ sceneId: 's1', eye: { x: 385, y: 520, z: 760 }, target: { x: 450, y: 0, z: 385 } }));
+    await page.evaluate(() => window.playerTest.handle.followGm());
+    await wait(1200);
+    const types = ['acid', 'bludgeoning', 'cold', 'explosion', 'fire', 'force', 'lightning', 'necrotic', 'piercing', 'poison', 'psychic', 'radiant', 'slashing', 'thunder'];
+    let animated = 0;
+    for (const type of types) {
+      const list = [
+        { id: 'e1', owner: 'me', color: '#3366ff', spell: { shape: 'sphere', from: 'point', at: { x: 560, y: 385, h: 40 }, yaw: 0, pitch: 0, roll: 0, size: 105, length: 0, angle: 0.93, effect: type } },
+        { id: 'e2', owner: 'me', color: '#3366ff', spell: { shape: 'cone', from: 'self', at: { x: 385, y: 385, h: 40 }, yaw: Math.PI, pitch: 0, roll: 0, size: 245, length: 0, angle: 0.93, caster: 'mine', effect: type } },
+      ];
+      await page.evaluate((list) => window.playerTest.handle.receiveSpells('s1', list, []), list);
+      await wait(700);
+      const moving = await page.evaluate(() => [...window.playerTest.board.spellViews.values()].filter((kept) => kept.view.animated).length);
+      if (moving === 2) animated++;
+      await page.screenshot({ path: `${shots}/player-11e-${type}.png` });
+      // The same damage on a cube, a wall and a beam from the caster.
+      const more = [
+        { id: 'e3', owner: 'me', color: '#3366ff', spell: { shape: 'cube', from: 'point', at: { x: 600, y: 300, h: 70 }, yaw: 0.3, pitch: 0, roll: 0, size: 140, length: 0, angle: 0.93, effect: type } },
+        { id: 'e4', owner: 'me', color: '#3366ff', spell: { shape: 'wall', from: 'point', at: { x: 250, y: 560, h: 0 }, to: { x: 560, y: 560 }, yaw: 0, pitch: 0, roll: 0, size: 35, length: 140, angle: 0.93, effect: type } },
+        { id: 'e5', owner: 'me', color: '#3366ff', spell: { shape: 'cylinder', from: 'self', at: { x: 385, y: 385, h: 40 }, yaw: Math.PI, pitch: 0, roll: 0, size: 35, length: 350, angle: 0.93, caster: 'mine', effect: type } },
+      ];
+      await page.evaluate((list) => window.playerTest.handle.receiveSpells('s1', list, []), more);
+      await wait(700);
+      await page.screenshot({ path: `${shots}/player-11e-${type}-more.png` });
+    }
+    check('every damage type draws its look on the spells', animated === types.length, { animated });
+    await page.evaluate(() => window.playerTest.handle.receiveSpells('s1', [], []));
+    await wait(300);
+
+    }
     // 12. Disposed: the WebGL context is let go.
     await page.evaluate(() => window.playerTest.handle.dispose());
     check('dispose leaves no canvas behind', await page.evaluate(() => document.querySelectorAll('#board canvas').length === 0));

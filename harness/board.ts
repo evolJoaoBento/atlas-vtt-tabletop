@@ -8,7 +8,10 @@ import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { Board, type BoardHost } from '../src/board/board';
 import { SceneTabBar } from '../src/board/sceneTabBar';
-import type { PropPlacement } from '../src/board/boardData';
+import { BoardData, type PropPlacement } from '../src/board/boardData';
+import { Assignments } from '../src/assignments';
+import { UndoHistory } from '../src/board/undoHistory';
+import { recordTabletopData } from '../src/board/undoRecorders';
 import { emptyRules } from '../src/board/conditions';
 import { QUALITY } from '../src/board/quality';
 import { lookOf } from '../src/board/look';
@@ -24,9 +27,19 @@ import { HP_RESOURCE, type ResourceDefinition, type ResourceValue } from '../src
 import { applyInitiative, readInitiative, type InitiativeAction } from '../src/board/initiative';
 import { InitiativePanel } from '../src/board/initiativePanel';
 import { NO_FLIP, type BoardWall, type DoorFlip } from '../src/board/walls';
-import type { LoadedMaterial } from '../src/materials';
+import { materialDrag, type LoadedMaterial } from '../src/materials';
 import { parseMini, type LoadedMini } from '../src/library';
 import { DiceTable } from '../src/dice/diceTable';
+import { TFile, TFolder } from 'obsidian';
+import { LootWindow } from '../src/loot/LootWindow';
+import { AssetWindow } from '../src/assets/AssetWindow';
+import { PaletteWindow } from '../src/palette/PaletteWindow';
+import type { PaletteHost } from '../src/palette/paletteHost';
+import type { BoardSpawnHost } from '../src/assets/boardTarget';
+import { TokenWriter } from '../src/board/tokenWriter';
+import { readSpellNote } from '../src/board/spellNotes';
+import type { SpellBook, SpellEntry } from '../src/board/spellPicker';
+import { searchSpells } from '../src/spellLibrary';
 import { DEFAULT_RULES, type RollRequest } from '../src/dice/rollRules';
 import { RollSession } from '../src/dice/rollSession';
 import type { Flick } from '../src/dice/throwInput';
@@ -199,15 +212,18 @@ async function main(): Promise<void> {
   const hero: LoadedMini = await parseMini(await heroGlb());
   const barrel: LoadedMini = await parseMini(await barrelGlb());
   const images: Record<string, string> = { 'bg.png': background, 'red.png': face('#b03030'), 'green.png': face('#3a8a3a'), 'balcony.png': balcony };
+  const snapping = { tokens: true, props: true };
   const props: PropPlacement[] = [{ id: 'barrel', glb: 'props/barrel.glb', x: 910, y: 805, rotation: 0, scale: 1 }];
   const record = {
-    moves: [] as Array<[string, number, number]>, propMoves: [] as Array<[string, number, number]>, added: [] as Array<[string, number, number]>,
+    moves: [] as Array<[string, number, number]>, propMoves: [] as Array<[string, number, number]>, propScales: [] as Array<[string, number]>, propLifts: [] as Array<[string, number]>, added: [] as Array<[string, number, number, unknown?]>,
     notes: [] as string[], menus: [] as string[], propMenus: [] as string[], previews: [] as string[], warnings: [] as string[],
     copies: [] as Array<[string, string, number, number]>, menuActions: [] as unknown[][], initiative: [] as unknown[], shown: [] as string[],
-    heights: [] as unknown[][], doors: [] as string[], wallMenus: [] as string[], paints: [] as Array<[string, string, boolean]>, lightMenus: [] as string[], ambients: [] as number[], tints: [] as Array<string | null>, lasers: [] as Array<Record<string, unknown>>, fogHeights: [] as number[], thicknesses: [] as number[], toolActions: [] as unknown[], opened: 0, sceneTabs: [] as unknown[][],
+    heights: [] as unknown[][], doors: [] as string[], wallMenus: [] as string[], paints: [] as Array<[string, string, boolean]>, lightMenus: [] as string[], ambients: [] as number[], tints: [] as Array<string | null>, lasers: [] as Array<Record<string, unknown>>, fogHeights: [] as number[], thicknesses: [] as number[], toolActions: [] as unknown[], opened: 0, imageReads: [] as string[], sceneTabs: [] as unknown[][],
     /** Resource edits as the host saved them: token, key, the value it held, the value written, max edited. */
     edits: [] as Array<[string, string, ResourceValue, ResourceValue, boolean]>,
     rotations: [] as Array<Array<{ id: string; rotation: number }>>,
+    /** Spell rules carried out: tokens moved, tokens summoned, tokens removed, casts claimed. */
+    ruleMoves: [] as Array<Array<{ id: string; x: number; y: number }>>, summons: [] as unknown[], removed: [] as string[], claims: [] as string[],
   };
   /** What the host holds, as Atlas or the file would: edits apply to it. */
   const stored = new Map(map.tokens.map((entry) => [entry.id, structuredClone(entry.resources)]));
@@ -230,6 +246,10 @@ async function main(): Promise<void> {
   const doorProps = new Map<string, string>();
   const doorFlips = new Map<string, DoorFlip>();
   const wallHeights = new Map<string, number>();
+  const wallWidthsKept = new Map<string, number>();
+  const windowSpans = new Map<string, { bottom: number; top: number }>();
+  // The toolbar's modes, off unless a check turns them on (the other checks see every tool).
+  const modes: { on: boolean; mode: 'play' | 'edit' } = { on: false, mode: 'play' };
   const lightHeights = new Map<string, number>();
   let ambientLevel = 1;
   let tintKept: string | null = null;
@@ -247,8 +267,31 @@ async function main(): Promise<void> {
   };
   // The base under the hero's mini, set by the checks (the board reads placements when it syncs).
   let heroBase: 'none' | 'round' | 'square' = 'none';
+  // Tabletop's own board data for the water, with the undo history recording it, as the plugin has them.
+  const waterData = new BoardData();
+  const history = new UndoHistory();
+  recordTabletopData(history, waterData, new Assignments());
+  const waterPath = 'map.atlasmap';
+  const travel = (way: 'undo' | 'redo'): void => { void history[way]([waterPath]).then(() => board.refreshToolbar()); };
+  // The spell notes searched: none until a test gives them (`setSpellNotes`).
+  let spellEntries: SpellEntry[] | null = null;
+  const spellBook: SpellBook = { search: async (query, limit) => searchSpells(spellEntries ?? [], query, limit) };
+  const setSpellNotes = (notes: Array<{ path: string; text: string }> | null): void => {
+    spellEntries = notes === null ? null : notes.flatMap(({ path, text }) => {
+      const note = readSpellNote(text, path.replace(/^.*\//, '').replace(/( \(\d{4}\))?\.md$/, ''));
+      return note ? [{ id: path, note, source: `SRD ${path.split('/')[0]}` }] : [];
+    });
+  };
   const host: BoardHost = {
-    readImage: async (path) => images[path] ?? null,
+    spellBook: () => (spellEntries === null ? null : spellBook),
+    water: () => { const saved = waterData.water(waterPath); const motion = waterData.waterMotion(waterPath); return saved || motion ? { mask: saved?.mask ?? null, motion } : null; },
+    saveWater: (mask) => waterData.setWater(waterPath, mask),
+    saveWaterMotion: (motion) => waterData.setWaterMotion(waterPath, motion),
+    undo: () => travel('undo'),
+    redo: () => travel('redo'),
+    canUndo: () => history.canUndo([waterPath]),
+    canRedo: () => history.canRedo([waterPath]),
+    readImage: async (path) => { record.imageReads.push(path); return images[path] ?? null; },
     // Atlas 0.11's Mosaic Canvas: a map of 65,535 pixels a side arrives as a small picture and the size it stands for.
     readPicture: async (path) => {
       if (path !== 'mosaic.png') return null;
@@ -269,8 +312,17 @@ async function main(): Promise<void> {
     props: () => props,
     rules: () => rules,
     moveToken: (id, x, y) => { record.moves.push([id, x, y]); },
+    // As one move each (what the board did without it), and kept as one batch.
+    moveTokens: (moves) => { for (const move of moves) record.moves.push([move.id, move.x, move.y]); record.ruleMoves.push(moves.map((move) => ({ ...move }))); },
+    claimSpell: (id) => { if (record.claims.includes(id)) return false; record.claims.push(id); return true; },
+    summonTokens: (tokens) => { record.summons.push(JSON.parse(JSON.stringify(tokens))); return tokens.map((_, k) => (k === 0 ? 'gob' : `summoned${k}`)); },
+    removeTokens: (ids) => { record.removed.push(...ids); },
     moveProp: (id, x, y) => { record.propMoves.push([id, x, y]); },
-    addProp: (glb, x, y) => { record.added.push([glb, x, y]); },
+    scaleProp: (id, scale) => { record.propScales.push([id, scale]); },
+    liftProp: (id, lift) => { record.propLifts.push([id, lift]); },
+    snapProps: () => snapping.props,
+    setSnap: (kind, on) => { snapping[kind] = on; if (kind === 'tokens') ((board as unknown as { map: BoardMap }).map.grid as { snap: boolean }).snap = on; },
+    addProp: (glb, x, y, look) => { record.added.push([glb, x, y, look]); },
     openNote: (path) => { record.notes.push(path); },
     // The token menu the board's tab opens, with the same entries; its actions change the board and are recorded.
     tokenMenu: (id, event) => {
@@ -326,8 +378,10 @@ async function main(): Promise<void> {
     switchLayer: (path) => { record.sceneTabs.push(['layer', path]); },
     layerMenu: (path) => { record.sceneTabs.push(['menu', path]); },
     layerPlaced: (path, placement) => { record.sceneTabs.push(['placed', path, { ...placement }]); },
+    tablePlaced: (table) => { record.sceneTabs.push(['table', table]); board.setArTable(table); },
+    tableRemoved: () => { record.sceneTabs.push(['table-removed']); board.setArTable(null); },
     layerReset: (path) => { record.sceneTabs.push(['reset', path]); },
-    moveTokensToLayer: (ids, path) => { record.sceneTabs.push(['toLayer', [...ids], path]); },
+    moveTokensToLayer: (ids, path, places, follow) => { record.sceneTabs.push(['toLayer', [...ids], path, ...(places ? [places, follow === true] : [])]); },
     togglePlayerView: () => {
       if (players && !players.closed) {
         board.detachPlayer();
@@ -356,19 +410,27 @@ async function main(): Promise<void> {
     initiativeOpen: () => panel.isOpen,
     toggleInitiative: () => panel.setOpen(!panel.isOpen),
     wallMaterial: (id) => wallPaint.get(id) ?? null,
+    materialDefaults: () => (window as unknown as { __materialDefaults?: Record<string, string> }).__materialDefaults ?? {},
     wallHeight: (id) => wallHeights.get(id) ?? null,
+    windowOf: (id) => windowSpans.get(id) ?? null,
+    wallWidth: (id) => wallWidthsKept.get(id) ?? null,
+    setWallWidth: (id, squares) => { wallWidthsKept.set(id, squares); board.refresh(); },
+    setWindowSpan: (id, span) => { windowSpans.set(id, span); board.refresh(); },
     setWallHeight: (id, squares, whole) => { record.heights.push(['wall', id, squares, whole]); wallHeights.set(id, squares); board.refresh(); },
     setLightHeight: (id, squares) => { record.heights.push(['light', id, squares]); lightHeights.set(id, squares); board.refresh(); },
     doorProp: (id) => doorProps.get(id) ?? null,
     doorFlip: (id) => doorFlips.get(id) ?? NO_FLIP,
     readMaterial: async () => brickMaterial(),
+    materials: () => [{ path: 'materials/brick', name: 'brick', thumb: null }, { path: 'materials/stone', name: 'stone', thumb: null }],
+    boardMode: () => (modes.on ? modes.mode : null),
+    setBoardMode: (mode) => { modes.mode = mode; },
     toggleDoor: (id) => { record.doors.push(id); },
     wallMenu: (id) => { record.wallMenus.push(id); },
     paintWall: (id, material, whole) => {
       record.paints.push([id, material, whole]);
       const walls = (board as unknown as { map: BoardMap }).map.walls;
       const chain = walls.find((w) => w.id === id)?.chain;
-      for (const w of whole && chain ? walls.filter((other) => other.chain === chain) : walls.filter((other) => other.id === id)) wallPaint.set(w.id, material);
+      for (const w of whole && chain ? walls.filter((other) => other.chain === chain) : walls.filter((other) => other.id === id)) { if (material) wallPaint.set(w.id, material); else wallPaint.delete(w.id); }
       board.refresh();
     },
     ambient: () => ambientLevel,
@@ -383,6 +445,8 @@ async function main(): Promise<void> {
   };
   const container = document.getElementById('board')!;
   const board = new Board(container, host, QUALITY.medium);
+  waterData.onChange(() => board.refresh());
+  history.onChange(() => board.refreshToolbar());
   // Atlas's scene tabs over the board, from the Atlas view holding its map.
   const sceneTabs = new SceneTabBar(container, {
     tabs: () => [
@@ -518,9 +582,69 @@ async function main(): Promise<void> {
       ],
     }) : null),
   });
+  // Atlas's Random tables window over the board (src/loot/LootWindow.tsx): one table note, listed for the map's collection
+  // by a stand-in of Atlas's asset service on a stand-in Atlas map view (what src/atlasBridge.ts reaches).
+  const lootNotes: Record<string, string> = { 'Tables.md': ['## Weather', '', '| d6 | Weather |', '| --- | --- |', '| 1-2 | Rain |', '| 3-4 | Fog |', '| 5-6 | Sun |', ''].join('\n') };
+  const lootSaves: unknown[] = [];
+  const lootFiles: Record<string, string> = {};
+  const lootCollection = { randomTables: [{ path: 'Tables.md', index: 0, kind: 'text' }] };
+  // Atlas's asset service as the asset manager reads it: one collection holding one goblin token.
+  const goblinAsset = { id: 'tok-goblin', type: 'token', name: 'Goblin', imagePath: 'art/goblin.png', size: 1, collection: 'col1', tags: [], createdAt: 1, modifiedAt: 1 };
+  const lootAssets = {
+    initialize: async () => {},
+    getCollectionForMap: () => 'col1', getCollectionSettings: () => lootCollection, updateCollectionSettings: async () => {},
+    getCollections: async () => [{ id: 'col1', name: 'col1' }], getDefaultCollectionId: () => 'col1',
+    getAssets: async () => [goblinAsset], getAssetById: async (id: string) => (id === goblinAsset.id ? goblinAsset : null),
+    getCollectionTags: async () => [], refreshMetadata: async () => {},
+  };
+  const lootAtlasView = {
+    viewId: 'atlas', atlasStore: { getState: () => ({ mapPath: 'maps/tavern.atlasmap', remoteView: null }), subscribe: () => () => {} },
+    serviceManager: { getAssetService: () => lootAssets },
+  };
+  const noRef = { off: () => {} };
+  const lootApp = {
+    vault: {
+      getFileByPath: (path: string) => (path in lootNotes ? new TFile(path) : null),
+      getAbstractFileByPath: (path: string) => (path in lootNotes ? new TFile(path) : null),
+      getFolderByPath: (path: string) => new TFolder(path),
+      cachedRead: async (file: TFile) => lootNotes[file.path] ?? '',
+      read: async (file: TFile) => lootNotes[file.path] ?? '',
+      on: () => noRef, offref: () => {},
+      createFolder: async () => {},
+      create: async (path: string, text: string) => { lootFiles[path] = text; return new TFile(path); },
+      process: async (file: TFile, edit: (text: string) => string) => { lootFiles[file.path] = edit(lootFiles[file.path] ?? ''); },
+      adapter: { exists: async () => false, read: async () => '' },
+    },
+    metadataCache: { getFileCache: () => ({}), getFirstLinkpathDest: () => null, on: () => noRef, offref: () => {} },
+    workspace: { getLeavesOfType: (type: string) => (type === 'atlas-vtt' ? [{ view: lootAtlasView }] : []), on: () => noRef, offref: () => {}, getLeaf: () => null, openLinkText: async () => {}, revealLeaf: async () => {}, setActiveLeaf: () => {} },
+    plugins: { plugins: {}, manifests: {} },
+    loadLocalStorage: () => null, saveLocalStorage: () => {},
+    keymap: { pushScope: () => {}, popScope: () => {} },
+  };
+  const loot = new LootWindow(container, { app: lootApp as never, readMap: async () => JSON.stringify({ state: {} }), save: async (_path, settings) => { lootSaves.push(settings); } });
+  void loot.setMap('maps/tavern.atlasmap');
+  // Atlas's asset manager over the board: spawned tokens are written into this map text and recorded.
+  let spawnText = JSON.stringify({ version: 4, state: { objects: { tokens: {} } } });
+  const spawnWriter = new TokenWriter({ views: () => [], process: async (_path, edit) => { spawnText = edit(spawnText); } });
+  const spawnHost: BoardSpawnHost = {
+    leaf: {} as never, writer: spawnWriter, mapPath: () => 'maps/tavern.atlasmap', centre: () => board.viewCentre(),
+    grid: () => map.grid, tokens: () => JSON.parse(spawnText).state.objects.tokens, select: () => {}, joinInitiative: async () => {}, openMap: async () => {},
+  };
+  const assets = new AssetWindow(container, lootApp as never, spawnHost);
+  const spawned = (): Record<string, { x: number; y: number; name: string }> => JSON.parse(spawnText).state.objects.tokens;
+  // Atlas's command palette over the board: what each entry asks of the board is recorded.
+  const paletteCalls: string[] = [];
+  const paletteHost: PaletteHost = {
+    selectTool: (tool) => paletteCalls.push(`tool:${tool}`), setDiceLogOpen: (open) => paletteCalls.push(`diceLog:${open}`),
+    setLootRollerOpen: (open) => { paletteCalls.push(`loot:${open}`); if (open) loot.open(); }, initiativeOpen: () => false,
+    setInitiativeOpen: (open) => paletteCalls.push(`initiative:${open}`), openSceneBrowser: () => paletteCalls.push('sceneBrowser'),
+    playerViewOpen: () => false, togglePlayerView: () => paletteCalls.push('playerView'), playerFrozen: () => false,
+    togglePlayerFreeze: () => paletteCalls.push('freeze'), presentInAtlas: () => paletteCalls.push('present'), openInAtlas: (page) => paletteCalls.push(`atlas:${page ?? ''}`),
+  };
+  const palette = new PaletteWindow(container, lootApp as never, paletteHost);
   // Atlas's own Ctrl-hover window, as BoardView routes it: its dice links throw the board's dice for the hovered hero.
   routeAtlasWindowRolls(document, (formula, label, side) => boardDice.cardRoll('hero', formula, label, side));
-  Object.assign(window, { boardTest: { setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, handoutUrl: images['green.png'], board, map, record, panel, rules, doorProps, doorFlips, wallHeights, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, insideFog, dice, ready: true } });
+  Object.assign(window, { boardTest: { materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, spawned, palette, paletteCalls, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

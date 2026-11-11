@@ -241,18 +241,40 @@ export class DiceTable {
   /** Moves the dice on by `dtMs` and reads every die that has come to rest. */
   step(dtMs: number): void {
     if (!this.busy || dtMs <= 0) return;
-    this.world.step(STEP, dtMs / 1000, MAX_SUBSTEPS);
+    // Fixed steps, each looked at: whether a die is still is asked after every physics step, not once a frame. A slow
+    // frame (a zoomed-out board drawing faded layers) once took a die tipping over an edge, still for that one look,
+    // for a die at rest, and read it caught. A frame longer than MAX_SUBSTEPS steps plays the rest later, never skips it.
+    this.pendingMs += dtMs;
+    const stepMs = STEP * 1000;
+    let steps = 0;
+    while (this.pendingMs >= stepMs && steps < MAX_SUBSTEPS * 4) {
+      this.world.step(STEP);
+      this.pendingMs -= stepMs;
+      steps += 1;
+      this.lookForRest(stepMs);
+      if (!this.busy) { this.pendingMs = 0; break; }
+    }
+    for (const die of this.dice.values()) {
+      const { body, mesh } = die;
+      mesh.position.set(body.position.x, body.position.y, body.position.z);
+      mesh.quaternion.set(body.quaternion.x, body.quaternion.y, body.quaternion.z, body.quaternion.w);
+    }
+  }
+
+  /** Physics time not stepped yet (less than a step, or what a very long frame left over). */
+  private pendingMs = 0;
+
+  /** After one physics step: reads every die that has been still long enough, or that never stops. */
+  private lookForRest(stepMs: number): void {
     // Interactive Dice's settling: slower than these, wherever the die lies.
     const velocityLimit = 0.05 / this.settings.motionThreshold;
     const spinLimit = 0.5 / this.settings.motionThreshold;
     for (const [id, die] of this.dice) {
-      const { body, mesh } = die;
-      mesh.position.set(body.position.x, body.position.y, body.position.z);
-      mesh.quaternion.set(body.quaternion.x, body.quaternion.y, body.quaternion.z, body.quaternion.w);
       if (die.settled) continue;
-      die.rollingMs += dtMs;
+      const { body } = die;
+      die.rollingMs += stepMs;
       const still = body.velocity.length() <= velocityLimit && body.angularVelocity.length() <= spinLimit;
-      die.stillMs = still ? die.stillMs + dtMs : 0;
+      die.stillMs = still ? die.stillMs + stepMs : 0;
       if (die.stillMs >= STILL_MS) this.settle(id, die, true);
       else if (die.rollingMs >= LONGEST_ROLL_MS) this.settle(id, die, false);
     }

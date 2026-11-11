@@ -19,6 +19,21 @@ export interface Measurement {
 }
 
 const SUFFIX: Record<UnitType, string> = { feet: 'ft', yards: 'yd', meters: 'm', units: 'u', custom: '' };
+/**
+ * Feet a square spans, for a spell's feet: feet as they are, yards three each, metres as D&D counts them (1.5 m is a
+ * 5-foot square); a scale in no such unit (units, custom, abstract bands) counts five.
+ */
+export function feetPerSquare(measurement: Measurement): number {
+  const distance = measurement.unitDistance > 0 ? measurement.unitDistance : 0;
+  if (measurement.mode !== 'metric' || distance === 0) return 5;
+  switch (measurement.unitType) {
+    case 'feet': return distance;
+    case 'yards': return distance * 3;
+    case 'meters': return (distance / 1.5) * 5;
+    default: return 5;
+  }
+}
+
 const isObj = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const unit = (value: unknown): UnitType | null => (typeof value === 'string' && value in SUFFIX ? (value as UnitType) : null);
 const rule = (value: unknown): DiagonalRule => (value === 'alternating' || value === 'euclidean' ? value : 'equidistant');

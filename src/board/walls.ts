@@ -26,8 +26,11 @@ export interface BoardWall {
   /** A door: shut (the default) or open. */
   closed: boolean;
   locked: boolean;
-  /** The one thing it stops (a curtain stops sight, glass light); null stops both. */
-  blocks: 'sight' | 'light' | null;
+  /**
+   * The one thing it stops (a curtain stops sight, glass light, a window (`movement`) only tokens: sight and light pass
+   * it both ways); null stops both.
+   */
+  blocks: 'sight' | 'light' | 'movement' | null;
   /** A hedge or low wall: drawn half as tall. */
   limited: boolean;
   /** The segments drawn in one stroke share a chain. */
@@ -90,10 +93,36 @@ function readWall(raw: Raw): BoardWall | null {
     direction: raw.direction === 'left' || raw.direction === 'right' ? raw.direction : null,
     closed: raw.closed !== false,
     locked: raw.locked === true,
-    blocks: raw.blocks === 'sight' || raw.blocks === 'light' ? raw.blocks : null,
+    blocks: raw.blocks === 'sight' || raw.blocks === 'light' || raw.blocks === 'movement' ? raw.blocks : null,
     limited: raw.limited === true,
     chain: str(raw.chainId),
   };
+}
+
+/** Atlas's window: a wall (not a door) that stops only tokens. The board stands it as a sill and a lintel with an opening between. */
+export function isWindow(wall: Pick<BoardWall, 'type' | 'blocks'>): boolean {
+  return wall.type === 'solid' && wall.blocks === 'movement';
+}
+
+/** A window's opening, in grid squares from the floor: where the sill ends and where the lintel begins. */
+export interface WindowSpan {
+  bottom: number;
+  top: number;
+}
+
+/** The smallest step of a window's edges, and the narrowest opening, in grid squares. */
+export const WINDOW_STEP = 0.25;
+
+/**
+ * A window's opening in a wall `height` squares tall: as the GM set it, else a sill at about a third of the wall and a
+ * lintel at four fifths. Kept inside the wall, with at least a step of opening (a wall too short for one has none).
+ */
+export function windowSpan(height: number, saved: Partial<WindowSpan> | null): WindowSpan {
+  const quarter = (value: number): number => Math.round(value / WINDOW_STEP) * WINDOW_STEP;
+  if (height <= WINDOW_STEP) return { bottom: 0, top: Math.max(0, height) };
+  const bottom = Math.min(height - WINDOW_STEP, Math.max(0, saved?.bottom ?? quarter(height * 0.35)));
+  const top = Math.min(height, Math.max(bottom + WINDOW_STEP, saved?.top ?? quarter(height * 0.8)));
+  return { bottom, top };
 }
 
 /** The map's walls and doors (`state.objects.walls`); a segment of no length is left out. */

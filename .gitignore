@@ -5,3 +5,5 @@ main.js
 # Workspace notes and agent files, never published
 .superpowers/
 .claude/
+.ui-build/
+dist-web/

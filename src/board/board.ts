@@ -25,12 +25,12 @@ import * as THREE from 'three';
 import { choiceOf, horizonColor, LIGHTING, lightingFor, room, setLook, tinted, type LightingChoice } from './look';
 import type { MiniPlacement } from '../assignments';
 import type { LoadedMini } from '../library';
-import type { PropPlacement, TokenStyle } from './boardData';
+import type { PropLook, PropPlacement, TokenStyle } from './boardData';
 import { OrbitCamera, limitsFor } from './camera';
 import type { CollectionRules } from './conditions';
-import { formatDistance, pathLengthInCells, type Measurement } from './measure';
+import { feetPerSquare, formatDistance, pathLengthInCells, type Measurement } from './measure';
 import { hexCenter, ringDiameter, snapPoint } from './geometry';
-import { stretchPlacement, worldSize } from './mapStretch';
+import { imageToWorld, stretchPlacement, worldSize } from './mapStretch';
 import { groupFollow, groupLanding, type GroupMember } from './groupMove';
 import { ACTIVE_COLOR, GroupMarks } from './groupMarks';
 import { GroupBar, hpChange, hpKey, turned } from './groupActions';
@@ -43,6 +43,10 @@ import { numberCells, type CellNumbers } from './cellNumbers';
 import { stripGeometry } from './surface';
 import { addCutaway, newCutaway } from './cutaway';
 import { connectedTiles, inSight, seenTiles, tilesFor, visibilityPolygon, type SightMode, type SightStyle } from './lineOfSight';
+import { buildRooms, insidePolygon, roomAt, roomTolerance, seenRooms, unseenAreas, type Rooms, type SightArea } from './sightRooms';
+
+/** What a viewer has in sight: by squares (rays, or a map that would not cut into rooms) or by rooms (cinematic); and a point's answer. */
+type SeenMask = { readonly seenAt: (x: number, y: number) => boolean; readonly squares?: Uint8Array; readonly rooms?: { readonly rooms: Rooms; readonly seen: Uint8Array }; readonly unseen?: readonly SightArea[] };
 import { SightVeil } from './sightVeil';
 import { LayerRuler } from './layerRuler';
 import { PlacementGizmo, type GizmoPart } from './placementGizmo';
@@ -54,30 +58,105 @@ import { BoardSurface } from './surface';
 import { FogVolume } from './fogVolume';
 import { LaserBeam } from './laserBeam';
 import { LaserTrail, beamWidth, smoothBeam, type LaserSettings } from './laser';
-import { BoardToolbar, type DiceButton } from './toolbar';
+import { WaterMask, readWaterMotion, type SavedWaterMask, type WaterMotion } from './water';
+import { WaterSurface } from './waterSurface';
+import { EyeView } from './eyeView';
+import { PieceOutline } from './pieceOutline';
+import { SpellCaster } from './spellCaster';
+import { SpellPicker, type SpellBook } from './spellPicker';
+import { SpellGizmo } from './spellGizmo';
+import { boxPoints, readCastSpells, type DamageType, readSpellRequests, spellHits, spellUnder, type CastSpell, type Spell, type SpellAsk, type SpellTarget, spellLabel } from './spells';
+import { SpellView } from './spellView';
+import { hitAura, type SpellEffect } from './spellEffects';
+import { inDifficultSpell, pushTo, slide, spellFootprint, spellRuleLights, spellRuleWalls, type SpellRules } from './spellRules';
+import { SpellRulePanel } from './spellRulePanel';
+import { materialWith, type MaterialDefaults } from '../materialDefaults';
+import { aboutElement, rulesWords } from './spellPicker';
+import { difficultGround } from './spellView';
+import { BoardToolbar, type AtlasToolButton, type DiceButton, type ToolbarActions, UNPAINT } from './toolbar';
 import { pinTitle } from './pinIcons';
 import { insideFog, playerSees } from './playerView';
 import { instanceBadgeNumbers } from './levels';
 import { positionOf } from './camera';
-import { loadImageTexture, loadMapTexture, MAX_MAP_TEXTURE, mapImageSize, mapTextureFromPicture, plateTexture, screenScale } from './textures';
+import { isVideoPath, loadImageTexture, loadMapTexture, MAX_MAP_TEXTURE, mapImageSize, mapTextureFromPicture, plateTexture, screenScale } from './textures';
 import { WallSet } from './wallPieces';
 import { LightRig } from './lightRig';
 import { DarknessLayer } from './darkness';
 import { BoardMarks } from './marks';
-import { PlayerToolState, type TemplateMark, type TemplateShape, type ToolAction } from './playerTools';
+import { PlayerToolState, type TemplateChange, type TemplateMark, type TemplateShape, type ToolAction } from './playerTools';
 import type { FogOperation } from './fog';
-import { NO_FLIP, segmentFrame, type BoardLight, type DoorFlip } from './walls';
+import { isWindow, NO_FLIP, segmentFrame, wholeWall, windowSpan, type BoardLight, type BoardWall, type DoorFlip, type WindowSpan } from './walls';
 import { MINI_DRAG_TYPE, MINI_TEXT_PREFIX } from '../assignments';
-import { MATERIAL_DRAG_TYPE, MATERIAL_TEXT_PREFIX, type LoadedMaterial } from '../materials';
+import { augmentedCamera, augmentedProjection, isAugmentedView, roomPlacement, type AugmentedView, type RoomPlace } from './augmented';
+import { ArViewers, isViewerPose, type ViewerPose } from './arViewers';
+import { groupLabel, TABLE_SQUARES_MM, type SavedArTable } from '../arTable';
+import { MATERIAL_DRAG_TYPE, MATERIAL_TEXT_PREFIX, materialDrag, type LoadedMaterial } from '../materials';
+import { Impacts } from './impact';
+import { opaqueAt } from './alphaSample';
 import type { DiceObstacle, DiceTable, DiceTableHost } from '../dice/diceTable';
+
+/** The map's image as the bucket reads it: the image, its size in its own pixels, and the affine carrying those into the world. */
+interface FillSource { image: CanvasImageSource; width: number; height: number; transform: [number, number, number, number, number, number] }
+
+/** Where the map's image lies, as an affine of its pixels into the world (as the board's floor lays it); null without one. */
+function fillSourceFor(texture: THREE.Texture | null, size: { width: number; height: number }, matrix: readonly number[] | null, stretch: Parameters<typeof imageToWorld>[2] | null): FillSource | null {
+  const image = texture?.image as CanvasImageSource | undefined;
+  if (!texture || !image || texture.userData.video) return null;
+  if (matrix) {
+    // The unit square carried into the world: the image's pixels scaled down to it first.
+    const [a, b, c, d, e, f] = matrix as [number, number, number, number, number, number];
+    return { image, width: size.width, height: size.height, transform: [a / size.width, b / size.width, c / size.height, d / size.height, e, f] };
+  }
+  if (stretch) {
+    const o = imageToWorld({ x: 0, y: 0 }, size, stretch);
+    const u = imageToWorld({ x: 1, y: 0 }, size, stretch);
+    const v = imageToWorld({ x: 0, y: 1 }, size, stretch);
+    return { image, width: size.width, height: size.height, transform: [u.x - o.x, u.y - o.y, v.x - o.x, v.y - o.y, o.x, o.y] };
+  }
+  return { image, width: size.width, height: size.height, transform: [1, 0, 0, 1, 0, 0] };
+}
+
+/** How soon a second Alt + click on a prop makes a double click, in ms. */
+/** Layers kept put away at most (each its floor, walls and props), to come back without reading them again. */
+const PARKED_LAYERS = 12;
+/** How long the camera glides to another layer's floor, seconds (the layers fade over most of it). */
+const LAYER_GLIDE_SECONDS = 0.9;
+const DOUBLE_CLICK_MS = 400;
 
 /** Obsidian's accent colour, for highlights; Atlas's purple outside Obsidian. */
 function accent(element: HTMLElement): string {
-  const value = element.ownerDocument.defaultView?.getComputedStyle(element).getPropertyValue('--interactive-accent').trim();
-  return value || ACCENT;
+  const view = element.ownerDocument.defaultView;
+  const value = view?.getComputedStyle(element).getPropertyValue('--interactive-accent').trim();
+  if (!value || !view) return ACCENT;
+  // Obsidian gives it as hsl() with var()/calc() parts, which three.js cannot read: the browser resolves it to rgb().
+  const probe = element.ownerDocument.createElement('span');
+  probe.style.display = 'none';
+  probe.style.color = value;
+  if (!probe.style.color) return ACCENT;
+  element.appendChild(probe);
+  const resolved = view.getComputedStyle(probe).color;
+  probe.remove();
+  return resolved || ACCENT;
 }
 
 export interface BoardHost {
+  /** The map's painted water as saved (mask and motion), for the board to draw. */
+  water?(): { mask: unknown; motion: unknown } | null;
+  /** Keeps the map's painted water (null: no water left). */
+  saveWater?(mask: SavedWaterMask | null): void;
+  /** Keeps how all of the map's water moves. */
+  saveWaterMotion?(motion: WaterMotion): void;
+  /** Tabletop's undo history for this board's map (src/board/undoHistory.ts): a step back, a step forward. */
+  undo?(): void;
+  redo?(): void;
+  canUndo?(): boolean;
+  canRedo?(): boolean;
+  /** Records a change the board made that no store records by itself (a template placed while Connect hosts). */
+  recordUndo?(step: { label: string; undo(): boolean; redo(): boolean }): void;
+  /** Whether a scene of the stack is hidden on the board (the GM hid it from its pill's menu). */
+  layerHidden?(path: string): boolean;
+  /** A key for one of Atlas's toolbar tools (`carrying`: a token is being dragged); true when it opened one. */
+  atlasKey?(event: KeyboardEvent, carrying: boolean): boolean;
   /** A URL for a vault image, or null when it is missing. */
   readImage(path: string): Promise<string | null>;
   /**
@@ -94,10 +173,27 @@ export interface BoardHost {
   moveToken(id: string, x: number, y: number): void;
   /** Several tokens moved as one change; a host without it is given the moves one by one. */
   moveTokens?(moves: ReadonlyArray<{ id: string; x: number; y: number }>): void;
+  /**
+   * Whether this board is the one to carry out a newly cast spell's token changes (a push, a teleport, a summons): the
+   * first of the GM's boards to ask for it, once (`key`: the cast's id and its spell, as sent). Absent: a board that never does.
+   */
+  claimSpell?(key: string): boolean;
+  /** Makes tokens for a summoning spell (map pixels, a statblock link or name); their ids. */
+  summonTokens?(tokens: ReadonlyArray<{ name: string; x: number; y: number; statblock?: string }>): string[];
+  /** Takes tokens off the map. */
+  removeTokens?(ids: readonly string[]): void;
   /** Several tokens turned (degrees, 0 to 360); a host without it cannot turn a group. */
   rotateTokens?(turns: ReadonlyArray<{ id: string; rotation: number }>): void;
   moveProp(id: string, x: number, y: number): void;
-  addProp(glb: string, x: number, y: number): void;
+  /** Sets a prop's scale, in cells across. */
+  scaleProp?(id: string, scale: number): void;
+  /** Sets how high a prop stands, in grid squares. */
+  liftProp?(id: string, lift: number): void;
+  /** Whether dropped props snap to the grid (on its own: tokens follow the map's Snap to grid). */
+  snapProps?(): boolean;
+  /** Turns snapping on or off: for tokens the map's own Snap to grid (Atlas's), for props the board setting. */
+  setSnap?(kind: 'tokens' | 'props', on: boolean): void;
+  addProp(glb: string, x: number, y: number, look?: PropLook): void;
   openNote(path: string): void;
   tokenMenu(id: string, event: MouseEvent): void;
   propMenu(id: string, event: MouseEvent): void;
@@ -150,8 +246,15 @@ export interface BoardHost {
   layerPlaced?(path: string, placement: Placement): void;
   /** The scene being adjusted is to go back where its grid puts it. */
   layerReset?(path: string): void;
-  /** Tokens were dropped on another scene's pill on the height ruler: they are to go there. */
-  moveTokensToLayer?(ids: readonly string[], path: string): void;
+  /** The GM placed the players' AR table on the map (or changed its square size): it is to be kept. */
+  tablePlaced?(table: SavedArTable): void;
+  /** The GM took the players' AR table off the map. */
+  tableRemoved?(): void;
+  /**
+   * Tokens go to another scene or level of the stack: dropped on its pill (no `places`: they stand where there is room),
+   * or let go over it (`places`: each where it was let go, in that layer's own map pixels; `follow`: that layer is shown).
+   */
+  moveTokensToLayer?(ids: readonly string[], path: string, places?: Readonly<Record<string, { x: number; y: number }>>, follow?: boolean): void;
   /** Whether a stat sheet's roll is thrown at once; changing it, kept for every board. */
   autoRoll?(): boolean;
   setAutoRoll?(on: boolean): void;
@@ -160,11 +263,21 @@ export interface BoardHost {
   toggleInitiative(): void;
   /** The material painted on a wall or door (a materials folder), and the prop standing in for a door; null for none. */
   wallMaterial(id: string): string | null;
+  /** The materials walls and doors wear when none is painted on them, by kind; none without. */
+  materialDefaults?(): MaterialDefaults;
   /** A wall's or door's own height in grid squares; null stands it as tall as the fog. */
   wallHeight(id: string): number | null;
+  /** A wall's or door's own width (thickness) in grid squares; null for the map's wall thickness. */
+  wallWidth?(id: string): number | null;
+  /** A window's opening as the GM set it (grid squares from the floor); null for the default. */
+  windowOf?(id: string): { bottom: number; top: number } | null;
   /** Keeps a wall's height (Ctrl + drag), with Shift the whole wall's; and a light's. In grid squares. */
   setWallHeight(id: string, squares: number, whole: boolean): void;
   setLightHeight(id: string, squares: number): void;
+  /** Keeps a window's opening (Ctrl + drag on its handles), with Shift the whole window's. In grid squares from the floor. */
+  setWindowSpan?(id: string, span: WindowSpan, whole: boolean): void;
+  /** Keeps a wall's own width (Alt + drag on its handle), with Shift the whole wall's. In grid squares. */
+  setWallWidth?(id: string, squares: number, whole: boolean): void;
   doorProp(id: string): string | null;
   /** How the GM turned a door from the way Atlas draws it (hinge at the other end, opening to the other side). */
   doorFlip?(id: string): DoorFlip;
@@ -186,7 +299,12 @@ export interface BoardHost {
   /** A light's right-click menu (on its bulb). */
   lightMenu(id: string, event: MouseEvent): void;
   /** A material dropped from the gallery on a wall or door: that segment, or with Shift the whole wall drawn with it. */
-  paintWall(id: string, material: string, whole: boolean): void;
+  paintWall(id: string, material: string | null, whole: boolean): void;
+  /** The materials the paint tool offers (the gallery's). */
+  materials?(): Array<{ path: string; name: string; thumb: string | null }>;
+  /** The toolbar's mode, kept for the GM (null: the board has no modes); keeping a new one. */
+  boardMode?(): 'play' | 'edit' | null;
+  setBoardMode?(mode: 'play' | 'edit'): void;
   /** A mini dragged from the gallery onto a token: that token is drawn as it. */
   assignMini?(tokenId: string, glb: string): void;
   /** Alt + drag on a token turns its mini: its turn in degrees now (null with no mini), and where a drag saves it. */
@@ -202,10 +320,35 @@ export interface BoardHost {
   playerAction?(action: ToolAction): void;
   /** The player's own colour (their templates and laser while drawn). */
   ownColor?(): string;
+  /** The spell notes this board can search (Obsidian's boards); absent or null for none (the web player board). */
+  spellBook?(): SpellBook | null;
   /** The tool, shape or colour changed on the board (Escape too): Connect's toolbar follows. */
   toolsChanged?(): void;
   /** Whether Connect hosts a session (the GM's board offers the Template tool then). */
   hosting?(): boolean;
+  /** The board left a token's eyes by itself (Escape, the Leave button): Connect's eye button follows. */
+  eyeChanged?(): void;
+}
+
+/** The line round what a spell hits. */
+/** Who the GM's own spells belong to (Connect's GM id). */
+export const GM_SPELL_OWNER = 'gm';
+const SPELL_HIT_COLOR = '#ff2a2a';
+
+/** A prop's name, for the list of what a spell hits: its GLB's file name. */
+const propName = (glb: string): string => (glb.split('/').pop() ?? glb).replace(/\.[^.]+$/, '') || 'Prop';
+
+/** The meshes an outline goes round, its own lines aside: when a mini loads, the count changes and the line is redone. */
+function meshCount(root: THREE.Object3D): number {
+  let count = 0;
+  root.traverse((node) => { if ((node as THREE.Mesh).isMesh && node.userData.noOutline !== true) count += 1; });
+  return count;
+}
+
+/** Whether an object shows (it and every parent visible). */
+function showing(object: THREE.Object3D): boolean {
+  for (let node: THREE.Object3D | null = object; node; node = node.parent) if (!node.visible) return false;
+  return true;
 }
 
 /** Who looks at the board: the GM (everything, and the tools to change it), or a Connect player (what players see). */
@@ -228,6 +371,24 @@ const FALLBACK_SIZE = 2000;
 /** The hovered cell's label height on screen, in pixels. */
 const CELL_LABEL_PX = 20;
 const ACCENT = '#7c5cff';
+
+/** What a height drag moves: a light, a wall's top, or a window's sill (its opening's bottom) or lintel (its top). */
+type WallPart = 'wall' | 'sill' | 'lintel' | 'width';
+/** Which handles a key shows: Ctrl the heights, Alt the width. */
+type HandleKind = 'height' | 'width';
+type HeightTarget = WallPart | 'light';
+/** Ctrl's handles on a wall: their radius on the screen, and how near the pointer takes one. */
+const HANDLE_PIXELS = 6;
+const HANDLE_REACH = 16;
+/** The water brush's size by Ctrl + scroll: a step a notch, as the toolbar's slider goes, in grid cells. */
+const BRUSH_STEP = 0.25;
+const BRUSH_MIN = 0.25;
+const BRUSH_MAX = 6;
+const BRUSH_NOTCH = 100;
+/** A wall's own width, dragged: its least and its most, in grid squares. */
+const WIDTH_MIN = 0.02;
+const WIDTH_MAX = 2;
+const HANDLE_GEOMETRY = new THREE.SphereGeometry(1, 16, 12);
 /** How often a playing clip redraws the shadows, in seconds. */
 const CLIP_SHADOW_STEP = 1 / 15;
 /** How often a flame flickers when nothing else moves, in milliseconds (about 15 times a second). */
@@ -260,6 +421,9 @@ interface TokenEntry {
   at: { x: number; y: number };
   goal: { x: number; y: number };
   mini: string | null;
+  /** How high it stands now (on a solid prop), easing to its stand: the top of the solid props under it, when last found. */
+  lift: number;
+  stand?: { x: number; y: number; version: number; value: number };
 }
 
 /** The local player view's own drawing of the scene, in its window. */
@@ -314,12 +478,17 @@ type Press =
   /** Alt + drag on a token with a mini: the mini turns with the pointer round the token, from where it was. */
   | { kind: 'rotate'; id: string; x: number; y: number; moved: boolean; center: { x: number; y: number }; startAngle: number; startTurn: number; turn: number }
   | { kind: 'prop'; id: string; x: number; y: number; moved: boolean; grab: { dx: number; dy: number } }
+  /** Ctrl + drag on a prop in Edit mode: up grows it, down shrinks it; its scale at the press. */
+  | { kind: 'propScale'; id: string; x: number; y: number; moved: boolean; start: number; value: number }
+  /** Alt + drag on a prop that is not solid, in Edit mode: up raises it, down lowers it; in grid squares. */
+  | { kind: 'propLift'; id: string; x: number; y: number; moved: boolean; start: number; value: number }
   /** Ctrl + drag on a wall or a light: up raises it, down lowers it; `start` is its height when the drag began, in squares. */
-  | { kind: 'height'; target: 'wall' | 'light'; id: string; x: number; y: number; moved: boolean; start: number }
+  | { kind: 'height'; target: HeightTarget; id: string; x: number; y: number; moved: boolean; start: number }
   /** The laser drawing its beam. */
   | { kind: 'laser'; x: number; y: number; moved: boolean }
   /** A Connect player's tool (measure, template, laser, ping) under way. */
-  | { kind: 'tool'; x: number; y: number; moved: boolean };
+  | { kind: 'tool'; x: number; y: number; moved: boolean }
+  | { kind: 'water'; last: { x: number; y: number } };
 
 export class Board {
   readonly canvas: HTMLCanvasElement;
@@ -327,6 +496,56 @@ export class Board {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
   private readonly view = new THREE.PerspectiveCamera(FOV, 1, 1, 10_000);
+  /** Seeing through a token's eyes (a player's view): the token, and the look it has; null for the usual camera. */
+  private eye: EyeView | null = null;
+  /** The turn the eye view draws with this frame, and where a drag of it last was. */
+  private eyeTurn: THREE.Quaternion | null = null;
+  private eyeDrag: { x: number; y: number } | null = null;
+  /** Casting spells through the eyes (a player's board): the bar, the steps, the aim. */
+  private caster: SpellCaster | null = null;
+  /** The scene's spells, from Connect. */
+  private castSpells: CastSpell[] = [];
+  private readonly spellViews = new Map<string, { key: string; view: SpellView }>();
+  /** The spell being cast, drawn while it is aimed, moved and confirmed. */
+  private spellPreview: { key: string; view: SpellView; spell: Spell } | null = null;
+  /** The red lines round what the spells hit, by target. */
+  private readonly spellOutlines = new Map<string, { outline: PieceOutline; meshes: number }>();
+  /** What a cast damaging spell does to each thing it hits, drawn round it (`hitAura`), by target id. */
+  private readonly spellAuras = new Map<string, { type: DamageType; root: THREE.Object3D; effect: SpellEffect }>();
+  private spellHitsAt = 0;
+  private spellTimer = 0;
+  /** The map the spells were last drawn for (their cut by the walls is redone on another). */
+  private spellMap: BoardMap | null = null;
+  /** The mouse held for the eyes (pointer lock), and whether the board let go of it itself. */
+  private pointerLocked = false;
+  private lockReleasing = false;
+  /** The handles round a spell set at a point, while the caster moves and turns it. */
+  private spellGizmo: SpellGizmo | null = null;
+  /** The GM's spell under the pointer with Ctrl held, in Play mode: a click clears it. */
+  private hoveredSpell: string | null = null;
+  /** The token whose name shows (a click on it called it up; anything done next hides it). */
+  private namedId: string | null = null;
+  /** A press that may be a click on a token: on its release, close by, the token's name shows. */
+  private nameClick: { id: string; x: number; y: number } | null = null;
+  /** How the last press came: a finger aims with a drag and Place, a mouse with the lock and a click. */
+  private lastPointer = 'mouse';
+  /** Augmented reality: the phone camera's pose over the printed sheet, the board drawn over its picture; null when off. */
+  private augmented: AugmentedView | null = null;
+  /** The camera's picture behind the board in augmented reality (when the page draws it in), and what it is made from. */
+  private arTexture: THREE.CanvasTexture | null = null;
+  private arSource: unknown = null;
+  /**
+   * Room tracking (WebXR's immersive AR, Android's ARCore): the phone tracks the room itself; the board stands where it
+`   * was put. The drawn camera hangs from `rig`, which takes the room's metres to the board's units.
+   */
+  private room: { session: XRSession; rig: THREE.Group; onFrame: ((frame: XRFrame, space: XRReferenceSpace | null) => void) | null; far: number } | null = null;
+  /** Room tracking's frame times, for a look (the page's tracking numbers): eased over the last frames. */
+  private roomTimes = { frames: 0, interval: 0, work: 0, errors: 0, lastError: '', last: 0 };
+  /** The near plane the map sets, given back when the eye view ends. */
+  private baseNear = 1;
+  /** Fingers on the board (a phone or tablet): two pinch to zoom and slide the view; until all lift, nothing else starts. */
+  private readonly touches = new Map<number, { x: number; y: number }>();
+  private pinch: { grab: { x: number; y: number } | null; spread: number } | null = null;
   private readonly sun = new THREE.DirectionalLight(0xffffff, 2.2);
   private readonly raycaster = new THREE.Raycaster();
   private readonly plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -336,6 +555,18 @@ export class Board {
   private surface: BoardSurface | null = null;
   /** The scenes stacked with this one (elevation layers), as the view gave them, and what draws each. */
   private stackData: readonly ElevationLayerData[] = [];
+  /** A stack given while the camera glides to another floor: laid out when it gets there. */
+  private pendingStack: readonly ElevationLayerData[] | null = null;
+  /** The scene played, as a layer kept ready for when another is shown. */
+  private warmData: readonly ElevationLayerData[] = [];
+  /** Layers put away (not drawn, fading out), kept to come straight back: by path. */
+  private readonly parked = new Map<string, ElevationLayerView>();
+  /** The floors' textures once read, by picture (for what must know at once, as a carried token's fall). */
+  private readonly floorReady = new Map<string, THREE.Texture>();
+  /** The layer key of the scene played (a level's or a stacked scene's path), as the stack names it. */
+  private currentKey: string | null = null;
+  /** The layer about to be the one played (`switchingTo`): its view is swapped with the old scene's the moment it loads. */
+  private nextKey: string | null = null;
   private readonly layerViews = new Map<string, ElevationLayerView>();
   /**
    * What the tokens that see have in sight (line of sight, lineOfSight.ts): the keys `t:<token id>` and `p:<prop id>` of
@@ -348,7 +579,9 @@ export class Board {
   private pov: string | null = null;
   private povSight: Set<string> | null = null;
   /** The unseen squares of the board as dark blocks: of the tokens that see, and of the point of view being previewed. */
-  private sightMasks: { tiles: ReturnType<typeof tilesFor>; sight: Uint8Array | null; pov: Uint8Array | null } | null = null;
+  private sightMasks: { sight: SeenMask | null; pov: SeenMask | null } | null = null;
+  /** The rooms the walls cut the map into, for cinematic sight: kept while the walls stay where they are. */
+  private roomCache: { key: string; rooms: Rooms | null } | null = null;
   private layerRuler: LayerRuler | null = null;
   /** The scene of the stack being placed on the plane ("Adjust position"), its handles, and where it stands now (seen from the scene being played). */
   private adjusting: string | null = null;
@@ -357,7 +590,14 @@ export class Board {
   private readonly veilSight = new SightVeil();
   private readonly veilPov = new SightVeil();
   /** The shut or open state and the shape of the map's walls as a string, kept while the map is the same one. */
-  private sightWalls: { map: BoardMap; signature: string } | null = null;
+  private sightWalls: { map: BoardMap; rules: string; signature: string } | null = null;
+  /** What the cast spells' rules stand on the map while they last (`spellRules.ts`): walls, and lights or darkness. */
+  private ruleWalls: BoardWall[] = [];
+  private ruleLights: BoardLight[] = [];
+  private ruleKey = '';
+  /** The rules the aimed spell's drawing shows. */
+  private spellPreviewRules = '';
+  private ruleDecals: THREE.Mesh[] = [];
   /** Whether the pieces were last drawn under the GM's sight setting: they are shown again when it goes. */
   private sightApplied = false;
   private map: BoardMap | null = null;
@@ -375,10 +615,45 @@ export class Board {
   private cellLabel: THREE.Sprite | null = null;
   private cellLabelAspect = 1;
   private readonly props = new Map<string, PropPiece>();
+  /** Bumped whenever a prop comes, goes, moves, loads or turns solid: the tokens' stands are found again. */
+  private propsVersion = 0;
+  /** The props in the map's order (the last dropped last): each stands on the solid ones before it. */
+  private propOrder: string[] = [];
+  /** The props version the stacking was last worked out for. */
+  private stackedVersion = -1;
+  private readonly standRay = new THREE.Raycaster();
   private readonly arts = new Map<string, Promise<THREE.Texture | null>>();
   private readonly models = new Map<string, Promise<LoadedMini | null>>();
   private press: Press | null = null;
+  /** The map's painted water, drawn over its floor; null while it has none. */
+  private water: WaterSurface | null = null;
+  /** The water brush while the GM paints or erases water; null while the tool is off. */
+  private waterTool: 'paint' | 'erase' | 'fill' | null = null;
+  /** The bucket's sensitivity, 0 (the very colour clicked) to 100 (almost any): how far a colour may be from it. */
+  private waterFill = 30;
+  /** The map's image as the bucket sees it (one pixel a water texel), made at its first fill; null until then. */
+  private fillColors: { key: string; colors: Uint8ClampedArray } | null = null;
+  /** How the map's image lies in the world, for the bucket: the image and the affine carrying its pixels there. */
+  private fillSource: FillSource | null = null;
+  /** The water brush's radius, in grid cells. */
+  private waterBrush = 1;
+  /** The water brush's outline under the pointer, its size; null until the brush is first over the board. */
+  private brushRing: THREE.Mesh | null = null;
+  private brushRingRadius = 0;
+  /** The water mask as last read from or saved to the board data (to tell when an undo changed it). */
+  private waterKey = 'null';
+  /** Where the pointer was over the board last, for the brush outline (null: off the board). */
+  private brushAt: { x: number; y: number } | null = null;
+  /** Ctrl + scroll not yet a whole notch of brush size, in pixels. */
+  private brushScroll = 0;
+  /** The water brush is the eraser only while Shift is held: back to the brush when it is let go. */
+  private shiftErase = false;
+  private brushTipTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The motion the GM chose for this map's water, before any is painted too; null follows what the map keeps. */
+  private chosenWaterMotion: WaterMotion | null = null;
   private placing: string | null = null;
+  /** The look of the prop being placed (a variant's), else none: as the model comes. */
+  private placingLook: PropLook | undefined = undefined;
   /** The material a click paints walls with, chosen in the gallery; null when not painting. */
   private painting: string | null = null;
   private readonly held = new Set<string>();
@@ -419,7 +694,17 @@ export class Board {
   /** A tint shown while the colour picker moves, before it is kept; '' is none. */
   private tintShown: string | null = null;
   /** The height being dragged (Ctrl + drag), shown before it is kept. */
-  private heightDrag: { target: 'wall' | 'light'; id: string; value: number } | null = null;
+  private heightDrag: { target: HeightTarget; id: string; value: number } | null = null;
+  /** Where the pointer last was over the board, for Ctrl pressed without a move. */
+  private pointerAt: { x: number; y: number } | null = null;
+  /** Ctrl's handles on the wall under the pointer: its top, and a window's sill and lintel. */
+  private handles: { wall: string; kind: HandleKind; group: THREE.Group; spots: { part: WallPart; at: THREE.Vector3 }[] } | null = null;
+  /** With Ctrl over a prop in Edit mode: a dot on its top, ready for a drag that scales it. */
+  private propHandle: THREE.Mesh | null = null;
+  /** With Alt over a prop that is not solid, in Edit mode: a line up through it, ready for a drag that raises it. */
+  private propLine: THREE.Mesh | null = null;
+  /** The last Alt + click on a prop, for Alt + double click (which resets its height). */
+  private liftClick: { id: string; at: number } | null = null;
   /** Where the camera was when the shadow-casting lights were last chosen. */
   private castersAt = { x: Number.POSITIVE_INFINITY, z: Number.POSITIVE_INFINITY };
   private flickerTimer = 0;
@@ -448,6 +733,12 @@ export class Board {
   /** A Connect player's tools, and what people mark on the board in a session (templates, pings, lasers). */
   readonly tools = new PlayerToolState();
   readonly marks = new BoardMarks();
+  /** Players looking at the map in augmented reality: an eye where each phone is (the GM's board, while hosting). */
+  readonly viewers = new ArViewers();
+  /** The players' AR table (the GM's board while hosting): its sheets drawn on the map, and whether the GM is placing it. */
+  private arTable: SavedArTable | null = null;
+  private tablePlacing = false;
+  private readonly tableOutlines = new THREE.Group();
   /** A player's camera stands inside the fog: the picture is black. */
   private blind = false;
   /** The thrower's dice, drawn on this board only: never in the players' picture. */
@@ -466,10 +757,14 @@ export class Board {
     container.appendChild(this.tooltip);
     this.walls = new WallSet({
       look: (path, door) => this.wallLook(path, door),
-      materialOf: (id) => this.host.wallMaterial(id),
+      // A material dragged over a wall shows on it before it is dropped.
+      materialOf: (id) => (this.paintPreview?.ids.includes(id) ? this.paintPreview.material : this.host.wallMaterial(id)),
+      defaultOf: (wall) => materialWith(null, wall, this.host.materialDefaults?.()),
       displaces: (path) => (path ? this.wallMaterials.get(path)?.userData.displaces === true : false),
       tileOf: (path) => (path ? (this.wallMaterials.get(path)?.userData.tileScale as number | undefined) ?? 1 : 1),
       heightOf: (id) => (this.heightDrag?.target === 'wall' && this.heightDrag.id === id ? this.heightDrag.value : this.host.wallHeight(id)),
+      windowOf: (id) => this.shownWindow(id),
+      widthOf: (id) => (this.heightDrag?.target === 'width' && this.heightDrag.id === id ? this.heightDrag.value : this.host.wallWidth?.(id) ?? null),
       propOf: (id) => this.host.doorProp(id),
       flipOf: (id) => this.host.doorFlip?.(id) ?? NO_FLIP,
       prop: (glb) => this.model(glb),
@@ -491,10 +786,18 @@ export class Board {
       ...(this.host.setLineOfSight && { setLineOfSight: (mode: SightMode) => this.host.setLineOfSight?.(mode) }),
       ...(this.host.setLayerLook && { setLayerLook: (look: LayerLook) => this.host.setLayerLook?.(look) }),
       ...(this.host.setSeeThrough && { setSeeThrough: (on: boolean) => this.host.setSeeThrough?.(on) }),
+      ...(this.host.setSnap && { snap: () => ({ tokens: this.map?.grid.snap ?? true, props: this.host.snapProps?.() ?? true }), setSnap: (kind: 'tokens' | 'props', on: boolean) => this.host.setSnap?.(kind, on) }),
       ...(this.host.setWallEdges && { setWallEdges: (edges: WallEdges) => this.host.setWallEdges?.(edges) }),
       playerViewOpen: () => this.host.playerViewOpen(),
       laserOn: () => this.laserOn,
-      selectTool: (tool) => this.setLaser(tool === 'laser'),
+      selectTool: (tool) => { this.waterTool = null; this.showBrush(); this.stopPainting(); this.setLaser(tool === 'laser'); this.toolbar.refresh(); },
+      ...(this.audience === 'gm' && {
+        mode: () => this.host.boardMode?.() ?? null,
+        setMode: (mode: 'play' | 'edit') => this.setMode(mode),
+        painting: () => this.painting,
+        setPainting: (material: string | null) => this.paintWith(material),
+        materials: () => this.host.materials?.() ?? [],
+      }),
       laser: () => this.host.laser(),
       canLight: () => this.host.setLighting !== undefined,
       lighting: () => choiceOf(this.quality.painted, this.quality.sky),
@@ -510,10 +813,42 @@ export class Board {
       playerFrozen: () => this.player?.frozen != null,
       togglePlayerFreeze: () => this.setPlayerFrozen(this.player?.frozen == null),
       hosting: () => this.host.hosting?.() === true,
+      ...(this.audience === 'gm' && {
+        arTableSheets: () => this.arTable?.survey.groups.length ?? null,
+        placeArTable: () => this.placeTable(true),
+      }),
+      waterTool: () => this.waterTool,
+      setWaterTool: (mode) => {
+        this.shiftErase = false;
+        if (mode) this.stopPainting();
+        this.waterTool = mode;
+        if (mode && this.tools.tool !== 'move') { this.tools.select('move'); this.toolsChanged(); }
+        this.showBrush();
+        this.toolbar.refresh();
+      },
+      waterBrush: () => this.waterBrush,
+      waterFill: () => this.waterFill,
+      setWaterFill: (sensitivity) => { this.waterFill = Math.min(100, Math.max(0, Math.round(sensitivity))); },
+      setWaterBrush: (cells) => { this.waterBrush = Math.min(8, Math.max(0.25, cells)); this.showBrush(); },
+      waterMotion: () => this.water?.currentMotion ?? this.chosenWaterMotion ?? readWaterMotion(this.host.water?.()?.motion),
+      setWaterMotion: (motion) => { this.chosenWaterMotion = motion; this.water?.setMotion(motion); this.host.saveWaterMotion?.(motion); this.wake(); },
+      measureOn: () => this.tools.tool === 'measure',
+      measureShape: () => this.tools.shape,
+      selectMeasure: (shape) => {
+        if (shape !== null) { this.waterTool = null; this.stopPainting(); }
+        if (shape === null) this.tools.select('move');
+        else this.tools.selectShape(shape);
+        this.toolsChanged();
+      },
       templateOn: () => this.tools.tool === 'template',
       templateShape: () => this.tools.templateShape,
-      clearTemplates: () => { this.host.playerAction?.({ type: 'template', change: { clear: true } }); },
+      clearTemplates: () => { this.act([{ type: 'template', change: { clear: true } }]); },
+      canUndo: () => this.host.canUndo?.() === true,
+      canRedo: () => this.host.canRedo?.() === true,
+      undo: this.host.undo ? () => this.host.undo?.() : undefined,
+      redo: this.host.redo ? () => this.host.redo?.() : undefined,
       selectTemplate: (shape) => {
+        if (shape !== null) this.stopPainting();
         if (shape === null) this.tools.select('move');
         else this.tools.selectTemplateShape(shape as TemplateShape);
         this.toolsChanged();
@@ -543,7 +878,8 @@ export class Board {
     });
     this.toolbar.setHidden(this.audience === 'player');
     this.tools.eraseAny = this.audience === 'gm';
-    this.scene.add(this.darkness.object3d, this.marks.object3d, this.groupMarks.object3d, this.activeMarks.object3d);
+    this.scene.add(this.darkness.object3d, this.marks.object3d, this.groupMarks.object3d, this.activeMarks.object3d, this.viewers.object3d, this.tableOutlines);
+    this.tableOutlines.name = 'ar-table';
     this.groupBar = new GroupBar(container, { rotate: (delta) => this.rotateGroup(delta), hp: (delta) => this.changeGroupHp(delta), clear: () => this.clearGroup() });
     this.controls = new ResourceControls(container, {
       step: (key, delta) => this.stepResource(key, delta),
@@ -552,7 +888,9 @@ export class Board {
 
     // The fast card where the browser lets a page ask (a Mac with two); on Windows, Tabletop's graphics card setting.
     // A stencil buffer: the line round a die still to be thrown is drawn only outside the die (dieOutline.ts).
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: quality.antialias, powerPreference: 'high-performance', stencil: true });
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: quality.antialias, powerPreference: 'high-performance', stencil: true, alpha: true });
+    // Opaque as ever outside augmented reality: a see-through canvas would let the pane show through what blends.
+    this.renderer.setClearColor(0x000000, 1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     setLook(this.renderer, this.quality.painted);
     this.renderer.shadowMap.enabled = true;
@@ -582,6 +920,11 @@ export class Board {
     const first = this.map === null;
     const sameImage = this.map?.background === map.background;
     this.map = map;
+    // Another of the stack becomes the one played: its layer is put away and the old scene comes back as a layer (kept
+    // ready), at once, both easing; the camera glides between them.
+    const next = this.nextKey;
+    this.nextKey = null;
+    if (!first && next !== null && next !== this.currentKey) this.swapLayers(next, shiftY, carry);
     if (first || !sameImage || this.gridChanged(map)) await this.buildSurface(map);
     if (this.disposed) return;
     // Another scene of the stack: the camera stays where it was in the world, then glides to the new floor.
@@ -592,6 +935,8 @@ export class Board {
       this.camera.snap();
     }
     this.sync();
+    // The same floor, other news (a player's board getting its board extras): the water is read again where it changed.
+    this.syncWater(map);
   }
 
   /**
@@ -599,8 +944,22 @@ export class Board {
    * scene is the one edited and played.
    */
   setStack(layers: readonly ElevationLayerData[]): void {
-    this.stackData = layers;
+    // Read while gliding to another floor: laid out once there, so the glide does not stutter.
+    // (A layer not drawn yet is built at once, not left missing.)
+    const known = layers.every((layer) => layer.current || this.layerViews.has(layer.path) || this.parked.has(layer.path));
+    if (this.camera?.gliding && known) { this.pendingStack = layers; this.wake(true); return; }
+    this.pendingStack = null;
+    // Low on memory: the scene shown alone.
+    const all = this.quality.noLayers ? [] : layers;
+    this.stackData = all.filter((layer) => !layer.current);
+    // The scene played, kept ready (put away) as a layer for when another is shown.
+    this.warmData = all.filter((layer) => layer.current);
+    const current = this.warmData[0];
+    if (current) this.currentKey = current.path;
     this.applyStack();
+    // The stack as read for the scene played: floors none of it shows go (only now: while a scene is being changed,
+    // the one left is still to become a layer).
+    this.pruneFloors();
   }
 
   private applyStack(): void {
@@ -615,10 +974,11 @@ export class Board {
     // The scene being placed is gone from the stack: no more handles.
     if (this.adjusting !== null && !wanted.has(this.adjusting)) this.setAdjust(null);
     else if (this.adjusting !== null && this.press?.kind !== 'gizmo') this.adjustPlacement = wanted.get(this.adjusting)?.stands ?? NO_PLACEMENT;
+    // A layer no longer drawn is put away, not thrown out: shown again it fades straight back in, nothing read again.
     for (const [path, view] of [...this.layerViews]) {
       if (wanted.has(path)) continue;
-      view.dispose();
       this.layerViews.delete(path);
+      this.park(path, view);
     }
     const measurement = this.host.measurement();
     const shape: ElevationLayerShape = {
@@ -634,23 +994,44 @@ export class Board {
       litThreshold: LIT_THRESHOLD,
       unitDistance: measurement.unitDistance > 0 ? measurement.unitDistance : 5,
     };
-    for (const layer of wanted.values()) {
-      let view = this.layerViews.get(layer.path);
+    for (const layer of [...wanted.values(), ...this.warmData]) {
+      const warm = layer.current === true;
+      let view = this.layerViews.get(layer.path) ?? this.parked.get(layer.path);
+      if (view && !warm && this.parked.get(layer.path) === view) {
+        // Back from being put away: it fades in.
+        this.parked.delete(layer.path);
+        this.layerViews.set(layer.path, view);
+        view.object3d.visible = true;
+        view.fadeTo(1);
+      } else if (view && warm && this.layerViews.get(layer.path) === view) {
+        this.layerViews.delete(layer.path);
+        this.park(layer.path, view);
+      }
       if (!view) {
         view = new ElevationLayerView(layer, {
           wallLook: (path, door) => this.wallLook(path, door),
+          defaultOf: (wall) => materialWith(null, wall, this.host.materialDefaults?.()),
           displaces: (path) => (path ? this.wallMaterials.get(path)?.userData.displaces === true : false),
           tileOf: (path) => (path ? (this.wallMaterials.get(path)?.userData.tileScale as number | undefined) ?? 1 : 1),
           model: (path) => this.model(path),
-          image: (path) => this.mapTexture(path),
+          image: (path) => this.floorTexture(path),
           art: (path) => this.artTexture(path),
           cut: (material) => addCutaway(material, this.cutaway),
           wake: () => this.wake(true),
         });
-        this.layerViews.set(layer.path, view);
         this.scene.add(view.object3d);
+        if (warm) this.park(layer.path, view, true);
+        else this.layerViews.set(layer.path, view);
       }
       view.update(layer, layer.elevation > 0 ? shape : { ...shape, look: 'solid' });
+      // A layer the GM hid is not drawn (and so stands between the camera and nothing), whatever the Upper layers look.
+      if (!warm) view.object3d.visible = this.host.layerHidden?.(layer.path) !== true;
+    }
+    // Put away beyond a dozen: the oldest go for good.
+    while (this.parked.size > PARKED_LAYERS) {
+      const [path, view] = this.parked.entries().next().value as [string, ElevationLayerView];
+      this.parked.delete(path);
+      view.dispose();
     }
     this.shadowsDirty = true;
     this.wake(true);
@@ -671,7 +1052,11 @@ export class Board {
     }
     // A hidden token gives players no sight (Atlas 0.7); a token that sees is always in sight of itself. A point of view
     // being previewed is that one token's, whatever it has vision on or not.
-    const viewers = [...this.tokens.values()].filter((entry) => entry.token.sees && !entry.token.hidden);
+    // A defeated token (a defeating resource spent) gives no sight either (Atlas 0.14); when every token that sees is
+    // defeated, the players see nothing rather than everything.
+    const seers = [...this.tokens.values()].filter((entry) => entry.token.sees && !entry.token.hidden);
+    const viewers = seers.filter((entry) => !entry.piece.downed);
+    const blind = seers.length > 0 && viewers.length === 0;
     const lookingFrom = this.pov !== null ? this.tokens.get(this.pov) ?? null : null;
     const pieces = [
       ...[...this.tokens.values()].map((entry) => ({ key: `t:${entry.token.id}`, at: { x: entry.at.x, y: entry.at.y } })),
@@ -682,38 +1067,69 @@ export class Board {
     const round = (value: number): number => Math.round(value / quantum) * quantum;
     const viewerPoints = viewers.map((entry) => ({ x: round(entry.at.x), y: round(entry.at.y) }));
     const piecePoints = pieces.map((piece) => ({ key: piece.key, at: { x: round(piece.at.x), y: round(piece.at.y) } }));
-    if (this.sightWalls?.map !== map) {
-      this.sightWalls = { map, signature: JSON.stringify(map.walls.map((wall) => [wall.id, wall.closed ? 1 : 0, wall.p1, wall.p2, wall.type, wall.blocks, wall.direction, wall.limited])) };
+    // The map's walls and those the spells cast stand (a wall of stone, a fog's edge).
+    const walls = this.ruleWalls.length > 0 ? [...map.walls, ...this.ruleWalls] : map.walls;
+    if (this.sightWalls?.map !== map || this.sightWalls.rules !== this.ruleKey) {
+      this.sightWalls = { map, rules: this.ruleKey, signature: JSON.stringify(walls.map((wall) => [wall.id, wall.closed ? 1 : 0, wall.p1, wall.p2, wall.type, wall.blocks, wall.direction, wall.limited])) };
     }
     const povPoint = lookingFrom ? { x: round(lookingFrom.at.x), y: round(lookingFrom.at.y) } : null;
     // The blocks stand as tall as the tallest wall, so nothing of an unseen square shows over them.
     const wallHeights = map.walls.map((wall) => this.host.wallHeight(wall.id) ?? 0);
     const veilHeight = Math.max(MIN_WALL_SQUARES, this.host.fogHeight(), ...wallHeights) * map.grid.size * 1.02;
-    const key = JSON.stringify([viewerPoints, povPoint, this.pov, this.quality.sightStyle, veilHeight, this.size, map.grid.size, map.grid.offsetX, map.grid.offsetY, piecePoints.map((piece) => [piece.key, piece.at.x, piece.at.y])]) + this.sightWalls.signature;
+    const key = JSON.stringify([viewerPoints, blind, povPoint, this.pov, this.quality.sightStyle, veilHeight, this.size, map.grid.size, map.grid.offsetX, map.grid.offsetY, piecePoints.map((piece) => [piece.key, piece.at.x, piece.at.y])]) + this.sightWalls.signature;
     if (key === this.sightKey) return false;
     this.sightKey = key;
     // The squares no viewer has in sight, as blocks over the board; the pieces on them are hidden with them.
     const tiles = tilesFor(this.size.width, this.size.height, map.grid.size, map.grid.offsetX, map.grid.offsetY);
     const bounds = { x0: 0, y0: 0, x1: this.size.width, y1: this.size.height };
     const cinematic = this.quality.sightStyle === 'cinematic';
-    const mask = (points: Array<{ x: number; y: number }>): Uint8Array => (cinematic
-      ? connectedTiles(points, map.walls, tiles)
-      : seenTiles(points.map((point) => visibilityPolygon(point, map.walls, bounds)), points, tiles));
-    // Cinematically a piece is seen when its square is; by rays, when a line from a viewer reaches it.
-    const onSeen = (squares: Uint8Array): Set<string> => new Set(piecePoints.filter((piece) => {
-      const col = Math.floor((piece.at.x - tiles.startX) / tiles.size);
-      const row = Math.floor((piece.at.y - tiles.startY) / tiles.size);
-      return col >= 0 && col < tiles.cols && row >= 0 && row < tiles.rows && squares[row * tiles.cols + col] === 1;
-    }).map((piece) => piece.key));
-    const sightMask = viewers.length === 0 || this.quality.lineOfSight === 'off' ? null : mask(viewerPoints);
-    const seen = sightMask === null ? null : cinematic ? onSeen(sightMask) : inSight(viewerPoints, piecePoints, map.walls);
+    const bySquares = (squares: Uint8Array): SeenMask => ({
+      squares,
+      seenAt: (x, y) => {
+        const col = Math.floor((x - tiles.startX) / tiles.size);
+        const row = Math.floor((y - tiles.startY) / tiles.size);
+        return col >= 0 && col < tiles.cols && row >= 0 && row < tiles.rows && squares[row * tiles.cols + col] === 1;
+      },
+    });
+    // Cinematically by the rooms the walls make (any angle, off the grid); by the grid's squares when the map does not cut into rooms.
+    const rooms = cinematic ? this.roomsOf(map) : null;
+    const mask = (points: Array<{ x: number; y: number }>): SeenMask => {
+      if (cinematic) {
+        const seen = rooms ? seenRooms(rooms, points, walls) : null;
+        if (rooms && seen) return { rooms: { rooms, seen }, seenAt: (x, y) => { const room = roomAt(rooms, { x, y }); return room !== -1 && seen[room] === 1; } };
+        return bySquares(connectedTiles(points, walls, tiles));
+      }
+      // By rays: each viewer's sight polygon; the veil is the map less all of them, along the lines of sight themselves.
+      const polygons = points.map((point) => visibilityPolygon(point, walls, bounds));
+      try {
+        const unseen = unseenAreas(polygons, this.size.width, this.size.height);
+        const boxes = polygons.map((polygon) => ({ x0: Math.min(...polygon.map((p) => p.x)), y0: Math.min(...polygon.map((p) => p.y)), x1: Math.max(...polygon.map((p) => p.x)), y1: Math.max(...polygon.map((p) => p.y)) }));
+        return {
+          unseen,
+          seenAt: (x, y) => points.some((point) => Math.abs(point.x - x) < 1 && Math.abs(point.y - y) < 1)
+            || polygons.some((polygon, index) => { const box = boxes[index]!; return x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1 && insidePolygon({ x, y }, polygon); }),
+        };
+      } catch (error) {
+        console.warn('Tabletop: the sight polygons would not combine; the veil goes by squares.', error);
+        return bySquares(seenTiles(polygons, points, tiles));
+      }
+    };
+    // Cinematically a piece is seen when the place it stands is; by rays, when a line from a viewer reaches it.
+    const onSeen = (seen: SeenMask): Set<string> => new Set(piecePoints.filter((piece) => seen.seenAt(piece.at.x, piece.at.y)).map((piece) => piece.key));
+    const sightMask = seers.length === 0 || this.quality.lineOfSight === 'off' ? null : mask(viewerPoints);
+    const seen = sightMask === null ? null : blind ? new Set<string>() : cinematic ? onSeen(sightMask) : inSight(viewerPoints, piecePoints, walls);
     for (const entry of viewers) seen?.add(`t:${entry.token.id}`);
     const povMask = povPoint ? mask([povPoint]) : null;
-    const from = povMask === null ? null : cinematic ? onSeen(povMask) : inSight([povPoint!], piecePoints, map.walls);
+    const from = povMask === null ? null : cinematic ? onSeen(povMask) : inSight([povPoint!], piecePoints, walls);
     from?.add(`t:${this.pov}`);
-    this.sightMasks = { tiles, sight: sightMask, pov: povMask };
-    this.veilSight.update(sightMask, tiles, this.size, veilHeight);
-    this.veilPov.update(povMask, tiles, this.size, veilHeight);
+    this.sightMasks = { sight: sightMask, pov: povMask };
+    const veil = (target: SightVeil, seen: SeenMask | null): void => {
+      if (seen?.rooms) target.updateRooms(seen.rooms.rooms, seen.rooms.seen, veilHeight);
+      else if (seen?.unseen) target.updateAreas(seen.unseen, veilHeight);
+      else target.update(seen?.squares ?? null, tiles, this.size, veilHeight);
+    };
+    veil(this.veilSight, sightMask);
+    veil(this.veilPov, povMask);
     const differs = (a: Set<string> | null, b: Set<string> | null): boolean => (a === null) !== (b === null) || (a !== null && b !== null && (a.size !== b.size || [...a].some((item) => !b.has(item))));
     const changed = differs(seen, this.sight) || differs(from, this.povSight);
     this.sight = seen;
@@ -767,14 +1183,25 @@ export class Board {
   private pointBeyond(viewer: 'gm' | 'player', x: number, y: number): boolean {
     const masks = this.sightMasks;
     if (!masks) return false;
-    let mask: Uint8Array | null = null;
+    let mask: SeenMask | null = null;
     if (viewer === 'gm' && masks.pov) mask = masks.pov;
     else if (masks.sight && (viewer === 'player' || this.quality.lineOfSight === 'everyone')) mask = masks.sight;
     if (!mask) return false;
-    const { cols, rows, size, startX, startY } = masks.tiles;
-    const col = Math.floor((x - startX) / size);
-    const row = Math.floor((y - startY) / size);
-    return col >= 0 && col < cols && row >= 0 && row < rows && mask[row * cols + col] === 0;
+    return !mask.seenAt(x, y);
+  }
+
+  /** The rooms the map's walls cut it into (null: they make none), worked out again only when a wall moves. */
+  private roomsOf(map: BoardMap): Rooms | null {
+    const key = JSON.stringify([this.size.width, this.size.height, map.grid.size, map.walls.map((wall) => [wall.id, wall.p1.x, wall.p1.y, wall.p2.x, wall.p2.y])]);
+    if (this.roomCache?.key === key) return this.roomCache.rooms;
+    let rooms: Rooms | null = null;
+    try {
+      rooms = buildRooms(map.walls, this.size.width, this.size.height, roomTolerance(map.grid.size));
+    } catch (error) {
+      console.warn('Tabletop: the walls would not cut into rooms; cinematic sight goes by squares.', error);
+    }
+    this.roomCache = { key, rooms };
+    return rooms;
   }
 
   /** Whether a piece is beyond what the tokens that see have in sight, as `viewer` sees the board. */
@@ -835,12 +1262,26 @@ export class Board {
 
   /** Re-reads the minis, styles, props and rules from the host (they changed outside the map file). */
   refresh(): void {
-    if (this.map) this.sync();
+    if (!this.map) return;
+    this.sync();
+    this.syncWater(this.map);
+  }
+
+  /** The map's water as saved now (an undo or redo, another board of the map): drawn again where it differs. */
+  private syncWater(map: BoardMap): void {
+    if (this.press?.kind === 'water') return;
+    const saved = this.host.water?.() ?? null;
+    if (JSON.stringify(saved?.mask ?? null) !== this.waterKey) { this.loadWater(map); this.wake(); return; }
+    if (saved?.motion && this.water) {
+      const motion = readWaterMotion(saved.motion);
+      if (JSON.stringify(motion) !== JSON.stringify(this.water.currentMotion)) { this.water.setMotion(motion); this.toolbar.refresh(); this.wake(); }
+    }
   }
 
   /** The next left click on the board drops a prop of `glb` there. */
-  placeProp(glb: string): void {
+  placeProp(glb: string, look?: PropLook): void {
     this.placing = glb;
+    this.placingLook = look;
     this.canvas.setCssStyles({ cursor: 'crosshair' });
     this.canvas.focus();
   }
@@ -870,7 +1311,7 @@ export class Board {
   private async mapTexture(background: string): Promise<THREE.Texture | null> {
     let texture: THREE.Texture | null = null;
     // Never larger than the graphics card takes in one texture, whatever Atlas allows.
-    const side = Math.min(MAX_MAP_TEXTURE, this.renderer.capabilities.maxTextureSize);
+    const side = Math.min(MAX_MAP_TEXTURE, this.quality.textureSide ?? MAX_MAP_TEXTURE, this.renderer.capabilities.maxTextureSize);
     // A map too large to decode whole comes as a picture of Atlas's tiles.
     const picture = await this.host.readPicture?.(background, side).catch(() => null);
     if (picture) texture = mapTextureFromPicture(picture);
@@ -889,9 +1330,45 @@ export class Board {
     return texture;
   }
 
+  /**
+   * The floors of a stack, decoded once and kept while the stack is shown: the scene played and every scene stacked with
+   * it share one texture per image, so going to another scene of the stack reads nothing and decodes nothing (its floor
+   * is already drawn as a layer). A video floor is not kept (letting go of it stops the video).
+   */
+  private readonly floorTextures = new Map<string, Promise<THREE.Texture | null>>();
+
+  private floorTexture(background: string): Promise<THREE.Texture | null> {
+    if (isVideoPath(background)) return this.mapTexture(background);
+    let kept = this.floorTextures.get(background);
+    if (!kept) {
+      kept = this.mapTexture(background).then((texture) => {
+        if (texture) { texture.userData.shared = true; this.floorReady.set(background, texture); }
+        return texture;
+      });
+      this.floorTextures.set(background, kept);
+    }
+    return kept;
+  }
+
+  /** A kept floor's texture, once read (null before). */
+  private floorTextureNow(background: string): THREE.Texture | null {
+    return this.floorReady.get(background) ?? null;
+  }
+
+  /** Lets go of the kept floors no scene of the stack shows any more. */
+  private pruneFloors(): void {
+    const wanted = new Set([this.map?.background, ...this.stackData.map((layer) => layer.map.background), ...[...this.parked.values()].map((view) => view.background)].filter((path): path is string => typeof path === 'string'));
+    for (const [path, kept] of [...this.floorTextures]) {
+      if (wanted.has(path)) continue;
+      this.floorTextures.delete(path);
+      this.floorReady.delete(path);
+      void kept.then((texture) => texture?.dispose());
+    }
+  }
+
   private async buildSurface(map: BoardMap): Promise<void> {
-    const texture = map.background ? await this.mapTexture(map.background) : null;
-    if (this.disposed) { texture?.dispose(); return; }
+    const texture = map.background ? await this.floorTexture(map.background) : null;
+    if (this.disposed) { if (texture && texture.userData.shared !== true) texture.dispose(); return; }
     const imageSize = mapImageSize(texture) ?? { width: FALLBACK_SIZE, height: FALLBACK_SIZE };
     // A player's map comes in the world's own size, whatever the image sent (a shrunk copy, a stretched or turned map).
     const world = map.world && map.world.width > 0 && map.world.height > 0 ? map.world : null;
@@ -904,6 +1381,8 @@ export class Board {
     const matrix = world ? (world.matrix ?? ([width, 0, 0, height, 0, 0] as const)) : undefined;
     this.surface = new BoardSurface(width, height, map.grid, stretch ? { image: imageSize, placement: stretchPlacement(imageSize, stretch) } : undefined, matrix);
     this.surface.setImage(texture);
+    this.fillColors = null;
+    this.fillSource = fillSourceFor(texture, imageSize, world ? matrix ?? null : null, stretch ?? null);
     this.scene.add(this.surface.object3d);
     this.size = { width, height };
     this.hasImage = texture !== null;
@@ -912,6 +1391,7 @@ export class Board {
     const span = Math.max(width, height);
     this.span = span;
     this.applyHorizon();
+    this.loadWater(map);
     this.sun.position.set(width / 2 - span * 0.5, span * 1.2, height / 2 - span * 0.7);
     this.sun.target.position.set(width / 2, 0, height / 2);
     const shadow = this.sun.shadow.camera;
@@ -923,6 +1403,7 @@ export class Board {
     shadow.far = span * 4;
     shadow.updateProjectionMatrix();
     this.view.near = span * 0.005;
+    this.baseNear = this.view.near;
     this.view.far = span * 40;
     this.view.updateProjectionMatrix();
     this.applyStack();
@@ -961,7 +1442,7 @@ export class Board {
         playerLabels.object3d.visible = false;
         piece.object3d.add(labels.object3d, playerLabels.object3d);
         this.scene.add(piece.object3d);
-        entry = { token, piece, labels, playerLabels, at: { x: token.x, y: token.y }, goal: { x: token.x, y: token.y }, mini: null };
+        entry = { token, piece, labels, playerLabels, at: { x: token.x, y: token.y }, goal: { x: token.x, y: token.y }, mini: null, lift: 0 };
         this.tokens.set(token.id, entry);
       } else {
         entry.piece.update(token, rules.definitions);
@@ -983,6 +1464,12 @@ export class Board {
       this.tokens.delete(id);
     }
     if (this.selectedId !== null && !this.tokens.has(this.selectedId)) this.select(null);
+    // Tokens just added (the asset manager's spawn) are selected once they stand on the board.
+    if (this.pendingSelection && this.pendingSelection.every((id) => this.tokens.has(id))) {
+      const ids = this.pendingSelection;
+      this.pendingSelection = null;
+      this.selectTokens(ids);
+    }
     // An editor whose value changed under it (Atlas, another tab) would apply its change to a stale value.
     const editing = this.editor;
     if (editing) {
@@ -1044,6 +1531,7 @@ export class Board {
     });
 
     const wanted = new Map(this.host.props().map((prop) => [prop.id, prop]));
+    this.propOrder = [...wanted.keys()];
     for (const [id, piece] of [...this.props]) {
       const next = wanted.get(id);
       if (next && next.glb === piece.placement.glb && next.scale === piece.placement.scale && next.rotation === piece.placement.rotation) {
@@ -1062,9 +1550,11 @@ export class Board {
       void this.model(prop.glb).then((model) => {
         if (this.props.get(prop.id) !== piece || !model) return;
         piece.setModel(model);
+        this.propsVersion += 1;
         this.wake(true);
       });
     }
+    this.propsVersion += 1;
     // What was rebuilt is sized on screen now: an unsized sprite fills the view for a press made before the next frame.
     const pose = this.lastPose;
     if (pose) {
@@ -1138,8 +1628,9 @@ export class Board {
   private applyHorizon(): void {
     const painted = this.quality.painted;
     this.surface?.widenFloor(painted ? 3 : 1);
+    this.surface?.showFloor(!this.seeThrough);
     this.camera.limits.minPitch = limitsFor(this.size.width, this.size.height, painted).minPitch;
-    this.scene.fog = painted ? new THREE.Fog(tinted(horizonColor(this.quality.sky), this.tintShown ?? this.host.tint()), this.span * 4, this.span * 16) : null;
+    this.scene.fog = painted && !this.seeThrough ? new THREE.Fog(tinted(horizonColor(this.quality.sky), this.tintShown ?? this.host.tint()), this.span * 4, this.span * 16) : null;
   }
 
   /** What the sky behind the table was last painted for: its look, its sky and the tint. */
@@ -1152,6 +1643,8 @@ export class Board {
     this.hemisphere.color.copy(tinted(lighting.skyColor, tint));
     this.hemisphere.groundColor.copy(tinted(lighting.groundColor, tint));
     this.sun.color.copy(tinted(lighting.sunColor, tint));
+    // In augmented reality the camera's picture is the room round the table.
+    if (this.seeThrough) return;
     const key = `${this.quality.painted}|${this.quality.sky}|${tint ?? ''}`;
     if (key === this.backdropKey) return;
     this.backdropKey = key;
@@ -1184,6 +1677,8 @@ export class Board {
   private fitted = { width: 0, height: 0, ratio: 0 };
 
   fit(): void {
+    // The room tracking session sizes the picture itself (and refuses a change while it shows).
+    if (this.room) return;
     const width = Math.max(1, this.container.clientWidth);
     const height = Math.max(1, this.container.clientHeight);
     const ratio = this.renderer.getPixelRatio();
@@ -1212,7 +1707,8 @@ export class Board {
   private drawMain(): void {
     if (this.audience === 'player') {
       this.showFor('player');
-      this.blind = this.fog.hides(this.view.position, (point) => insideFog(this.fog.areas, point));
+      // Over the table in augmented reality the camera is no token's: it is never inside the fog.
+      this.blind = !this.seeThrough && this.fog.hides(this.view.position, (point) => insideFog(this.fog.areas, point));
       if (this.blind) {
         this.renderer.setClearColor(0x000000, 1);
         this.renderer.clear();
@@ -1227,8 +1723,19 @@ export class Board {
       this.showFor('gm');
       this.sightApplied = false;
     }
-    this.fog.face(this.view.position);
-    if (this.quality.tiltShift || this.quality.occlusion) {
+    // Looking out of a token's eyes, the scenes above are always there, whole and solid; their own look again after.
+    const firstPerson = this.eye !== null;
+    for (const view of this.layerViews.values()) {
+      if (firstPerson) { view.setVisible(true); view.setBlackout(false); }
+      view.setFirstPerson(firstPerson);
+    }
+    // In room tracking the drawn camera hangs from the rig: its own position is in the room's metres.
+    this.fog.face(this.room ? this.view.getWorldPosition(new THREE.Vector3()) : this.view.position);
+    if (this.seeThrough) {
+      // See-through where nothing is drawn, the effects (which fill the picture) left out.
+      this.renderer.setClearColor(0x000000, 0);
+      this.renderer.render(this.scene, this.view);
+    } else if (this.quality.tiltShift || this.quality.occlusion) {
       this.tilt ??= new PostFx(this.renderer, this.quality.antialias);
       this.tilt.render(this.scene, this.view, this.looks());
     } else {
@@ -1271,8 +1778,47 @@ export class Board {
       pose.target.z = carried.z;
       pose.yaw = carried.yaw;
     }
-    this.camera.pose.target.y += shiftY;
+    // A long, eased glide to the new floor (the old one fades out under it meanwhile).
+    const from = this.camera.pose.target.y + shiftY;
     this.camera.goal.target.y = 0;
+    if (shiftY) this.camera.glideY(from, LAYER_GLIDE_SECONDS); else this.camera.pose.target.y = from;
+    this.wake(true);
+  }
+
+  /** The scene about to be shown is the stack's `key` (a level's key or a scene's path): the next load swaps them over. */
+  switchingTo(key: string): void {
+    this.nextKey = key;
+  }
+
+  /** Puts a layer away: it fades out, then is not drawn; kept to come back. */
+  private park(path: string, view: ElevationLayerView, instant = false): void {
+    this.parked.delete(path);
+    this.parked.set(path, view);
+    view.fadeTo(0);
+    if (instant) view.object3d.visible = false;
+  }
+
+  /**
+   * The layer `next` becomes the scene played: every layer moves by the scenes' difference in height, `next`'s own is
+   * put away (the scene's floor takes its place) and the old scene's comes back as a layer, easing in. Only where the
+   * scenes share a plane (levels, or scenes not moved apart); else the stack is laid out again once read.
+   */
+  private swapLayers(next: string, shiftY: number, carry: Placement): void {
+    const cell = this.map?.grid.size ?? 50;
+    if (!isNoPlacement(carry)) return;
+    const squares = shiftY / cell;
+    for (const view of [...this.layerViews.values(), ...this.parked.values()]) view.shiftElevation(squares);
+    const incoming = this.layerViews.get(next);
+    if (incoming) { this.layerViews.delete(next); this.park(next, incoming); }
+    const old = this.currentKey !== null ? this.parked.get(this.currentKey) : undefined;
+    if (old && this.currentKey !== null) {
+      this.parked.delete(this.currentKey);
+      this.layerViews.set(this.currentKey, old);
+      old.object3d.visible = this.host.layerHidden?.(this.currentKey) !== true;
+      old.restyle(old.elevation > 0 ? this.quality.layerLook : 'solid');
+      old.fadeTo(1);
+    }
+    this.currentKey = next;
     this.wake(true);
   }
 
@@ -1292,6 +1838,7 @@ export class Board {
    * dragged and is saved when let go.
    */
   setAdjust(path: string | null): void {
+    if (path !== null && this.tablePlacing) this.placeTable(false);
     const layer = path === null ? null : this.stackData.find((candidate) => candidate.path === path) ?? null;
     const next = layer ? layer.path : null;
     if (next === this.adjusting) return;
@@ -1308,6 +1855,200 @@ export class Board {
     }
     this.showAdjustChip();
     this.wake(true);
+  }
+
+  // ── The players' AR table ────────────────────────────────────────────────
+
+  /**
+   * Where the players' printed AR marker sheets lie on the map (Connect's players surveyed it, the GM placed it), drawn
+   * as their outlines with their names; null takes them away. Only the GM's board shows them, never the players' window.
+   */
+  setArTable(table: SavedArTable | null): void {
+    this.arTable = table;
+    if (!table && this.tablePlacing) this.placeTable(false);
+    if (!this.tablePlacing && table) this.adjustPlacement = this.tablePlacement(table);
+    // Placing, and not mid-drag: the handles stay on the table's middle (its square size may have changed).
+    if (this.tablePlacing && this.gizmo && this.press?.kind !== 'gizmo') {
+      const middle = this.tableMiddle();
+      this.gizmo.object3d.position.set(middle.x, this.tableHeight() + 0.5, middle.y);
+    }
+    this.drawTable();
+    this.wake(true);
+  }
+
+  /** Starts (or stops) placing the AR table: the move and turn handles on it, and a chip to say so. */
+  placeTable(on: boolean): void {
+    if (on && !this.arTable) return;
+    if (on && this.adjusting !== null) this.setAdjust(null);
+    this.tablePlacing = on;
+    this.gizmo?.dispose();
+    this.gizmo = null;
+    if (on && this.arTable && this.map) {
+      this.adjustPlacement = this.tablePlacement(this.arTable);
+      const middle = this.tableMiddle();
+      const gizmo = new PlacementGizmo();
+      gizmo.object3d.position.set(middle.x, this.tableHeight() + 0.5, middle.y);
+      this.scene.add(gizmo.object3d);
+      this.gizmo = gizmo;
+      this.camera.lookAt({ x: middle.x, y: 0, z: middle.y });
+    }
+    this.showTableChip();
+    this.drawTable();
+    this.wake(true);
+  }
+
+  /** The point of the map in the middle of the view (squares). */
+  viewMiddle(): { x: number; y: number } {
+    const target = this.camera.goal.target;
+    const cell = this.map?.grid.size ?? 70;
+    return { x: target.x / cell, y: target.z / cell };
+  }
+
+  /** Whether the GM is placing the AR table. */
+  get placingTable(): boolean {
+    return this.tablePlacing;
+  }
+
+  /** The saved placing as the gizmo works it: map pixels and degrees. */
+  private tablePlacement(table: SavedArTable): Placement {
+    const cell = this.map?.grid.size ?? 70;
+    return { x: table.place.x * cell, y: table.place.y * cell, turn: (table.place.turn * 180) / Math.PI };
+  }
+
+  /** The table as placed now (the handles' placing while they are dragged). */
+  private placedTable(): SavedArTable | null {
+    const table = this.arTable;
+    if (!table) return null;
+    if (!this.tablePlacing) return table;
+    const cell = this.map?.grid.size ?? 70;
+    const p = this.adjustPlacement;
+    return { survey: table.survey, place: { x: p.x / cell, y: p.y / cell, turn: (p.turn * Math.PI) / 180 } };
+  }
+
+  /** A survey point (millimetres) on the map (map pixels), as placed now. */
+  private tablePoint(table: SavedArTable, x: number, y: number): { x: number; y: number } {
+    const cell = this.map?.grid.size ?? 70;
+    const k = cell / table.survey.squareMm;
+    const c = Math.cos(table.place.turn);
+    const s = Math.sin(table.place.turn);
+    return { x: table.place.x * cell + (c * x - s * y) * k, y: table.place.y * cell + (s * x + c * y) * k };
+  }
+
+  /** The middle of the table's sheets on the map (map pixels). */
+  private tableMiddle(): { x: number; y: number } {
+    const table = this.placedTable();
+    if (!table) return { x: this.size.width / 2, y: this.size.height / 2 };
+    const points = table.survey.groups.map((group) => this.tablePoint(table, group.x, group.y));
+    return { x: points.reduce((sum, p) => sum + p.x, 0) / points.length, y: points.reduce((sum, p) => sum + p.y, 0) / points.length };
+  }
+
+  /** The table is the lowest scene's floor. */
+  private tableHeight(): number {
+    return Math.min(0, ...this.stackData.map((layer) => layer.elevation)) * (this.map?.grid.size ?? 70) + 1.5;
+  }
+
+  /** The sheets' outlines and names on the map. */
+  private drawTable(): void {
+    const group = this.tableOutlines;
+    for (const child of [...group.children]) {
+      group.remove(child);
+      child.traverse((node) => {
+        const mesh = node as THREE.Mesh;
+        mesh.geometry?.dispose();
+        const material = mesh.material as THREE.Material | undefined;
+        if (material) { (material as THREE.SpriteMaterial).map?.dispose(); material.dispose(); }
+      });
+    }
+    const table = this.placedTable();
+    // Seen only while the GM fine-tunes it (Board settings, AR table).
+    if (!table || !this.map || !this.tablePlacing) return;
+    const y = this.tableHeight();
+    const color = this.tablePlacing ? 0x5ec8ff : 0x9ad7ff;
+    for (const sheet of table.survey.groups) {
+      const c = Math.cos(sheet.heading);
+      const s = Math.sin(sheet.heading);
+      const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => {
+        const lx = (u * sheet.w) / 2;
+        const ly = (v * sheet.h) / 2;
+        const point = this.tablePoint(table, sheet.x + c * lx - s * ly, sheet.y + s * lx + c * ly);
+        return new THREE.Vector3(point.x, y, point.y);
+      });
+      const line = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(corners), new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9, depthTest: false }));
+      line.renderOrder = 9;
+      const shape = new THREE.Shape(corners.map((corner) => new THREE.Vector2(corner.x, corner.z)));
+      const fill = new THREE.Mesh(new THREE.ShapeGeometry(shape).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: this.tablePlacing ? 0.18 : 0.1, depthWrite: false, depthTest: false, side: THREE.DoubleSide }));
+      fill.position.y = y;
+      fill.renderOrder = 8;
+      const middle = this.tablePoint(table, sheet.x, sheet.y);
+      const plate = plateTexture(groupLabel(sheet.group), 20);
+      const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: plate.texture, sizeAttenuation: false, transparent: true, depthTest: false }));
+      label.userData.aspect = plate.width / plate.height;
+      label.position.set(middle.x, y + 1, middle.y);
+      label.renderOrder = 10;
+      group.add(line, fill, label);
+    }
+    this.sizeTableLabels();
+  }
+
+  /** The sheets' names keep one size on screen. */
+  private sizeTableLabels(): void {
+    const pixel = this.lastPose?.pixel;
+    if (!pixel) return;
+    for (const child of this.tableOutlines.children) {
+      if (!(child as THREE.Sprite).isSprite) continue;
+      const aspect = (child.userData.aspect as number | undefined) ?? 1;
+      child.scale.set(pixel * 18 * aspect, pixel * 18, 1);
+    }
+  }
+
+  /** The chip over the board while placing the AR table: its square size, and Done or Remove. */
+  private showTableChip(): void {
+    let chip = this.container.querySelector<HTMLElement>(':scope > .atlas-tabletop-adjust.is-table');
+    if (!this.tablePlacing) {
+      chip?.remove();
+      return;
+    }
+    const doc = this.container.ownerDocument;
+    if (!chip) {
+      chip = doc.win.createDiv();
+      chip.className = 'atlas-tabletop-adjust is-table';
+      chip.setAttribute('role', 'status');
+      this.container.appendChild(chip);
+    }
+    chip.replaceChildren();
+    const table = this.arTable;
+    const text = doc.win.createSpan();
+    text.textContent = `Placing the AR table${table ? ` (${table.survey.groups.length} sheets)` : ''}: drag the handles`;
+    const square = doc.win.createEl('select');
+    square.setAttribute('aria-label', 'A square on the table');
+    for (const size of TABLE_SQUARES_MM) {
+      const option = doc.win.createEl('option');
+      option.value = String(size);
+      option.textContent = `${size} mm squares`;
+      option.selected = size === table?.survey.squareMm;
+      square.append(option);
+    }
+    if (table && !(TABLE_SQUARES_MM as readonly number[]).includes(table.survey.squareMm)) {
+      const option = doc.win.createEl('option');
+      option.value = String(table.survey.squareMm);
+      option.textContent = `${table.survey.squareMm} mm squares`;
+      option.selected = true;
+      square.append(option);
+    }
+    square.addEventListener('change', () => {
+      const placed = this.placedTable();
+      if (!placed) return;
+      this.host.tablePlaced?.({ ...placed, survey: { ...placed.survey, squareMm: Number(square.value) } });
+    });
+    const remove = doc.win.createEl('button');
+    remove.type = 'button';
+    remove.textContent = 'Remove';
+    remove.addEventListener('click', () => { this.placeTable(false); this.host.tableRemoved?.(); });
+    const done = doc.win.createEl('button');
+    done.type = 'button';
+    done.textContent = 'Done';
+    done.addEventListener('click', () => this.placeTable(false));
+    chip.append(text, square, remove, done);
   }
 
   /** A chip over the board says which scene is being placed, and stops it. */
@@ -1352,7 +2093,7 @@ export class Board {
   /** A press on a handle: the scene follows the pointer from here. */
   private beginGizmo(x: number, y: number): boolean {
     const gizmo = this.gizmo;
-    if (!gizmo || this.adjusting === null) return false;
+    if (!gizmo || (this.adjusting === null && !this.tablePlacing)) return false;
     this.ray(x, y);
     const part = gizmo.hit(this.raycaster);
     const at = this.adjustPoint();
@@ -1365,7 +2106,7 @@ export class Board {
   private dragGizmo(press: Extract<Press, { kind: 'gizmo' }>, x: number, y: number, keys: { shift?: boolean; ctrl?: boolean; alt?: boolean } = {}): void {
     const gizmo = this.gizmo;
     const path = this.adjusting;
-    if (!gizmo || path === null) return;
+    if (!gizmo || (path === null && !this.tablePlacing)) return;
     this.ray(x, y);
     const at = this.adjustPoint();
     if (!at) return;
@@ -1390,6 +2131,12 @@ export class Board {
     }
     press.last = at;
     this.adjustPlacement = next;
+    if (path === null) {
+      // The AR table follows the handles.
+      this.drawTable();
+      this.wake(true);
+      return;
+    }
     this.layerViews.get(path)?.place(next);
     this.shadowsDirty = true;
     this.wake(true);
@@ -1399,12 +2146,17 @@ export class Board {
   private sizeGizmo(): void {
     const gizmo = this.gizmo;
     if (gizmo) gizmo.object3d.scale.setScalar(this.view.position.distanceTo(gizmo.object3d.position) * 0.06);
+    if (this.tableOutlines.children.length > 0) this.sizeTableLabels();
   }
 
   /** The stack's scenes for the height ruler down the right of the board; fewer than two hide it. */
+  /** The height ruler's pills, as last given. */
+  private layerMenuItems: ReadonlyArray<{ path: string; name: string }> = [];
+
   setLayerMenu(items: ReadonlyArray<{ path: string; name: string; elevation: number; active: boolean }> | null): void {
+    this.layerMenuItems = items ?? [];
     this.layerRuler ??= new LayerRuler(this.container, (path) => this.host.switchLayer?.(path), (path, event) => this.host.layerMenu?.(path, event));
-    this.layerRuler.show(items, this.quality.layerTick);
+    this.layerRuler.show(items && items.map((item) => ({ ...item, hidden: !item.active && this.host.layerHidden?.(item.path) === true })), this.quality.layerTick);
   }
 
   setBanner(banner: { text: string; action?: { label: string; run(): void } } | null): void {
@@ -1478,7 +2230,8 @@ export class Board {
   /** Asks for a frame; frames keep coming while anything moves. `changed` says the board itself changed (shadows). */
   wake(changed = false): void {
     if (changed) this.shadowsDirty = true;
-    if (this.disposed || this.frameId !== 0) return;
+    // In room tracking the session's own frames draw the board, one each frame.
+    if (this.disposed || this.frameId !== 0 || this.room) return;
     // A hidden window gets no animation frames: while the GM's is hidden, the players' window drives the drawing.
     const gm = this.container.ownerDocument;
     const players = this.player?.container.ownerDocument;
@@ -1493,16 +2246,21 @@ export class Board {
     const interval = this.last === 0 ? 0 : (time - this.last) / 1000;
     const dt = Math.min(LONGEST_STEP, interval);
     this.last = time;
-    if (this.continuing) {
+    if (this.continuing && !this.room) {
       const ratio = this.governor.sample(interval);
       if (ratio !== null) {
-        this.renderer.setPixelRatio(ratio);
+        // Over a camera's picture, never below the screen's own pixels: the picture would blur.
+        this.renderer.setPixelRatio(this.seeThrough ? Math.max(1, ratio) : ratio);
         this.fit();
       }
     }
     this.clock += dt;
     this.steer(dt);
+    this.water?.tick(time / 1000);
+    // The water brush was put away (another tool, Escape): its outline goes with it.
+    if (this.brushRing?.visible && !this.waterTool) this.brushRing.visible = false;
     const cameraMoving = this.camera.update(dt);
+    if (this.pendingStack && !this.camera.gliding) this.setStack(this.pendingStack);
     let busy = cameraMoving;
     // Settled somewhere new: the lights nearest it cast the shadows now.
     const target = this.camera.goal.target;
@@ -1510,7 +2268,13 @@ export class Board {
       this.castersAt = { x: target.x, z: target.z };
       if (this.rig.castShadows(this.quality.lightShadows, this.castersAt)) this.shadowsDirty = true;
     }
+    if (this.eye) {
+      const { quaternion, turning } = this.eye.turn(dt);
+      this.eyeTurn = quaternion;
+      if (turning) busy = true;
+    }
     this.applyView();
+    this.spellTick();
     const viewHeight = this.renderer.domElement.clientHeight || 1;
     const context: PoseContext = {
       dt,
@@ -1523,10 +2287,20 @@ export class Board {
     if (this.drawLaser()) busy = true;
     let doorsMoving = this.walls.step(dt);
     for (const view of this.layerViews.values()) if (view.step(dt, this.clock, context)) doorsMoving = true;
+    // Layers put away fade out, then are not drawn at all.
+    for (const view of this.parked.values()) {
+      if (!view.object3d.visible) continue;
+      if (view.step(dt, this.clock, context)) doorsMoving = true;
+      if (view.gone) view.object3d.visible = false;
+    }
+    // A layer easing in or out (or to another look) keeps the frames coming until it is done.
+    if ([...this.layerViews.values(), ...this.parked.values()].some((view) => view.object3d.visible && view.fading)) { doorsMoving = true; this.wake(); }
     if (doorsMoving) busy = true;
     if (this.marks.step(this.clock, context.pixel)) busy = true;
+    if (this.viewers.step(this.clock, dt, context.pixel)) busy = true;
     this.rig.step(this.clock);
     const glide = 1 - Math.exp(-GLIDE * dt);
+    if (this.stackedVersion !== this.propsVersion) { this.stackProps(); this.shadowsDirty = true; }
     let changed = this.shadowsDirty || this.press?.kind === 'token' || this.press?.kind === 'prop' || doorsMoving;
     let moving = false;
     // Dice in the air step with the frame, and keep frames (and shadows) coming until the last one is read.
@@ -1549,7 +2323,10 @@ export class Board {
         entry.at.x = entry.goal.x;
         entry.at.y = entry.goal.y;
       }
-      entry.piece.pose(entry.at.x, entry.at.y, context);
+      // On a solid prop the token stands on its top, easing up or down onto it.
+      const stand = this.standAt(entry);
+      if (Math.abs(stand - entry.lift) > 0.05) { entry.lift += (stand - entry.lift) * glide; busy = true; changed = true; } else entry.lift = stand;
+      entry.piece.pose(entry.at.x, entry.at.y, context, entry.lift);
       // A light the token carries goes with it.
       this.rig.place(entry.token.id, entry.at.x, entry.at.y);
       entry.labels.place(entry.piece.figureHeight(), ringDiameter(this.map!.grid, entry.token.size) / 2, entry.piece.top);
@@ -1571,7 +2348,7 @@ export class Board {
     // A mini's clip alone redraws the shadows a few times a second, not every frame.
     const clipsOnly = changed && !this.shadowsDirty && this.press === null && !moving;
     const shadows = changed && (!clipsOnly || this.clock - this.shadowedAt >= CLIP_SHADOW_STEP);
-    if (shadows) {
+    if (shadows && !this.room) {
       this.renderer.shadowMap.needsUpdate = true;
       this.shadowedAt = this.clock;
     }
@@ -1588,9 +2365,10 @@ export class Board {
     if (this.continuing) this.wake();
     // Flames flicker on a timer, a few times a second, not on every frame the screen can draw; those frames are
     // rests to the resolution governor.
-    else if ((this.rig.animated || [...this.layerViews.values()].some((view) => view.animated) || this.video !== null) && this.flickerTimer === 0) {
+    else if ((this.rig.animated || [...this.layerViews.values()].some((view) => view.animated) || this.video !== null || this.water?.moving === true) && this.flickerTimer === 0) {
       const win = this.frameWin ?? this.container.ownerDocument.defaultView ?? window;
-      this.flickerTimer = win.setTimeout(() => { this.flickerTimer = 0; this.wake(); }, this.video !== null ? VIDEO_FRAME_MS : FLICKER_MS);
+      // Moving water is drawn as often as a playing map, so it flows smoothly.
+      this.flickerTimer = win.setTimeout(() => { this.flickerTimer = 0; this.wake(); }, this.video !== null || this.water?.moving === true ? VIDEO_FRAME_MS : FLICKER_MS);
     }
   }
 
@@ -1612,6 +2390,42 @@ export class Board {
 
   /** Puts the drawn camera where the orbit camera's pose says, so rays cast before the next frame see it too. */
   private applyView(): void {
+    if (this.room) {
+      // The session places the drawn camera, under the rig.
+      this.room.rig.updateMatrixWorld(true);
+      const eye = this.view.getWorldPosition(new THREE.Vector3());
+      this.aimCutaway(eye, eye);
+      this.cutaway.strength.value = 0;
+      return;
+    }
+    const ar = this.augmented;
+    if (ar && this.map) {
+      const cell = this.map.grid.size;
+      // A table the GM placed: its origin is the map's top left (at the table's height); else the anchor.
+      const anchor = ar.origin ? { ...this.augmentedAnchor(null), x: ar.origin.x, z: ar.origin.y } : this.augmentedAnchor(ar.anchor);
+      const camera = augmentedCamera(ar, cell, anchor);
+      this.view.position.copy(camera.position);
+      this.view.quaternion.copy(camera.quaternion);
+      this.view.updateMatrixWorld();
+      // A centimetre off the lens to the far side of the room, in board units.
+      const near = Math.max(0.01, (cell / ar.squareMm) * 10);
+      this.view.projectionMatrix.copy(augmentedProjection(ar.frustum, near, Math.max(this.span * 8, near * 1000)));
+      this.view.projectionMatrixInverse.copy(this.view.projectionMatrix).invert();
+      this.aimCutaway(camera.position, { x: anchor.x, y: anchor.y, z: anchor.z });
+      this.cutaway.strength.value = 0;
+      return;
+    }
+    if (this.eye && this.eyeTurn && this.eyeAt()) {
+      const at = this.eyeAt()!;
+      this.view.position.set(at.x, at.y, at.z);
+      this.view.quaternion.copy(this.eyeTurn);
+      this.view.updateMatrixWorld();
+      // No see-through cut from inside the room: the walls around stay whole.
+      const ahead = new THREE.Vector3(0, 0, -1).applyQuaternion(this.eyeTurn).multiplyScalar(this.map?.grid.size ?? 50).add(this.view.position);
+      this.aimCutaway(at, ahead);
+      this.cutaway.strength.value = 0;
+      return;
+    }
     const eye = this.camera.position();
     const target = this.camera.pose.target;
     this.view.position.set(eye.x, eye.y, eye.z);
@@ -1700,6 +2514,198 @@ export class Board {
   }
 
   /** A wall's height as it stands now, in squares: its own, else the fog's (half for a low wall). */
+  /** A window's opening as shown: while its sill or lintel is dragged, where the drag has it (kept inside the wall). */
+  private shownWindow(id: string): WindowSpan | null {
+    const saved = this.host.windowOf?.(id) ?? null;
+    const drag = this.heightDrag;
+    if (!drag || drag.id !== id || (drag.target !== 'sill' && drag.target !== 'lintel')) return saved;
+    const height = this.wallSquares(id);
+    const span = windowSpan(height, saved);
+    if (drag.target === 'sill') return windowSpan(height, { bottom: Math.min(drag.value, span.top - 0.25), top: span.top });
+    return windowSpan(height, { bottom: span.bottom, top: Math.max(drag.value, span.bottom + 0.25) });
+  }
+
+  /** Where one of a wall's handles stands, in grid squares from the floor. */
+  private partSquares(id: string, part: WallPart): number {
+    if (part === 'wall') return this.heightDrag?.target === 'wall' && this.heightDrag.id === id ? this.heightDrag.value : this.wallSquares(id);
+    const span = windowSpan(this.wallSquares(id), this.shownWindow(id));
+    return part === 'sill' ? span.bottom : span.top;
+  }
+
+  /** A wall's width as it stands now, in squares: its own (or as dragged), else the map's wall thickness. */
+  private wallWidthSquares(id: string): number {
+    if (this.heightDrag?.target === 'width' && this.heightDrag.id === id) return this.heightDrag.value;
+    return this.host.wallWidth?.(id) ?? this.host.wallThickness();
+  }
+
+  /**
+   * With Ctrl held, the height handles of the wall under the pointer; with Alt, its width handle (the GM's, in Edit, no
+   * brush or paint in hand); else none.
+   */
+  private ctrlHandles(kind: HandleKind | null): void {
+    const at = this.pointerAt;
+    if (kind && at && this.audience === 'gm' && this.editing && !this.painting && !this.waterTool && !this.placing) {
+      const near = this.handles?.kind === kind ? this.handleAt(at.x, at.y) : null;
+      // Over a prop (and no wall handle nearer): its scale dot.
+      const prop = !near && kind === 'height' && this.host.scaleProp ? this.propAt(at.x, at.y) : null;
+      this.showPropHandle(prop);
+      const raised = !near && kind === 'width' && this.host.liftProp && !this.tokenAt(at.x, at.y) ? this.propAt(at.x, at.y) : null;
+      const loose = raised;
+      this.showPropLine(loose);
+      if (prop || loose) {
+        this.hideHandles();
+        this.canvas.style.cursor = 'ns-resize';
+        return;
+      }
+      const wall = near ? near.wall : this.wallAt(at.x, at.y);
+      if (wall) this.showHandles(wall, near?.part ?? null, kind);
+      else this.hideHandles();
+      this.canvas.style.cursor = near ? (kind === 'width' ? 'ew-resize' : 'ns-resize') : this.laserOn ? 'none' : '';
+    } else if (this.handles || this.propHandle || this.propLine) {
+      this.hideHandles();
+      this.showPropHandle(null);
+      this.showPropLine(null);
+      this.canvas.style.cursor = this.laserOn ? 'none' : '';
+    }
+  }
+
+  /** The height line through a prop that is not solid, from the floor to over its top (white while dragged); null takes it away. */
+  private showPropLine(id: string | null, lit = false): void {
+    const piece = id ? this.props.get(id) : null;
+    if (!piece || !this.map) {
+      if (this.propLine) {
+        this.propLine.geometry.dispose();
+        (this.propLine.material as THREE.Material).dispose();
+        this.propLine.removeFromParent();
+        this.propLine = null;
+        this.wake();
+      }
+      return;
+    }
+    const color = accent(this.container);
+    if (!this.propLine) {
+      this.propLine = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 8), new THREE.MeshBasicMaterial({ color, depthTest: false, depthWrite: false, transparent: true, opacity: 0.95 }));
+      this.propLine.renderOrder = 22;
+      this.propLine.raycast = () => {};
+      this.scene.add(this.propLine);
+    }
+    piece.object3d.updateWorldMatrix(true, true);
+    const body = piece.body;
+    const box = body ? new THREE.Box3().setFromObject(body) : null;
+    const top = (box && Number.isFinite(box.max.y) ? box.max.y : piece.object3d.position.y + this.map.grid.size * 0.5) + this.map.grid.size * 0.4;
+    const width = HANDLE_PIXELS * 0.35 * this.squaresPerPixel() * this.map.grid.size * (lit ? 1.4 : 1);
+    this.propLine.scale.set(width, Math.max(1, top), width);
+    this.propLine.position.set(piece.object3d.position.x, top / 2, piece.object3d.position.z);
+    (this.propLine.material as THREE.MeshBasicMaterial).color.set(lit ? '#ffffff' : color);
+    this.wake();
+  }
+
+  /** The scale dot on top of a prop (white while it is dragged); null takes it away. */
+  private showPropHandle(id: string | null, lit = false): void {
+    const piece = id ? this.props.get(id) : null;
+    if (!piece || !this.map) {
+      if (this.propHandle) {
+        (this.propHandle.material as THREE.Material).dispose();
+        this.propHandle.removeFromParent();
+        this.propHandle = null;
+        this.wake();
+      }
+      return;
+    }
+    const color = accent(this.container);
+    if (!this.propHandle) {
+      this.propHandle = new THREE.Mesh(HANDLE_GEOMETRY, new THREE.MeshBasicMaterial({ color, depthTest: false, depthWrite: false, transparent: true, opacity: 0.95 }));
+      this.propHandle.renderOrder = 22;
+      this.propHandle.raycast = () => {};
+      this.scene.add(this.propHandle);
+    }
+    piece.object3d.updateWorldMatrix(true, true);
+    const body = piece.body;
+    const top = body ? new THREE.Box3().setFromObject(body).max.y : this.map.grid.size * 0.5;
+    this.propHandle.position.set(piece.object3d.position.x, Number.isFinite(top) ? top : 0, piece.object3d.position.z);
+    this.propHandle.scale.setScalar(HANDLE_PIXELS * this.squaresPerPixel() * this.map.grid.size * (lit ? 1.4 : 1));
+    (this.propHandle.material as THREE.MeshBasicMaterial).color.set(lit ? '#ffffff' : color);
+    this.wake();
+  }
+
+  /** Ctrl's handles on a wall: a dot on its top's middle, and on a window two more, at its opening's bottom and top. */
+  private showHandles(id: string, hot: WallPart | null = null, kind: HandleKind = this.handles?.kind ?? 'height'): void {
+    const wall = this.map?.walls.find((candidate) => candidate.id === id);
+    if (!wall || !this.map) { this.hideHandles(); return; }
+    if (!this.handles || this.handles.wall !== id || this.handles.kind !== kind) {
+      this.hideHandles();
+      const group = new THREE.Group();
+      group.renderOrder = 22;
+      this.scene.add(group);
+      this.handles = { wall: id, kind, group, spots: [] };
+    }
+    const { group } = this.handles;
+    const tile = this.map.grid.size;
+    const frame = segmentFrame(wall.p1, wall.p2);
+    const parts: WallPart[] = kind === 'width' ? ['width'] : isWindow(wall) ? ['sill', 'lintel', 'wall'] : ['wall'];
+    // As big on the screen wherever the camera is.
+    const radius = HANDLE_PIXELS * this.squaresPerPixel() * tile;
+    const color = accent(this.container);
+    while (group.children.length < parts.length) {
+      const dot = new THREE.Mesh(HANDLE_GEOMETRY, new THREE.MeshBasicMaterial({ color, depthTest: false, depthWrite: false, transparent: true }));
+      dot.renderOrder = 22;
+      dot.raycast = () => {};
+      group.add(dot);
+    }
+    while (group.children.length > parts.length) {
+      const extra = group.children[group.children.length - 1] as THREE.Mesh;
+      (extra.material as THREE.Material).dispose();
+      group.remove(extra);
+    }
+    this.handles.spots = parts.map((part, index) => {
+      const at = part === 'width' ? this.widthSpot(wall, frame) : new THREE.Vector3(frame.cx, this.partSquares(id, part) * tile, frame.cy);
+      const dot = group.children[index] as THREE.Mesh;
+      dot.position.copy(at);
+      const lit = part === hot || (this.press?.kind === 'height' && this.press.target === part);
+      dot.scale.setScalar(radius * (lit ? 1.4 : 1));
+      const material = dot.material as THREE.MeshBasicMaterial;
+      material.color.set(lit ? '#ffffff' : color);
+      material.opacity = 0.95;
+      return { part, at };
+    });
+    this.wake();
+  }
+
+  /** The width handle's place: on the face of the wall turned to the camera, half way up it, at its middle. */
+  private widthSpot(wall: { id: string }, frame: ReturnType<typeof segmentFrame>): THREE.Vector3 {
+    const tile = this.map?.grid.size ?? 70;
+    const nx = -Math.sin(frame.heading);
+    const nz = Math.cos(frame.heading);
+    this.applyView();
+    const side = (this.view.position.x - frame.cx) * nx + (this.view.position.z - frame.cy) * nz >= 0 ? 1 : -1;
+    const half = (this.wallWidthSquares(wall.id) * tile) / 2;
+    return new THREE.Vector3(frame.cx + nx * half * side, (this.wallSquares(wall.id) * tile) / 2, frame.cy + nz * half * side);
+  }
+
+  private hideHandles(): void {
+    if (!this.handles) return;
+    for (const dot of this.handles.group.children) ((dot as THREE.Mesh).material as THREE.Material).dispose();
+    this.handles.group.removeFromParent();
+    this.handles = null;
+    this.wake();
+  }
+
+  /** The handle shown nearest a point of the screen, within reach of it. */
+  private handleAt(clientX: number, clientY: number): { wall: string; part: WallPart } | null {
+    if (!this.handles) return null;
+    this.applyView();
+    const rect = this.canvas.getBoundingClientRect();
+    let best: { wall: string; part: WallPart } | null = null;
+    let bestDistance = HANDLE_REACH;
+    for (const spot of this.handles.spots) {
+      const on = spot.at.clone().project(this.view);
+      if (on.z > 1) continue;
+      const distance = Math.hypot(rect.left + ((on.x + 1) / 2) * rect.width - clientX, rect.top + ((1 - on.y) / 2) * rect.height - clientY);
+      if (distance <= bestDistance) { bestDistance = distance; best = { wall: this.handles.wall, part: spot.part }; }
+    }
+    return best;
+  }
+
   private wallSquares(id: string): number {
     const wall = this.map?.walls.find((candidate) => candidate.id === id);
     const fog = Math.max(MIN_WALL_SQUARES, this.host.fogHeight());
@@ -1735,7 +2741,7 @@ export class Board {
     const sunCasts = ambient >= LIT_THRESHOLD;
     if (this.sun.castShadow !== sunCasts) { this.sun.castShadow = sunCasts; this.shadowsDirty = true; }
     const measurement = this.host.measurement();
-    this.rig.update(map.lights, {
+    this.rig.update(this.ruleLights.length > 0 ? [...map.lights, ...this.ruleLights] : map.lights, {
       unitDistance: measurement.unitDistance > 0 ? measurement.unitDistance : 5,
       cell: map.grid.size,
       ambient,
@@ -1760,6 +2766,38 @@ export class Board {
   wallAt(clientX: number, clientY: number): string | null {
     this.ray(clientX, clientY);
     return this.walls.wallAt(this.raycaster);
+  }
+
+  /** A material dragged over walls, shown on them until it is dropped or leaves (null: none). */
+  private paintPreview: { ids: string[]; material: string } | null = null;
+  private readonly impacts = new Impacts();
+
+  private previewPaint(preview: { ids: string[]; material: string } | null): void {
+    const key = (value: typeof preview): string => (value ? `${value.material}|${value.ids.join(',')}` : '');
+    if (key(preview) === key(this.paintPreview)) return;
+    this.paintPreview = preview;
+    this.updateWalls();
+    this.wake(true);
+  }
+
+  /** A mini landing where it was dropped: a ring over the floor and a puff of dust. */
+  private landImpact(tokenId: string, at: { x: number; y: number }): void {
+    const entry = this.tokens.get(tokenId);
+    const cell = this.map?.grid.size ?? 50;
+    if (!this.impacts.object3d.parent) this.scene.add(this.impacts.object3d);
+    this.impacts.land({ x: at.x, y: this.standAt({ at }), z: at.y }, cell * Math.max(0.5, entry?.token.size ?? 1) * 0.55);
+    this.wake(true);
+  }
+
+  /** A material slapped on wall segments: a flash over them and dust off their foot. */
+  private slapImpact(ids: readonly string[]): void {
+    const cell = this.map?.grid.size ?? 50;
+    const segments = (this.map?.walls ?? []).filter((wall) => ids.includes(wall.id));
+    if (segments.length === 0) return;
+    if (!this.impacts.object3d.parent) this.scene.add(this.impacts.object3d);
+    const height = Math.max(...segments.map((wall) => this.wallSquares(wall.id))) * cell;
+    this.impacts.slap(segments, height, 0, this.host.wallThickness() * cell);
+    this.wake(true);
   }
 
   /** Opens or shuts a door: at once on the board (a locked one stays shut), saved by the host. */
@@ -1812,7 +2850,7 @@ export class Board {
     on('pointerdown', (event) => this.down(event));
     on('pointermove', (event) => this.move(event));
     on('pointerup', (event) => this.up(event));
-    on('pointercancel', () => this.cancel());
+    on('pointercancel', (event) => { this.endTouch(event); this.cancel(); });
     // A double click on a mini brings the camera to it (the same as a click on its initiative card, minus the selection).
     on('dblclick', (event) => {
       if (event.button !== 0) return;
@@ -1825,6 +2863,8 @@ export class Board {
     // normal release `press` is already cleared.
     on('lostpointercapture', () => { if (this.press) this.cancel(); });
     on('pointerleave', () => {
+      this.brushAt = null;
+      this.showBrush();
       this.tooltip.hidden = true;
       this.showCell(null);
       this.laserClient = null;
@@ -1834,28 +2874,72 @@ export class Board {
     });
     on('wheel', (event) => {
       event.preventDefault();
+      this.showName(null);
+      if (this.eye) return;
+      // With the water brush in hand, Ctrl + scroll sizes the brush instead of zooming: a notch a quarter cell.
+      if (this.waterTool && (event.ctrlKey || event.metaKey)) {
+        const pixels = event.deltaMode === 1 ? event.deltaY * 33 : event.deltaMode === 2 ? event.deltaY * 800 : event.deltaY;
+        this.brushScroll += pixels;
+        const notches = Math.trunc(this.brushScroll / BRUSH_NOTCH);
+        if (notches !== 0) {
+          this.brushScroll -= notches * BRUSH_NOTCH;
+          const size = Math.min(BRUSH_MAX, Math.max(BRUSH_MIN, Math.round((this.waterBrush - notches * BRUSH_STEP) / BRUSH_STEP) * BRUSH_STEP));
+          if (size !== this.waterBrush) {
+            this.waterBrush = size;
+            this.brushAt = this.boardPoint(event.clientX, event.clientY) ?? this.brushAt;
+            this.showBrush();
+            this.toolbar.refresh();
+          }
+          this.showTip(event.clientX, event.clientY, `Brush ${this.waterBrush} cells (Ctrl + scroll)`);
+          clearTimeout(this.brushTipTimer);
+          this.brushTipTimer = setTimeout(() => { this.tooltip.hidden = true; }, 900);
+        }
+        return;
+      }
       this.camera.zoom(Math.exp(event.deltaY * WHEEL));
       this.wake();
     }, { passive: false });
     on('keydown', (event) => {
       const key = event.key.toLowerCase();
+      this.showName(null);
+      // Through the eyes, Escape steps back out of a spell being cast, else leaves the eyes.
+      if (key === 'escape' && this.eye) {
+        if (this.caster?.busy) this.caster.back(); else this.leaveEyes();
+        return;
+      }
+      // F casts a spell: it works with the mouse held (only Escape is the browser's then).
+      if (key === 'f' && this.eye && this.caster && !this.caster.busy && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        this.caster.open();
+        return;
+      }
       if (key === 'escape' && this.placing) { this.stopPlacing(); return; }
       if (key === 'escape' && this.painting) { this.paintWith(null); return; }
       if (key === 'escape' && this.laserOn) { this.setLaser(false); return; }
       // Atlas's Move/Select key switches between moving and the laser pointer.
       // A player's tools are Connect's: Escape goes back to Move, as in its 2D view.
+      if (this.audience === 'gm' && key === 'escape' && this.waterTool) { this.waterTool = null; this.showBrush(); this.toolbar.refresh(); return; }
+      if (this.audience === 'gm' && key === 'escape' && this.tools.tool === 'measure') { this.tools.select('move'); this.toolsChanged(); return; }
       if (this.audience === 'player' && key === 'escape' && this.tools.tool !== 'move') { this.tools.select('move'); this.toolsChanged(); return; }
       if (key === 'v' && this.audience === 'gm' && !event.ctrlKey && !event.metaKey && !event.altKey) { this.setLaser(!this.laserOn); return; }
       if (key === 'escape' && this.group.size > 0) { this.clearGroup(); return; }
       if (key === 'escape' && this.selectedId !== null) { this.select(null); return; }
       if (key === 'escape' && this.toolbar.isOpen) { this.toolbar.close(); this.toolbar.closeDice(); return; }
       if (key === 'home') { this.frameMap(); event.preventDefault(); return; }
+      // Up and down arrows while carrying a token take it to the layer above or below (shown, not yet the one played).
+      if ((key === 'arrowup' || key === 'arrowdown' || key === 'pageup' || key === 'pagedown') && this.press?.kind === 'token' && this.audience === 'gm' && this.layerViews.size > 0) {
+        event.preventDefault();
+        this.stepDragLayer(key === 'arrowup' || key === 'pageup' ? 1 : -1);
+        return;
+      }
       // Space while carrying a token drops a waypoint on its ruler.
       if (key === ' ' && this.press?.kind === 'token') {
         event.preventDefault();
         if (!event.repeat) this.addWaypoint();
         return;
       }
+      // Atlas's toolbar tools (random tables, asset manager, command palette) by Atlas's keys, the GM's only.
+      if (this.audience === 'gm' && this.host.atlasKey?.(event, this.press?.kind === 'token') === true) { event.preventDefault(); return; }
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (['w', 'a', 's', 'd', 'q', 'e', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(key)) {
         this.held.add(key);
@@ -1863,7 +2947,74 @@ export class Board {
         this.wake();
       }
     });
-    on('keyup', (event) => { this.held.delete(event.key.toLowerCase()); });
+    on('keyup', (event) => {
+      this.held.delete(event.key.toLowerCase());
+      if (event.key === 'Control' || event.key === 'Meta') this.hoverSpell(null);
+    });
+    // How presses come (a finger or a mouse), the spell panels' included: a mouse holds the pointer for the eyes.
+    const pressed = (event: PointerEvent): void => { this.lastPointer = event.pointerType || 'mouse'; };
+    this.container.addEventListener('pointerdown', pressed, { capture: true });
+    const locking = (): void => this.lockChanged();
+    this.canvas.ownerDocument.addEventListener('pointerlockchange', locking);
+    this.stops.push(() => {
+      this.container.removeEventListener('pointerdown', pressed, { capture: true });
+      this.canvas.ownerDocument.removeEventListener('pointerlockchange', locking);
+    });
+    // Ctrl, pressed or let go wherever the focus is, shows or takes away the handles of the wall under the pointer.
+    const win = this.canvas.ownerDocument.defaultView;
+    const ctrl = (event: KeyboardEvent): void => {
+      if (event.key !== 'Control' && event.key !== 'Meta' && event.key !== 'Alt') return;
+      if (event.type === 'keydown' && event.repeat) return;
+      // Alt alone would take the focus to the window's menu: not over the board.
+      if (event.key === 'Alt' && this.pointerAt) event.preventDefault();
+      // Let go: the spell's card and light go with the key.
+      if (event.type === 'keyup' && !event.ctrlKey && !event.metaKey && !event.altKey) { this.hoverSpell(null); this.showSpellCard(null, { clientX: 0, clientY: 0 }); }
+      if (this.press?.kind !== 'height' && this.press?.kind !== 'propScale' && this.press?.kind !== 'propLift') this.ctrlHandles(event.altKey ? 'width' : event.ctrlKey || event.metaKey ? 'height' : null);
+    };
+    const lost = (): void => { if (this.press?.kind !== 'height' && this.press?.kind !== 'propScale' && this.press?.kind !== 'propLift') this.ctrlHandles(null); };
+    win?.addEventListener('keydown', ctrl);
+    // Esc stops painting wherever the focus is (the gallery, say), unless it is for a field or a dialog.
+    const escape = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.closest('input, textarea, select, [contenteditable="true"], .modal-container') !== null)) return;
+      // Through the eyes, Escape pressed with the focus off the board (the eye button, a spell button) steps back too;
+      // the board's own key handler has it when the board has the focus.
+      if (this.eye && target !== this.canvas) {
+        if (this.caster?.busy) this.caster.back(); else this.leaveEyes();
+        return;
+      }
+      if (this.painting === null) return;
+      this.paintWith(null);
+    };
+    win?.addEventListener('keydown', escape);
+    this.stops.push(() => win?.removeEventListener('keydown', escape));
+    win?.addEventListener('keyup', ctrl);
+    // Shift held with the water brush: the eraser, until it is let go.
+    const shift = (event: KeyboardEvent): void => {
+      if (event.key !== 'Shift' || this.audience !== 'gm') return;
+      if (event.type === 'keydown') {
+        if (event.repeat || this.waterTool !== 'paint') return;
+        const target = event.target as HTMLElement | null;
+        if (target && target.closest('input, textarea, select, [contenteditable="true"], .modal-container') !== null) return;
+        this.shiftErase = true;
+        this.waterTool = 'erase';
+      } else {
+        if (!this.shiftErase) return;
+        this.shiftErase = false;
+        if (this.waterTool === 'erase') this.waterTool = 'paint';
+      }
+      this.showBrush();
+      this.toolbar.refresh();
+    };
+    const shiftLost = (): void => { if (this.shiftErase) shift(new KeyboardEvent('keyup', { key: 'Shift' })); };
+    win?.addEventListener('keydown', shift);
+    win?.addEventListener('keyup', shift);
+    win?.addEventListener('blur', shiftLost);
+    this.stops.push(() => { win?.removeEventListener('keydown', shift); win?.removeEventListener('keyup', shift); win?.removeEventListener('blur', shiftLost); });
+    win?.addEventListener('blur', lost);
+    this.stops.push(() => { win?.removeEventListener('keydown', ctrl); win?.removeEventListener('keyup', ctrl); win?.removeEventListener('blur', lost); });
+    on('pointerleave', () => { this.pointerAt = null; if (this.press?.kind !== 'height' && this.press?.kind !== 'propScale' && this.press?.kind !== 'propLift') this.ctrlHandles(null); });
     // A material dragged from the gallery: the wall under the pointer is named, and painted where it is dropped. Taken
     // on the whole board (before anything over the canvas, or Obsidian's own drag handling, sees it), and as plain
     // text too, where the custom type does not get through.
@@ -1886,8 +3037,14 @@ export class Board {
       }
       const wall = this.wallAt(event.clientX, event.clientY);
       this.showTip(event.clientX, event.clientY, wall ? (event.shiftKey ? 'Paint the whole wall' : 'Paint this segment (Shift: the whole wall)') : 'Drop on a wall or door');
+      // The material shows on the wall under the pointer (the whole wall with Shift) before it is dropped. The drag's
+      // data cannot be read until the drop: the gallery says what it carries (`materialDrag`).
+      const carried = materialDrag.folder;
+      this.previewPaint(wall && carried ? { ids: event.shiftKey ? wholeWall(this.map?.walls ?? [], wall) : [wall], material: carried } : null);
     });
-    take('dragleave', (event) => { if (event.target === this.container || !this.container.contains(event.relatedTarget as Node | null)) this.tooltip.hidden = true; });
+    take('dragleave', (event) => {
+      if (event.target === this.container || !this.container.contains(event.relatedTarget as Node | null)) { this.tooltip.hidden = true; this.previewPaint(null); }
+    });
     take('drop', (event) => {
       if (!mayCarry(event)) return;
       const text = event.dataTransfer?.getData('text/plain') ?? '';
@@ -1897,7 +3054,7 @@ export class Board {
         event.stopPropagation();
         this.tooltip.hidden = true;
         const token = this.tokenAt(event.clientX, event.clientY);
-        if (token) this.host.assignMini?.(token, mini);
+        if (token) { this.host.assignMini?.(token, mini); const at = this.tokens.get(token)?.at; if (at) this.landImpact(token, at); }
         else this.host.warn('Tabletop: drop the mini on a token.');
         return;
       }
@@ -1907,21 +3064,62 @@ export class Board {
       event.stopPropagation();
       this.tooltip.hidden = true;
       const wall = this.wallAt(event.clientX, event.clientY);
-      if (wall) this.host.paintWall(wall, material, event.shiftKey);
-      else this.host.warn('Tabletop: drop the material on a wall or door.');
+      this.previewPaint(null);
+      if (wall) {
+        this.host.paintWall(wall, material, event.shiftKey);
+        this.slapImpact(event.shiftKey ? wholeWall(this.map?.walls ?? [], wall) : [wall]);
+      } else this.host.warn('Tabletop: drop the material on a wall or door.');
     });
     on('blur', () => this.held.clear());
   }
 
   private down(event: PointerEvent): void {
     this.canvas.focus();
-    this.canvas.setPointerCapture?.(event.pointerId);
+    // With the mouse held for the eyes there is no pointer to capture (the browser refuses).
+    if (!this.pointerLocked) this.canvas.setPointerCapture?.(event.pointerId);
+    if (event.pointerType === 'touch') {
+      this.touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (this.touches.size >= 2) { this.startPinch(); return; }
+      if (this.pinch) return;
+    }
+    // Anything done hides a name called up; a click on a token calls its name up (on release, `up`).
+    this.showName(null);
+    this.nameClick = null;
+    if (event.button === 0 && !this.eye && this.touches.size <= 1) {
+      const named = this.tokenAt(event.clientX, event.clientY);
+      if (named) this.nameClick = { id: named, x: event.clientX, y: event.clientY };
+    }
+    // Through a token's eyes a drag only looks about; a mouse click holds the mouse to look (Escape lets go), and
+    // while a spell is aimed, a click with the mouse held places it.
+    if (this.eye && this.spellGizmo && this.caster?.adjusting && !this.pointerLocked && event.button === 0) {
+      this.ray(event.clientX, event.clientY);
+      if (this.spellGizmo.grab(this.raycaster, this.caster.adjusting, event.clientX)) return;
+    }
+    // The GM in Play mode, Alt held over a spell: a click clears it.
+    if (!this.eye && this.audience === 'gm' && event.button === 0 && event.altKey && this.hoveredSpell && this.spellClearing) {
+      const id = this.hoveredSpell;
+      this.hoverSpell(null);
+      this.host.playerAction?.({ type: 'spell', change: { remove: id } });
+      return;
+    }
+    if (this.eye) {
+      if (this.pointerLocked) {
+        if (event.button === 0) this.caster?.click();
+        // A right click lets go of the mouse and stays in the eyes.
+        else if (event.button === 2) this.lockPointer(false);
+        return;
+      }
+      if (event.pointerType === 'mouse' && event.button === 0 && (!this.caster?.busy || this.caster.aiming)) { this.lockPointer(true); return; }
+      this.eyeDrag = { x: event.clientX, y: event.clientY };
+      return;
+    }
     this.tooltip.hidden = true;
     const { clientX: x, clientY: y } = event;
     // The handles of a scene being placed on the plane come first.
     if (event.button === 0 && this.audience === 'gm' && this.beginGizmo(x, y)) return;
     if (event.button === 0 && this.placing) return;
     if (event.button === 0 && this.painting) return;
+    if (event.button === 2 && this.painting) { this.paintWith(null); this.press = null; return; }
     if (event.button === 0 && this.laserOn) {
       this.press = { kind: 'laser', x, y, moved: false };
       this.trackLaser(x, y);
@@ -1931,8 +3129,25 @@ export class Board {
       this.playerDown(event);
       return;
     }
-    // While Connect hosts, the GM's Template tool: a drag places one, a tap erases any.
-    if (event.button === 0 && this.tools.tool === 'template' && this.host.hosting?.() === true) {
+    // The GM's water brush: a drag paints water over the map (or takes it away).
+    if (event.button === 0 && this.waterTool === 'fill' && this.audience === 'gm') {
+      const at = this.boardPoint(x, y);
+      if (at) {
+        this.fillWater(at, !event.shiftKey);
+        this.press = { kind: 'water', last: at };
+        return;
+      }
+    }
+    if (event.button === 0 && this.waterTool && this.audience === 'gm') {
+      const at = this.boardPoint(x, y);
+      if (at) {
+        this.paintWater(at, at);
+        this.press = { kind: 'water', last: at };
+        return;
+      }
+    }
+    // The GM's Measure tool (Atlas's): a drag measures a line, circle or cone; nothing is kept or sent.
+    if (event.button === 0 && this.tools.tool === 'measure') {
       const at = this.boardPoint(x, y);
       if (at) {
         this.press = { kind: 'tool', x, y, moved: false };
@@ -1941,17 +3156,68 @@ export class Board {
         return;
       }
     }
+    // While Connect hosts, the GM's Template tool: a drag places one, a tap erases any.
+    if (event.button === 0 && this.tools.tool === 'template' && this.host.hosting?.() === true) {
+      const at = this.boardPoint(x, y);
+      // A tap on a spell erases it.
+      const spell = at ? [...this.castSpells].reverse().find((cast) => spellUnder(cast.spell, at)) : undefined;
+      if (spell) { this.host.playerAction?.({ type: 'spell', change: { remove: spell.id } }); return; }
+      if (at) {
+        this.press = { kind: 'tool', x, y, moved: false };
+        this.tools.down(at, this.now());
+        this.showToolOverlay();
+        return;
+      }
+    }
+    // Alt + drag on a prop: its standing height; Alt + double click puts it back on what is under it.
+    if (event.button === 0 && event.altKey && !event.shiftKey && this.editing && this.host.liftProp && !this.painting && !this.waterTool && !this.placing) {
+      const id = this.tokenAt(x, y) ? null : this.propAt(x, y);
+      const piece = id ? this.props.get(id) : null;
+      if (id && piece) {
+        const now = performance.now();
+        const again = this.liftClick && this.liftClick.id === id && now - this.liftClick.at < DOUBLE_CLICK_MS;
+        this.liftClick = again ? null : { id, at: now };
+        if (again) {
+          this.host.liftProp(id, 0);
+          this.propsVersion += 1;
+          this.showPropLine(null);
+          this.wake(true);
+          return;
+        }
+        const start = piece.placement.lift ?? 0;
+        this.press = { kind: 'propLift', id, x, y, moved: false, start, value: start };
+        return;
+      }
+    }
+    // Alt + drag on a wall's width handle.
+    if (event.button === 0 && event.altKey && this.editing && this.handles?.kind === 'width') {
+      const handle = this.handleAt(x, y);
+      if (handle) {
+        this.press = { kind: 'height', target: 'width', id: handle.wall, x, y, moved: false, start: this.wallWidthSquares(handle.wall) };
+        return;
+      }
+    }
     if (event.button === 0 && (event.ctrlKey || event.metaKey)) {
       const id = this.propAt(x, y);
       const piece = id ? this.props.get(id) : null;
       const at = this.boardPoint(x, y);
+      if (id && piece && at && this.editing && this.host.scaleProp) {
+        this.press = { kind: 'propScale', id, x, y, moved: false, start: piece.placement.scale, value: piece.placement.scale };
+        return;
+      }
       if (id && piece && at) {
         this.press = { kind: 'prop', id, x, y, moved: false, grab: { dx: piece.object3d.position.x - at.x, dy: piece.object3d.position.z - at.y } };
         return;
       }
+      // Ctrl + drag on one of a wall's handles: its top, or a window's sill or lintel.
+      const handle = this.editing && this.handles?.kind === 'height' ? this.handleAt(x, y) : null;
+      if (handle) {
+        this.press = { kind: 'height', target: handle.part, id: handle.wall, x, y, moved: false, start: this.partSquares(handle.wall, handle.part) };
+        return;
+      }
       // Ctrl + drag on a light's bulb or a wall changes its height.
       const light = this.lightAt(x, y);
-      const wall = light ? null : this.wallAt(x, y);
+      const wall = light || !this.editing ? null : this.wallAt(x, y);
       if (light) {
         const found = this.map?.lights.find((candidate) => candidate.id === light);
         const start = found ? this.host.lightHeight(found) : 1;
@@ -1978,11 +3244,19 @@ export class Board {
         const members = !toggle && this.group.size >= 2 && this.group.has(id) ? this.groupMembers() : undefined;
         this.press = {
           kind: 'token', id, x, y, moved: false, grab: { dx: entry.at.x - at.x, dy: entry.at.y - at.y },
-          copy: event.altKey && event.shiftKey, start: snapPoint(this.map!.grid, entry.token.x, entry.token.y, entry.token.size), waypoints: [],
+          copy: event.altKey && event.shiftKey, start: snapPoint(this.snapGrid('tokens'), entry.goal.x, entry.goal.y, entry.token.size), waypoints: [],
           ...(toggle ? { toggle } : {}), ...(members ? { members } : {}),
         };
         entry.piece.carried = true;
         for (const member of members?.keys() ?? []) { const other = this.tokens.get(member); if (other) other.piece.carried = true; }
+        return;
+      }
+      const propId = !id && this.editing && this.host.boardMode?.() === 'edit' && !this.painting && !this.waterTool && !this.placing ? this.propAt(x, y) : null;
+      const prop = propId ? this.props.get(propId) : null;
+      if (propId && prop && at) {
+        this.press = { kind: 'prop', id: propId, x, y, moved: false, grab: { dx: prop.object3d.position.x - at.x, dy: prop.object3d.position.z - at.y } };
+        prop.carried = true;
+        this.wake(true);
         return;
       }
     }
@@ -2009,7 +3283,7 @@ export class Board {
       if (id && entry && at && this.host.canMove?.(id) === true) {
         this.press = {
           kind: 'token', id, x, y, moved: false, grab: { dx: entry.at.x - at.x, dy: entry.at.y - at.y },
-          copy: false, start: snapPoint(this.map!.grid, entry.token.x, entry.token.y, entry.token.size), waypoints: [],
+          copy: false, start: snapPoint(this.snapGrid('tokens'), entry.goal.x, entry.goal.y, entry.token.size), waypoints: [],
         };
         entry.piece.carried = true;
         return;
@@ -2036,7 +3310,36 @@ export class Board {
 
   /** The tools' actions go to Connect. */
   private act(actions: readonly ToolAction[]): void {
-    for (const action of actions) this.host.playerAction?.(action);
+    for (const action of actions) {
+      if (action.type === 'template') this.recordTemplate(action.change);
+      this.host.playerAction?.(action);
+    }
+  }
+
+  /** A template the GM placed, erased or cleared becomes an undo step: Connect is asked for the opposite change. */
+  private recordTemplate(change: TemplateChange): void {
+    if (this.audience !== 'gm' || !this.host.recordUndo) return;
+    type Shape = { shape: TemplateShape; start: { x: number; y: number }; end: { x: number; y: number } };
+    const send = (next: TemplateChange): void => this.host.playerAction?.({ type: 'template', change: next });
+    const near = (a: { x: number; y: number }, b: { x: number; y: number }): boolean => Math.hypot(a.x - b.x, a.y - b.y) < 0.5;
+    const placed = (shape: Shape): TemplateMark | undefined => [...this.tools.shown].reverse().find((mark) => mark.shape === shape.shape && near(mark.start, shape.start) && near(mark.end, shape.end));
+    const add = (shape: Shape): boolean => { send({ add: { shape: shape.shape, start: { ...shape.start }, end: { ...shape.end } } }); return true; };
+    const remove = (shape: Shape): boolean => { const mark = placed(shape); if (!mark) return false; send({ remove: mark.id }); return true; };
+    const copy = (mark: Shape): Shape => ({ shape: mark.shape, start: { ...mark.start }, end: { ...mark.end } });
+    if ('add' in change) {
+      const shape = copy(change.add);
+      this.host.recordUndo({ label: 'template', undo: () => remove(shape), redo: () => add(shape) });
+    } else if ('remove' in change) {
+      const mark = this.tools.shown.find((entry) => entry.id === change.remove);
+      if (!mark) return;
+      const shape = copy(mark);
+      this.host.recordUndo({ label: 'template erased', undo: () => add(shape), redo: () => remove(shape) });
+    } else {
+      const self = this.tools.selfId;
+      const gone = this.tools.shown.filter((mark) => self === null || mark.owner === self).map(copy);
+      if (gone.length === 0) return;
+      this.host.recordUndo({ label: 'templates cleared', undo: () => { for (const shape of gone) add(shape); return true; }, redo: () => { send({ clear: true }); return true; } });
+    }
   }
 
   /** The measure or template being dragged, drawn; the toolbar told of a change. */
@@ -2044,7 +3347,7 @@ export class Board {
     const { measure, draft } = this.tools.overlay();
     const map = this.map;
     const label = measure && map ? formatDistance(pathLengthInCells([measure.start, measure.end], map.grid, this.host.measurement().diagonalRule), this.host.measurement()) : '';
-    this.marks.setOverlay(measure ? { ...measure, label } : null, draft ? { ...draft, color: this.host.ownColor?.() ?? '#ffcc33' } : null, this.tools.coneAngle, this.lastPose?.pixel ?? 0.002);
+    this.marks.setOverlay(measure ? { ...measure, label, color: accent(this.container), cell: map?.grid.size ?? 70 } : null, draft ? { ...draft, color: this.host.ownColor?.() ?? '#ffcc33' } : null, this.tools.coneAngle, this.lastPose?.pixel ?? 0.002);
     this.wake();
   }
 
@@ -2070,6 +3373,16 @@ export class Board {
     this.wake();
   }
 
+  /**
+   * A player's phone in augmented reality, from Connect: where its camera is over this map, in board units (null: they
+   * left AR or lost the tracking). Shown as an eye in their colour, with their name.
+   */
+  receiveViewer(from: string, name: string, color: string, pose: ViewerPose | null): void {
+    if (typeof from !== 'string' || (pose !== null && !isViewerPose(pose))) return;
+    this.viewers.set(from, typeof name === 'string' ? name.slice(0, 60) : '', typeof color === 'string' ? color : '#ffcc33', pose, (this.map?.grid.size ?? 70) * 0.75, this.clock);
+    this.wake();
+  }
+
   /** New points of someone's laser, from Connect. */
   receiveLaser(from: string, points: ReadonlyArray<{ x: number; y: number }>, lifted: boolean, color: string): void {
     this.marks.laser(from, points, lifted, color, this.clock);
@@ -2077,9 +3390,39 @@ export class Board {
   }
 
   private move(event: PointerEvent): void {
+    if (event.pointerType === 'touch' && this.touches.has(event.pointerId)) {
+      this.touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (this.pinch) { this.movePinch(); return; }
+    }
+    if (this.eye && this.spellGizmo && this.caster?.adjusting && !this.pointerLocked) {
+      this.ray(event.clientX, event.clientY);
+      if (this.spellGizmo.dragging) {
+        const spell = this.spellGizmo.move(this.raycaster, event.clientX, this.map?.grid.size ?? 50, event.shiftKey);
+        if (spell) { this.caster.adjusted(spell); this.spellGizmo.place(spell, this.view); }
+        return;
+      }
+      if (!this.eyeDrag) {
+        const handle = this.spellGizmo.hit(this.raycaster);
+        this.spellGizmo.hover(handle);
+        this.canvas.style.cursor = handle ? (handle.kind === 'move' ? 'move' : 'grab') : '';
+        this.wake();
+      }
+    }
+    if (!this.eye) this.spellHoverAt(event);
+    if (this.eye) {
+      if (this.pointerLocked) { this.eye.drag(event.movementX, event.movementY); return; }
+      if (this.eyeDrag) { this.eye.drag(event.clientX - this.eyeDrag.x, event.clientY - this.eyeDrag.y); this.eyeDrag = { x: event.clientX, y: event.clientY }; }
+      return;
+    }
     const press = this.press;
+    if (this.waterTool) { this.brushAt = this.boardPoint(event.clientX, event.clientY); this.showBrush(); }
     if (press?.kind === 'gizmo') {
       this.dragGizmo(press, event.clientX, event.clientY, { shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey, alt: event.altKey });
+      return;
+    }
+    if (press?.kind === 'water') {
+      const at = this.boardPoint(event.clientX, event.clientY);
+      if (at && this.waterTool !== 'fill') { this.paintWater(press.last, at); press.last = at; }
       return;
     }
     if (press?.kind === 'tool') {
@@ -2096,7 +3439,12 @@ export class Board {
     }
     if (this.laserOn) this.trackLaser(event.clientX, event.clientY);
     if (press?.kind === 'laser') return;
-    if (!press) { if (!this.laserOn) this.hover(event); return; }
+    if (!press) {
+      if (!this.laserOn) this.hover(event);
+      // The GM's Alt over a spell: the tip says what a click does (after the token's hover, which hides tips).
+      if (this.hoveredSpell && this.spellClearing) this.showTip(event.clientX, event.clientY, 'Alt+click to clear this spell');
+      return;
+    }
     // Moving with no button held: the release was missed.
     if (event.buttons === 0) { this.cancel(); return; }
     const { clientX: x, clientY: y } = event;
@@ -2126,13 +3474,54 @@ export class Board {
       this.wake();
       return;
     }
+    if (press.kind === 'height' && press.target === 'width') {
+      // The width follows the pointer: twice its distance from the wall's middle line, where it is half way up the wall.
+      const wall = this.map?.walls.find((candidate) => candidate.id === press.id);
+      if (!wall || !this.map) return;
+      const tile = this.map.grid.size;
+      const frame = segmentFrame(wall.p1, wall.p2);
+      this.ray(x, y);
+      const hit = this.raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -(this.wallSquares(press.id) * tile) / 2), new THREE.Vector3());
+      if (!hit) return;
+      const across = Math.abs((hit.x - frame.cx) * -Math.sin(frame.heading) + (hit.z - frame.cy) * Math.cos(frame.heading));
+      const value = Math.min(WIDTH_MAX, Math.max(WIDTH_MIN, Math.round(((2 * across) / tile) * 100) / 100));
+      this.heightDrag = { target: 'width', id: press.id, value };
+      this.updateWalls();
+      this.showHandles(press.id, 'width', 'width');
+      this.showTip(x, y, `Width ${value} sq (Shift: the whole wall)`);
+      this.wake(true);
+      return;
+    }
+    if (press.kind === 'propLift') {
+      const value = Math.max(0, Math.round((press.start + (press.y - y) * this.squaresPerPixel()) * 20) / 20);
+      press.value = value;
+      this.propsVersion += 1;
+      this.stackProps();
+      this.showPropLine(press.id, true);
+      this.showTip(x, y, `Height ${value} sq`);
+      this.wake(true);
+      return;
+    }
+    if (press.kind === 'propScale') {
+      // Up grows it, down shrinks it, by what the pointer covers on the board; to a twentieth of a cell.
+      const value = Math.min(10, Math.max(0.1, Math.round((press.start + (press.y - y) * this.squaresPerPixel()) * 20) / 20));
+      press.value = value;
+      this.props.get(press.id)?.preview(value);
+      this.propsVersion += 1;
+      this.showPropHandle(press.id, true);
+      this.showTip(x, y, `Scale ${value} cells`);
+      this.wake(true);
+      return;
+    }
     if (press.kind === 'height') {
       // Up raises it, down lowers it, by what the pointer covers on the board; to a twentieth of a square.
       const value = Math.max(0, Math.round((press.start + (press.y - y) * this.squaresPerPixel()) * 20) / 20);
       this.heightDrag = { target: press.target, id: press.id, value };
-      if (press.target === 'wall') this.updateWalls();
-      else this.applyLighting();
-      this.showTip(x, y, `Height ${value} sq${press.target === 'wall' ? ' (Shift: the whole wall)' : ''}`);
+      if (press.target === 'light') this.applyLighting();
+      else { this.updateWalls(); this.showHandles(press.id); }
+      const name = press.target === 'sill' ? 'Window bottom' : press.target === 'lintel' ? 'Window top' : 'Height';
+      const shown = press.target === 'sill' || press.target === 'lintel' ? this.shownWindow(press.id)?.[press.target === 'sill' ? 'bottom' : 'top'] ?? value : value;
+      this.showTip(x, y, `${name} ${shown} sq${press.target === 'light' ? '' : press.target === 'wall' ? ' (Shift: the whole wall)' : ' (Shift: the whole window)'}`);
       this.wake(true);
       return;
     }
@@ -2140,13 +3529,16 @@ export class Board {
     if (!at) return;
     const point = this.clampToBoard(at.x + press.grab.dx, at.y + press.grab.dy);
     if (press.kind === 'token') {
-      // Over another scene's pill on the height ruler, the token would go to that scene.
-      this.layerRuler?.dropTarget(this.audience === 'gm' ? this.layerRuler.pathAt(x, y) : null);
       const entry = this.tokens.get(press.id);
       if (entry) {
         entry.goal = point;
         entry.at = { ...point };
       }
+      // Over another scene's pill on the height ruler, the token would go to that scene; else to the layer it is over
+      // (the one the arrows chose, or below it where that one's floor is see-through).
+      const pill = this.audience === 'gm' ? this.layerRuler?.pathAt(x, y) ?? null : null;
+      this.updateDragLanding(point);
+      this.layerRuler?.dropTarget(pill ?? this.dragLanding?.key ?? null);
       if (press.members) {
         for (const [id, place] of groupFollow(press.members, press.id, point, this.size.width, this.size.height)) {
           const other = this.tokens.get(id);
@@ -2156,34 +3548,50 @@ export class Board {
       this.drawRuler();
     } else {
       this.props.get(press.id)?.place(point.x, point.y);
+      this.propsVersion += 1;
     }
     this.wake();
   }
 
   private up(event: PointerEvent): void {
+    const click = this.nameClick;
+    this.nameClick = null;
+    if (click && Math.hypot(event.clientX - click.x, event.clientY - click.y) < 6) this.showName(click.id);
+    if (this.endTouch(event)) return;
+    if (this.spellGizmo?.dragging) { this.spellGizmo.release(); this.wake(); return; }
+    if (this.eye) { this.eyeDrag = null; return; }
     const press = this.press;
     this.press = null;
     // A handle let go: the scene's new place is saved.
     if (press?.kind === 'gizmo') {
       if (this.adjusting !== null) this.host.layerPlaced?.(this.adjusting, this.adjustPlacement);
+      else if (this.tablePlacing) { const table = this.placedTable(); if (table) this.host.tablePlaced?.(table); }
       return;
     }
     const { clientX: x, clientY: y } = event;
     // Painting: a click paints the wall under it (Shift: the whole wall), and painting goes on until Esc.
     if (event.button === 0 && this.painting) {
       const wall = this.wallAt(x, y);
-      if (wall) this.host.paintWall(wall, this.painting, event.shiftKey);
+      if (wall) this.host.paintWall(wall, this.painting === UNPAINT ? null : this.painting, event.shiftKey);
       return;
     }
     if (event.button === 0 && this.placing) {
       const at = this.boardPoint(x, y);
       const glb = this.placing;
+      const look = this.placingLook;
       this.stopPlacing();
-      if (at) this.host.addProp(glb, at.x, at.y);
+      if (at) this.host.addProp(glb, at.x, at.y, look);
       return;
     }
     if (!press) return;
     if (press.kind === 'laser') { this.wake(); return; }
+    if (press.kind === 'water') {
+      const mask = this.water?.mask;
+      const saved = mask && !mask.empty ? mask.save() : null;
+      this.waterKey = JSON.stringify(saved);
+      this.host.saveWater?.(saved);
+      return;
+    }
     if (press.kind === 'tool') {
       const at = this.boardPoint(x, y);
       const actions = at ? this.tools.up(at, this.now(), press.moved) : (this.tools.cancel(), []);
@@ -2212,22 +3620,35 @@ export class Board {
         return;
       }
       if (press.moved && press.copy) {
-        this.copyToken(entry, snapPoint(this.map!.grid, entry.at.x, entry.at.y, entry.token.size));
+        this.copyToken(entry, snapPoint(this.snapGrid('tokens'), entry.at.x, entry.at.y, entry.token.size));
         return;
       }
       // Dropped on another scene's pill: the tokens go there (and stand where they were until it is done).
-      const dropped = this.audience === 'gm' && press.moved ? this.layerRuler?.pathAt(event.clientX, event.clientY) ?? null : null;
+      const pill = this.audience === 'gm' && press.moved ? this.layerRuler?.pathAt(event.clientX, event.clientY) ?? null : null;
+      // Let go over another layer (chosen with the arrows, or fallen through a see-through floor): it goes there, where
+      // it was let go, and that layer is shown.
+      const landing = this.audience === 'gm' && press.moved ? this.dragLanding : null;
+      const dropped = pill ?? landing?.key ?? null;
       this.layerRuler?.dropTarget(null);
       if (dropped) {
         const ids = [...new Set([press.id, ...(press.members?.keys() ?? [])])];
+        const view = this.layerViews.get(dropped);
+        const places: Record<string, { x: number; y: number }> = {};
         for (const id of ids) {
           const carried = this.tokens.get(id);
-          if (carried) carried.goal = { x: carried.token.x, y: carried.token.y };
+          if (!carried) continue;
+          if (!pill && view) {
+            const snapped = snapPoint(this.snapGrid('tokens'), carried.at.x, carried.at.y, carried.token.size);
+            places[id] = view.mapPointAt(snapped.x, snapped.y);
+          }
+          carried.goal = { x: carried.token.x, y: carried.token.y };
         }
-        this.host.moveTokensToLayer?.(ids, dropped);
+        this.endDragLayer();
+        this.host.moveTokensToLayer?.(ids, dropped, pill ? undefined : places, !pill);
         this.wake(true);
         return;
       }
+      this.endDragLayer();
       if (!press.moved) {
         // A player's board has no resource controls to open.
         if (this.audience === 'gm') { this.clearGroup(); this.select(press.id); }
@@ -2236,7 +3657,7 @@ export class Board {
         return;
       }
       if (press.members) {
-        const landing = groupLanding(press.members, press.id, entry.at, this.map!.grid, this.size.width, this.size.height);
+        const landing = groupLanding(press.members, press.id, entry.at, this.snapGrid('tokens'), this.size.width, this.size.height);
         const moves: Array<{ id: string; x: number; y: number }> = [];
         for (const [id, place] of landing) {
           const other = this.tokens.get(id);
@@ -2246,18 +3667,49 @@ export class Board {
         }
         if (this.host.moveTokens) this.host.moveTokens(moves);
         else for (const move of moves) this.host.moveToken(move.id, move.x, move.y);
+        for (const move of moves) this.landImpact(move.id, move);
         this.wake(true);
         return;
       }
-      const snapped = snapPoint(this.map!.grid, entry.at.x, entry.at.y, entry.token.size);
+      const snapped = snapPoint(this.snapGrid('tokens'), entry.at.x, entry.at.y, entry.token.size);
       entry.goal = snapped;
       this.host.moveToken(press.id, snapped.x, snapped.y);
+      this.landImpact(press.id, snapped);
       this.wake(true);
       return;
     }
     if (press.kind === 'prop') {
       const piece = this.props.get(press.id);
-      if (piece && press.moved) this.host.moveProp(press.id, piece.object3d.position.x, piece.object3d.position.z);
+      if (piece) {
+        piece.carried = false;
+        if (press.moved) {
+          const size = Math.max(1, Math.round(piece.placement.scale));
+          const landing = snapPoint(this.snapGrid('props'), piece.object3d.position.x, piece.object3d.position.z, size);
+          piece.place(landing.x, landing.y);
+          // Dropped last: on a solid prop it stands on top (as the map will have it once saved).
+          this.propOrder = [...this.propOrder.filter((other) => other !== press.id), press.id];
+          this.propsVersion += 1;
+          this.host.moveProp(press.id, landing.x, landing.y);
+        } else piece.place(piece.object3d.position.x, piece.object3d.position.z);
+      }
+      this.wake(true);
+      return;
+    }
+    if (press.kind === 'propLift') {
+      this.tooltip.hidden = true;
+      this.showPropLine(null);
+      if (press.moved && press.value !== press.start) this.host.liftProp?.(press.id, press.value);
+      this.propsVersion += 1;
+      this.wake(true);
+      return;
+    }
+    if (press.kind === 'propScale') {
+      this.tooltip.hidden = true;
+      this.showPropHandle(null);
+      const piece = this.props.get(press.id);
+      if (piece && press.moved && press.value !== press.start) this.host.scaleProp?.(press.id, press.value);
+      else piece?.preview(null);
+      this.propsVersion += 1;
       this.wake(true);
       return;
     }
@@ -2267,8 +3719,17 @@ export class Board {
       this.tooltip.hidden = true;
       if (press.moved && drag) {
         if (drag.target === 'wall') this.host.setWallHeight(drag.id, drag.value, event.shiftKey);
-        else this.host.setLightHeight(drag.id, drag.value);
+        else if (drag.target === 'light') this.host.setLightHeight(drag.id, drag.value);
+        else if (drag.target === 'width') this.host.setWallWidth?.(drag.id, drag.value, event.shiftKey);
+        else {
+          // The span as shown (kept inside the wall), worked out before the drag is let go.
+          this.heightDrag = drag;
+          const span = this.shownWindow(drag.id);
+          this.heightDrag = null;
+          if (span) this.host.setWindowSpan?.(drag.id, span, event.shiftKey);
+        }
       }
+      this.hideHandles();
       this.updateWalls();
       this.applyLighting();
       return;
@@ -2304,6 +3765,7 @@ export class Board {
       this.wake(true);
     } else if (press?.kind === 'token') {
       this.layerRuler?.dropTarget(null);
+      this.endDragLayer();
       this.clearRuler();
       const entry = this.tokens.get(press.id);
       if (entry) {
@@ -2316,10 +3778,19 @@ export class Board {
       }
     } else if (press?.kind === 'prop') {
       const piece = this.props.get(press.id);
-      if (piece) piece.place(piece.placement.x, piece.placement.y);
+      if (piece) { piece.carried = false; piece.place(piece.placement.x, piece.placement.y); }
+    } else if (press?.kind === 'propLift') {
+      this.showPropLine(null);
+      this.tooltip.hidden = true;
+      this.propsVersion += 1;
+    } else if (press?.kind === 'propScale') {
+      this.showPropHandle(null);
+      this.props.get(press.id)?.preview(null);
+      this.tooltip.hidden = true;
     } else if (press?.kind === 'height') {
       // A lost drag leaves the height as it was.
       this.heightDrag = null;
+      this.hideHandles();
       this.tooltip.hidden = true;
       this.updateWalls();
       this.applyLighting();
@@ -2399,7 +3870,7 @@ export class Board {
     if (press?.kind !== 'token' || !this.map) return null;
     const entry = this.tokens.get(press.id);
     if (!entry) return null;
-    const landing = snapPoint(this.map.grid, entry.at.x, entry.at.y, entry.token.size);
+    const landing = snapPoint(this.snapGrid('tokens'), entry.at.x, entry.at.y, entry.token.size);
     const points = [press.start, ...press.waypoints];
     const last = points[points.length - 1];
     if (Math.hypot(landing.x - last.x, landing.y - last.y) > 0.5) points.push(landing);
@@ -2411,7 +3882,7 @@ export class Board {
     if (press?.kind !== 'token' || !this.map) return;
     const entry = this.tokens.get(press.id);
     if (!entry) return;
-    const landing = snapPoint(this.map.grid, entry.at.x, entry.at.y, entry.token.size);
+    const landing = snapPoint(this.snapGrid('tokens'), entry.at.x, entry.at.y, entry.token.size);
     const last = press.waypoints[press.waypoints.length - 1] ?? press.start;
     if (Math.hypot(landing.x - last.x, landing.y - last.y) <= 0.5) return;
     press.waypoints.push(landing);
@@ -2443,19 +3914,21 @@ export class Board {
     this.clearRuler();
     if (!points || !map) { this.wake(); return; }
     const measurement = this.host.measurement();
-    const label = formatDistance(pathLengthInCells(points, map.grid, measurement.diagonalRule), measurement);
+    // Through a spell's difficult terrain each square costs one more: the share of the path in it, counted again.
+    const cells = pathLengthInCells(points, map.grid, measurement.diagonalRule);
+    const label = formatDistance(cells + cells * this.difficultShare(points), measurement);
     this.rulerState = { points, label };
     const group = new THREE.Group();
     group.position.y = 1.2;
     const segments: number[] = [];
     for (let i = 1; i < points.length; i++) segments.push(points[i - 1].x, points[i - 1].y, points[i].x, points[i].y);
     const color = accent(this.container);
-    const edge = new THREE.Mesh(stripGeometry(segments, map.grid.size * 0.09), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide }));
-    const line = new THREE.Mesh(stripGeometry(segments, map.grid.size * 0.05), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide }));
+    const edge = new THREE.Mesh(stripGeometry(segments, map.grid.size * 0.15), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide }));
+    const line = new THREE.Mesh(stripGeometry(segments, map.grid.size * 0.09), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide }));
     line.position.y = 0.2;
     group.add(edge, line);
     for (const point of points.slice(0, -1)) {
-      const dot = new THREE.Mesh(new THREE.CircleGeometry(map.grid.size * 0.11, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false }));
+      const dot = new THREE.Mesh(new THREE.CircleGeometry(map.grid.size * 0.14, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false }));
       dot.position.set(point.x, 0.4, point.y);
       group.add(dot);
     }
@@ -2540,7 +4013,9 @@ export class Board {
       const height = this.wallSquares(wall.id) * map.grid.size;
       if (!(height > 0)) continue;
       const frame = segmentFrame(wall.p1, wall.p2);
-      obstacles.push({ kind: 'box', x: frame.cx, z: frame.cy, halfLength: (frame.length + thick) / 2, halfWidth: thick / 2, heading: frame.heading, height });
+      const own = (this.host.wallWidth?.(wall.id) ?? 0) * map.grid.size;
+      const width = own > 0 ? own : thick;
+      obstacles.push({ kind: 'box', x: frame.cx, z: frame.cy, halfLength: (frame.length + width) / 2, halfWidth: width / 2, heading: frame.heading, height });
     }
     return obstacles;
   }
@@ -2703,9 +4178,10 @@ export class Board {
     const gm = viewer === 'gm';
     const fog = this.fog.areas;
     for (const entry of this.tokens.values()) {
-      entry.piece.object3d.visible = (gm || playerSees(entry.token, entry.at, fog)) && !this.beyondSight(viewer, `t:${entry.token.id}`);
-      entry.labels.object3d.visible = gm;
-      entry.playerLabels.object3d.visible = !gm;
+      const own = this.eye?.tokenId === entry.token.id;
+      entry.piece.object3d.visible = !own && (gm || playerSees(entry.token, entry.at, fog)) && !this.beyondSight(viewer, `t:${entry.token.id}`);
+      entry.labels.object3d.visible = gm && !own;
+      entry.playerLabels.object3d.visible = !gm && !own;
     }
     for (const pin of this.pins) pin.object3d.visible = gm && !this.pointBeyond(viewer, pin.pin.x, pin.pin.y);
     for (const piece of this.props.values()) piece.object3d.visible = (gm || !insideFog(fog, { x: piece.object3d.position.x, y: piece.object3d.position.z })) && !this.beyondSight(viewer, `p:${piece.id}`);
@@ -2718,11 +4194,14 @@ export class Board {
     // The unseen squares: the players' view always, the GM's board under Everyone, or the point of view being previewed.
     this.veilPov.object3d.visible = gm && this.povSight !== null;
     this.veilSight.object3d.visible = this.sight !== null && (!gm || (this.quality.lineOfSight === 'everyone' && this.povSight === null));
-    // Players see one scene at a time: what is stacked on it is the GM's.
-    // Under line of sight (the GM's board under Everyone, or a point of view) the scenes stacked above are blacked out as shadows, and the ones below stay.
-    const sighted = gm && (this.povSight !== null || (this.sight !== null && this.quality.lineOfSight === 'everyone'));
+    // The GM's player window shows one scene at a time: what is stacked on it is the GM's. A Connect player's own board
+    // shows the scenes stacked with theirs, which Connect sends (their form, never what stands on them).
+    // Under line of sight (the GM's board under Everyone, a point of view, or a player's board) the scenes stacked above
+    // are blacked out as shadows, and the ones below stay.
+    const ownBoard = !gm && this.audience === 'player';
+    const sighted = (gm && (this.povSight !== null || (this.sight !== null && this.quality.lineOfSight === 'everyone'))) || (ownBoard && this.sight !== null);
     for (const view of this.layerViews.values()) {
-      view.setVisible(gm);
+      view.setVisible(gm || ownBoard);
       view.setBlackout(sighted && view.elevation > 0);
     }
   }
@@ -2754,8 +4233,10 @@ export class Board {
       pixel: screenScale(1, height, FOV),
     };
     this.showFor('player');
-    // Only the thrower sees the dice tumble: never the players' screen.
+    // Only the thrower sees the dice tumble: never the players' screen. Nor the AR players' eyes: those are the GM's.
     if (this.dice) this.dice.object3d.visible = false;
+    this.viewers.object3d.visible = false;
+    this.tableOutlines.visible = false;
     try {
       for (const entry of this.tokens.values()) entry.playerLabels.pose(context);
       player.renderer.shadowMap.needsUpdate = shadows || player.shadowsDirty;
@@ -2780,6 +4261,8 @@ export class Board {
       // Whatever happened, the GM's board goes back to the GM's look.
       this.showFor('gm');
       if (this.dice) this.dice.object3d.visible = true;
+      this.viewers.object3d.visible = true;
+      this.tableOutlines.visible = true;
     }
   }
 
@@ -2798,7 +4281,1279 @@ export class Board {
     this.wake();
   }
 
+  /** The map's saved water, drawn over its floor (none while it has no water and none is being painted). */
+  private loadWater(map: BoardMap): void {
+    this.water?.dispose();
+    this.water = null;
+    this.chosenWaterMotion = null;
+    const saved = this.host.water?.() ?? null;
+    this.waterKey = JSON.stringify(saved?.mask ?? null);
+    if (!saved || !this.size) return;
+    const mask = WaterMask.read(saved.mask, this.size.width, this.size.height, map.grid.size);
+    if (mask && !mask.empty) this.showWater(mask, readWaterMotion(saved.motion));
+  }
+
+  private showWater(mask: WaterMask, motion: WaterMotion): WaterSurface {
+    const water = new WaterSurface(mask, this.size?.width ?? 1, this.size?.height ?? 1, this.map?.grid.size ?? 70, motion);
+    this.water = water;
+    this.scene.add(water.object3d);
+    return water;
+  }
+
+  /**
+   * The water brush's outline: a ring of the brush's size under the pointer, in the accent colour while painting and
+   * red while erasing; hidden while the brush is off or the pointer is off the board.
+   */
+  private showBrush(): void {
+    const cell = this.map?.grid.size ?? 70;
+    const radius = this.waterBrush * cell;
+    const at = this.waterTool && this.waterTool !== 'fill' ? this.brushAt : null;
+    if (!at) {
+      if (this.brushRing?.visible) { this.brushRing.visible = false; this.wake(); }
+      return;
+    }
+    if (!this.brushRing) {
+      this.brushRing = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.95, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
+      this.brushRing.renderOrder = 20;
+      this.brushRing.raycast = () => {};
+      this.scene.add(this.brushRing);
+    }
+    const ring = this.brushRing;
+    if (this.brushRingRadius !== radius) {
+      const width = Math.min(radius * 0.5, Math.max(1.5, cell * 0.07));
+      ring.geometry.dispose();
+      ring.geometry = new THREE.RingGeometry(radius - width, radius, 96).rotateX(-Math.PI / 2);
+      this.brushRingRadius = radius;
+    }
+    (ring.material as THREE.MeshBasicMaterial).color.set(this.waterTool === 'erase' ? '#ff5a5a' : accent(this.container));
+    ring.position.set(at.x, 0.5, at.y);
+    ring.visible = true;
+    this.wake();
+  }
+
+  /** The map's colours at the water mask's texels (white where it has no image). */
+  private mapColors(mask: WaterMask): Uint8ClampedArray | null {
+    const key = `${mask.width}x${mask.height}`;
+    if (this.fillColors?.key === key) return this.fillColors.colors;
+    const canvas = this.container.ownerDocument.createElement('canvas');
+    canvas.width = mask.width;
+    canvas.height = mask.height;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) return null;
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, mask.width, mask.height);
+    const source = this.fillSource;
+    if (source) {
+      context.setTransform(1 / mask.texel, 0, 0, 1 / mask.texel, 0, 0);
+      context.transform(...source.transform);
+      context.drawImage(source.image, 0, 0, source.width, source.height);
+    }
+    let colors: Uint8ClampedArray;
+    try {
+      colors = context.getImageData(0, 0, mask.width, mask.height).data;
+    } catch {
+      this.host.warn('Tabletop: the bucket cannot read the map image.');
+      return null;
+    }
+    this.fillColors = { key, colors };
+    return colors;
+  }
+
+  /** The walls (and shut doors) as texels the bucket does not cross. */
+  private fillWalls(mask: WaterMask): Uint8Array {
+    const blocked = new Uint8Array(mask.width * mask.height);
+    const canvas = this.container.ownerDocument.createElement('canvas');
+    canvas.width = mask.width;
+    canvas.height = mask.height;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) return blocked;
+    context.strokeStyle = '#000';
+    context.lineCap = 'round';
+    context.lineWidth = 1.5;
+    for (const wall of this.map?.walls ?? []) {
+      if ((wall.type === 'door' || wall.type === 'secret-door') && !wall.closed) continue;
+      context.beginPath();
+      context.moveTo(wall.p1.x / mask.texel, wall.p1.y / mask.texel);
+      context.lineTo(wall.p2.x / mask.texel, wall.p2.y / mask.texel);
+      context.stroke();
+    }
+    const pixels = context.getImageData(0, 0, mask.width, mask.height).data;
+    for (let k = 0; k < blocked.length; k++) if (pixels[k * 4 + 3]! > 0) blocked[k] = 1;
+    return blocked;
+  }
+
+  /** The bucket: fills the area of the map's colour joined to a point with water (or, with Shift, dries it). */
+  private fillWater(at: { x: number; y: number }, wet: boolean): void {
+    const map = this.map;
+    if (!map || !this.size) return;
+    let water = this.water;
+    if (!water) {
+      if (!wet) return;
+      water = this.showWater(WaterMask.forMap(this.size.width, this.size.height, map.grid.size), this.chosenWaterMotion ?? readWaterMotion(this.host.water?.()?.motion));
+    }
+    const colors = this.mapColors(water.mask);
+    if (!colors) return;
+    // 0 takes only the colour clicked, 100 a long way off it (the farthest two colours are 441 apart).
+    const tolerance = (this.waterFill / 100) * 200;
+    if (water.mask.fill(at.x, at.y, colors, tolerance, wet, this.fillWalls(water.mask))) water.maskChanged();
+    this.wake();
+  }
+
+  /**
+   * Stacks the props: in the map's order, each stands on the top of the solid props before it under its middle (the
+   * one carried on the solid props under it, holding up nothing while it is carried).
+   */
+  private stackProps(): void {
+    this.stackedVersion = this.propsVersion;
+    const order = [...this.propOrder.filter((id) => this.props.has(id)), ...[...this.props.keys()].filter((id) => !this.propOrder.includes(id))];
+    const carried = this.press?.kind === 'prop' ? this.press.id : null;
+    const below: THREE.Object3D[] = [];
+    const ray = this.standRay;
+    const standOn = (piece: PropPiece, under: THREE.Object3D[]): number => {
+      if (under.length === 0) return 0;
+      ray.set(new THREE.Vector3(piece.object3d.position.x, 1e5, piece.object3d.position.z), new THREE.Vector3(0, -1, 0));
+      ray.far = 2e5;
+      const hit = ray.intersectObjects(under, true)[0];
+      return hit ? Math.max(0, hit.point.y) : 0;
+    };
+    for (const id of order) {
+      if (id === carried) continue;
+      const piece = this.props.get(id)!;
+      piece.setBase(standOn(piece, below) + this.liftOf(piece));
+      piece.object3d.updateWorldMatrix(true, true);
+      if (piece.placement.solid && piece.body) below.push(piece.body);
+    }
+    const held = carried ? this.props.get(carried) : null;
+    if (held) { held.setBase(standOn(held, below) + this.liftOf(held)); held.object3d.updateWorldMatrix(true, true); }
+  }
+
+  /** How high a prop stands over what is under it, in world units: its own height (as dragged). */
+  private liftOf(piece: PropPiece): number {
+    if (!this.map) return 0;
+    const press = this.press;
+    const squares = press?.kind === 'propLift' && press.id === piece.id ? press.value : piece.placement.lift ?? 0;
+    return squares * this.map.grid.size;
+  }
+
+  /** How high the top of the solid props under a token's middle is (0: none there, the floor). Kept until it moves or the props change. */
+  /** The layer a carried token is over (`key` null: the scene played), at what height; null when not carrying one. */
+  private dragLanding: { key: string | null; elevation: number } | null = null;
+  /** The layer the arrows chose while carrying (null: the scene played), and the look it had before it was shown solid. */
+  private dragLayer: string | null = null;
+  private dragLayerLook: { key: string; look: LayerLook } | null = null;
+
+  /** The floors a carried token may go to: the scene played (key null) and each layer shown, low to high. */
+  private dragFloors(): Array<{ key: string | null; elevation: number; view: ElevationLayerView | null }> {
+    const floors: Array<{ key: string | null; elevation: number; view: ElevationLayerView | null }> = [{ key: null, elevation: 0, view: null }];
+    for (const [key, view] of this.layerViews) {
+      if (this.host.layerHidden?.(key) === true) continue;
+      floors.push({ key, elevation: view.elevation, view });
+    }
+    return floors.sort((a, b) => a.elevation - b.elevation);
+  }
+
+  /** Whether the scene played has ground at a map point (its picture there not see-through). */
+  private groundHere(x: number, y: number): boolean {
+    const background = this.map?.background;
+    if (!background || this.size.width <= 0 || this.size.height <= 0) return true;
+    const texture = this.floorTextureNow(background);
+    const picture = texture?.image as (CanvasImageSource & { width: number; height: number }) | undefined;
+    if (!picture) return true;
+    return opaqueAt(picture, x / this.size.width, y / this.size.height) ?? true;
+  }
+
+  /** Where a token carried to `point` would land: the floor chosen, or the first below it with ground there. */
+  private updateDragLanding(point: { x: number; y: number }): void {
+    if (this.audience !== 'gm' || (this.layerViews.size === 0 && this.dragLayer === null)) { this.dragLanding = null; return; }
+    const floors = this.dragFloors();
+    let index = Math.max(0, floors.findIndex((floor) => floor.key === this.dragLayer));
+    for (; index > 0; index--) {
+      const floor = floors[index]!;
+      const ground = floor.view ? floor.view.groundAt(point.x, point.y, opaqueAt) : this.groundHere(point.x, point.y);
+      if (ground) break;
+    }
+    // The lowest floor has the last say: something stands there.
+    const floor = floors[index]!;
+    if (floor.key === null && !this.groundHere(point.x, point.y)) {
+      // The scene played is see-through here: the first floor below with ground.
+      for (let below = index - 1; below >= 0; below--) {
+        const lower = floors[below]!;
+        if (lower.view?.groundAt(point.x, point.y, opaqueAt)) { this.dragLanding = { key: lower.key, elevation: lower.elevation }; this.wake(true); return; }
+      }
+    }
+    const next = floor.key === null ? null : { key: floor.key, elevation: floor.elevation };
+    if (JSON.stringify(next) !== JSON.stringify(this.dragLanding)) { this.dragLanding = next; this.wake(true); }
+  }
+
+  /** The arrows while carrying: the layer above (+1) or below (-1), shown solid while it is chosen. */
+  private stepDragLayer(direction: number): void {
+    const floors = this.dragFloors();
+    const at = Math.max(0, floors.findIndex((floor) => floor.key === this.dragLayer));
+    const next = floors[Math.max(0, Math.min(floors.length - 1, at + direction))]!;
+    if (next.key === this.dragLayer) return;
+    this.restoreDragLook();
+    this.dragLayer = next.key;
+    // A layer above shown faded or hidden is shown whole while a token is carried to it.
+    if (next.view && next.key) {
+      this.dragLayerLook = { key: next.key, look: next.elevation > 0 ? this.quality.layerLook : 'solid' };
+      next.view.restyle('solid');
+    }
+    const entry = this.press?.kind === 'token' ? this.tokens.get(this.press.id) : undefined;
+    if (entry) this.updateDragLanding(entry.at);
+    this.layerRuler?.dropTarget(this.dragLanding?.key ?? null);
+    this.showTip(this.pointerAt?.x ?? 0, this.pointerAt?.y ?? 0, next.key === null ? 'This scene' : `To ${this.layerName(next.key)} (let go to move it there)`);
+    this.wake(true);
+  }
+
+  private restoreDragLook(): void {
+    const kept = this.dragLayerLook;
+    this.dragLayerLook = null;
+    if (kept) this.layerViews.get(kept.key)?.restyle(kept.look);
+  }
+
+  /** Carrying ended: the layers look as they did. */
+  private endDragLayer(): void {
+    this.restoreDragLook();
+    this.dragLayer = null;
+    this.dragLanding = null;
+  }
+
+  /** A layer's name as the height ruler shows it. */
+  private layerName(key: string): string {
+    return this.layerMenuItems.find((item) => item.path === key)?.name ?? key.replace(/^.*[/:]/, '').replace(/\.[^.]+$/, '');
+  }
+
+  private standAt(entry: { at: { x: number; y: number }; stand?: { x: number; y: number; version: number; value: number } }): number {
+    // Carried over another layer: it hovers at that layer's floor.
+    if (this.dragLanding && this.press?.kind === 'token' && (this.press.id === (entry as { token?: { id: string } }).token?.id || this.press.members?.has((entry as { token?: { id: string } }).token?.id ?? ''))) {
+      return this.dragLanding.elevation * (this.map?.grid.size ?? 50);
+    }
+    const kept = entry.stand;
+    if (kept && kept.version === this.propsVersion && Math.abs(kept.x - entry.at.x) < 0.5 && Math.abs(kept.y - entry.at.y) < 0.5) return kept.value;
+    const bodies: THREE.Object3D[] = [];
+    for (const piece of this.props.values()) if (piece.placement.solid && piece.body) { piece.object3d.updateWorldMatrix(true, true); bodies.push(piece.body); }
+    let value = 0;
+    if (bodies.length > 0) {
+      this.standRay.set(new THREE.Vector3(entry.at.x, 1e5, entry.at.y), new THREE.Vector3(0, -1, 0));
+      this.standRay.far = 2e5;
+      const hit = this.standRay.intersectObjects(bodies, true)[0];
+      if (hit) value = Math.max(0, hit.point.y);
+    }
+    entry.stand = { x: entry.at.x, y: entry.at.y, version: this.propsVersion, value };
+    return value;
+  }
+
+  /** Paints (or erases) the water brush along a drag, from one board point to the next. */
+  private paintWater(from: { x: number; y: number }, to: { x: number; y: number }): void {
+    const map = this.map;
+    if (!map || !this.size || !this.waterTool) return;
+    const wet = this.waterTool === 'paint';
+    let water = this.water;
+    if (!water) {
+      if (!wet) return;
+      water = this.showWater(WaterMask.forMap(this.size.width, this.size.height, map.grid.size), this.chosenWaterMotion ?? readWaterMotion(this.host.water?.()?.motion));
+    }
+    if (water.mask.stroke(from, to, this.waterBrush * map.grid.size, wet)) water.maskChanged();
+    this.wake();
+  }
+
+  /** What the board's toolbar controls do. */
+  toolbarActions(): ToolbarActions {
+    return this.toolbar.boardActions;
+  }
+
+  /** A token is being dragged (Space then drops a ruler waypoint). */
+  get carryingToken(): boolean {
+    return this.press?.kind === 'token';
+  }
+
+  /** Shows Atlas's toolbar tools on the board's toolbar (the GM's; src/board/atlasTools.ts). */
+  setAtlasTools(tools: readonly AtlasToolButton[]): void {
+    if (this.audience === 'gm') this.toolbar.setAtlasTools(tools);
+  }
+
+  /** The point of the map the camera looks at (the centre of the view), in map pixels. */
+  viewCentre(): { x: number; y: number } {
+    const target = this.camera.pose.target;
+    return { x: target.x, y: target.z };
+  }
+
+  /** Tokens waiting to be selected until they stand on the board (`selectTokens` of tokens not read yet). */
+  private pendingSelection: string[] | null = null;
+
+  /** Selects these tokens (one is the selected token, several a group); tokens not on the board yet wait for it. */
+  selectTokens(ids: readonly string[]): void {
+    if (!ids.every((id) => this.tokens.has(id))) { this.pendingSelection = [...ids]; return; }
+    this.group.clear();
+    if (ids.length === 1) this.select(ids[0] ?? null);
+    else {
+      for (const id of ids) this.group.add(id);
+      this.select(null);
+    }
+    this.drawGroup();
+  }
+
   /** The camera goes to a point of the map, selecting nothing. */
+  /**
+   * Sees through a token's eyes (null goes back to the usual camera): the camera stands at its eye height and follows
+   * it, turned by the phone's gyroscope when `gyro` (the caller asked for it) and by a drag. False for a token not here.
+   */
+  seeFrom(tokenId: string | null, gyro = false): boolean {
+    this.eye?.dispose();
+    this.eye = null;
+    this.eyeTurn = null;
+    this.eyeDrag = null;
+    if (tokenId === null || !this.tokens.has(tokenId)) {
+      this.lockPointer(false);
+      this.caster?.show(false);
+      // The GM's toolbar back, after the eyes.
+      if (this.audience === 'gm') this.toolbar.setHidden(false);
+      this.view.near = this.baseNear;
+      this.view.updateProjectionMatrix();
+      this.wake(true);
+      return tokenId === null;
+    }
+    this.eye = new EyeView(tokenId, this.camera.pose.yaw, gyro, this.container.ownerDocument.defaultView ?? window, () => this.wake());
+    // The keys (Escape, F) go to the board from the start.
+    this.canvas.focus({ preventScroll: true });
+    // Players, and the GM through anyone's eyes, cast spells there; the GM's toolbar makes way for the spell toolbar.
+    this.caster ??= this.makeCaster();
+    this.caster.show(true);
+    if (this.audience === 'gm') this.toolbar.setHidden(true);
+    // Close by, the walls must not be clipped away.
+    this.view.near = Math.max(0.5, (this.map?.grid.size ?? 50) * 0.02);
+    this.view.updateProjectionMatrix();
+    this.wake(true);
+    return true;
+  }
+
+  /** Two fingers down: what was being done with one stops, and the spot between them is held under them. */
+  private startPinch(): void {
+    if (this.press) this.cancel();
+    this.eyeDrag = null;
+    const [a, b] = [...this.touches.values()];
+    if (!a || !b) return;
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    this.pinch = { grab: this.eye ? null : this.boardPoint(mid.x, mid.y), spread: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)) };
+  }
+
+  /** Two fingers moving: apart zooms in, together out, and the view slides with them (through a token's eyes, neither). */
+  private movePinch(): void {
+    const pinch = this.pinch;
+    const [a, b] = [...this.touches.values()];
+    if (!pinch || !a || !b || this.eye) return;
+    const spread = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
+    this.camera.zoom(pinch.spread / spread);
+    pinch.spread = spread;
+    this.camera.snap();
+    this.panTo(pinch.grab, (a.x + b.x) / 2, (a.y + b.y) / 2);
+    this.camera.snap();
+    this.wake();
+  }
+
+  /** A finger lifted: true while a pinch is still on (the last finger lifting ends it), so the lift starts nothing. */
+  private endTouch(event: PointerEvent): boolean {
+    if (event.pointerType !== 'touch' || !this.touches.delete(event.pointerId)) return false;
+    if (!this.pinch) return false;
+    if (this.touches.size === 0) this.pinch = null;
+    this.press = null;
+    return true;
+  }
+
+  /**
+   * Augmented reality: draws the board from the phone camera's tracked pose over the printed sheet, over the camera's
+   * picture (see-through where the board is not); null goes back to the usual camera. False for a pose it cannot use.
+   */
+  setAugmented(view: AugmentedView | null): boolean {
+    if (view !== null && !isAugmentedView(view)) return false;
+    const was = this.augmented !== null;
+    this.augmented = view;
+    // The camera's picture, when the page draws it in: the same picture the pose was found for, so the two never part.
+    const source = view?.background ?? null;
+    if (source) {
+      if (!this.arTexture || this.arSource !== source) {
+        this.arTexture?.dispose();
+        this.arTexture = new THREE.CanvasTexture(source as HTMLCanvasElement);
+        this.arTexture.colorSpace = THREE.SRGBColorSpace;
+        this.arSource = source;
+      } else {
+        this.arTexture.needsUpdate = true;
+      }
+    } else if (this.arTexture) {
+      if (this.scene.background === this.arTexture) this.scene.background = null;
+      this.arTexture.dispose();
+      this.arTexture = null;
+      this.arSource = null;
+    }
+    if (view && !was) {
+      this.seeFrom(null);
+      if (this.renderer.getPixelRatio() < 1) { this.renderer.setPixelRatio(1); this.fit(); }
+      const old = this.scene.background;
+      this.scene.background = null;
+      if (old instanceof THREE.Texture && old !== this.arTexture) old.dispose();
+      this.backdropKey = '';
+      this.applyHorizon();
+    } else if (!view && was) {
+      this.renderer.setClearColor(0x000000, 1);
+      this.view.near = this.baseNear;
+      this.view.updateProjectionMatrix();
+      this.applyHorizon();
+      this.paintDaylight();
+    }
+    if (this.arTexture) this.scene.background = this.arTexture;
+    this.wake(!view || !was);
+    return true;
+  }
+
+  /** Whether the camera's picture shows round the board: augmented reality on a marker sheet, or room tracking. */
+  private get seeThrough(): boolean {
+    return this.augmented !== null || this.room !== null;
+  }
+
+  /**
+   * Room tracking: draws the board into a WebXR immersive AR session (the page asked for it in the player's tap).
+`   * `onFrame` hears each of the session's frames first (the page looks for the table there). The board shows once
+`   * placed (`placeRoomAr`). Ends with the session.
+   */
+  async startRoomAr(session: XRSession, onFrame: ((frame: XRFrame, space: XRReferenceSpace | null) => void) | null): Promise<boolean> {
+    if (this.room || this.disposed) return false;
+    this.setAugmented(null);
+    this.seeFrom(null);
+    const rig = new THREE.Group();
+    rig.matrixAutoUpdate = false;
+    this.room = { session, rig, onFrame, far: this.view.far };
+    try {
+      const xr = this.renderer.xr;
+      xr.enabled = true;
+      xr.setReferenceSpaceType('local');
+      // Half the screen's resolution each way: the session's own is the phone's full screen, several times what the
+      // board draws on a phone otherwise.
+      xr.setFramebufferScaleFactor(0.5);
+      await xr.setSession(session);
+    } catch (error) {
+      this.room = null;
+      this.renderer.xr.enabled = false;
+      throw error;
+    }
+    if (this.frameId !== 0) this.frameWin?.cancelAnimationFrame(this.frameId);
+    this.frameId = 0;
+    rig.add(this.view);
+    // The room is in metres: a centimetre to a hundred metres ahead.
+    this.view.near = 0.01;
+    this.view.far = 100;
+    this.scene.visible = false;
+    const old = this.scene.background;
+    this.scene.background = null;
+    if (old instanceof THREE.Texture) old.dispose();
+    this.backdropKey = '';
+    this.applyHorizon();
+    session.addEventListener('end', () => this.endRoom());
+    this.roomTimes = { frames: 0, interval: 0, work: 0, errors: 0, lastError: '', last: 0 };
+    this.renderer.setAnimationLoop((time, frame) => {
+      const room = this.room;
+      if (!room) return;
+      const times = this.roomTimes;
+      const started = performance.now();
+      if (times.last > 0) times.interval += (time - times.last - times.interval) * 0.1;
+      times.last = time;
+      try {
+        if (frame) room.onFrame?.(frame, this.renderer.xr.getReferenceSpace());
+        this.frame(time);
+      } catch (error) {
+        times.errors++;
+        times.lastError = error instanceof Error ? error.message : String(error);
+        if (times.errors <= 3) console.error('[Tabletop] Room tracking frame:', error);
+      }
+      times.frames++;
+      times.work += (performance.now() - started - times.work) * 0.1;
+    });
+    this.shadowsDirty = true;
+    return true;
+  }
+
+  /**
+`   * Room tracking: stands the board on the table at `place` (a point of the room, in metres, and which way the map's up
+   * faces), at its size on the table; null hides it (not placed yet).
+   */
+  placeRoomAr(place: RoomPlace | null): void {
+    const room = this.room;
+    if (!room || !this.map) return;
+    if (!place) { this.scene.visible = false; return; }
+    const anchor = this.augmentedAnchor(place.anchor);
+    const matrix = roomPlacement(place, this.map.grid.size, anchor);
+    if (!matrix) return;
+    room.rig.matrix.copy(matrix);
+    room.rig.matrixWorldNeedsUpdate = true;
+    this.scene.visible = true;
+  }
+
+  /** Ends room tracking (its session). */
+  stopRoomAr(): void {
+    const room = this.room;
+    if (!room) return;
+    room.session.end().catch(() => this.endRoom());
+  }
+
+  /** Room tracking's frame times (milliseconds, eased): between frames, and spent drawing one; and errors met. */
+  roomStats(): { frames: number; intervalMs: number; workMs: number; errors: number; lastError: string } | null {
+    if (!this.room) return null;
+    const times = this.roomTimes;
+    return { frames: times.frames, intervalMs: times.interval, workMs: times.work, errors: times.errors, lastError: times.lastError };
+  }
+
+  /**
+   * Where the phone's camera is in augmented reality, in board units, and which way it looks (down its −z): what the
+   * GM's board shows as this player's eye. Null when the board is not drawn over the camera, or not placed yet.
+   */
+  arViewer(): ViewerPose | null {
+    if (this.room ? !this.scene.visible : !this.augmented || !this.map) return null;
+    if (this.room) this.room.rig.updateMatrixWorld(true);
+    else this.view.updateMatrixWorld();
+    const position = new THREE.Vector3();
+    const quaternion = new THREE.Quaternion();
+    this.view.matrixWorld.decompose(position, quaternion, new THREE.Vector3());
+    const pose: ViewerPose = { position: [position.x, position.y, position.z], quaternion: [quaternion.x, quaternion.y, quaternion.z, quaternion.w] };
+    return isViewerPose(pose) ? pose : null;
+  }
+
+  /** Whether room tracking draws the board. */
+  get isRoomAr(): boolean {
+    return this.room !== null;
+  }
+
+  /** The session ended: the board takes the page's canvas and its usual camera again. */
+  private endRoom(): void {
+    const room = this.room;
+    if (!room) return;
+    this.room = null;
+    this.renderer.setAnimationLoop(null);
+    this.renderer.xr.enabled = false;
+    room.rig.remove(this.view);
+    this.view.near = this.baseNear;
+    this.view.far = room.far;
+    this.view.updateProjectionMatrix();
+    this.scene.visible = true;
+    this.renderer.setClearColor(0x000000, 1);
+    this.applyHorizon();
+    this.paintDaylight();
+    this.fitted = { width: 0, height: 0, ratio: 0 };
+    this.fit();
+    this.wake(true);
+  }
+
+  /** Whether the board is drawn in augmented reality. */
+  get isAugmented(): boolean {
+    return this.augmented !== null;
+  }
+
+  /** The board point on the printed sheet's middle: the token `anchor`, or the map's middle. */
+  private augmentedAnchor(anchor: string | null): { x: number; y: number; z: number } {
+    // On the table: the lowest scene of the stack's floor. A scene stacked higher (the one shown, too) stands above it.
+    const base = Math.min(0, ...this.stackData.map((layer) => layer.elevation)) * (this.map?.grid.size ?? 0);
+    const entry = anchor === null ? undefined : this.tokens.get(anchor);
+    if (entry) return { x: entry.at.x, y: base, z: entry.at.y };
+    return { x: this.size.width / 2, y: base, z: this.size.height / 2 };
+  }
+
+  /** Shows a token's name, large (null: hides the one shown). */
+  private showName(id: string | null): void {
+    if (id === this.namedId) return;
+    const before = this.namedId ? this.tokens.get(this.namedId) : undefined;
+    before?.labels.setNamed(false);
+    before?.playerLabels.setNamed(false);
+    this.namedId = id;
+    const entry = id ? this.tokens.get(id) : undefined;
+    entry?.labels.setNamed(true);
+    entry?.playerLabels.setNamed(true);
+    this.wake();
+  }
+
+  /** The token whose name shows, or null: for a look in tests. */
+  get namedToken(): string | null {
+    return this.namedId;
+  }
+
+  /** Leaves the token's eyes by the board's own doing (Escape, Leave): Connect is told. */
+  private leaveEyes(): void {
+    this.seeFrom(null);
+    this.host.eyeChanged?.();
+    this.host.toolsChanged?.();
+  }
+
+  /** Holds the mouse for the eyes (a mouse only; a finger drags), or lets go of it. */
+  private lockPointer(on: boolean): void {
+    const doc = this.canvas.ownerDocument;
+    if (on) {
+      if (!this.eye || this.lastPointer !== 'mouse' || doc.pointerLockElement === this.canvas) return;
+      try {
+        const asked = this.canvas.requestPointerLock?.() as unknown;
+        if (asked instanceof Promise) asked.catch(() => undefined);
+      } catch {
+        // Refused (too soon after Escape, say): the next click asks again.
+      }
+    } else if (doc.pointerLockElement === this.canvas) {
+      this.lockReleasing = true;
+      doc.exitPointerLock();
+    }
+  }
+
+  /** The mouse held or let go: Escape letting go steps back out of an aimed spell, else leaves the eyes. */
+  private lockChanged(): void {
+    const locked = this.canvas.ownerDocument.pointerLockElement === this.canvas;
+    const was = this.pointerLocked;
+    this.pointerLocked = locked;
+    const released = was && !locked && !this.lockReleasing;
+    if (!locked) this.lockReleasing = false;
+    if (released && this.eye) {
+      if (this.caster?.busy) this.caster.back(); else this.leaveEyes();
+    }
+    this.caster?.refresh();
+  }
+
+  private makeCaster(): SpellCaster {
+    return new SpellCaster({
+      root: this.container,
+      cell: () => this.map?.grid.size ?? 50,
+      coneAngle: () => this.tools.coneAngle,
+      caster: () => this.eye?.tokenId ?? null,
+      eye: () => {
+        const at = this.eyeAt();
+        return at && this.eyeTurn ? { position: new THREE.Vector3(at.x, at.y, at.z), turn: this.eyeTurn.clone() } : null;
+      },
+      aim: () => this.spellAim(),
+      preview: (spell) => this.previewSpell(spell, this.caster?.currentRules ?? null),
+      cast: (spell, request, rules, words) => { this.host.playerAction?.({ type: 'spell', change: { add: spell, ...(request !== undefined ? { request } : {}), ...(rules ? { rules } : {}), ...(words ? { name: words.name, ...(words.about ? { about: words.about } : {}) } : {}) } }); return true; },
+      decline: (request) => this.host.playerAction?.({ type: 'spell', change: { decline: request } }),
+      enter: (tokenId) => this.enterForAsk(tokenId),
+      tokenName: (tokenId) => this.tokens.get(tokenId)?.token.name ?? 'your token',
+      hasOwn: () => { const me = this.spellOwner(); return me !== null && this.castSpells.some((cast) => cast.owner === me); },
+      clearOwn: () => {
+        // The GM's clear takes only the GM's own spells, one by one (a clear from the GM would take everyone's).
+        if (this.audience === 'gm') {
+          for (const cast of this.castSpells) if (cast.owner === GM_SPELL_OWNER) this.host.playerAction?.({ type: 'spell', change: { remove: cast.id } });
+        } else this.host.playerAction?.({ type: 'spell', change: { clear: true } });
+      },
+      locked: () => this.pointerLocked,
+      lock: (on) => this.lockPointer(on),
+      handles: (spell) => this.spellHandles(spell),
+      touch: () => this.lastPointer !== 'mouse',
+      leave: () => this.leaveEyes(),
+      wake: () => this.wake(),
+      book: () => this.host.spellBook?.() ?? null,
+      unitDistance: () => feetPerSquare(this.host.measurement()),
+    });
+  }
+
+  /**
+   * Cast through a token's eyes (the GM's Cast, Myself): into them, and the spell search open where there are spell
+   * notes, else the shapes to pick. False when the token is not on the board.
+   */
+  castThrough(tokenId: string): boolean {
+    if (!this.tokens.has(tokenId)) return false;
+    if (this.eye?.tokenId !== tokenId) {
+      if (!this.seeFrom(tokenId, false)) return false;
+      this.host.eyeChanged?.();
+      this.host.toolsChanged?.();
+    }
+    if (!this.caster?.openSearch()) this.caster?.open();
+    return true;
+  }
+
+  /** The spell toolbar through the eyes: for tests. */
+  get spellCaster(): SpellCaster | null {
+    return this.caster;
+  }
+
+  /** The GM's ask panel, while open. */
+  private askPicker: SpellPicker | null = null;
+
+  /**
+   * The GM asks a token's player for a spell (Cast, Player): the spell search over the board, the spell picked drawn
+   * at the token, as it would go; Send hands the ask over, Take back (when one waits) withdraws it.
+   */
+  askSpellPanel(tokenId: string, options: { title: string; note?: string; send(ask: SpellAsk): void; withdraw?: () => void }): SpellPicker | null {
+    const book = this.host.spellBook?.() ?? null;
+    if (!book || !this.tokens.has(tokenId)) return null;
+    this.askPicker?.close();
+    const cell = this.map?.grid.size ?? 50;
+    const picker = new SpellPicker(this.container, {
+      book, title: options.title, ...(options.note ? { note: options.note } : {}), cell: () => cell,
+      unitDistance: () => feetPerSquare(this.host.measurement()),
+      changed: (ask) => { this.previewSpell(ask ? this.spellAtToken(tokenId, ask) : null, ask?.rules ?? null); },
+      actions: [
+        { label: 'Send to the player', primary: true, run: (ask) => { picker.close(); options.send(ask); } },
+        ...(options.withdraw ? [{ label: 'Take back the ask', warning: true, run: () => { picker.close(); options.withdraw?.(); } }] : []),
+        { label: 'Cancel', run: () => picker.close() },
+      ],
+      closed: () => { if (this.askPicker === picker) this.askPicker = null; this.previewSpell(null); },
+    });
+    this.askPicker = picker;
+    return picker;
+  }
+
+  /** An ask's shape at a token, for its preview: from its eyes the way the view looks, or centred on it. */
+  private spellAtToken(tokenId: string, ask: SpellAsk): Spell | null {
+    const entry = this.tokens.get(tokenId);
+    if (!entry) return null;
+    const box = new THREE.Box3().setFromObject(entry.piece.fall);
+    const eye = box.isEmpty() ? 0 : box.min.y + (box.max.y - box.min.y) * 0.85;
+    const yaw = this.camera.pose.yaw;
+    const common = {
+      shape: ask.shape, yaw, pitch: 0, roll: 0, size: ask.size, length: ask.length, angle: ask.angle ?? this.tools.coneAngle, caster: tokenId,
+      ...(ask.effect ? { effect: ask.effect } : {}),
+    };
+    if (ask.shape === 'wall') {
+      const run = ask.longest ?? ask.size * 4;
+      return { ...common, from: 'point', at: { x: entry.at.x, y: entry.at.y, h: 0 }, to: { x: entry.at.x - Math.sin(yaw) * run, y: entry.at.y - Math.cos(yaw) * run }, yaw: 0 };
+    }
+    if (ask.from === 'self') return { ...common, from: 'self', at: { x: entry.at.x, y: entry.at.y, h: eye } };
+    return { ...common, from: 'point', at: { x: entry.at.x, y: entry.at.y, h: 0 }, pitch: ask.shape === 'cylinder' ? Math.PI / 2 : 0 };
+  }
+
+  /** Whose spells are this board's own: the player's, or the GM's. */
+  private spellOwner(): string | null {
+    return this.audience === 'gm' ? GM_SPELL_OWNER : this.tools.selfId;
+  }
+
+  /** The point under the crosshair (the middle of the view): the first thing drawn there, else the floor. */
+  private spellAim(): THREE.Vector3 | null {
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(new THREE.Vector2(0, 0), this.view);
+    const own = this.eye ? this.tokens.get(this.eye.tokenId)?.piece.object3d : undefined;
+    const under = (object: THREE.Object3D, root: THREE.Object3D | undefined): boolean => {
+      for (let node: THREE.Object3D | null = object; node; node = node.parent) if (node === root || node.userData.spell === true) return true;
+      return false;
+    };
+    for (const hit of ray.intersectObjects(this.scene.children, true)) {
+      const mesh = hit.object as THREE.Mesh;
+      if (!mesh.isMesh || mesh.userData.noOutline === true || !showing(mesh) || under(mesh, own)) continue;
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      if (materials.every((material) => material.visible === false || (material.transparent && material.opacity < 0.99))) continue;
+      return hit.point.clone();
+    }
+    return ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), new THREE.Vector3());
+  }
+
+  /** Puts the handles round the spell set at a point (null: takes them away). */
+  private spellHandles(spell: Spell | null): void {
+    if (!spell) {
+      this.spellGizmo?.dispose();
+      this.spellGizmo = null;
+      this.canvas.style.cursor = '';
+      this.wake();
+      return;
+    }
+    if (!this.spellGizmo) {
+      this.spellGizmo = new SpellGizmo();
+      this.scene.add(this.spellGizmo.object3d);
+    }
+    this.spellGizmo.place(spell, this.view);
+    this.wake();
+  }
+
+  /** Whether the spell hovered is one Alt would clear (the GM's), rather than one Ctrl only shows. */
+  private spellClearing = false;
+  /** The spell's card shown with Ctrl over it: its name and words, like a creature's stat block. */
+  private spellCard: HTMLElement | null = null;
+  private spellCardFor: string | null = null;
+
+  /**
+   * The pointer over a spell: with Ctrl/Cmd its card shows (its name, level line, properties and words), with Alt (the
+   * GM in Play mode) it lights up and a click clears it. A token under the pointer comes first: its own stat block.
+   */
+  private spellHoverAt(event: PointerEvent): void {
+    const clearing = this.audience === 'gm' && event.altKey;
+    const showing = event.ctrlKey || event.metaKey;
+    // A creature under the pointer comes first for Ctrl (its stat block); Alt clears the spell under it all the same.
+    if (!(clearing || showing) || this.editing || this.press || this.spellViews.size === 0 || (!clearing && this.tokenAt(event.clientX, event.clientY) !== null)) {
+      this.hoverSpell(null);
+      this.showSpellCard(null, event);
+      return;
+    }
+    this.ray(event.clientX, event.clientY);
+    let best: { id: string; distance: number } | null = null;
+    for (const [id, kept] of this.spellViews) {
+      const distance = kept.view.hit(this.raycaster);
+      if (distance !== null && (!best || distance < best.distance)) best = { id, distance };
+    }
+    this.spellClearing = clearing;
+    this.hoverSpell(best?.id ?? null);
+    if (best && clearing) this.showTip(event.clientX, event.clientY, 'Alt+click to clear this spell');
+    this.showSpellCard(best && !clearing ? best.id : null, event);
+  }
+
+  /** The card of the cast `id` by the pointer, or none. */
+  private showSpellCard(id: string | null, event: { clientX: number; clientY: number }): void {
+    const cast = id ? this.castSpells.find((each) => each.id === id) : undefined;
+    if (!cast) {
+      this.spellCard?.remove();
+      this.spellCard = null;
+      this.spellCardFor = null;
+      return;
+    }
+    if (this.spellCardFor !== cast.id || !this.spellCard) {
+      this.spellCard?.remove();
+      const doc = this.container.ownerDocument;
+      const card = doc.createElement('div');
+      card.className = 'atlas-tabletop-spellcard is-hover';
+      const name = cast.name ?? cast.rules?.name ?? 'Spell';
+      const about = cast.about ?? { line: spellLabel(cast.spell, this.map?.grid.size ?? 50), properties: cast.rules ? [['Effects', rulesWords(cast.rules)] as [string, string]] : [], text: '' };
+      card.append(aboutElement(doc, name, about));
+      this.container.append(card);
+      this.spellCard = card;
+      this.spellCardFor = cast.id;
+    }
+    const box = this.container.getBoundingClientRect();
+    const card = this.spellCard;
+    const x = event.clientX - box.left + 16;
+    const y = event.clientY - box.top + 16;
+    card.style.left = `${Math.max(8, Math.min(x, box.width - card.offsetWidth - 8))}px`;
+    card.style.top = `${Math.max(8, Math.min(y, box.height - card.offsetHeight - 8))}px`;
+  }
+
+  /** The id of the spell whose card shows (for tests). */
+  get spellCardShown(): string | null {
+    return this.spellCardFor;
+  }
+
+  private hoverSpell(id: string | null): void {
+    if (id === this.hoveredSpell) {
+      this.canvas.style.cursor = id && this.spellClearing ? 'pointer' : this.canvas.style.cursor === 'pointer' ? '' : this.canvas.style.cursor;
+      return;
+    }
+    if (this.hoveredSpell) this.spellViews.get(this.hoveredSpell)?.view.highlight(false);
+    if (id === null && this.hoveredSpell !== null) this.tooltip.hidden = true;
+    this.hoveredSpell = id;
+    if (id) this.spellViews.get(id)?.view.highlight(true);
+    this.canvas.style.cursor = id && this.spellClearing ? 'pointer' : this.canvas.style.cursor === 'pointer' ? '' : this.canvas.style.cursor;
+    this.wake();
+  }
+
+  /** What a spell may hit: the tokens and props shown (to a player, only those in sight), by points of their boxes. */
+  private spellTargets(): Array<SpellTarget & { name: string; root: THREE.Object3D }> {
+    const out: Array<SpellTarget & { name: string; root: THREE.Object3D }> = [];
+    const player = this.audience === 'player';
+    for (const entry of this.tokens.values()) {
+      if (player && (!showing(entry.piece.object3d) || entry.token.hidden)) continue;
+      const box = new THREE.Box3().setFromObject(entry.piece.fall);
+      if (box.isEmpty()) continue;
+      out.push({ id: entry.token.id, points: boxPoints(box), name: entry.token.name ?? 'Token', root: entry.piece.fall });
+    }
+    for (const piece of this.props.values()) {
+      if (player && !showing(piece.object3d)) continue;
+      const box = new THREE.Box3().setFromObject(piece.object3d);
+      if (box.isEmpty()) continue;
+      out.push({ id: `prop:${piece.id}`, points: boxPoints(box), name: propName(piece.placement.glb), root: piece.object3d });
+    }
+    return out;
+  }
+
+  /** Draws the spell being cast (null: none) and names what it hits. */
+  private previewSpell(spell: Spell | null, rules: SpellRules | null = null): string[] {
+    const key = spell ? JSON.stringify(spell) : '';
+    // What the spell does shows while it is aimed too: a stone wall stone, a fog grey, a light glowing.
+    const rulesKey = rules ? JSON.stringify(rules) : '';
+    if (this.spellPreview && this.spellPreviewRules !== rulesKey) {
+      this.spellPreview.view.setRules(rules);
+      this.spellPreviewRules = rulesKey;
+      this.wake();
+    }
+    // The same shape only moved or turned (aiming it): the drawing moves, not made again.
+    if (spell && this.spellPreview && this.spellPreview.key !== key && this.spellPreview.view.fits(spell)) {
+      this.spellPreview.view.moveTo(spell, this.map?.walls ?? []);
+      this.spellPreview = { ...this.spellPreview, key, spell };
+      this.spellHitsAt = 0;
+      this.wake();
+    }
+    if ((this.spellPreview?.key ?? '') !== key) {
+      this.spellPreview?.view.dispose();
+      this.spellPreview = null;
+      if (spell) {
+        const view = new SpellView(spell, this.host.ownColor?.() ?? '#7c5cff', this.map?.walls ?? [], 0.45, this.map?.grid.size ?? 50);
+        view.setRules(rules);
+        this.spellPreviewRules = rulesKey;
+        this.scene.add(view.object3d);
+        this.spellPreview = { key, view, spell };
+      }
+      this.spellHitsAt = 0;
+      this.wake();
+    }
+    if (!spell) return [];
+    const targets = this.spellTargets();
+    const hits = new Set(spellHits(spell, targets, this.map?.walls ?? []));
+    return targets.filter((target) => hits.has(target.id)).map((target) => target.name);
+  }
+
+  /** Into a token's eyes for the GM's ask of it (a click on Aim): Connect is told, as by its own eye button. */
+  private enterForAsk(tokenId: string): boolean {
+    if (!this.tokens.has(tokenId)) return false;
+    if (this.eye?.tokenId !== tokenId) {
+      if (!this.seeFrom(tokenId, false)) return false;
+      this.host.eyeChanged?.();
+      this.host.toolsChanged?.();
+    }
+    return true;
+  }
+
+  /** The scene's spells, from Connect: each drawn in its caster's colour, what it hits outlined; and the GM's asks. */
+  receiveSpells(list: readonly unknown[], asks: readonly unknown[] = []): void {
+    if (this.audience === 'player') {
+      const requests = readSpellRequests(asks).filter((request) => this.tokens.has(request.tokenId));
+      if (requests.length > 0 || this.caster) {
+        this.caster ??= this.makeCaster();
+        this.caster.ask(requests);
+      }
+    }
+    this.castSpells = readCastSpells(list);
+    this.drawSpells();
+    if (this.audience === 'gm') this.landSpells();
+    this.spellHitsAt = 0;
+    this.caster?.refresh();
+    this.wake();
+  }
+
+  private drawSpells(): void {
+    const walls = this.map?.walls ?? [];
+    const wanted = new Set<string>();
+    for (const cast of this.castSpells) {
+      wanted.add(cast.id);
+      const key = JSON.stringify([cast.spell, cast.color, cast.rules ?? null]);
+      const kept = this.spellViews.get(cast.id);
+      if (kept?.key === key) continue;
+      kept?.view.dispose();
+      const view = new SpellView(cast.spell, cast.color, walls, 0.4, this.map?.grid.size ?? 50);
+      view.setRules(cast.rules);
+      this.scene.add(view.object3d);
+      this.spellViews.set(cast.id, { key, view });
+    }
+    for (const [id, kept] of this.spellViews) {
+      if (wanted.has(id)) continue;
+      kept.view.dispose();
+      this.spellViews.delete(id);
+    }
+    this.applyRules();
+  }
+
+  /** The walls, lights and darkness the cast spells' rules make, worked out again when the spells or the scale change. */
+  private applyRules(): void {
+    const map = this.map;
+    const measurement = this.host.measurement();
+    const unitDistance = measurement.unitDistance > 0 ? measurement.unitDistance : 5;
+    const cell = map?.grid.size ?? 50;
+    const unitsPerFoot = unitDistance / feetPerSquare(measurement);
+    const ruled = this.castSpells.filter((cast) => cast.rules);
+    const key = JSON.stringify([unitsPerFoot, cell, ruled.map((cast) => [cast.id, cast.spell, cast.rules])]);
+    if (key === this.ruleKey) return;
+    this.ruleKey = key;
+    this.ruleWalls = ruled.flatMap((cast) => spellRuleWalls(cast.id, cast.spell, cast.rules));
+    this.ruleLights = ruled.flatMap((cast) => spellRuleLights(cast.id, cast.spell, cast.rules, unitsPerFoot, cell / unitDistance));
+    // Difficult ground: a tangle drawn over the floor the spell covers.
+    for (const decal of this.ruleDecals) { decal.removeFromParent(); decal.geometry.dispose(); (decal.material as THREE.Material).dispose(); }
+    this.ruleDecals = ruled.filter((cast) => cast.rules?.difficult).map((cast) => {
+      const decal = difficultGround(spellFootprint(cast.spell).ring, cell, this.container.ownerDocument);
+      decal.position.y = 0.6;
+      this.scene.add(decal);
+      return decal;
+    });
+    this.sightKey = '';
+    this.applyLighting();
+    this.wake();
+  }
+
+  /** The casts this board has seen (null before the first list: those already there are not carried out again). */
+  private seenCasts: Set<string> | null = null;
+  /** The tokens each summoning spell made, by its id: offered for removal when the spell goes. */
+  private readonly summoned = new Map<string, string[]>();
+  private rulePanel: SpellRulePanel | null = null;
+
+  /** The review of what spells do to tokens, over the board (for tests). */
+  get spellRules(): SpellRulePanel {
+    return (this.rulePanel ??= new SpellRulePanel(this.container));
+  }
+
+  /** Another scene: its spells already cast are not carried out again. */
+  forgetCasts(): void {
+    this.seenCasts = null;
+  }
+
+  /** Newly cast spells that move or make tokens: carried out (a push after the GM's review). Gone summons: offered for removal. */
+  private landSpells(): void {
+    const present = new Set(this.castSpells.map((cast) => cast.id));
+    if (this.seenCasts === null) { this.seenCasts = present; return; }
+    // A cast gone from the list is forgotten: its id may come back as another spell (a new session's, a reopened board's).
+    for (const id of [...this.seenCasts]) if (!present.has(id)) this.seenCasts.delete(id);
+    for (const cast of this.castSpells) {
+      if (this.seenCasts.has(cast.id)) continue;
+      this.seenCasts.add(cast.id);
+      const rules = cast.rules;
+      if (!rules || !(rules.push || rules.teleport || rules.summon)) continue;
+      // Claimed by its id and where it stands: the same cast sent again is not carried out twice, a new one of the same id is.
+      if (!this.host.claimSpell?.(`${cast.id}|${JSON.stringify(cast.spell)}`)) continue;
+      this.landSpell(cast);
+    }
+    for (const [id, tokens] of [...this.summoned]) {
+      if (present.has(id)) continue;
+      this.summoned.delete(id);
+      const left = tokens.filter((token) => this.tokens.has(token));
+      if (left.length === 0 || !this.host.removeTokens) continue;
+      this.spellRules.offer({
+        title: 'The summoning spell ended', note: 'Take what it summoned off the map?', apply: 'Remove',
+        lines: left.map((token) => ({ id: token, words: this.tokens.get(token)?.token.name ?? 'Token', on: true })),
+        run: (ids) => { if (ids.length > 0) this.host.removeTokens?.(ids); },
+      });
+    }
+  }
+
+  /** Map pixels for feet, at the scene's scale. */
+  private feetToPx(feet: number): number {
+    return (feet / feetPerSquare(this.host.measurement())) * (this.map?.grid.size ?? 50);
+  }
+
+  private landSpell(cast: CastSpell): void {
+    const rules = cast.rules!;
+    const spell = cast.spell;
+    const name = rules.name ?? 'The spell';
+    const caster = spell.caster ? this.tokens.get(spell.caster) ?? null : null;
+    const { middle } = spellFootprint(spell);
+    const cell = this.map?.grid.size ?? 50;
+    const snap = (entry: { token: { size: number } }) => (point: { x: number; y: number }) => snapPoint(this.snapGrid('tokens'), point.x, point.y, entry.token.size);
+    if (rules.teleport && caster) {
+      // The caster steps out where the spell was set, if it is within reach.
+      const to = { x: spell.at.x, y: spell.at.y };
+      const far = Math.hypot(to.x - caster.at.x, to.y - caster.at.y);
+      const reach = this.feetToPx(rules.teleport) + cell * 0.75;
+      const landing = snapPoint(this.snapGrid('tokens'), to.x, to.y, caster.token.size);
+      this.spellRules.offer({
+        title: `${name}: teleport`, apply: 'Teleport',
+        note: far > reach ? `That is ${Math.round(far / cell * feetPerSquare(this.host.measurement()))} ft away, past its ${rules.teleport} ft.` : undefined,
+        lines: [{ id: caster.token.id, words: `${caster.token.name ?? 'Caster'} to the spot`, on: far <= reach }],
+        run: (ids) => {
+          if (ids.includes(caster.token.id)) this.host.moveTokens?.([{ id: caster.token.id, x: landing.x, y: landing.y }]);
+          // Done: the mark goes.
+          this.host.playerAction?.({ type: 'spell', change: { remove: cast.id } });
+        },
+      });
+    }
+    if (rules.push) {
+      const origin = spell.from === 'self' && caster ? { x: caster.at.x, y: caster.at.y } : middle;
+      const walls = this.movementWalls();
+      const hit = new Set(spellHits(spell, this.spellTargets().filter((target) => !target.id.startsWith('prop:')), this.map?.walls ?? []));
+      const moves = [...hit].flatMap((id) => {
+        const entry = this.tokens.get(id);
+        if (!entry || id === spell.caster) return [];
+        const to = pushTo(origin, entry.at, this.feetToPx(rules.push!));
+        const end = slide(entry.at, to, walls, cell, snap(entry));
+        const moved = Math.round((Math.hypot(end.x - entry.at.x, end.y - entry.at.y) / cell) * feetPerSquare(this.host.measurement()));
+        return [{ id, x: end.x, y: end.y, words: `${entry.token.name ?? 'Token'}: ${moved} ft${moved < Math.abs(rules.push!) ? ' (stopped by a wall)' : ''}` }];
+      });
+      if (moves.length > 0) {
+        this.spellRules.offer({
+          title: `${name}: ${rules.push > 0 ? 'push' : 'pull'} ${Math.abs(rules.push)} ft`, apply: rules.push > 0 ? 'Push' : 'Pull',
+          note: 'Untick those who saved or resisted.',
+          lines: moves.map((move) => ({ id: move.id, words: move.words, on: true })),
+          run: (ids) => {
+            const chosen = moves.filter((move) => ids.includes(move.id)).map(({ id, x, y }) => ({ id, x, y }));
+            if (chosen.length > 0) this.host.moveTokens?.(chosen);
+          },
+        });
+      }
+    }
+    if (rules.summon && this.host.summonTokens) {
+      const summon = rules.summon;
+      // In squares round the spell's point: the first on it, the rest in rings out.
+      const spots = spiralSpots(middle, cell, summon.count);
+      this.spellRules.offer({
+        title: `${name}: summon`, apply: 'Summon',
+        lines: [{ id: 'summon', words: `${summon.count > 1 ? `${summon.count} × ` : ''}${summon.name}`, on: true }],
+        run: (ids) => {
+          if (!ids.includes('summon')) return;
+          const made = this.host.summonTokens?.(spots.map((spot) => ({ name: summon.name, x: spot.x, y: spot.y, ...(summon.statblock ? { statblock: summon.statblock } : {}) }))) ?? [];
+          if (made.length > 0) this.summoned.set(cast.id, made);
+        },
+      });
+    }
+  }
+
+  /** A gate the token stands in, and the other gate of its name it would come out of; null when none. */
+  gateFor(tokenId: string): { name: string; to: { x: number; y: number } } | null {
+    const entry = this.tokens.get(tokenId);
+    if (!entry) return null;
+    const gates = this.castSpells.filter((cast) => cast.rules?.portal);
+    const here = [...gates].reverse().find((cast) => spellUnder(cast.spell, entry.at));
+    if (!here) return null;
+    const other = [...gates].reverse().find((cast) => cast !== here && cast.rules!.portal === here.rules!.portal);
+    return other ? { name: here.rules!.portal!, to: spellFootprint(other.spell).middle } : null;
+  }
+
+  /** Through the gate the token stands in, out of its twin (the GM's token menu). */
+  goThroughGate(tokenId: string): boolean {
+    const gate = this.gateFor(tokenId);
+    const entry = this.tokens.get(tokenId);
+    if (!gate || !entry || !this.host.moveTokens) return false;
+    const landing = snapPoint(this.snapGrid('tokens'), gate.to.x, gate.to.y, entry.token.size);
+    this.host.moveTokens([{ id: tokenId, x: landing.x, y: landing.y }]);
+    return true;
+  }
+
+  /** How much of a path (a share, 0 to 1) runs through difficult terrain a spell makes. */
+  difficultShare(points: ReadonlyArray<{ x: number; y: number }>): number {
+    const ruled = this.castSpells.filter((cast) => cast.rules?.difficult);
+    if (ruled.length === 0 || points.length < 2) return 0;
+    const step = (this.map?.grid.size ?? 50) / 4;
+    let total = 0;
+    let rough = 0;
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1]!;
+      const b = points[i]!;
+      const length = Math.hypot(b.x - a.x, b.y - a.y);
+      const count = Math.max(1, Math.ceil(length / step));
+      for (let k = 0; k < count; k++) {
+        const t = (k + 0.5) / count;
+        total += 1;
+        if (inDifficultSpell({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }, ruled)) rough += 1;
+      }
+    }
+    return total > 0 ? rough / total : 0;
+  }
+
+  /** The walls tokens are stopped by now: the map's, and the spells'. */
+  movementWalls(): BoardWall[] {
+    return [...(this.map?.walls ?? []), ...this.ruleWalls];
+  }
+
+  /** The spell walls and lights standing now: for a look in tests. */
+  ruleState(): { walls: number; sightOnly: number; lights: Array<{ bright: number; dim: number; darkness: boolean }> } {
+    return { walls: this.ruleWalls.length, sightOnly: this.ruleWalls.filter((wall) => wall.blocks === 'sight').length, lights: this.ruleLights.map((light) => ({ bright: light.bright, dim: light.dim, darkness: light.darkness })) };
+  }
+
+  /**
+   * Each frame: the shape aimed follows the view, and (a few times a second) what the spells hit is found again, the red
+   * line put round what is hit and taken off what is not.
+   */
+  /** Spells with a damage's look move by themselves: on to now, and another frame asked for while any is shown. */
+  private animateSpells(): void {
+    if (this.impacts.active) { this.impacts.step(); this.wake(); }
+    const views = [...[...this.spellViews.values()].map((kept) => kept.view), ...(this.spellPreview ? [this.spellPreview.view] : [])];
+    const moving = views.filter((view) => view.animated);
+    if (moving.length === 0 && this.spellAuras.size === 0) return;
+    const time = (this.container.ownerDocument.defaultView ?? window).performance.now() / 1000;
+    const height = this.renderer.domElement.height;
+    for (const view of moving) view.tick(time, height);
+    const box = new THREE.Box3();
+    for (const aura of this.spellAuras.values()) {
+      // With the thing as it moves.
+      box.setFromObject(aura.root);
+      if (!box.isEmpty()) box.getCenter(aura.effect.object3d.position);
+      aura.effect.tick(time, height);
+    }
+    this.wake();
+  }
+
+  private spellTick(): void {
+    if (this.map !== this.spellMap) {
+      // Another map, or the walls changed: the spells' cut by the walls is redone.
+      this.spellMap = this.map;
+      for (const kept of this.spellViews.values()) kept.view.dispose();
+      this.spellViews.clear();
+      this.drawSpells();
+    }
+    if (this.eye) this.caster?.frame();
+    this.animateSpells();
+    const adjusting = this.caster?.adjusting;
+    if (this.spellGizmo && adjusting) this.spellGizmo.place(adjusting, this.view);
+    const spells = [...this.castSpells.map((cast) => cast.spell), ...(this.spellPreview ? [this.spellPreview.spell] : [])];
+    if (spells.length === 0 && this.spellOutlines.size === 0 && this.spellAuras.size === 0) return;
+    const win = this.container.ownerDocument.defaultView ?? window;
+    const now = win.performance.now();
+    if (now - this.spellHitsAt < 150) {
+      if (this.spellTimer === 0) this.spellTimer = win.setTimeout(() => { this.spellTimer = 0; this.wake(); }, 160);
+      return;
+    }
+    this.spellHitsAt = now;
+    const targets = this.spellTargets();
+    const walls = this.map?.walls ?? [];
+    const hit = new Set<string>();
+    for (const spell of spells) for (const id of spellHits(spell, targets, walls)) hit.add(id);
+    const byId = new Map(targets.map((target) => [target.id, target]));
+    let changed = this.syncAuras(targets, walls);
+    for (const [id, kept] of this.spellOutlines) {
+      const target = byId.get(id);
+      if (hit.has(id) && target && target.root === kept.outline.root && meshCount(target.root) === kept.meshes) continue;
+      kept.outline.dispose();
+      this.spellOutlines.delete(id);
+      changed = true;
+    }
+    const width = (this.map?.grid.size ?? 50) * 0.025;
+    for (const id of hit) {
+      const target = byId.get(id);
+      if (!target || this.spellOutlines.has(id)) continue;
+      this.spellOutlines.set(id, { outline: new PieceOutline(target.root, SPELL_HIT_COLOR, width), meshes: meshCount(target.root) });
+      changed = true;
+    }
+    if (changed) this.wake();
+  }
+
+  /**
+   * Each thing a cast spell with a damage hits gets that damage's look round it (the latest spell's, when more than one
+   * hits it); a thing no longer hit loses it. Whether anything changed.
+   */
+  private syncAuras(targets: ReadonlyArray<SpellTarget & { root: THREE.Object3D }>, walls: readonly BoardWall[]): boolean {
+    const wanted = new Map<string, DamageType>();
+    for (const cast of this.castSpells) {
+      const type = cast.spell.effect;
+      if (!type) continue;
+      for (const id of spellHits(cast.spell, targets, walls)) wanted.set(id, type);
+    }
+    const byId = new Map(targets.map((target) => [target.id, target]));
+    let changed = false;
+    for (const [id, aura] of this.spellAuras) {
+      const target = byId.get(id);
+      if (wanted.get(id) === aura.type && target?.root === aura.root) continue;
+      aura.effect.dispose();
+      this.spellAuras.delete(id);
+      changed = true;
+    }
+    const cell = this.map?.grid.size ?? 50;
+    for (const [id, type] of wanted) {
+      const target = byId.get(id);
+      if (!target || this.spellAuras.has(id)) continue;
+      const box = new THREE.Box3().setFromObject(target.root);
+      if (box.isEmpty()) continue;
+      const size = box.getSize(new THREE.Vector3());
+      const effect = hitAura(type, Math.max(size.x, size.z) / 2, size.y, cell);
+      box.getCenter(effect.object3d.position);
+      this.scene.add(effect.object3d);
+      this.spellAuras.set(id, { type, root: target.root, effect });
+      changed = true;
+    }
+    return changed;
+  }
+
+  /** The damage looks round what the spells hit, by target id: for a look in tests. */
+  spellAuraTypes(): Record<string, DamageType> {
+    return Object.fromEntries([...this.spellAuras].map(([id, aura]) => [id, aura.type]).sort());
+  }
+
+  /** What the spells hit now, by target id (a prop's as `prop:` and its id): for a look in tests. */
+  spellHitIds(): string[] {
+    return [...this.spellOutlines.keys()].sort();
+  }
+
+  /** The token whose eyes the view is through, or null. */
+  get seeingFrom(): string | null {
+    return this.eye?.tokenId ?? null;
+  }
+
+  /** Where the eye view stands: the token's place, at its eye height (most of the way up its mini, or of its disc). */
+  private eyeAt(): { x: number; y: number; z: number } | null {
+    const entry = this.eye ? this.tokens.get(this.eye.tokenId) : undefined;
+    if (!entry) return null;
+    const cell = this.map?.grid.size ?? 50;
+    const box = new THREE.Box3().setFromObject(entry.piece.object3d, true);
+    const top = Number.isFinite(box.max.y) ? box.max.y : entry.lift + cell * 0.6;
+    return { x: entry.at.x, y: Math.max(entry.lift + cell * 0.3, top * 0.9), z: entry.at.y };
+  }
+
   lookAtPoint(x: number, y: number): void {
     this.camera.lookAt({ x, y: 0, z: y });
     this.wake();
@@ -3040,10 +5795,47 @@ export class Board {
 
   /** Paints walls with a material on click (from the gallery, without dragging); null stops. */
   paintWith(material: string | null): void {
+    if (material && this.host.boardMode?.() === 'play') this.setMode('edit');
+    if (material) {
+      // One tool at a time: painting puts the water brush, the ruler and the template away.
+      if (this.waterTool) { this.waterTool = null; this.showBrush(); }
+      if (this.tools.tool !== 'move') { this.tools.select('move'); this.toolsChanged(); }
+    }
     this.painting = material;
     this.canvas.style.cursor = material ? 'copy' : this.laserOn ? 'none' : '';
     if (!material) this.tooltip.hidden = true;
+    this.hideHandles();
     this.canvas.focus();
+    this.toolbar.refresh();
+  }
+
+  private stopPainting(): void {
+    if (this.painting !== null) this.paintWith(null);
+  }
+
+  /** Play or Edit: the toolbar's tools of that mode; leaving Edit puts its tools (paint, water, handles) away. */
+  private setMode(mode: 'play' | 'edit'): void {
+    this.host.setBoardMode?.(mode);
+    if (mode === 'play') {
+      this.stopPainting();
+      if (this.waterTool) { this.waterTool = null; this.showBrush(); }
+      this.hideHandles();
+    }
+    this.toolbar.refresh();
+    this.toolbar.fit();
+  }
+
+  /** The grid as tokens or props snap to it: tokens by the map's Snap to grid, props by their own setting alone. */
+  private snapGrid(kind: 'tokens' | 'props'): Parameters<typeof snapPoint>[0] {
+    const grid = this.map!.grid;
+    if (kind === 'tokens') return grid;
+    const on = this.host.snapProps?.() ?? true;
+    return grid.snap === on ? grid : { ...grid, snap: on };
+  }
+
+  /** Building the board is allowed: Edit mode, or a board without modes. */
+  private get editing(): boolean {
+    return this.host.boardMode?.() !== 'play';
   }
 
   get isPainting(): boolean {
@@ -3120,6 +5912,7 @@ export class Board {
   /** Ctrl/Cmd was let go: the stat block card closed, and pressing it again over the same token opens it again. */
   previewEnded(): void {
     this.previewed = null;
+    this.showSpellCard(null, { clientX: 0, clientY: 0 });
   }
 
   /** Names a condition ring or stat badge under the pointer; with Ctrl/Cmd held, shows a token's stat block. */
@@ -3130,6 +5923,8 @@ export class Board {
       this.host.hoverToken?.(id, { x: event.clientX, y: event.clientY }, event.ctrlKey || event.metaKey);
       return;
     }
+    this.pointerAt = { x: event.clientX, y: event.clientY };
+    this.ctrlHandles(event.altKey ? 'width' : event.ctrlKey || event.metaKey ? 'height' : null);
     if (event.ctrlKey || event.metaKey) {
       const id = this.tokenAt(event.clientX, event.clientY);
       // Over another token with a stat block its card opens; over none the card stays, so the pointer can go to it.
@@ -3162,12 +5957,34 @@ export class Board {
   private showTip(clientX: number, clientY: number, text: string): void {
     const rect = this.container.getBoundingClientRect();
     this.tooltip.textContent = text;
-    this.tooltip.style.left = `${clientX - rect.left + 12}px`;
-    this.tooltip.style.top = `${clientY - rect.top + 12}px`;
     this.tooltip.hidden = false;
+    // Beside the pointer, kept inside the board: past its right or bottom edge it goes to the pointer's other side.
+    const width = this.tooltip.offsetWidth;
+    const height = this.tooltip.offsetHeight;
+    let left = clientX - rect.left + 12;
+    let top = clientY - rect.top + 12;
+    if (left + width > rect.width - 4) left = Math.max(4, clientX - rect.left - 12 - width);
+    if (top + height > rect.height - 4) top = Math.max(4, clientY - rect.top - 12 - height);
+    this.tooltip.style.left = `${left}px`;
+    this.tooltip.style.top = `${top}px`;
   }
 
   dispose(): void {
+    this.lockPointer(false);
+    this.caster?.dispose();
+    this.spellGizmo?.dispose();
+    this.spellPreview?.view.dispose();
+    for (const kept of this.spellViews.values()) kept.view.dispose();
+    for (const kept of this.spellOutlines.values()) kept.outline.dispose();
+    for (const aura of this.spellAuras.values()) aura.effect.dispose();
+    this.spellAuras.clear();
+    for (const decal of this.ruleDecals) { decal.removeFromParent(); decal.geometry.dispose(); (decal.material as THREE.Material).dispose(); }
+    this.ruleDecals = [];
+    this.rulePanel?.dispose();
+    this.impacts.dispose();
+    if (this.spellTimer !== 0) (this.container.ownerDocument.defaultView ?? window).clearTimeout(this.spellTimer);
+    for (const kept of this.floorTextures.values()) void kept.then((texture) => texture?.dispose());
+    this.floorTextures.clear();
     this.disposed = true;
     this.selectListeners.clear();
     this.dice?.dispose();
@@ -3194,6 +6011,8 @@ export class Board {
     this.rig.dispose();
     for (const view of this.layerViews.values()) view.dispose();
     this.layerViews.clear();
+    for (const view of this.parked.values()) view.dispose();
+    this.parked.clear();
     this.veilSight.dispose();
     this.veilPov.dispose();
     this.layerRuler?.dispose();
@@ -3211,4 +6030,18 @@ export class Board {
     this.canvas.remove();
     this.tooltip.remove();
   }
+}
+
+/** `count` spots a square apart, the first at `middle`, the rest round it in rings. */
+function spiralSpots(middle: { x: number; y: number }, cell: number, count: number): Array<{ x: number; y: number }> {
+  const out = [{ ...middle }];
+  for (let ring = 1; out.length < count && ring < 10; ring++) {
+    for (let dx = -ring; dx <= ring && out.length < count; dx++) {
+      for (let dy = -ring; dy <= ring && out.length < count; dy++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue;
+        out.push({ x: middle.x + dx * cell, y: middle.y + dy * cell });
+      }
+    }
+  }
+  return out;
 }

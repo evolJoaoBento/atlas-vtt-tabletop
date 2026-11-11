@@ -3,7 +3,9 @@
  * Connect's `src/app/online/scene/boardTypes.ts` and must stay the same; the API shapes are what each plugin offers
  * the other through `app.plugins.plugins[…].api`. Heights are in grid squares; null is the board's default.
  */
+import type { SpellRules } from './board/spellRules';
 import type { RolledDie, RollRequest } from './dice/rollRules';
+import type { Spell, SpellAbout, SpellAsk } from './board/spells';
 
 // ── On the wire (Connect's `boardTypes.ts`) ──────────────────────────────────
 
@@ -29,10 +31,14 @@ export interface BoardWallRecord {
   height: number | null;
   material: string | null;
   door?: BoardDoor;
-  /** Atlas's one-way side, a wall that stops only sight (a curtain) or only light (glass), and a limited one. */
+  /** Atlas's one-way side, a wall that stops only sight (a curtain), only light (glass) or only tokens (a window), and a limited one. */
   direction?: 'left' | 'right';
-  blocks?: 'sight' | 'light';
+  blocks?: 'sight' | 'light' | 'movement';
   limited?: boolean;
+  /** A window's opening (grid squares from the floor), where the GM set it. */
+  window?: { bottom: number; top: number };
+  /** The wall's own width (thickness) in grid squares, where the GM set one. */
+  width?: number;
 }
 
 export interface BoardLightRecord {
@@ -60,7 +66,7 @@ export interface BoardMaterialRecord {
   tuning?: { relief: number; occlusion: number; shine: number; depth: number; displace: number; outward: number };
 }
 
-export interface BoardPropRecord { id: string; asset: string; x: number; y: number; scale: number; turn: number }
+export interface BoardPropRecord { id: string; asset: string; x: number; y: number; scale: number; turn: number; solid?: true; lift?: number }
 
 export interface BoardLighting { enabled: boolean; ambient: number; ambientColor: string | null }
 
@@ -80,6 +86,8 @@ export interface BoardLayerRecord {
   props: BoardPropRecord[];
   fogHeight: number | null;
   wallThickness: number | null;
+  /** The layer's painted water; absent for none. */
+  water?: BoardWater;
 }
 
 export interface BoardExtras {
@@ -97,7 +105,14 @@ export interface BoardExtras {
   wallThickness: number | null;
   /** The scenes stacked with this one, lowest first; absent when it stands alone (or from an older Connect). */
   layers?: BoardLayerRecord[];
+  /** The water painted on the scene and how it moves (Tabletop's saved mask); absent for none, or from an older Connect. */
+  water?: BoardWater;
+  /** How the GM draws the scenes stacked above (Tabletop's Upper layers); absent from an older Connect. */
+  layerLook?: 'solid' | 'faded' | 'transparent';
 }
+
+/** Painted water as Tabletop keeps it: the mask's size in texels, its run lengths (base64 varints), and its motion. */
+export type BoardWater = { mask: { width: number; height: number; data: string }; motion?: { kind: string; amount: number; direction: number; tint: string; clarity: number } | null };
 
 /** A 3D camera in the board's world: x and z are the map's x and y in pixels, y is up. */
 export interface BoardCamera {
@@ -117,6 +132,10 @@ export interface BoardLook {
   doorProp(id: string): string | null;
   /** How the GM turned a door from the way Atlas draws it (Rotate 180°, Mirror); none unless said. */
   doorFlip?(id: string): { hinge: boolean; side: boolean };
+  /** A window's opening as the GM set it (grid squares from the floor); null for the default. */
+  windowOf?(id: string): { bottom: number; top: number } | null;
+  /** A wall's own width (thickness) in grid squares; null for the map's. */
+  wallWidth?(id: string): number | null;
   lightHeight(id: string): number | null;
   readonly fogHeight: number | null;
   readonly wallThickness: number | null;
@@ -124,7 +143,13 @@ export interface BoardLook {
   readonly tint?: string | null;
   /** The scenes stacked with this map, for players' boards; absent when sharing them is off. */
   readonly layers?: ReadonlyArray<BoardLayerLook>;
-  readonly props: ReadonlyArray<{ id: string; path: string; x: number; y: number; scale: number; turn: number }>;
+  readonly props: ReadonlyArray<{ id: string; path: string; x: number; y: number; scale: number; turn: number; solid?: boolean; lift?: number }>;
+  /** The scene's painted water, for players. */
+  readonly water?: BoardWater;
+  /** How the GM draws the scenes stacked above (Upper layers), for players to see them the same. */
+  readonly layerLook?: 'solid' | 'faded' | 'transparent';
+  /** Where the players' AR marker sheets lie on this map, placed, for their phones; absent for none. */
+  readonly arTable?: { squareMm: number; groups: ReadonlyArray<{ group: string; x: number; y: number; heading: number; w: number; h: number }> };
   /** The materials this map's walls use, with their texture maps by role (vault paths). */
   readonly materials: ReadonlyArray<{ id: string; scale: number; maps: Record<string, string> }>;
 }
@@ -138,14 +163,20 @@ export interface BoardLayerLook {
   grid: { size: number; offsetX: number; offsetY: number };
   walls: ReadonlyArray<{
     id: string; type: 'solid' | 'door' | 'secret-door'; p1: BoardPoint; p2: BoardPoint; closed: boolean;
-    direction: 'left' | 'right' | null; blocks: 'sight' | 'light' | null; limited: boolean; chain: string | null;
+    direction: 'left' | 'right' | null; blocks: 'sight' | 'light' | 'movement' | null; limited: boolean; chain: string | null;
     height: number | null; material: string | null; doorProp: string | null; flip: { hinge: boolean; side: boolean };
+    /** A window's opening (grid squares from the floor), where the GM set it. */
+    window?: { bottom: number; top: number } | null;
+    /** A wall's own width in grid squares, where the GM set one. */
+    width?: number | null;
   }>;
   lights: ReadonlyArray<{
     id: string; x: number; y: number; height: number | null; bright: number; dim: number; color: string; intensity: number;
     animation: string | null; angle: number | null; rotation: number; darkness: boolean; activeBelowAmbient: number | null;
   }>;
-  props: ReadonlyArray<{ id: string; path: string; x: number; y: number; scale: number; turn: number }>;
+  props: ReadonlyArray<{ id: string; path: string; x: number; y: number; scale: number; turn: number; solid?: boolean; lift?: number }>;
+  /** The layer's painted water. */
+  water?: BoardWater;
   readonly materials: ReadonlyArray<{ id: string; scale: number; maps: Record<string, string>; tuning?: { relief: number; occlusion: number; shine: number; depth: number; displace: number; outward: number } }>;
   fogHeight: number | null;
   wallThickness: number | null;
@@ -156,18 +187,68 @@ export type BoardMark =
   | { kind: 'ping'; mapPath: string; x: number; y: number; color: string }
   | { kind: 'laser'; mapPath: string; from: string; points: BoardPoint[]; lifted: boolean; color: string };
 
+/**
+ * A player's phone in augmented reality over a map, for the GM's board: where its camera is in board units and which way
+ * it looks (down its −z); `pose` null when they left AR or lost the tracking. `from` is their session id.
+ */
+export interface BoardViewer {
+  mapPath: string;
+  from: string;
+  name: string;
+  color: string;
+  pose: { position: [number, number, number]; quaternion: [number, number, number, number] } | null;
+}
+
+/** A player's survey of the table's AR marker sheets, for the GM to place on `mapPath`. */
+export interface BoardSurvey {
+  mapPath: string;
+  from: string;
+  name: string;
+  survey: unknown;
+}
+
 export interface BoardSessionTemplate { id: string; owner: string; shape: 'line' | 'circle' | 'square' | 'cone'; start: BoardPoint; end: BoardPoint; color: string }
 
 /** Connect's hosted session, handed to `api.attachSession` (Connect's `BoardSessionHub`; the shapes must stay the same). */
 export interface BoardSession {
   hosting(): boolean;
   presentedMap(): string | null;
-  overlay(mapPath: string): { templates: readonly BoardSessionTemplate[]; coneAngle: number; handout: { path: string; title: string } | null };
+  overlay(mapPath: string): { templates: readonly BoardSessionTemplate[]; spells?: readonly unknown[]; coneAngle: number; handout: { path: string; title: string } | null };
   onChange(listener: () => void): () => void;
   onMark(listener: (mark: BoardMark) => void): () => void;
+  /** Players' phones in augmented reality, as they move. Absent from an older Connect. */
+  onViewer?(listener: (viewer: BoardViewer) => void): () => void;
+  /** Players' surveys of the table's AR marker sheets. Absent from an older Connect. */
+  onSurvey?(listener: (survey: BoardSurvey) => void): () => void;
   addTemplate(mapPath: string, add: { shape: BoardSessionTemplate['shape']; start: BoardPoint; end: BoardPoint }): boolean;
   eraseTemplate(mapPath: string, id: string): void;
   clearTemplates(mapPath: string): void;
+  /** The GM casts a spell on the map's scene (through a token's eyes), in the GM's colour; false when it cannot. */
+  /** `rules` (what it does beyond its shape) go beside the spell; an older Connect leaves them out. */
+  castSpell?(mapPath: string, spell: Spell, rules?: SpellRules, words?: { name: string; about?: SpellAbout }): boolean;
+  /** Takes a player's spell off the map's scene (an older Connect has no spells). */
+  eraseSpell?(mapPath: string, id: string): void;
+  clearSpells?(mapPath: string): void;
+  /**
+   * Tokens are moving from the map `from` to the stacked map `to` (each as `newId`, the same id unless `to` had one):
+   * told before they move, so their players keep them and are shown `to`. Absent from an older Connect.
+   */
+  tokensMoved?(move: { from: string; to: string; tokens: ReadonlyArray<{ id: string; newId: string }> }): void;
+  /**
+   * The players who may control `tokenId` (every admitted one) and whether each does, for the "Controlled by" menu;
+   * null while no session hands out tokens. Absent from an older Connect.
+   */
+  controllers?(tokenId: string): Array<{ playerId: string; name: string; controls: boolean }> | null;
+  /** Gives `tokenId` to a player or takes it away. */
+  setController?(tokenId: string, playerId: string, controls: boolean): void;
+  /**
+   * Asks the players of `tokenId` to cast `ask` from it (they aim it; Connect takes it as asked): the number of its
+   * players on the map's scene now, null when it cannot. Absent from an older Connect.
+   */
+  requestSpell?(mapPath: string, tokenId: string, ask: SpellAsk): number | null;
+  /** The ask waiting for `tokenId`, or null. */
+  spellRequest?(mapPath: string, tokenId: string): SpellAsk | null;
+  cancelSpellRequest?(mapPath: string, tokenId: string): void;
 }
 
 /** The GM's 3D view of a map: its players' window when open, else the GM's board; null when neither shows it. */

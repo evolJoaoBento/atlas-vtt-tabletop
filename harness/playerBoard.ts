@@ -6,6 +6,9 @@ import './dom-polyfill';
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { playerBoardFactory, type PlayerBoardHandle, type PlayerBoardHost } from '../src/playerBoard';
+import { readSpellNote } from '../src/board/spellNotes';
+import type { SpellBook, SpellEntry } from '../src/board/spellPicker';
+import { searchSpells } from '../src/spellLibrary';
 import type { BoardExtras, PlayerDiceResult } from '../src/connectContract';
 import { vendoredPack } from '../src/dice/dicePack';
 import { DEFAULT_DICE_SETTINGS } from '../src/dice/diceSettings';
@@ -70,7 +73,7 @@ async function main(): Promise<void> {
   files.set(TEX, drawn(64, 64, (context) => { context.fillStyle = '#884422'; context.fillRect(0, 0, 64, 64); }));
   const record = {
     moves: [] as unknown[][], pings: [] as unknown[][], lasers: [] as unknown[][], templates: [] as unknown[], pins: [] as string[],
-    hovers: [] as unknown[][], toolsChanged: 0, diceResults: [] as PlayerDiceResult[],
+    hovers: [] as unknown[][], toolsChanged: 0, diceResults: [] as PlayerDiceResult[], spells: [] as unknown[], eyeChanged: 0,
   };
   const pack = vendoredPack();
   const host: PlayerBoardHost = {
@@ -80,6 +83,8 @@ async function main(): Promise<void> {
     sendLaser: (points, lifted, dt, color) => { record.lasers.push([points.length, lifted, dt.length, color]); return true; },
     sendPing: (x, y) => { record.pings.push([x, y]); return true; },
     sendTemplate: (change) => { record.templates.push(change); return true; },
+    sendSpell: (change) => { record.spells.push(change); return true; },
+    eyeChanged: () => { record.eyeChanged++; },
     openPin: (pinId) => { record.pins.push(pinId); },
     hover: (id, client, modifier) => { record.hovers.push([id, client !== null, modifier]); },
     toolsChanged: () => { record.toolsChanged++; },
@@ -87,7 +92,16 @@ async function main(): Promise<void> {
     diceRules: () => null,
   };
   const container = document.getElementById('board')!;
-  const handle: PlayerBoardHandle = playerBoardFactory(() => 'medium', () => ({ tiltShift: false, occlusion: false, painted: false, sky: 'dusk' }), { settings: () => DEFAULT_DICE_SETTINGS, pack: () => pack }).create(container, host);
+  // A player on Obsidian has their own spell notes (`setSpellNotes`); the web page none (null, the start).
+  let spellEntries: SpellEntry[] | null = null;
+  const spellBook: SpellBook = { search: async (query, limit) => searchSpells(spellEntries ?? [], query, limit) };
+  const setSpellNotes = (notes: Array<{ path: string; text: string }> | null): void => {
+    spellEntries = notes === null ? null : notes.flatMap(({ path, text }) => {
+      const note = readSpellNote(text, path.replace(/^.*\//, '').replace(/( \(\d{4}\))?\.md$/, ''));
+      return note ? [{ id: path, note, source: `SRD ${path.split('/')[0]}` }] : [];
+    });
+  };
+  const handle: PlayerBoardHandle = playerBoardFactory(() => 'medium', () => ({ tiltShift: false, occlusion: false, painted: false, sky: 'dusk' }), { settings: () => DEFAULT_DICE_SETTINGS, pack: () => pack }, () => (spellEntries === null ? null : spellBook)).create(container, host);
   handle.setPlayers(['me', 'you'], 'me');
   handle.setConnected(true);
   handle.setControlled(['mine']);
@@ -101,7 +115,7 @@ async function main(): Promise<void> {
   };
   /** Files the harness holds back: they "arrive" with `deliver`, then the board is told. */
   const deliver = (): void => { for (const [id, file] of late) files.set(id, file); late.clear(); handle.refresh(); };
-  Object.assign(window, { playerTest: { handle, board, record, project, deliver, scene, extras, files, ready: true } });
+  Object.assign(window, { playerTest: { handle, board, record, project, deliver, scene, extras, files, setSpellNotes, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

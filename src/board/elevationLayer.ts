@@ -5,6 +5,7 @@
  * a Connect player's board draws the same layers from what Connect sends (`layersFromExtras`). The layer's pixels are scaled so its grid squares
  * match the shown scene's, and shifted so the two grids line up.
  */
+import { smoother } from './camera';
 import * as THREE from 'three';
 import type { MiniPlacement } from '../assignments';
 import type { LoadedMini } from '../library';
@@ -16,14 +17,24 @@ import { PropPiece, TokenPiece, type PoseContext } from './pieces';
 import { WallSet, type WallLookup } from './wallPieces';
 import { NO_FLIP, type DoorFlip } from './walls';
 import { NO_PLACEMENT, type Placement } from './layerPlacement';
+import { WaterMask, readWaterMotion } from './water';
+import { WaterSurface } from './waterSurface';
+import { releaseTexture } from './textures';
 
 /** What a layer is drawn from: its scene, and what Tabletop keeps for it (the same data the shown scene's own comes from). */
+/** How long a layer takes to fade in or out, or to another look. */
+const FADE_SECONDS = 0.6;
+
 export interface ElevationLayerData {
   path: string;
   /** Grid squares above the scene the board shows (negative: below it). */
   elevation: number;
   map: BoardMap;
   wallHeight(id: string): number | null;
+  /** A window's opening as the GM set it; null (or absent) for the default. */
+  windowOf?(id: string): { bottom: number; top: number } | null;
+  /** A wall's own width in grid squares; null (or absent) for the layer's wall thickness. */
+  wallWidth?(id: string): number | null;
   wallMaterial(id: string): string | null;
   doorProp(id: string): string | null;
   /** How the GM turned a door from the way Atlas draws it. */
@@ -33,8 +44,15 @@ export interface ElevationLayerData {
   fogHeight: number;
   wallThickness: number;
   props: readonly PropPlacement[];
+  /** The water painted on it, and how it moves (as the scene keeps them); none for no water. */
+  water?: { mask: unknown; motion: unknown } | null;
   /** Where it stands on the plane beyond its height, seen from the scene being played; none puts it where its grid does. */
   stands?: Placement;
+  /**
+   * The scene being played itself, given too so it is ready as a layer the moment another is shown (kept put away,
+   * not drawn, until then).
+   */
+  current?: boolean;
   placement(tokenId: string): MiniPlacement | null;
   style(tokenId: string): TokenStyle;
 }
@@ -42,6 +60,8 @@ export interface ElevationLayerData {
 /** What a layer takes from the board it is drawn in. */
 export interface ElevationLayerHost {
   wallLook: WallLookup['look'];
+  /** The material a wall wears with none painted on it (the defaults for its kind). */
+  defaultOf?: WallLookup['defaultOf'];
   displaces(path: string | null): boolean;
   tileOf(path: string | null): number;
   model(path: string): Promise<LoadedMini | null>;
@@ -93,9 +113,21 @@ export class ElevationLayerView {
   private readonly props = new Map<string, PropPiece>();
   private readonly tokens = new Map<string, Standing>();
   private picture: string | null | undefined;
-  private hideImage = false;
+  /**
+   * How much of it shows, eased each frame toward what is wanted: `presence` (1 shown, 0 put away) times the look's own
+   * (solid 1, faded half, hidden 0). The floor fades with both; what stands on it with its presence.
+   */
+  private presence = 0;
+  private presenceTarget = 1;
+  private lookLevel = 0;
+  private drawnTransparent: boolean | null = null;
+  private readonly presenceEase = new Fade(0);
+  private readonly lookEase = new Fade(0);
   private imageSize: { width: number; height: number } | null = null;
   private disposed = false;
+  /** Its painted water, drawn over its floor; and what it was made from. */
+  private water: WaterSurface | null = null;
+  private waterKey = '';
 
   constructor(private data: ElevationLayerData, private readonly host: ElevationLayerHost) {
     this.image = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0 });
@@ -107,9 +139,12 @@ export class ElevationLayerView {
     this.walls = new WallSet({
       look: (path, door) => host.wallLook(path, door),
       materialOf: (id) => this.data.wallMaterial(id),
+      defaultOf: (wall) => host.defaultOf?.(wall) ?? null,
       displaces: (path) => host.displaces(path),
       tileOf: (path) => host.tileOf(path),
       heightOf: (id) => this.data.wallHeight(id),
+      windowOf: (id) => this.data.windowOf?.(id) ?? null,
+      widthOf: (id) => this.data.wallWidth?.(id) ?? null,
       propOf: (id) => this.data.doorProp(id),
       flipOf: (id) => this.data.doorFlip?.(id) ?? NO_FLIP,
       prop: (glb) => host.model(glb),
@@ -129,6 +164,25 @@ export class ElevationLayerView {
   }
 
   /** Grid squares above the scene the board shows (negative: below it). */
+  /** Its floor's picture (a vault path), kept while it is put away. */
+  get background(): string | null {
+    return this.data.map.background ?? null;
+  }
+
+  /** Raised or lowered (another scene became the one played): by `squares`, at once. */
+  shiftElevation(squares: number): void {
+    if (!squares) return;
+    this.data = { ...this.data, elevation: this.data.elevation + squares };
+    this.lay();
+    this.host.wake();
+  }
+
+  /** Takes the look its new place gives it (above the scene played: the Upper layers look; below: solid), easing to it. */
+  restyle(look: LayerLook): void {
+    if (this.chosenLook !== null) { this.chosenLook = look; return; }
+    this.shapeFloor(look);
+  }
+
   get elevation(): number {
     return this.data.elevation;
   }
@@ -192,6 +246,7 @@ export class ElevationLayerView {
 
     this.syncProps(data, map);
     this.syncTokens(data, map, shape);
+    this.syncWater();
     this.host.wake();
   }
 
@@ -273,17 +328,38 @@ export class ElevationLayerView {
     });
   }
 
+  /** Draws the layer's painted water (again when it, or the size it is laid on, changed); its motion follows without a redraw. */
+  private syncWater(): void {
+    const saved = this.data.water ?? null;
+    const { width, height } = this.size;
+    const cell = this.data.map.grid.size;
+    const key = saved?.mask && width > 0 && height > 0 ? JSON.stringify([saved.mask, width, height, cell]) : '';
+    if (key === this.waterKey) {
+      if (this.water && saved) this.water.setMotion(readWaterMotion(saved.motion));
+      return;
+    }
+    this.waterKey = key;
+    this.water?.dispose();
+    this.water = null;
+    if (!key || !saved) return;
+    const mask = WaterMask.read(saved.mask, width, height, cell);
+    if (!mask || mask.empty) return;
+    this.water = new WaterSurface(mask, width, height, cell, readWaterMotion(saved.motion));
+    this.content.add(this.water.object3d);
+    this.host.wake();
+  }
+
   /** Loads the layer's map image the first time, or when it changed. */
   private setImage(path: string | null): void {
     if (this.picture === path) return;
     this.picture = path;
-    this.image.map?.dispose();
+    releaseTexture(this.image.map);
     this.image.map = null;
     this.shade.map = null;
     this.floor.visible = false;
     if (!path) return;
     void this.host.image(path).then((texture) => {
-      if (this.disposed || this.picture !== path || !texture) { texture?.dispose(); return; }
+      if (this.disposed || this.picture !== path || !texture) { releaseTexture(texture); return; }
       const source = texture.userData.sourceSize as { width: number; height: number } | undefined;
       const image = texture.image as { width?: number; height?: number } | undefined;
       const width = source?.width ?? image?.width ?? this.data.map.world?.width ?? 1;
@@ -295,7 +371,9 @@ export class ElevationLayerView {
       this.imageSize = { width, height };
       this.floor.scale.set(width, 1, height);
       this.floor.position.set(width / 2, 0, height / 2);
-      this.floor.visible = !this.hideImage;
+      this.applyShown();
+      // The water is laid on the image's own size.
+      this.syncWater();
       this.host.wake();
     });
   }
@@ -306,30 +384,94 @@ export class ElevationLayerView {
    */
   private shapeFloor(look: LayerLook): void {
     this.look = look;
-    const solid = look === 'solid';
+    // Not at once: the floor eases to its new look in `step`.
+    this.applyShown();
+  }
+
+  /** How much of the floor its look shows. */
+  private lookTarget(): number {
+    return this.look === 'solid' ? 1 : this.look === 'faded' ? FADED_LAYER_OPACITY : 0;
+  }
+
+  /** Brings it in (1) or puts it away (0), easing over a third of a second. */
+  fadeTo(presence: number): void {
+    this.presenceTarget = presence;
+    this.host.wake();
+  }
+
+  /** Whether it is still easing in or out, or to another look. */
+  get fading(): boolean {
+    return this.presenceEase.moving(this.presenceTarget) || this.lookEase.moving(this.lookTarget());
+  }
+
+  /** Put away all the way: nothing of it shows. */
+  get gone(): boolean {
+    return this.presenceTarget === 0 && this.presence <= 1e-3;
+  }
+
+  /** The floor and what stands on it as they show now. */
+  private applyShown(): void {
+    const shown = this.presence * this.lookLevel;
+    const whole = shown >= 0.999 && this.look === 'solid';
+    // See-through only while it is (a half-faded floor, or one easing); solid, its transparent parts cut out.
+    const transparent = !whole;
     for (const material of [this.image, this.shade]) {
-      material.transparent = look === 'faded';
-      material.opacity = look === 'faded' ? FADED_LAYER_OPACITY : 1;
-      material.depthWrite = solid;
-      material.alphaTest = solid ? 0.5 : 0;
-      material.needsUpdate = true;
+      material.opacity = Math.min(1, shown);
+      material.depthWrite = whole;
+      if (this.drawnTransparent !== transparent) {
+        material.transparent = transparent;
+        material.alphaTest = whole ? 0.5 : 0;
+        material.needsUpdate = true;
+      }
     }
-    this.floor.castShadow = solid && !this.blackedOut;
-    this.floor.renderOrder = solid ? 0 : 1;
-    this.hideImage = look === 'transparent';
-    this.floor.visible = this.image.map !== null && !this.hideImage;
+    this.drawnTransparent = transparent;
+    this.floor.castShadow = whole && !this.blackedOut;
+    this.floor.renderOrder = whole ? 0 : 1;
+    this.floor.visible = this.image.map !== null && shown > 0.003;
+    this.content.visible = !this.blackedOut && this.presence > 0.4;
+  }
+
+  /** Eases presence and look toward what is wanted, by the clock, in and out; whether anything moved. */
+  private ease(_dt: number): boolean {
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const presence = this.presenceEase.tick(now, this.presenceTarget);
+    const look = this.lookEase.tick(now, this.lookTarget());
+    if (!presence && !look) return false;
+    this.presence = this.presenceEase.value;
+    this.lookLevel = this.lookEase.value;
+    this.applyShown();
+    return true;
+  }
+
+  /** A point of the board (its floor plane) in this layer's own map pixels. */
+  mapPointAt(x: number, z: number): { x: number; y: number } {
+    this.object3d.updateMatrixWorld(true);
+    const local = this.object3d.worldToLocal(new THREE.Vector3(x, this.object3d.position.y, z));
+    return { x: local.x, y: local.z };
+  }
+
+  /** Whether its floor has ground at a board point: its image there not see-through (no image: no ground). */
+  groundAt(x: number, z: number, opaque: (image: CanvasImageSource & { width: number; height: number }, u: number, v: number) => boolean | null): boolean {
+    const size = this.imageSize;
+    const picture = this.image.map?.image as (CanvasImageSource & { width: number; height: number }) | undefined;
+    if (!size || !picture) return false;
+    const at = this.mapPointAt(x, z);
+    if (at.x < 0 || at.y < 0 || at.x > size.width || at.y > size.height) return false;
+    return opaque(picture, at.x / size.width, at.y / size.height) ?? true;
   }
 
   /** Called each frame: tokens stand where they are, the walls' doors swing, the lights flicker. Returns whether it is still moving. */
   step(dt: number, now: number, context: PoseContext): boolean {
-    const moving = this.walls.step(dt);
+    const eased = this.ease(dt);
+    const moving = this.walls.step(dt) || eased;
     this.rig.step(now);
+    this.water?.tick(now);
     for (const entry of this.tokens.values()) entry.piece.pose(entry.x, entry.y, context);
     return moving;
   }
 
   get animated(): boolean {
-    return this.rig.animated;
+    return this.rig.animated || this.water?.moving === true || this.fading;
   }
 
   /**
@@ -340,9 +482,23 @@ export class ElevationLayerView {
     if (on === this.blackedOut) return;
     this.blackedOut = on;
     this.floor.material = on ? this.shade : this.image;
-    this.floor.castShadow = this.look === 'solid' && !on;
-    this.content.visible = !on;
+    this.applyShown();
     this.host.wake();
+  }
+
+  /** The look the Upper layers setting gave it, while a token's eyes force it solid. */
+  private chosenLook: LayerLook | null = null;
+
+  /** Seen from a token's eyes: drawn solid whatever the Upper layers setting (a faded or hidden ceiling is no ceiling). */
+  setFirstPerson(on: boolean): void {
+    if (on && this.chosenLook === null) {
+      this.chosenLook = this.look;
+      if (this.look !== 'solid') this.shapeFloor('solid');
+    } else if (!on && this.chosenLook !== null) {
+      const chosen = this.chosenLook;
+      this.chosenLook = null;
+      if (chosen !== this.look) this.shapeFloor(chosen);
+    }
   }
 
   /** Only the GM sees a layer. */
@@ -352,14 +508,45 @@ export class ElevationLayerView {
 
   dispose(): void {
     this.disposed = true;
+    this.water?.dispose();
+    this.water = null;
     this.walls.dispose();
     this.rig.dispose();
     for (const piece of this.props.values()) piece.dispose();
     for (const entry of this.tokens.values()) entry.piece.dispose();
-    this.image.map?.dispose();
+    releaseTexture(this.image.map);
     this.image.dispose();
     this.shade.dispose();
     this.floor.geometry.dispose();
     this.object3d.removeFromParent();
+  }
+}
+
+/**
+ * A value faded to its target over `FADE_SECONDS` by the clock, eased in and out; a new target starts again from where
+ * it is. It starts on the first frame after the target changes (after whatever heavy work changed it).
+ */
+class Fade {
+  private from: number;
+  private to: number;
+  private start: number | null = null;
+
+  constructor(public value: number) {
+    this.from = value;
+    this.to = value;
+  }
+
+  moving(target: number): boolean {
+    return target !== this.to || this.value !== this.to;
+  }
+
+  /** On to `now` (ms) toward `target`; whether it moved. */
+  tick(now: number, target: number): boolean {
+    if (target !== this.to) { this.from = this.value; this.to = target; this.start = null; }
+    if (this.value === this.to) return false;
+    this.start ??= now;
+    const t = Math.min(1, (now - this.start) / (FADE_SECONDS * 1000));
+    this.value = t >= 1 ? this.to : this.from + (this.to - this.from) * smoother(t);
+    return true;
   }
 }

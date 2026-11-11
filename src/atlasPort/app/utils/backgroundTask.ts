@@ -1,0 +1,16 @@
+// Atlas source: src/app/utils/backgroundTask.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// @ts-nocheck
+import { showNotice } from '../ui/notice';
+
+
+/**
+ * Runs a promise without awaiting it. A rejection is logged under `context`
+ * instead of surfacing as an unhandled rejection; pass `userMessage` when the
+ * user started the action and has to be told that it failed.
+ */
+export function runInBackground(task: Promise<unknown>, context: string, userMessage?: string): void {
+  task.catch((error: unknown) => {
+    console.error(`[Atlas] ${context} failed:`, error);
+    if (userMessage) showNotice(userMessage);
+  });
+}

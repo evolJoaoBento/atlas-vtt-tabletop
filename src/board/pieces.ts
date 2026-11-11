@@ -311,8 +311,8 @@ export class TokenPiece {
     if (changedModel || changedBase || !model) this.build();
   }
 
-  /** Draws the token at (x, y) on the map this frame. */
-  pose(x: number, y: number, context: PoseContext): void {
+  /** Draws the token at (x, y) on the map this frame, standing `stand` over the floor (on a solid prop). */
+  pose(x: number, y: number, context: PoseContext, stand = 0): void {
     const goal = this.carried ? 1 : 0;
     this.carry += (goal - this.carry) * (1 - Math.exp(-CARRY_SPEED * context.dt));
     if (Math.abs(goal - this.carry) < 1e-3) this.carry = goal;
@@ -326,7 +326,7 @@ export class TokenPiece {
     this.fall.position.set(tips ? -this.fallen * (this.uprightHeight() / 2) : 0, tips ? this.fallen * this.diameter * 0.2 : 0, 0);
     if (this.skull) this.skull.scale.setScalar(context.pixel * Math.min(40, this.diameter * 0.5) * 0.6);
     if (this.clock) this.clock.scale.setScalar(context.pixel * Math.min(40, this.diameter * 0.5) * 0.6);
-    this.object3d.position.set(x, this.carry * this.diameter * CARRY_HEIGHT, y);
+    this.object3d.position.set(x, stand + this.carry * this.diameter * CARRY_HEIGHT, y);
     // A standee faces the camera while it stands; once it has fallen it stays as it lies.
     if (this.standee && this.fallen === 0) this.standee.rotation.y = context.yaw;
     if (this.marker) this.marker.scale.setScalar(context.pixel * Math.min(40, this.diameter * 0.5) * 0.6);
@@ -537,7 +537,13 @@ export class PinPiece {
   }
 }
 
+/** How high a carried prop floats, in grid squares. */
+const PROP_CARRY = 0.3;
+
 export class PropPiece {
+  private lifted = false;
+  /** How high it stands: on a solid prop under it, else 0. */
+  private base = 0;
   readonly object3d = new THREE.Group();
   readonly hitTarget: THREE.Mesh;
   private model: THREE.Object3D | null = null;
@@ -590,7 +596,33 @@ export class PropPiece {
   }
 
   place(x: number, y: number): void {
-    this.object3d.position.set(x, 0, y);
+    this.object3d.position.set(x, this.base + (this.carried ? this.grid.size * PROP_CARRY : 0), y);
+  }
+
+  /** Stands it on what is under it (the top of a solid prop), or on the floor at 0. */
+  setBase(height: number): void {
+    this.base = height;
+    this.object3d.position.y = height + (this.lifted ? this.grid.size * PROP_CARRY : 0);
+  }
+
+  /** Picked up (in Edit mode): it floats a little over the floor, as a token does. */
+  set carried(on: boolean) {
+    this.lifted = on;
+    this.object3d.position.y = this.base + (on ? this.grid.size * PROP_CARRY : 0);
+  }
+
+  get carried(): boolean {
+    return this.lifted;
+  }
+
+  /** Shows the prop at another scale while one is dragged (its placement's scale stays until saved). */
+  preview(scale: number | null): void {
+    this.object3d.scale.setScalar(scale === null ? 1 : scale / (this.placement.scale || 1));
+  }
+
+  /** What a token set on it stands on (its model, or the box while it loads). */
+  get body(): THREE.Object3D | null {
+    return this.model;
   }
 
   dispose(): void {
