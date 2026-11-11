@@ -242,6 +242,16 @@ export interface BoardSession {
   /** Gives `tokenId` to a player or takes it away. */
   setController?(tokenId: string, playerId: string, controls: boolean): void;
   /**
+   * The split party for a scene tab of the GM's Atlas view (Atlas's view id and tab id), as the eye's "Present to" menu
+   * on Atlas's tabs offers it: a row per player (ticked where they see it), the cap note and "Everyone back"; null
+   * while no session runs, on an Atlas without scene tabs, or for a tab Connect does not know. Absent from an older Connect.
+   */
+  presentTo?(viewId: string, tabId: string): BoardPresentTo | null;
+  /** Chooses a player's row of that menu: shows them the tab, or (ticked) sends them back to the presented scene. */
+  choosePresentTo?(viewId: string, tabId: string, playerId: string): void;
+  /** Everyone follows the presented scene again. */
+  everyoneBack?(): void;
+  /**
    * Asks the players of `tokenId` to cast `ask` from it (they aim it; Connect takes it as asked): the number of its
    * players on the map's scene now, null when it cannot. Absent from an older Connect.
    */
@@ -249,6 +259,16 @@ export interface BoardSession {
   /** The ask waiting for `tokenId`, or null. */
   spellRequest?(mapPath: string, tokenId: string): SpellAsk | null;
   cancelSpellRequest?(mapPath: string, tokenId: string): void;
+}
+
+/** A scene tab's "Present to" menu, as Connect words it (Connect's `BoardPresentTo`). */
+export interface BoardPresentTo {
+  heading: string;
+  rows: Array<{ playerId: string; label: string; checked: boolean; disabled: boolean }>;
+  /** Shown in place of the rows when there are none. */
+  noPlayers: string;
+  capNote: string | null;
+  everyoneBack: { label: string; disabled: boolean };
 }
 
 /** The GM's 3D view of a map: its players' window when open, else the GM's board; null when neither shows it. */

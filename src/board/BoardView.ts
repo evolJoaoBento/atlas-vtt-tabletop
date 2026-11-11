@@ -41,6 +41,7 @@ import { defeatedResources, isDefeated, tokenFromFile } from './resources';
 import { AtlasMenu, type MenuEntry } from './atlasMenu';
 import { tokenMenuEntries } from './tokenMenu';
 import { pinMenuEntries } from './pinMenu';
+import { presentToEntry } from './sessionMenus';
 import { SpellAskModal } from '../spellAskModal';
 import { addToInitiative, conditionChange, conditionStep, initiativeEntryFor, initiativeId, removeFromInitiative, resetChange, type ConditionFields } from './tokenEdits';
 import { applyInitiative, currentEntries, delayedTokens, emptyInitiative, fileCannotRun, ownModifier, readInitiative, statblockModifier, turnAnnouncement, type InitiativeAction, type InitiativeState } from './initiative';
@@ -1451,10 +1452,18 @@ export class BoardView extends ItemView {
     const { boardData } = this.services;
     const path = tab.filePath;
     const others = (): Array<{ path: string; name: string }> => tabs.filter((entry) => entry.filePath !== path).map((entry) => ({ path: entry.filePath, name: entry.displayName }));
+    // Connect hosting a split party: who sees this scene, as the eye's menu on Atlas's own tabs.
+    const viewId = found!.view.viewId;
+    const session = (): BoardSession | null => this.services.session?.() ?? null;
+    const presentTo = presentToEntry(
+      () => session()?.presentTo?.(viewId, tabId) ?? null,
+      (playerId) => { session()?.choosePresentTo?.(viewId, tabId, playerId); this.menu?.refresh(); },
+      () => { session()?.everyoneBack?.(); },
+    );
     const entries = (): MenuEntry[] => {
       const layer = boardData.layerOf(path);
       const hasLayers = boardData.layersOf(path).length > 0;
-      const list: MenuEntry[] = [];
+      const list: MenuEntry[] = presentTo ? [presentTo, { type: 'separator' }] : [];
       if (hasLayers) {
         const names = boardData.layersOf(path).map((member) => member.path.replace(/^.*\//, '').replace(/\.[^.]+$/, ''));
         list.push({ type: 'item', label: `Base of ${names.join(', ')}`, disabled: true, onClick: () => {} });
@@ -1462,7 +1471,7 @@ export class BoardView extends ItemView {
         // A scene stacked by an older Tabletop: it can still leave its stack (floors are Atlas levels now).
         list.push({ type: 'item', label: 'Remove from stack', destructive: true, onClick: () => { boardData.clearLayer(path); this.sceneTabs?.refresh(); } });
       }
-      if (list.length === 0) list.push({ type: 'item', label: 'Floors are Atlas levels: add one in Atlas', disabled: true, onClick: () => {} });
+      if (!hasLayers && !layer) list.push({ type: 'item', label: 'Floors are Atlas levels: add one in Atlas', disabled: true, onClick: () => {} });
       return list;
     };
     this.menu?.close();
