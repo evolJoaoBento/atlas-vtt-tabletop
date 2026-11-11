@@ -166,6 +166,9 @@ function readTexture(url: string, color: boolean): Promise<THREE.Texture> {
   });
 }
 
+/** Why a mini's zip is not a material: where it goes instead. */
+export const MINI_ZIP = 'it holds a 3D model (a HeroForge or TaleSpire export, or a .glb), not a texture set. Import it on the Minis or Props tab.';
+
 export class MaterialLibrary {
   private readonly loaded = new Map<string, Promise<LoadedMaterial>>();
   private readonly listeners = new Set<() => void>();
@@ -283,6 +286,8 @@ export class MaterialLibrary {
       if (/\.zip$/i.test(file.name)) {
         try {
           const entries = unzipSync(new Uint8Array(await file.arrayBuffer()));
+          // A HeroForge or TaleSpire export (a .unity3d, .tsMod or .glb inside) is a mini, not a texture set.
+          if (Object.keys(entries).some((name) => /\.(unity3d|tsmod|glb)$/i.test(name))) throw new Error(MINI_ZIP);
           const images = Object.entries(entries).filter(([name]) => !name.endsWith('/') && roleOf(name.split('/').pop()!) !== null)
             .map(([name, bytes]) => ({ name: name.split('/').pop()!, data: bytes.slice().buffer }));
           if (!pickMaps(images.map((image) => image.name))) throw new Error('it holds no colour map (a file named like …_diff_1k.jpg).');
