@@ -42,6 +42,39 @@ export const TRIANGLE_BUDGET = 30_000;
 
 export const isGlbPath = (path: string): boolean => /\.glb$/i.test(path);
 
+/** What an import says: how many were imported, and which were already there (used again); null when neither. */
+export function importNotice(kind: { one: string; many: string }, folder: string, added: readonly string[], reused: readonly string[]): string | null {
+  const count = (n: number): string => `${n} ${n === 1 ? kind.one : kind.many}`;
+  const name = (path: string): string => path.split('/').pop()!.replace(/\.glb$/i, '');
+  const parts: string[] = [];
+  if (added.length > 0) parts.push(`imported ${count(added.length)} into ${folder}`);
+  if (reused.length === 1) parts.push(`${name(reused[0]!)} was already there, so it is used as it is`);
+  else if (reused.length > 1) parts.push(`${count(reused.length)} were already there, so they are used as they are`);
+  return parts.length > 0 ? `Tabletop: ${parts.join('; ')}.` : null;
+}
+
+/** Whether two files hold the same bytes. */
+export function sameBytes(a: ArrayBuffer, b: ArrayBuffer): boolean {
+  if (a.byteLength !== b.byteLength) return false;
+  const x = new Uint8Array(a);
+  const y = new Uint8Array(b);
+  for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
+  return true;
+}
+
+/**
+ * The first of `paths` whose file holds exactly `bytes`, read with `read` (null: no file there, which ends the search,
+ * as the numbered copies of a name end at the first gap); null when none does.
+ */
+export async function sameFileAmong(paths: Iterable<string>, read: (path: string) => Promise<ArrayBuffer | null>, bytes: ArrayBuffer): Promise<string | null> {
+  for (const path of paths) {
+    const held = await read(path);
+    if (held === null) return null;
+    if (sameBytes(held, bytes)) return path;
+  }
+  return null;
+}
+
 /** Why a GLB cannot be used, in words for the user. */
 export function explainLoadError(error: unknown): string {
   const text = error instanceof Error ? error.message : String(error);
@@ -143,9 +176,23 @@ export class MiniLibrary {
     return found;
   }
 
-  /** Copies GLB files into the minis folder; returns the vault paths made and the failures, with reasons. */
-  async import(files: readonly File[]): Promise<{ added: string[]; failed: Array<{ name: string; reason: string }> }> {
+  /** Imports under way, one after another: two at once would pick the same free name and the second would fail. */
+  private importing: Promise<unknown> = Promise.resolve();
+
+  /**
+   * Copies GLB files (or what HeroForge and TaleSpire exports convert to) into the library's folder; returns the vault
+   * paths made, the files already there that were used again (the same model imported before: `reused`, nothing
+   * written), and the failures, with reasons.
+   */
+  import(files: readonly File[]): Promise<{ added: string[]; reused: string[]; failed: Array<{ name: string; reason: string }> }> {
+    const run = this.importing.then(() => this.importNow(files));
+    this.importing = run.catch(() => undefined);
+    return run;
+  }
+
+  private async importNow(files: readonly File[]): Promise<{ added: string[]; reused: string[]; failed: Array<{ name: string; reason: string }> }> {
     const added: string[] = [];
+    const reused: string[] = [];
     const failed: Array<{ name: string; reason: string }> = [];
     await this.ensureFolder(this.folderPath);
     for (const file of files) {
@@ -158,25 +205,51 @@ export class MiniLibrary {
         const data = await file.arrayBuffer();
         const models = glb ? [{ name: file.name.replace(/\.glb$/i, ''), glb: data }] : await convertToGlbs(file.name, data);
         for (const model of models) {
+          // The same model imported before (under its name, or a numbered copy of it): that file is used again.
+          const copy = await sameFileAmong(this.namesFor(`${model.name}.glb`), (path) => this.readIfFile(path), model.glb);
+          if (copy) {
+            if (!reused.includes(copy) && !added.includes(copy)) reused.push(copy);
+            continue;
+          }
           await parseMini(model.glb.slice(0));
-          const path = this.freePath(`${model.name}.glb`);
-          await this.app.vault.createBinary(path, model.glb);
-          added.push(path);
+          added.push(await this.write(`${model.name}.glb`, model.glb));
         }
       } catch (error) {
         failed.push({ name: file.name, reason: explainLoadError(error) });
       }
     }
     if (added.length > 0) this.emit();
-    return { added, failed };
+    return { added, reused, failed };
   }
 
-  private freePath(name: string): string {
+  /** The paths an import named `name` may take: the name itself, then its numbered copies (`name 2`, `name 3`…). */
+  private *namesFor(name: string): Generator<string> {
     const clean = name.replace(/[\\/:*?"<>|#^[\]]/g, '-');
     const base = clean.replace(/\.glb$/i, '');
-    let path = normalizePath(`${this.folderPath}/${base}.glb`);
-    for (let n = 2; this.app.vault.getAbstractFileByPath(path); n++) path = normalizePath(`${this.folderPath}/${base} ${n}.glb`);
-    return path;
+    yield normalizePath(`${this.folderPath}/${base}.glb`);
+    for (let n = 2; ; n++) yield normalizePath(`${this.folderPath}/${base} ${n}.glb`);
+  }
+
+  /** The bytes of the vault file at `path`; null when there is none (the end of the numbered copies). */
+  private async readIfFile(path: string): Promise<ArrayBuffer | null> {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!file) return null;
+    return file instanceof TFile ? this.app.vault.readBinary(file) : new ArrayBuffer(0);
+  }
+
+  /** Writes `data` at the first free path for `name`; one that turns out taken meanwhile (on disk, not yet indexed) is skipped. */
+  private async write(name: string, data: ArrayBuffer): Promise<string> {
+    let tries = 0;
+    for (const path of this.namesFor(name)) {
+      if (this.app.vault.getAbstractFileByPath(path)) continue;
+      try {
+        await this.app.vault.createBinary(path, data);
+        return path;
+      } catch (error) {
+        if (!/already exists/i.test(error instanceof Error ? error.message : String(error)) || ++tries >= 20) throw error;
+      }
+    }
+    throw new Error('no free file name.');
   }
 
   private async ensureFolder(path: string): Promise<void> {

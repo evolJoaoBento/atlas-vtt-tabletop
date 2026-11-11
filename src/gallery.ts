@@ -8,7 +8,7 @@
 import { ItemView, Menu, Modal, Notice, setIcon, type App, type TFile, type TFolder, type WorkspaceLeaf } from 'obsidian';
 import type { PropLook, PropVariant } from './board/boardData';
 import type { MiniBase } from './assignments';
-import type { MiniLibrary } from './library';
+import { importNotice, type MiniLibrary } from './library';
 import { MiniPreview } from './miniPreview';
 import { MINI_DRAG_TYPE, MINI_TEXT_PREFIX } from './assignments';
 import { MATERIAL_DRAG_TYPE, MATERIAL_TEXT_PREFIX, materialDrag, type MaterialLibrary } from './materials';
@@ -18,14 +18,17 @@ import { MaterialPreview } from './materialPreview';
 
 export const GALLERY_VIEW_TYPE = 'atlas-tabletop-gallery';
 
-/** Imports `files` and tells the user how it went. */
+/**
+ * Imports `files` and tells the user how it went, in one notice (and one per failure). A model imported before is used
+ * again, not copied. Returns the library's paths for the files: the ones made, then the ones used again.
+ */
 export async function importWithNotice(library: MiniLibrary, files: readonly File[]): Promise<string[]> {
   if (files.length === 0) return [];
-  const { added, failed } = await library.import(files);
-  const { one, many } = library.kind;
-  if (added.length > 0) new Notice(`Tabletop: imported ${added.length} ${added.length === 1 ? one : many} into ${library.folderPath}.`);
+  const { added, reused, failed } = await library.import(files);
+  const text = importNotice(library.kind, library.folderPath, added, reused);
+  if (text) new Notice(text);
   for (const { name, reason } of failed) new Notice(`Tabletop: could not import ${name}: ${reason}`, 8000);
-  return added;
+  return [...added, ...reused];
 }
 
 /** Asks for .glb files (or HeroForge Unity3D exports, or zips of them) with the system's file picker. */
