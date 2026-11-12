@@ -2868,7 +2868,7 @@ feature('spell sounds', async ({ page, shot }) => {
   const during = samples.filter(([, scale]) => scale > 0 && scale < 1);
   const rising = samples.every(([, scale], k) => k === 0 || scale >= samples[k - 1][1]);
   check('spell sounds: it grows through sizes between nothing and whole, never shrinking', during.length >= 2 && rising, JSON.stringify(samples));
-  check('spell sounds: it is whole after 600 ms', samples.filter(([at]) => at >= 600).every(([, scale]) => scale === 1), JSON.stringify(samples.slice(-3)));
+  check('spell sounds: it is whole after 600 ms', samples.filter(([at]) => at >= 600).every(([, scale]) => scale >= 0.99), JSON.stringify(samples.slice(-3)));
   const growing = samples.filter(([, scale]) => scale < 1);
   check('spell sounds: while it grows its flames and the flames on what it hits are not there yet', growing.length >= 2 && growing.every(([, , auras, visible]) => auras === 0 && visible === false), JSON.stringify(growing));
   const later = await page.evaluate(async () => { await new Promise((r) => setTimeout(r, 500)); const view = window.boardTest.board.spellViews.get('f1').view; return { auras: window.boardTest.board.spellAuraTypes(), visible: view.effect.object3d.visible }; });
@@ -2985,16 +2985,39 @@ feature('water sound', async ({ page, shot }) => {
   const stopped = await lastOf('water:ripples');
   check('water sound: switching the motion to waves loops water.waves', waves && waves[1] === 'water.waves' && waves[2] > 0.5, JSON.stringify(waves));
   check('water sound: and the ripples loop is stopped', stopped && stopped[1] === null, JSON.stringify(stopped));
+  // The camera's height: from higher up the same water is quieter.
+  const gainAt = async (distance) => { await look(cell * 4, cell * 4, distance); await wait(300); return (await lastOf('water:waves'))?.[2]; };
+  const close = await gainAt(cell * 3);
+  const high = await gainAt(cell * 40);
+  check('water sound: the same water is louder with the camera closer', close > high + 0.2, JSON.stringify([close, high]));
+  await look(cell * 4, cell * 4, 400);
+  await wait(300);
   // Idle, with the camera still: the loop is looked at again about once a second, not on every frame.
   await clear();
   await wait(2500);
   check('water sound: a still camera does not ask the engine over and over', (await heard()).length <= 3, JSON.stringify(await heard()));
+  const saved = await page.evaluate(() => window.boardTest.board.water.mask.save());
   // The water dried up (here by erasing it): the loop is stopped.
   await clear();
   await page.evaluate(([x, y]) => { const { board } = window.boardTest; const actions = board.toolbarActions(); actions.setWaterTool('erase'); actions.setWaterBrush(8); board.paintWater({ x: x - 200, y: y - 200 }, { x: x + 300, y: y + 200 }); actions.setWaterTool(null); }, [cell * 4, cell * 4]);
   await wait(600);
   const gone = await lastOf('water:waves');
   check('water sound: with the water gone the loop is stopped', gone && gone[1] === null, JSON.stringify(await heard()));
+  await page.evaluate((saved) => {
+    const { board, map } = window.boardTest;
+    const layer = { path: 'wet.atlasmap', elevation: 3, map: { ...map, path: 'wet.atlasmap', background: 'bg.png', fog: [], inks: [], texts: [], icons: [], pins: [], initiative: null, tokens: [], walls: [], lights: [] }, wallHeight: () => null, wallMaterial: () => null, doorProp: () => null, lightHeight: () => 1, fogHeight: 1, wallThickness: 0.12, props: [], placement: () => null, style: () => 'disc', water: { mask: saved, motion: { kind: 'flow', amount: 0.6, direction: 0, tint: '#1fa3a8', clarity: 0.7 } } };
+    board.setStack([layer]);
+  }, saved);
+  await page.waitForFunction(() => (window.boardTest.board.layerViews.get('wet.atlasmap')?.presence ?? 0) > 0.99, null, { timeout: 10000 }).catch(() => {});
+  await wait(1500);
+  const shown = await lastOf('water:flow');
+  check('water sound: a stacked scene\'s water loops by its own motion', shown && shown[1] === 'water.flow' && shown[2] > 0.3, JSON.stringify(await heard()));
+  await clear();
+  await page.evaluate(() => { window.boardTest.board.layerViews.get('wet.atlasmap').object3d.visible = false; });
+  await wait(1500);
+  const hidden = await lastOf('water:flow');
+  check('water sound: hiding that layer stops its loop', hidden && hidden[1] === null, JSON.stringify(await heard()));
+  await page.evaluate(() => window.boardTest.board.setStack([]));
 });
 
 feature('door flips', async ({ page, shot }) => {

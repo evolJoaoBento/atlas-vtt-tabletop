@@ -453,12 +453,12 @@ export class ElevationLayerView {
 
   /**
    * How the layer's painted water moves and how far it lies from a board point (board units); null while it shows none
-   * (no water, put away, or blacked out).
+   * (no water, hidden, put away, or blacked out).
    */
   waterReach(x: number, z: number): { kind: WaterMotionKind; distance: number } | null {
     const water = this.water;
     const size = this.imageSize;
-    if (!water || !size || !this.content.visible) return null;
+    if (!water || !size || !this.object3d.visible || !this.content.visible) return null;
     const at = this.mapPointAt(x, z);
     const distance = waterDistance(water.mask, size.width, size.height, at);
     return distance === Infinity ? null : { kind: water.currentMotion.kind, distance: distance * this.object3d.scale.x };

@@ -402,6 +402,9 @@ type HeightTarget = WallPart | 'light';
 /** Ctrl's handles on a wall: their radius on the screen, and how near the pointer takes one. */
 const HANDLE_PIXELS = 6;
 const HANDLE_REACH = 16;
+/** The span, in grid cells, the water loops' falloff with the camera's distance is measured against. */
+const WATER_SPAN_CELLS = 20;
+
 /** The water brush's size by Ctrl + scroll: a step a notch, as the toolbar's slider goes, in grid cells. */
 const BRUSH_STEP = 0.25;
 const BRUSH_MIN = 0.25;
@@ -5607,9 +5610,9 @@ export class Board {
       const near = view.waterReach(pose.target.x, pose.target.z);
       if (near) note(near.kind, near.distance);
     }
-    // How loud the camera's distance makes the water it looks at (the same for every kind).
+    // How loud the camera's height makes the water it looks at (the same for every kind): full close up, quieter from twenty cells and more away.
     const listener = { eye: positionOf(pose), target: { ...pose.target } };
-    const heard = reach.size > 0 ? placeAt(listener, { ...pose.target }, pose.distance).gain : 0;
+    const heard = reach.size > 0 ? placeAt(listener, { ...pose.target }, WATER_SPAN_CELLS * cell).gain : 0;
     const wanted = new Map<string, { id: SoundId; gain: number }>();
     for (const [kind, distance] of reach) wanted.set(`water:${kind}`, { id: waterLoop(kind), gain: nearness(distance, 8 * cell) * heard });
     for (const key of [...this.waterLoops.keys()]) {
