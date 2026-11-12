@@ -239,9 +239,8 @@ export class BoardView extends ItemView {
       this.playerWindow?.waiting(true);
       this.playerWindow = null;
       this.retitle();
+      // A cutscene being made stays open over the new scene: `read` tells the studio, which gives the new board its driver.
       await this.read();
-      // A cutscene being made stays open over the new scene: the studio gives the new board its camera driver.
-      if (this.board) this.studio?.mapChanged();
     }
     await super.setState(state, result);
   }
@@ -255,6 +254,8 @@ export class BoardView extends ItemView {
       else if (this.stackPaths.has(file.path)) this.reloadStack();
     }));
     this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
+      // A cutscene being made follows its map (or a shot's map) being renamed, whichever map this tab shows.
+      this.studio?.mapRenamed(oldPath, file.path);
       if (oldPath !== this.path) return;
       this.path = file.path;
       this.retitle();
@@ -940,7 +941,11 @@ export class BoardView extends ItemView {
     this.showInitiative();
     this.sessionChanged();
     void this.readStack();
-    if (fresh && !this.closed) this.services.boardReady(this);
+    if (fresh && !this.closed) {
+      this.services.boardReady(this);
+      // A board made while a cutscene is being made (a scene switch, a retry after a failed first read) takes over the camera driver and role.
+      this.studio?.mapChanged();
+    }
   }
 
   /**

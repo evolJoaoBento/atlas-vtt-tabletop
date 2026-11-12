@@ -347,6 +347,9 @@
   pointer-events: none;
 }
 
+/* While a cutscene is made the bars cover the toolbar: it is taken away, not left clickable under them. */
+.tabletop-authoring .atlas-tabletop-toolbar-row { visibility: hidden; }
+
 .atlas-tabletop-toolbar,
 .atlas-tabletop-palette {
   pointer-events: auto;

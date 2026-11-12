@@ -3605,6 +3605,41 @@ feature('cinematic mode', async ({ page, shot }) => {
   check('cinematic: the fade is still black right after the driver goes', ending.right === 1, JSON.stringify(ending));
   check('cinematic: no frame draws the driven pose unfaded, and the first frame of the restored pose is still black', ending.frames.length > 0 && ending.frames[0].atGoal && ending.frames[0].black === 1 && ending.frames.every((f) => f.atGoal || f.black === 1), JSON.stringify(ending.frames.slice(0, 3)));
   check('cinematic: the fade clears after that frame', ending.after === 0, JSON.stringify(ending));
+  // The held picture is let go when the players' window goes: a window attached again draws live. Disposing clears the driver and the AR view.
+  const spare = await page.evaluate(async () => {
+    const { Board, host, QUALITY, board } = window.boardTest;
+    const div = document.createElement('div');
+    div.style.cssText = 'position:fixed;left:0;top:0;width:400px;height:300px;';
+    document.body.appendChild(div);
+    const made = new Board(div, host, QUALITY.medium);
+    await made.load({ ...board.map });
+    const stage = (id) => { const e = document.createElement('div'); e.id = id; e.style.cssText = 'position:fixed;left:0;top:300px;width:300px;height:200px;'; document.body.appendChild(e); return e; };
+    const first = stage('spare-a');
+    made.attachPlayer(first);
+    made.holdPlayers(true);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const heldBefore = made.playerHeld !== null;
+    made.detachPlayer();
+    const heldAfter = made.playerHeld;
+    first.remove();
+    const second = stage('spare-b');
+    made.attachPlayer(second);
+    made.holdPlayers(false);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const live = !second.querySelector('img.tabletop-cinema__hold') && second.querySelector('canvas') !== null;
+    second.remove();
+    made.setCinematicRole('locked');
+    made.setCinematic({ pose: () => ({ eye: { x: 500, y: 900, z: 1400 }, target: { x: 500, y: 0, z: 500 }, black: 0 }) });
+    made.setAugmented({ rotation: [1, 0, 0, 0, 1, 0, 0, 0, 1], translation: [0, 0, 400], frustum: { left: -1, right: 1, top: -1, bottom: 1 }, squareMm: 25 });
+    const kept = { driver: made.cinematic !== null, arLatest: made.arLatest !== null };
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    // (A spare board's light cube targets may never have been drawn, and three then throws late in dispose, after the driver and AR view are cleared at its top.)
+    try { made.dispose(); } catch (error) { console.warn('spare board dispose:', String(error)); }
+    div.remove();
+    return { heldBefore, heldAfter, live, kept, driver: made.cinematic, arLatest: made.arLatest };
+  });
+  check('cinematic: detaching the players\' window lets go of the held picture, and a window attached again draws live', spare.heldBefore && spare.heldAfter === null && spare.live, JSON.stringify(spare));
+  check('cinematic: disposing a board clears its driver and its latest AR view', spare.kept.driver && spare.kept.arLatest && spare.driver === null && spare.arLatest === null, JSON.stringify(spare));
 });
 
 // ── Cutscenes: authoring (the gallery, the free camera, the timeline) ─────────────────────────────────────────────
@@ -3815,6 +3850,78 @@ feature('cutscene preview', async ({ page }) => {
   await page.keyboard.press('Escape');
   await page.waitForFunction(() => window.boardTest.studio.studio.state === 'idle', null, { timeout: 8000 });
   check('preview: Escape in the editor leaves it, on the first map', await page.evaluate(() => window.boardTest.studio.host.mapPath() === window.boardTest.studio.first && window.boardTest.board.cinematicRole === 'none' && window.boardTest.board.cinematic === null));
+});
+
+// ── Cutscenes: authoring while the vault changes, and a map that cannot be shown ─────────────────────────────────────
+feature('cutscene authoring rewrites', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const { studio: s } = window.boardTest;
+    const shot = (id, at, mapPath) => ({ id, at, mapPath, eye: { x: 400 + at / 10, y: 700, z: 1200 }, target: { x: 400 + at / 10, y: 0, z: 600 }, keyframe: false, transition: 'fade' });
+    const base = () => ({ id: 'rw', name: 'Rewritten', shots: [shot('a', 0, s.first), shot('b', 1500, s.second)] });
+    const lastSave = () => s.log.saves.at(-1);
+    const out = {};
+    // (1) A shot's map is renamed (BoardData rewrites the saved cutscene) while the editor is open: the next edit keeps the new path.
+    s.store.set(s.first, [base()]);
+    s.studio.edit('rw');
+    const renamed = { ...base(), shots: base().shots.map((x) => (x.mapPath === s.second ? { ...x, mapPath: 'maps/renamed.atlasmap' } : x)) };
+    s.store.set(s.first, [renamed]);
+    s.studio.addAt(3500);
+    out.renamedKept = lastSave().cutscene.shots.map((x) => x.mapPath).join();
+    // (2) The map a shot is on is deleted (its shots are dropped): the next edit does not bring them back.
+    s.store.set(s.first, [{ ...renamed, shots: renamed.shots.filter((x) => x.id !== 'b') }]);
+    s.studio.addAt(6000);
+    out.deletedStay = { hasB: lastSave().cutscene.shots.some((x) => x.id === 'b'), count: lastSave().cutscene.shots.length };
+    // (3) The home map is renamed: edits go to the new key, not to a phantom entry under the old path.
+    s.studio.mapRenamed(s.first, 'maps/home2.atlasmap');
+    s.store.set('maps/home2.atlasmap', s.store.get(s.first));
+    s.store.delete(s.first);
+    const before = s.log.saves.length;
+    s.studio.addAt(8500);
+    out.renamedHome = { mapPath: lastSave().mapPath, saved: s.log.saves.length > before, phantom: s.store.has(s.first) };
+    // (4) The cutscene is deleted under the editor: the next edit ends the session with a notice.
+    s.store.set('maps/home2.atlasmap', []);
+    s.studio.addAt(11000);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    out.gone = { state: s.studio.state, noticed: s.log.notices.some((text) => /no longer exists/.test(text)) };
+    return out;
+  });
+  check('cutscene authoring: an edit after a shot\'s map was renamed keeps the new path', result.renamedKept === `${await page.evaluate(() => window.boardTest.studio.first)},maps/renamed.atlasmap,${await page.evaluate(() => window.boardTest.studio.first)}`, JSON.stringify(result));
+  check('cutscene authoring: an edit after a shot\'s map was deleted does not bring its shots back', !result.deletedStay.hasB && result.deletedStay.count === 2, JSON.stringify(result));
+  check('cutscene authoring: edits follow a renamed home map and make no entry under the old path', result.renamedHome.mapPath === 'maps/home2.atlasmap' && result.renamedHome.saved && !result.renamedHome.phantom, JSON.stringify(result));
+  check('cutscene authoring: a cutscene deleted under the editor ends the session with a notice', result.gone.state === 'idle' && result.gone.noticed, JSON.stringify(result));
+});
+
+feature('cutscene authoring switch fails', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(String(error)));
+  const out = await page.evaluate(async () => {
+    const { studio: s, board } = window.boardTest;
+    const shot = (id, at, mapPath) => ({ id, at, mapPath, eye: { x: 400 + at / 10, y: 700, z: 1200 }, target: { x: 400 + at / 10, y: 0, z: 600 }, keyframe: false, transition: 'fade' });
+    s.store.set(s.first, [{ id: 'sw', name: 'Switch', shots: [shot('a', 0, s.first), shot('b', 1500, s.second)] }]);
+    s.studio.edit('sw');
+    const out = { toolbarHidden: getComputedStyle(document.querySelector('.atlas-tabletop-toolbar-row')).visibility === 'hidden' };
+    // Go to the second map for real, then make every further switch fail.
+    await s.host.switchMap(s.second);
+    const real = s.host.switchMap;
+    s.host.switchMap = () => Promise.reject(new Error('no such tab'));
+    await s.studio.goTo('a');
+    out.stillEditing = s.studio.state === 'editing';
+    s.studio.stopEditing();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    out.after = { state: s.studio.state, role: board.cinematicRole, driver: board.cinematic === null, bars: board.cinema.aspect, hold: s.log.holds.at(-1), toolbar: getComputedStyle(document.querySelector('.atlas-tabletop-toolbar-row')).visibility };
+    s.host.switchMap = real;
+    // Escape still works: the gallery opens and closes.
+    s.studio.openGallery();
+    out.opened = s.studio.state;
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    out.closed = s.studio.state;
+    return out;
+  });
+  check('cutscene authoring: the toolbar is hidden while a cutscene is made', out.toolbarHidden, JSON.stringify(out));
+  check('cutscene authoring: a goTo whose switch rejects leaves the editor running', out.stillEditing, JSON.stringify(out));
+  check('cutscene authoring: leaving when the switch rejects still unlocks the board, drops the bars, frees the players and shows the toolbar', out.after.state === 'idle' && out.after.role === 'none' && out.after.driver && out.after.bars === null && out.after.hold === false && out.after.toolbar !== 'hidden', JSON.stringify(out));
+  check('cutscene authoring: Escape still works afterwards', out.opened === 'gallery' && out.closed === 'idle', JSON.stringify(out));
+  check('cutscene authoring: no unhandled rejection', errors.length === 0, errors.join('|'));
 });
 
 server.listen(0, async () => {

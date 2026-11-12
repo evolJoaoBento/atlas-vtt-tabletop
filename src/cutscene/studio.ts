@@ -67,6 +67,8 @@ let counter = 0;
 const newId = (prefix: string): string => `${prefix}-${Date.now().toString(36)}-${(counter++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 const NO_SHOTS = 'Add a shot first: edit the cutscene and click its timeline.';
+/** Put on the board's root while a cutscene is being made: the bars cover the toolbar, so it is hidden (styles.css). */
+const AUTHORING = 'tabletop-authoring';
 
 export class CutsceneStudio {
   private mode: 'idle' | 'gallery' = 'idle';
@@ -352,6 +354,7 @@ export class CutsceneStudio {
     board.setCinematicRole(preview ? 'previewing' : 'authoring');
     board.setCinematic(preview ? preview.driver : session.driver);
     this.applyBars();
+    this.root.classList.add(AUTHORING);
     this.host.holdPlayers(true);
   }
 
@@ -379,10 +382,31 @@ export class CutsceneStudio {
     this.timeline.render(c, { home: session.home, mapName: mapLabel });
   }
 
+  /**
+   * The session with its cutscene read again from the host: a rename or a delete of a map a shot is on rewrites the
+   * saved cutscene while it is open, and the next edit must start from that. Null (and the editor is left) when the
+   * cutscene is gone.
+   */
+  private synced(): Session | null {
+    const session = this.session;
+    if (!session) return null;
+    const saved = this.host.cutscenes(session.home).find((c) => c.id === session.cutscene.id);
+    if (!saved) {
+      if (!this.leaving) {
+        this.host.notice('Tabletop: this cutscene no longer exists.');
+        this.stopEditing();
+      }
+      return null;
+    }
+    session.cutscene = saved;
+    return session;
+  }
+
   /** Applies an edit to the cutscene being edited and keeps the result; false when the edit changed nothing. */
   private amend(change: (c: Cutscene) => Cutscene): boolean {
-    const session = this.session;
-    if (!session || session.preview || this.leaving) return false;
+    if (!this.session || this.session.preview || this.leaving) return false;
+    const session = this.synced();
+    if (!session) return false;
     const next = change(session.cutscene);
     if (next === session.cutscene) return false;
     session.cutscene = next;
@@ -402,21 +426,30 @@ export class CutsceneStudio {
 
   /** Puts the free camera on a shot (switching to its map when it is on another). */
   private async goTo(shotId: string): Promise<void> {
-    const session = this.session;
+    if (!this.session || this.session.preview || this.leaving) return;
+    const session = this.synced();
     const shot = session?.cutscene.shots.find((candidate) => candidate.id === shotId);
-    if (!session || session.preview || !shot) return;
+    if (!session || !shot) return;
     session.driver.free = new FreeCamera(shot.eye, shot.target);
     if (shot.mapPath !== this.host.mapPath()) {
       if (!this.host.mapTabs().includes(shot.mapPath)) this.host.notice(`Tabletop: ${mapLabel(shot.mapPath)} is not open in an Atlas tab.`);
-      else await this.host.switchMap(shot.mapPath);
+      else {
+        try {
+          await this.host.switchMap(shot.mapPath);
+        } catch (error) {
+          console.warn('Tabletop: the map could not be shown:', error);
+          this.host.notice(`Tabletop: ${mapLabel(shot.mapPath)} could not be shown.`);
+        }
+      }
     }
     this.focusBoard();
   }
 
   private shotMenu(shotId: string, x: number, y: number): void {
-    const session = this.session;
+    if (!this.session || this.session.preview || this.leaving) return;
+    const session = this.synced();
     const index = session?.cutscene.shots.findIndex((shot) => shot.id === shotId) ?? -1;
-    if (!session || session.preview || index < 0) return;
+    if (!session || index < 0) return;
     const shot = session.cutscene.shots[index];
     const items: MenuItem[] = [
       { label: shot.keyframe ? 'Make ordinary shot' : 'Make keyframe shot', run: () => this.amend((c) => setKeyframe(c, shotId, !shot.keyframe)) },
@@ -435,10 +468,11 @@ export class CutsceneStudio {
 
   /** The transition into a shot: fade, cut or move, the current one ticked; a move needs both shots on one map. */
   private gapMenu(shotId: string, x: number, y: number): void {
-    const session = this.session;
+    if (!this.session || this.session.preview || this.leaving) return;
+    const session = this.synced();
     const shots = session?.cutscene.shots ?? [];
     const index = shots.findIndex((shot) => shot.id === shotId);
-    if (!session || session.preview || index < 1) return;
+    if (!session || index < 1) return;
     const allowed = allowedTransitions(shots[index - 1], shots[index]);
     const items: MenuItem[] = (['fade', 'cut', 'move'] as const).map((transition) => ({
       label: transition === 'fade' ? 'Fade' : transition === 'cut' ? 'Cut' : 'Move',
@@ -463,29 +497,47 @@ export class CutsceneStudio {
     this.timeline.hidden = true;
     this.preBar.hidden = true;
     let home = this.host.mapPath() === session.home;
-    if (!home) {
-      home = await this.host.switchMap(session.home);
-      if (!home) this.host.notice(`Tabletop: ${mapLabel(session.home)} is not open in an Atlas tab; staying on this map.`);
+    try {
+      if (!home) {
+        home = await this.host.switchMap(session.home);
+        if (!home) this.host.notice(`Tabletop: ${mapLabel(session.home)} is not open in an Atlas tab; staying on this map.`);
+      }
+    } catch (error) {
+      home = false;
+      console.warn('Tabletop: the map could not be shown:', error);
+      this.host.notice(`Tabletop: ${mapLabel(session.home)} could not be shown; staying on this map.`);
+    } finally {
+      // Whatever happened, the board is unlocked, the players' picture is let go and Escape works again.
+      const board = this.board;
+      if (board) {
+        board.setCinematic(null);
+        board.setCinematicRole('none');
+        board.cinema.setBars(null);
+        if (home) board.restoreCamera(session.keep);
+      }
+      this.root.classList.remove(AUTHORING);
+      this.host.holdPlayers(false);
+      this.session = null;
+      this.leaving = false;
+      this.mode = 'idle';
     }
-    const board = this.board;
-    if (board) {
-      board.setCinematic(null);
-      board.setCinematicRole('none');
-      board.cinema.setBars(null);
-      if (home) board.restoreCamera(session.keep);
-    }
-    this.host.holdPlayers(false);
-    this.session = null;
-    this.leaving = false;
-    this.mode = 'idle';
+  }
+
+  /** A map was renamed in the vault: a session open on it (or previewing from it) follows. */
+  mapRenamed(from: string, to: string): void {
+    const session = this.session;
+    if (!session) return;
+    if (session.home === from) session.home = to;
+    if (session.preview?.editMap === from) session.preview.editMap = to;
   }
 
   // ── Preview ──────────────────────────────────────────────────────────────
 
   /** Plays the cutscene on this board alone, from the start or from a shot. */
   preview(fromShot = 0): void {
-    const session = this.session;
-    if (!session || session.preview || this.leaving) return;
+    if (!this.session || this.session.preview || this.leaving) return;
+    const session = this.synced();
+    if (!session) return;
     const shots = session.cutscene.shots;
     if (shots.length === 0) {
       this.host.notice(`Tabletop: ${NO_SHOTS}`);
@@ -587,6 +639,13 @@ export class CutsceneStudio {
     if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
     const target = event.target as HTMLElement | null;
     if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+    // Only this board's own keys: not another pane's, and not a dialog's (the name modal, a menu).
+    const doc = this.root.ownerDocument;
+    const focus = doc.activeElement;
+    const inside = (node: EventTarget | null): boolean => node instanceof Node && this.root.contains(node);
+    const elsewhere = (node: EventTarget | null): boolean => node instanceof Node && node !== doc.body && node !== doc.documentElement && !this.root.contains(node);
+    if (elsewhere(target) || (!inside(target) && elsewhere(focus))) return;
+    if (doc.querySelector('.modal-container')) return;
     const state = this.state;
     if (event.key === 'Escape') {
       if (state === 'previewing') this.backToEditing();
@@ -615,6 +674,7 @@ export class CutsceneStudio {
       this.host.holdPlayers(false);
       this.session = null;
     }
+    this.root.classList.remove(AUTHORING);
     this.gallery?.remove();
     this.gallery = null;
     this.timeline.dispose();
