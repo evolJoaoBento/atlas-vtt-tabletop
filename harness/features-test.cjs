@@ -2618,7 +2618,7 @@ feature('spell hit auras', async ({ page, shot }) => {
       return { id, owner: 'p1', color: '#ff0059', spell: { shape: 'sphere', from: 'point', at: { x: e.at.x, y: e.at.y, h: cell * 0.5 }, yaw: 0, pitch: 0, roll: 0, size: cell * radius, length: 0, angle: 0.9, ...(effect ? { effect } : {}) } };
     }));
   }, list);
-  const auras = async () => { await wait(450); return page.evaluate(() => window.boardTest.board.spellAuraTypes()); };
+  const auras = async () => { await wait(1000); return page.evaluate(() => window.boardTest.board.spellAuraTypes()); };
   const ids = await page.evaluate(() => [...window.boardTest.board.tokens.keys()]);
   await cast([['a1', 'gob', 'fire', 0.45]]);
   const fire = await auras();
@@ -2842,18 +2842,25 @@ feature('spell sounds', async ({ page, shot }) => {
   }, list);
   const look = (pose) => page.evaluate((pose) => { const { board } = window.boardTest; for (const each of [board.camera.pose, board.camera.goal]) { each.target.x = pose.x; each.target.z = pose.z; each.distance = pose.distance; each.pitch = 0.9; } board.camera.snap(); board.wake(true); }, pose);
   const scale = (id) => page.evaluate((id) => { const mesh = window.boardTest.board.spellViews.get(id)?.view.mesh; return mesh ? [mesh.scale.x, mesh.scale.y, mesh.scale.z] : null; }, id);
-  const spot = await page.evaluate(() => { const e = window.boardTest.board.tokens.get('hero'); return { x: e.at.x, y: e.at.y, cell: window.boardTest.board.map.grid.size }; });
+  const spot = await page.evaluate(() => { const e = window.boardTest.board.tokens.get('hero'); return { x: e.at.x, y: e.at.y, cell: window.boardTest.board.map.grid.size, path: window.boardTest.board.map.path }; });
   await look({ x: spot.x, z: spot.y, distance: 420 });
   await wait(500);
-  // Nothing stands on the board yet: that is the scene's first load, silent.
+  // The board has been drawing frames; only now do the scene's spells arrive (a player's board always gets them so): the
+  // list seeds what is seen, so a spell already standing makes no sound and is whole.
+  await clear();
+  await cast([['s0', spot.x, spot.y, 'acid', 'sphere', false]]);
+  await wait(500);
+  const seeded = await page.evaluate(() => { const { board } = window.boardTest; const m = board.spellViews.get('s0')?.view.mesh; return { plays: window.boardTest.sounds.plays.length, scale: m ? m.scale.x : null, growing: board.growingSpells.size }; });
+  check('spell sounds: spells arriving after the board has drawn frames are standing already: whole, silent', seeded.plays === 0 && seeded.scale === 1 && seeded.growing === 0, JSON.stringify(seeded));
   await cast([]);
+  await wait(900);
   await clear();
   await cast([['f1', spot.x, spot.y, 'fire', 'sphere', false]]);
   // The scale as frames draw it over the next 700 ms.
   const samples = await page.evaluate(async () => {
     const out = [];
     const t0 = performance.now();
-    while (performance.now() - t0 < 700) { const m = window.boardTest.board.spellViews.get('f1').view.mesh; out.push([Math.round(performance.now() - t0), m.scale.x]); await new Promise((r) => setTimeout(r, 15)); }
+    while (performance.now() - t0 < 700) { const m = window.boardTest.board.spellViews.get('f1').view.mesh; out.push([Math.round(performance.now() - t0), m.scale.x, Object.keys(window.boardTest.board.spellAuraTypes()).length, window.boardTest.board.spellViews.get('f1').view.effect.object3d.visible]); await new Promise((r) => setTimeout(r, 15)); }
     return out;
   });
   const impact = await heard();
@@ -2862,10 +2869,10 @@ feature('spell sounds', async ({ page, shot }) => {
   const rising = samples.every(([, scale], k) => k === 0 || scale >= samples[k - 1][1]);
   check('spell sounds: it grows through sizes between nothing and whole, never shrinking', during.length >= 2 && rising, JSON.stringify(samples));
   check('spell sounds: it is whole after 600 ms', samples.filter(([at]) => at >= 600).every(([, scale]) => scale === 1), JSON.stringify(samples.slice(-3)));
-  // A frame held half way, for a look.
-  await page.evaluate(() => window.boardTest.board.spellViews.get('f1').view.grow(0.5));
-  await wait(100);
-  await shot('spell-growing');
+  const growing = samples.filter(([, scale]) => scale < 1);
+  check('spell sounds: while it grows its flames and the flames on what it hits are not there yet', growing.length >= 2 && growing.every(([, , auras, visible]) => auras === 0 && visible === false), JSON.stringify(growing));
+  const later = await page.evaluate(async () => { await new Promise((r) => setTimeout(r, 500)); const view = window.boardTest.board.spellViews.get('f1').view; return { auras: window.boardTest.board.spellAuraTypes(), visible: view.effect.object3d.visible }; });
+  check('spell sounds: once it is whole its flames play and the targets it hits take fire', later.visible === true && Object.keys(later.auras).length > 0, JSON.stringify(later));
   await clear();
   await cast([['f1', spot.x, spot.y, 'fire', 'sphere', false]]);
   await wait(200);
@@ -2878,6 +2885,18 @@ feature('spell sounds', async ({ page, shot }) => {
   const wall = await page.evaluate(() => { const mesh = window.boardTest.board.spellViews.get('w1')?.view.mesh; const length = 2 * window.boardTest.board.map.grid.size; return mesh ? { scaleY: mesh.scale.y, foot: mesh.position.y - mesh.scale.y * length / 2, expected: -length / 2 } : null; });
   check('spell sounds: a wall grows from its foot (the foot stays where it was)', wall && wall.scaleY > 0 && wall.scaleY < 1 && Math.abs(wall.foot - wall.expected) < 1e-6, JSON.stringify(wall));
   await wait(500);
+  // A frame held half way, for a look: a plain half-grown shape, no flames.
+  await cast([['f9', spot.x + spot.cell * 9, spot.y + spot.cell * 6, 'fire', 'sphere', false]]);
+  await look({ x: spot.x + spot.cell * 9, z: spot.y + spot.cell * 6, distance: 420 });
+  await wait(900);
+  await page.evaluate(() => window.boardTest.board.spellViews.get('f9').view.grow(0.5));
+  await wait(150);
+  await shot('spell-growing');
+  await cast([]);
+  await cast([['w1', spot.x, spot.y, 'fire', 'wall', true]]);
+  await look({ x: spot.x, z: spot.y, distance: 420 });
+  await wait(700);
+  await clear();
   // Lasting: its loop is heard with the camera near and not with it far.
   await look({ x: spot.x, z: spot.y, distance: 120 });
   await wait(300);
@@ -2896,19 +2915,22 @@ feature('spell sounds', async ({ page, shot }) => {
   await wait(300);
   const stopped = (await heard()).loops.filter((loop) => loop[0] === 'spell:fire').at(-1);
   check('spell sounds: when the last fire spell is gone its loop is stopped', stopped && stopped[1] === null, JSON.stringify(stopped));
-  // Another scene: spells already standing there make no sound.
+  // Another scene (and back): after frames are drawn, its standing spells arrive and make no sound; one new cast makes one.
   await cast([]);
-  const quiet = await page.evaluate(async () => {
-    const { board } = window.boardTest;
-    const cell = board.map.grid.size;
-    const at = board.map.tokens[0];
-    window.boardTest.sounds.plays.length = 0;
-    await board.load({ ...board.map, path: 'other-scene.md' });
-    board.receiveSpells([{ id: 'z1', owner: 'p1', color: '#fff', spell: { shape: 'sphere', from: 'point', at: { x: at.x, y: at.y, h: cell * 0.5 }, yaw: 0, pitch: 0, roll: 0, size: cell, length: 0, angle: 1, effect: 'fire' } }]);
-    return window.boardTest.sounds.plays.length;
-  });
-  await wait(200);
-  check('spell sounds: spells already on a scene just opened are silent', quiet === 0, JSON.stringify(quiet));
+  const standing = (id, at) => ({ id, owner: 'p1', color: '#fff', spell: { shape: 'sphere', from: 'point', at: { x: at.x, y: at.y, h: 20 }, yaw: 0, pitch: 0, roll: 0, size: 60, length: 0, angle: 1, effect: 'fire' } });
+  const switched = [];
+  for (const scene of ['other-scene.md', null]) {
+    await page.evaluate(async ([scene, home]) => { const { board } = window.boardTest; window.boardTest.sounds.plays.length = 0; await board.load({ ...board.map, path: scene ?? home }); }, [scene, spot.path]);
+    await wait(500);
+    await page.evaluate((list) => window.boardTest.board.receiveSpells(list), [standing('z1', spot), standing('z2', { x: spot.x + 200, y: spot.y })]);
+    await wait(150);
+    switched.push(await page.evaluate(() => { const { board } = window.boardTest; return { plays: window.boardTest.sounds.plays.length, growing: board.growingSpells.size, scales: [...board.spellViews.values()].map((kept) => kept.view.mesh.scale.x) }; }));
+  }
+  check('spell sounds: after a scene switch, standing spells arriving later are silent and whole', switched.every((one) => one.plays === 0 && one.growing === 0 && one.scales.length === 2 && one.scales.every((scale) => scale === 1)), JSON.stringify(switched));
+  await page.evaluate((list) => window.boardTest.board.receiveSpells(list), [standing('z1', spot), standing('z2', { x: spot.x + 200, y: spot.y }), standing('z3', { x: spot.x - 200, y: spot.y })]);
+  await wait(150);
+  const added = await heard();
+  check('spell sounds: then one new cast makes exactly one impact', added.plays.filter((play) => String(play[0]).startsWith('spell.impact')).length === 1, JSON.stringify(added.plays));
   // A player's board is silent for a cast under the fog.
   const fogged = await page.evaluate(() => {
     const { board, insideFog } = window.boardTest;

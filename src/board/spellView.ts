@@ -163,12 +163,16 @@ export class SpellView {
   /** How far grown it is (1: whole). */
   private grown = 1;
 
-  /** Shows it `progress` (0 to 1) of the way grown into place, its damage's look fading in with it. */
+  /** Shows it `progress` (0 to 1) of the way grown into place; its damage's look starts once it is whole. */
   grow(progress: number): void {
     this.grown = Math.max(0, Math.min(1, progress));
     this.placeGrown(this.mesh);
     if (this.solid) this.placeGrown(this.solid);
-    this.effect?.fade(this.grown);
+    if (this.effect) {
+      const whole = this.grown >= 1;
+      this.effect.object3d.visible = whole;
+      this.effect.fade(whole ? 1 : 0);
+    }
   }
 
   /** Scales and moves `part` (the shape's geometry) for how far grown it is. */
@@ -179,7 +183,7 @@ export class SpellView {
     switch (spell.shape) {
       case 'sphere':
       case 'cube':
-        part.scale.set(scale.x, scale.y, scale.z);
+        part.scale.set(Math.max(1e-4, scale.x), Math.max(1e-4, scale.y), Math.max(1e-4, scale.z));
         break;
       case 'wall':
         // The box's height is its y, centred; its foot stays down.
@@ -209,7 +213,7 @@ export class SpellView {
 
   /** On to `time`, seconds; `viewport` the drawing's height, pixels. */
   tick(time: number, viewport: number): void {
-    this.effect?.tick(time, viewport);
+    if (this.grown >= 1) this.effect?.tick(time, viewport);
   }
 
   /** Where it stands and how it is turned. */

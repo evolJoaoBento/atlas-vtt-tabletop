@@ -546,8 +546,10 @@ export class Board {
   /** The map the spells were last drawn for (their cut by the walls is redone on another). */
   private spellMap: BoardMap | null = null;
   /** The casts this board has seen on the scene it shows (their sound is made once), and which scene that is. */
-  private announcedCasts = new Set<string>();
+  private announcedCasts: Set<string> | null = null;
   private castScene: string | null = null;
+  /** The casts the last spell list brought that are new to this scene (announced by the next drawing). */
+  private newCasts = new Set<string>();
   /** Casts growing into place, from when (the page's clock, seconds). */
   private growingSpells = new Map<string, number>();
   /** The spell loops playing, by key, with the sound and gain last asked of the engine. */
@@ -5463,6 +5465,7 @@ export class Board {
       }
     }
     this.castSpells = readCastSpells(list);
+    this.noteCasts();
     this.timeInstantaneous();
     this.drawSpells();
     if (this.audience === 'gm') this.landSpells();
@@ -5474,13 +5477,8 @@ export class Board {
   private drawSpells(): void {
     const walls = this.map?.walls ?? [];
     const wanted = new Set<string>();
-    // A scene (or level) shown for the first time has its spells already standing: whole, and silent.
-    const scene = this.map ? sceneKey(this.map) : '';
-    const firstLoad = scene !== this.castScene;
-    if (firstLoad) { this.announcedCasts.clear(); this.growingSpells.clear(); }
-    this.castScene = scene;
-    const announced = new Set(castsToAnnounce(this.announcedCasts, firstLoad, this.castSpells.map((cast) => cast.id)));
-    this.announcedCasts = new Set(this.castSpells.map((cast) => cast.id));
+    this.syncCastScene();
+    const announced = this.newCasts;
     for (const cast of this.castSpells) {
       wanted.add(cast.id);
       const key = JSON.stringify([cast.spell, cast.color, cast.rules ?? null]);
@@ -5501,6 +5499,7 @@ export class Board {
       this.spellViews.set(cast.id, { key, view, instant: isInstantaneous(cast) });
     }
     for (const id of [...this.growingSpells.keys()]) if (!wanted.has(id)) this.growingSpells.delete(id);
+    this.newCasts = new Set();
     for (const [id, kept] of this.spellViews) {
       if (wanted.has(id)) continue;
       this.spellViews.delete(id);
@@ -5508,6 +5507,27 @@ export class Board {
       if (kept.instant && this.spellMap === this.map) { this.fadingSpells.push({ view: kept.view, start: this.spellClock() }); this.wake(); } else kept.view.dispose();
     }
     this.applyRules();
+  }
+
+  /** Forgets what was seen of the spells when another scene (or level) is shown: its first list only seeds them. */
+  private syncCastScene(): void {
+    const scene = this.map ? sceneKey(this.map) : '';
+    if (scene === this.castScene) return;
+    this.castScene = scene;
+    this.announcedCasts = null;
+    this.growingSpells.clear();
+    this.newCasts = new Set();
+  }
+
+  /**
+   * Notes the casts a spell list brings. The first list a scene gets, whenever it arrives, only seeds what is seen: its
+   * spells are already standing, whole and silent. Each list after announces the ids new to it.
+   */
+  private noteCasts(): void {
+    this.syncCastScene();
+    const ids = this.castSpells.map((cast) => cast.id);
+    this.newCasts = new Set(castsToAnnounce(this.announcedCasts ?? new Set(), this.announcedCasts === null, ids));
+    this.announcedCasts = new Set(ids);
   }
 
   /** Where a spell is heard: the middle of a wall, else its anchor (board space, y up). */
@@ -5794,7 +5814,7 @@ export class Board {
     for (const [id, start] of [...this.growingSpells]) {
       const progress = (time - start) * 1000 / GROW_MS;
       this.spellViews.get(id)?.view.grow(Math.min(1, progress));
-      if (progress >= 1) this.growingSpells.delete(id);
+      if (progress >= 1) { this.growingSpells.delete(id); this.spellHitsAt = 0; }
     }
     for (const view of moving) view.tick(time, height);
     this.fadingSpells = this.fadingSpells.filter((fading) => {
@@ -5869,7 +5889,8 @@ export class Board {
     const wanted = new Map<string, DamageType>();
     for (const cast of this.castSpells) {
       const type = cast.spell.effect;
-      if (!type) continue;
+      // A cast still growing sets nothing alight yet: its flames come once it is whole.
+      if (!type || this.growingSpells.has(cast.id)) continue;
       for (const id of spellHits(cast.spell, targets, walls)) wanted.set(id, type);
     }
     const byId = new Map(targets.map((target) => [target.id, target]));
