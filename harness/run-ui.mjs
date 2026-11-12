@@ -2,7 +2,7 @@
 // Builds the board harness into .ui-build/, makes the test video, then runs the features checks (browser checks of what
 // was added since, with screenshots in .ui-build/shots/) and, with `--all`, the full board checks too.
 import { build } from 'esbuild';
-import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
 const out = '.ui-build';
@@ -11,7 +11,10 @@ const only = process.argv.slice(2).find((arg) => !arg.startsWith('--'));
 rmSync(out, { recursive: true, force: true });
 mkdirSync(`${out}/shots`, { recursive: true });
 await build({ entryPoints: ['harness/board.ts'], bundle: true, outfile: `${out}/board.js`, alias: { obsidian: './harness/obsidian-stub.ts' }, loader: { '.png': 'binary', '.mp3': 'binary' }, logLevel: 'warning', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"development"' } });
+// The player board harness, as Connect mounts it: a feature can use the url `/playerBoard.html`.
+await build({ entryPoints: ['harness/playerBoard.ts'], bundle: true, outfile: `${out}/playerBoard.js`, alias: { obsidian: './harness/obsidian-stub.ts' }, loader: { '.png': 'binary', '.mp3': 'binary' }, logLevel: 'warning', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"development"' } });
 copyFileSync('harness/board.html', `${out}/index.html`);
+writeFileSync(`${out}/playerBoard.html`, readFileSync('harness/board.html', 'utf8').replace('board.js', 'playerBoard.js'));
 copyFileSync('styles.css', `${out}/styles.css`);
 // Atlas's own styles, when the vault has them (the screenshots then look as Atlas's toolbar does).
 const atlas = process.env.ATLAS_CSS ?? '../../atlas-vtt/styles.css';

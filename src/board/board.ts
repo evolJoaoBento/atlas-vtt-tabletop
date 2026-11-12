@@ -2514,15 +2514,7 @@ export class Board {
 
   /** Puts the drawn camera where the orbit camera's pose says, so rays cast before the next frame see it too. */
   private applyView(): void {
-    if (this.room) {
-      // The session places the drawn camera, under the rig.
-      this.room.rig.updateMatrixWorld(true);
-      const eye = this.view.getWorldPosition(new THREE.Vector3());
-      this.aimCutaway(eye, eye);
-      this.cutaway.strength.value = 0;
-      return;
-    }
-    // A cutscene's camera wins over the orbit camera, the eyes and augmented reality alike.
+    // A cutscene's camera wins over the orbit camera, the eyes, augmented reality and a room-tracking session alike.
     const aim = this.cinematicDriver ? this.drivenAim : null;
     if (aim) {
       const eye = this.camera.position();
@@ -2532,6 +2524,14 @@ export class Board {
       if (this.augmented) this.view.updateProjectionMatrix();
       this.view.updateMatrixWorld();
       this.aimCutaway(eye, this.camera.pose.target);
+      return;
+    }
+    if (this.room) {
+      // The session places the drawn camera, under the rig.
+      this.room.rig.updateMatrixWorld(true);
+      const eye = this.view.getWorldPosition(new THREE.Vector3());
+      this.aimCutaway(eye, eye);
+      this.cutaway.strength.value = 0;
       return;
     }
     const ar = this.augmented;

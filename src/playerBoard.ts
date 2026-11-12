@@ -16,9 +16,16 @@ import { leaner, QUALITY, withLooks, type LayerLook, type MemoryMode, type Quali
 import type { Sky } from './board/look';
 import { NO_FLIP } from './board/walls';
 import { framesAnew } from './board/playerView';
+import type { CameraKeep } from './board/camera';
 import { materialFromUrls, type LoadedMaterial } from './materials';
-import type { BoardCamera, BoardExtras, PlayerDiceRequest, PlayerDiceResult } from './connectContract';
+import type { BoardCamera, BoardCutscene, BoardExtras, PlayerCutsceneHandle, PlayerCutsceneOptions, PlayerDiceRequest, PlayerDiceResult } from './connectContract';
+import { readBoardCutscene } from './cutscene/broadcast';
+import { PlayerCutsceneState, type PlayerCutsceneView } from './cutscene/playerCutscene';
+import { smoothFollow } from './cutscene/timeline';
+import type { CinematicDriver } from './cutscene/drivenView';
 import type { ChosenPack } from './dice/dicePack';
+import { DicePicker } from './dice/dicePicker';
+import { DEFAULT_RULES } from './dice/rollRules';
 import { DicePrompt } from './dice/dicePrompt';
 import { listenForDiePresses } from './dice/diePress';
 import { PlayerDice, type PlayerDiceTable } from './dice/playerDice';
@@ -56,6 +63,8 @@ export interface PlayerBoardHost {
   sendDiceResult?(result: PlayerDiceResult): boolean;
   /** The rules of the player's map as the GM offered them; null for the default rules. */
   diceRules?(): DiceRules | null;
+  /** A run started with `handBack` has faded to black on its way out and left the board black: Connect puts back the view it had. */
+  cutsceneOver?(): void;
 }
 
 export interface PlayerBoardToolState {
@@ -67,7 +76,7 @@ export interface PlayerBoardToolState {
   gmView: boolean;
 }
 
-export interface PlayerBoardHandle {
+export interface PlayerBoardHandle extends PlayerCutsceneHandle {
   setScene(scene: unknown): void;
   setExtras(extras: BoardExtras | null): void;
   setGmCamera(camera: BoardCamera | null): void;
@@ -164,6 +173,45 @@ export function playerBoardFactory(quality: () => Quality, looks: () => { tiltSh
   });
 }
 
+/** How long the own scene may take to come back before the run lets the player go anyway. */
+const RESTORE_PATIENCE_MS = 8000;
+/** A frame longer than this is a tab that was asleep: the live camera does not take it as time passed. */
+const LIVE_STEP_MS = 250;
+
+/** The button over the board that opens the dice tray during a run. */
+interface RollButton {
+  root: HTMLElement;
+  picker: DicePicker;
+  hidden: boolean;
+  bottom: number;
+}
+
+/** One run on the player's board. */
+interface Run {
+  cutscene: BoardCutscene;
+  state: PlayerCutsceneState;
+  /** The player's own camera, to put back; null when the board had not shown their scene yet. */
+  keep: CameraKeep | null;
+  /** The camera the player had, drawn while their own scene still shows. */
+  own: { eye: { x: number; y: number; z: number }; target: { x: number; y: number; z: number } };
+  /** The token whose eyes the player was in. */
+  eyes: string | null;
+  /** The key of the cutscene scene the board shows, or null for the player's own scene. */
+  showing: string | null;
+  /** The key last drawn, and whether its map image was in place. */
+  loaded: { key: string; complete: boolean } | null;
+  live: { goal: { eye: Vec3; target: Vec3 }; current: { eye: Vec3; target: Vec3 }; at: number | null } | null;
+  handBack: boolean;
+  handedBack: boolean;
+  /** The own scene is coming back: when it began, and when it was drawn with the camera put back. */
+  restoring: { since: number; done: number | null } | null;
+  roll: RollButton | null;
+}
+
+type Vec3 = { x: number; y: number; z: number };
+
+const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
+
 class PlayerBoard implements PlayerBoardHandle {
   private readonly board: Board;
   private scene: PlayerSceneLike | null = null;
@@ -179,8 +227,20 @@ class PlayerBoard implements PlayerBoardHandle {
   private sentCamera: BoardCamera | null = null;
   /** The scene the camera last framed: a load of another one frames its map. */
   private framedScene: string | null = null;
-  /** The map image was not here at the last load: the board loads again once it is. */
-  private backgroundMissing = false;
+  /** The asset id of the map image that was not here at the last load: the board loads again once it is. */
+  private missing: string | null = null;
+  /** The run on this board, from the start of its enter fade to the end of its leave fade; null when none. */
+  private run: Run | null = null;
+  /** The revealed scenes Connect sent, by run and map key; only the runs in play (or about to be) are kept. */
+  private readonly cutScenes = new Map<string, Map<string, { scene: PlayerSceneLike; extras: BoardExtras | null }>>();
+  /** The run that ended last: scenes still arriving for it are dropped. */
+  private endedRun: string | null = null;
+  /** A run that arrived while the last one was still being left: it starts when that one is done. */
+  private queued: { cutscene: BoardCutscene; options: PlayerCutsceneOptions } | null = null;
+  /** What the end of a run asks of the load of the player's own scene: the camera to put back (null: frame the map). */
+  private afterOwn: { keep: CameraKeep | null; done(): void } | null = null;
+  /** Whether the player was last put in a token's eyes with the gyroscope. */
+  private eyeGyro = false;
   /** Files asked for before they arrived, by asset id: settled when `refresh` finds them. */
   private readonly waiting = new Map<string, Array<() => void>>();
   private loading: Promise<void> = Promise.resolve();
@@ -222,10 +282,10 @@ class PlayerBoard implements PlayerBoardHandle {
   setScene(scene: unknown): void {
     const before = this.scene?.sceneId ?? null;
     this.scene = scene as PlayerSceneLike | null;
-    // Another scene, or none: the dice go, and the roll in play is never sent.
-    if ((this.scene?.sceneId ?? null) !== before) this.dice.sceneChanged();
+    // Another scene, or none: the dice go, and the roll in play is never sent. (During a run the own scene is only kept.)
+    if (!this.run && (this.scene?.sceneId ?? null) !== before) this.dice.sceneChanged();
     // No scene (the GM cleared it, or the player was moved to none): the board shows nothing until the next.
-    this.board.canvas.style.visibility = this.scene ? '' : 'hidden';
+    if (!this.run) this.board.canvas.style.visibility = this.scene ? '' : 'hidden';
     // The scene's cone opens as its measuring says (Atlas's cone angle, degrees), for templates and spells alike.
     const cone = (this.scene as { measurement?: { coneAngle?: unknown } } | null)?.measurement?.coneAngle;
     if (typeof cone === 'number' && cone > 0 && cone < 180) this.board.tools.coneAngle = (cone * Math.PI) / 180;
@@ -258,7 +318,12 @@ class PlayerBoard implements PlayerBoardHandle {
   setGmMapCamera(_camera: unknown): void {}
 
   setControlled(tokenIds: readonly string[]): void { this.controlled = new Set(tokenIds); }
-  setConnected(connected: boolean): void { this.connected = connected; }
+  setConnected(connected: boolean): void {
+    const was = this.connected;
+    this.connected = connected;
+    // The connection is gone: a run ends as if the GM had ended it (a repeated call changes nothing more).
+    if (was && !connected) this.run?.state.disconnected(this.clock());
+  }
   setPaused(paused: boolean): void { this.paused = paused; }
 
   /** The GM refused a move: the token goes back to where the scene has it. */
@@ -274,16 +339,19 @@ class PlayerBoard implements PlayerBoardHandle {
   }
 
   selectTool(tool: PlayerTool): void {
+    if (this.run) return;
     this.board.tools.select(tool);
     this.board.toolsChanged();
   }
 
   selectShape(shape: MeasureShape): void {
+    if (this.run) return;
     this.board.tools.selectShape(shape);
     this.board.toolsChanged();
   }
 
   selectTemplateShape(shape: string): void {
+    if (this.run) return;
     this.board.tools.selectTemplateShape(shape as TemplateShape);
     this.board.toolsChanged();
   }
@@ -302,17 +370,27 @@ class PlayerBoard implements PlayerBoardHandle {
     return { tool: tools.tool, shape: tools.shape, templateShape: tools.templateShape, ownTemplates: tools.ownTemplates(), laserColor: tools.laserColor || this.ownColor(), gmView: this.board.hasGmView };
   }
 
-  followGm(): void { this.board.followGm(); }
-  fitMap(): void { this.board.frameMap(); }
-  lookAt(x: number, y: number): void { this.board.lookAtPoint(x, y); }
+  // While a run is on, the player's camera, eyes and AR placement are not theirs to move, nor Connect's to move for them.
+  followGm(): void { if (!this.run) this.board.followGm(); }
+  fitMap(): void { if (!this.run) this.board.frameMap(); }
+  lookAt(x: number, y: number): void { if (!this.run) this.board.lookAtPoint(x, y); }
   readonly firstPerson = true as const;
-  seeFrom(tokenId: string | null, gyro: boolean): boolean { return this.board.seeFrom(tokenId, gyro); }
+  seeFrom(tokenId: string | null, gyro: boolean): boolean {
+    if (this.run) return false;
+    const seen = this.board.seeFrom(tokenId, gyro);
+    if (seen && tokenId !== null) this.eyeGyro = gyro;
+    return seen;
+  }
   seeingFrom(): string | null { return this.board.seeingFrom; }
   readonly augmentedReality = true as const;
+  /** Marker AR is the board's to gate: it keeps the latest view and draws it again by itself when the run is over. */
   setAugmented(view: unknown): boolean { return this.board.setAugmented(view as AugmentedView | null); }
   readonly roomAr = true as const;
-  startRoomAr(session: unknown, onFrame: ((frame: unknown, space: unknown) => void) | null): Promise<boolean> { return this.board.startRoomAr(session as XRSession, onFrame); }
-  placeRoomAr(place: unknown): void { this.board.placeRoomAr(place as RoomPlace | null); }
+  startRoomAr(session: unknown, onFrame: ((frame: unknown, space: unknown) => void) | null): Promise<boolean> {
+    if (this.run) return Promise.resolve(false);
+    return this.board.startRoomAr(session as XRSession, onFrame);
+  }
+  placeRoomAr(place: unknown): void { if (!this.run) this.board.placeRoomAr(place as RoomPlace | null); }
   stopRoomAr(): void { this.board.stopRoomAr(); }
   roomStats(): { frames: number; intervalMs: number; workMs: number; errors: number; lastError: string } | null { return this.board.roomStats(); }
   arViewer(): { position: [number, number, number]; quaternion: [number, number, number, number] } | null { return this.board.arViewer(); }
@@ -345,7 +423,7 @@ class PlayerBoard implements PlayerBoardHandle {
       this.waiting.delete(id);
       for (const done of settle) done();
     }
-    if (this.backgroundMissing && this.scene?.map.asset && this.host.image(this.scene.map.asset)) this.reload();
+    if (this.missing !== null && this.host.image(this.missing) !== null) this.reload();
   }
 
   measure(): void {
@@ -353,7 +431,7 @@ class PlayerBoard implements PlayerBoardHandle {
   }
 
   throwDice(request: PlayerDiceRequest): boolean {
-    if (this.disposed || !this.scene) return false;
+    if (this.disposed || !this.scene || this.run) return false;
     return this.dice.throw(request);
   }
 
@@ -375,6 +453,11 @@ class PlayerBoard implements PlayerBoardHandle {
 
   dispose(): void {
     this.disposed = true;
+    this.run?.roll?.picker.dispose();
+    this.run?.roll?.root.remove();
+    this.run = null;
+    this.queued = null;
+    this.cutScenes.clear();
     this.stopSound?.();
     this.engine?.dispose();
     this.engine = null;
@@ -411,29 +494,320 @@ class PlayerBoard implements PlayerBoardHandle {
 
   /** The board again from the scene and its extras; loads run one after another. */
   private reload(): void {
-    const scene = this.scene;
+    const run = this.run;
+    const key = run?.showing ?? null;
+    let scene: PlayerSceneLike | null = this.scene;
+    let extras: BoardExtras | null = this.extras;
+    if (run && key !== null) {
+      // The run's scene, as Connect sent it for this run only: its own id, never the player's, so nothing of it is mistaken for theirs.
+      this.board.canvas.style.visibility = '';
+      const entry = this.cutScenes.get(run.cutscene.runId)?.get(key);
+      // Not here yet: the board stays black, and loads it when it comes.
+      if (!entry) return;
+      const id = `cutscene:${run.cutscene.runId}:${key}`;
+      extras = entry.extras && entry.extras.sceneId === entry.scene.sceneId ? { ...entry.extras, sceneId: id } : null;
+      scene = { ...entry.scene, sceneId: id };
+    }
     if (!scene) return;
-    const shown = boardFromScene(scene, this.extras);
+    const shown = boardFromScene(scene, extras);
     // The scenes stacked above, drawn as the GM draws them (Upper layers): solid, faded or hidden.
-    const layerLook = this.extras?.layerLook;
+    const layerLook = extras?.layerLook;
     if ((layerLook === 'solid' || layerLook === 'faded' || layerLook === 'transparent') && layerLook !== this.preset.layerLook) {
       this.preset = { ...this.preset, layerLook };
       this.board.setQuality(this.preset);
     }
     const background = shown.map.background;
-    this.backgroundMissing = background !== null && this.host.image(background) === null;
-    if (this.backgroundMissing) shown.map.background = null;
+    const missing = background !== null && this.host.image(background) === null;
+    this.missing = missing ? background : null;
+    if (missing) shown.map.background = null;
     this.shown = shown;
+    const sceneId = scene.sceneId;
     this.loading = this.loading.then(async () => {
       if (this.disposed || this.shown !== shown) return;
       await this.board.load(shown.map);
       if (this.shown !== shown) return;
       this.board.setStack(shown.layers);
+      this.loadedId = sceneId;
+      if (run && key !== null) {
+        // A scene of the run: no framing of its map, and the dice are the run's business (a roll lives on across shots on one map).
+        if (this.run === run && run.showing === key) {
+          run.loaded = { key, complete: !missing };
+          this.arrived(run);
+        }
+        return;
+      }
       // The first scene, or another than the one framed (the GM presented another map): its whole map is framed, not
       // looked at from the old scene's pose. Later loads of the same scene (news, files arriving) keep the camera.
-      if (framesAnew(this.framedScene, scene.sceneId)) this.board.frameNewMap();
-      this.framedScene = scene.sceneId;
+      const after = this.afterOwn;
+      this.afterOwn = null;
+      if (framesAnew(this.framedScene, sceneId)) this.board.frameNewMap();
+      else if (after?.keep) this.board.restoreCamera(after.keep);
+      this.framedScene = sceneId;
+      after?.done();
     }).catch((error: unknown) => console.error('[Tabletop] The player board could not show the scene:', error));
+  }
+
+  /** The id of the scene the board last finished loading: a run's scene is `cutscene:<runId>:<key>`. */
+  private loadedId: string | null = null;
+
+  // ── Cutscenes ─────────────────────────────────────────────────────────────
+
+  readonly cutscenes = true as const;
+
+  private clock(): number {
+    return (this.parent.ownerDocument.defaultView ?? window).performance.now();
+  }
+
+  setCutscene(raw: unknown | null, options: PlayerCutsceneOptions = {}): void {
+    if (this.disposed) return;
+    if (raw === null) {
+      this.queued = null;
+      const run = this.run;
+      if (!run) return;
+      if (options.handBack !== undefined) run.handBack = options.handBack;
+      // The leave fade starts now; a repeated call changes nothing.
+      run.state.cutscene(null, this.clock());
+      this.board.wake(true);
+      return;
+    }
+    const cutscene = readBoardCutscene(raw);
+    if (!cutscene) return;
+    let run = this.run;
+    // A run handed back is over for this board: the next starts it afresh, still black.
+    if (run?.handedBack) {
+      this.finish(run);
+      run = null;
+    }
+    if (run?.state.leaving) {
+      // News of the run being left changes nothing; another run waits until this one is done.
+      if (cutscene.runId !== run.cutscene.runId) this.queued = { cutscene, options };
+      return;
+    }
+    if (run) this.update(run, cutscene, options);
+    else this.begin(cutscene, options);
+  }
+
+  setCutsceneScene(runId: string, key: string, scene: unknown, extras: BoardExtras | null): void {
+    if (this.disposed || runId === this.endedRun || typeof runId !== 'string' || typeof key !== 'string' || typeof scene !== 'object' || scene === null) return;
+    let byKey = this.cutScenes.get(runId);
+    if (!byKey) {
+      byKey = new Map();
+      this.cutScenes.set(runId, byKey);
+      // Only the run in play and the one about to be: older arrivals are dropped.
+      const keep = new Set([runId, this.run?.cutscene.runId, this.queued?.cutscene.runId]);
+      for (const id of [...this.cutScenes.keys()]) if (!keep.has(id)) this.cutScenes.delete(id);
+    }
+    byKey.set(key, { scene: scene as PlayerSceneLike, extras });
+    const run = this.run;
+    if (run && run.cutscene.runId === runId && run.showing === key) this.reload();
+  }
+
+  setCutsceneCamera(runId: string, camera: { eye: Vec3; target: Vec3 }): void {
+    const run = this.run;
+    if (this.disposed || !run || run.cutscene.runId !== runId || run.cutscene.mode !== 'live') return;
+    const goal = { eye: { ...camera.eye }, target: { ...camera.target } };
+    if (!run.live) {
+      // The first goal is where the view begins: eased from nowhere it would sweep across the map.
+      run.live = { goal, current: { eye: { ...goal.eye }, target: { ...goal.target } }, at: null };
+      this.arrived(run);
+    } else run.live.goal = goal;
+    this.board.wake(true);
+  }
+
+  /** Tells the run's state a scene has been drawn: when it is the one shown, its map image is in place and, in live, the camera is known. */
+  private arrived(run: Run): void {
+    const loaded = run.loaded;
+    if (!loaded || !loaded.complete || loaded.key !== run.showing) return;
+    if (run.cutscene.mode === 'live' && !run.live) return;
+    run.state.sceneArrived(loaded.key);
+  }
+
+  private begin(cutscene: BoardCutscene, options: PlayerCutsceneOptions): void {
+    const board = this.board;
+    const now = this.clock();
+    // Before the board has shown the player's own scene there is nothing to fade from (and no camera to put back).
+    const ownShown = this.framedScene !== null;
+    const black = options.startBlack === true || !ownShown;
+    const eyes = board.seeingFrom;
+    const state = new PlayerCutsceneState();
+    const keep = ownShown ? board.keepCamera() : null;
+    const run: Run = {
+      cutscene, state, keep, own: board.cameraPose(), eyes, showing: null, loaded: null, live: null,
+      handBack: options.handBack === true, handedBack: false, restoring: null, roll: null,
+    };
+    this.run = run;
+    // Scenes sent for another run are dropped (the ones for this one are kept).
+    for (const id of [...this.cutScenes.keys()]) if (id !== cutscene.runId && id !== this.queued?.cutscene.runId) this.cutScenes.delete(id);
+    this.endedRun = null;
+    // The player leaves a token's eyes, and the board is theirs no more; the sight veil hides nothing during a run.
+    board.setCinematicRole('locked');
+    board.setReveal(true);
+    board.cinema.setBars(cutscene.look.bars);
+    if (black) board.cinema.setBlack(1);
+    board.setCinematic(this.driverOf(run));
+    state.cutscene(cutscene, now, black);
+    run.roll = this.makeRoll();
+    board.wake(true);
+  }
+
+  private update(run: Run, cutscene: BoardCutscene, options: PlayerCutsceneOptions): void {
+    if (cutscene.runId !== run.cutscene.runId) {
+      // Another run takes over the board: its scenes are its own, and nothing of the last is shown.
+      run.showing = null;
+      run.loaded = null;
+      run.live = null;
+      this.cutScenes.delete(run.cutscene.runId);
+    }
+    run.cutscene = cutscene;
+    if (options.handBack !== undefined) run.handBack = options.handBack;
+    this.board.cinema.setBars(cutscene.look.bars);
+    run.state.cutscene(cutscene, this.clock());
+    this.board.wake(true);
+  }
+
+  /** What takes the camera over for a run: the state's view of this frame, and what the board must do about it. */
+  private driverOf(run: Run): CinematicDriver {
+    return {
+      pose: (now) => {
+        const view = run.state.view(now);
+        this.follow(run, view, now);
+        const camera = this.cameraOf(run, view, now);
+        return { eye: camera.eye, target: camera.target, black: this.blackOf(run, view, now) };
+      },
+    };
+  }
+
+  /** The board's part of the state's news: the scene to show, the own scene coming back, the run being over. */
+  private follow(run: Run, view: PlayerCutsceneView, now: number): void {
+    if (this.run !== run) return;
+    const wanted = view.show === 'own' ? null : view.show;
+    if (wanted !== null && wanted !== run.showing && !run.restoring) {
+      // The first scene of the run, another map, or (live) another scene: a roll in play does not go with it to the new map.
+      if (run.showing !== null) this.dice.sceneChanged('The scene changed; roll again.');
+      run.showing = wanted;
+      run.loaded = null;
+      this.reload();
+    }
+    if (view.restore) this.restore(run, now);
+    if (run.restoring && !run.handedBack && run.restoring.done === null && now - run.restoring.since > RESTORE_PATIENCE_MS) {
+      // The own scene is not coming: the player is let go over whatever the board shows.
+      if (run.keep) this.board.restoreCamera(run.keep);
+      run.restoring.done = now;
+    }
+    if (run.restoring?.done != null && !run.handedBack && !view.locked && now - run.restoring.done >= run.cutscene.look.fadeMs) this.finish(run);
+    this.updateRoll(run, view);
+  }
+
+  /** At the leave fade's black: the run's scene and what it revealed go, and the player's own scene and camera come back. */
+  private restore(run: Run, now: number): void {
+    run.restoring = { since: now, done: null };
+    this.dice.sceneChanged();
+    this.board.setReveal(false);
+    run.showing = null;
+    run.loaded = null;
+    this.cutScenes.delete(run.cutscene.runId);
+    this.endedRun = run.cutscene.runId;
+    if (run.handBack) {
+      // Connect puts back the view it had, under its own black: this board stays black.
+      run.handedBack = true;
+      this.host.cutsceneOver?.();
+      return;
+    }
+    const done = (): void => { if (run.restoring) run.restoring.done = this.clock(); };
+    if (!this.scene) {
+      // The player has no scene: nothing to load, the board shows nothing.
+      this.board.canvas.style.visibility = 'hidden';
+      if (run.keep) this.board.restoreCamera(run.keep);
+      done();
+      return;
+    }
+    this.afterOwn = { keep: run.keep, done };
+    this.reload();
+  }
+
+  /** The camera of this frame: the run's, the live one eased, or the player's own while their scene shows. */
+  private cameraOf(run: Run, view: PlayerCutsceneView, now: number): { eye: Vec3; target: Vec3 } {
+    if (view.camera) return view.camera;
+    const live = run.live;
+    if (view.show === 'own' || !live) return run.own;
+    const dt = live.at === null ? 0 : Math.min(LIVE_STEP_MS, Math.max(0, now - live.at));
+    live.at = now;
+    live.current = smoothFollow(live.current, live.goal, dt);
+    return live.current;
+  }
+
+  private blackOf(run: Run, view: PlayerCutsceneView, now: number): number {
+    const restoring = run.restoring;
+    if (!restoring) return view.black;
+    if (run.handedBack || restoring.done === null) return 1;
+    // Once the own scene is drawn the picture fades in from it, however long it took.
+    return Math.max(view.black, clamp01(1 - (now - restoring.done) / run.cutscene.look.fadeMs));
+  }
+
+  /** The run is over for this board: the camera, eyes and tools are the player's again. */
+  private finish(run: Run): void {
+    if (this.run !== run) return;
+    const board = this.board;
+    this.run = null;
+    run.roll?.picker.dispose();
+    run.roll?.root.remove();
+    run.roll = null;
+    board.setCinematic(null);
+    board.setReveal(false);
+    board.cinema.setBars(null);
+    // The camera the player had, exactly (the driver's last frames moved the drawn one, and handing it back snapped it).
+    if (run.restoring && !run.handedBack && run.keep && !framesAnew(this.framedScene, this.scene?.sceneId ?? '')) board.restoreCamera(run.keep);
+    board.setCinematicRole('none');
+    this.cutScenes.delete(run.cutscene.runId);
+    this.endedRun = run.cutscene.runId;
+    // Back in the same token's eyes, and Connect told, as it was when they were taken.
+    if (!run.handedBack && run.eyes !== null && board.seeFrom(run.eyes, this.eyeGyro)) this.host.eyeChanged?.();
+    const next = this.queued;
+    this.queued = null;
+    if (next) this.setCutscene(next.cutscene, next.options);
+  }
+
+  // ── The Roll dice button ──────────────────────────────────────────────────
+
+  /** The button over the bottom bar, the one thing a player can press during a run besides hovering; none without dice. */
+  private makeRoll(): RollButton | null {
+    if (!this.diceAvailable) return null;
+    const doc = this.parent.ownerDocument;
+    const root = doc.win.createDiv();
+    root.className = 'tabletop-cinema-roll';
+    const button = doc.win.createEl('button');
+    button.type = 'button';
+    button.className = 'tabletop-cinema-roll__button';
+    button.textContent = 'Roll dice';
+    button.setAttribute('aria-label', 'Roll dice');
+    root.appendChild(button);
+    root.addEventListener('pointerdown', (event) => event.stopPropagation());
+    this.parent.appendChild(root);
+    const picker = new DicePicker(root, {
+      onRoll: (request) => { this.dice.throw(request); },
+      colors: () => this.diceDeps.settings().colors,
+      rules: () => this.host.diceRules?.() ?? DEFAULT_RULES,
+      onOpenChange: (open) => this.prompt.setCovered(open),
+    });
+    button.addEventListener('click', () => (picker.isOpen ? picker.close() : picker.open()));
+    return { root, picker, hidden: false, bottom: -1 };
+  }
+
+  /** The button sits just above the bottom bar and goes while the picture is mostly black. */
+  private updateRoll(run: Run, view: PlayerCutsceneView): void {
+    const roll = run.roll;
+    if (!roll) return;
+    const hidden = view.black > 0.6 || run.restoring !== null;
+    if (hidden !== roll.hidden) {
+      roll.hidden = hidden;
+      roll.root.hidden = hidden;
+      if (hidden) roll.picker.close();
+    }
+    const bottom = Math.round(this.board.cinema.barHeight);
+    if (bottom !== roll.bottom) {
+      roll.bottom = bottom;
+      roll.root.style.bottom = `${bottom + 14}px`;
+    }
   }
 
   /** Settles once Connect has the file `id`. */

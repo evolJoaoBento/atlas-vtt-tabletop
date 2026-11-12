@@ -115,6 +115,11 @@ export class DiceController {
     return this.session?.pendingThrows().some((pending) => pending.id === id) ?? false;
   }
 
+  /** Whether a roll is on the table and not yet published. */
+  get unsent(): boolean {
+    return this.session !== null && !this.published;
+  }
+
   /** Whether the roll waits on a throw. */
   get waiting(): boolean {
     return (this.session?.pendingThrows().length ?? 0) > 0;

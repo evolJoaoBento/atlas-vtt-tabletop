@@ -4115,6 +4115,336 @@ feature('cutscene authoring switch fails', async ({ page }) => {
   check('cutscene authoring: no unhandled rejection', errors.length === 0, errors.join('|'));
 });
 
+// ── Cutscenes on a player's board (Connect's mount, /playerBoard.html) ────────────────────────────────────────────────
+/** Installs the run, the revealed scenes and a few readers on the page; runs inside the page. */
+const playerFixture = () => {
+  const t = window.playerTest;
+  const copy = (v) => JSON.parse(JSON.stringify(v));
+  window.fx = {
+    run: (step, key, runId = 'r1', mode = 'prepared') => ({
+      runId, mode, look: { bars: 2.39, fadeMs: 600 }, key, step,
+      shots: mode === 'live' ? [] : [
+        { key: 'k1', eye: { x: 700, y: 1300, z: 1100 }, target: { x: 700, y: 0, z: 500 }, at: 0, keyframe: false, transition: 'fade' },
+        { key: 'k1', eye: { x: 300, y: 700, z: 1200 }, target: { x: 500, y: 0, z: 400 }, at: 3000, keyframe: false, transition: 'move' },
+        { key: 'k2', eye: { x: 500, y: 600, z: 1100 }, target: { x: 500, y: 0, z: 400 }, at: 5000, keyframe: false, transition: 'fade' },
+        { key: 'k2', eye: { x: 200, y: 500, z: 900 }, target: { x: 500, y: 0, z: 400 }, at: 8000, keyframe: false, transition: 'cut' },
+      ],
+    }),
+    // The own scene plus a token under the fog, which the reveal shows.
+    scene1: (asset = t.MAP) => { const s = copy(t.scene); s.map.asset = asset; s.tokens.fogged = { ...copy(t.scene.tokens.theirs), x: 1200, y: 500, name: 'Hidden' }; return s; },
+    scene2: () => { const s = copy(t.scene); s.sceneId = 's2'; s.map = { asset: t.MAP2, width: 1000, height: 800, cellSize: 70 }; s.tokens = { other: { ...copy(t.scene.tokens.theirs), x: 300, y: 300 } }; s.fog = {}; s.pins = []; return s; },
+    eyeOf: (shot) => shot,
+    black: (b = t.board) => b.cinema.black,
+    pos: (b = t.board) => ({ x: b.view.position.x, y: b.view.position.y, z: b.view.position.z }),
+    near: (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z),
+    shows: () => (t.handle.loadedId ?? ''),
+    goal: () => JSON.stringify(t.board.camera.goal),
+    until: async (fn, ms = 8000) => { const start = performance.now(); while (performance.now() - start < ms) { if (fn()) return true; await new Promise((r) => setTimeout(r, 40)); } return false; },
+    odd: () => { const b = t.board; b.camera.orbit(1.1, 0); b.camera.zoom(0.4); b.camera.pan(50, 20); b.camera.snap(); b.wake(true); window.kept = copy(b.camera.keep()); },
+  };
+};
+
+const PLAYER_URL = '/playerBoard.html';
+const prepare = async (page) => {
+  await page.evaluate(playerFixture);
+  await page.evaluate(() => window.playerTest.deliver());
+  await wait(1500);
+};
+const startRun = (page, key = 'k1', step = { shot: 0, seq: 1 }, extra = '{}') => page.evaluate(({ key, step, extra }) => {
+  const t = window.playerTest;
+  t.handle.setCutscene(window.fx.run(step, key), JSON.parse(extra));
+  t.handle.setCutsceneScene('r1', 'k1', window.fx.scene1(), t.extras);
+}, { key, step, extra });
+const settled = (page) => page.evaluate(() => window.fx.until(() => window.fx.black() < 0.01 && window.playerTest.handle.run?.showing !== null, 10000));
+const ended = (page, ms = 10000) => page.evaluate((ms) => window.fx.until(() => window.playerTest.handle.run === null, ms), ms);
+
+const playerFeature = (name, run) => feature(name, run, PLAYER_URL);
+
+playerFeature('player cutscene', async ({ page, shot }) => {
+  await prepare(page);
+  check('player cutscene: the handle says it plays cutscenes', await page.evaluate(() => window.playerTest.handle.cutscenes === true));
+  await page.evaluate(() => window.fx.odd());
+  const own = await page.evaluate(() => ({ tokens: [...window.playerTest.board.tokens.keys()], id: window.playerTest.handle.loadedId }));
+  await startRun(page);
+  await wait(1400);
+  check('player cutscene: the view comes to shot 0 once the enter fade is over', await settled(page));
+  const first = await page.evaluate(() => { const t = window.playerTest; const s = window.fx.run({ shot: 0, seq: 1 }, 'k1').shots[0]; return { dist: window.fx.near(window.fx.pos(), s.eye), fogged: t.board.tokens.get('fogged')?.piece.object3d.visible, mine: t.board.tokens.has('mine'), bars: !!t.board.container.querySelector('.tabletop-cinema__bar--top:not([hidden])'), id: window.fx.shows(), reveal: t.board.reveal, role: t.board.cinematicRole }; });
+  check('player cutscene: the camera is on shot 0', first.dist < 0.5, JSON.stringify(first));
+  // A roll laid on the table stays through a shot change on the same map, and goes (unsent, with a notice) on another map.
+  await page.evaluate(() => { window.playerTest.handle.dice.throw({ dice: { d20: 1 }, modifier: 0 }); window.playerTest.handle.setCutscene(window.fx.run({ shot: 1, seq: 2 }, 'k1')); });
+  await wait(500);
+  check('player cutscene: a shot change on the same map keeps a roll in play', await page.evaluate(() => window.playerTest.handle.dice.controller?.unsent === true));
+  check('player cutscene: a token of the own scene under the fog is drawn (the reveal), and the run\'s scene has its own id', first.fogged === true && first.reveal === true && first.id === 'cutscene:r1:k1' && !own.tokens.includes('fogged'), JSON.stringify({ first, own }));
+  check('player cutscene: the bars are in the DOM and the board is locked', first.bars && first.role === 'locked', JSON.stringify(first));
+  await shot('player-cutscene');
+  // Step to shot 3 on the other map: black until its scene comes, then the view rests on shot 3.
+  await page.evaluate(() => window.playerTest.handle.setCutscene(window.fx.run({ shot: 3, seq: 3 }, 'k2')));
+  await wait(500);
+  const held = await page.evaluate(() => ({ black: window.fx.black(), id: window.fx.shows(), unsent: window.playerTest.handle.dice.controller?.unsent, sends: window.playerTest.record.diceResults.length, line: document.querySelector('.atlas-tabletop-dice-prompt')?.textContent ?? '' }));
+  check('player cutscene: a cross-map step holds black until the new map\'s scene has been delivered', held.black >= 0.99, JSON.stringify(held));
+  check('player cutscene: and drops a roll in play unsent, with the notice', held.unsent !== true && held.sends === 0 && /The scene changed; roll again\./.test(held.line), JSON.stringify(held));
+  await page.evaluate(() => window.playerTest.handle.setCutsceneScene('r1', 'k2', window.fx.scene2(), null));
+  const resting = await page.evaluate(() => window.fx.until(() => window.fx.black() < 0.01 && window.fx.shows() === 'cutscene:r1:k2', 10000));
+  const atThree = await page.evaluate(() => ({ dist: window.fx.near(window.fx.pos(), window.fx.run({ shot: 3, seq: 3 }, 'k2').shots[3].eye), tokens: [...window.playerTest.board.tokens.keys()] }));
+  check('player cutscene: the view rests on shot 3 of the second map, drawn from that map\'s scene', resting && atThree.dist < 0.5 && atThree.tokens.join() === 'other', JSON.stringify(atThree));
+  // The end: the own scene and the exact camera come back.
+  await page.evaluate(() => window.playerTest.handle.setCutscene(null));
+  await page.evaluate(() => window.fx.until(() => window.playerTest.board.cinema.black > 0.5, 3000));
+  check('player cutscene: ending fades to black first', await page.evaluate(() => window.playerTest.handle.run !== null));
+  check('player cutscene: the run is over after the leave fade', await ended(page));
+  await wait(1500);
+  const back = await page.evaluate(() => {
+    const t = window.playerTest;
+    const pose = t.board.camera.pose;
+    const kept = window.kept.pose;
+    const diff = Math.max(Math.abs(pose.yaw - kept.yaw), Math.abs(pose.pitch - kept.pitch), Math.abs(pose.distance - kept.distance), Math.abs(pose.target.x - kept.target.x), Math.abs(pose.target.y - kept.target.y), Math.abs(pose.target.z - kept.target.z));
+    const goal = t.board.camera.goal;
+    const gdiff = Math.abs(goal.yaw - window.kept.goal.yaw) + Math.abs(goal.distance - window.kept.goal.distance) + Math.abs(goal.target.x - window.kept.goal.target.x);
+    return { diff, gdiff, id: window.fx.shows(), reveal: t.board.reveal, fogged: t.board.tokens.has('fogged'), tokens: [...t.board.tokens.keys()].join(), role: t.board.cinematicRole, driver: t.board.cinematic === null, bars: t.board.cinema.aspect, black: window.fx.black() };
+  });
+  check('player cutscene: restores the exact own camera after a cross-map run', back.diff < 1e-9 && back.gdiff < 1e-9, JSON.stringify(back));
+  check('player cutscene: the own scene is back, with its fog: nothing of the run is shown', back.id === 's1' && !back.reveal && !back.fogged && back.tokens === 'mine,theirs', JSON.stringify(back));
+  check('player cutscene: the board is the player\'s again, with no bars and no black', back.role === 'none' && back.driver && back.bars === null && back.black === 0, JSON.stringify(back));
+  check('player cutscene: no reference to the run is kept', await page.evaluate(() => window.playerTest.handle.cutScenes.size === 0 && window.playerTest.handle.run === null));
+});
+
+playerFeature('player cutscene ends while waiting', async ({ page }) => {
+  await prepare(page);
+  await page.evaluate(() => window.fx.odd());
+  // Connect could not deliver the scene (too big, its tab closed) and ends the run: the board is black, waiting.
+  await page.evaluate(() => window.playerTest.handle.setCutscene(window.fx.run({ shot: 0, seq: 1 }, 'k1')));
+  await wait(2000);
+  const waiting = await page.evaluate(() => ({ black: window.fx.black(), role: window.playerTest.board.cinematicRole, id: window.fx.shows() }));
+  check('player cutscene: with no scene delivered the board stays black and locked', waiting.black >= 0.99 && waiting.role === 'locked', JSON.stringify(waiting));
+  await page.evaluate(() => window.playerTest.handle.setCutscene(null));
+  check('player cutscene: a run ended while the board is black and waiting for a scene is over after the leave fade', await ended(page));
+  await wait(1500);
+  const back = await page.evaluate(() => {
+    const t = window.playerTest;
+    const pose = t.board.camera.pose;
+    const kept = window.kept.pose;
+    return { diff: Math.abs(pose.yaw - kept.yaw) + Math.abs(pose.pitch - kept.pitch) + Math.abs(pose.distance - kept.distance) + Math.abs(pose.target.x - kept.target.x), id: window.fx.shows(), black: window.fx.black(), role: t.board.cinematicRole, driver: t.board.cinematic === null };
+  });
+  check('player cutscene: and the player has their own scene and camera back, unlocked', back.diff < 1e-9 && back.id === 's1' && back.black === 0 && back.role === 'none' && back.driver, JSON.stringify(back));
+});
+
+playerFeature('player cutscene join', async ({ page }) => {
+  await prepare(page);
+  const out = await page.evaluate(async () => {
+    const t = window.playerTest;
+    const n = t.spawn();
+    n.handle.setCutscene(window.fx.run({ shot: 3, seq: 7 }, 'k2'));
+    const samples = [window.fx.black(n.board)];
+    const stop = performance.now() + 900;
+    while (performance.now() < stop) { samples.push(window.fx.black(n.board)); await new Promise((r) => requestAnimationFrame(r)); }
+    const before = Math.min(...samples);
+    n.handle.setCutsceneScene('r1', 'k2', window.fx.scene2(), null);
+    const rested = await window.fx.until(() => window.fx.black(n.board) < 0.01 && n.handle.loadedId === 'cutscene:r1:k2', 10000);
+    const dist = window.fx.near(window.fx.pos(n.board), window.fx.run({ shot: 3, seq: 7 }, 'k2').shots[3].eye);
+    return { before, rested, dist, bars: !!n.container.querySelector('.tabletop-cinema__bar--top:not([hidden])') };
+  });
+  check('player cutscene: joining mid-run lands at the current shot, black (never the framed map with the bars) until its scene is in', out.before >= 0.99 && out.rested && out.dist < 0.5 && out.bars, JSON.stringify(out));
+});
+
+playerFeature('player cutscene assets', async ({ page }) => {
+  await prepare(page);
+  const out = await page.evaluate(async () => {
+    const t = window.playerTest;
+    t.hold(t.MAP2);
+    t.handle.setCutscene(window.fx.run({ shot: 0, seq: 1 }, 'k1', 'r2'));
+    t.handle.setCutsceneScene('r2', 'k1', window.fx.scene1(t.MAP2), t.extras);
+    await new Promise((r) => setTimeout(r, 2200));
+    const black = window.fx.black();
+    t.deliver();
+    const faded = await window.fx.until(() => window.fx.black() < 0.01, 10000);
+    return { black, faded, id: window.fx.shows(), background: !!t.board.map?.background };
+  });
+  check('player cutscene: with the map image held back the board stays black', out.black >= 0.99, JSON.stringify(out));
+  check('player cutscene: once the image arrives (files, then refresh) the board fades in on the run\'s scene, not the own one', out.faded && out.id === 'cutscene:r2:k1' && out.background, JSON.stringify(out));
+});
+
+playerFeature('player cutscene hand back', async ({ page }) => {
+  await prepare(page);
+  const out = await page.evaluate(async () => {
+    const t = window.playerTest;
+    t.record.cutsceneOver.length = 0;
+    t.handle.setCutscene(window.fx.run({ shot: 0, seq: 1 }, 'k1'), { startBlack: true, handBack: true });
+    const start = window.fx.black();
+    t.handle.setCutsceneScene('r1', 'k1', window.fx.scene1(), t.extras);
+    await window.fx.until(() => window.fx.black() < 0.01, 10000);
+    t.handle.setCutscene(null);
+    await new Promise((r) => setTimeout(r, 2200));
+    return { start, over: t.record.cutsceneOver.length, black: window.fx.black(), id: window.fx.shows(), locked: t.board.cinematicRole };
+  });
+  check('player cutscene: startBlack starts at black 1 with no fade from the framed map', out.start >= 0.99, JSON.stringify(out));
+  check('player cutscene: handBack calls cutsceneOver once, stays black, and does not reload the own scene', out.over === 1 && out.black >= 0.99 && out.id === 'cutscene:r1:k1', JSON.stringify(out));
+});
+
+playerFeature('player cutscene disconnect', async ({ page }) => {
+  await prepare(page);
+  await page.evaluate(() => window.fx.odd());
+  await startRun(page);
+  check('player cutscene: the run is on', await settled(page));
+  const out = await page.evaluate(async () => {
+    const t = window.playerTest;
+    t.handle.setConnected(true);
+    const still = t.handle.run?.state.leaving === false && t.handle.run !== null;
+    t.handle.setConnected(false);
+    const leaving = t.handle.run?.state.leaving === true;
+    t.handle.setConnected(false);
+    await new Promise((r) => setTimeout(r, 450));
+    const midBlack = window.fx.black();
+    t.handle.setConnected(false);
+    return { still, leaving, midBlack };
+  });
+  check('player cutscene: setConnected(false) ends the run: the leave fade runs, a repeated call changes nothing', out.still && out.leaving && out.midBlack > 0.1, JSON.stringify(out));
+  check('player cutscene: and it is over after the fade', await ended(page));
+  await wait(1500);
+  const back = await page.evaluate(() => { const pose = window.playerTest.board.camera.pose; const kept = window.kept.pose; return { diff: Math.abs(pose.yaw - kept.yaw) + Math.abs(pose.distance - kept.distance) + Math.abs(pose.target.x - kept.target.x), id: window.fx.shows() }; });
+  check('player cutscene: the camera is restored after a disconnect', back.diff < 1e-9 && back.id === 's1', JSON.stringify(back));
+});
+
+playerFeature('player cutscene eyes', async ({ page }) => {
+  await prepare(page);
+  const before = await page.evaluate(() => { const t = window.playerTest; const ok = t.handle.seeFrom('mine', false); return { ok, seeing: t.handle.seeingFrom(), calls: t.record.eyeChanged }; });
+  await startRun(page);
+  await wait(300);
+  const during = await page.evaluate(() => { const t = window.playerTest; return { seeing: t.handle.seeingFrom(), calls: t.record.eyeChanged, refused: t.handle.seeFrom('mine', false) }; });
+  check('player cutscene: a player in a token\'s eyes is out of them during the run, and Connect is told', before.ok && before.seeing === 'mine' && during.seeing === null && during.calls === before.calls + 1 && during.refused === false, JSON.stringify({ before, during }));
+  await page.evaluate(() => window.fx.until(() => window.playerTest.handle.run?.showing, 5000));
+  await page.evaluate(() => window.playerTest.handle.setCutscene(null));
+  check('player cutscene: the run ends', await ended(page));
+  const after = await page.evaluate(() => ({ seeing: window.playerTest.handle.seeingFrom(), calls: window.playerTest.record.eyeChanged }));
+  check('player cutscene: after it the player is back in the same token\'s eyes, and Connect is told again', after.seeing === 'mine' && after.calls === before.calls + 2, JSON.stringify(after));
+});
+
+feature('player cutscene live', async ({ page }) => {
+  await prepare(page);
+  const out = await page.evaluate(async () => {
+    const t = window.playerTest;
+    const line = (i) => ({ eye: { x: 300 + i * 100, y: 800, z: 1400 }, target: { x: 300 + i * 100, y: 0, z: 400 } });
+    t.handle.setCutscene(window.fx.run({ shot: 0, seq: 1 }, 'k1', 'live1', 'live'));
+    t.handle.setCutsceneCamera('live1', line(0));
+    t.handle.setCutsceneScene('live1', 'k1', window.fx.scene1(), t.extras);
+    await window.fx.until(() => t.handle.run?.showing && window.fx.shows() === 'cutscene:live1:k1' && window.fx.black() < 0.01, 10000);
+    const xs = [];
+    let sampling = true;
+    const loop = () => { if (!sampling) return; xs.push([performance.now(), window.fx.pos().x]); requestAnimationFrame(loop); };
+    loop();
+    for (let i = 1; i <= 5; i++) { t.handle.setCutsceneCamera('live1', line(i)); await new Promise((r) => setTimeout(r, 100)); }
+    await new Promise((r) => setTimeout(r, 400));
+    sampling = false;
+    const steps = [];
+    // The step of each frame per millisecond it lasted: frame times on a software renderer are uneven, and a long frame is a long step on any camera.
+    for (let i = 1; i < xs.length; i++) steps.push((xs[i][1] - xs[i - 1][1]) / Math.max(1, xs[i][0] - xs[i - 1][0]));
+    const sorted = steps.filter((s) => s > 1e-6).sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
+    return { monotonic: steps.every((s) => s >= -1e-6), maxStep: Math.max(...steps), median, count: xs.length, end: xs[xs.length - 1][1] };
+  });
+  check('player cutscene: the live camera glides: it only moves forward, and no frame jumps more than 3 times the median step', out.monotonic && out.count > 10 && out.maxStep <= 3 * out.median + 1e-6 && out.end > 700, JSON.stringify(out));
+}, PLAYER_URL);
+
+feature('player cutscene lock', async ({ page }) => {
+  await prepare(page);
+  await startRun(page);
+  check('player cutscene lock: the run is on', await settled(page));
+  const before = await page.evaluate(() => ({ goal: window.fx.goal(), tool: window.playerTest.handle.toolState().tool, pose: JSON.stringify(window.playerTest.board.camera.pose) }));
+  const box = await page.evaluate(() => { const r = window.playerTest.board.canvas.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  await page.mouse.move(box.x, box.y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 120, box.y + 40, { steps: 6 });
+  await page.mouse.up();
+  await page.mouse.move(box.x, box.y);
+  await page.mouse.down({ button: 'right' });
+  await page.mouse.move(box.x - 90, box.y + 30, { steps: 5 });
+  await page.mouse.up({ button: 'right' });
+  await page.mouse.wheel(0, -400);
+  await page.keyboard.down('w');
+  await page.keyboard.down('d');
+  await wait(400);
+  await page.keyboard.up('w');
+  await page.keyboard.up('d');
+  const pinch = await page.evaluate(async () => {
+    const canvas = window.playerTest.board.canvas;
+    canvas.setPointerCapture = () => {};
+    const send = (type, id, x, y) => canvas.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', isPrimary: id === 31, clientX: x, clientY: y, button: 0, bubbles: true }));
+    send('pointerdown', 31, 400, 300);
+    send('pointerdown', 32, 600, 300);
+    send('pointermove', 31, 300, 300);
+    send('pointermove', 32, 700, 300);
+    await new Promise((r) => setTimeout(r, 100));
+    send('pointerup', 31, 300, 300);
+    send('pointerup', 32, 700, 300);
+    return window.fx.goal();
+  });
+  const kept = await page.evaluate(() => window.fx.goal());
+  check('player cutscene lock: a drag, a wheel, WASD and a pinch leave the camera\'s goal alone', kept === before.goal && pinch === before.goal, JSON.stringify({ kept, before: before.goal }));
+  // A controlled token cannot be dragged.
+  const token = await page.evaluate(() => window.playerTest.project(385, 385));
+  await page.mouse.move(token.x, token.y);
+  await page.mouse.down();
+  await page.mouse.move(token.x + 90, token.y + 60, { steps: 6 });
+  await page.mouse.up();
+  await wait(200);
+  check('player cutscene lock: dragging a controlled token sends no move', await page.evaluate(() => window.playerTest.record.moves.length === 0), JSON.stringify(await page.evaluate(() => window.playerTest.record.moves)));
+  // The handle's calls are ignored.
+  const calls = await page.evaluate(async () => {
+    const t = window.playerTest;
+    const h = t.handle;
+    const pose = () => JSON.stringify(t.board.camera.pose) + JSON.stringify(t.board.camera.goal);
+    const was = pose();
+    h.followGm();
+    h.fitMap();
+    h.lookAt(10, 10);
+    const eyes = h.seeFrom('t1', false);
+    h.setAugmented({ rotation: [1, 0, 0, 0, 1, 0, 0, 0, 1], translation: [0, 0, 400], frustum: { left: -1, right: 1, top: -1, bottom: 1 }, squareMm: 25 });
+    h.selectTool('ping');
+    const room = await h.startRoomAr({}, null);
+    h.placeRoomAr({ x: 0, y: 0, z: 0 });
+    const thrown = h.throwDice({ dice: { d20: 1 }, modifier: 0 });
+    return { same: pose() === was, tool: h.toolState().tool, eyes, room, thrown, seeing: h.seeingFrom() };
+  });
+  check('player cutscene lock: handle calls are ignored while locked (followGm, fitMap, lookAt, seeFrom, setAugmented, selectTool, startRoomAr, throwDice)', calls.same && calls.tool === before.tool && calls.eyes === false && calls.room === false && calls.thrown === false && calls.seeing === null, JSON.stringify({ calls, before }));
+  // Hovering still tells Connect.
+  const hovers = await page.evaluate(() => window.playerTest.record.hovers.length);
+  const over = await page.evaluate(() => window.playerTest.project(525, 385));
+  await page.mouse.move(over.x - 40, over.y - 40);
+  await page.mouse.move(over.x, over.y, { steps: 4 });
+  await wait(400);
+  check('player cutscene lock: hovering a token still calls hover', await page.evaluate((n) => window.playerTest.record.hovers.length > n, hovers), JSON.stringify(await page.evaluate(() => window.playerTest.record.hovers)));
+  // Roll dice.
+  check('player cutscene lock: the Roll dice button is there', await page.locator('.tabletop-cinema-roll__button').isVisible());
+  await page.locator('.tabletop-cinema-roll__button').click();
+  await page.locator('.tabletop-cinema-roll button[data-die="d20"]').click();
+  await page.locator('.tabletop-cinema-roll button[aria-label="Roll"]').click();
+  await page.locator('.tabletop-cinema-roll__button').click();
+  for (let attempt = 0; attempt < 8; attempt++) {
+    await page.waitForFunction(() => !window.playerTest.board.dice.busy, null, { timeout: 90000 }).catch(() => {});
+    await wait(300);
+    if (await page.evaluate(() => window.playerTest.record.diceResults.length) > 0) break;
+    await page.locator('.atlas-tabletop-dice-prompt__throw').click().catch(() => {});
+    await wait(200);
+  }
+  const rolled = await page.evaluate(() => window.playerTest.record.diceResults);
+  check('player cutscene lock: picking 1d20 and Roll sends one result, as any player roll', rolled.length === 1 && rolled[0].rolls.length === 1 && rolled[0].rolls[0].die === 'd20', JSON.stringify(rolled));
+  // After the run the camera is the player's again.
+  await page.evaluate(() => window.playerTest.handle.setCutscene(null));
+  check('player cutscene lock: the run ends', await ended(page));
+  await wait(1200);
+  const free = await page.evaluate(() => window.fx.goal());
+  await page.mouse.move(box.x, box.y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 140, box.y + 50, { steps: 6 });
+  await page.mouse.up();
+  await wait(300);
+  check('player cutscene lock: after the run a drag moves the camera again', await page.evaluate((free) => window.fx.goal() !== free, free));
+  check('player cutscene lock: and setAugmented draws from the AR pose again', await page.evaluate(() => {
+    const t = window.playerTest;
+    t.handle.setAugmented({ rotation: [1, 0, 0, 0, 1, 0, 0, 0, 1], translation: [0, 0, 400], frustum: { left: -1, right: 1, top: -1, bottom: 1 }, squareMm: 25 });
+    return t.board.augmented !== null;
+  }));
+}, PLAYER_URL);
+
 server.listen(0, async () => {
   const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const errors = [];
@@ -4126,7 +4456,7 @@ server.listen(0, async () => {
       page.on('pageerror', (e) => errors.push(`${one.name}: pageerror: ${e.message}`));
       try {
         await page.goto(`http://127.0.0.1:${server.address().port}${one.url ?? '/'}`);
-        await page.waitForFunction(() => window.boardTest?.ready || window.boardError, null, { timeout: 30000 });
+        await page.waitForFunction(() => window.boardTest?.ready || window.playerTest?.ready || window.boardError, null, { timeout: 30000 });
         const boot = await page.evaluate(() => window.boardError ?? null);
         if (boot) throw new Error(boot);
         await wait(1200);

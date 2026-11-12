@@ -34,6 +34,7 @@ function drawn(width: number, height: number, draw: (context: CanvasRenderingCon
 }
 
 const MAP = 'M'.repeat(43);
+const MAP2 = 'N'.repeat(43);
 const ART = 'A'.repeat(43);
 const GLB = 'G'.repeat(43);
 const TEX = 'T'.repeat(43);
@@ -68,12 +69,14 @@ async function main(): Promise<void> {
   const files = new Map<string, string | ArrayBuffer>();
   const late = new Map<string, string | ArrayBuffer>();
   late.set(MAP, drawn(1400, 1000, (context) => { context.fillStyle = '#9c8a6e'; context.fillRect(0, 0, 1400, 1000); }));
+  files.set(MAP2, drawn(1000, 800, (context) => { context.fillStyle = '#6e8a9c'; context.fillRect(0, 0, 1000, 800); }));
   files.set(ART, drawn(64, 64, (context) => { context.fillStyle = '#3a8a3a'; context.fillRect(0, 0, 64, 64); }));
   files.set(GLB, await heroGlb());
   files.set(TEX, drawn(64, 64, (context) => { context.fillStyle = '#884422'; context.fillRect(0, 0, 64, 64); }));
   const record = {
     moves: [] as unknown[][], pings: [] as unknown[][], lasers: [] as unknown[][], templates: [] as unknown[], pins: [] as string[],
     hovers: [] as unknown[][], toolsChanged: 0, diceResults: [] as PlayerDiceResult[], spells: [] as unknown[], eyeChanged: 0,
+    cutsceneOver: [] as number[],
   };
   const pack = vendoredPack();
   const host: PlayerBoardHost = {
@@ -90,6 +93,7 @@ async function main(): Promise<void> {
     toolsChanged: () => { record.toolsChanged++; },
     sendDiceResult: (result) => { record.diceResults.push(result); return true; },
     diceRules: () => null,
+    cutsceneOver: () => { record.cutsceneOver.push(performance.now()); },
   };
   const container = document.getElementById('board')!;
   // A player on Obsidian has their own spell notes (`setSpellNotes`); the web page none (null, the start).
@@ -101,12 +105,24 @@ async function main(): Promise<void> {
       return note ? [{ id: path, note, source: `SRD ${path.split('/')[0]}` }] : [];
     });
   };
-  const handle: PlayerBoardHandle = playerBoardFactory(() => 'medium', () => ({ tiltShift: false, occlusion: false, painted: false, sky: 'dusk' }), { settings: () => DEFAULT_DICE_SETTINGS, pack: () => pack }, () => (spellEntries === null ? null : spellBook)).create(container, host);
+  const factory = playerBoardFactory(() => 'medium', () => ({ tiltShift: false, occlusion: false, painted: false, sky: 'dusk' }), { settings: () => DEFAULT_DICE_SETTINGS, pack: () => pack }, () => (spellEntries === null ? null : spellBook));
+  const handle: PlayerBoardHandle = factory.create(container, host);
   handle.setPlayers(['me', 'you'], 'me');
   handle.setConnected(true);
   handle.setControlled(['mine']);
   handle.setScene(scene);
   handle.setExtras(extras);
+  /** Another player board in the page, as Connect makes one for a player who joins: nothing given to it yet. */
+  const spawn = (): { handle: PlayerBoardHandle; board: unknown; container: HTMLElement } => {
+    const holder = document.createElement('div');
+    holder.style.cssText = 'position:relative;width:1000px;height:640px;';
+    document.body.appendChild(holder);
+    const made = factory.create(holder, host);
+    made.setPlayers(['me', 'you'], 'me');
+    made.setConnected(true);
+    made.setControlled(['mine']);
+    return { handle: made, board: (made as unknown as { board: unknown }).board, container: holder };
+  };
   const board = (handle as unknown as { board: { view: THREE.PerspectiveCamera; canvas: HTMLCanvasElement } }).board;
   const project = (x: number, y: number, height = 0): { x: number; y: number } => {
     const point = new THREE.Vector3(x, height, y).project(board.view);
@@ -115,7 +131,9 @@ async function main(): Promise<void> {
   };
   /** Files the harness holds back: they "arrive" with `deliver`, then the board is told. */
   const deliver = (): void => { for (const [id, file] of late) files.set(id, file); late.clear(); handle.refresh(); };
-  Object.assign(window, { playerTest: { handle, board, record, project, deliver, scene, extras, files, setSpellNotes, ready: true } });
+  /** Holds a map image back for `deliver`: a scene that names it draws without a background until then. */
+  const hold = (id: string): void => { const file = files.get(id); if (file === undefined) return; late.set(id, file); files.delete(id); };
+  Object.assign(window, { playerTest: { handle, board, record, project, deliver, scene, extras, files, late, hold, spawn, setSpellNotes, MAP, MAP2, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

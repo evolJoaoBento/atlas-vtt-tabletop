@@ -92,11 +92,14 @@ export class PlayerDice {
   }
 
   /** The board shows another scene, or none: the dice go and the roll in play is never sent. */
-  sceneChanged(): void {
+  sceneChanged(say?: string): void {
+    // A roll thrown but not yet sent is lost with the scene: `say` tells the player so.
+    const lost = this.controller?.unsent === true;
     this.sheet = null;
     this.notice = null;
     this.sent = null;
     this.controller?.sceneChanged();
+    if (lost && say !== undefined) this.deps.prompt(say, 'notice');
   }
 
   /** The player cleared the table: the dice go, and a roll not yet complete is never sent. */

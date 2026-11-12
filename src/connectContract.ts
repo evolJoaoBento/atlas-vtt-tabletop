@@ -180,6 +180,26 @@ export interface BoardCutscene {
   key: string;
 }
 
+/** How `setCutscene` starts and ends a run on a player's board (Connect has the same shape in `playerBoardContract.ts`). */
+export interface PlayerCutsceneOptions {
+  /** Connect has just made this board for the run, over a view it faded to black itself: no enter fade. */
+  startBlack?: boolean;
+  /** At the leave fade's black the board does not reload its own scene: it calls `host.cutsceneOver()` and stays black. */
+  handBack?: boolean;
+}
+
+/** What a player's board adds for cutscenes (`PlayerBoardHandle` extends it). */
+export interface PlayerCutsceneHandle {
+  /** This board plays cutscenes locally. */
+  readonly cutscenes?: true;
+  /** The run (a `BoardCutscene`, whenever it changes); null ends it. One Connect cannot read is ignored. */
+  setCutscene?(cutscene: unknown | null, options?: PlayerCutsceneOptions): void;
+  /** The revealed scene of the map `key` for the run `runId`, and its board extras; sent again whenever it changes. */
+  setCutsceneScene?(runId: string, key: string, scene: unknown, extras: BoardExtras | null): void;
+  /** Live only: the GM's camera, a goal the board eases towards (never stepped to). */
+  setCutsceneCamera?(runId: string, camera: { eye: { x: number; y: number; z: number }; target: { x: number; y: number; z: number } }): void;
+}
+
 // ── The GM's side: Tabletop offers ───────────────────────────────────────────
 
 /**

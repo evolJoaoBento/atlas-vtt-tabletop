@@ -2109,6 +2109,26 @@ body.atlas-tabletop-player-window .view-header {
   background: #000;
   opacity: 0;
 }
+/* The Roll dice button of a player's board during a cutscene: just above the bottom bar, above the cinema layer, the one thing there to press. */
+.tabletop-cinema-roll {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 210;
+  pointer-events: auto;
+}
+.tabletop-cinema-roll[hidden] { display: none; }
+.tabletop-cinema-roll__button {
+  padding: 6px 16px;
+  border-radius: 999px;
+  border: 0.75px solid rgba(255, 255, 255, 0.4);
+  background: #2a2a2a;
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+.tabletop-cinema-roll__button:hover { background: #3a3a3a; }
 
 /* Cutscene authoring: the gallery of a scene's cutscenes, the timeline strip above the toolbar, the preview controls. */
 .tabletop-gallery,

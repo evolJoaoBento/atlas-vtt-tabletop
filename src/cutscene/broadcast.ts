@@ -60,3 +60,50 @@ export function broadcastOf(input: BroadcastInput): GmCutscene {
   };
   return { cutscene, maps };
 }
+
+const KEY = /^k[0-9]{1,4}$/;
+const RUN_ID = /^[A-Za-z0-9_-]{1,64}$/;
+const BARS = [1.85, 2, 2.39];
+
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+const inside = (n: unknown, low: number, high: number): n is number => typeof n === 'number' && Number.isFinite(n) && n >= low && n <= high;
+
+function readPoint(raw: unknown): { x: number; y: number; z: number } | null {
+  if (!isObject(raw) || !inside(raw.x, -1e7, 1e7) || !inside(raw.y, -1e7, 1e7) || !inside(raw.z, -1e7, 1e7)) return null;
+  return { x: raw.x, y: raw.y, z: raw.z };
+}
+
+/**
+ * A cutscene as a player's board takes it from Connect, checked against the limits Connect checks too (at most 200 shots;
+ * run-local keys; times in 0..3 600 000; coordinates within 1e7; the step on a shot the run rests on). Null for anything else.
+ * A copy: nothing of `raw` is kept.
+ */
+export function readBoardCutscene(raw: unknown): BoardCutscene | null {
+  if (!isObject(raw) || typeof raw.runId !== 'string' || !RUN_ID.test(raw.runId)) return null;
+  if (raw.mode !== 'prepared' && raw.mode !== 'live') return null;
+  if (typeof raw.key !== 'string' || !KEY.test(raw.key)) return null;
+  const look = raw.look;
+  if (!isObject(look) || !inside(look.fadeMs, 100, 3000)) return null;
+  if (look.bars !== null && !(typeof look.bars === 'number' && BARS.includes(look.bars))) return null;
+  const step = raw.step;
+  if (!isObject(step) || typeof step.shot !== 'number' || !Number.isInteger(step.shot) || step.shot < 0) return null;
+  if (typeof step.seq !== 'number' || !Number.isInteger(step.seq) || step.seq < 0 || step.seq > Number.MAX_SAFE_INTEGER) return null;
+  if (!Array.isArray(raw.shots) || raw.shots.length > 200) return null;
+  const shots: BoardCutscene['shots'] = [];
+  for (const entry of raw.shots) {
+    if (!isObject(entry) || typeof entry.key !== 'string' || !KEY.test(entry.key) || !inside(entry.at, 0, 3_600_000)) return null;
+    if (typeof entry.keyframe !== 'boolean' || (entry.transition !== 'fade' && entry.transition !== 'cut' && entry.transition !== 'move')) return null;
+    const eye = readPoint(entry.eye);
+    const target = readPoint(entry.target);
+    if (!eye || !target) return null;
+    shots.push({ key: entry.key, eye, target, at: entry.at, keyframe: entry.keyframe, transition: entry.transition });
+  }
+  if (raw.mode === 'prepared') {
+    const last = shots.length - 1;
+    // The run rests on a shot that is not a keyframe, or on the first or the last.
+    if (shots.length === 0 || step.shot > last || !(step.shot === 0 || step.shot === last || !shots[step.shot].keyframe)) return null;
+  } else if (shots.length !== 0 || step.shot !== 0) return null;
+  return {
+    runId: raw.runId, mode: raw.mode, look: { bars: look.bars as number | null, fadeMs: look.fadeMs }, shots, step: { shot: step.shot, seq: step.seq }, key: raw.key,
+  };
+}

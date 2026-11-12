@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { broadcastOf } from '../src/cutscene/broadcast';
+import { broadcastOf, readBoardCutscene } from '../src/cutscene/broadcast';
 import { CutsceneChannel } from '../src/cutscene/cutsceneRun';
 import { DEFAULT_CINEMATIC_SETTINGS } from '../src/cutscene/cinematicSettings';
 import type { Cutscene, Shot } from '../src/cutscene/cutsceneData';
@@ -154,4 +154,65 @@ test('disposing the channel (Tabletop unloads): the owner is disposed once, list
   idle.onChange(() => idleHeard++);
   idle.dispose();
   assert.equal(idleHeard, 0);
+});
+
+// ── What a player's board accepts ──────────────────────────────────────────────────────────────────────────────────
+
+test('readBoardCutscene accepts what the broadcast sends, unchanged', () => {
+  const sent = JSON.parse(JSON.stringify(broadcastOf(input).cutscene));
+  assert.deepEqual(readBoardCutscene(sent), sent);
+  const stepped = JSON.parse(JSON.stringify(broadcastOf({ ...input, step: { shot: 2, seq: 4 }, mapPath: 'maps/a.atlasmap' }).cutscene));
+  assert.deepEqual(readBoardCutscene(stepped), stepped);
+});
+
+test('readBoardCutscene accepts a live run with no shots', () => {
+  const live = JSON.parse(JSON.stringify(broadcastOf({ ...input, mode: 'live', cutscene: null }).cutscene));
+  assert.deepEqual(readBoardCutscene(live), live);
+});
+
+test('readBoardCutscene refuses what breaks the limits', () => {
+  const sent = (): any => JSON.parse(JSON.stringify(broadcastOf(input).cutscene));
+  const many = sent();
+  many.shots = Array.from({ length: 201 }, () => many.shots[0]);
+  assert.equal(readBoardCutscene(many), null);
+  const at200 = sent();
+  at200.shots = Array.from({ length: 200 }, () => at200.shots[0]);
+  assert.notEqual(readBoardCutscene(at200), null);
+  const slash = sent();
+  slash.shots[0].key = 'k/1';
+  assert.equal(readBoardCutscene(slash), null);
+  const keyframe = sent();
+  assert.equal(keyframe.shots[1].keyframe, true);
+  keyframe.step.shot = 1;
+  assert.equal(readBoardCutscene(keyframe), null);
+  const none = sent();
+  none.shots = [];
+  assert.equal(readBoardCutscene(none), null);
+  const late = sent();
+  late.shots[2].at = 3_600_001;
+  assert.equal(readBoardCutscene(late), null);
+  const far = sent();
+  far.shots[0].eye.x = 1e7 + 1;
+  assert.equal(readBoardCutscene(far), null);
+  const run = sent();
+  run.runId = 'a b';
+  assert.equal(readBoardCutscene(run), null);
+  const fade = sent();
+  fade.look.fadeMs = 50;
+  assert.equal(readBoardCutscene(fade), null);
+  const bars = sent();
+  bars.look.bars = 1.5;
+  assert.equal(readBoardCutscene(bars), null);
+  const liveShots = JSON.parse(JSON.stringify(broadcastOf({ ...input, mode: 'live', cutscene: null }).cutscene));
+  liveShots.shots = sent().shots;
+  assert.equal(readBoardCutscene(liveShots), null);
+  assert.equal(readBoardCutscene(null), null);
+  assert.equal(readBoardCutscene('x'), null);
+});
+
+test('readBoardCutscene keeps nothing of what it was given', () => {
+  const sent = JSON.parse(JSON.stringify(broadcastOf(input).cutscene));
+  const read = readBoardCutscene(sent)!;
+  sent.shots[0].eye.x = 12345;
+  assert.notEqual(read.shots[0].eye.x, 12345);
 });
