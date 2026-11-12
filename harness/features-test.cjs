@@ -222,6 +222,54 @@ feature('mini sounds', async ({ page, shot }) => {
   await shot('mini-sounds');
 });
 
+// A group of minis dragged together: each is picked up and put down, staggered, and the file echoing the drop back is silent.
+feature('mini sounds in a group', async ({ page, shot }) => {
+  const heard = () => page.evaluate(() => window.boardTest.sounds.plays.map((play) => ({ id: play[0], delayMs: play[1]?.delayMs ?? 0 })));
+  const clear = () => page.evaluate(() => { window.boardTest.sounds.plays.length = 0; });
+  const ids = (list, id) => list.filter((play) => play.id === id);
+  const sorted = (list) => new Set(list.map((p) => p.delayMs)).size === list.length && list.every((p, i) => i === 0 || p.delayMs > list[i - 1].delayMs);
+  const at = (id) => page.evaluate((id) => { const e = window.boardTest.board.tokens.get(id); return window.boardTest.project(e.at.x, e.at.y, 0); }, id);
+  const hero = await at('hero');
+  await page.mouse.click(hero.x, hero.y);
+  await wait(200);
+  for (const id of ['gob', 'gob2']) {
+    const p = await at(id);
+    await page.keyboard.down('Shift');
+    await page.mouse.click(p.x, p.y);
+    await page.keyboard.up('Shift');
+    await wait(150);
+  }
+  await clear();
+  await page.mouse.move(hero.x, hero.y);
+  await page.mouse.down();
+  await page.mouse.move(hero.x + 40, hero.y + 20, { steps: 5 });
+  let now = await heard();
+  check('mini sounds in a group: three minis dragged make three pickups, delays distinct and sorted', ids(now, 'mini.pickup').length === 3 && sorted(ids(now, 'mini.pickup')) && ids(now, 'mini.putdown').length === 0, JSON.stringify(now));
+  // A sync arriving mid-drag that moves the carried minis is no one else's move.
+  await page.evaluate(async () => {
+    const { board } = window.boardTest;
+    await board.load({ ...board.map, tokens: board.map.tokens.map((t) => (['hero', 'gob', 'gob2'].includes(t.id) ? { ...t, y: t.y + 140 } : t)) });
+  });
+  await wait(300);
+  now = await heard();
+  check('mini sounds in a group: a sync mid-drag that moves the carried minis makes no sound', ids(now, 'mini.pickup').length === 3 && ids(now, 'mini.putdown').length === 0, JSON.stringify(now));
+  await page.mouse.move(hero.x + 70, hero.y + 35, { steps: 5 });
+  await page.mouse.up();
+  await wait(200);
+  now = await heard();
+  check('mini sounds in a group: letting go puts down three, staggered', ids(now, 'mini.putdown').length === 3 && sorted(ids(now, 'mini.putdown')), JSON.stringify(now));
+  const moves = await page.evaluate(() => window.boardTest.record.ruleMoves.at(-1));
+  check('mini sounds in a group: the drop moved all three', moves?.length === 3, JSON.stringify(moves));
+  await clear();
+  await page.evaluate(async (moves) => {
+    const { board } = window.boardTest;
+    await board.load({ ...board.map, tokens: board.map.tokens.map((t) => { const m = moves.find((move) => move.id === t.id); return m ? { ...t, x: m.x, y: m.y } : t; }) });
+  }, moves);
+  await wait(1500);
+  check('mini sounds in a group: a sync echoing the group drop makes no sound', (await heard()).length === 0, JSON.stringify(await heard()));
+  await shot('mini-sounds-group');
+});
+
 // ── Item 27: the turn banner and the delayed marker ─────────────────────────────────────────────────────────────
 feature('turn banner and delayed marker', async ({ page, shot }) => {
   await page.evaluate(() => window.boardTest.board.flashTurn('Round 2 · Goblin'));

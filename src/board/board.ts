@@ -2889,7 +2889,7 @@ export class Board {
   /** Whether this board's viewer sees the token at `at`: the GM everything, a player what the fog, the GM and their sight leave. */
   private heardToken(token: BoardToken, at: { x: number; y: number }): boolean {
     if (this.audience === 'gm') return true;
-    return playerSees(token, at, this.fog.areas) && !this.beyondSight('player', `t:${token.id}`);
+    return this.eye?.tokenId !== token.id && playerSees(token, at, this.fog.areas) && !this.beyondSight('player', `t:${token.id}`);
   }
 
   /**
@@ -2921,16 +2921,18 @@ export class Board {
   /** Doors opened or shut by someone else since the last sync of this scene. */
   private hearRemoteDoors(map: BoardMap, sameScene: boolean): void {
     const states = new Map(map.walls.filter((wall) => wall.type === 'door' || wall.type === 'secret-door').map((wall) => [wall.id, wall.closed]));
-    if (sameScene) for (const change of doorChanges(this.doorStates, states)) this.doorSound(change.id, change.closed ? 'door.shut' : 'door.open');
+    if (sameScene) for (const change of doorChanges(this.doorStates, states)) this.doorSound(change.id, change.closed ? 'door.shut' : 'door.open', true);
     this.doorStates = states;
   }
 
-  /** A door's sound, at the middle of the door. */
-  private doorSound(id: string, sound: 'door.open' | 'door.shut' | 'door.locked'): void {
+  /** A door's sound, at the middle of the door; one changed by someone else is not heard on a player's board when the door is under fog or out of sight. */
+  private doorSound(id: string, sound: 'door.open' | 'door.shut' | 'door.locked', remote = false): void {
     const wall = this.map?.walls.find((candidate) => candidate.id === id);
     if (!wall) return;
     const cell = this.map?.grid.size ?? 50;
-    this.sound(sound, { at: { x: (wall.p1.x + wall.p2.x) / 2, y: (this.wallSquares(id) * cell) / 2, z: (wall.p1.y + wall.p2.y) / 2 } });
+    const middle = { x: (wall.p1.x + wall.p2.x) / 2, y: (wall.p1.y + wall.p2.y) / 2 };
+    if (remote && this.audience === 'player' && (insideFog(this.fog.areas, middle) || this.pointBeyond('player', middle.x, middle.y))) return;
+    this.sound(sound, { at: { x: middle.x, y: (this.wallSquares(id) * cell) / 2, z: middle.y } });
   }
 
   /** A material slapped on wall segments: a flash over them and dust off their foot. */
