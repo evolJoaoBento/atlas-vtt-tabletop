@@ -520,6 +520,11 @@ export class ElevationLayerView {
     this.object3d.visible = visible;
   }
 
+  /** Lets go of the lamps' shadow maps (see `LightRig.releaseShadows`). */
+  releaseShadows(): void {
+    this.rig.releaseShadows();
+  }
+
   dispose(): void {
     this.disposed = true;
     this.water?.dispose();

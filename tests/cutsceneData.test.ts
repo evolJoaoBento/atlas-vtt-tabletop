@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { addShot, allowedTransitions, readCutscenes, removeShot, retime, setKeyframe, setTransition, updateShot, type Cutscene, type Shot } from '../src/cutscene/cutsceneData';
+import { addShot, allowedTransitions, limitProblem, MAX_AT_MS, MAX_SHOTS, readCutscenes, removeShot, retime, setKeyframe, setTransition, updateShot, type Cutscene, type Shot } from '../src/cutscene/cutsceneData';
 
 const pose = { eye: { x: 0, y: 5, z: 5 }, target: { x: 0, y: 0, z: 0 } };
 const shot = (id: string, at: number, mapPath: string, extra: Partial<Shot> = {}): Shot => ({ id, at, mapPath, ...pose, keyframe: false, transition: 'fade', ...extra });
@@ -87,4 +87,20 @@ test('updateShot moving a shot to another map turns the move into it into a fade
   const withMove: Cutscene = { ...three, shots: three.shots.map((s) => (s.id === 'c' ? { ...s, transition: 'move' as const } : s)) };
   assert.equal(updateShot(withMove, 'b', { mapPath: 'other', ...pose }).shots[2].transition, 'fade');
   assert.equal(updateShot(three, 'b', { mapPath: 'm', eye: pose.eye, target: pose.eye }), three);
+});
+
+test('limits: at most 200 shots, a shot no later than one hour, cameras within 1e7', () => {
+  const full: Cutscene = { id: 'f', name: 'Full', shots: Array.from({ length: MAX_SHOTS }, (_, i) => shot(`s${i}`, i * 100, 'm')) };
+  assert.equal(limitProblem(full), null);
+  assert.equal(addShot(full, { id: 'more', at: 50_000, mapPath: 'm', ...pose }, 'fade'), full);
+  const one: Cutscene = { id: 'o', name: 'One', shots: [shot('a', 0, 'm')] };
+  assert.equal(addShot(one, { id: 'late', at: MAX_AT_MS + 1, mapPath: 'm', ...pose }, 'fade'), one);
+  assert.equal(addShot(one, { id: 'edge', at: MAX_AT_MS, mapPath: 'm', ...pose }, 'fade').shots.length, 2);
+  assert.equal(addShot(one, { id: 'far', at: 500, mapPath: 'm', eye: { x: 2e7, y: 5, z: 5 }, target: pose.target }, 'fade'), one);
+  assert.equal(retime(one, 'a', MAX_AT_MS * 2).shots[0].at, MAX_AT_MS);
+  const two = addShot(one, { id: 'b', at: 500, mapPath: 'm', ...pose }, 'fade');
+  assert.equal(retime(two, 'b', MAX_AT_MS * 2).shots[1].at, MAX_AT_MS);
+  assert.match(limitProblem({ ...full, shots: [...full.shots, shot('x', 1e6, 'm')] }) ?? '', /at most 200 shots/);
+  assert.match(limitProblem({ ...one, shots: [shot('a', MAX_AT_MS + 1, 'm')] }) ?? '', /1 hour/);
+  assert.match(limitProblem({ ...one, shots: [shot('a', 0, 'm', { target: { x: 0, y: 0, z: -1e8 } })] }) ?? '', /too far/);
 });

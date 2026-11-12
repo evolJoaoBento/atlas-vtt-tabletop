@@ -101,11 +101,26 @@ export function readCutscenes(raw: unknown): Cutscene[] {
 
 type Pose = Pick<Shot, 'mapPath' | 'eye' | 'target'>;
 
-const validPose = (pose: Pose): boolean => pose.mapPath !== '' && Number.isFinite(pose.eye.x + pose.eye.y + pose.eye.z + pose.target.x + pose.target.y + pose.target.z) && !sameVec(pose.eye, pose.target);
+/** The limits a cutscene shown to players keeps (Connect checks the same ones; see `BoardCutscene`). */
+export const MAX_SHOTS = 200;
+export const MAX_AT_MS = 3_600_000;
+export const MAX_COORDINATE = 1e7;
 
-/** Adds a shot at its moment. Refused (unchanged) when it is too close to another shot, repeats an id or has a bad pose. */
+const inRange = (v: Vec3): boolean => Math.abs(v.x) <= MAX_COORDINATE && Math.abs(v.y) <= MAX_COORDINATE && Math.abs(v.z) <= MAX_COORDINATE;
+
+const validPose = (pose: Pose): boolean => pose.mapPath !== '' && Number.isFinite(pose.eye.x + pose.eye.y + pose.eye.z + pose.target.x + pose.target.y + pose.target.z) && !sameVec(pose.eye, pose.target) && inRange(pose.eye) && inRange(pose.target);
+
+/** Why `c` cannot be shown to players (it breaks a limit both sides check), or null. */
+export function limitProblem(c: Cutscene): string | null {
+  if (c.shots.length > MAX_SHOTS) return `a cutscene holds at most ${MAX_SHOTS} shots`;
+  if (c.shots.some((shot) => !(shot.at >= 0 && shot.at <= MAX_AT_MS))) return 'a cutscene lasts at most 1 hour';
+  if (c.shots.some((shot) => !inRange(shot.eye) || !inRange(shot.target))) return 'a camera is too far from the map';
+  return null;
+}
+
+/** Adds a shot at its moment. Refused (unchanged) when it is too close to another shot, repeats an id, has a bad pose, or the cutscene is full or too long. */
 export function addShot(c: Cutscene, shot: Pick<Shot, 'id' | 'at' | 'mapPath' | 'eye' | 'target'>, preferred: Transition): Cutscene {
-  if (!Number.isFinite(shot.at) || shot.at < 0 || !validPose(shot)) return c;
+  if (!Number.isFinite(shot.at) || shot.at < 0 || shot.at > MAX_AT_MS || c.shots.length >= MAX_SHOTS || !validPose(shot)) return c;
   if (c.shots.some((other) => other.id === shot.id || Math.abs(other.at - shot.at) < MIN_SHOT_GAP_MS)) return c;
   const index = c.shots.findIndex((other) => other.at > shot.at);
   const at = index < 0 ? c.shots.length : index;
@@ -129,7 +144,8 @@ export function retime(c: Cutscene, shotId: string, at: number): Cutscene {
   if (i < 0 || !Number.isFinite(at)) return c;
   const low = i === 0 ? 0 : c.shots[i - 1].at + MIN_SHOT_GAP_MS;
   const high = i === c.shots.length - 1 ? Infinity : c.shots[i + 1].at - MIN_SHOT_GAP_MS;
-  const clamped = Math.min(high, Math.max(low, at));
+  if (low > MAX_AT_MS) return c;
+  const clamped = Math.min(high, MAX_AT_MS, Math.max(low, at));
   if (clamped === c.shots[i].at) return c;
   return replaceShot(c, shotId, (shot) => ({ ...shot, at: clamped }));
 }

@@ -4469,6 +4469,9 @@ export class Board {
     if (!this.disposed) this.reissueLoops();
     player.resize.disconnect();
     player.tilt?.dispose();
+    // The lamps' shadow maps are shared with this window's renderer: freed while both renderers are alive, so none keeps a listener that throws later.
+    this.rig.releaseShadows();
+    for (const view of [...this.layerViews.values(), ...this.parked.values()]) view.releaseShadows();
     player.renderer.dispose();
     player.renderer.forceContextLoss();
     player.canvas.remove();

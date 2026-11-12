@@ -11,7 +11,7 @@ import type { CameraKeep } from '../board/camera';
 import type { BoardSession, GmCutscene } from '../connectContract';
 import { CutsceneRun } from './cutsceneRun';
 import { CINEMATIC_ASPECTS, MAX_FADE_MS, MIN_FADE_MS, type CinematicAspect, type CinematicSettings } from './cinematicSettings';
-import { addShot, allowedTransitions, removeShot, retime, setKeyframe, setTransition, updateShot, type Cutscene, type Transition } from './cutsceneData';
+import { addShot, allowedTransitions, MAX_AT_MS, MAX_SHOTS, removeShot, retime, setKeyframe, setTransition, updateShot, type Cutscene, type Transition } from './cutsceneData';
 import type { CinematicDriver } from './drivenView';
 import { FreeCamera } from './freeCamera';
 import { CutscenePlayback } from './playback';
@@ -510,7 +510,11 @@ export class CutsceneStudio {
     if (!session || session.preview) return;
     const { eye, target } = (session.driver.free as FreeCamera).pose();
     const added = this.amend((c) => addShot(c, { id: newId('shot'), at, mapPath: this.host.mapPath() ?? session.home, eye, target }, this.host.settings().transition));
-    if (!added) this.host.notice('Tabletop: a shot cannot go that close to another one (at least 0.1 s apart).');
+    if (added) return;
+    const count = this.session?.cutscene.shots.length ?? 0;
+    if (count >= MAX_SHOTS) this.host.notice(`Tabletop: a cutscene holds at most ${MAX_SHOTS} shots.`);
+    else if (at > MAX_AT_MS) this.host.notice('Tabletop: a cutscene lasts at most 1 hour.');
+    else this.host.notice('Tabletop: a shot cannot go that close to another one (at least 0.1 s apart), or the camera is too far from the map.');
   }
 
   /** Puts the free camera on a shot (switching to its map when it is on another). */

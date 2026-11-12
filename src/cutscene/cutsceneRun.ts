@@ -10,7 +10,7 @@ import type { CameraKeep } from '../board/camera';
 import type { CutsceneSource, GmCutscene } from '../connectContract';
 import { broadcastOf } from './broadcast';
 import type { CinematicSettings } from './cinematicSettings';
-import type { Cutscene, Vec3 } from './cutsceneData';
+import { limitProblem, type Cutscene, type Vec3 } from './cutsceneData';
 import type { CinematicDriver } from './drivenView';
 import { CutscenePlayback } from './playback';
 import type { StudioHost } from './studio';
@@ -116,6 +116,11 @@ export class CutsceneRun {
     const refused = this.refusal();
     if (refused) {
       this.host.notice(refused);
+      return false;
+    }
+    const tooMuch = limitProblem(cutscene);
+    if (tooMuch) {
+      this.host.notice(`Tabletop: this cutscene cannot be shown to players: ${tooMuch}.`);
       return false;
     }
     const tabs = this.host.mapTabs();

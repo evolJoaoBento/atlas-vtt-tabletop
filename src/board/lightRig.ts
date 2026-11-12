@@ -181,6 +181,17 @@ export class LightRig {
     return (hit?.object.userData.lightId as string | undefined) ?? null;
   }
 
+  /**
+   * Lets go of the lamps' shadow maps while every renderer that drew them is alive, so each frees its own side; the next
+   * draw makes them again. A renderer disposed first would leave its listener on a shared map that throws when the map is freed.
+   */
+  releaseShadows(): void {
+    for (const entry of this.entries.values()) {
+      entry.lamp.shadow.map?.dispose();
+      entry.lamp.shadow.map = null;
+    }
+  }
+
   private clear(): void {
     for (const entry of this.entries.values()) {
       entry.lamp.removeFromParent();

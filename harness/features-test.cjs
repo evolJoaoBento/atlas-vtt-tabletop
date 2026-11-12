@@ -3633,8 +3633,8 @@ feature('cinematic mode', async ({ page, shot }) => {
     made.setAugmented({ rotation: [1, 0, 0, 0, 1, 0, 0, 0, 1], translation: [0, 0, 400], frustum: { left: -1, right: 1, top: -1, bottom: 1 }, squareMm: 25 });
     const kept = { driver: made.cinematic !== null, arLatest: made.arLatest !== null };
     await new Promise((resolve) => setTimeout(resolve, 300));
-    // (A spare board's light cube targets may never have been drawn, and three then throws late in dispose, after the driver and AR view are cleared at its top.)
-    try { made.dispose(); } catch (error) { console.warn('spare board dispose:', String(error)); }
+    // No try/catch: a board whose players' window was attached and detached must dispose without throwing (the lamps' shared shadow maps).
+    made.dispose();
     div.remove();
     return { heldBefore, heldAfter, live, kept, driver: made.cinematic, arLatest: made.arLatest };
   });
@@ -4030,14 +4030,17 @@ feature('cutscene run closing', async ({ page }) => {
   await page.evaluate(() => window.boardTest.studio.studio.play('docks'));
   await page.waitForFunction(() => window.boardTest.api.cutscene.current() !== null);
   await wait(300);
+  // The session going ends a run, with the fade.
+  await page.evaluate(() => window.boardTest.studio.studio.endRun());
+  check('cutscene run: ending it (the session was released) publishes null', await page.evaluate(() => window.boardTest.api.cutscene.current()) === null);
+  await page.waitForFunction(() => window.boardTest.board.cinematicRole === 'none', null, { timeout: 5000 });
+  // Closing the board while a new run is on: the studio is disposed last, and not used again.
+  await page.evaluate(() => { window.runLog.changes = 0; return window.boardTest.studio.studio.play('docks'); });
+  await page.waitForFunction(() => window.boardTest.api.cutscene.current() !== null);
+  await wait(300);
   await page.evaluate(() => window.boardTest.studio.studio.dispose());
   check('cutscene run: closing the board clears api.cutscene and tells the listeners', await page.evaluate(() => window.boardTest.api.cutscene.current() === null && window.runLog.changes === 2));
   check('cutscene run: and gives the board back', await page.evaluate(() => window.boardTest.board.cinematicRole === 'none' && window.boardTest.board.cinematic === null));
-  // The session going ends a run, with the fade.
-  await page.evaluate(() => window.boardTest.studio.studio.play('docks'));
-  await page.waitForFunction(() => window.boardTest.api.cutscene.current() !== null);
-  await page.evaluate(() => window.boardTest.studio.studio.endRun());
-  check('cutscene run: ending it (the session was released) publishes null', await page.evaluate(() => window.boardTest.api.cutscene.current()) === null);
 });
 
 // ── Cutscenes: authoring while the vault changes, and a map that cannot be shown ─────────────────────────────────────

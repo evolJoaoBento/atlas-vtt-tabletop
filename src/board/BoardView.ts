@@ -194,6 +194,8 @@ export class BoardView extends ItemView {
   private playersHeld = false;
   /** The players' window lent to a cutscene run: it follows this tab across maps instead of waiting for its own. */
   private lent: PlayerView | null = null;
+  /** A run lends the players' window now (whichever window this tab has, now or opened later). */
+  private lending = false;
   /** This tab's side of `api.cutscene`: what the channel asks of the run it holds. */
   readonly cutsceneOwner: CutsceneOwner = {
     end: () => this.studio?.endRun(),
@@ -398,6 +400,8 @@ export class BoardView extends ItemView {
   showPlayer(view: PlayerView): void {
     if (this.playerWindow === view) return;
     this.playerWindow = view;
+    // A window opened while a run lends this tab's players' window is lent too.
+    if (this.lending) this.lent = view;
     view.waiting(false);
     this.board?.attachPlayer(view.stage);
     if (this.playersHeld) this.board?.holdPlayers(true);
@@ -432,13 +436,18 @@ export class BoardView extends ItemView {
         view.board?.holdPlayers(hold);
       },
       session: () => view.services.session?.() ?? null,
-      lendPlayers: (lend) => { view.lent = lend ? view.playerWindow : null; },
+      lendPlayers: (lend) => {
+        view.lending = lend;
+        view.lent = lend ? view.playerWindow : null;
+      },
       publishRun: (run) => view.services.publishCutscene?.(view.cutsceneOwner, run),
     };
   }
 
   /** Stops drawing into the local player view (it closed, or shows another map). */
   hidePlayer(view: PlayerView): void {
+    // A window that closed is not lent any more (the next map switch must not attach to it).
+    if (this.lent === view) this.lent = null;
     if (this.playerWindow !== view) return;
     this.playerWindow = null;
     this.board?.detachPlayer();
@@ -522,15 +531,18 @@ export class BoardView extends ItemView {
 
   /** The board goes (another map, new quality, the tab closing): its dice first, the roll in play never logged. */
   private dropBoard(): void {
-    this.dice?.sceneChanged();
-    this.dice?.dispose();
-    this.dice = null;
-    this.hoverCard?.dispose();
-    this.hoverCard = null;
-    this.stopWindowRolls?.();
-    this.stopWindowRolls = null;
-    this.board?.dispose();
-    this.board = null;
+    try {
+      this.dice?.sceneChanged();
+      this.dice?.dispose();
+      this.dice = null;
+      this.hoverCard?.dispose();
+      this.hoverCard = null;
+      this.stopWindowRolls?.();
+      this.stopWindowRolls = null;
+      this.board?.dispose();
+    } finally {
+      this.board = null;
+    }
   }
 
   /** Atlas's toolbar tools for this board: what each asks of the board. */

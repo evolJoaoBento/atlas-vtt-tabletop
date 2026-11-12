@@ -131,3 +131,27 @@ test('ending the channel ends the run and publishes null', () => {
   assert.equal(channel.current(), null);
   assert.equal(heard, 2);
 });
+
+test('disposing the channel (Tabletop unloads): the owner is disposed once, listeners hear null once and nothing after', () => {
+  const channel = new CutsceneChannel();
+  const a = owner('a');
+  let heard = 0;
+  channel.onChange(() => heard++);
+  channel.onCamera(() => heard++);
+  channel.publish(a, broadcastOf({ ...input, mode: 'live', cutscene: null }));
+  assert.equal(heard, 1);
+  channel.dispose();
+  assert.equal(channel.current(), null);
+  assert.equal(a.ended, 1);
+  assert.equal(heard, 2);
+  channel.publish(a, null);
+  channel.publish(a, told(1));
+  channel.cameraMoved(a);
+  assert.equal(heard, 2);
+  // Disposing with no run tells nobody.
+  const idle = new CutsceneChannel();
+  let idleHeard = 0;
+  idle.onChange(() => idleHeard++);
+  idle.dispose();
+  assert.equal(idleHeard, 0);
+});

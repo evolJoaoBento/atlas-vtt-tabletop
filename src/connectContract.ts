@@ -143,7 +143,20 @@ export interface BoardCutsceneShot {
  * each player's board plays the shots locally (nothing streams the camera). Live: the board follows the GM's camera,
  * which arrives separately (`CutsceneSource.camera`). Limits both sides check: at most 200 shots; `runId` matches
  * `^[A-Za-z0-9_-]{1,64}$`; every coordinate is finite with |value| ≤ 1e7; `look.fadeMs` is 100..3000; `look.bars` is null or
- * one of 1.85, 2, 2.39.
+ * one of 1.85, 2, 2.39. Tabletop keeps to the shot, time and coordinate limits itself (the studio refuses past them and a run
+ * of a cutscene that breaks them does not start).
+ *
+ * Reading the news:
+ * - The first publication of a `runId` starts the run (fade to black, then in on the step's shot). A board that joins later
+ *   starts at the latest publication's `step.shot`, at rest, with no transition.
+ * - Scene switch: prepared, the scene changes when the step's map `key` differs from the last publication's. Live bumps
+ *   `seq` on every scene switch, and its `key` is then always a new one.
+ * - Transition into a step: a cut when `step.shot` is lower than before or `seq` jumps by more than one; otherwise the
+ *   step's own transition applies.
+ * - A cross-map step: the player's board fades to black and holds black until Connect delivers the new map's revealed
+ *   projection, then fades in. Connect sends that projection as soon as it sees the step change.
+ * - `GmCutscene.maps` holds the maps of that publication only; it is not cumulative. Resolve `key` from the publication
+ *   just read. `GmCutscene` objects are read-only for Connect.
  */
 export interface BoardCutscene {
   /** Names this run: a new run has a new id, so a board tells a new run from a change of the one it plays. */
@@ -184,6 +197,10 @@ export interface GmCutscene {
  * The cutscene run on the GM's board, read through Tabletop's API (`api.cutscene`, shaped like `gmCamera`): a pull
  * source. Connect reads `current()` whenever `onChange` fires. At most one run exists at a time; it ends (and `current()`
  * is null) when the GM ends it, its board closes, the session is released or Tabletop unloads.
+ *
+ * Consumers read `current()` when they attach (a run may already be going). `onChange` may fire twice for one logical
+ * change (another tab taking the run over delivers null, then the new run): read `current()` each time and dedupe by `seq`,
+ * never count calls. `onCamera` is not throttled: throttle it to 100 ms.
  */
 export interface CutsceneSource {
   /** The run now, or null for none. A new object whenever the step, the key or the run changes. */
