@@ -184,7 +184,10 @@ export interface BoardCutscene {
 export interface PlayerCutsceneOptions {
   /** Connect has just made this board for the run, over a view it faded to black itself: no enter fade. */
   startBlack?: boolean;
-  /** At the leave fade's black the board does not reload its own scene: it calls `host.cutsceneOver()` and stays black. */
+  /**
+   * At the leave fade's black the board does not reload its own scene: it calls `host.cutsceneOver()` and stays black and
+   * locked. Connect then disposes the board, or reuses it with another `setCutscene` (the next run starts from black).
+   */
   handBack?: boolean;
 }
 

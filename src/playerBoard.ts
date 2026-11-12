@@ -194,8 +194,9 @@ interface Run {
   keep: CameraKeep | null;
   /** The camera the player had, drawn while their own scene still shows. */
   own: { eye: { x: number; y: number; z: number }; target: { x: number; y: number; z: number } };
-  /** The token whose eyes the player was in. */
+  /** The token whose eyes the player was in, and whether the gyroscope turned the view. */
   eyes: string | null;
+  gyro: boolean;
   /** The key of the cutscene scene the board shows, or null for the player's own scene. */
   showing: string | null;
   /** The key last drawn, and whether its map image was in place. */
@@ -239,8 +240,6 @@ class PlayerBoard implements PlayerBoardHandle {
   private queued: { cutscene: BoardCutscene; options: PlayerCutsceneOptions } | null = null;
   /** What the end of a run asks of the load of the player's own scene: the camera to put back (null: frame the map). */
   private afterOwn: { keep: CameraKeep | null; done(): void } | null = null;
-  /** Whether the player was last put in a token's eyes with the gyroscope. */
-  private eyeGyro = false;
   /** Files asked for before they arrived, by asset id: settled when `refresh` finds them. */
   private readonly waiting = new Map<string, Array<() => void>>();
   private loading: Promise<void> = Promise.resolve();
@@ -283,6 +282,7 @@ class PlayerBoard implements PlayerBoardHandle {
     const before = this.scene?.sceneId ?? null;
     this.scene = scene as PlayerSceneLike | null;
     // Another scene, or none: the dice go, and the roll in play is never sent. (During a run the own scene is only kept.)
+    if ((this.scene?.sceneId ?? null) !== before) this.marks = { templates: null, spells: null };
     if (!this.run && (this.scene?.sceneId ?? null) !== before) this.dice.sceneChanged();
     // No scene (the GM cleared it, or the player was moved to none): the board shows nothing until the next.
     if (!this.run) this.board.canvas.style.visibility = this.scene ? '' : 'hidden';
@@ -377,9 +377,7 @@ class PlayerBoard implements PlayerBoardHandle {
   readonly firstPerson = true as const;
   seeFrom(tokenId: string | null, gyro: boolean): boolean {
     if (this.run) return false;
-    const seen = this.board.seeFrom(tokenId, gyro);
-    if (seen && tokenId !== null) this.eyeGyro = gyro;
-    return seen;
+    return this.board.seeFrom(tokenId, gyro);
   }
   seeingFrom(): string | null { return this.board.seeingFrom; }
   readonly augmentedReality = true as const;
@@ -397,23 +395,38 @@ class PlayerBoard implements PlayerBoardHandle {
 
   receiveTemplates(sceneId: string, templates: readonly unknown[]): void {
     if (sceneId !== this.scene?.sceneId) return;
-    this.board.receiveTemplates(templates as TemplateMark[]);
+    this.marks.templates = templates;
+    // The marks belong to the player's own scene: during a run they wait, and are drawn on it when it is back.
+    if (!this.run) this.board.receiveTemplates(templates as TemplateMark[]);
   }
+
+  /** The latest templates and spells of the own scene, drawn again once the run is over (a run's scene shows none of them). */
+  private marks: { templates: readonly unknown[] | null; spells: { list: readonly unknown[]; asks: readonly unknown[] } | null } = { templates: null, spells: null };
 
   readonly spells = true as const;
   receiveSpells(sceneId: string, spells: readonly unknown[], asks: readonly unknown[] = []): void {
     if (sceneId !== this.scene?.sceneId) return;
-    this.board.receiveSpells(sceneId, spells, asks);
+    this.marks.spells = { list: spells, asks };
+    if (!this.run) this.board.receiveSpells(sceneId, spells, asks);
   }
 
+  // Pings and lasers are moments: during a run they are not drawn on the run's scene and are not kept.
   receivePing(ping: unknown): void {
     const { x, y, color, sceneId } = ping as { x: number; y: number; color: string; sceneId: string };
-    if (sceneId === this.scene?.sceneId) this.board.receivePing(x, y, color);
+    if (!this.run && sceneId === this.scene?.sceneId) this.board.receivePing(x, y, color);
   }
 
   receiveLaser(laser: unknown): void {
     const { from, points, lifted, color, sceneId } = laser as { from: string; points: Point[]; lifted: boolean; color?: string; sceneId: string };
-    if (sceneId === this.scene?.sceneId) this.board.receiveLaser(from, points, lifted, color ?? '#ff0059');
+    if (!this.run && sceneId === this.scene?.sceneId) this.board.receiveLaser(from, points, lifted, color ?? '#ff0059');
+  }
+
+  /** The own scene is back: the templates and spells that came meanwhile are drawn on it. */
+  private drawMarks(): void {
+    const id = this.scene?.sceneId;
+    if (id === undefined) return;
+    if (this.marks.templates) this.board.receiveTemplates(this.marks.templates as TemplateMark[]);
+    if (this.marks.spells) this.board.receiveSpells(id, this.marks.spells.list, this.marks.spells.asks);
   }
 
   /** Files arrived: what waited for them is drawn, and the map image loads if it was missing. */
@@ -543,11 +556,12 @@ class PlayerBoard implements PlayerBoardHandle {
       if (framesAnew(this.framedScene, sceneId)) this.board.frameNewMap();
       else if (after?.keep) this.board.restoreCamera(after.keep);
       this.framedScene = sceneId;
+      if (after) this.drawMarks();
       after?.done();
     }).catch((error: unknown) => console.error('[Tabletop] The player board could not show the scene:', error));
   }
 
-  /** The id of the scene the board last finished loading: a run's scene is `cutscene:<runId>:<key>`. */
+  /** Test support (the harness reads it): the id of the scene the board last finished loading; a run's scene is `cutscene:<runId>:<key>`. */
   private loadedId: string | null = null;
 
   // ── Cutscenes ─────────────────────────────────────────────────────────────
@@ -561,7 +575,12 @@ class PlayerBoard implements PlayerBoardHandle {
   setCutscene(raw: unknown | null, options: PlayerCutsceneOptions = {}): void {
     if (this.disposed) return;
     if (raw === null) {
-      this.queued = null;
+      // A run waiting for this one to finish is cancelled with its scenes.
+      if (this.queued) {
+        this.cutScenes.delete(this.queued.cutscene.runId);
+        this.endedRun = this.queued.cutscene.runId;
+        this.queued = null;
+      }
       const run = this.run;
       if (!run) return;
       if (options.handBack !== undefined) run.handBack = options.handBack;
@@ -629,10 +648,11 @@ class PlayerBoard implements PlayerBoardHandle {
     const ownShown = this.framedScene !== null;
     const black = options.startBlack === true || !ownShown;
     const eyes = board.seeingFrom;
+    const gyro = board.seeingGyro;
     const state = new PlayerCutsceneState();
     const keep = ownShown ? board.keepCamera() : null;
     const run: Run = {
-      cutscene, state, keep, own: board.cameraPose(), eyes, showing: null, loaded: null, live: null,
+      cutscene, state, keep, own: board.cameraPose(), eyes, gyro, showing: null, loaded: null, live: null,
       handBack: options.handBack === true, handedBack: false, restoring: null, roll: null,
     };
     this.run = run;
@@ -641,8 +661,7 @@ class PlayerBoard implements PlayerBoardHandle {
     this.endedRun = null;
     // The player leaves a token's eyes, and the board is theirs no more; the sight veil hides nothing during a run.
     board.setCinematicRole('locked');
-    board.setReveal(true);
-    board.cinema.setBars(cutscene.look.bars);
+    // The reveal and the bars come on with the run's first scene (at black), not during the fade, when the player's own scene is still on screen.
     if (black) board.cinema.setBlack(1);
     board.setCinematic(this.driverOf(run));
     state.cutscene(cutscene, now, black);
@@ -660,7 +679,7 @@ class PlayerBoard implements PlayerBoardHandle {
     }
     run.cutscene = cutscene;
     if (options.handBack !== undefined) run.handBack = options.handBack;
-    this.board.cinema.setBars(cutscene.look.bars);
+    if (run.showing !== null) this.board.cinema.setBars(cutscene.look.bars);
     run.state.cutscene(cutscene, this.clock());
     this.board.wake(true);
   }
@@ -684,6 +703,9 @@ class PlayerBoard implements PlayerBoardHandle {
     if (wanted !== null && wanted !== run.showing && !run.restoring) {
       // The first scene of the run, another map, or (live) another scene: a roll in play does not go with it to the new map.
       if (run.showing !== null) this.dice.sceneChanged('The scene changed; roll again.');
+      // The picture is black here: the sight veil stops hiding things and the bars come on now, not while the player's own scene fades.
+      this.board.setReveal(true);
+      this.board.cinema.setBars(run.cutscene.look.bars);
       run.showing = wanted;
       run.loaded = null;
       this.reload();
@@ -701,7 +723,7 @@ class PlayerBoard implements PlayerBoardHandle {
   /** At the leave fade's black: the run's scene and what it revealed go, and the player's own scene and camera come back. */
   private restore(run: Run, now: number): void {
     run.restoring = { since: now, done: null };
-    this.dice.sceneChanged();
+    this.dice.sceneChanged('The scene changed; roll again.');
     this.board.setReveal(false);
     run.showing = null;
     run.loaded = null;
@@ -758,10 +780,11 @@ class PlayerBoard implements PlayerBoardHandle {
     // The camera the player had, exactly (the driver's last frames moved the drawn one, and handing it back snapped it).
     if (run.restoring && !run.handedBack && run.keep && !framesAnew(this.framedScene, this.scene?.sceneId ?? '')) board.restoreCamera(run.keep);
     board.setCinematicRole('none');
-    this.cutScenes.delete(run.cutscene.runId);
+    // Nothing of any run but the one waiting to start is kept.
+    for (const id of [...this.cutScenes.keys()]) if (id !== this.queued?.cutscene.runId) this.cutScenes.delete(id);
     this.endedRun = run.cutscene.runId;
     // Back in the same token's eyes, and Connect told, as it was when they were taken.
-    if (!run.handedBack && run.eyes !== null && board.seeFrom(run.eyes, this.eyeGyro)) this.host.eyeChanged?.();
+    if (!run.handedBack && run.eyes !== null && board.seeFrom(run.eyes, run.gyro)) this.host.eyeChanged?.();
     const next = this.queued;
     this.queued = null;
     if (next) this.setCutscene(next.cutscene, next.options);

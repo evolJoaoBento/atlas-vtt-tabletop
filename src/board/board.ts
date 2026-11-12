@@ -4472,6 +4472,11 @@ export class Board {
     // The lamps' shadow maps are shared with this window's renderer: freed while both renderers are alive, so none keeps a listener that throws later.
     this.rig.releaseShadows();
     for (const view of [...this.layerViews.values(), ...this.parked.values()]) view.releaseShadows();
+    // This board's own lamps made their maps again on the next draw.
+    if (!this.disposed) {
+      this.shadowsDirty = true;
+      this.wake(true);
+    }
     player.renderer.dispose();
     player.renderer.forceContextLoss();
     player.canvas.remove();
@@ -5121,7 +5126,13 @@ export class Board {
     if (view !== null && !isAugmentedView(view)) return false;
     // While a cutscene has the camera the view is kept as the latest and not drawn; it is drawn when the lock ends.
     this.arLatest = view;
-    if (view !== null && !this.allows('ar')) return true;
+    if (!this.allows('ar')) return true;
+    this.applyAugmented(view);
+    return true;
+  }
+
+  /** Puts the augmented-reality look on for `view`, or takes it off for null (the lock calls it with null without forgetting the latest view). */
+  private applyAugmented(view: AugmentedView | null): void {
     const was = this.augmented !== null;
     this.augmented = view;
     // The camera's picture, when the page draws it in: the same picture the pose was found for, so the two never part.
@@ -5158,7 +5169,6 @@ export class Board {
     }
     if (this.arTexture) this.scene.background = this.arTexture;
     this.wake(!view || !was);
-    return true;
   }
 
   /** Whether the camera's picture shows round the board: augmented reality on a marker sheet, or room tracking. */
@@ -6181,6 +6191,11 @@ export class Board {
     return this.eye?.tokenId ?? null;
   }
 
+  /** Whether the view through a token's eyes was asked to follow the phone's gyroscope. */
+  get seeingGyro(): boolean {
+    return this.eye?.gyro ?? false;
+  }
+
   /** Where the eye view stands: the token's place, at its eye height (most of the way up its mini, or of its disc). */
   private eyeAt(): { x: number; y: number; z: number } | null {
     const entry = this.eye ? this.tokens.get(this.eye.tokenId) : undefined;
@@ -6666,7 +6681,9 @@ export class Board {
       this.eyesLocked = this.eye.tokenId;
       this.leaveEyes();
     }
-    if (this.allows('ar') && this.arLatest && this.arLatest !== this.augmented) this.setAugmented(this.arLatest);
+    // The camera's picture and the AR look stay off while the lock holds (the latest view is kept), and come back with it.
+    if (!this.allows('ar') && this.augmented !== null) this.applyAugmented(null);
+    else if (this.allows('ar') && this.arLatest !== this.augmented) this.applyAugmented(this.arLatest);
     this.wake(true);
   }
 
@@ -6819,6 +6836,8 @@ export class Board {
     this.beam.dispose();
     this.fog.dispose();
     this.walls.dispose();
+    // A step that throws must not skip freeing the GPU context and removing the canvas.
+    try {
     this.rig.dispose();
     for (const view of this.layerViews.values()) view.dispose();
     this.layerViews.clear();
@@ -6836,10 +6855,12 @@ export class Board {
     this.surface?.dispose();
     for (const art of this.arts.values()) void art.then((texture) => texture?.dispose());
     this.tilt?.dispose();
-    this.renderer.dispose();
-    this.renderer.forceContextLoss();
-    this.canvas.remove();
-    this.tooltip.remove();
+    } finally {
+      this.renderer.dispose();
+      this.renderer.forceContextLoss();
+      this.canvas.remove();
+      this.tooltip.remove();
+    }
   }
 }
 

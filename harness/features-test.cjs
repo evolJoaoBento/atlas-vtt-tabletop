@@ -4445,6 +4445,191 @@ feature('player cutscene lock', async ({ page }) => {
   }));
 }, PLAYER_URL);
 
+// ── Fix round 1 of Task 6 ─────────────────────────────────────────────────────────────────────────────────────────────
+const AR_VIEW = "({ rotation: [1, 0, 0, 0, 1, 0, 0, 0, 1], translation: [0, 0, 400], frustum: { left: -1, right: 1, top: -1, bottom: 1 }, squareMm: 25, background: document.createElement('canvas') })";
+
+playerFeature('player cutscene reveal, marks and AR', async ({ page }) => {
+  await prepare(page);
+  // The reveal and the bars come on with the run's first scene, not while the own scene fades.
+  await startRun(page);
+  await wait(250);
+  const early = await page.evaluate(() => ({ reveal: window.playerTest.board.reveal, bars: window.playerTest.board.cinema.aspect, black: window.fx.black() }));
+  check('player cutscene: during the enter fade the own scene keeps its veil and shows no bars', early.reveal === false && early.bars === null && early.black > 0, JSON.stringify(early));
+  check('player cutscene: the run is on', await settled(page));
+  check('player cutscene: and then the reveal and the bars are on', await page.evaluate(() => window.playerTest.board.reveal === true && window.playerTest.board.cinema.aspect === 2.39));
+  // Pings, lasers and templates of the own scene are not drawn on the run's scene; the templates come back after.
+  const out = await page.evaluate(async () => {
+    const t = window.playerTest;
+    const calls = { ping: 0, laser: 0, templates: [] };
+    const board = t.board;
+    const { receivePing, receiveLaser, receiveTemplates } = board;
+    board.receivePing = function (...a) { calls.ping++; return receivePing.apply(this, a); };
+    board.receiveLaser = function (...a) { calls.laser++; return receiveLaser.apply(this, a); };
+    board.receiveTemplates = function (list) { calls.templates.push(list.length); return receiveTemplates.call(this, list); };
+    t.handle.receivePing({ from: 'you', sceneId: 's1', x: 600, y: 600, color: '#00a9ff' });
+    t.handle.receiveLaser({ from: 'you', sceneId: 's1', points: [{ x: 300, y: 600 }, { x: 400, y: 620 }], lifted: true, color: '#00a9ff' });
+    t.handle.receiveTemplates('s1', [{ id: 't1', owner: 'you', shape: 'circle', start: { x: 420, y: 700 }, end: { x: 490, y: 700 }, color: '#ff9f2e' }]);
+    const during = { ping: calls.ping, laser: calls.laser, templates: calls.templates.length };
+    t.handle.setCutscene(null);
+    await window.fx.until(() => t.handle.run === null, 10000);
+    await new Promise((r) => setTimeout(r, 300));
+    return { during, after: { ping: calls.ping, laser: calls.laser, templates: calls.templates.slice() } };
+  });
+  check('player cutscene: during a run pings, lasers and templates of the own scene are not drawn on the run\'s scene', out.during.ping === 0 && out.during.laser === 0 && out.during.templates === 0, JSON.stringify(out));
+  check('player cutscene: the templates that came meanwhile are drawn on the own scene once it is back (pings and lasers are dropped)', out.after.templates.join() === '1' && out.after.ping === 0 && out.after.laser === 0, JSON.stringify(out));
+  // AR: a player in marker AR when the run starts is taken out of the AR look, and back in it after.
+  const ar1 = await page.evaluate(async (view) => {
+    const t = window.playerTest;
+    const make = new Function(`return ${view}`);
+    t.handle.setAugmented(make());
+    const before = t.board.augmented !== null && t.board.scene.background === t.board.arTexture;
+    t.handle.setCutscene(window.fx.run({ shot: 0, seq: 1 }, 'k1', 'r7'));
+    t.handle.setCutsceneScene('r7', 'k1', window.fx.scene1(), t.extras);
+    await window.fx.until(() => t.handle.run?.showing && window.fx.black() < 0.01, 10000);
+    const during = { augmented: t.board.augmented !== null, picture: t.board.arTexture !== null && t.board.scene.background === t.board.arTexture, latest: t.board.arLatest !== null };
+    // A view arriving meanwhile is kept, not drawn.
+    t.handle.setAugmented(make());
+    const kept = t.board.augmented === null && t.board.arLatest !== null;
+    t.handle.setCutscene(null);
+    await window.fx.until(() => t.handle.run === null, 10000);
+    return { before, during, kept, after: t.board.augmented !== null };
+  }, AR_VIEW);
+  check('player cutscene: AR on at the run start: the AR look and the camera picture are off during the run (latest view kept), and back after', ar1.before && !ar1.during.augmented && !ar1.during.picture && ar1.during.latest && ar1.kept && ar1.after, JSON.stringify(ar1));
+  // setAugmented(null) during a run changes nothing visible, but is remembered: AR stays off afterwards.
+  const ar2 = await page.evaluate(async (view) => {
+    const t = window.playerTest;
+    const make = new Function(`return ${view}`);
+    t.handle.setCutscene(window.fx.run({ shot: 0, seq: 1 }, 'k1', 'r8'));
+    t.handle.setCutsceneScene('r8', 'k1', window.fx.scene1(), t.extras);
+    await window.fx.until(() => t.handle.run?.showing && window.fx.black() < 0.01, 10000);
+    t.handle.setAugmented(make());
+    t.handle.setAugmented(null);
+    const during = { augmented: t.board.augmented, latest: t.board.arLatest };
+    t.handle.setCutscene(null);
+    await window.fx.until(() => t.handle.run === null, 10000);
+    return { during, after: t.board.augmented };
+  }, AR_VIEW).catch((e) => ({ error: String(e) }));
+  check('player cutscene: setAugmented(null) during a run is kept as the latest: AR stays off after it', ar2.during && ar2.during.augmented === null && ar2.during.latest === null && ar2.after === null, JSON.stringify(ar2));
+});
+
+playerFeature('player cutscene queue', async ({ page }) => {
+  await prepare(page);
+  await startRun(page);
+  check('player cutscene: the run is on', await settled(page));
+  const queued = await page.evaluate(async () => {
+    const t = window.playerTest;
+    const h = t.handle;
+    h.setCutscene(null);
+    // Another run while this one is left waits for it.
+    h.setCutscene(window.fx.run({ shot: 0, seq: 1 }, 'k1', 'r2'));
+    h.setCutsceneScene('r2', 'k1', window.fx.scene1(), t.extras);
+    const waiting = h.queued?.cutscene.runId === 'r2' && h.run.cutscene.runId === 'r1' && h.cutScenes.has('r2');
+    await window.fx.until(() => h.run?.cutscene.runId === 'r2', 10000);
+    const started = h.run?.cutscene.runId === 'r2';
+    const ready = await window.fx.until(() => h.run?.showing && window.fx.black() < 0.01 && window.fx.shows() === 'cutscene:r2:k1', 10000);
+    return { waiting, started, ready, queued: h.queued };
+  });
+  check('player cutscene: a run that arrives while another is being left waits, and starts on its own scene when that one is done', queued.waiting && queued.started && queued.ready && queued.queued === null, JSON.stringify(queued));
+  const nulled = await page.evaluate(async () => {
+    const t = window.playerTest;
+    const h = t.handle;
+    h.setCutscene(null);
+    h.setCutscene(window.fx.run({ shot: 0, seq: 1 }, 'k1', 'r3'));
+    h.setCutsceneScene('r3', 'k1', window.fx.scene1(), t.extras);
+    const before = h.queued !== null && h.cutScenes.has('r3');
+    h.setCutscene(null);
+    const after = { queued: h.queued, kept: h.cutScenes.has('r3') };
+    await window.fx.until(() => h.run === null, 10000);
+    await new Promise((r) => setTimeout(r, 1200));
+    return { before, after, run: h.run, scenes: h.cutScenes.size, id: window.fx.shows() };
+  });
+  check('player cutscene: a null in between drops the waiting run with its scenes', nulled.before && nulled.after.queued === null && !nulled.after.kept && nulled.run === null && nulled.scenes === 0 && nulled.id === 's1', JSON.stringify(nulled));
+  const swapped = await page.evaluate(async () => {
+    const t = window.playerTest;
+    const h = t.handle;
+    h.setCutscene(window.fx.run({ shot: 0, seq: 1 }, 'k1', 'r4'));
+    h.setCutsceneScene('r4', 'k1', window.fx.scene1(), t.extras);
+    await window.fx.until(() => h.run?.showing && window.fx.black() < 0.01, 10000);
+    // Another run takes over the board while one is on.
+    h.setCutscene(window.fx.run({ shot: 0, seq: 1 }, 'k1', 'r5'));
+    h.setCutsceneScene('r5', 'k1', window.fx.scene1(), t.extras);
+    const ready = await window.fx.until(() => h.run?.cutscene.runId === 'r5' && window.fx.shows() === 'cutscene:r5:k1' && window.fx.black() < 0.01, 10000);
+    const scenes = [...h.cutScenes.keys()].join();
+    h.setCutscene(null);
+    await window.fx.until(() => h.run === null, 10000);
+    return { ready, scenes, ended: h.endedRun, left: h.cutScenes.size };
+  });
+  check('player cutscene: a new run id mid-run takes over the board with its own scene, and the last run\'s scenes go', swapped.ready && swapped.scenes === 'r5' && swapped.left === 0 && swapped.ended === 'r5', JSON.stringify(swapped));
+});
+
+feature('cutscene limits', async ({ page }) => {
+  const out = await page.evaluate(async () => {
+    const { studio: s } = window.boardTest;
+    window.boardTest.setHosting(true);
+    const shot = (id, at) => ({ id, at, mapPath: s.first, eye: { x: 400, y: 700, z: 1200 }, target: { x: 400, y: 0, z: 600 }, keyframe: false, transition: 'fade' });
+    // A cutscene held past the limits does not start for players, with a notice.
+    s.store.set(s.first, [{ id: 'long', name: 'Long', shots: [shot('a', 0), shot('b', 3_600_001)] }, { id: 'many', name: 'Many', shots: Array.from({ length: 201 }, (_, i) => shot(`s${i}`, i * 100)) }]);
+    const result = {};
+    await s.studio.play('long');
+    result.long = { current: window.boardTest.api.cutscene.current(), notice: s.log.notices.at(-1) };
+    await s.studio.play('many');
+    result.many = { current: window.boardTest.api.cutscene.current(), notice: s.log.notices.at(-1) };
+    // The editor's three add notices.
+    s.store.set(s.first, [{ id: 'full', name: 'Full', shots: Array.from({ length: 200 }, (_, i) => shot(`s${i}`, i * 100)) }]);
+    s.studio.edit('full');
+    s.studio.addAt(500_000);
+    result.full = s.log.notices.at(-1);
+    s.studio.stopEditing();
+    s.store.set(s.first, [{ id: 'one', name: 'One', shots: [shot('a', 0)] }]);
+    s.studio.edit('one');
+    s.studio.addAt(3_600_001);
+    result.late = s.log.notices.at(-1);
+    s.studio.addAt(50);
+    result.close = s.log.notices.at(-1);
+    return result;
+  });
+  check('cutscene limits: a cutscene past one hour does not start for players, and the GM is told', out.long.current === null && /cannot be shown to players: a cutscene lasts at most 1 hour/.test(out.long.notice), JSON.stringify(out));
+  check('cutscene limits: nor one of 201 shots', out.many.current === null && /at most 200 shots/.test(out.many.notice), JSON.stringify(out));
+  check('cutscene limits: the editor says why a shot is refused: full, too late, too close', /at most 200 shots/.test(out.full) && /at most 1 hour/.test(out.late) && /too close|0\.1 s/.test(out.close), JSON.stringify(out));
+});
+
+feature('cutscene board fixes', async ({ page }) => {
+  // The GM's lamps keep their shadows after the players' window detaches (the shared maps are released, then made again).
+  const lamps = await page.evaluate(async () => {
+    const { board } = window.boardTest;
+    const casting = () => [...board.rig.entries.values()].filter((entry) => entry.lamp.castShadow);
+    await new Promise((r) => setTimeout(r, 600));
+    const stage = document.createElement('div');
+    stage.style.cssText = 'position:fixed;left:0;top:0;width:300px;height:200px;';
+    document.body.appendChild(stage);
+    board.attachPlayer(stage);
+    await new Promise((r) => setTimeout(r, 600));
+    const before = casting().filter((entry) => entry.lamp.shadow.map !== null).length;
+    board.detachPlayer();
+    const released = casting().filter((entry) => entry.lamp.shadow.map === null).length;
+    await new Promise((r) => setTimeout(r, 800));
+    stage.remove();
+    const after = casting().filter((entry) => entry.lamp.shadow.map !== null).length;
+    return { total: casting().length, before, released, after };
+  });
+  check('board: the GM\'s lamps make their shadow maps again after the players\' window detaches', lamps.total > 0 && lamps.before === lamps.total && lamps.after === lamps.total, JSON.stringify(lamps));
+  // A cutscene driver beats a room-tracking session in applyView.
+  const room = await page.evaluate(async () => {
+    const { board } = window.boardTest;
+    board.setCinematicRole('locked');
+    board.setCinematic({ pose: () => ({ eye: { x: 500, y: 900, z: 1400 }, target: { x: 500, y: 0, z: 500 }, black: 0 }) });
+    await new Promise((r) => setTimeout(r, 400));
+    board.view.position.set(0, 0, 0);
+    board.room = { rig: { updateMatrixWorld() {} }, session: null, onFrame: null, far: 1000 };
+    try { board.applyView(); } finally { board.room = null; }
+    const at = { x: board.view.position.x, y: board.view.position.y, z: board.view.position.z };
+    board.setCinematic(null);
+    board.setCinematicRole('none');
+    return at;
+  });
+  check('board: a cutscene\'s camera is drawn even while a room-tracking session is up', Math.abs(room.x - 500) < 0.5 && Math.abs(room.y - 900) < 0.5 && Math.abs(room.z - 1400) < 0.5, JSON.stringify(room));
+});
+
 server.listen(0, async () => {
   const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const errors = [];
