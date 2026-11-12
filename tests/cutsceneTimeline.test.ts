@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Cutscene, Shot } from '../src/cutscene/cutsceneData';
-import { enterLeave, legsBetween, sampleLegs, smoothFollow, stopsOf } from '../src/cutscene/timeline';
+import { enterLeave, legsBetween, sampleLegs, smoothFollow, smoothFollowTwice, stopsOf } from '../src/cutscene/timeline';
 
 const shot = (id: string, at: number, mapPath: string, n: number, extra: Partial<Shot> = {}): Shot => ({
   id, at, mapPath, eye: { x: n * 3, y: 5 + n * n, z: n * 0.5 }, target: { x: n, y: 0, z: n * 2 }, keyframe: false, transition: 'fade', ...extra,
@@ -97,6 +97,37 @@ test('smoothFollow covers 63.2% in one tau', () => {
   near(out.target.y, 12.64, 0.02);
   const same = smoothFollow({ eye: { x: 1, y: 2, z: 3 }, target: { x: 0, y: 0, z: 0 } }, { eye: { x: 1, y: 2, z: 3 }, target: { x: 0, y: 0, z: 0 } }, 0);
   assert.deepEqual(same.eye, { x: 1, y: 2, z: 3 });
+});
+
+test('smoothFollowTwice keeps the speed even when the goal arrives ten times a second, and settles on the goal without overshoot', () => {
+  const at = (x: number): { eye: { x: number; y: number; z: number }; target: { x: number; y: number; z: number } } => ({ eye: { x, y: 0, z: 0 }, target: { x, y: 0, z: 0 } });
+  const speeds = (follow: (state: { mid: ReturnType<typeof at>; current: ReturnType<typeof at> }, goal: ReturnType<typeof at>, dt: number) => { mid: ReturnType<typeof at>; current: ReturnType<typeof at> }): number[] => {
+    let state = { mid: at(0), current: at(0) };
+    let goal = at(0);
+    let lastX = 0;
+    const out: number[] = [];
+    for (let t = 0; t < 4000; t += 16) {
+      if (t % 96 < 16) goal = at(40 * (t / 1000));
+      state = follow(state, goal, 16);
+      if (t > 1500) out.push((state.current.eye.x - lastX) / 0.016);
+      lastX = state.current.eye.x;
+    }
+    return out;
+  };
+  const twice = speeds((s, g, dt) => smoothFollowTwice(s, g, dt));
+  const once = speeds((s, g, dt) => ({ mid: s.mid, current: smoothFollow(s.current, g, dt) }));
+  const ratio = (v: number[]): number => Math.max(...v) / Math.min(...v);
+  assert.ok(ratio(twice) < 1.3, `two eases: ${ratio(twice)}`);
+  assert.ok(ratio(once) > 1.5, `one ease: ${ratio(once)}`);
+  // A goal that stops: the camera arrives and never goes past it.
+  let state = { mid: at(0), current: at(0) };
+  let peak = 0;
+  for (let t = 0; t < 3000; t += 16) {
+    state = smoothFollowTwice(state, at(10), 16);
+    peak = Math.max(peak, state.current.eye.x);
+  }
+  near(state.current.eye.x, 10, 1e-3);
+  assert.ok(peak <= 10 + 1e-9);
 });
 
 test('a zero-ms fade leg acts as a cut', () => {

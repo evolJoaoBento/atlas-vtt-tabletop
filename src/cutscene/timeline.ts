@@ -125,6 +125,18 @@ export function enterLeave(elapsedMs: number, fadeMs: number): { black: number; 
 }
 
 /** One frame of a camera that eases towards a goal: `tauMs` is the time it takes to cover 63% of the way. */
+export type FollowCamera = { eye: Vec3; target: Vec3 };
+
+/**
+ * One frame of a camera that follows a goal fed in steps (the GM's camera, ten times a second) through two eases in
+ * a row. One ease leaves the speed jumping at every step (about 1.7 times between its fastest and slowest frame at
+ * 10 Hz); two in a row keep the speed continuous (about 1.1 times), with no more delay and no overshoot.
+ */
+export function smoothFollowTwice(state: { mid: FollowCamera; current: FollowCamera }, goal: FollowCamera, dtMs: number, tauMs = 75): { mid: FollowCamera; current: FollowCamera } {
+  const mid = smoothFollow(state.mid, goal, dtMs, tauMs);
+  return { mid, current: smoothFollow(state.current, mid, dtMs, tauMs) };
+}
+
 export function smoothFollow(current: { eye: Vec3; target: Vec3 }, goal: { eye: Vec3; target: Vec3 }, dtMs: number, tauMs = 150): { eye: Vec3; target: Vec3 } {
   const k = 1 - Math.exp(-Math.max(0, dtMs) / tauMs);
   return { eye: lerp3(current.eye, goal.eye, k), target: lerp3(current.target, goal.target, k) };

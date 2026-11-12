@@ -21,7 +21,7 @@ import { materialFromUrls, type LoadedMaterial } from './materials';
 import type { BoardCamera, BoardCutscene, BoardExtras, PlayerCutsceneHandle, PlayerCutsceneOptions, PlayerDiceRequest, PlayerDiceResult } from './connectContract';
 import { readBoardCutscene } from './cutscene/broadcast';
 import { PlayerCutsceneState, type PlayerCutsceneView } from './cutscene/playerCutscene';
-import { smoothFollow } from './cutscene/timeline';
+import { smoothFollowTwice } from './cutscene/timeline';
 import type { CinematicDriver } from './cutscene/drivenView';
 import type { ChosenPack } from './dice/dicePack';
 import { DicePicker } from './dice/dicePicker';
@@ -201,7 +201,7 @@ interface Run {
   showing: string | null;
   /** The key last drawn, and whether its map image was in place. */
   loaded: { key: string; complete: boolean } | null;
-  live: { goal: { eye: Vec3; target: Vec3 }; current: { eye: Vec3; target: Vec3 }; at: number | null } | null;
+  live: { goal: { eye: Vec3; target: Vec3 }; mid: { eye: Vec3; target: Vec3 }; current: { eye: Vec3; target: Vec3 }; at: number | null } | null;
   handBack: boolean;
   handedBack: boolean;
   /** The own scene is coming back: when it began, and when it was drawn with the camera put back. */
@@ -627,7 +627,7 @@ class PlayerBoard implements PlayerBoardHandle {
     const goal = { eye: { ...camera.eye }, target: { ...camera.target } };
     if (!run.live) {
       // The first goal is where the view begins: eased from nowhere it would sweep across the map.
-      run.live = { goal, current: { eye: { ...goal.eye }, target: { ...goal.target } }, at: null };
+      run.live = { goal, mid: { eye: { ...goal.eye }, target: { ...goal.target } }, current: { eye: { ...goal.eye }, target: { ...goal.target } }, at: null };
       this.arrived(run);
     } else run.live.goal = goal;
     this.board.wake(true);
@@ -754,7 +754,9 @@ class PlayerBoard implements PlayerBoardHandle {
     if (view.show === 'own' || !live) return run.own;
     const dt = live.at === null ? 0 : Math.min(LIVE_STEP_MS, Math.max(0, now - live.at));
     live.at = now;
-    live.current = smoothFollow(live.current, live.goal, dt);
+    const eased = smoothFollowTwice(live, live.goal, dt);
+    live.mid = eased.mid;
+    live.current = eased.current;
     return live.current;
   }
 
