@@ -541,3 +541,37 @@ test('a slow frame rate reads the same faces: a die is never read while it only 
     assert.deepEqual(readingsAt(120, seed), readingsAt(1000 / 60, seed), `seed ${seed}`);
   }
 });
+
+test('a thrown die reports its hits, harder ones faster', () => seeded(5, () => {
+  const { dice } = table();
+  const session = new RollSession({ dice: { d20: 1 }, modifier: 0 }, DEFAULT_RULES);
+  const hits: Array<{ type: string; speed: number; y: number }> = [];
+  const rolling: boolean[] = [];
+  dice.onHit = (type, speed, at) => { hits.push({ type, speed, y: at.y }); };
+  dice.onRolling = () => { rolling.push(dice.busy); };
+  dice.onSettled = (id, reading) => session.settle(id, reading);
+  dice.throwRoll(session, { dx: 20, dy: -300, ms: 150 });
+  run(dice);
+  assert.ok(hits.length >= 2, `${hits.length} hits`);
+  assert.ok(hits[0].speed > hits[hits.length - 1].speed, `${hits[0].speed} then ${hits[hits.length - 1].speed}`);
+  assert.ok(hits.every((hit) => hit.y >= 0 && hit.type === 'd20'));
+  assert.ok(rolling.length > 0, 'rolling is reported while the dice move');
+}));
+
+test('a die caught is told apart from one read; the rolling layer is told to stop when the dice rest', () => seeded(9, () => {
+  const { dice } = table();
+  const session = new RollSession({ dice: { d20: 1 }, modifier: 0 }, DEFAULT_RULES);
+  let caught = 0;
+  const fastest: number[] = [];
+  dice.onCaught = () => { caught += 1; };
+  dice.onRolling = (speed) => { fastest.push(speed); };
+  dice.onSettled = (id, reading) => session.settle(id, reading);
+  dice.throwRoll(session, { dx: 20, dy: -300, ms: 150 });
+  const id = session.dice[0].id;
+  // Drive it to the longest roll still tumbling: caught.
+  (dice as unknown as { dice: Map<number, { rollingMs: number }> }).dice.get(id)!.rollingMs = 1e9;
+  dice.step(1000 / 60);
+  assert.equal(caught, 1);
+  assert.equal(dice.busy, false);
+  assert.equal(fastest.at(-1), 0, 'the last report says nothing moves');
+}));

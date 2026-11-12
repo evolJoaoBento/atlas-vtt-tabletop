@@ -134,6 +134,12 @@ export class DiceTable {
   readonly object3d = new THREE.Group();
   /** A die came to rest: what it shows (caught when no face is up). */
   onSettled: (id: number, reading: FaceReading) => void = () => {};
+  /** A die struck the felt, a wall, a token or another die: its type, how hard (die edges a second), and where, in board space. */
+  onHit: (dieType: string, speed: number, at: { x: number; y: number; z: number }) => void = () => {};
+  /** Once per `step` while dice move: the fastest one's speed; 0 when the dice have come to rest (or were cleared). */
+  onRolling: (fastest: number) => void = () => {};
+  /** A die came to rest on no face (caught), where it lies in board space. */
+  onCaught: (at: { x: number; y: number; z: number }) => void = () => {};
   /** A die at rest was knocked loose (the die under it was thrown again): it moves, and is read again where it lands. */
   onLoosened: (id: number) => void = () => {};
   private readonly world = new CANNON.World();
@@ -264,11 +270,14 @@ export class DiceTable {
       this.lookForRest(stepMs);
       if (!this.busy) { this.pendingMs = 0; break; }
     }
+    let fastest = 0;
     for (const die of this.dice.values()) {
       const { body, mesh } = die;
       mesh.position.set(body.position.x, body.position.y, body.position.z);
       mesh.quaternion.set(body.quaternion.x, body.quaternion.y, body.quaternion.z, body.quaternion.w);
+      if (!die.settled) fastest = Math.max(fastest, body.velocity.length());
     }
+    this.tell(() => this.onRolling(fastest));
   }
 
   /** Physics time not stepped yet (less than a step, or what a very long frame left over). */
@@ -372,6 +381,7 @@ export class DiceTable {
     const shown = this.dice.size > 0;
     for (const die of this.dice.values()) this.removeDie(die);
     this.dice.clear();
+    if (shown) this.tell(() => this.onRolling(0));
     for (const wall of this.walls) this.world.removeBody(wall);
     this.walls = [];
     for (const body of this.obstacles) this.world.removeBody(body);
@@ -554,6 +564,10 @@ export class DiceTable {
     body.allowSleep = true;
     body.sleepSpeedLimit = 0.1;
     body.sleepTimeLimit = 1;
+    body.addEventListener('collide', (event: { contact: CANNON.ContactEquation }) => {
+      const speed = Math.abs(event.contact.getImpactVelocityAlongNormal());
+      this.tell(() => this.onHit(type, speed, this.boardPoint(body.position)));
+    });
     this.world.addBody(body);
     // After the body: the line's hull is made from the die's geometry, which the body's shape is read from first.
     if (this.settings.highlight) addOutline(mesh, this.settings.highlightColor);
@@ -670,7 +684,15 @@ export class DiceTable {
     body.type = CANNON.Body.STATIC;
     body.mass = 0;
     body.updateMassProperties();
+    if (reading.caught) this.tell(() => this.onCaught(this.boardPoint(body.position)));
     this.tell(() => this.onSettled(id, reading));
+  }
+
+  /** A point of the tray's frame (die edges) in board space, where the group is placed, turned and scaled. */
+  private boardPoint(at: { x: number; y: number; z: number }): { x: number; y: number; z: number } {
+    this.object3d.updateMatrixWorld();
+    const point = this.object3d.localToWorld(new THREE.Vector3(at.x, at.y, at.z));
+    return { x: point.x, y: point.y, z: point.z };
   }
 
   /** Calls a listener. The board's frame loop steps the table: a listener's failure stays here, the other dice still read. */

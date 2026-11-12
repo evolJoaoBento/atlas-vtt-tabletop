@@ -59,6 +59,43 @@ feature('sound settings', async ({ page, shot }) => {
   await shot('sound-control-short');
 });
 
+// ── Board sounds: dice clack per hit (at most 6 in 50 ms), a rolling layer that stops when the dice rest ───────────
+feature('dice sounds', async ({ page, shot }) => {
+  await page.evaluate(() => {
+    const { sounds } = window.boardTest;
+    window.diceHeard = [];
+    const play = sounds.play;
+    sounds.play = function (id, options) { window.diceHeard.push([id, performance.now()]); return play.call(this, id, options); };
+    sounds.loops.length = 0;
+    sounds.plays.length = 0;
+  });
+  await page.locator('.atlas-tabletop-extensions button[aria-label="Dice"]').click();
+  await wait(400);
+  const picker = page.locator('.atlas-tabletop-dice-picker');
+  for (let i = 0; i < 6; i++) await picker.locator('[data-die="d6"]').click();
+  await picker.locator('.atlas-dice-tray__roll').click();
+  await wait(400);
+  check('dice sounds: nothing is heard while the dice only lie on the table', await page.evaluate(() => window.boardTest.sounds.plays.length === 0));
+  await page.locator('.atlas-tabletop-dice-prompt__throw').click();
+  await page.waitForFunction(() => window.boardTest.board.dice.busy, null, { timeout: 5000 });
+  await wait(300);
+  const rolling = await page.evaluate(() => window.boardTest.sounds.loops.filter((loop) => loop[1] === 'dice.roll').length);
+  check('dice sounds: the rolling layer plays while the dice tumble', rolling > 0, rolling);
+  await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
+  await wait(300);
+  const heard = await page.evaluate(() => {
+    const hits = window.diceHeard.filter((entry) => entry[0] === 'dice.hit').map((entry) => entry[1]);
+    let worst = 0;
+    for (const at of hits) worst = Math.max(worst, hits.filter((other) => other >= at && other < at + 50).length);
+    return { hits: hits.length, worst, last: window.boardTest.sounds.loops.at(-1), ids: [...new Set(window.boardTest.sounds.plays.map((play) => play[0]))] };
+  });
+  check('dice sounds: the dice clack', heard.hits >= 6, JSON.stringify(heard));
+  check('dice sounds: never more than 6 clacks in any 50 ms', heard.worst <= 6, JSON.stringify(heard));
+  check('dice sounds: when the dice rest the rolling layer is stopped', heard.last[0] === 'dice' && heard.last[1] === null, JSON.stringify(heard.last));
+  check('dice sounds: only dice sounds are made', heard.ids.every((id) => id === 'dice.hit' || id === 'dice.caught'), JSON.stringify(heard.ids));
+  await shot('dice-sounds');
+});
+
 // ── Item 27: the turn banner and the delayed marker ─────────────────────────────────────────────────────────────
 feature('turn banner and delayed marker', async ({ page, shot }) => {
   await page.evaluate(() => window.boardTest.board.flashTurn('Round 2 · Goblin'));

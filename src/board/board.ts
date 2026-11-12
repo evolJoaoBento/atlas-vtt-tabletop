@@ -78,6 +78,7 @@ import { pinTitle } from './pinIcons';
 import { insideFog, pinsShown, playerSees } from './playerView';
 import { instanceBadgeNumbers } from './levels';
 import { positionOf } from './camera';
+import { wireDiceSounds } from '../sound/diceSounds';
 import type { PlayOptions, SoundEngine, SoundId } from '../sound/soundEngine';
 import { isVideoPath, loadImageTexture, loadMapTexture, MAX_MAP_TEXTURE, mapImageSize, mapTextureFromPicture, plateTexture, screenScale } from './textures';
 import { WallSet } from './wallPieces';
@@ -4109,6 +4110,8 @@ export class Board {
   attachDice(table: DiceTable): void {
     if (this.dice && this.dice !== table) this.dice.dispose();
     this.dice = table;
+    // The dice are heard where they are drawn: this board's clack, roll and caught.
+    wireDiceSounds(table, this);
     this.wake(true);
   }
 
