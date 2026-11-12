@@ -279,6 +279,8 @@ export default class TabletopPlugin extends Plugin {
       materialDefaults: () => readMaterialDefaults(this.settings.materialDefaults),
       diceSettings: () => this.settings.dice,
       soundSettings: () => this.settings.sound,
+      cinematicSettings: () => this.settings.cinematic,
+      setCinematicSettings: (changes) => this.setCinematic(changes),
       soundLoader: () => this.vaultSounds.custom.load,
       dicePack: () => (this.dicePack ??= vendoredPack()),
       levelShown: (mapPath) => this.levelShown(mapPath),

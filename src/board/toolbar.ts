@@ -147,6 +147,13 @@ export interface DiceButton {
   close(): void;
 }
 
+/** The cutscene buttons: the film button opens the gallery; the live toggle makes the players follow the GM's camera. */
+export interface CinemaButtons {
+  open(): void;
+  live(): boolean;
+  toggleLive(): void;
+}
+
 /** A button in the toolbar's end slot and the panel it toggles. */
 interface EndButton {
   handlers: DiceButton;
@@ -159,6 +166,12 @@ const LOG_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 
 /** Lucide's `notebook-text` (ISC): the stat sheet's button. */
 const SHEET_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h4"/><path d="M2 10h4"/><path d="M2 14h4"/><path d="M2 18h4"/><rect width="16" height="20" x="4" y="2" rx="2"/><path d="M9.5 8h5"/><path d="M9.5 12H16"/><path d="M9.5 16H14"/></svg>';
+
+/** Lucide's `clapperboard` (ISC): the cutscenes button. */
+const CINEMA_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3Z"/><path d="m6.2 5.3 3.1 3.9"/><path d="m12.4 3.4 3.1 4"/><path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>';
+
+/** Lucide's `radio` (ISC): players following the GM's camera. */
+const LIVE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19.1"/></svg>';
 
 /** Lucide's `ellipsis` (ISC): the More tools button. */
 const MORE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>';
@@ -295,6 +308,8 @@ export class BoardToolbar {
   private dice: EndButton | null = null;
   private diceLog: EndButton | null = null;
   private sheet: EndButton | null = null;
+  /** The cutscenes button and the live toggle, in the end slot after the dice buttons. */
+  private cinema: { handlers: CinemaButtons; anchor: HTMLElement; live: HTMLButtonElement } | null = null;
   private readonly onOutside = (event: PointerEvent): void => {
     const target = event.target as Node;
     if (!this.panel.contains(target) && !this.button.contains(target)) this.close();
@@ -892,6 +907,7 @@ export class BoardToolbar {
   /** Shows the player view's state: open or not, its camera frozen or not (the freeze button only while it is open). */
   refresh(): void {
     this.refreshAtlasTools();
+    this.refreshCinema();
     // Connect's Template tool, while it hosts: the shapes show with the tool on.
     const hosting = this.actions.hosting();
     const templateOn = hosting && this.actions.templateOn();
@@ -1028,6 +1044,60 @@ export class BoardToolbar {
     if (!handlers) return null;
     this.sheet = this.endButton('Stat sheet', SHEET_SVG, handlers, 'atlas-tabletop-sheet-menu', () => this.diceLog?.anchor ?? this.dice?.anchor ?? null);
     return this.sheet.anchor;
+  }
+
+  /**
+   * Puts the Cutscenes button in the end slot (after the dice buttons), and beside it a toggle "Players follow my
+   * camera" that shows only while a session hosts; null takes them away. Returns where they sit.
+   */
+  setCinema(handlers: CinemaButtons | null): HTMLElement | null {
+    this.cinema?.anchor.remove();
+    this.cinema = null;
+    if (!handlers) return null;
+    const doc = this.row.ownerDocument;
+    const anchor = doc.win.createDiv();
+    anchor.className = 'atlas-tabletop-cinema-tools';
+    anchor.setCssStyles({ display: 'flex', alignItems: 'center', gap: 'inherit' });
+    const make = (label: string, svg: string, click: () => void): HTMLButtonElement => {
+      const wrapper = doc.win.createDiv();
+      wrapper.className = 'atlas-tool-button';
+      const span = doc.win.createSpan();
+      span.setCssStyles({ display: 'inline-flex' });
+      const button = doc.win.createEl('button');
+      button.className = 'btn btn--toolbar btn--icon atlas-tabletop-tool-button';
+      button.type = 'button';
+      setSvg(button, svg);
+      button.setAttribute('aria-label', label);
+      button.title = label;
+      button.addEventListener('click', () => {
+        this.closeDice();
+        click();
+        this.refresh();
+      });
+      span.appendChild(button);
+      wrapper.appendChild(span);
+      anchor.appendChild(wrapper);
+      return button;
+    };
+    make('Cutscenes', CINEMA_SVG, () => handlers.open());
+    const live = make('Players follow my camera', LIVE_SVG, () => handlers.toggleLive());
+    this.cinema = { handlers, anchor, live };
+    const beside = (this.sheet ?? this.diceLog ?? this.dice)?.anchor ?? null;
+    if (beside) beside.after(anchor);
+    else this.endSlot.prepend(anchor);
+    this.refresh();
+    return anchor;
+  }
+
+  /** The live toggle follows the session: shown while one hosts, pressed while the players follow. */
+  private refreshCinema(): void {
+    if (!this.cinema) return;
+    const { live, handlers } = this.cinema;
+    const hosting = this.actions.hosting();
+    const on = hosting && handlers.live();
+    (live.closest('.atlas-tool-button') as HTMLElement).style.display = hosting ? '' : 'none';
+    live.classList.toggle('is-active', on);
+    live.setAttribute('aria-pressed', String(on));
   }
 
   /** What the toolbar's controls do (Atlas's command palette offers the same, src/palette/tabletopCommands.ts). */
@@ -1423,6 +1493,7 @@ export class BoardToolbar {
     this.setDice(null);
     this.setDiceLog(null);
     this.setSheet(null);
+    this.setCinema(null);
     this.fitWatch.disconnect();
     this.row.remove();
   }

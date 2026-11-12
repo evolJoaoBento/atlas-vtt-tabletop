@@ -76,7 +76,7 @@ import { SpellRulePanel } from './spellRulePanel';
 import { materialWith, type MaterialDefaults } from '../materialDefaults';
 import { aboutElement, rulesWords } from './spellPicker';
 import { difficultGround } from './spellView';
-import { BoardToolbar, type AtlasToolButton, type DiceButton, type ToolbarActions, UNPAINT } from './toolbar';
+import { BoardToolbar, type AtlasToolButton, type CinemaButtons, type DiceButton, type ToolbarActions, UNPAINT } from './toolbar';
 import { pinTitle } from './pinIcons';
 import { insideFog, pinsShown, playerSees } from './playerView';
 import { instanceBadgeNumbers } from './levels';
@@ -4354,6 +4354,12 @@ export class Board {
   diceLogButton(handlers: DiceButton | null): HTMLElement | null {
     if (this.disposed) return null;
     return this.toolbar.setDiceLog(this.audience === 'gm' ? handlers : null);
+  }
+
+  /** The toolbar's Cutscenes button and live toggle (the GM's only); null takes them away. */
+  cinemaButton(handlers: CinemaButtons | null): HTMLElement | null {
+    if (this.disposed) return null;
+    return this.toolbar.setCinema(this.audience === 'gm' ? handlers : null);
   }
 
   /** The toolbar's Stat sheet button, opening the selected token's sheet; null takes it away. */

@@ -54,6 +54,9 @@ import { DEFAULT_EDGES, DEFAULT_SEE_THROUGH_SIZE, QUALITY, withLooks, type Layer
 import { DEFAULT_SKY, type LightingChoice, type Sky } from './look';
 import type { TokenWriter } from './tokenWriter';
 import { BoardDice } from '../dice/boardDice';
+import { DEFAULT_CINEMATIC_SETTINGS, type CinematicSettings } from '../cutscene/cinematicSettings';
+import { askName } from '../cutscene/nameModal';
+import { CutsceneStudio, type StudioHost } from '../cutscene/studio';
 import { buildAtlasSheet } from '../sheets/nativeSheet';
 import type { PlayerSheet } from '../sheets/sheet';
 import type { CardHost } from '../sheets/atlasCard';
@@ -92,6 +95,9 @@ export interface BoardServices {
   saveVariant?(variant: Omit<PropVariant, 'id'>): void;
   /** Tabletop's undo history (src/board/undoHistory.ts). */
   history?: UndoHistory;
+  /** How cinematic cutscenes look and move by default, and keeping a change. */
+  cinematicSettings?(): CinematicSettings;
+  setCinematicSettings?(changes: Partial<CinematicSettings>): void;
   assignments: Assignments;
   boardData: BoardData;
   minis: MiniLibrary;
@@ -179,6 +185,10 @@ export class BoardView extends ItemView {
   /** Stops the board's dice throwing the rolls of Atlas's own hover window. */
   private stopWindowRolls: (() => void) | null = null;
   private hoverToken: string | null = null;
+  /** Where cutscenes are made and previewed over this board; lives as long as the tab. */
+  private studio: CutsceneStudio | null = null;
+  /** The players' window is held (a cutscene is being authored): a board made or a window attached later holds it too. */
+  private playersHeld = false;
   private map: BoardMap | null = null;
   private rules: CollectionRules = emptyRules();
   private readonly warned = new Set<string>();
@@ -230,6 +240,8 @@ export class BoardView extends ItemView {
       this.playerWindow = null;
       this.retitle();
       await this.read();
+      // A cutscene being made stays open over the new scene: the studio gives the new board its camera driver.
+      if (this.board) this.studio?.mapChanged();
     }
     await super.setState(state, result);
   }
@@ -251,6 +263,7 @@ export class BoardView extends ItemView {
     this.registerEvent(this.app.vault.on('delete', (file) => { if (file.path === this.path) this.leaf.detach(); }));
     this.registerDomEvent(this.contentEl, 'pointerdown', () => this.services.focused(this), true);
     this.initiative = new InitiativePanel(this.contentEl, this.initiativeHost());
+    this.studio = new CutsceneStudio(this.contentEl, this.studioHost());
     // Atlas's scene tabs over the board: switch scenes here, and present one with its eye, as in Atlas.
     this.sceneTabs = new SceneTabBar(this.contentEl, {
       tabs: () => this.sceneTabEntries(),
@@ -340,6 +353,9 @@ export class BoardView extends ItemView {
     this.initiative?.dispose();
     this.initiative = null;
     this.reload.cancel();
+    // Before the board goes: a cutscene being made gives the camera back.
+    this.studio?.dispose();
+    this.studio = null;
     this.dropBoard();
     // After the board: it stops its own loops on the engine it holds, even though `closed` now keeps `soundEngine()` from handing one out.
     this.releaseSound();
@@ -369,6 +385,38 @@ export class BoardView extends ItemView {
     this.playerWindow = view;
     view.waiting(false);
     this.board?.attachPlayer(view.stage);
+    if (this.playersHeld) this.board?.holdPlayers(true);
+  }
+
+  /** What the cutscene studio needs of this tab. */
+  private studioHost(): StudioHost {
+    const view = this;
+    const tabs = (): Array<{ id: string; filePath: string }> => {
+      const found = view.path ? tabViewOf(view.app, view.path) : null;
+      return found?.view.tabMetaStore.getState().tabs ?? [];
+    };
+    return {
+      get board(): Board { return view.board as Board; },
+      mapPath: () => view.path,
+      cutscenes: (mapPath) => view.services.boardData.cutscenesOf(mapPath),
+      save: (mapPath, cutscene) => view.services.boardData.putCutscene(mapPath, cutscene),
+      remove: (mapPath, id) => view.services.boardData.removeCutscene(mapPath, id),
+      mapTabs: () => tabs().map((tab) => tab.filePath),
+      switchMap: async (mapPath) => {
+        const tab = tabs().find((entry) => entry.filePath === mapPath);
+        if (!tab) return false;
+        await view.switchScene(tab.id);
+        return view.path === mapPath;
+      },
+      settings: () => view.services.cinematicSettings?.() ?? DEFAULT_CINEMATIC_SETTINGS,
+      setSettings: (changes) => view.services.setCinematicSettings?.(changes),
+      askName: (initial) => askName(view.app, 'Cutscene name', initial),
+      notice: (text) => { new Notice(text); },
+      holdPlayers: (hold) => {
+        view.playersHeld = hold;
+        view.board?.holdPlayers(hold);
+      },
+    };
   }
 
   /** Stops drawing into the local player view (it closed, or shows another map). */
@@ -402,6 +450,7 @@ export class BoardView extends ItemView {
     fresh.camera = camera;
     if (this.playerWindow) fresh.attachPlayer(this.playerWindow.stage);
     fresh.wake(true);
+    this.studio?.mapChanged();
   }
 
   /** The board as it is drawn now, as a PNG, for a snapshot saved in the vault. */
@@ -431,6 +480,11 @@ export class BoardView extends ItemView {
       setSheetPinned: (pinned) => this.services.setSheetPinned?.(pinned),
       sheetOf: (tokenId) => this.sheetOf(tokenId),
       cardOf: (tokenId) => this.cardOf(tokenId),
+    });
+    board.cinemaButton({
+      open: () => { if (this.studio?.state === 'gallery') this.studio.closeGallery(); else this.studio?.openGallery(); },
+      live: () => false,
+      toggleLive: () => { new Notice('Tabletop: players following your camera arrives with the live cutscene.'); },
     });
     return board;
   }

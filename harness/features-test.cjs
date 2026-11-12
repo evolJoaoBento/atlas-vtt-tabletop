@@ -3607,6 +3607,216 @@ feature('cinematic mode', async ({ page, shot }) => {
   check('cinematic: the fade clears after that frame', ending.after === 0, JSON.stringify(ending));
 });
 
+// ── Cutscenes: authoring (the gallery, the free camera, the timeline) ─────────────────────────────────────────────
+/** The timeline's shot markers sit PAD pixels in, 80 pixels to the second. */
+const TL_PAD = 24;
+const TL_PPS = 80;
+const timelineAt = async (page, seconds, y = 62) => {
+  const box = await page.evaluate(() => { const r = document.querySelector('.tabletop-timeline__scroll').getBoundingClientRect(); return { left: r.left, top: r.top }; });
+  return { x: box.left + TL_PAD + seconds * TL_PPS, y: box.top + y };
+};
+const lastSave = (page) => page.evaluate(() => JSON.parse(JSON.stringify(window.boardTest.studio.log.saves.at(-1))));
+
+feature('cutscene authoring', async ({ page, shot }) => {
+  const studioState = () => page.evaluate(() => window.boardTest.studio.studio.state);
+  const role = () => page.evaluate(() => window.boardTest.board.cinematicRole);
+  const sleepFrame = () => wait(250);
+  // The gallery: the film button opens it, the settings are in its header.
+  const before = await page.evaluate(() => JSON.stringify(window.boardTest.board.camera.pose));
+  await page.locator('button[aria-label="Cutscenes"]').click();
+  check('authoring: the Cutscenes button opens the gallery', await studioState() === 'gallery' && await page.locator('.tabletop-gallery').count() === 1);
+  await page.locator('.tabletop-gallery__options').click();
+  await page.locator('select[data-setting="aspect"]').selectOption('1.85');
+  await page.locator('input[data-setting="bars"]').uncheck();
+  await page.locator('input[data-setting="bars"]').check();
+  const settings = await page.evaluate(() => window.boardTest.studio.log.settings);
+  check('authoring: the cinematic settings are saved through the host', settings.aspect === 1.85 && settings.bars === true, JSON.stringify(settings));
+  await page.locator('.tabletop-gallery__options').click();
+  // + asks a name (Cancel keeps nothing), then opens the new cutscene in the editor.
+  await page.locator('.tabletop-gallery__add').click();
+  await sleepFrame();
+  check('authoring: + asks for a name, "Cutscene" to begin with, and a refused name makes nothing', await page.evaluate(() => window.boardTest.studio.log.asked[0] === 'Cutscene' && window.boardTest.studio.log.saves.length === 0) && await studioState() === 'gallery');
+  await page.evaluate(() => window.boardTest.studio.log.names.push('Docks'));
+  await page.locator('.tabletop-gallery__add').click();
+  await sleepFrame();
+  check('authoring: + with a name opens the editor with the authoring role', await studioState() === 'editing' && await role() === 'authoring');
+  check('authoring: the new cutscene is saved at once, with no shots', await page.evaluate(() => { const l = window.boardTest.studio.log.saves; return l.length === 1 && l[0].cutscene.name === 'Docks' && l[0].cutscene.shots.length === 0 && window.boardTest.studio.store.get(window.boardTest.studio.first).length === 1; }));
+  check('authoring: the settings\' bars show on the board (1.85:1)', await page.evaluate(() => window.boardTest.board.cinema.aspect === 1.85));
+  check('authoring: with no shots Preview is off and says why', await page.evaluate(() => { const b = document.querySelector('.tabletop-timeline__preview'); return b.disabled && /shot/i.test(b.title) && /add a shot/i.test(document.querySelector('.tabletop-timeline__hint').textContent); }));
+  await page.evaluate(() => window.boardTest.studio.studio.preview(0));
+  check('authoring: asking for a preview of a cutscene with no shots does nothing but say why', await studioState() === 'editing' && await page.evaluate(() => window.boardTest.studio.log.notices.length === 1 && /shot/i.test(window.boardTest.studio.log.notices[0])));
+
+  // Left clicks make shots, with the free camera's pose.
+  await page.locator('canvas.atlas-tabletop-board').focus();
+  let at = await timelineAt(page, 0);
+  await page.mouse.click(at.x, at.y);
+  await page.locator('canvas.atlas-tabletop-board').focus();
+  await page.keyboard.down('w');
+  await wait(400);
+  await page.keyboard.up('w');
+  at = await timelineAt(page, 2);
+  await page.mouse.click(at.x, at.y);
+  let saved = (await lastSave(page)).cutscene;
+  check('authoring: two clicks save two shots, 2 s apart, with different eyes (W flew between them)', saved.shots.length === 2 && saved.shots[0].at === 0 && Math.abs(saved.shots[1].at - 2000) <= 20 && JSON.stringify(saved.shots[0].eye) !== JSON.stringify(saved.shots[1].eye), JSON.stringify(saved.shots.map((s) => [s.at, s.eye])));
+  check('authoring: a new shot is a fade on the first map, not a keyframe', saved.shots[1].transition === 'fade' && saved.shots[1].keyframe === false && saved.shots[1].mapPath === (await page.evaluate(() => window.boardTest.studio.first)));
+  // Right click between two shots: the transition.
+  at = await timelineAt(page, 1);
+  await page.mouse.click(at.x, at.y, { button: 'right' });
+  const gap = await page.evaluate(() => [...document.querySelectorAll('.tabletop-menu__item')].map((i) => ({ text: i.textContent.replace('✓', ''), checked: i.getAttribute('aria-checked'), disabled: i.disabled })));
+  check('authoring: a right click between two shots offers Fade, Cut and Move with the current one ticked', gap.map((g) => g.text).join() === 'Fade,Cut,Move' && gap[0].checked === 'true' && gap[1].checked === 'false' && gap.every((g) => !g.disabled), JSON.stringify(gap));
+  await page.locator('.tabletop-menu__item', { hasText: 'Move' }).click();
+  saved = (await lastSave(page)).cutscene;
+  check('authoring: Move sets the second shot\'s transition to move', saved.shots[1].transition === 'move');
+  // A shot on another map: the editor stays open, new shots take the new map, and a move across maps is refused.
+  const free0 = await page.evaluate(() => JSON.stringify(window.boardTest.board.cinematic.free.pose()));
+  await page.evaluate(() => window.boardTest.studio.host.switchMap(window.boardTest.studio.second));
+  await wait(500);
+  check('authoring: a scene switch keeps the editor open, the role and the free camera where it was', await studioState() === 'editing' && await role() === 'authoring' && await page.evaluate(() => JSON.stringify(window.boardTest.board.cinematic.free.pose())) === free0);
+  at = await timelineAt(page, 4);
+  await page.mouse.click(at.x, at.y);
+  saved = (await lastSave(page)).cutscene;
+  const second = await page.evaluate(() => window.boardTest.studio.second);
+  check('authoring: a shot made after the switch is on the second map', saved.shots.length === 3 && saved.shots[2].mapPath === second && Math.abs(saved.shots[2].at - 4000) <= 20, JSON.stringify(saved.shots.map((s) => [s.at, s.mapPath])));
+  check('authoring: that cutscene still belongs to the first map\'s gallery', await page.evaluate(() => { const s = window.boardTest.studio; return s.log.saves.at(-1).mapPath === s.first && s.studio.editing.home === s.first; }));
+  const marker = await page.evaluate(() => [...document.querySelectorAll('.tabletop-timeline__shot')].map((m) => ({ other: m.classList.contains('tabletop-timeline__shot--other'), title: m.title })));
+  check('authoring: a shot on another map is drawn apart and its tooltip names the map', !marker[0].other && marker[2].other && /crypt/i.test(marker[2].title) && !/crypt/i.test(marker[0].title), JSON.stringify(marker));
+  at = await timelineAt(page, 3);
+  await page.mouse.click(at.x, at.y, { button: 'right' });
+  const across = await page.evaluate(() => [...document.querySelectorAll('.tabletop-menu__item')].map((i) => ({ text: i.textContent.replace('✓', ''), disabled: i.disabled })));
+  check('authoring: between shots on different maps Move is disabled', across.find((a) => a.text === 'Move')?.disabled === true && across.find((a) => a.text === 'Fade')?.disabled === false, JSON.stringify(across));
+  await page.keyboard.press('Escape');
+  check('authoring: Escape closes the menu and leaves the editor open', await page.locator('.tabletop-menu').count() === 0 && await studioState() === 'editing');
+  // A shot menu: keyframe.
+  at = await timelineAt(page, 2, 40);
+  await page.mouse.click(at.x, at.y, { button: 'right' });
+  const items = await page.evaluate(() => [...document.querySelectorAll('.tabletop-menu__item')].map((i) => i.textContent.replace('✓', '')));
+  check('authoring: a right click on a shot offers keyframe, preview from here, update to the camera and delete', items.join() === 'Make keyframe shot,Preview from here,Update to current camera,Delete', items.join());
+  await page.locator('.tabletop-menu__item', { hasText: 'Make keyframe shot' }).click();
+  saved = (await lastSave(page)).cutscene;
+  check('authoring: Make keyframe shot saves keyframe: true', saved.shots[1].keyframe === true);
+  // Dragging a shot retimes it.
+  at = await timelineAt(page, 2, 40);
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.mouse.move(at.x + TL_PPS / 2, at.y, { steps: 4 });
+  await page.mouse.move(at.x + TL_PPS, at.y, { steps: 4 });
+  await page.mouse.up();
+  saved = (await lastSave(page)).cutscene;
+  check('authoring: dragging shot 2 to 3 s saves its time within 50 ms of 3000', Math.abs(saved.shots[1].at - 3000) <= 50 && saved.shots.length === 3, JSON.stringify(saved.shots.map((s) => s.at)));
+  // No normal limit on the authoring camera.
+  const look = await page.evaluate(async () => {
+    const { board } = window.boardTest;
+    const free = board.cinematic.free;
+    const pitchOf = () => { const p = free.pose(); return Math.asin((p.target.y - p.eye.y) / Math.hypot(p.target.x - p.eye.x, p.target.y - p.eye.y, p.target.z - p.eye.z)); };
+    const forwardY = () => board.view.getWorldDirection(new window.boardTest.Vector3()).y;
+    free.look(0, 1.5 - pitchOf());
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const up = { pitch: pitchOf(), y: forwardY() };
+    free.look(0, -3);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const down = { pitch: pitchOf(), y: forwardY() };
+    return { up, down };
+  });
+  check('authoring: the camera looks up at 1.5 rad and the board draws it so', Math.abs(look.up.pitch - 1.5) < 0.01 && Math.abs(look.up.y - Math.sin(1.5)) < 0.02, JSON.stringify(look));
+  check('authoring: look(0, -3) turns it to 1.5 rad down; no limit clamps the pose', Math.abs(look.down.pitch + 1.5) < 0.01 && Math.abs(look.down.y + Math.sin(1.5)) < 0.02, JSON.stringify(look));
+  await shot('cutscene-timeline');
+  // Done: everything is back as it was.
+  await page.locator('.tabletop-timeline__done').click();
+  await page.waitForFunction(() => window.boardTest.studio.studio.state === 'idle', null, { timeout: 8000 });
+  await wait(300);
+  const after = await page.evaluate(() => ({ role: window.boardTest.board.cinematicRole, pose: JSON.stringify(window.boardTest.board.camera.pose), driver: window.boardTest.board.cinematic, map: window.boardTest.studio.host.mapPath(), first: window.boardTest.studio.first, holds: window.boardTest.studio.log.holds, bars: window.boardTest.board.cinema.aspect, timeline: document.querySelector('.tabletop-timeline').hidden }));
+  check('authoring: Done gives role none, no driver, no bars and a hidden timeline', after.role === 'none' && after.driver === null && after.bars === null && after.timeline === true, JSON.stringify(after));
+  check('authoring: Done brings back the first map and the camera exactly as it was before +', after.map === after.first && after.pose === before, JSON.stringify([after.pose, before]));
+  check('authoring: the players\' window was held while editing and let go after', after.holds[0] === true && after.holds.at(-1) === false, JSON.stringify(after.holds));
+  // The gallery lists it; Preview is on for a cutscene with shots and off for one without; Delete asks first.
+  await page.locator('button[aria-label="Cutscenes"]').click();
+  const row = await page.evaluate(() => [...document.querySelectorAll('.tabletop-gallery__row')].map((r) => ({ name: r.querySelector('.tabletop-gallery__name').textContent, count: r.querySelector('.tabletop-gallery__count').textContent, preview: r.querySelector('.tabletop-gallery__preview').disabled })));
+  check('authoring: the gallery lists the cutscene with its shots and an enabled Preview', row.length === 1 && row[0].name === 'Docks' && row[0].count === '3 shots' && row[0].preview === false, JSON.stringify(row));
+  await page.evaluate(() => window.boardTest.studio.log.names.push('Empty'));
+  await page.locator('.tabletop-gallery__add').click();
+  await sleepFrame();
+  await page.locator('.tabletop-timeline__done').click();
+  await page.waitForFunction(() => window.boardTest.studio.studio.state === 'idle', null, { timeout: 8000 });
+  await page.locator('button[aria-label="Cutscenes"]').click();
+  const rows = await page.evaluate(() => [...document.querySelectorAll('.tabletop-gallery__row')].map((r) => ({ name: r.querySelector('.tabletop-gallery__name').textContent, count: r.querySelector('.tabletop-gallery__count').textContent, preview: r.querySelector('.tabletop-gallery__preview').disabled, title: r.querySelector('.tabletop-gallery__preview').title })));
+  check('authoring: a cutscene with no shots has Preview disabled, with the reason shown', rows.length === 2 && rows[1].preview === true && rows[1].count === 'No shots yet' && /shot/i.test(rows[1].title), JSON.stringify(rows));
+  await page.evaluate(() => window.boardTest.studio.log.names.push('Empty cut'));
+  await page.locator('.tabletop-gallery__row').nth(1).locator('.tabletop-gallery__rename').click();
+  await sleepFrame();
+  check('authoring: Rename asks with the current name and saves the new one', await page.evaluate(() => window.boardTest.studio.log.asked.at(-1) === 'Empty' && window.boardTest.studio.store.get(window.boardTest.studio.first)[1].name === 'Empty cut'));
+  await page.locator('.tabletop-gallery__row').nth(1).locator('.tabletop-gallery__delete').click();
+  check('authoring: Delete asks for a confirmation and keeps the cutscene until it is given', await page.evaluate(() => window.boardTest.studio.store.get(window.boardTest.studio.first).length === 2) && await page.locator('.tabletop-gallery__yes').count() === 1);
+  await page.locator('.tabletop-gallery__yes').click();
+  check('authoring: confirmed, Delete removes the cutscene', await page.evaluate(() => window.boardTest.studio.store.get(window.boardTest.studio.first).length === 1));
+});
+
+// ── Cutscenes: preview ────────────────────────────────────────────────────────────────────────────────────────────
+feature('cutscene preview', async ({ page }) => {
+  const eyes = [{ x: 400, y: 700, z: 1200 }, { x: 800, y: 600, z: 1100 }, { x: 600, y: 500, z: 900 }, { x: 300, y: 450, z: 700 }];
+  await page.evaluate((eyes) => {
+    const { studio } = window.boardTest;
+    const target = (i) => ({ x: eyes[i].x, y: 0, z: eyes[i].z - 600 });
+    const make = (i, at, mapPath, extra) => ({ id: `s${i}`, at, mapPath, eye: eyes[i], target: target(i), keyframe: false, transition: 'fade', ...extra });
+    studio.store.set(studio.first, [{ id: 'pre', name: 'Preview me', shots: [
+      make(0, 0, studio.first),
+      make(1, 800, studio.first, { keyframe: true, transition: 'move' }),
+      make(2, 1800, studio.second, { transition: 'fade' }),
+      make(3, 2800, studio.second, { transition: 'cut' }),
+    ] }]);
+  }, eyes);
+  const state = () => page.evaluate(() => window.boardTest.studio.studio.state);
+  const label = () => page.locator('.tabletop-preview__label').textContent();
+  const rests = async (index, map) => {
+    await page.waitForFunction(({ index, map }) => {
+      const s = window.boardTest.studio;
+      const p = s.studio.previewState;
+      return p && p.shot === index && p.resting && s.host.mapPath() === map && window.boardTest.board.cinema.black === 0;
+    }, { index, map }, { timeout: 12000 });
+    await wait(250);
+  };
+  const near = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) < 1;
+  const eyeNow = () => page.evaluate(() => { const p = window.boardTest.board.view.position; return { x: p.x, y: p.y, z: p.z }; });
+  const ids = await page.evaluate(() => ({ first: window.boardTest.studio.first, second: window.boardTest.studio.second }));
+
+  await page.locator('button[aria-label="Cutscenes"]').click();
+  await page.locator('.tabletop-gallery__preview').click();
+  await rests(0, ids.first);
+  check('preview: from the start it rests on shot 1 of 4, role previewing', await state() === 'previewing' && await label() === 'Shot 1 of 4' && await page.evaluate(() => window.boardTest.board.cinematicRole) === 'previewing');
+  check('preview: the board draws shot 1\'s camera', near(await eyeNow(), eyes[0]), JSON.stringify(await eyeNow()));
+  check('preview: the players\' window stays held', await page.evaluate(() => window.boardTest.studio.log.holds.at(-1)) === true);
+  check('preview: the control bar offers Previous, Next and Back to editing', await page.evaluate(() => [...document.querySelectorAll('.tabletop-preview button')].map((b) => b.textContent).join()) === 'Previous,Next,Back to editing');
+  await page.locator('.tabletop-preview__next').click();
+  await rests(2, ids.second);
+  check('preview: Next runs through the keyframe shot, crosses to the second map after the fade and rests on shot 3', await label() === 'Shot 3 of 4' && near(await eyeNow(), eyes[2]), `${await label()} ${JSON.stringify(await eyeNow())}`);
+  check('preview: the map was switched once, by the fade', await page.evaluate(() => window.boardTest.studio.log.switches.join()) === ids.second);
+  await page.locator('.tabletop-preview__previous').click();
+  await rests(0, ids.first);
+  check('preview: Previous cuts back to shot 1 on the first map', await label() === 'Shot 1 of 4' && near(await eyeNow(), eyes[0]));
+  await page.locator('.tabletop-preview__back').click();
+  check('preview: Back to editing returns to the editor with the authoring role', await state() === 'editing' && await page.evaluate(() => window.boardTest.board.cinematicRole) === 'authoring' && await page.locator('.tabletop-timeline').isVisible());
+  // Preview from a shot, by its menu.
+  const at = await timelineAt(page, 0.8, 40);
+  await page.mouse.click(at.x, at.y, { button: 'right' });
+  await page.locator('.tabletop-menu__item', { hasText: 'Preview from here' }).click();
+  await rests(1, ids.first);
+  check('preview: Preview from here on shot 2 starts resting on shot 2', await label() === 'Shot 2 of 4' && near(await eyeNow(), eyes[1]), `${await label()} ${JSON.stringify(await eyeNow())}`);
+  // Next from there crosses the fade; Next at the last shot ends the preview.
+  await page.locator('.tabletop-preview__next').click();
+  await rests(2, ids.second);
+  await page.locator('.tabletop-preview__next').click();
+  await rests(3, ids.second);
+  await page.locator('.tabletop-preview__next').click();
+  await wait(500);
+  check('preview: Next on the last shot goes back to editing', await state() === 'editing');
+  // Escape in a preview goes back to editing; Escape in the editor leaves it.
+  await page.evaluate(() => window.boardTest.studio.studio.preview(0));
+  await page.keyboard.press('Escape');
+  check('preview: Escape goes back to editing', await state() === 'editing');
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => window.boardTest.studio.studio.state === 'idle', null, { timeout: 8000 });
+  check('preview: Escape in the editor leaves it, on the first map', await page.evaluate(() => window.boardTest.studio.host.mapPath() === window.boardTest.studio.first && window.boardTest.board.cinematicRole === 'none' && window.boardTest.board.cinematic === null));
+});
+
 server.listen(0, async () => {
   const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const errors = [];

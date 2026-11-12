@@ -18,6 +18,9 @@ import { lookOf } from '../src/board/look';
 import { renderBoardCard } from '../src/boardCard';
 import { setLanguage } from '../src/i18n';
 import { readMap, type BoardMap, type BoardToken } from '../src/board/mapModel';
+import { CutsceneStudio, type StudioHost } from '../src/cutscene/studio';
+import { DEFAULT_CINEMATIC_SETTINGS, readCinematicSettings, type CinematicSettings } from '../src/cutscene/cinematicSettings';
+import type { Cutscene } from '../src/cutscene/cutsceneData';
 import { insideFog } from '../src/board/playerView';
 import { AtlasMenu } from '../src/board/atlasMenu';
 import { tokenMenuEntries } from '../src/board/tokenMenu';
@@ -671,7 +674,52 @@ async function main(): Promise<void> {
   const palette = new PaletteWindow(container, lootApp as never, paletteHost);
   // Atlas's own Ctrl-hover window, as BoardView routes it: its dice links throw the board's dice for the hovered hero.
   routeAtlasWindowRolls(document, (formula, label, side) => boardDice.cardRoll('hero', formula, label, side));
-  Object.assign(window, { boardTest: { Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, spawned, palette, paletteCalls, ready: true } });
+  // The cutscene studio over the board. Its host keeps cutscenes in memory; `switchMap` loads a second fixture map on the
+  // same board (as BoardView gives the studio a new one) and tells the studio, as BoardView does.
+  const crypt: BoardMap = { ...map, path: 'maps/crypt.atlasmap', tokens: map.tokens.slice(0, 2) };
+  const cutsceneStore = new Map<string, Cutscene[]>();
+  const cutsceneLog = {
+    saves: [] as Array<{ mapPath: string; cutscene: Cutscene }>,
+    notices: [] as string[],
+    holds: [] as boolean[],
+    asked: [] as string[],
+    /** The names askName gives, in turn. */
+    names: [] as string[],
+    settings: { ...DEFAULT_CINEMATIC_SETTINGS } as CinematicSettings,
+    switches: [] as string[],
+  };
+  let cutsceneMap = map.path;
+  const studioHost: StudioHost = {
+    board,
+    mapPath: () => cutsceneMap,
+    cutscenes: (mapPath) => cutsceneStore.get(mapPath) ?? [],
+    save: (mapPath, cutscene) => {
+      cutsceneLog.saves.push({ mapPath, cutscene: JSON.parse(JSON.stringify(cutscene)) as Cutscene });
+      const list = cutsceneStore.get(mapPath) ?? [];
+      cutsceneStore.set(mapPath, list.some((c) => c.id === cutscene.id) ? list.map((c) => (c.id === cutscene.id ? cutscene : c)) : [...list, cutscene]);
+    },
+    remove: (mapPath, id) => { cutsceneStore.set(mapPath, (cutsceneStore.get(mapPath) ?? []).filter((c) => c.id !== id)); },
+    mapTabs: () => [map.path, crypt.path],
+    switchMap: async (mapPath) => {
+      if (mapPath !== map.path && mapPath !== crypt.path) return false;
+      if (mapPath !== cutsceneMap) {
+        cutsceneLog.switches.push(mapPath);
+        cutsceneMap = mapPath;
+        await board.load(mapPath === crypt.path ? crypt : map);
+        studio.mapChanged();
+      }
+      return true;
+    },
+    settings: () => cutsceneLog.settings,
+    setSettings: (changes) => { cutsceneLog.settings = readCinematicSettings({ ...cutsceneLog.settings, ...changes }); },
+    askName: (initial) => { cutsceneLog.asked.push(initial); return Promise.resolve(cutsceneLog.names.shift() ?? null); },
+    notice: (text) => { cutsceneLog.notices.push(text); },
+    holdPlayers: (hold) => { cutsceneLog.holds.push(hold); board.holdPlayers(hold); },
+  };
+  const studio = new CutsceneStudio(container, studioHost);
+  board.cinemaButton({ open: () => (studio.state === 'gallery' ? studio.closeGallery() : studio.openGallery()), live: () => false, toggleLive: () => {} });
+  const cutsceneHarness = { studio, host: studioHost, store: cutsceneStore, log: cutsceneLog, first: map.path, second: crypt.path };
+  Object.assign(window, { boardTest: { studio: cutsceneHarness, Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, spawned, palette, paletteCalls, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });
