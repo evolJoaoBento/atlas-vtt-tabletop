@@ -38,6 +38,8 @@ export class FreeCamera {
 
   /** Turns the view, `dx` to the right and `dy` up, in radians. */
   look(dx: number, dy: number): void {
+    // A number that is not finite (a wheel event with no delta) would make the eye and heading NaN for good.
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
     this.yaw += dx;
     this.pitch = clampPitch(this.pitch + dy);
   }
@@ -49,6 +51,7 @@ export class FreeCamera {
 
   /** Moves along the view's own axes, in world units: `right` and `forward` as the view faces, `up` along world y. */
   fly(right: number, up: number, forward: number): void {
+    if (!Number.isFinite(right + up + forward)) return;
     const ahead = this.forwardAxis();
     this.eye = {
       x: this.eye.x + Math.cos(this.yaw) * right + ahead.x * forward,
@@ -59,6 +62,7 @@ export class FreeCamera {
 
   /** Moves along the view by `reach * (factor - 1)`: a factor above 1 goes in, below 1 backs out. */
   dolly(factor: number): void {
+    if (!Number.isFinite(factor)) return;
     this.fly(0, 0, this.reach * (factor - 1));
   }
 

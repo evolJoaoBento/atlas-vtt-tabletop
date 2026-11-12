@@ -16,6 +16,17 @@ test('look clamps the pitch just short of straight up', () => {
   near(Math.asin((cam.pose().target.y - eye.y) / 10), -(Math.PI / 2 - 0.01));
 });
 
+test('a number that is not finite changes nothing', () => {
+  const cam = new FreeCamera({ x: 1, y: 2, z: 3 }, { x: 1, y: 2, z: -7 });
+  const before = JSON.stringify(cam.pose());
+  cam.look(NaN, 0);
+  cam.look(0, Infinity);
+  cam.fly(NaN, 0, 0);
+  cam.fly(0, 0, -Infinity);
+  cam.dolly(NaN);
+  assert.equal(JSON.stringify(cam.pose()), before);
+});
+
 test('fly moves the eye along the view, and the target with it', () => {
   const cam = new FreeCamera({ x: 0, y: 0, z: 0 }, { x: 3, y: 4, z: 0 });
   const before = cam.pose();

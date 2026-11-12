@@ -3375,6 +3375,74 @@ feature('cinematic mode', async ({ page, shot }) => {
   check('cinematic: the lock takes a player out of the eyes and remembers the token', await page.evaluate(() => window.boardTest.board.eyesBeforeLock === 'hero' && window.boardTest.board.seeingFrom === null), await page.evaluate(() => String(window.boardTest.board.eyesBeforeLock)));
   await page.evaluate(() => window.boardTest.board.setCinematicRole('none'));
 
+  // A camera drag in flight when the lock arrives stops there.
+  await page.mouse.move(120, 560);
+  const pre = await orbit();
+  await page.mouse.down();
+  await page.mouse.move(180, 540, { steps: 5 });
+  const dragged = await orbit();
+  check('cinematic: a camera drag moves the camera before the lock', dragged !== pre);
+  await page.evaluate(() => window.boardTest.board.setCinematicRole('locked'));
+  await page.mouse.move(300, 480, { steps: 6 });
+  await page.mouse.up();
+  await wait(100);
+  check('cinematic: a camera drag in flight stops at the lock', (await orbit()) === dragged);
+  await page.evaluate(() => window.boardTest.board.setCinematicRole('none'));
+  // A key held down when the lock arrives is let go.
+  await page.locator('canvas.atlas-tabletop-board').focus();
+  await page.keyboard.down('w');
+  await wait(150);
+  const flying = await orbit();
+  await page.evaluate(() => window.boardTest.board.setCinematicRole('locked'));
+  await wait(300);
+  check('cinematic: a held key is let go at the lock: the camera stops and no key stays held', (await orbit()) === flying && await page.evaluate(() => window.boardTest.board.held.size === 0), flying);
+  await page.keyboard.up('w');
+  await page.evaluate(() => window.boardTest.board.setCinematicRole('none'));
+  // A pinch in flight is dropped at the lock. The touches are synthetic: the canvas takes no pointer capture for them.
+  const pinch = (lock) => page.evaluate(async (lock) => {
+    const { board } = window.boardTest;
+    const canvas = board.canvas;
+    canvas.setPointerCapture = () => {};
+    const send = (type, id, x, y) => canvas.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', isPrimary: id === 21, clientX: x, clientY: y, button: 0, bubbles: true }));
+    const goal = () => JSON.stringify(board.camera.goal);
+    send('pointerdown', 21, 400, 300);
+    send('pointerdown', 22, 600, 300);
+    if (lock) board.setCinematicRole('locked');
+    const start = goal();
+    send('pointermove', 21, 300, 300);
+    send('pointermove', 22, 700, 300);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const moved = goal() !== start;
+    send('pointerup', 21, 300, 300);
+    send('pointerup', 22, 700, 300);
+    board.setCinematicRole('none');
+    board.camera.snap();
+    return { moved, touches: board.touches.size, pinch: board.pinch };
+  }, lock);
+  const open = await pinch(false);
+  check('cinematic: a pinch zooms the camera before the lock', open.moved, JSON.stringify(open));
+  const locked = await pinch(true);
+  check('cinematic: a pinch in flight is dropped at the lock and moves nothing', !locked.moved && locked.touches === 0 && locked.pinch === null, JSON.stringify(locked));
+  // The cameras that jump (follow the GM, AR) are refused while locked, and AR is drawn again when the lock ends.
+  const refused = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    board.setGmView({ eye: { x: 100, y: 400, z: 900 }, target: { x: 300, y: 0, z: 300 } });
+    const goal = JSON.stringify(board.camera.goal);
+    board.setCinematicRole('locked');
+    const follow = board.followGm();
+    const view = { rotation: [1, 0, 0, 0, 1, 0, 0, 0, 1], translation: [0, 0, 400], frustum: { left: -1, right: 1, top: -1, bottom: 1 }, squareMm: 25 };
+    const accepted = board.setAugmented(view);
+    const drawn = board.augmented;
+    const same = JSON.stringify(board.camera.goal) === goal;
+    board.setCinematicRole('none');
+    const redrawn = board.augmented !== null;
+    board.setAugmented(null);
+    board.setGmView(null);
+    return { follow, accepted, drawn, same, redrawn };
+  });
+  check('cinematic: followGm is refused while locked', refused.follow === false && refused.same, JSON.stringify(refused));
+  check('cinematic: setAugmented is kept as the latest view but not drawn while locked, and drawn when the lock ends', refused.accepted === true && refused.drawn === null && refused.redrawn, JSON.stringify(refused));
+
   // The driver's pose wins over the orbit camera.
   await page.evaluate(() => window.boardTest.board.setCinematic({ pose: () => ({ eye: { x: 500, y: 900, z: 1400 }, target: { x: 500, y: 0, z: 500 }, black: 0 }) }));
   await wait(400);
@@ -3517,6 +3585,26 @@ feature('cinematic mode', async ({ page, shot }) => {
   });
   check('cinematic: taking the driver away puts the camera back on the person\'s own pose', back.gone && back.same, JSON.stringify(back));
   await page.evaluate(() => window.boardTest.board.setCinematicRole('none'));
+  // The fade stays black until a frame has drawn the restored pose: no frame shows the driven shot unfaded.
+  const ending = await page.evaluate(async () => {
+    const { board } = window.boardTest;
+    board.setCinematic({ pose: () => ({ eye: { x: 500, y: 900, z: 1400 }, target: { x: 500, y: 0, z: 500 }, black: 1 }) });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const frames = [];
+    const render = board.renderer.render.bind(board.renderer);
+    board.renderer.render = (...args) => {
+      frames.push({ black: board.cinema.black, atGoal: JSON.stringify(board.camera.pose) === JSON.stringify(board.camera.goal) });
+      return render(...args);
+    };
+    board.setCinematic(null);
+    const right = board.cinema.black;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    board.renderer.render = render;
+    return { right, frames, after: board.cinema.black };
+  });
+  check('cinematic: the fade is still black right after the driver goes', ending.right === 1, JSON.stringify(ending));
+  check('cinematic: no frame draws the driven pose unfaded, and the first frame of the restored pose is still black', ending.frames.length > 0 && ending.frames[0].atGoal && ending.frames[0].black === 1 && ending.frames.every((f) => f.atGoal || f.black === 1), JSON.stringify(ending.frames.slice(0, 3)));
+  check('cinematic: the fade clears after that frame', ending.after === 0, JSON.stringify(ending));
 });
 
 server.listen(0, async () => {

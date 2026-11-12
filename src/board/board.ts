@@ -731,6 +731,8 @@ export class Board {
   private playerCinema: CinemaOverlay | null = null;
   private playerHold = false;
   private playerHeld: HTMLImageElement | null = null;
+  /** The driver was taken away: the fade is cleared after the frame that draws the camera's own pose, not before. */
+  private clearBlackAfterFrame = false;
   readonly cinema: CinemaOverlay;
   private frameId = 0;
   private last = 0;
@@ -2465,6 +2467,10 @@ export class Board {
     this.sizeGizmo();
     if (this.refreshSight()) this.shadowsDirty = true;
     this.drawMain();
+    if (this.clearBlackAfterFrame) {
+      this.clearBlackAfterFrame = false;
+      this.cinema.setBlack(0);
+    }
     this.layoutControls();
     this.drawPlayers(shadows, context);
     if (cameraMoving) this.host.cameraMoved?.();
@@ -4451,6 +4457,8 @@ export class Board {
     this.player = null;
     this.playerCinema?.dispose();
     this.playerCinema = null;
+    // The held picture was laid over the window that is gone; a window attached again draws live (or is held anew).
+    this.playerHeld = null;
     player.container.ownerDocument.removeEventListener('visibilitychange', this.playersVisibility);
     if (!this.disposed) this.reissueLoops();
     player.resize.disconnect();
@@ -6616,10 +6624,12 @@ export class Board {
   setCinematic(driver: CinematicDriver | null): void {
     const had = this.cinematicDriver !== null;
     this.cinematicDriver = driver;
+    if (driver) this.clearBlackAfterFrame = false;
     if (driver && !had) this.heading = { yaw: this.camera.pose.yaw, pitch: this.camera.pose.pitch };
     if (!driver && had) {
       this.drivenAim = null;
-      this.cinema.setBlack(0);
+      // The fade stays as it is until a frame has drawn the restored pose (see `frame`), so the last shot never shows unfaded.
+      this.clearBlackAfterFrame = true;
       this.camera.snap();
       this.listened = { x: NaN, y: NaN, z: NaN, yaw: NaN, pitch: NaN, distance: NaN };
     }
@@ -6748,6 +6758,8 @@ export class Board {
   }
 
   dispose(): void {
+    this.cinematicDriver = null;
+    this.arLatest = null;
     this.cinema.dispose();
     this.lockPointer(false);
     this.caster?.dispose();
