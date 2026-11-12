@@ -288,12 +288,17 @@ feature('table sounds', async ({ page, shot }) => {
   now = await heard();
   check('table sounds: with the local player window open the GM board blows it at full', now.length === 1 && now[0].gain === 1, JSON.stringify(now));
   await page.evaluate(() => { window.boardTest.board.player = null; window.boardTest.controlled.clear(); });
-  // The host's live tracker ahead of the file: heard once, not again when the file catches up.
+  // A scene opens with the file's turn at A while the host's live tracker already says B: that only seeds. Then the live
+  // tracker advances to C: one horn. The file catching up to C is no second horn.
   await clear();
+  await page.evaluate(async () => { const { board } = window.boardTest; await board.load({ ...board.map, path: 'live.atlasmap', initiative: { ...board.map.initiative, isActive: true, currentIndex: 0, round: 1 } }); });
   await page.evaluate(() => window.boardTest.board.hearTurn('1:e-other', ['orc']));
-  check('table sounds: the host reporting a turn blows the horn once', JSON.stringify(ids(await heard())) === '["turn.horn"]', JSON.stringify(await heard()));
-  await page.evaluate(() => window.boardTest.board.hearTurn('1:e-other', ['orc']));
-  check('table sounds: reporting it again is silent', (await heard()).length === 1, JSON.stringify(await heard()));
+  check('table sounds: a live tracker ahead of the file when the scene opens is silent', (await heard()).length === 0, JSON.stringify(await heard()));
+  await page.evaluate(() => window.boardTest.board.hearTurn('1:e-gob', ['gob']));
+  check('table sounds: the live tracker advancing afterwards blows the horn once', JSON.stringify(ids(await heard())) === '["turn.horn"]', JSON.stringify(await heard()));
+  await page.evaluate(() => window.boardTest.board.hearTurn('1:e-gob', ['gob']));
+  await turn(1);
+  check('table sounds: reporting it again, and the file catching up, are silent', (await heard()).length === 1, JSON.stringify(await heard()));
   // A scene switch is silent whatever changed.
   await clear();
   await page.evaluate(async () => { const { board } = window.boardTest; await board.load({ ...board.map, path: 'another.atlasmap', fog: [], tokens: board.map.tokens.map((t) => ({ ...t, conditions: ['c-poisoned'] })), initiative: { ...board.map.initiative, currentIndex: 0, round: 5 } }); });

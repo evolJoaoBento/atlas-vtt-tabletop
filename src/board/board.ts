@@ -2914,7 +2914,7 @@ export class Board {
     });
     const delays = staggerOffsets(heard.length);
     heard.forEach(({ entry, name }, index) => this.sound(conditionSound(name), { at: { x: entry.at.x, y: this.standAt(entry), z: entry.at.y }, delayMs: delays[index] }));
-    if (!sameScene) this.hornKey = turnKey;
+    if (!sameScene) { this.hornKey = turnKey; this.hornArmed = false; }
     else if (changes.turnChanged && turnKey !== this.hornKey) {
       this.hornKey = turnKey;
       this.horn(changes.turnChanged.tokens);
@@ -2923,12 +2923,15 @@ export class Board {
 
   /** What the last map or tracker update said the turn was, so a turn passing is heard once even when two things report it. */
   private hornKey: string | null = null;
+  /** Whether the host's tracker has told its turn since this scene opened: the first telling only seeds `hornKey`, it never sounds. */
+  private hornArmed = false;
   private readonly changes = new BoardChanges();
 
   /** The tracker the host holds moved on to `key` (the GM's board, which follows Atlas's live tracker ahead of the file): a new turn blows the horn once. */
   hearTurn(key: string | null, tokens: readonly string[]): void {
-    if (key !== null && this.hornKey !== null && key !== this.hornKey) this.horn(tokens);
+    if (this.hornArmed && key !== null && this.hornKey !== null && key !== this.hornKey) this.horn(tokens);
     this.hornKey = key;
+    this.hornArmed = true;
   }
 
   /** The turn horn: full for a turn this board's player owns, for a monster's turn on the GM's board, or while the player window shows; quiet otherwise. */
