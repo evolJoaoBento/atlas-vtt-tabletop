@@ -17,7 +17,7 @@ spoils the moment of the cast. The animation should belong to the cast.
 2. Dice that sound like the dice in Atlas VTT: a clack per hit, so a long roll sounds long and a short roll short.
 3. Spells: while aiming, a plain coloured shape with no animation; on cast, the shape grows into place with its
    damage type's animation and its damage type's impact sound.
-4. Every sound royalty free: CC0 (no attribution needed), or made by us. Sources recorded in the repo.
+4. Every sound royalty free: CC0 (no attribution needed), CC BY with credit where the user chose it (2026-11-12: Leonardo Calvo's Magic Spell SFX, CC BY 4.0), or made by us. Sources recorded in the repo.
 
 ## Non-goals
 
