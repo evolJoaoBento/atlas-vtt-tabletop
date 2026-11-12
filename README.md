@@ -167,6 +167,44 @@ Any built-in sound can be replaced with a file of your own, without rebuilding a
 - **Who hears them:** custom sounds play on this computer, on the boards of this vault (and the local player window).
   Remote players (Connect's player tab in another vault, the web player) hear the built-in sounds for now.
 
+## Cutscenes
+
+A cutscene takes the camera away from the players for a while and shows them shots you prepared (or just what your own
+camera does), then gives it back where it was. It needs **Connect for Atlas VTT with cutscenes** on your side and on the
+players' (a player on a Connect without them, or without Tabletop's board, does not see the shots). On your own, with no
+session, you can build and preview cutscenes all the same.
+
+- **Building:** the **Cutscenes** button (a clapperboard, at the right end of the toolbar) opens the scene's gallery. **+**
+  asks for a name and opens the timeline along the bottom of the board; the cinematic bars come on and your camera is
+  free: **W/S** (or the up and down arrows) fly along the view, **A/D** (or left and right) across it, **Q** goes down and
+  **E** up, dragging with either mouse button looks about, the wheel dollies in and out. There are no camera limits (look
+  up, go as far as you like) and no roll. **Click the timeline** to make a shot holding the camera as it is at that moment;
+  **drag** a shot to retime it. **Right-click a shot** to make it a *keyframe shot* (the camera passes through it without
+  stopping; a chain of keyframe shots on one map is one smooth path) or back, **Preview from here**, **Update to current
+  camera** or **Delete**. **Right-click between two shots** to pick the transition into the second: **Fade** (through
+  black), **Cut**, or **Move** (the camera eases from one shot to the next; only between two shots on the same map). The
+  time between two shots on the timeline is how long the transition takes. To cross maps, open the other map in an Atlas
+  tab, switch to it while editing and click the timeline there: that shot belongs to that map. Everything saves as you go,
+  in the map the cutscene was made in, and follows a renamed map. **Done** (or Escape) leaves.
+- **Preview and Play for players:** **Preview** in the editor, or in the gallery, runs the cutscene on your board only, with
+  **Previous**, **Next** and **Back to editing**. **Play for players** (gallery) starts it for everyone: it stops on each
+  ordinary shot and waits for your **Next** (keyframe shots run straight through); **Previous** is a cut to the previous
+  ordinary shot; **End** gives the camera back. The toolbar's **Players follow my camera** toggle is the live version: no
+  shots, the players' cameras follow yours, smoothed, until you end it. While you build or preview, the local players'
+  window keeps its last picture. Closing the board, stopping the session or unloading the plugin ends a run, and every
+  player is back on their own camera.
+- **Cinematic settings** (the gear in the gallery): **Cinematic bars** on or off, the **Aspect ratio** (1.85:1, 2:1 or
+  2.39:1, the default), the **Default transition** for a new shot (fade, cut or move; fade by default) and the **Fade
+  length** in seconds each way (0.6 by default).
+- **What players see:** each player's picture fades to black, then fades in on the first shot, and fades out and back in
+  on their own camera at the end (their own camera, token's eyes, AR placement or 2D pan and zoom, exactly as they left
+  them; a player on Connect's 2D view is switched to the 3D board for the run and back). Everything the shots show, in the
+  maps they show it, for the run only: the board as the GM's camera sees it, with no fog and no line of sight (hidden
+  tokens stay hidden), also on a map the player was never shown. Nothing seen is kept as explored or remembered, and
+  nothing of it stays in their data afterwards. During the run a player's camera and tokens do not move from any input
+  (mouse, wheel, keys, touch, pinch, a token's eyes, AR); they can hover and click for information, and use **Roll dice**
+  (the roll goes to your log). The cutscene scene is not part of the scene assignments and never changes who is where.
+
 ## Build and test
 
 ```
