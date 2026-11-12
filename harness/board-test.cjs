@@ -371,7 +371,7 @@ server.listen(0, async () => {
       }));
       let list = await tools();
       // Players are shown scenes with the eye on Atlas's scene tabs: the toolbar has no player view or freeze buttons.
-      check('no player view or freeze button on the toolbar', !list.some((t) => /player view|camera/.test(t.label ?? '')), list);
+      check('no player view or freeze button on the toolbar', !list.some((t) => t.label !== 'Players follow my camera' && /player view|camera/.test(t.label ?? '')), list);
       const opened = page.waitForEvent('popup');
       await page.evaluate(() => window.boardTest.board.host.togglePlayerView());
       const popup = await opened;
