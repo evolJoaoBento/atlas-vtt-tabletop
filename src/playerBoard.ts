@@ -175,6 +175,8 @@ export function playerBoardFactory(quality: () => Quality, looks: () => { tiltSh
 
 /** How long the own scene may take to come back before the run lets the player go anyway. */
 const RESTORE_PATIENCE_MS = 8000;
+/** How long a run's scene waits, black, for its map image before it is shown without it. */
+const IMAGE_PATIENCE_MS = 4000;
 /** A frame longer than this is a tab that was asleep: the live camera does not take it as time passed. */
 const LIVE_STEP_MS = 250;
 
@@ -199,8 +201,8 @@ interface Run {
   gyro: boolean;
   /** The key of the cutscene scene the board shows, or null for the player's own scene. */
   showing: string | null;
-  /** The key last drawn, and whether its map image was in place. */
-  loaded: { key: string; complete: boolean } | null;
+  /** The key last drawn, whether its map image was in place, and since when that key has been drawn without it (null: it was in place). */
+  loaded: { key: string; complete: boolean; missingSince: number | null } | null;
   live: { goal: { eye: Vec3; target: Vec3 }; mid: { eye: Vec3; target: Vec3 }; current: { eye: Vec3; target: Vec3 }; at: number | null } | null;
   handBack: boolean;
   handedBack: boolean;
@@ -544,7 +546,9 @@ class PlayerBoard implements PlayerBoardHandle {
       if (run && key !== null) {
         // A scene of the run: no framing of its map, and the dice are the run's business (a roll lives on across shots on one map).
         if (this.run === run && run.showing === key) {
-          run.loaded = { key, complete: !missing };
+          // The wait for a missing image counts from the first load of this key without it, whatever loads come after.
+          const was = run.loaded?.key === key ? run.loaded.missingSince : null;
+          run.loaded = { key, complete: !missing, missingSince: missing ? (was ?? this.clock()) : null };
           this.arrived(run);
         }
         return;
@@ -597,9 +601,15 @@ class PlayerBoard implements PlayerBoardHandle {
       this.finish(run);
       run = null;
     }
-    if (run?.state.leaving) {
-      // News of the run being left changes nothing; another run waits until this one is done.
-      if (cutscene.runId !== run.cutscene.runId) this.queued = { cutscene, options };
+    if (run && (run.state.leaving || run.restoring !== null)) {
+      // The run is past its End (fading out, or the own scene coming back): any run that comes now waits until it is
+      // done, the same one included (a run told again after its end is the player admitted to it again, after a drop).
+      const same = this.queued?.cutscene.runId === cutscene.runId;
+      // The scenes the run just left had under the same id are from before the drop: Connect sends them again, as they are now.
+      if (!same && cutscene.runId === run.cutscene.runId) this.cutScenes.delete(cutscene.runId);
+      this.queued = { cutscene, options: same ? { ...this.queued!.options, ...options } : options };
+      // Its scenes are taken from now on, even when the run just left had the same id.
+      if (this.endedRun === cutscene.runId) this.endedRun = null;
       return;
     }
     if (run) this.update(run, cutscene, options);
@@ -658,6 +668,7 @@ class PlayerBoard implements PlayerBoardHandle {
     this.run = run;
     // Scenes sent for another run are dropped (the ones for this one are kept).
     for (const id of [...this.cutScenes.keys()]) if (id !== cutscene.runId && id !== this.queued?.cutscene.runId) this.cutScenes.delete(id);
+    this.dropUnnamed(cutscene);
     this.endedRun = null;
     // The player leaves a token's eyes, and the board is theirs no more; the sight veil hides nothing during a run.
     board.setCinematicRole('locked');
@@ -678,10 +689,23 @@ class PlayerBoard implements PlayerBoardHandle {
       this.cutScenes.delete(run.cutscene.runId);
     }
     run.cutscene = cutscene;
+    this.dropUnnamed(cutscene);
     if (options.handBack !== undefined) run.handBack = options.handBack;
     if (run.showing !== null) this.board.cinema.setBars(cutscene.look.bars);
     run.state.cutscene(cutscene, this.clock());
     this.board.wake(true);
+  }
+
+  /**
+   * The run's scenes of maps the publication no longer names are dropped: a live run that comes back to a map reuses
+   * its key, and the board must wait, black, for that map as it is now (Connect sends it again) rather than show it as
+   * it was when the GM left it.
+   */
+  private dropUnnamed(cutscene: BoardCutscene): void {
+    const byKey = this.cutScenes.get(cutscene.runId);
+    if (!byKey) return;
+    const named = new Set([cutscene.key, ...cutscene.shots.map((shot) => shot.key)]);
+    for (const key of [...byKey.keys()]) if (!named.has(key)) byKey.delete(key);
   }
 
   /** What takes the camera over for a run: the state's view of this frame, and what the board must do about it. */
@@ -710,6 +734,12 @@ class PlayerBoard implements PlayerBoardHandle {
       run.loaded = null;
       this.reload();
     }
+    const loaded = run.loaded;
+    if (loaded && !loaded.complete && loaded.key === run.showing && loaded.missingSince !== null && now - loaded.missingSince >= IMAGE_PATIENCE_MS) {
+      // The map image is not coming (undecodable, refused): the scene shows without it, as a normal load does.
+      loaded.complete = true;
+      this.arrived(run);
+    }
     if (view.restore) this.restore(run, now);
     if (run.restoring && !run.handedBack && run.restoring.done === null && now - run.restoring.since > RESTORE_PATIENCE_MS) {
       // The own scene is not coming: the player is let go over whatever the board shows.
@@ -727,8 +757,11 @@ class PlayerBoard implements PlayerBoardHandle {
     this.board.setReveal(false);
     run.showing = null;
     run.loaded = null;
-    this.cutScenes.delete(run.cutscene.runId);
-    this.endedRun = run.cutscene.runId;
+    // The scenes of a run waiting to start stay, even under the same id (the player admitted to the run again).
+    if (this.queued?.cutscene.runId !== run.cutscene.runId) {
+      this.cutScenes.delete(run.cutscene.runId);
+      this.endedRun = run.cutscene.runId;
+    }
     if (run.handBack) {
       // Connect puts back the view it had, under its own black: this board stays black.
       run.handedBack = true;
@@ -784,7 +817,7 @@ class PlayerBoard implements PlayerBoardHandle {
     board.setCinematicRole('none');
     // Nothing of any run but the one waiting to start is kept.
     for (const id of [...this.cutScenes.keys()]) if (id !== this.queued?.cutscene.runId) this.cutScenes.delete(id);
-    this.endedRun = run.cutscene.runId;
+    if (this.queued?.cutscene.runId !== run.cutscene.runId) this.endedRun = run.cutscene.runId;
     // Back in the same token's eyes, and Connect told, as it was when they were taken.
     if (!run.handedBack && run.eyes !== null && board.seeFrom(run.eyes, run.gyro)) this.host.eyeChanged?.();
     const next = this.queued;

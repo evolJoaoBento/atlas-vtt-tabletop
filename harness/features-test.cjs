@@ -3901,6 +3901,10 @@ feature('cutscene run', async ({ page }) => {
   check('cutscene run: the keys map back to the vault paths here, and none is in what players are sent', JSON.stringify(started.maps) === JSON.stringify({ k1: ids.first, k2: ids.second }) && !JSON.stringify(started.cutscene).includes('.atlasmap'), JSON.stringify(started.maps));
   check('cutscene run: the board is in the running role with a driver, bars and the reveal, and the studio says running', await page.evaluate(() => { const b = window.boardTest.board; return b.cinematicRole === 'running' && b.cinematic !== null && b.cinema.aspect === 2.39 && window.boardTest.studio.studio.state === 'running'; }));
   check('cutscene run: the players\' window was lent to the run', await page.evaluate(() => window.boardTest.studio.log.lent.join()) === 'true');
+  // "Players follow my camera" while a prepared cutscene plays: refused, and the cutscene goes on.
+  await page.evaluate(() => window.boardTest.studio.studio.toggleLive());
+  const refusedLive = { run: await current(), notice: await page.evaluate(() => window.boardTest.studio.log.notices.at(-1)), changes: await page.evaluate(() => window.runLog.changes), state: await page.evaluate(() => window.boardTest.studio.studio.state) };
+  check('cutscene run: "Players follow my camera" during a prepared run is refused with a notice, and the run goes on', refusedLive.run !== null && refusedLive.run.cutscene.mode === 'prepared' && /end the cutscene first/.test(refusedLive.notice) && refusedLive.changes === 1 && refusedLive.state === 'running', JSON.stringify({ ...refusedLive, run: !!refusedLive.run }));
   check('cutscene run: the control bar offers Previous, Next and End, on shot 1 of 4', await page.evaluate(() => [...document.querySelectorAll('.tabletop-run button')].map((b) => b.textContent).join()) === 'Previous,Next,End' && await page.locator('.tabletop-run__label').textContent() === 'Shot 1 of 4');
   await wait(1800);
   const shot0 = await page.evaluate(() => { const p = window.boardTest.board.view.position; return { x: p.x, y: p.y, z: p.z }; });
@@ -3996,6 +4000,23 @@ feature('cutscene run live', async ({ page }) => {
   const toggle = page.locator('button[aria-label="Players follow my camera"]');
   check('cutscene live: the toggle shows while a session hosts, not pressed', await toggle.isVisible() && await toggle.getAttribute('aria-pressed') === 'false');
   await toggle.click();
+  // The players' window fades in as a player's board does: black first, the reveal and its bars at the black, then clear.
+  const enter = await page.evaluate(async () => {
+    const b = window.boardTest.board;
+    const samples = [];
+    const stop = performance.now() + 2500;
+    while (performance.now() < stop) {
+      samples.push({ black: b.playerCinema?.black ?? 0, reveal: b.reveal, bars: b.playerCinema?.aspect ?? null, gm: b.cinema.black });
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+    return samples;
+  });
+  const peak = Math.max(...enter.map((s) => s.black));
+  const firstReveal = enter.findIndex((s) => s.reveal);
+  const firstBars = enter.findIndex((s) => s.bars !== null);
+  // Frames on a software renderer are far apart, so the samples catch the fade near its black, not at it.
+  check('cutscene live: the players\' window fades to black and back as the run starts, the GM\'s view never black', peak >= 0.5 && enter.at(-1).black < 0.01 && enter.every((s) => s.gm === 0), JSON.stringify({ peak, last: enter.at(-1) }));
+  check('cutscene live: the reveal and the window\'s bars come on at its black, not before', firstReveal > 0 && firstBars > 0 && enter[firstReveal - 1].black > 0 && enter[firstReveal].black >= 0.5 && enter[firstBars].black >= 0.5 && enter.at(-1).reveal && enter.at(-1).bars === 2.39, JSON.stringify({ firstReveal, firstBars, before: enter[firstReveal - 1], at: enter[firstReveal] }));
   const live = await page.evaluate(() => window.boardTest.api.cutscene.current());
   check('cutscene live: it publishes a live run on the GM board\'s map, with no shots', live.cutscene.mode === 'live' && live.cutscene.shots.length === 0 && live.cutscene.key === 'k1' && live.maps.k1 === ids.first && live.cutscene.step.shot === 0, JSON.stringify(live));
   check('cutscene live: the toggle is pressed, the role is live and the bars are on', await toggle.getAttribute('aria-pressed') === 'true' && await page.evaluate(() => window.boardTest.board.cinematicRole === 'live' && window.boardTest.board.cinema.aspect === 2.39 && window.boardTest.board.cinematic === null));
@@ -4016,6 +4037,20 @@ feature('cutscene run live', async ({ page }) => {
   await toggle.click();
   check('cutscene live: toggling off ends it', await page.evaluate(() => window.boardTest.api.cutscene.current()) === null && await toggle.getAttribute('aria-pressed') === 'false' && await page.evaluate(() => window.boardTest.board.cinematicRole === 'none' && window.boardTest.board.cinema.aspect === null && window.boardTest.studio.studio.state === 'idle'));
   check('cutscene live: camera() is null once it is over', await page.evaluate(() => window.boardTest.api.cutscene.camera()) === null);
+  // The players' window fades out: its reveal and bars stay until its black, and go there.
+  const leave = await page.evaluate(async () => {
+    const b = window.boardTest.board;
+    const samples = [];
+    const stop = performance.now() + 2500;
+    while (performance.now() < stop) {
+      samples.push({ black: b.playerCinema?.black ?? null, reveal: b.reveal, bars: b.playerCinema?.aspect ?? null });
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+    return { samples, overlay: b.playerCinema === null, reveal: b.reveal };
+  });
+  const leavePeak = Math.max(...leave.samples.map((s) => s.black ?? 0));
+  const revealGone = leave.samples.findIndex((s) => !s.reveal);
+  check('cutscene live: toggling off fades the players\' window out, the reveal going at its black, and lets the window go after', leavePeak >= 0.5 && revealGone > 0 && (leave.samples[revealGone].black ?? 0) >= 0.5 && leave.samples[0].bars === 2.39 && leave.overlay && !leave.reveal, JSON.stringify({ leavePeak, revealGone, at: leave.samples[revealGone], first: leave.samples[0], overlay: leave.overlay }));
 });
 
 feature('cutscene run closing', async ({ page }) => {
@@ -4302,6 +4337,155 @@ playerFeature('player cutscene disconnect', async ({ page }) => {
   await wait(1500);
   const back = await page.evaluate(() => { const pose = window.playerTest.board.camera.pose; const kept = window.kept.pose; return { diff: Math.abs(pose.yaw - kept.yaw) + Math.abs(pose.distance - kept.distance) + Math.abs(pose.target.x - kept.target.x), id: window.fx.shows() }; });
   check('player cutscene: the camera is restored after a disconnect', back.diff < 1e-9 && back.id === 's1', JSON.stringify(back));
+});
+
+/** Delays every load of a map on the player's board by `ms` (a big own map that takes long to come back); runs inside the page. */
+const slowLoads = (page, ms) => page.evaluate((ms) => {
+  const b = window.playerTest.board;
+  const load = b.load.bind(b);
+  b.load = async (...args) => { await new Promise((r) => setTimeout(r, ms)); return load(...args); };
+}, ms);
+/** The run's state on the player's board now: what it shows, how black, whether locked, and whether its scene is drawn. */
+const runNow = (page) => page.evaluate(() => {
+  const t = window.playerTest;
+  const run = t.handle.run;
+  return { run: run?.cutscene.runId ?? null, showing: run?.showing ?? null, restoring: run ? run.restoring !== null : null, black: window.fx.black(), id: window.fx.shows(), role: t.board.cinematicRole, queued: t.handle.queued?.cutscene.runId ?? null };
+});
+/** The camera back exactly where `window.kept` had it, with nothing of any run kept. */
+const ownBack = (page) => page.evaluate(() => {
+  const t = window.playerTest;
+  const pose = t.board.camera.pose;
+  const kept = window.kept.pose;
+  const diff = Math.max(Math.abs(pose.yaw - kept.yaw), Math.abs(pose.pitch - kept.pitch), Math.abs(pose.distance - kept.distance), Math.abs(pose.target.x - kept.target.x), Math.abs(pose.target.z - kept.target.z));
+  return { diff, id: window.fx.shows(), role: t.board.cinematicRole, black: window.fx.black(), scenes: t.handle.cutScenes.size, run: t.handle.run === null };
+});
+const playsK1 = (page, runId) => page.evaluate((runId) => window.fx.until(() => {
+  const run = window.playerTest.handle.run;
+  return run?.cutscene.runId === runId && run.showing === 'k1' && run.restoring === null && window.fx.shows() === `cutscene:${runId}:k1` && window.fx.black() < 0.01;
+}, 12000), runId);
+
+playerFeature('player cutscene readmitted in the leave fade', async ({ page }) => {
+  await prepare(page);
+  await page.evaluate(() => window.fx.odd());
+  await startRun(page);
+  check('player cutscene readmitted: the run is on', await settled(page));
+  // The link drops (Connect ends the run on the board), and the player is admitted again 200 ms later: the GM sends the
+  // same run, the stage asks for it black, and then the scenes come.
+  await page.evaluate(() => { const t = window.playerTest; t.handle.setCutscene(null); t.handle.setConnected(false); });
+  await wait(200);
+  await page.evaluate(() => {
+    const t = window.playerTest;
+    t.handle.setConnected(true);
+    t.handle.setCutscene(window.fx.run({ shot: 0, seq: 2 }, 'k1'), { startBlack: true });
+    t.handle.setCutsceneScene('r1', 'k1', window.fx.scene1(), t.extras);
+  });
+  const queued = await runNow(page);
+  check('player cutscene readmitted: the run told again while it is being left waits for the leave to finish', queued.queued === 'r1', JSON.stringify(queued));
+  const playing = await playsK1(page, 'r1');
+  const now = await runNow(page);
+  check('player cutscene readmitted: within the leave fade, the same run plays again at its shot, its scene drawn, locked', playing && now.role === 'locked', JSON.stringify(now));
+  await page.evaluate(() => window.playerTest.handle.setCutscene(null));
+  check('player cutscene readmitted: and ends again', await ended(page));
+  await wait(1500);
+  const back = await ownBack(page);
+  check('player cutscene readmitted: after it the own scene and the exact camera are back, and no scene of any run is kept', back.diff < 1e-9 && back.id === 's1' && back.role === 'none' && back.black === 0 && back.scenes === 0, JSON.stringify(back));
+});
+
+playerFeature('player cutscene readmitted while the own map reloads', async ({ page }) => {
+  await prepare(page);
+  await page.evaluate(() => window.fx.odd());
+  await startRun(page);
+  check('player cutscene readmitted late: the run is on', await settled(page));
+  await slowLoads(page, 2500);
+  await page.evaluate(() => { const t = window.playerTest; t.handle.setCutscene(null); t.handle.setConnected(false); });
+  // Past the leave fade (2 x 600 ms), with the own scene still loading.
+  await wait(1500);
+  const gap = await runNow(page);
+  check('player cutscene readmitted late: the board is between the leave fade and the own scene', gap.run === 'r1' && gap.restoring === true, JSON.stringify(gap));
+  await page.evaluate(() => {
+    const t = window.playerTest;
+    t.handle.setConnected(true);
+    t.handle.setCutscene(window.fx.run({ shot: 0, seq: 2 }, 'k1'), { startBlack: true });
+    t.handle.setCutsceneScene('r1', 'k1', window.fx.scene1(), t.extras);
+  });
+  const playing = await playsK1(page, 'r1');
+  const now = await runNow(page);
+  check('player cutscene readmitted late: once the own scene is back the same run plays again, its scene drawn, locked', playing && now.role === 'locked', JSON.stringify(now));
+  await page.evaluate(() => window.playerTest.handle.setCutscene(null));
+  check('player cutscene readmitted late: and ends again', await ended(page, 15000));
+  await wait(3500);
+  const back = await ownBack(page);
+  check('player cutscene readmitted late: the own scene and the exact camera are back, and no scene of any run is kept', back.diff < 1e-9 && back.id === 's1' && back.role === 'none' && back.black === 0 && back.scenes === 0, JSON.stringify(back));
+});
+
+playerFeature('player cutscene new run while the own map reloads', async ({ page }) => {
+  await prepare(page);
+  await page.evaluate(() => window.fx.odd());
+  await startRun(page);
+  check('player cutscene next run: the first run is on', await settled(page));
+  await slowLoads(page, 2500);
+  // The GM ends the run and starts another before this player's own map is back.
+  await page.evaluate(() => window.playerTest.handle.setCutscene(null));
+  await wait(1500);
+  await page.evaluate(() => {
+    const t = window.playerTest;
+    t.handle.setCutscene(window.fx.run({ shot: 0, seq: 1 }, 'k1', 'r2'));
+    t.handle.setCutsceneScene('r2', 'k1', window.fx.scene1(), t.extras);
+  });
+  const playing = await playsK1(page, 'r2');
+  const now = await runNow(page);
+  check('player cutscene next run: the new run plays once the last one is done, its scene drawn, locked', playing && now.role === 'locked', JSON.stringify(now));
+  await page.evaluate(() => window.playerTest.handle.setCutscene(null));
+  check('player cutscene next run: and ends', await ended(page, 15000));
+  await wait(3500);
+  const back = await ownBack(page);
+  check('player cutscene next run: the own scene and the exact camera are back, and no scene of any run is kept', back.diff < 1e-9 && back.id === 's1' && back.role === 'none' && back.black === 0 && back.scenes === 0, JSON.stringify(back));
+});
+
+playerFeature('player cutscene image never comes', async ({ page }) => {
+  await prepare(page);
+  const out = await page.evaluate(async () => {
+    const t = window.playerTest;
+    t.hold(t.MAP2);
+    t.handle.setCutscene(window.fx.run({ shot: 0, seq: 1 }, 'k1', 'r4'));
+    t.handle.setCutsceneScene('r4', 'k1', window.fx.scene1(t.MAP2), t.extras);
+    await new Promise((r) => setTimeout(r, 2500));
+    const early = window.fx.black();
+    const shown = await window.fx.until(() => window.fx.black() < 0.01 && window.fx.shows() === 'cutscene:r4:k1', 6000);
+    return { early, shown, background: !!t.board.map?.background };
+  });
+  check('player cutscene: a map image that never arrives holds black at first', out.early >= 0.99, JSON.stringify(out));
+  check('player cutscene: and after 4 s the scene is shown without it', out.shown && !out.background, JSON.stringify(out));
+});
+
+playerFeature('player cutscene live map comes back', async ({ page }) => {
+  await prepare(page);
+  const out = await page.evaluate(async () => {
+    const t = window.playerTest;
+    const at = { eye: { x: 500, y: 800, z: 1400 }, target: { x: 500, y: 0, z: 400 } };
+    t.handle.setCutscene(window.fx.run({ shot: 0, seq: 1 }, 'k1', 'lv', 'live'));
+    t.handle.setCutsceneCamera('lv', at);
+    t.handle.setCutsceneScene('lv', 'k1', window.fx.scene1(), t.extras);
+    await window.fx.until(() => window.fx.shows() === 'cutscene:lv:k1' && window.fx.black() < 0.01, 10000);
+    // To the second map, and back: the first map comes back under its old key.
+    t.handle.setCutscene(window.fx.run({ shot: 0, seq: 2 }, 'k2', 'lv', 'live'));
+    t.handle.setCutsceneScene('lv', 'k2', window.fx.scene2(), null);
+    await window.fx.until(() => window.fx.shows() === 'cutscene:lv:k2' && window.fx.black() < 0.01, 10000);
+    t.handle.setCutscene(window.fx.run({ shot: 0, seq: 3 }, 'k1', 'lv', 'live'));
+    const kept = t.handle.cutScenes.get('lv');
+    const dropped = { k1: kept?.has('k1') ?? false, k2: kept?.has('k2') ?? false };
+    await new Promise((r) => setTimeout(r, 800));
+    const held = { black: window.fx.black(), id: window.fx.shows() };
+    // The map as it is now: one more token than when the GM left it.
+    const fresh = window.fx.scene1();
+    fresh.tokens.newcomer = { ...fresh.tokens.theirs, x: 900, y: 300, name: 'Newcomer' };
+    t.handle.setCutsceneScene('lv', 'k1', fresh, t.extras);
+    const shown = await window.fx.until(() => window.fx.shows() === 'cutscene:lv:k1' && window.fx.black() < 0.01, 10000);
+    return { dropped, held, shown, newcomer: t.board.tokens.has('newcomer') };
+  });
+  check('player cutscene live: a map the publication no longer names has its scene dropped', !out.dropped.k1 && !out.dropped.k2, JSON.stringify(out));
+  check('player cutscene live: coming back to a map under its old key holds black, never showing it as it was', out.held.black >= 0.99, JSON.stringify(out));
+  check('player cutscene live: and fades in on the map as Connect sends it now', out.shown && out.newcomer, JSON.stringify(out));
 });
 
 playerFeature('player cutscene eyes', async ({ page }) => {

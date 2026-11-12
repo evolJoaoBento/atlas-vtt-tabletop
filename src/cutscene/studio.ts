@@ -156,8 +156,12 @@ export class CutsceneStudio {
     return started;
   }
 
-  /** The toolbar's "Players follow my camera": starts the live follow, or ends the run that is going. */
+  /** The toolbar's "Players follow my camera": starts the live follow, or ends it; a prepared cutscene playing is not its to end. */
   toggleLive(): void {
+    if (this.run.running && this.run.mode === 'prepared') {
+      this.host.notice('Tabletop: end the cutscene first.');
+      return;
+    }
     if (this.run.running) {
       this.run.end();
       return;

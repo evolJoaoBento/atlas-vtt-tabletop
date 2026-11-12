@@ -150,7 +150,9 @@ export interface BoardCutsceneShot {
  * - The first publication of a `runId` starts the run (fade to black, then in on the step's shot). A board that joins later
  *   starts at the latest publication's `step.shot`, at rest, with no transition.
  * - Scene switch: prepared, the scene changes when the step's map `key` differs from the last publication's. Live bumps
- *   `seq` on every scene switch, and its `key` is then always a new one.
+ *   `seq` on every scene switch. A map keeps its key for the whole run, so a live run that comes back to a map names it
+ *   by its old key: the board drops the scenes of keys a publication no longer names, and Connect sends the map's
+ *   projection as it is now whenever its key comes back.
  * - Transition into a step: a cut when `step.shot` is lower than before or `seq` jumps by more than one; otherwise the
  *   step's own transition applies.
  * - A cross-map step: the player's board fades to black and holds black until Connect delivers the new map's revealed

@@ -50,7 +50,7 @@ interface Active {
   leaveSwap: boolean;
   /** The step counter players see: 1 at the start, +1 for each news. */
   seq: number;
-  /** The maps keyed so far (live: a new scene takes a new key). */
+  /** The maps keyed so far, in key order: a map keeps its key for the whole run (live: a map not seen before takes the next). */
   keyed: string[];
   /** The map the last live publish named. */
   livePath: string;
@@ -167,6 +167,9 @@ export class CutsceneRun {
     this.active = a;
     this.host.lendPlayers(true);
     this.applyBoard();
+    // The local players' window fades in as a player's board does: the reveal comes on at its black, with its bars.
+    board.setReveal(false);
+    board.fadePlayers(a.settings.fadeMs, () => { if (this.active === a && this.board === board) board.setReveal(true); });
     this.announce(a);
     this.changed();
   }
@@ -302,7 +305,7 @@ export class CutsceneRun {
     this.publish(null);
     const board = this.board;
     if (a.mode === 'live' || !board || !a.playback) {
-      this.teardown(a);
+      this.teardown(a, true);
       return;
     }
     const last = a.playback.frame(a.clock);
@@ -320,8 +323,12 @@ export class CutsceneRun {
     this.teardown(a);
   }
 
-  /** Gives the board back: no driver, role or bars, the camera and the players' window as they were. */
-  private teardown(a: Active): void {
+  /**
+   * Gives the board back: no driver, role or bars, the camera and the players' window as they were. A live run ended
+   * by the GM (`fade`) fades the local players' window out as a player's board does: the GM's board is theirs at once,
+   * and the window's reveal and bars go at its black.
+   */
+  private teardown(a: Active, fade = false): void {
     if (this.active !== a) return;
     this.active = null;
     const board = this.board;
@@ -329,8 +336,12 @@ export class CutsceneRun {
       board.setCinematic(null);
       board.setCinematicRole('none');
       board.cinema.setBars(null);
-      board.setPlayersCinematic(false);
-      board.setReveal(false);
+      if (fade && a.mode === 'live') {
+        board.fadePlayers(a.settings.fadeMs, () => { if (!this.active) board.setReveal(false); }, () => { if (!this.active) board.setPlayersCinematic(false); });
+      } else {
+        board.setPlayersCinematic(false);
+        board.setReveal(false);
+      }
       if (a.mode === 'prepared' && this.host.mapPath() === a.home) board.restoreCamera(a.keep);
       board.refreshToolbar();
     }

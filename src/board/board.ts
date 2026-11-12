@@ -106,6 +106,7 @@ import { Impacts } from './impact';
 import { opaqueAt } from './alphaSample';
 import { CinemaOverlay } from '../cutscene/cinemaOverlay';
 import { drivenView, type CinematicDriver, type Heading } from '../cutscene/drivenView';
+import { enterLeave } from '../cutscene/timeline';
 import { inputAllowed, type CinematicRole, type LockInput } from '../cutscene/lockRules';
 import type { CameraKeep } from './camera';
 import type { DiceObstacle, DiceTable, DiceTableHost } from '../dice/diceTable';
@@ -4461,6 +4462,7 @@ export class Board {
     const player = this.player;
     if (!player) return;
     this.player = null;
+    this.finishPlayersFade();
     this.playerCinema?.dispose();
     this.playerCinema = null;
     // The held picture was laid over the window that is gone; a window attached again draws live (or is held anew).
@@ -4656,10 +4658,11 @@ export class Board {
   private drawPlayers(shadows: boolean, gm: PoseContext): void {
     const player = this.player;
     if (!player) return;
+    // Dressed first: a fade of the window alone runs its course even while the window has no size.
+    this.dressPlayers(player);
     const height = player.container.clientHeight;
     const width = player.container.clientWidth;
     if (width === 0 || height === 0) return;
-    this.dressPlayers(player);
     // Held: the window keeps the picture laid over it (see `holdPlayers`); nothing is drawn under it meanwhile.
     if (this.playerHeld && this.playerHold) return;
     const pose = this.camera.pose;
@@ -6726,9 +6729,10 @@ export class Board {
     return moved;
   }
 
-  /** The players' window draws the driver's pose (not where the GM froze theirs) and carries a cinema look of its own. */
+  /** The players' window draws the driver's pose (not where the GM froze theirs) and carries a cinema look of its own. A fade of the window alone going on is dropped. */
   setPlayersCinematic(on: boolean): void {
     this.playersDriven = on;
+    this.playersFade = null;
     if (!on) {
       this.playerCinema?.dispose();
       this.playerCinema = null;
@@ -6736,12 +6740,57 @@ export class Board {
     this.wake(true);
   }
 
-  /** The players' overlay follows the board's: made when the players' window is driven, the same bars and the same fade. */
+  /**
+   * Fades the players' window alone to black and back over `fadeMs` each way (a live run, whose GM view never goes
+   * black): `atBlack` runs at the black, where the window's bars change to the board's, and `done` once it is clear
+   * again. With no players' window, or one not driven, both run at once.
+   */
+  fadePlayers(fadeMs: number, atBlack: () => void, done: () => void = () => {}): void {
+    this.playersFade = null;
+    if (!this.player || !this.playersDriven) {
+      atBlack();
+      done();
+      return;
+    }
+    this.playersFade = { start: this.now(), ms: fadeMs, bars: this.playerCinema?.aspect ?? null, swapped: false, atBlack, done };
+    this.wake(true);
+  }
+
+  /** A fade of the players' window alone (see `fadePlayers`): when it began, the bars the window keeps until its black, and what is left to do. */
+  private playersFade: { start: number; ms: number; bars: number | null; swapped: boolean; atBlack: () => void; done: () => void } | null = null;
+
+  /** The players' window is going: a fade of it alone ends now, with what it had left to do. */
+  private finishPlayersFade(): void {
+    const fade = this.playersFade;
+    if (!fade) return;
+    this.playersFade = null;
+    if (!fade.swapped) fade.atBlack();
+    fade.done();
+  }
+
+  /** The players' overlay follows the board's: made when the players' window is driven, the same bars and the same fade (darker during a fade of the window alone). */
   private dressPlayers(player: PlayerScreen): void {
     if (!this.playersDriven) return;
+    let bars = this.cinema.aspect;
+    let black = this.cinema.black;
+    const fade = this.playersFade;
+    if (fade) {
+      const e = enterLeave(this.now() - fade.start, fade.ms);
+      if (e.swapped && !fade.swapped) {
+        fade.swapped = true;
+        fade.atBlack();
+      }
+      if (!fade.swapped) bars = fade.bars;
+      black = Math.max(black, e.black);
+      if (e.done) {
+        this.playersFade = null;
+        fade.done();
+        if (!this.playersDriven) return;
+      } else this.wake();
+    }
     this.playerCinema ??= new CinemaOverlay(player.container);
-    if (this.playerCinema.aspect !== this.cinema.aspect) this.playerCinema.setBars(this.cinema.aspect);
-    if (this.playerCinema.black !== this.cinema.black) this.playerCinema.setBlack(this.cinema.black);
+    if (this.playerCinema.aspect !== bars) this.playerCinema.setBars(bars);
+    if (this.playerCinema.black !== black) this.playerCinema.setBlack(black);
   }
 
   /**

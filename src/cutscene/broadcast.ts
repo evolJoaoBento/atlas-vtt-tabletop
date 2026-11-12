@@ -17,8 +17,8 @@ export interface BroadcastInput {
   mapPath: string;
   settings: CinematicSettings;
   /**
-   * Maps that already hold a key earlier in the same run, in order (`earlier[0]` is `k1`): a map takes a new number
-   * rather than an old one, so a live run's key changes with its scene. Omitted, keys count from `k1`.
+   * Maps that already hold a key earlier in the same run, in order (`earlier[0]` is `k1`): such a map keeps its key, and
+   * a map not among them takes the next number. Omitted, keys count from `k1`.
    */
   earlier?: readonly string[];
 }
