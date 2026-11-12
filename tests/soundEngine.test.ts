@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { CATALOG } from '../src/sound/catalog';
-import { compressorMakeupGain } from '../src/sound/limiter';
+import { compressorMakeupGain, LIMITER } from '../src/sound/limiter';
 import { SoundEngine, type ContextLike, type DocumentLike } from '../src/sound/soundEngine';
 import { DEFAULT_SOUND_SETTINGS, readSoundSettings, SOUND_GROUPS } from '../src/sound/soundSettings';
 
@@ -421,6 +421,9 @@ test('a fixed gain after the limiter takes back the make-up gain Chromium adds, 
   assert.ok(Math.abs(compressorMakeupGain(-3, 20) - 1.2178) < 0.0005);
   assert.ok(Math.abs(post.gain.value - 0.8212) < 0.0005, `post gain ${post.gain.value}`);
   assert.ok(Math.abs(post.gain.value * compressorMakeupGain(-3, 20) - 1) < 1e-9);
+  // The make-up formula holds for a hard knee only; a changed knee must come with a changed formula (see harness "limiter").
+  assert.equal(LIMITER.knee, 0, 'LIMITER_POST_GAIN assumes a hard knee');
+  assert.equal(limiter.knee.value, LIMITER.knee);
 });
 
 test('without a compressor the master gain goes straight to the speakers', async () => {
@@ -565,6 +568,19 @@ test('invalidate restarts a playing loop on the new file, fading the old one out
   assert.deepEqual(second.buffer, { decoded: 9 });
   assert.equal(second.loop, true);
   assert.equal(second.starts.length, 1);
+});
+
+test('invalidate does not restart a loop that cannot be heard, and configure starts it once it can', async () => {
+  const { context, engine } = setup();
+  engine.loop('w', 'water.flow', 0.5);
+  await settle();
+  engine.configure({ ...DEFAULT_SOUND_SETTINGS, groups: { ...DEFAULT_SOUND_SETTINGS.groups, water: false } });
+  const count = context.sources.length;
+  engine.invalidate('water.flow');
+  await settle();
+  assert.equal(context.sources.length, count, 'no source for a loop whose group is off');
+  engine.configure(DEFAULT_SOUND_SETTINGS);
+  assert.equal(context.sources.length, count + 1);
 });
 
 test('invalidate of one sound leaves the loops of others alone', async () => {

@@ -192,7 +192,11 @@ export default class TabletopPlugin extends Plugin {
     this.settings.sound = readSoundSettings(saved.settings?.sound);
     this.vaultSounds = new VaultSounds(this.app, () => this.settings.soundsFolder);
     // Obsidian announces every file as created while the vault loads: the folder is watched once that is done.
-    this.app.workspace.onLayoutReady(() => { for (const ref of this.vaultSounds.events()) this.registerEvent(ref); });
+    // The folder is first listed then too, so a sound asked for while the vault was still loading is not missed.
+    this.app.workspace.onLayoutReady(() => {
+      for (const ref of this.vaultSounds.events()) this.registerEvent(ref);
+      this.vaultSounds.folderChanged();
+    });
     this.assignments = new Assignments(readAssignments(saved.assignments));
     this.boardData = new BoardData(readBoardData(saved.board));
     this.register(this.assignments.onChange(() => { this.save(); this.refreshBoards(); }));
@@ -973,13 +977,30 @@ class TabletopSettingTab extends PluginSettingTab {
   /** The engine that plays previews from the list, held while the settings are open. */
   private previewEngine: SoundEngine | null = null;
 
+  /** The redraw of each row on show, and the way to stop hearing of changes to the custom files. */
+  private readonly rowRedraws = new Map<SoundId, () => void>();
+  private stopWatching: (() => void) | null = null;
+
   hide(): void {
     this.previewEngine?.dispose();
     this.previewEngine = null;
+    this.stopWatching?.();
+    this.stopWatching = null;
+    this.rowRedraws.clear();
+  }
+
+  /** Remembers how to redraw a row, and has every row redrawn when the custom files change. */
+  private track(id: SoundId, redraw: () => void): void {
+    this.rowRedraws.set(id, redraw);
+    this.stopWatching ??= this.plugin.vaultSounds.onChange(() => { for (const again of [...this.rowRedraws.values()]) again(); });
   }
 
   private preview(id: SoundId): void {
     const { plugin } = this;
+    if (plugin.settings.sound.muted) {
+      new Notice('Sound is muted');
+      return;
+    }
     if (!this.previewEngine) {
       this.previewEngine = SoundEngine.shared(window, plugin.vaultSounds.custom.load);
       this.previewEngine?.configure(plugin.settings.sound);
@@ -999,6 +1020,8 @@ class TabletopSettingTab extends PluginSettingTab {
       levels: () => plugin.settings.sound.levels,
       setLevel: (id: SoundId, level: number) => plugin.setSoundLevel(id, level),
       isCustom: (id: SoundId) => files.custom.isCustom(id),
+      isFailed: (id: SoundId) => files.custom.isFailed(id),
+      track: (id: SoundId, redraw: () => void) => this.track(id, redraw),
       preview: (id: SoundId) => this.preview(id),
       replace: async (id: SoundId, file: File) => {
         try {
@@ -1016,7 +1039,7 @@ class TabletopSettingTab extends PluginSettingTab {
         const apply = debounce((value: string) => plugin.setSoundsFolder(value), 600, true);
         setting.addText((text) => text.setPlaceholder(DEFAULT_SOUNDS_FOLDER).setValue(plugin.settings.soundsFolder ?? '').onChange((value) => apply(value)));
       }, ['audio', 'replace', 'custom']),
-      this.row('Export built-in sounds', `Writes every built-in sound into ${cleanFolder(plugin.settings.soundsFolder)}/built-in/ for reference and editing, and a README.md listing every sound id and when it plays. Files in built-in/ are never used as replacements.`, (setting) => {
+      this.row('Export built-in sounds', `Writes every built-in sound into ${cleanFolder(plugin.settings.soundsFolder)}/built-in/ for reference and editing, and a README.md listing every sound id and when it plays. Files in built-in/ are never used as replacements. Existing files there, and the README.md, are overwritten.`, (setting) => {
         setting.addButton((button) => button.setButtonText('Export').onClick(() => {
           void files.exportBuiltIn().then((count) => new Notice(`Tabletop: wrote ${count} sounds and a README to ${files.folder}.`), (error) => new Notice(`Tabletop: could not export the sounds: ${error instanceof Error ? error.message : String(error)}`));
         }));

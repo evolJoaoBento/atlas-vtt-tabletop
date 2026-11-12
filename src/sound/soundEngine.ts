@@ -261,7 +261,7 @@ export class SoundEngine {
       state.node = null;
       const bank = this.bankFor(state.id);
       void bank.ready.then(() => {
-        if (this.disposed || this.loops.get(key) !== state || this.banks.get(state.id) !== bank || state.source || !bank.buffers) return;
+        if (this.disposed || this.loops.get(key) !== state || this.banks.get(state.id) !== bank || state.source || !bank.buffers || !this.loopAudible(state)) return;
         this.startLoop(state, bank.buffers);
       });
     }

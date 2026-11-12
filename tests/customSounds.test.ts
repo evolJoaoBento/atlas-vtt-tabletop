@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { CATALOG, type SoundId } from '../src/sound/catalog';
-import { BUILT_IN_DIR, cleanFolder, CustomSounds, parseSoundFile, resolveOverrides, soundsReadme } from '../src/sound/customSounds';
+import { BUILT_IN_DIR, cleanFolder, CustomSounds, DEFAULT_SOUNDS_FOLDER, isUnsafeFolder, parseSoundFile, resolveOverrides, soundsReadme } from '../src/sound/customSounds';
 import { isSoundId, SOUND_INFO } from '../src/sound/soundInfo';
 
 const FOLDER = 'Tabletop sounds';
@@ -138,6 +138,54 @@ test('a custom file that fails to decode gives one Notice naming it, and not aga
   await custom.load('door.shut');
   custom.load.customFailed?.('door.shut', [1], false);
   assert.match(notices[2], /"door\.shut-2\.mp3"/);
+});
+
+test('a folder setting that climbs out of the vault is not used', () => {
+  for (const bad of ['../x', 'a/../../x', '..', './x', 'a/./b', '..\\x']) {
+    assert.equal(isUnsafeFolder(bad), true, bad);
+    assert.equal(cleanFolder(bad), DEFAULT_SOUNDS_FOLDER, bad);
+  }
+  assert.equal(isUnsafeFolder('My Sounds/v2'), false);
+  assert.equal(isUnsafeFolder('a..b/c.d'), false, 'dots inside a name are fine');
+  assert.equal(cleanFolder('a..b'), 'a..b');
+});
+
+test('a custom file over 5 MB is skipped with one Notice, and the built-in sound plays', async () => {
+  const { vault, notices, custom } = setup({ [`${FOLDER}/door.open-1.mp3`]: 5, [`${FOLDER}/door.open-2.mp3`]: 6 * 1024 * 1024 });
+  assert.deepEqual((await custom.load('door.open')).map((b) => b.byteLength), [5]);
+  assert.equal(notices.length, 1);
+  assert.match(notices[0], /"door\.open-2\.mp3".*5 MB/);
+  vault.delete(`${FOLDER}/door.open-1.mp3`);
+  custom.fileChanged(`${FOLDER}/door.open-1.mp3`);
+  assert.deepEqual((await custom.load('door.open')).map((b) => b.byteLength), [100], 'nothing left to use: the built-in set');
+  assert.equal(notices.length, 1, 'the big file is named once');
+});
+
+test('a file whose size is known to be over 5 MB is not even read', async () => {
+  let reads = 0;
+  const custom = new CustomSounds(
+    { paths: () => [`${FOLDER}/door.open.mp3`], read: async () => { reads++; return new ArrayBuffer(5); }, size: () => 9 * 1024 * 1024 },
+    () => FOLDER, async () => [new ArrayBuffer(100)], () => {}, () => {},
+  );
+  assert.deepEqual((await custom.load('door.open')).map((b) => b.byteLength), [100]);
+  assert.equal(reads, 0);
+});
+
+test('a sound whose custom files all fail to decode is marked failed until a file changes, and the list is told', async () => {
+  const states: number[] = [];
+  const custom = new CustomSounds(
+    { paths: () => [`${FOLDER}/door.open.mp3`], read: async () => new ArrayBuffer(5) },
+    () => FOLDER, async () => [new ArrayBuffer(100)], () => {}, () => {}, () => states.push(1),
+  );
+  await custom.load('door.open');
+  assert.equal(custom.isFailed('door.open'), false);
+  custom.load.customFailed?.('door.open', [0], false);
+  assert.equal(custom.isFailed('door.open'), false, 'a variant that fails among good ones is not a failed sound');
+  custom.load.customFailed?.('door.open', [0], true);
+  assert.equal(custom.isFailed('door.open'), true);
+  assert.equal(states.length, 1);
+  custom.fileChanged(`${FOLDER}/door.open.mp3`);
+  assert.equal(custom.isFailed('door.open'), false);
 });
 
 test('the README names every sound and the naming rule', () => {

@@ -3291,6 +3291,50 @@ feature('custom sounds', async ({ page }) => {
   check('custom sounds: the volume back at 100% makes it audible again', back && back.level > 0, JSON.stringify(back));
 });
 
+// ── Limiter: the engine's own output chain, rendered offline in Chromium: quiet sounds keep their level, hot ones are held under 0 dBFS ──
+feature('limiter', async ({ page }) => {
+  const render = (amplitude, volume, level) => page.evaluate(async ([amplitude, volume, level]) => {
+    const { SoundEngine, CATALOG, DEFAULT_SOUND_SETTINGS } = window.boardTest;
+    const rate = 44100;
+    // A 2 s sine of the given amplitude as a 16-bit mono WAV file, which is what the engine decodes.
+    const samples = rate * 2;
+    const wav = new ArrayBuffer(44 + samples * 2);
+    const view = new DataView(wav);
+    const text = (at, s) => { for (let i = 0; i < s.length; i++) view.setUint8(at + i, s.charCodeAt(i)); };
+    text(0, 'RIFF'); view.setUint32(4, 36 + samples * 2, true); text(8, 'WAVE'); text(12, 'fmt ');
+    view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true); view.setUint32(24, rate, true);
+    view.setUint32(28, rate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true); text(36, 'data'); view.setUint32(40, samples * 2, true);
+    for (let i = 0; i < samples; i++) view.setInt16(44 + i * 2, Math.round(Math.min(1, amplitude) * 32767 * Math.sin(2 * Math.PI * 440 * i / rate)), true);
+    const offline = new OfflineAudioContext(1, rate * 2, rate);
+    // An offline context is not "running" until it renders; the engine only plays on a running one.
+    const context = {
+      get state() { return 'running'; }, get currentTime() { return 0; }, destination: offline.destination,
+      resume: async () => {}, close: async () => {},
+      // No panner: a centred pan would take 3 dB off a mono sound, which is not what is measured here.
+      createGain: () => offline.createGain(),
+      createDynamicsCompressor: () => offline.createDynamicsCompressor(), createBufferSource: () => offline.createBufferSource(),
+      decodeAudioData: (data) => offline.decodeAudioData(data),
+    };
+    const engine = SoundEngine.forTest(() => context, { hidden: false, addEventListener() {}, removeEventListener() {} }, async () => [wav.slice(0)]);
+    engine.configure({ ...DEFAULT_SOUND_SETTINGS, volume, levels: { 'dice.hit': level } });
+    engine.play('dice.hit');
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const out = (await offline.startRendering()).getChannelData(0);
+    let sum = 0, peak = 0, n = 0;
+    for (let i = rate * 0.5; i < rate * 1.5; i++) { sum += out[i] * out[i]; peak = Math.max(peak, Math.abs(out[i])); n++; }
+    return { rmsDb: 10 * Math.log10(sum / n), peak, expectedPeak: amplitude * CATALOG['dice.hit'].gain * volume * level };
+  }, [amplitude, volume, level]);
+  const dbOf = (peak) => 20 * Math.log10(peak / Math.SQRT2);
+  // Quiet: a sound well under the -3 dB threshold leaves at the level it was given (within 0.1 dB), not 1.7 dB louder.
+  for (const amplitude of [0.1, 0.3]) {
+    const quiet = await render(amplitude, 1, 1);
+    check(`limiter: a quiet tone (${amplitude}) leaves the chain within 0.1 dB of its level`, Math.abs(quiet.rmsDb - dbOf(quiet.expectedPeak)) < 0.1, JSON.stringify(quiet));
+  }
+  // Hot: well over full scale before the limiter (1 x 0.7 x 2 = 1.4), the output stays below 0 dBFS.
+  const hot = await render(1, 1, 2);
+  check('limiter: a hot tone (1.4 times full scale) is held below 0 dBFS', hot.expectedPeak > 1.3 && hot.peak < 1 && hot.peak > 0.5, JSON.stringify(hot));
+});
+
 server.listen(0, async () => {
   const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const errors = [];

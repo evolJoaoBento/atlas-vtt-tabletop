@@ -1,4 +1,8 @@
-/** The settings of the peak limiter before the speakers: a hard knee, so a sound under the threshold is not touched. */
+/**
+ * The settings of the peak limiter before the speakers: a hard knee, so a sound under the threshold is not touched.
+ * `compressorMakeupGain` below (and so `LIMITER_POST_GAIN`, 0.8212) is exact only for a knee of 0: change the knee and
+ * the formula has to change with it (a unit test and the browser check "limiter" in the harness fail until it does).
+ */
 export const LIMITER = Object.freeze({ threshold: -3, knee: 0, ratio: 20, attack: 0.003, release: 0.25 });
 
 /**

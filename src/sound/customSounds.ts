@@ -7,9 +7,22 @@ export const DEFAULT_SOUNDS_FOLDER = 'Tabletop sounds';
 /** The subfolder the built-in sounds are exported to; nothing in it is ever read as a custom sound. */
 export const BUILT_IN_DIR = 'built-in';
 
-/** A folder setting as a vault path: slashes forward, none at the ends; empty means the default. */
+/** The largest custom file that is read, in bytes; a bigger one is skipped (a long recording would sit decoded in every window). */
+export const MAX_CUSTOM_BYTES = 5 * 1024 * 1024;
+
+function folderSegments(folder: string | undefined | null): string[] {
+  return (folder ?? '').trim().replace(/\\/g, '/').split('/').filter((part) => part !== '');
+}
+
+/** Whether a folder setting climbs out of the vault (a `.` or `..` segment); such a setting is not used. */
+export function isUnsafeFolder(folder: string | undefined | null): boolean {
+  return folderSegments(folder).some((part) => part === '.' || part === '..');
+}
+
+/** A folder setting as a vault path: slashes forward, none at the ends; empty, or one with `.` or `..` in it, means the default. */
 export function cleanFolder(folder: string | undefined | null): string {
-  const clean = (folder ?? '').trim().replace(/\\/g, '/').replace(/\/+/g, '/').replace(/^\/|\/$/g, '');
+  if (isUnsafeFolder(folder)) return DEFAULT_SOUNDS_FOLDER;
+  const clean = folderSegments(folder).join('/');
   return clean === '' ? DEFAULT_SOUNDS_FOLDER : clean;
 }
 
@@ -59,6 +72,8 @@ export interface SoundFolderIO {
   /** The path of every file in the vault. */
   paths(): string[];
   read(path: string): Promise<ArrayBuffer>;
+  /** The size of a file in bytes, when it is known without reading it. */
+  size?(path: string): number | undefined;
 }
 
 /**
@@ -79,7 +94,17 @@ export class CustomSounds {
     private readonly builtIn: (id: SoundId) => Promise<ArrayBuffer[]>,
     private readonly notify: (message: string) => void,
     private readonly changed: (ids: SoundId[] | 'all') => void,
+    /** Called when a sound's state shown in the list changes without a file changing (a decode failure). */
+    private readonly stateChanged: () => void = () => {},
   ) {}
+
+  /** Sounds whose custom files all failed to decode, so the built-in sound plays. */
+  private readonly failed = new Set<SoundId>();
+
+  /** Whether `id` has custom files but the built-in sound is playing because none of them decoded. */
+  isFailed(id: SoundId): boolean {
+    return this.failed.has(id);
+  }
 
   private overrides(): Map<SoundId, string[]> {
     return (this.index ??= resolveOverrides(this.folder(), this.io.paths()));
@@ -101,9 +126,16 @@ export class CustomSounds {
       if (files.length === 0) { this.served.delete(id); return this.builtIn(id); }
       const read: Array<{ path: string; data: ArrayBuffer }> = [];
       const unread: string[] = [];
+      const oversize: string[] = [];
       for (const path of files) {
-        try { read.push({ path, data: await this.io.read(path) }); } catch { unread.push(path); }
+        const known = this.io.size?.(path);
+        if (known !== undefined && known > MAX_CUSTOM_BYTES) { oversize.push(path); continue; }
+        try {
+          const data = await this.io.read(path);
+          if (data.byteLength > MAX_CUSTOM_BYTES) oversize.push(path); else read.push({ path, data });
+        } catch { unread.push(path); }
       }
+      this.complain(oversize, 'is over 5 MB and is skipped');
       this.complain(unread, 'could not be read');
       if (read.length === 0) { this.served.delete(id); return this.builtIn(id); }
       this.served.set(id, read.map((entry) => entry.path));
@@ -113,6 +145,7 @@ export class CustomSounds {
       customFailed: (id: SoundId, bad: number[], all: boolean): void => {
         const names = this.served.get(id);
         if (!names) return;
+        if (all) { this.failed.add(id); this.stateChanged(); }
         this.complain(bad.flatMap((position) => (names[position] ? [names[position]] : [])), all ? 'could not be decoded; the built-in sound plays instead' : 'could not be decoded and is skipped');
       },
     },
@@ -134,6 +167,7 @@ export class CustomSounds {
       const file = one === undefined ? null : parseSoundFile(folder, one);
       if (!file) continue;
       ids.add(file.id);
+      this.failed.delete(file.id);
       this.told.delete(one!);
     }
     if (ids.size === 0) return;
@@ -145,6 +179,7 @@ export class CustomSounds {
   folderChanged(): void {
     this.index = null;
     this.told.clear();
+    this.failed.clear();
     this.changed('all');
   }
 }

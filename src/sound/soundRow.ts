@@ -8,6 +8,10 @@ export interface SoundRowHost {
   levels(): Readonly<Record<string, number>>;
   setLevel(id: SoundId, level: number): void;
   isCustom(id: SoundId): boolean;
+  /** Whether the custom files of the sound all failed to decode, so the built-in sound plays. */
+  isFailed(id: SoundId): boolean;
+  /** Hands over the function that redraws this row, to be called when the custom files change outside it. */
+  track(id: SoundId, redraw: () => void): void;
   preview(id: SoundId): void;
   replace(id: SoundId, file: File): Promise<void>;
   reset(id: SoundId): Promise<void>;
@@ -21,8 +25,9 @@ export interface SoundRowHost {
 export function drawSoundControls(setting: Setting, id: SoundId, host: SoundRowHost): void {
   setting.controlEl.empty();
   const redraw = (): void => drawSoundControls(setting, id, host);
-  if (host.isCustom(id)) setting.controlEl.createSpan({ text: 'custom', cls: 'tabletop-sound-custom' });
-  setting.addButton((button) => button.setButtonText('▶').setTooltip('Play').onClick(() => host.preview(id)));
+  host.track(id, redraw);
+  if (host.isCustom(id)) setting.controlEl.createSpan({ text: host.isFailed(id) ? 'custom (failed, using built-in)' : 'custom', cls: 'tabletop-sound-custom' });
+  setting.addButton((button) => button.setButtonText('▶').setTooltip('Play (even if its group is switched off)').onClick(() => host.preview(id)));
   setting.addButton((button) => button.setButtonText('Replace…').setTooltip(`Use a file of your own (${SOUND_EXTENSIONS.join(', ')})`).onClick(() => {
     const input = document.createElement('input');
     input.type = 'file';

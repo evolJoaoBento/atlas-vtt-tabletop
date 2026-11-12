@@ -1,6 +1,6 @@
 import { Notice, TFile, TFolder, type App, type EventRef } from 'obsidian';
 import { CATALOG, loadSound, type SoundId } from './catalog';
-import { BUILT_IN_DIR, cleanFolder, CustomSounds, SOUND_EXTENSIONS, soundsReadme } from './customSounds';
+import { BUILT_IN_DIR, cleanFolder, CustomSounds, DEFAULT_SOUNDS_FOLDER, isUnsafeFolder, SOUND_EXTENSIONS, soundsReadme } from './customSounds';
 import { SoundEngine } from './soundEngine';
 
 /** The bytes of one bundled variant, as a fresh copy. */
@@ -19,10 +19,21 @@ export class VaultSounds {
   readonly custom: CustomSounds;
   private readonly listeners = new Set<() => void>();
 
-  constructor(private readonly app: App, private readonly folderSetting: () => string | undefined) {
+  /** The folder setting that was last found unsafe, so it is complained of once. */
+  private warnedFolder: string | null = null;
+
+  constructor(
+    private readonly app: App,
+    private readonly folderSetting: () => string | undefined,
+    private readonly notify: (message: string) => void = (message) => { new Notice(message); },
+  ) {
     this.custom = new CustomSounds(
       {
         paths: () => this.app.vault.getFiles().map((file) => file.path),
+        size: (path) => {
+          const file = this.app.vault.getAbstractFileByPath(path);
+          return file instanceof TFile ? (file as { stat?: { size: number } }).stat?.size : undefined;
+        },
         read: (path) => {
           const file = this.app.vault.getAbstractFileByPath(path);
           if (!(file instanceof TFile)) return Promise.reject(new Error(`no file ${path}`));
@@ -31,16 +42,27 @@ export class VaultSounds {
       },
       () => this.folder,
       loadSound,
-      (message) => { new Notice(message); },
+      (message) => this.notify(message),
       (ids) => {
         SoundEngine.invalidateEverywhere(ids);
-        for (const listener of [...this.listeners]) listener();
+        this.tell();
       },
+      () => this.tell(),
     );
   }
 
+  private tell(): void {
+    for (const listener of [...this.listeners]) listener();
+  }
+
+  /** The folder to use: the setting cleaned, or the default (with one Notice) when the setting climbs out of the vault. */
   get folder(): string {
-    return cleanFolder(this.folderSetting());
+    const setting = this.folderSetting();
+    if (isUnsafeFolder(setting) && this.warnedFolder !== setting) {
+      this.warnedFolder = setting ?? null;
+      this.notify(`Tabletop: the custom sounds folder "${setting}" cannot contain . or .. segments; using ${DEFAULT_SOUNDS_FOLDER}.`);
+    }
+    return cleanFolder(setting);
   }
 
   /** Tells `listener` whenever the custom files change; returns the way to stop. */
@@ -91,11 +113,13 @@ export class VaultSounds {
     const folder = this.folder;
     await this.ensureFolder(folder);
     const target = `${folder}/${id}.${ext}`;
-    for (const old of this.custom.filesOf(id)) {
-      const file = this.app.vault.getAbstractFileByPath(old);
-      if (old !== target && file instanceof TFile) await this.app.fileManager.trashFile(file);
-    }
+    // The new file is written first: if that fails, the sound the player had is still there.
+    const older = this.custom.filesOf(id).filter((old) => old !== target);
     await this.write(target, data);
+    for (const old of older) {
+      const file = this.app.vault.getAbstractFileByPath(old);
+      if (file instanceof TFile) await this.app.fileManager.trashFile(file);
+    }
     return true;
   }
 
