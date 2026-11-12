@@ -104,6 +104,10 @@ import { groupLabel, TABLE_SQUARES_MM, type SavedArTable } from '../arTable';
 import { MATERIAL_DRAG_TYPE, MATERIAL_TEXT_PREFIX, materialDrag, type LoadedMaterial } from '../materials';
 import { Impacts } from './impact';
 import { opaqueAt } from './alphaSample';
+import { CinemaOverlay } from '../cutscene/cinemaOverlay';
+import { drivenView, type CinematicDriver, type Heading } from '../cutscene/drivenView';
+import { inputAllowed, type CinematicRole, type LockInput } from '../cutscene/lockRules';
+import type { CameraKeep } from './camera';
 import type { DiceObstacle, DiceTable, DiceTableHost } from '../dice/diceTable';
 
 /** The map's image as the bucket reads it: the image, its size in its own pixels, and the affine carrying those into the world. */
@@ -388,6 +392,10 @@ const PAN_PER_PX = 0.0016;
 const WHEEL = 0.0012;
 const KEY_PAN = 0.9;
 const KEY_TURN = 1.6;
+/** How fast the authoring camera flies, in board spans per second. */
+const FREE_SPEED = 0.4;
+/** How far one notch of the wheel moves the authoring camera, as a factor of the reach it was made with. */
+const FREE_DOLLY = 1.1;
 /** How fast a released token closes on its cell, per second. */
 const GLIDE = 14;
 /** The longest frame anything steps by, so a hidden tab does not fling a mini. */
@@ -711,6 +719,19 @@ export class Board {
   /** The material a click paints walls with, chosen in the gallery; null when not painting. */
   private painting: string | null = null;
   private readonly held = new Set<string>();
+  /** The cinematic mode (see `setCinematic`): what drives the camera, who the board lets do what, and the look laid over it. */
+  private cinematicDriver: CinematicDriver | null = null;
+  private role: CinematicRole = 'none';
+  private heading: Heading = { yaw: 0, pitch: 0 };
+  private drivenAim: { x: number; y: number; z: number } | null = null;
+  private eyesLocked: string | null = null;
+  private arLatest: AugmentedView | null = null;
+  private reveal = false;
+  private playersDriven = false;
+  private playerCinema: CinemaOverlay | null = null;
+  private playerHold = false;
+  private playerHeld: HTMLImageElement | null = null;
+  readonly cinema: CinemaOverlay;
   private frameId = 0;
   private last = 0;
   private clock = 0;
@@ -809,6 +830,7 @@ export class Board {
     this.tooltip.className = 'atlas-tabletop-tooltip';
     this.tooltip.hidden = true;
     container.appendChild(this.tooltip);
+    this.cinema = new CinemaOverlay(container);
     this.walls = new WallSet({
       look: (path, door) => this.wallLook(path, door),
       // A material dragged over a wall shows on it before it is dropped.
@@ -985,7 +1007,7 @@ export class Board {
     if (!first) this.reorigin(shiftY, carry);
     if (first) {
       this.camera = new OrbitCamera({ target: { x: this.size.width / 2, y: 0, z: this.size.height / 2 }, pitch: 0.95 }, limitsFor(this.size.width, this.size.height, this.quality.painted));
-      this.frameMap();
+      this.frameWhole();
       this.camera.snap();
     }
     this.sync();
@@ -1236,7 +1258,7 @@ export class Board {
   /** Whether the map point (x, y) lies on a square no viewer has in sight, as `viewer` sees the board (for what is drawn over the veil, as the pins are). */
   private pointBeyond(viewer: 'gm' | 'player', x: number, y: number): boolean {
     const masks = this.sightMasks;
-    if (!masks) return false;
+    if (!masks || (this.reveal && viewer === 'player')) return false;
     let mask: SeenMask | null = null;
     if (viewer === 'gm' && masks.pov) mask = masks.pov;
     else if (masks.sight && (viewer === 'player' || this.quality.lineOfSight === 'everyone')) mask = masks.sight;
@@ -1260,6 +1282,7 @@ export class Board {
 
   /** Whether a piece is beyond what the tokens that see have in sight, as `viewer` sees the board. */
   private beyondSight(viewer: 'gm' | 'player', key: string): boolean {
+    if (this.reveal && viewer === 'player') return false;
     // A point of view being previewed is the GM's board alone: players are shown what the tokens that see have in sight.
     if (viewer === 'gm' && this.povSight !== null) return !this.povSight.has(key);
     if (this.sight === null) return false;
@@ -1345,6 +1368,12 @@ export class Board {
    * view's two fields of view, so it fits however the camera has turned, with a margin for the tilt.
    */
   frameMap(): void {
+    if (!this.allows('camera')) return;
+    this.frameWhole();
+  }
+
+  /** `frameMap` without asking the lock: the board itself framing a map it has just shown. */
+  private frameWhole(): void {
     const half = Math.tan(THREE.MathUtils.degToRad(FOV) / 2) * Math.min(1, this.view.aspect);
     const fit = (Math.hypot(this.size.width, this.size.height) / 2 / half) * FRAME_MARGIN;
     // `frame` stands back 1.8 × the radius it is given (TacticalEngine's framing).
@@ -1359,7 +1388,7 @@ export class Board {
   frameNewMap(): void {
     if (!this.map) return;
     this.camera.setLimits(limitsFor(this.size.width, this.size.height, this.quality.painted));
-    this.frameMap();
+    this.frameWhole();
     this.camera.snap();
   }
 
@@ -1782,7 +1811,7 @@ export class Board {
     if (this.audience === 'player') {
       this.showFor('player');
       // Over the table in augmented reality the camera is no token's: it is never inside the fog.
-      this.blind = !this.seeThrough && this.fog.hides(this.view.position, (point) => insideFog(this.fog.areas, point));
+      this.blind = !this.seeThrough && !this.reveal && this.fog.hides(this.view.position, (point) => insideFog(this.fog.areas, point));
       if (this.blind) {
         this.renderer.setClearColor(0x000000, 1);
         this.renderer.clear();
@@ -1831,7 +1860,7 @@ export class Board {
   /** Glides to the GM's 3D view; false when there is none. */
   followGm(): boolean {
     const pose = this.gmPose;
-    if (!pose) return false;
+    if (!pose || !this.allows('camera')) return false;
     this.camera.view(pose.eye, pose.target);
     this.wake();
     return true;
@@ -2331,14 +2360,16 @@ export class Board {
     }
     this.clock += dt;
     this.steer(dt);
+    const driven = this.stepDriver();
     this.water?.tick(time / 1000);
     // The water brush was put away (another tool, Escape): its outline goes with it.
     if (this.brushRing?.visible && !this.waterTool) this.brushRing.visible = false;
-    const cameraMoving = this.camera.update(dt);
+    // A cutscene's camera is set whole each frame, not eased, and asks for a frame after every frame.
+    const cameraMoving = this.cinematicDriver ? driven : this.camera.update(dt);
     if (this.pendingStack && !this.camera.gliding) this.setStack(this.pendingStack);
-    let busy = cameraMoving;
+    let busy = cameraMoving || this.cinematicDriver !== null;
     // Settled somewhere new: the lights nearest it cast the shadows now.
-    const target = this.camera.goal.target;
+    const target = this.cinematicDriver ? this.camera.pose.target : this.camera.goal.target;
     if (!cameraMoving && this.map && Math.hypot(target.x - this.castersAt.x, target.z - this.castersAt.z) > this.map.grid.size * CASTER_STEP_SQUARES) {
       this.castersAt = { x: target.x, z: target.z };
       if (this.rig.castShadows(this.quality.lightShadows, this.castersAt)) this.shadowsDirty = true;
@@ -2452,7 +2483,15 @@ export class Board {
   }
 
   private steer(dt: number): void {
-    if (this.held.size === 0) return;
+    if (this.held.size === 0 || !this.allows('camera')) return;
+    const free = this.cinematicDriver?.free;
+    if (free) {
+      // The authoring camera flies: W and S along the view, A and D across it, Q down and E up.
+      const step = this.span * FREE_SPEED * dt;
+      const axis = (plus: string[], minus: string[]): number => (plus.some((key) => this.held.has(key)) ? 1 : 0) - (minus.some((key) => this.held.has(key)) ? 1 : 0);
+      free.fly(axis(['d', 'arrowright'], ['a', 'arrowleft']) * step, axis(['e'], ['q']) * step, axis(['w', 'arrowup'], ['s', 'arrowdown']) * step);
+      return;
+    }
     const speed = this.camera.goal.distance * KEY_PAN * dt;
     let right = 0;
     let forward = 0;
@@ -2475,6 +2514,18 @@ export class Board {
       const eye = this.view.getWorldPosition(new THREE.Vector3());
       this.aimCutaway(eye, eye);
       this.cutaway.strength.value = 0;
+      return;
+    }
+    // A cutscene's camera wins over the orbit camera, the eyes and augmented reality alike.
+    const aim = this.cinematicDriver ? this.drivenAim : null;
+    if (aim) {
+      const eye = this.camera.position();
+      this.view.position.set(eye.x, eye.y, eye.z);
+      this.view.lookAt(aim.x, aim.y, aim.z);
+      // Augmented reality had its own projection; the driven camera has the board's.
+      if (this.augmented) this.view.updateProjectionMatrix();
+      this.view.updateMatrixWorld();
+      this.aimCutaway(eye, this.camera.pose.target);
       return;
     }
     const ar = this.augmented;
@@ -3094,7 +3145,7 @@ export class Board {
     on('pointercancel', (event) => { this.endTouch(event); this.cancel(); });
     // A double click on a mini brings the camera to it (the same as a click on its initiative card, minus the selection).
     on('dblclick', (event) => {
-      if (event.button !== 0) return;
+      if (event.button !== 0 || !this.allows('camera')) return;
       const entry = this.tokens.get(this.tokenAt(event.clientX, event.clientY) ?? '');
       if (!entry) return;
       this.camera.lookAt({ x: entry.goal.x, y: 0, z: entry.goal.y });
@@ -3137,7 +3188,10 @@ export class Board {
         }
         return;
       }
-      this.camera.zoom(Math.exp(event.deltaY * WHEEL));
+      if (!this.allows('camera')) return;
+      const free = this.cinematicDriver?.free;
+      if (free) free.dolly(FREE_DOLLY ** -Math.sign(event.deltaY));
+      else this.camera.zoom(Math.exp(event.deltaY * WHEEL));
       this.wake();
     }, { passive: false });
     on('keydown', (event) => {
@@ -3185,6 +3239,7 @@ export class Board {
       if (this.audience === 'gm' && this.host.atlasKey?.(event, this.press?.kind === 'token') === true) { event.preventDefault(); return; }
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (['w', 'a', 's', 'd', 'q', 'e', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(key)) {
+        if (!this.allows('camera')) return;
         this.held.add(key);
         event.preventDefault();
         this.wake();
@@ -3533,7 +3588,7 @@ export class Board {
         return;
       }
     }
-    if (event.button === 0 && this.tools.takesPress) {
+    if (event.button === 0 && this.tools.takesPress && this.allows('tool')) {
       const at = this.boardPoint(x, y);
       if (at) {
         this.press = { kind: 'tool', x, y, moved: false };
@@ -3695,6 +3750,8 @@ export class Board {
     const lifted = press.moved;
     if (!press.moved && Math.hypot(x - press.x, y - press.y) >= DRAG_PX) press.moved = true;
     if (!press.moved) return;
+    // The press turning into a drag is where the lock says no: a click stays a click, a drag it does not allow ends here.
+    if (!this.pressAllowed(press)) { this.cancel(); return; }
     if (!lifted && press.kind === 'token') this.pickUpSound(press);
     if (press.kind === 'rotate') {
       const at = this.boardPoint(x, y);
@@ -3713,6 +3770,13 @@ export class Board {
       const dy = y - press.lastY;
       press.lastX = x;
       press.lastY = y;
+      const free = this.cinematicDriver?.free;
+      if (free) {
+        // The authoring camera looks about: a drag with either button turns the view where it stands.
+        free.look(dx * ORBIT_X, -dy * ORBIT_Y);
+        this.wake();
+        return;
+      }
       if (press.button === 0 || press.button === 1) this.camera.orbit(-dx * ORBIT_X, -dy * ORBIT_Y);
       else this.panTo(press.grab, x, y);
       // A drag moves the view at once: easing it would leave the board trailing the pointer.
@@ -4385,6 +4449,8 @@ export class Board {
     const player = this.player;
     if (!player) return;
     this.player = null;
+    this.playerCinema?.dispose();
+    this.playerCinema = null;
     player.container.ownerDocument.removeEventListener('visibilitychange', this.playersVisibility);
     if (!this.disposed) this.reissueLoops();
     player.resize.disconnect();
@@ -4410,7 +4476,7 @@ export class Board {
   playerPose(): { eye: { x: number; y: number; z: number }; target: { x: number; y: number; z: number } } | null {
     const player = this.player;
     if (!player) return null;
-    return player.frozen ? { eye: { ...player.frozen.eye }, target: { ...player.frozen.target } } : this.cameraPose();
+    return player.frozen && !this.playersDriven ? { eye: { ...player.frozen.eye }, target: { ...player.frozen.target } } : this.cameraPose();
   }
 
   /** The camera pose the engine was last told, so it is told again whenever the drawn camera differs (a drag snaps the pose, which `update` does not report as a move). */
@@ -4531,15 +4597,18 @@ export class Board {
   private showFor(viewer: 'gm' | 'player'): void {
     const gm = viewer === 'gm';
     const fog = this.fog.areas;
+    // A cutscene's reveal: players are shown what the GM's view shows, as players draw it (no fog, no sight, hidden tokens still hidden).
+    const revealed = this.reveal && !gm;
+    this.fog.object3d.visible = !revealed;
     for (const entry of this.tokens.values()) {
       const own = this.eye?.tokenId === entry.token.id;
-      entry.piece.object3d.visible = !own && (gm || playerSees(entry.token, entry.at, fog)) && !this.beyondSight(viewer, `t:${entry.token.id}`);
+      entry.piece.object3d.visible = !own && (gm || (revealed ? !entry.token.hidden : playerSees(entry.token, entry.at, fog))) && !this.beyondSight(viewer, `t:${entry.token.id}`);
       entry.labels.object3d.visible = gm && !own;
       entry.playerLabels.object3d.visible = !gm && !own;
     }
     const pins = pinsShown(viewer, this.audience);
     for (const pin of this.pins) pin.object3d.visible = pins && !this.pointBeyond(viewer, pin.pin.x, pin.pin.y);
-    for (const piece of this.props.values()) piece.object3d.visible = (gm || !insideFog(fog, { x: piece.object3d.position.x, y: piece.object3d.position.z })) && !this.beyondSight(viewer, `p:${piece.id}`);
+    for (const piece of this.props.values()) piece.object3d.visible = (gm || revealed || !insideFog(fog, { x: piece.object3d.position.x, y: piece.object3d.position.z })) && !this.beyondSight(viewer, `p:${piece.id}`);
     if (this.cellOutline) this.cellOutline.visible = gm;
     if (this.cellLabel) this.cellLabel.visible = gm;
     this.fog.show(viewer);
@@ -4548,13 +4617,13 @@ export class Board {
     if (this.gizmo) this.gizmo.object3d.visible = gm;
     // The unseen squares: the players' view always, the GM's board under Everyone, or the point of view being previewed.
     this.veilPov.object3d.visible = gm && this.povSight !== null;
-    this.veilSight.object3d.visible = this.sight !== null && (!gm || (this.quality.lineOfSight === 'everyone' && this.povSight === null));
+    this.veilSight.object3d.visible = !revealed && this.sight !== null && (!gm || (this.quality.lineOfSight === 'everyone' && this.povSight === null));
     // The GM's player window shows one scene at a time: what is stacked on it is the GM's. A Connect player's own board
     // shows the scenes stacked with theirs, which Connect sends (their form, never what stands on them).
     // Under line of sight (the GM's board under Everyone, a point of view, or a player's board) the scenes stacked above
     // are blacked out as shadows, and the ones below stay.
     const ownBoard = !gm && this.audience === 'player';
-    const sighted = (gm && (this.povSight !== null || (this.sight !== null && this.quality.lineOfSight === 'everyone'))) || (ownBoard && this.sight !== null);
+    const sighted = !revealed && ((gm && (this.povSight !== null || (this.sight !== null && this.quality.lineOfSight === 'everyone'))) || (ownBoard && this.sight !== null));
     for (const view of this.layerViews.values()) {
       view.setVisible(gm || ownBoard);
       view.setBlackout(sighted && view.elevation > 0);
@@ -4568,8 +4637,12 @@ export class Board {
     const height = player.container.clientHeight;
     const width = player.container.clientWidth;
     if (width === 0 || height === 0) return;
+    this.dressPlayers(player);
+    // Held: the window keeps the picture laid over it (see `holdPlayers`); nothing is drawn under it meanwhile.
+    if (this.playerHeld && this.playerHold) return;
     const pose = this.camera.pose;
-    const frozen = player.frozen;
+    // A cutscene's camera is every player's: where the GM froze theirs does not count meanwhile.
+    const frozen = this.playersDriven ? null : player.frozen;
     const eye = frozen?.eye ?? this.camera.position();
     const target = frozen?.target ?? pose.target;
     player.view.position.set(eye.x, eye.y, eye.z);
@@ -4597,7 +4670,7 @@ export class Board {
       player.renderer.shadowMap.needsUpdate = shadows || player.shadowsDirty;
       player.shadowsDirty = false;
       // A camera inside the fog sees nothing at all: the players' picture is black.
-      player.blind = this.fog.hides(player.view.position, (point) => insideFog(this.fog.areas, point));
+      player.blind = !this.reveal && this.fog.hides(player.view.position, (point) => insideFog(this.fog.areas, point));
       if (player.blind) {
         player.renderer.setClearColor(0x000000, 1);
         player.renderer.clear();
@@ -4610,6 +4683,8 @@ export class Board {
           player.renderer.render(this.scene, player.view);
         }
       }
+      // The frame is taken right after it is drawn, while the canvas still holds it.
+      if (this.playerHold && !this.playerHeld) this.holdFrame(player);
     } catch (error) {
       console.error('[Tabletop] The player view could not be drawn:', error);
     } finally {
@@ -4631,7 +4706,7 @@ export class Board {
   showToken(id: string): void {
     const entry = this.tokens.get(id);
     if (!entry) return;
-    this.camera.lookAt({ x: entry.goal.x, y: 0, z: entry.goal.y });
+    if (this.allows('camera')) this.camera.lookAt({ x: entry.goal.x, y: 0, z: entry.goal.y });
     this.select(id);
     this.wake();
   }
@@ -4955,6 +5030,8 @@ export class Board {
    * it, turned by the phone's gyroscope when `gyro` (the caller asked for it) and by a drag. False for a token not here.
    */
   seeFrom(tokenId: string | null, gyro = false): boolean {
+    if (tokenId !== null && !this.allows('eyes')) return false;
+    if (tokenId !== null && this.tokens.has(tokenId)) this.eyesLocked = null;
     this.eye?.dispose();
     this.eye = null;
     this.eyeTurn = null;
@@ -4989,6 +5066,7 @@ export class Board {
   private startPinch(): void {
     if (this.press) this.cancel();
     this.eyeDrag = null;
+    if (!this.allows('camera')) return;
     const [a, b] = [...this.touches.values()];
     if (!a || !b) return;
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
@@ -4999,7 +5077,7 @@ export class Board {
   private movePinch(): void {
     const pinch = this.pinch;
     const [a, b] = [...this.touches.values()];
-    if (!pinch || !a || !b || this.eye) return;
+    if (!pinch || !a || !b || this.eye || !this.allows('camera') || this.cinematicDriver?.free) return;
     const spread = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
     this.camera.zoom(pinch.spread / spread);
     pinch.spread = spread;
@@ -5024,6 +5102,9 @@ export class Board {
    */
   setAugmented(view: AugmentedView | null): boolean {
     if (view !== null && !isAugmentedView(view)) return false;
+    // While a cutscene has the camera the view is kept as the latest and not drawn; it is drawn when the lock ends.
+    this.arLatest = view;
+    if (view !== null && !this.allows('ar')) return true;
     const was = this.augmented !== null;
     this.augmented = view;
     // The camera's picture, when the page draws it in: the same picture the pose was found for, so the two never part.
@@ -5074,7 +5155,7 @@ export class Board {
 `   * placed (`placeRoomAr`). Ends with the session.
    */
   async startRoomAr(session: XRSession, onFrame: ((frame: XRFrame, space: XRReferenceSpace | null) => void) | null): Promise<boolean> {
-    if (this.room || this.disposed) return false;
+    if (this.room || this.disposed || !this.allows('ar')) return false;
     this.setAugmented(null);
     this.seeFrom(null);
     const rig = new THREE.Group();
@@ -6094,6 +6175,7 @@ export class Board {
   }
 
   lookAtPoint(x: number, y: number): void {
+    if (!this.allows('camera')) return;
     this.camera.lookAt({ x, y: 0, z: y });
     this.wake();
   }
@@ -6508,7 +6590,165 @@ export class Board {
     this.tooltip.style.top = `${top}px`;
   }
 
+  // ── Cinematic mode ────────────────────────────────────────────────────────
+
+  /** Whether the board lets the person at it do `input` now (see `lockRules`). */
+  private allows(input: LockInput): boolean {
+    return inputAllowed(this.role, input);
+  }
+
+  /** Whether the lock lets a press in progress go on, by what it does. */
+  private pressAllowed(press: Press): boolean {
+    return this.allows(press.kind === 'camera' ? 'camera' : press.kind === 'tool' || press.kind === 'laser' ? 'tool' : 'token-drag');
+  }
+
+  /** What drives the camera, or null while the person's own camera does. */
+  get cinematic(): CinematicDriver | null {
+    return this.cinematicDriver;
+  }
+
+  /**
+   * Hands the camera to `driver` (null gives it back). The orbit camera's drawn pose is set to the driver's on every
+   * frame, so everything that follows it (the labels, the sound listener, the players' window) follows the driver too,
+   * and it is not eased toward its goal meanwhile. The goal is never touched: it is the person's own camera, and the
+   * drawn pose goes back to it when the driver is taken away.
+   */
+  setCinematic(driver: CinematicDriver | null): void {
+    const had = this.cinematicDriver !== null;
+    this.cinematicDriver = driver;
+    if (driver && !had) this.heading = { yaw: this.camera.pose.yaw, pitch: this.camera.pose.pitch };
+    if (!driver && had) {
+      this.drivenAim = null;
+      this.cinema.setBlack(0);
+      this.camera.snap();
+      this.listened = { x: NaN, y: NaN, z: NaN, yaw: NaN, pitch: NaN, distance: NaN };
+    }
+    this.wake(true);
+  }
+
+  get cinematicRole(): CinematicRole {
+    return this.role;
+  }
+
+  /**
+   * Says what the person at this board may do from now on. A press in progress the role does not allow is dropped (a
+   * token being carried goes back), held keys are cleared, and a player in a token's eyes leaves them. When augmented
+   * reality is allowed again, the latest view it was given is drawn.
+   */
+  setCinematicRole(role: CinematicRole): void {
+    this.role = role;
+    this.held.clear();
+    if (this.press && !this.pressAllowed(this.press)) this.cancel();
+    if (!this.allows('camera')) {
+      this.pinch = null;
+      this.touches.clear();
+    }
+    if (this.eye && !this.allows('eyes')) {
+      this.eyesLocked = this.eye.tokenId;
+      this.leaveEyes();
+    }
+    if (this.allows('ar') && this.arLatest && this.arLatest !== this.augmented) this.setAugmented(this.arLatest);
+    this.wake(true);
+  }
+
+  /** The token whose eyes the person was in when the role took them away, for the board to go back into when it ends. */
+  get eyesBeforeLock(): string | null {
+    return this.eyesLocked;
+  }
+
+  /** The camera as it stands, to be put back exactly by `restoreCamera`. */
+  keepCamera(): CameraKeep {
+    return this.camera.keep();
+  }
+
+  restoreCamera(keep: CameraKeep): void {
+    this.camera.restore(keep);
+    this.heading = { yaw: keep.pose.yaw, pitch: keep.pose.pitch };
+    this.listened = { x: NaN, y: NaN, z: NaN, yaw: NaN, pitch: NaN, distance: NaN };
+    this.wake(true);
+  }
+
+  /** Takes the driver's pose for this frame into the orbit camera's drawn pose, and its fade into the overlay; whether the camera moved. */
+  private stepDriver(): boolean {
+    const driver = this.cinematicDriver;
+    if (!driver) return false;
+    const out = driver.pose(this.now());
+    this.cinema.setBlack(out.black);
+    const view = drivenView(out.eye, out.target, this.heading);
+    if (!view) return false;
+    this.heading = { yaw: view.yaw, pitch: view.pitch };
+    this.drivenAim = view.aim;
+    const pose = this.camera.pose;
+    const moved = pose.yaw !== view.yaw || pose.pitch !== view.pitch || pose.distance !== view.distance
+      || pose.target.x !== view.target.x || pose.target.y !== view.target.y || pose.target.z !== view.target.z;
+    pose.yaw = view.yaw;
+    pose.pitch = view.pitch;
+    pose.distance = view.distance;
+    pose.target.x = view.target.x;
+    pose.target.y = view.target.y;
+    pose.target.z = view.target.z;
+    return moved;
+  }
+
+  /** The players' window draws the driver's pose (not where the GM froze theirs) and carries a cinema look of its own. */
+  setPlayersCinematic(on: boolean): void {
+    this.playersDriven = on;
+    if (!on) {
+      this.playerCinema?.dispose();
+      this.playerCinema = null;
+    }
+    this.wake(true);
+  }
+
+  /** The players' overlay follows the board's: made when the players' window is driven, the same bars and the same fade. */
+  private dressPlayers(player: PlayerScreen): void {
+    if (!this.playersDriven) return;
+    this.playerCinema ??= new CinemaOverlay(player.container);
+    if (this.playerCinema.aspect !== this.cinema.aspect) this.playerCinema.setBars(this.cinema.aspect);
+    if (this.playerCinema.black !== this.cinema.black) this.playerCinema.setBlack(this.cinema.black);
+  }
+
+  /**
+   * Holds the players' picture: on the next draw of their window it is captured and laid over their stage as an image,
+   * and stays there, whatever the board does underneath (a scene switch), until released.
+   */
+  holdPlayers(hold: boolean): void {
+    this.playerHold = hold;
+    const stage = this.player?.container;
+    if (hold) {
+      // A picture already held there (this board took over from one that held it) is the one to keep.
+      this.playerHeld ??= (stage?.querySelector('.tabletop-cinema__hold') as HTMLImageElement | null) ?? null;
+    } else {
+      this.playerHeld = null;
+      stage?.querySelectorAll('.tabletop-cinema__hold').forEach((held) => held.remove());
+      if (this.player) this.player.shadowsDirty = true;
+    }
+    this.wake(true);
+  }
+
+  private holdFrame(player: PlayerScreen): void {
+    const image = player.container.ownerDocument.createElement('img');
+    image.className = 'tabletop-cinema__hold';
+    image.src = player.canvas.toDataURL();
+    player.container.appendChild(image);
+    this.playerHeld = image;
+  }
+
+  /**
+   * Shows players, in their window and on a player's own board, what the GM's view shows, as players draw it: the
+   * line-of-sight veil and the fog are not drawn and every token not hidden by the GM is there. Nothing is kept: turning
+   * it off draws again from the live sight.
+   */
+  setReveal(on: boolean): void {
+    if (this.reveal === on) return;
+    this.reveal = on;
+    this.sightKey = '';
+    if (this.player) this.player.shadowsDirty = true;
+    this.wake(true);
+  }
+
   dispose(): void {
+    this.cinema.dispose();
     this.lockPointer(false);
     this.caster?.dispose();
     this.spellGizmo?.dispose();

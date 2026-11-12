@@ -98,3 +98,29 @@ test('smoothFollow covers 63.2% in one tau', () => {
   const same = smoothFollow({ eye: { x: 1, y: 2, z: 3 }, target: { x: 0, y: 0, z: 0 } }, { eye: { x: 1, y: 2, z: 3 }, target: { x: 0, y: 0, z: 0 } }, 0);
   assert.deepEqual(same.eye, { x: 1, y: 2, z: 3 });
 });
+
+test('a zero-ms fade leg acts as a cut', () => {
+  const c = fixture();
+  const out = sampleLegs(c, [{ from: 0, to: 1, transition: 'fade', ms: 0 }], 0);
+  assert.equal(out.done, true);
+  assert.equal(out.at.black, 0);
+  assert.deepEqual(out.at.eye, c.shots[1].eye);
+  assert.deepEqual(out.at.target, c.shots[1].target);
+});
+
+test('shots that share a pose give the exact pose along the path', () => {
+  const c = fixture();
+  c.shots[1].eye = { ...c.shots[0].eye };
+  c.shots[1].target = { ...c.shots[0].target };
+  const legs = legsBetween(c, 0, 2);
+  const mid = sampleLegs(c, legs, 300).at;
+  assert.deepEqual(mid.eye, c.shots[0].eye);
+  assert.deepEqual(mid.target, c.shots[0].target);
+  const atB = sampleLegs(c, legs, 1000).at;
+  near(atB.eye.x, c.shots[1].eye.x);
+  near(atB.eye.y, c.shots[1].eye.y);
+  near(atB.target.z, c.shots[1].target.z);
+  const end = sampleLegs(c, legs, 2000);
+  assert.equal(end.done, true);
+  assert.deepEqual(end.at.eye, c.shots[2].eye);
+});

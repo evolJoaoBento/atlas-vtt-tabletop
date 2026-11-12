@@ -107,3 +107,36 @@ test('seek rests with no transition', () => {
 test('a cutscene with no shots cannot be played', () => {
   assert.throws(() => new CutscenePlayback({ id: 'c', name: 'n', shots: [] }));
 });
+
+test('next into the last stop mid-transition returns ended and stays on the last shot', () => {
+  const play = new CutscenePlayback(fixture());
+  play.next(0);
+  play.next(10);
+  play.next(20);
+  assert.equal(play.shot, 4);
+  assert.equal(play.next(30), 'ended');
+  assert.equal(play.shot, 4);
+});
+
+test('mashing next across a keyframe chain never rests on the keyframe', () => {
+  const c = fixture();
+  const stops = [0, 2, 3, 4];
+  const play = new CutscenePlayback(c);
+  for (let i = 0; i < 12; i++) {
+    play.next(i * 7);
+    assert.ok(stops.includes(play.shot), `shot ${play.shot} is not a stop`);
+    play.frame(i * 7 + 3);
+  }
+  assert.equal(play.shot, 4);
+});
+
+test('previous then next lands on the stop after the previous one, not the keyframe', () => {
+  const play = new CutscenePlayback(fixture());
+  play.next(0);
+  play.frame(5000);
+  assert.equal(play.shot, 2);
+  assert.equal(play.previous(5000), true);
+  assert.equal(play.shot, 0);
+  play.next(5000);
+  assert.equal(play.shot, 2);
+});

@@ -86,3 +86,30 @@ test("setLimits takes another map's limits and holds the goal inside them", () =
   cam.zoom(0.0001);
   close(cam.goal.distance, 400 * 0.13);
 });
+
+test('restore bypasses limits', () => {
+  const cam = new OrbitCamera({ distance: 500, pitch: 0.7, yaw: 0.3 }, limitsFor(1000, 1000));
+  const kept = cam.keep();
+  assert.deepEqual(kept.pose, cam.pose);
+  // A copy: changing the camera afterwards leaves the keep alone.
+  cam.orbit(1, 0.2);
+  assert.notDeepEqual(kept.goal, cam.goal);
+  cam.snap();
+  const wild = cam.keep();
+  for (const pose of [wild.pose, wild.goal]) {
+    pose.pitch = 1.56;
+    pose.distance = 1e5;
+    pose.target.y = 40;
+  }
+  wild.wanted = 1.56;
+  cam.glideY(10, 5);
+  cam.restore(wild);
+  assert.deepEqual(cam.pose, wild.pose);
+  assert.deepEqual(cam.goal, wild.goal);
+  assert.equal(cam.pose.distance, 1e5);
+  assert.equal(cam.gliding, false);
+  assert.equal(cam.update(0.1), false);
+  // The restored camera does not share the keep's target objects.
+  cam.pan(5, 0);
+  assert.notEqual(cam.goal.target.x, wild.goal.target.x);
+});

@@ -24,6 +24,13 @@ export interface CameraPose {
   distance: number;
 }
 
+/** A camera's pose and goal, and the angle it last wanted, as `keep` takes them and `restore` puts them back. */
+export interface CameraKeep {
+  pose: CameraPose;
+  goal: CameraPose;
+  wanted: number;
+}
+
 export interface CameraPosition {
   x: number;
   y: number;
@@ -139,6 +146,22 @@ export class OrbitCamera {
     this.goal.yaw = Math.atan2(dx, dz);
     this.goal.pitch = Math.asin(dy / distance);
     this.wanted = this.goal.pitch;
+  }
+
+  /** The camera as it stands, to be put back exactly with `restore` (a cutscene takes the camera over meanwhile). */
+  keep(): CameraKeep {
+    const copy = (pose: CameraPose): CameraPose => ({ ...pose, target: { ...pose.target } });
+    return { pose: copy(this.pose), goal: copy(this.goal), wanted: this.wanted };
+  }
+
+  /** Puts the camera back as `keep` took it, exactly, even outside the limits, and ends any glide. */
+  restore(keep: CameraKeep): void {
+    for (const [into, from] of [[this.pose, keep.pose], [this.goal, keep.goal]] as const) {
+      Object.assign(into, from);
+      into.target = { ...from.target };
+    }
+    this.wanted = keep.wanted;
+    this.glide = null;
   }
 
   /** Takes the limits of another map (another scene shown): the goal is held inside them at once. */

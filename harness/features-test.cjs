@@ -3335,6 +3335,190 @@ feature('limiter', async ({ page }) => {
   check('limiter: a hot tone (1.4 times full scale) is held below 0 dBFS', hot.expectedPeak > 1.3 && hot.peak < 1 && hot.peak > 0.5, JSON.stringify(hot));
 });
 
+// ── Cutscenes: the board's cinematic mode (driven camera, free camera, input lock, bars, fade, reveal) ─────────────
+feature('cinematic mode', async ({ page, shot }) => {
+  const at = (id) => page.evaluate((id) => { const e = window.boardTest.board.tokens.get(id); return window.boardTest.project(e.at.x, e.at.y, 0); }, id);
+  // A drag in flight stops at the lock: the token goes back, and nothing is told to the host.
+  const hero = await at('hero');
+  const home = await page.evaluate(() => { const t = window.boardTest.board.tokens.get('hero').token; return { x: t.x, y: t.y }; });
+  await page.mouse.move(hero.x, hero.y);
+  await page.mouse.down();
+  await page.mouse.move(hero.x + 60, hero.y + 30, { steps: 6 });
+  const lifted = await page.evaluate(() => { const e = window.boardTest.board.tokens.get('hero'); return { x: e.goal.x, y: e.goal.y }; });
+  check('cinematic: a token is carried before the lock', Math.abs(lifted.x - home.x) > 10 || Math.abs(lifted.y - home.y) > 10, JSON.stringify([home, lifted]));
+  await page.evaluate(() => window.boardTest.board.setCinematicRole('locked'));
+  await page.mouse.move(hero.x + 120, hero.y + 60, { steps: 6 });
+  await page.mouse.up();
+  await wait(300);
+  const dropped = await page.evaluate(() => { const e = window.boardTest.board.tokens.get('hero'); return { x: e.goal.x, y: e.goal.y, moves: window.boardTest.record.moves.length }; });
+  check('cinematic: a drag in flight stops at the lock: the token is where it was and nothing moved', dropped.x === home.x && dropped.y === home.y && dropped.moves === 0, JSON.stringify({ home, dropped }));
+  // Locked: the camera does not answer the wheel, a drag or the keys, and the eyes are refused.
+  const orbit = () => page.evaluate(() => JSON.stringify(window.boardTest.board.camera.goal));
+  const before = await orbit();
+  await page.mouse.move(500, 300);
+  await page.mouse.wheel(0, -400);
+  await page.mouse.down({ button: 'right' });
+  await page.mouse.move(560, 340, { steps: 5 });
+  await page.mouse.up({ button: 'right' });
+  await page.keyboard.down('w');
+  await wait(300);
+  await page.keyboard.up('w');
+  check('cinematic: a locked board\'s camera ignores the wheel, a drag and the keys', (await orbit()) === before);
+  check('cinematic: a locked board refuses the eyes', await page.evaluate(() => window.boardTest.board.seeFrom('hero') === false && window.boardTest.board.cinematicRole === 'locked'));
+  await page.evaluate(() => window.boardTest.board.setCinematicRole('none'));
+  await page.mouse.wheel(0, -400);
+  await wait(100);
+  check('cinematic: with the lock gone the same wheel moves the camera again', (await orbit()) !== before);
+  check('cinematic: with the lock gone the eyes work again', await page.evaluate(() => { const ok = window.boardTest.board.seeFrom('hero'); window.boardTest.board.seeFrom(null); return ok; }));
+  // The in-eyes player is put out when the lock comes, and the board remembers whose eyes.
+  await page.evaluate(() => { window.boardTest.board.seeFrom('hero'); window.boardTest.board.setCinematicRole('locked'); });
+  check('cinematic: the lock takes a player out of the eyes and remembers the token', await page.evaluate(() => window.boardTest.board.eyesBeforeLock === 'hero' && window.boardTest.board.seeingFrom === null), await page.evaluate(() => String(window.boardTest.board.eyesBeforeLock)));
+  await page.evaluate(() => window.boardTest.board.setCinematicRole('none'));
+
+  // The driver's pose wins over the orbit camera.
+  await page.evaluate(() => window.boardTest.board.setCinematic({ pose: () => ({ eye: { x: 500, y: 900, z: 1400 }, target: { x: 500, y: 0, z: 500 }, black: 0 }) }));
+  await wait(400);
+  const view = await page.evaluate(() => { const p = window.boardTest.board.view.position; return [p.x, p.y, p.z]; });
+  check('cinematic: the drawn camera is at the driver\'s eye', Math.abs(view[0] - 500) < 0.01 && Math.abs(view[1] - 900) < 0.01 && Math.abs(view[2] - 1400) < 0.01, JSON.stringify(view));
+  check('cinematic: the sound listener follows the driven camera', await page.evaluate(() => { const l = window.boardTest.sounds.listeners.at(-1).listener.eye; return Math.abs(l.x - 500) < 0.01 && Math.abs(l.y - 900) < 0.01 && Math.abs(l.z - 1400) < 0.01; }), await page.evaluate(() => JSON.stringify(window.boardTest.sounds.listeners.at(-1))));
+  // Running: the GM's own camera is the driver's. Wheel and drag leave the goal alone.
+  await page.evaluate(() => window.boardTest.board.setCinematicRole('running'));
+  const still = await orbit();
+  await page.mouse.move(500, 300);
+  await page.mouse.wheel(0, -400);
+  await page.mouse.down();
+  await page.mouse.move(600, 360, { steps: 6 });
+  await page.mouse.up();
+  await wait(200);
+  check('cinematic: with the role running, a wheel and a drag leave the camera goal unchanged', (await orbit()) === still);
+  check('cinematic: a driver\'s eye on its target never makes NaN', await page.evaluate(async () => {
+    const { board } = window.boardTest;
+    board.setCinematic({ pose: () => ({ eye: { x: 700, y: 300, z: 700 }, target: { x: 700, y: 300, z: 700 }, black: 0 }) });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const p = board.view.position, q = board.view.quaternion;
+    return [p.x, p.y, p.z, q.x, q.y, q.z, q.w].every(Number.isFinite);
+  }));
+  await page.evaluate(() => window.boardTest.board.setCinematic({ pose: () => ({ eye: { x: 500, y: 900, z: 1400 }, target: { x: 500, y: 0, z: 500 }, black: 0 }) }));
+
+  // The bars: two, as tall as the container leaves above and below a picture of the aspect.
+  const bars = await page.evaluate(async () => {
+    const { board } = window.boardTest;
+    board.cinema.setBars(2.39);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const w = board.container.clientWidth, h = board.container.clientHeight;
+    const nodes = [...board.container.querySelectorAll('.tabletop-cinema__bar')];
+    return { expected: (h - w / 2.39) / 2, height: board.cinema.barHeight, shown: nodes.map((n) => n.getBoundingClientRect().height), count: nodes.length };
+  });
+  check('cinematic: setBars(2.39) sets a bar height from the container', Math.abs(bars.height - bars.expected) < 1 && bars.expected > 20, JSON.stringify(bars));
+  check('cinematic: two bars of that height are in the DOM', bars.count === 2 && bars.shown.every((h) => Math.abs(h - bars.expected) < 1), JSON.stringify(bars));
+  check('cinematic: the cinema layer takes no pointer events and sits above the toolbar', await page.evaluate(() => {
+    const layer = window.boardTest.board.container.querySelector('.tabletop-cinema');
+    const toolbar = window.boardTest.board.container.querySelector('.atlas-tabletop-toolbar-row') ?? window.boardTest.board.container.querySelector('.atlas-tabletop-toolbar');
+    const z = (n) => Number(getComputedStyle(n).zIndex) || 0;
+    return getComputedStyle(layer).pointerEvents === 'none' && (!toolbar || z(layer) > z(toolbar));
+  }));
+  // The fade.
+  await page.evaluate(() => window.boardTest.board.cinema.setBlack(1));
+  check('cinematic: setBlack(1) makes the fade opaque', await page.evaluate(() => getComputedStyle(window.boardTest.board.container.querySelector('.tabletop-cinema__fade')).opacity === '1'));
+  await page.evaluate(() => window.boardTest.board.cinema.setBlack(0));
+  // The driver's own black reaches the fade.
+  await page.evaluate(() => window.boardTest.board.setCinematic({ pose: () => ({ eye: { x: 500, y: 900, z: 1400 }, target: { x: 500, y: 0, z: 500 }, black: 0.5 }) }));
+  await wait(300);
+  check('cinematic: the driver\'s black is the fade\'s', await page.evaluate(() => window.boardTest.board.cinema.black === 0.5 && getComputedStyle(window.boardTest.board.container.querySelector('.tabletop-cinema__fade')).opacity === '0.5'));
+  await page.evaluate(() => window.boardTest.board.setCinematic({ pose: () => ({ eye: { x: 500, y: 900, z: 1400 }, target: { x: 500, y: 0, z: 500 }, black: 0 }) }));
+  await wait(300);
+  await shot('cinematic-bars');
+
+  // The reveal: players see what the GM's view shows, as players draw it.
+  const seen = () => page.evaluate(() => {
+    const b = window.boardTest.board;
+    b.showFor('player');
+    const out = { lurker: b.tokens.get('lurker').piece.object3d.visible, orc: b.tokens.get('orc').piece.object3d.visible, hero: b.tokens.get('hero').piece.object3d.visible, fog: b.fog.object3d.visible };
+    b.showFor('gm');
+    return out;
+  });
+  const plain = await seen();
+  check('cinematic: before the reveal a token under the fog is hidden from players', plain.lurker === false && plain.hero === true && plain.fog === true, JSON.stringify(plain));
+  await page.evaluate(() => window.boardTest.board.setReveal(true));
+  const revealed = await seen();
+  check('cinematic: with the reveal the fogged token shows, the solid fog is not drawn and the hidden token stays hidden', revealed.lurker === true && revealed.orc === false && revealed.fog === false, JSON.stringify(revealed));
+  await page.evaluate(() => window.boardTest.board.setReveal(false));
+  const after = await seen();
+  check('cinematic: with the reveal off the fogged token is hidden again', after.lurker === false && after.fog === true, JSON.stringify(after));
+
+  // The authoring camera: W flies the free camera, and the orbit camera is not touched.
+  const free = await page.evaluate(() => {
+    const { board, FreeCamera } = window.boardTest;
+    const cam = new FreeCamera({ x: 500, y: 600, z: 1200 }, { x: 500, y: 0, z: 500 });
+    window.freeCam = cam;
+    board.setCinematicRole('authoring');
+    board.setCinematic({ free: cam, pose: () => ({ ...cam.pose(), black: 0 }) });
+    return { eye: cam.pose().eye, goal: JSON.stringify(board.camera.goal) };
+  });
+  await wait(300);
+  await page.locator('canvas.atlas-tabletop-board').focus();
+  await page.keyboard.down('w');
+  await wait(300);
+  await page.keyboard.up('w');
+  const flown = await page.evaluate(() => { const e = window.freeCam.pose().eye; return { eye: e, view: window.boardTest.board.view.position.toArray() }; });
+  const moved = Math.hypot(flown.eye.x - free.eye.x, flown.eye.y - free.eye.y, flown.eye.z - free.eye.z);
+  check('cinematic: W for 300 ms flies the free camera forward', moved > 20 && flown.eye.z < free.eye.z && flown.eye.y < free.eye.y, JSON.stringify({ free: free.eye, flown: flown.eye }));
+  check('cinematic: the drawn camera follows the free camera', Math.abs(flown.view[0] - flown.eye.x) < 1 && Math.abs(flown.view[2] - flown.eye.z) < 1, JSON.stringify(flown));
+  // A drag looks and the wheel dollies.
+  const aim = () => page.evaluate(() => window.freeCam.pose().target);
+  const t0 = await aim();
+  await page.mouse.move(500, 300);
+  await page.mouse.down();
+  await page.mouse.move(580, 300, { steps: 5 });
+  await page.mouse.up();
+  const t1 = await aim();
+  check('cinematic: a drag turns the free camera', Math.abs(t1.x - t0.x) > 10, JSON.stringify([t0, t1]));
+  const e0 = await page.evaluate(() => window.freeCam.pose().eye);
+  await page.mouse.wheel(0, -100);
+  await wait(100);
+  const e1 = await page.evaluate(() => window.freeCam.pose().eye);
+  check('cinematic: the wheel dollies the free camera along the view', Math.hypot(e1.x - e0.x, e1.y - e0.y, e1.z - e0.z) > 10, JSON.stringify([e0, e1]));
+  check('cinematic: the orbit camera\'s goal is unchanged by the free camera\'s keys, drag and wheel', await page.evaluate(() => JSON.stringify(window.boardTest.board.camera.goal)) === free.goal);
+  // The players' window: its own cinema look, the driver's pose, and a held picture.
+  const players = await page.evaluate(async () => {
+    const { board } = window.boardTest;
+    const stage = document.createElement('div');
+    stage.style.cssText = 'position:fixed;left:0;top:0;width:480px;height:300px;z-index:1';
+    document.body.appendChild(stage);
+    board.attachPlayer(stage);
+    board.setPlayersCinematic(true);
+    board.cinema.setBars(2);
+    board.setCinematic({ pose: () => ({ eye: { x: 500, y: 900, z: 1400 }, target: { x: 500, y: 0, z: 500 }, black: 0.25 }) });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const bars = stage.querySelectorAll('.tabletop-cinema__bar');
+    const fade = stage.querySelector('.tabletop-cinema__fade');
+    const own = { bars: bars.length, bar: bars[0]?.getBoundingClientRect().height, expected: (300 - 480 / 2) / 2, black: fade?.style.opacity };
+    board.holdPlayers(true);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const held = stage.querySelector('img.tabletop-cinema__hold');
+    const picture = { src: held?.src.slice(0, 22), length: held?.src.length };
+    board.holdPlayers(false);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const gone = stage.querySelector('img.tabletop-cinema__hold') === null;
+    board.setPlayersCinematic(false);
+    const off = stage.querySelector('.tabletop-cinema') === null;
+    board.detachPlayer();
+    stage.remove();
+    return { own, picture, gone, off };
+  });
+  check('cinematic: the players\' window carries its own bars and fade', players.own.bars === 2 && Math.abs(players.own.bar - players.own.expected) < 1 && players.own.black === '0.25', JSON.stringify(players.own));
+  check('cinematic: holdPlayers lays the players\' frame over their stage as an image, until released', players.picture.src === 'data:image/png;base64,' && players.picture.length > 1000 && players.gone, JSON.stringify(players));
+  check('cinematic: the players\' cinema look goes when it is turned off', players.off);
+  // Letting the driver go returns the camera to its own.
+  const back = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    board.setCinematic(null);
+    return { gone: board.cinematic === null, same: JSON.stringify(board.camera.pose) === JSON.stringify(board.camera.goal) };
+  });
+  check('cinematic: taking the driver away puts the camera back on the person\'s own pose', back.gone && back.same, JSON.stringify(back));
+  await page.evaluate(() => window.boardTest.board.setCinematicRole('none'));
+});
+
 server.listen(0, async () => {
   const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const errors = [];
