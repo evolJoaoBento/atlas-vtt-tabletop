@@ -8,6 +8,8 @@
 
 import type { Board } from '../board/board';
 import type { CameraKeep } from '../board/camera';
+import type { BoardSession, GmCutscene } from '../connectContract';
+import { CutsceneRun } from './cutsceneRun';
 import { CINEMATIC_ASPECTS, MAX_FADE_MS, MIN_FADE_MS, type CinematicAspect, type CinematicSettings } from './cinematicSettings';
 import { addShot, allowedTransitions, removeShot, retime, setKeyframe, setTransition, updateShot, type Cutscene, type Transition } from './cutsceneData';
 import type { CinematicDriver } from './drivenView';
@@ -36,6 +38,12 @@ export interface StudioHost {
   notice(text: string): void;
   /** Keeps the players' window on its last picture (true) while the GM frames shots, or lets it draw again (false). */
   holdPlayers(hold: boolean): void;
+  /** Connect's hosted session, while it hands one over. */
+  session(): BoardSession | null;
+  /** Lends the open players' window to a run (true): it follows the run's board across maps instead of waiting for its own map; false gives it back. */
+  lendPlayers(lend: boolean): void;
+  /** Hands the run for players to whoever tells Connect (null: it is over). */
+  publishRun(run: GmCutscene | null): void;
 }
 
 export type StudioState = 'idle' | 'gallery' | 'editing' | 'previewing' | 'running';
@@ -89,9 +97,16 @@ export class CutsceneStudio {
   private readonly prePrevious: HTMLButtonElement;
   private readonly preNext: HTMLButtonElement;
   private readonly keys = (event: KeyboardEvent): void => this.onKey(event);
+  /** A cutscene running for players, or the live follow. */
+  private readonly run: CutsceneRun;
+  private readonly runBar: HTMLElement;
+  private readonly runLabel: HTMLElement;
+  private readonly runPrevious: HTMLButtonElement;
+  private readonly runNext: HTMLButtonElement;
 
   constructor(private readonly root: HTMLElement, private readonly host: StudioHost) {
     const doc = root.ownerDocument;
+    this.run = new CutsceneRun(host, (told) => host.publishRun(told), () => this.showRun());
     this.menu = new PopupMenu(root);
     this.timeline = new TimelineView(root, {
       add: (at) => this.addAt(at),
@@ -116,13 +131,85 @@ export class CutsceneStudio {
     this.preBack = this.button(this.preBar, 'Back to editing', () => this.backToEditing(), 'tabletop-preview__back');
     this.preBar.addEventListener('pointerdown', (event) => event.stopPropagation());
     root.appendChild(this.preBar);
+    // A run for players: the same strip, with End in place of Back to editing.
+    this.runBar = doc.createElement('div');
+    this.runBar.className = 'tabletop-run';
+    this.runBar.hidden = true;
+    this.runPrevious = this.button(this.runBar, 'Previous', () => this.run.previous(), 'tabletop-run__previous');
+    this.runLabel = this.span(this.runBar, 'tabletop-run__label');
+    this.runNext = this.button(this.runBar, 'Next', () => this.run.next(), 'tabletop-run__next');
+    this.button(this.runBar, 'End', () => this.run.end(), 'mod-warning tabletop-run__end');
+    this.runBar.addEventListener('pointerdown', (event) => event.stopPropagation());
+    root.appendChild(this.runBar);
     doc.defaultView?.addEventListener('keydown', this.keys);
+  }
+
+  // ── A run for players ────────────────────────────────────────────────────
+
+  /** Plays a cutscene of this map for players (Play for players); false, with a notice, when it cannot. */
+  async play(id: string): Promise<boolean> {
+    const home = this.host.mapPath();
+    const found = home ? this.host.cutscenes(home).find((c) => c.id === id) : undefined;
+    if (!home || !found || (this.state !== 'idle' && this.state !== 'gallery')) return false;
+    const started = await this.run.startPrepared(found, home);
+    if (started) this.closeGallery();
+    return started;
+  }
+
+  /** The toolbar's "Players follow my camera": starts the live follow, or ends the run that is going. */
+  toggleLive(): void {
+    if (this.run.running) {
+      this.run.end();
+      return;
+    }
+    if (this.state !== 'idle' && this.state !== 'gallery') {
+      this.host.notice('Tabletop: finish the cutscene you are making first.');
+      return;
+    }
+    this.run.startLive();
+    if (this.run.running) this.closeGallery();
+  }
+
+  /** Whether the players follow the GM's camera now. */
+  get live(): boolean {
+    return this.run.live;
+  }
+
+  /** Ends the run for players (the session went); no-op without one. */
+  endRun(): void {
+    this.run.end();
+  }
+
+  /** Ends the run with no fade (Tabletop is unloading). */
+  endRunNow(): void {
+    this.run.dispose();
+  }
+
+  /** The GM board's camera while the players follow it; null otherwise. */
+  liveCamera(): ReturnType<CutsceneRun['liveCamera']> {
+    return this.run.liveCamera();
+  }
+
+  /** What the run shows the GM: Previous, Next and End with the shot, or End alone while live. */
+  private showRun(): void {
+    const position = this.run.position;
+    this.runBar.hidden = !this.run.running;
+    if (position) {
+      const live = this.run.mode === 'live';
+      this.runLabel.textContent = live ? 'Players follow your camera' : `Shot ${position.shot + 1} of ${position.total}`;
+      this.runPrevious.hidden = live;
+      this.runNext.hidden = live;
+      this.runPrevious.disabled = position.shot === 0 || this.run.ending;
+      this.runNext.disabled = this.run.ending;
+    }
+    this.board?.refreshToolbar();
   }
 
   // ── State ────────────────────────────────────────────────────────────────
 
   get state(): StudioState {
     if (this.session) return this.session.preview ? 'previewing' : 'editing';
+    if (this.run.running) return 'running';
     return this.mode;
   }
 
@@ -232,9 +319,11 @@ export class CutsceneStudio {
       this.button(actions, 'Keep', () => { this.confirming = null; this.renderGallery(); }, 'tabletop-gallery__no');
       return row;
     }
-    this.button(actions, 'Edit', () => this.edit(c.id), 'tabletop-gallery__edit');
-    // A cutscene with no shots cannot be played: Preview says why it is off.
+    // A cutscene with no shots cannot be played: Play for players and Preview say why they are off.
     const empty = c.shots.length === 0;
+    const play = this.button(actions, 'Play for players', () => { void this.play(c.id); }, 'tabletop-gallery__play mod-cta', empty ? NO_SHOTS : 'Show it to the players');
+    play.disabled = empty;
+    this.button(actions, 'Edit', () => this.edit(c.id), 'tabletop-gallery__edit');
     const preview = this.button(actions, 'Preview', () => { this.edit(c.id); this.preview(0); }, 'tabletop-gallery__preview', empty ? NO_SHOTS : 'Preview from the start');
     preview.disabled = empty;
     if (empty) row.classList.add('tabletop-gallery__row--empty');
@@ -540,7 +629,7 @@ export class CutsceneStudio {
     if (!session) return;
     const shots = session.cutscene.shots;
     if (shots.length === 0) {
-      this.host.notice(`Tabletop: ${NO_SHOTS}`);
+      this.host.notice('Tabletop: add a shot first.');
       return;
     }
     this.menu.close();
@@ -621,6 +710,10 @@ export class CutsceneStudio {
   mapChanged(): void {
     if (this.leaving) return;
     const session = this.session;
+    if (!session && this.run.running) {
+      this.run.mapChanged();
+      return;
+    }
     if (!session) {
       if (this.mode === 'gallery') this.renderGallery();
       return;
@@ -662,6 +755,8 @@ export class CutsceneStudio {
   dispose(): void {
     this.root.ownerDocument.defaultView?.removeEventListener('keydown', this.keys);
     this.menu.close();
+    this.run.dispose();
+    this.runBar.remove();
     const session = this.session;
     if (session) {
       const board = this.board;

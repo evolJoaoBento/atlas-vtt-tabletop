@@ -2114,6 +2114,7 @@ body.atlas-tabletop-player-window .view-header {
 .tabletop-gallery,
 .tabletop-timeline,
 .tabletop-preview,
+.tabletop-run,
 .tabletop-menu {
   background: var(--background-primary);
   color: var(--text-normal);
@@ -2153,10 +2154,12 @@ body.atlas-tabletop-player-window .view-header {
 .tabletop-gallery__actions button,
 .tabletop-gallery__head button,
 .tabletop-timeline__head button,
-.tabletop-preview button { height: 26px; padding: 0 10px; }
+.tabletop-preview button,
+.tabletop-run button { height: 26px; padding: 0 10px; }
 .tabletop-gallery__actions button:disabled,
 .tabletop-timeline__head button:disabled,
-.tabletop-preview button:disabled { opacity: 0.45; cursor: not-allowed; }
+.tabletop-preview button:disabled,
+.tabletop-run button:disabled { opacity: 0.45; cursor: not-allowed; }
 .tabletop-gallery__ask { color: var(--text-error); }
 .tabletop-gallery__settings { display: flex; flex-direction: column; gap: 6px; padding: 6px 2px 8px; margin-bottom: 6px; border-bottom: 1px solid var(--background-modifier-border); }
 .tabletop-gallery__field { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -2172,7 +2175,8 @@ body.atlas-tabletop-player-window .view-header {
   flex-direction: column;
 }
 .tabletop-timeline[hidden],
-.tabletop-preview[hidden] { display: none; }
+.tabletop-preview[hidden],
+.tabletop-run[hidden] { display: none; }
 .tabletop-timeline__head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; }
 .tabletop-timeline__title { font-weight: var(--font-semibold, 600); }
 .tabletop-timeline__hint { flex: 1; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2228,7 +2232,8 @@ body.atlas-tabletop-player-window .view-header {
 .tabletop-timeline__shot--other { background: var(--color-purple, #b86ee0); }
 .tabletop-timeline__shot.is-dragging { cursor: grabbing; opacity: 0.85; }
 
-.tabletop-preview {
+.tabletop-preview,
+.tabletop-run {
   position: absolute;
   left: 50%;
   bottom: 84px;
@@ -2239,7 +2244,8 @@ body.atlas-tabletop-player-window .view-header {
   gap: 10px;
   padding: 8px 12px;
 }
-.tabletop-preview__label { min-width: 90px; text-align: center; font-weight: var(--font-semibold, 600); }
+.tabletop-preview__label,
+.tabletop-run__label { min-width: 90px; text-align: center; font-weight: var(--font-semibold, 600); }
 
 .tabletop-menu {
   position: absolute;

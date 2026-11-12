@@ -121,7 +121,83 @@ export interface BoardCamera {
   target: { x: number; y: number; z: number };
 }
 
+/**
+ * One shot of a running cutscene, as a player's board plays it. `key` names the shot's map for this run only (`k1`, `k2`,
+ * …): a vault path never leaves the GM's machine. Camera poses are in the board's world (see `BoardCamera`).
+ */
+export interface BoardCutsceneShot {
+  /** The run-local name of the shot's map; the keys of `GmCutscene.maps`. Matches `^k[0-9]{1,4}$`. */
+  key: string;
+  eye: { x: number; y: number; z: number };
+  target: { x: number; y: number; z: number };
+  /** Milliseconds from the start of the run (0..3 600 000). The time between two shots is how long the transition into the later one takes. */
+  at: number;
+  /** A keyframe shot shapes the camera path but the run never rests on it. */
+  keyframe: boolean;
+  /** How the run gets into this shot (ignored for the first). A `move` only joins two shots on one map. */
+  transition: 'fade' | 'cut' | 'move';
+}
+
+/**
+ * A cutscene running for players: sent to every admitted player whenever it changes, and `null` when it ends. Prepared:
+ * each player's board plays the shots locally (nothing streams the camera). Live: the board follows the GM's camera,
+ * which arrives separately (`CutsceneSource.camera`). Limits both sides check: at most 200 shots; `runId` matches
+ * `^[A-Za-z0-9_-]{1,64}$`; every coordinate is finite with |value| ≤ 1e7; `look.fadeMs` is 100..3000; `look.bars` is null or
+ * one of 1.85, 2, 2.39.
+ */
+export interface BoardCutscene {
+  /** Names this run: a new run has a new id, so a board tells a new run from a change of the one it plays. */
+  runId: string;
+  mode: 'prepared' | 'live';
+  look: {
+    /** The aspect ratio (width over height) the picture is letterboxed to, or null for no bars. */
+    bars: number | null;
+    /** Each way of a fade (to black, and back), in milliseconds. */
+    fadeMs: number;
+  };
+  /** Prepared: at least one shot, sorted by `at`. Live: empty. */
+  shots: BoardCutsceneShot[];
+  /**
+   * Prepared: the ordinary shot (index into `shots`) the run rests on, or is heading to by a transition; never a
+   * keyframe shot except the first or the last. Live: `shot` is 0. `seq` starts at 1 and grows by one with every Next,
+   * Previous and (live) change of scene, so a board can tell newer news from older and joins mid-run at the latest step.
+   */
+  step: { shot: number; seq: number };
+  /** The run-local key of the map shown now: the step's shot's, or the GM's own scene in live. */
+  key: string;
+}
+
 // ── The GM's side: Tabletop offers ───────────────────────────────────────────
+
+/**
+ * A cutscene as Tabletop publishes it to Connect: what goes to players, and, GM side only and never sent, which vault
+ * map each key stands for. Connect finds the GM's Atlas tab of `maps[key]` and sends players that scene (revealed, for
+ * the length of the run), without ever putting the path on the wire.
+ */
+export interface GmCutscene {
+  cutscene: BoardCutscene;
+  /** key → vault path, for the keys the cutscene uses (every shot's, and `key`). */
+  maps: Record<string, string>;
+}
+
+/**
+ * The cutscene run on the GM's board, read through Tabletop's API (`api.cutscene`, shaped like `gmCamera`): a pull
+ * source. Connect reads `current()` whenever `onChange` fires. At most one run exists at a time; it ends (and `current()`
+ * is null) when the GM ends it, its board closes, the session is released or Tabletop unloads.
+ */
+export interface CutsceneSource {
+  /** The run now, or null for none. A new object whenever the step, the key or the run changes. */
+  current(): GmCutscene | null;
+  /** Called when `current()` changed (it started, took a step, changed scene in live, or ended). Returns the stop. */
+  onChange(listener: () => void): () => void;
+  /**
+   * Live only: the GM's own board camera (never the players' window's), for players' boards to follow, smoothed; null in a
+   * prepared run or with none.
+   */
+  camera(): { eye: { x: number; y: number; z: number }; target: { x: number; y: number; z: number } } | null;
+  /** Called (often) while the live camera moves. Returns the stop. */
+  onCamera(listener: () => void): () => void;
+}
 
 /** What the GM gave a map on the board, read through Tabletop's API. Paths are vault paths, never sent. */
 export interface BoardLook {
@@ -212,6 +288,11 @@ export interface BoardSessionTemplate { id: string; owner: string; shape: 'line'
 /** Connect's hosted session, handed to `api.attachSession` (Connect's `BoardSessionHub`; the shapes must stay the same). */
 export interface BoardSession {
   hosting(): boolean;
+  /**
+   * A Connect that carries cutscenes to its players says so (and shows them the GM's shots by switching each GM map
+   * tab's live snapshot). Absent from an older Connect, or one with no Atlas scene tabs: Tabletop refuses Play for players.
+   */
+  readonly cutscenes?: true;
   presentedMap(): string | null;
   overlay(mapPath: string): { templates: readonly BoardSessionTemplate[]; spells?: readonly unknown[]; coneAngle: number; handout: { path: string; title: string } | null };
   onChange(listener: () => void): () => void;

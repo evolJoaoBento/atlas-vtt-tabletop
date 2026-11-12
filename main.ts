@@ -30,7 +30,8 @@ import { boardLookFor, MaterialIndex } from './src/boardLook';
 import { LayerIndex, layersFor } from './src/boardLayers';
 import { playerBoardFactory, type PlayerBoardFactory } from './src/playerBoard';
 import { documentHasWebgl } from './src/webgl';
-import type { BoardLook, BoardSession, BoardSurvey, GmCameraSource } from './src/connectContract';
+import type { BoardLook, BoardSession, BoardSurvey, CutsceneSource, GmCameraSource } from './src/connectContract';
+import { CutsceneChannel } from './src/cutscene/cutsceneRun';
 import { DEFAULT_PACK, defaultPackFiles, releaseDefaultPackSheets } from './src/dice/defaultPack';
 import { choosePack, vendoredPack, type ChosenPack } from './src/dice/dicePack';
 import { SpellLibrary } from './src/spellLibrary';
@@ -129,6 +130,8 @@ export interface TabletopApi {
   readAsset(path: string): Promise<ArrayBuffer>;
   /** The GM's 3D view of a map, for Connect's players' "GM view". */
   readonly gmCamera: GmCameraSource;
+  /** The cutscene the GM runs for players (prepared, or the live follow of the GM's camera); at most one at a time. */
+  readonly cutscene: CutsceneSource;
   /** The 3D board in a Connect player's tab, drawn from what Connect receives; absent while this window has no WebGL (Connect then draws its 2D map). */
   readonly playerBoard?: PlayerBoardFactory;
   /** The 3D boards open now: their map and their root, whose toolbar has Atlas's end slot for Connect's buttons. */
@@ -160,6 +163,8 @@ export default class TabletopPlugin extends Plugin {
   readonly history = new UndoHistory();
   private readonly boardListeners = new Set<(mapPath: string | null) => void>();
   private readonly cameraListeners = new Set<() => void>();
+  /** The cutscene run Connect reads through `api.cutscene`. */
+  private readonly cutscenes = new CutsceneChannel();
   private materialIndex: MaterialIndex | null = null;
   private layerIndex: LayerIndex | null = null;
   /** Connect's hosted session, while it hands one over. */
@@ -273,7 +278,11 @@ export default class TabletopPlugin extends Plugin {
       focused: (view) => { this.lastBoard = view; },
       togglePlayerView: (view) => { void this.togglePlayerView(view); },
       playerViewOpen: (path) => this.playerLeaves().some((leaf) => fileOf(leaf) === path),
-      cameraMoved: () => { for (const listener of [...this.cameraListeners]) listener(); },
+      cameraMoved: (view) => {
+        for (const listener of [...this.cameraListeners]) listener();
+        this.cutscenes.cameraMoved(view.cutsceneOwner);
+      },
+      publishCutscene: (owner, run) => this.cutscenes.publish(owner, run),
       session: () => this.session,
       spellBook: () => this.spells(),
       materialDefaults: () => readMaterialDefaults(this.settings.materialDefaults),
@@ -437,12 +446,20 @@ export default class TabletopPlugin extends Plugin {
           return () => { this.cameraListeners.delete(listener); };
         },
       }),
+      cutscene: Object.freeze({
+        current: () => this.cutscenes.current(),
+        onChange: (listener: () => void) => this.cutscenes.onChange(listener),
+        camera: () => this.cutscenes.camera(),
+        onCamera: (listener: () => void) => this.cutscenes.onCamera(listener),
+      }),
     });
     this.app.workspace.trigger(API_READY_EVENT, this.api);
     this.app.workspace.trigger(OLD_API_READY_EVENT, this.api);
   }
 
   onunload(): void {
+    // A cutscene run for players ends, and Connect hears it (it reads the source once more on the unload event).
+    this.cutscenes.dispose();
     this.spellLibrary?.dispose();
     this.atlasButton?.stop();
     this.atlasButton = null;
@@ -732,6 +749,8 @@ export default class TabletopPlugin extends Plugin {
       for (const stop of stops) stop();
       if (this.session !== session) return;
       this.session = null;
+      // The run for players needs the session: it ends with it.
+      this.cutscenes.endRun();
       for (const board of this.boards()) board.sessionChanged();
     };
   }

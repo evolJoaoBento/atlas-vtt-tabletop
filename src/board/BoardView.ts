@@ -8,7 +8,8 @@
  */
 import type { MaterialDefaults } from '../materialDefaults';
 import { placeSurvey, type ArSurvey, type SavedArTable } from '../arTable';
-import type { BoardMark, BoardSession, BoardViewer } from '../connectContract';
+import type { BoardMark, BoardSession, BoardViewer, GmCutscene } from '../connectContract';
+import type { CutsceneOwner } from '../cutscene/cutsceneRun';
 import { ItemView, Menu, Modal, Notice, TFile, debounce, setIcon, type App, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
 import { ATLAS_VIEW_TYPE, presentedSceneOf, tabViewOf, type AtlasView } from '../atlas';
 import { AtlasBridge } from '../atlasBridge';
@@ -154,6 +155,8 @@ export interface BoardServices {
   cameraMoved?(view: BoardView): void;
   /** Connect's hosted session, while Connect hands one over. */
   session?(): BoardSession | null;
+  /** This board's cutscene run for players changed (null: it ended): what `api.cutscene` hands Connect. */
+  publishCutscene?(owner: CutsceneOwner, run: GmCutscene | null): void;
   /** The vault's spell notes, for the spell search. */
   spellBook?(): SpellBook | null;
   /** The materials walls and doors wear when none is painted on them, by kind. */
@@ -189,6 +192,14 @@ export class BoardView extends ItemView {
   private studio: CutsceneStudio | null = null;
   /** The players' window is held (a cutscene is being authored): a board made or a window attached later holds it too. */
   private playersHeld = false;
+  /** The players' window lent to a cutscene run: it follows this tab across maps instead of waiting for its own. */
+  private lent: PlayerView | null = null;
+  /** This tab's side of `api.cutscene`: what the channel asks of the run it holds. */
+  readonly cutsceneOwner: CutsceneOwner = {
+    end: () => this.studio?.endRun(),
+    dispose: () => this.studio?.endRunNow(),
+    liveCamera: () => this.studio?.liveCamera() ?? null,
+  };
   private map: BoardMap | null = null;
   private rules: CollectionRules = emptyRules();
   private readonly warned = new Set<string>();
@@ -235,12 +246,15 @@ export class BoardView extends ItemView {
       this.map = null;
       this.chosenLevel = null;
       this.dropBoard();
-      // The player view shows the map this tab showed: it waits for that map's board again.
-      this.playerWindow?.waiting(true);
+      // The player view shows the map this tab showed: it waits for that map's board again. Lent to a cutscene run, it
+      // does not wait (the fade is black) and is drawn into the new board.
+      const lent = this.lent;
+      if (!lent) this.playerWindow?.waiting(true);
       this.playerWindow = null;
       this.retitle();
       // A cutscene being made stays open over the new scene: `read` tells the studio, which gives the new board its driver.
       await this.read();
+      if (lent && this.lent === lent && this.board) this.showPlayer(lent);
     }
     await super.setState(state, result);
   }
@@ -417,6 +431,9 @@ export class BoardView extends ItemView {
         view.playersHeld = hold;
         view.board?.holdPlayers(hold);
       },
+      session: () => view.services.session?.() ?? null,
+      lendPlayers: (lend) => { view.lent = lend ? view.playerWindow : null; },
+      publishRun: (run) => view.services.publishCutscene?.(view.cutsceneOwner, run),
     };
   }
 
@@ -484,8 +501,8 @@ export class BoardView extends ItemView {
     });
     board.cinemaButton({
       open: () => { if (this.studio?.state === 'gallery') this.studio.closeGallery(); else this.studio?.openGallery(); },
-      live: () => false,
-      toggleLive: () => { new Notice('Tabletop: players following your camera arrives with the live cutscene.'); },
+      live: () => this.studio?.live === true,
+      toggleLive: () => this.studio?.toggleLive(),
     });
     return board;
   }
@@ -953,6 +970,8 @@ export class BoardView extends ItemView {
    * not hold the map (so nothing done here reaches players), a banner that opens it in Atlas.
    */
   sessionChanged(): void {
+    // A cutscene run for players needs the session: when it stops hosting, the run ends.
+    if (this.services.session?.()?.hosting() !== true) this.studio?.endRun();
     const board = this.board;
     const path = this.path;
     if (!board || !path) return;

@@ -3852,6 +3852,194 @@ feature('cutscene preview', async ({ page }) => {
   check('preview: Escape in the editor leaves it, on the first map', await page.evaluate(() => window.boardTest.studio.host.mapPath() === window.boardTest.studio.first && window.boardTest.board.cinematicRole === 'none' && window.boardTest.board.cinematic === null));
 });
 
+// ── Cutscenes: running for players ────────────────────────────────────────────────────────────────────────────────────
+/** A cutscene on the first map: shot 1, two keyframe shots, and a last shot on the second map. */
+const docks = (first, second) => ({ id: 'docks', name: 'Docks', shots: [
+  { id: 'd0', at: 0, mapPath: first, eye: { x: 400, y: 700, z: 1200 }, target: { x: 400, y: 0, z: 600 }, keyframe: false, transition: 'fade' },
+  { id: 'd1', at: 800, mapPath: first, eye: { x: 800, y: 600, z: 1100 }, target: { x: 800, y: 0, z: 500 }, keyframe: true, transition: 'move' },
+  { id: 'd2', at: 1600, mapPath: first, eye: { x: 600, y: 500, z: 900 }, target: { x: 600, y: 0, z: 300 }, keyframe: true, transition: 'move' },
+  { id: 'd3', at: 2600, mapPath: second, eye: { x: 300, y: 450, z: 700 }, target: { x: 300, y: 0, z: 100 }, keyframe: false, transition: 'fade' },
+] });
+
+feature('cutscene run', async ({ page }) => {
+  const ids = await page.evaluate(() => ({ first: window.boardTest.studio.first, second: window.boardTest.studio.second }));
+  await page.evaluate(({ first, second, make }) => {
+    const { studio, setHosting, api } = window.boardTest;
+    setHosting(true);
+    studio.store.set(first, [new Function(`return (${make})`)()(first, second)]);
+    window.runLog = { changes: 0, cameras: 0 };
+    api.cutscene.onChange(() => { window.runLog.changes++; });
+    api.cutscene.onCamera(() => { window.runLog.cameras++; });
+    // The players' window, open on the GM's board.
+    const stage = document.createElement('div');
+    stage.style.cssText = 'position:fixed;right:0;top:0;width:360px;height:240px;z-index:1';
+    document.body.appendChild(stage);
+    window.boardTest.board.attachPlayer(stage);
+    window.seenByPlayers = () => {
+      const b = window.boardTest.board;
+      b.showFor('player');
+      const out = b.tokens.get('lurker').piece.object3d.visible;
+      b.showFor('gm');
+      return out;
+    };
+  }, { ...ids, make: docks.toString() });
+  const current = () => page.evaluate(() => window.boardTest.api.cutscene.current());
+  const near = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) < 1;
+  const idle = () => page.waitForFunction(() => window.boardTest.studio.studio.state === 'idle', null, { timeout: 12000 });
+  const onMap = (map) => page.waitForFunction((map) => window.boardTest.studio.host.mapPath() === map && window.boardTest.board.cinema.black === 0, map, { timeout: 12000 });
+  const before = await page.evaluate(() => JSON.stringify(window.boardTest.board.camera.pose));
+  const plain = await page.evaluate(() => window.seenByPlayers());
+  check('cutscene run: before Play a token under the fog is hidden from the players\' window', plain === false);
+
+  await page.locator('button[aria-label="Cutscenes"]').click();
+  check('cutscene run: a cutscene with shots has Play for players enabled', await page.locator('.tabletop-gallery__play').isEnabled());
+  await page.locator('.tabletop-gallery__play').click();
+  await page.waitForFunction(() => window.boardTest.api.cutscene.current() !== null, null, { timeout: 5000 });
+  const started = await current();
+  check('cutscene run: Play for players publishes step 0, seq 1, once', JSON.stringify(started.cutscene.step) === '{"shot":0,"seq":1}' && await page.evaluate(() => window.runLog.changes) === 1, JSON.stringify(started.cutscene.step));
+  check('cutscene run: it is a prepared run of 4 shots on the first key, with the settings\' bars and fade', started.cutscene.mode === 'prepared' && started.cutscene.shots.length === 4 && started.cutscene.key === 'k1' && started.cutscene.look.bars === 2.39 && started.cutscene.look.fadeMs === 600, JSON.stringify(started.cutscene.look));
+  check('cutscene run: the keys map back to the vault paths here, and none is in what players are sent', JSON.stringify(started.maps) === JSON.stringify({ k1: ids.first, k2: ids.second }) && !JSON.stringify(started.cutscene).includes('.atlasmap'), JSON.stringify(started.maps));
+  check('cutscene run: the board is in the running role with a driver, bars and the reveal, and the studio says running', await page.evaluate(() => { const b = window.boardTest.board; return b.cinematicRole === 'running' && b.cinematic !== null && b.cinema.aspect === 2.39 && window.boardTest.studio.studio.state === 'running'; }));
+  check('cutscene run: the players\' window was lent to the run', await page.evaluate(() => window.boardTest.studio.log.lent.join()) === 'true');
+  check('cutscene run: the control bar offers Previous, Next and End, on shot 1 of 4', await page.evaluate(() => [...document.querySelectorAll('.tabletop-run button')].map((b) => b.textContent).join()) === 'Previous,Next,End' && await page.locator('.tabletop-run__label').textContent() === 'Shot 1 of 4');
+  await wait(1800);
+  const shot0 = await page.evaluate(() => { const p = window.boardTest.board.view.position; return { x: p.x, y: p.y, z: p.z }; });
+  check('cutscene run: after the fade in the board draws shot 1', near(shot0, { x: 400, y: 700, z: 1200 }), JSON.stringify(shot0));
+  const players = await page.evaluate(() => ({ pose: window.boardTest.board.playerPose(), seen: window.seenByPlayers() }));
+  check('cutscene run: the players\' window\'s camera is the driver\'s', near(players.pose.eye, shot0), JSON.stringify(players.pose));
+  check('cutscene run: a fogged token is drawn in the players\' window (the reveal)', players.seen === true);
+
+  // Next runs through the keyframe shots to the last shot, which is on the second map.
+  await page.locator('.tabletop-run__next').click();
+  const next = await current();
+  check('cutscene run: Next steps to shot index 3 on key k2 (seq 2)', next.cutscene.step.shot === 3 && next.cutscene.step.seq === 2 && next.cutscene.key === 'k2', JSON.stringify(next.cutscene.step));
+  await onMap(ids.second);
+  await wait(300);
+  check('cutscene run: the GM board was switched to the second map', await page.evaluate(() => window.boardTest.studio.log.switches.join()) === ids.second);
+  await page.waitForFunction(() => { const r = document.querySelector('.tabletop-run__label'); return r && r.textContent === 'Shot 4 of 4'; });
+  await wait(1500);
+  const shot3 = await page.evaluate(() => { const p = window.boardTest.board.view.position; return { x: p.x, y: p.y, z: p.z }; });
+  check('cutscene run: it rests on shot 4', near(shot3, { x: 300, y: 450, z: 700 }), JSON.stringify(shot3));
+
+  // Previous: a cut back to shot 1 on the first map.
+  await page.locator('.tabletop-run__previous').click();
+  const previous = await current();
+  check('cutscene run: Previous steps back to shot index 0 on key k1 (seq 3)', previous.cutscene.step.shot === 0 && previous.cutscene.step.seq === 3 && previous.cutscene.key === 'k1', JSON.stringify(previous.cutscene.step));
+  await onMap(ids.first);
+  await wait(300);
+
+  // End: players are told at once, the GM board fades out and is back on its map and its camera.
+  await page.locator('.tabletop-run__next').click();
+  await onMap(ids.second);
+  await wait(300);
+  const changesBefore = await page.evaluate(() => window.runLog.changes);
+  await page.locator('.tabletop-run__end').click();
+  check('cutscene run: End publishes null at once', await current() === null && await page.evaluate(() => window.runLog.changes) === changesBefore + 1);
+  await idle();
+  await wait(300);
+  const after = await page.evaluate(() => ({ pose: JSON.stringify(window.boardTest.board.camera.pose), map: window.boardTest.studio.host.mapPath(), role: window.boardTest.board.cinematicRole, driver: window.boardTest.board.cinematic, aspect: window.boardTest.board.cinema.aspect, black: window.boardTest.board.cinema.black, lent: window.boardTest.studio.log.lent.join(), seen: window.seenByPlayers(), playerPose: window.boardTest.board.playerPose(), own: window.boardTest.board.cameraPose() }));
+  check('cutscene run: after End the board is back on the first map', after.map === ids.first, after.map);
+  check('cutscene run: after End the camera pose is exactly what it was before Play', after.pose === before, `${before} ${after.pose}`);
+  check('cutscene run: after End the role, driver, bars and fade are gone and the window is given back', after.role === 'none' && after.driver === null && after.aspect === null && after.black === 0 && after.lent === 'true,false', JSON.stringify(after));
+  check('cutscene run: after End the players\' window follows the GM\'s camera again and the fogged token is hidden there again', near(after.playerPose.eye, after.own.eye) && after.seen === false, JSON.stringify(after.playerPose));
+
+  // Next on the last shot is End.
+  await page.evaluate(() => window.boardTest.studio.studio.play('docks'));
+  await wait(300);
+  await page.locator('.tabletop-run__next').click();
+  await onMap(ids.second);
+  await wait(300);
+  await page.locator('.tabletop-run__next').click();
+  check('cutscene run: Next on the last shot ends the run', await current() === null);
+  await idle();
+  check('cutscene run: and the board is back on the first map', await page.evaluate(() => window.boardTest.studio.host.mapPath()) === ids.first);
+});
+
+feature('cutscene run refused', async ({ page }) => {
+  const ids = await page.evaluate(() => ({ first: window.boardTest.studio.first, second: window.boardTest.studio.second }));
+  await page.evaluate(({ first, second, make }) => {
+    const { studio } = window.boardTest;
+    const docksFor = new Function(`return (${make})`)();
+    studio.store.set(first, [docksFor(first, second), { id: 'far', name: 'Far', shots: [{ ...docksFor(first, second).shots[0], id: 'f0', mapPath: 'maps/other.atlasmap' }] }, { id: 'none', name: 'Empty', shots: [] }]);
+  }, { ...ids, make: docks.toString() });
+  const play = (id) => page.evaluate((id) => window.boardTest.studio.studio.play(id), id);
+  const lastNotice = () => page.evaluate(() => window.boardTest.studio.log.notices.at(-1));
+  const none = async () => (await page.evaluate(() => window.boardTest.api.cutscene.current())) === null && await page.evaluate(() => window.boardTest.studio.studio.state) !== 'running';
+  check('cutscene run: Play for a session that is not hosting is refused', await play('docks') === false && /start a session in Connect first/.test(await lastNotice()) && await none(), await lastNotice());
+  await page.evaluate(() => { window.boardTest.setHosting(true); window.boardTest.studio.session.cutscenes = undefined; });
+  check('cutscene run: Play for a Connect without cutscenes is refused', await play('docks') === false && /cannot show cutscenes/.test(await lastNotice()) && await none(), await lastNotice());
+  await page.evaluate(() => { window.boardTest.studio.session.cutscenes = true; });
+  check('cutscene run: Play for a shot on a map that is not a tab is refused, naming it', await play('far') === false && /open these maps as tabs in Atlas first: other/.test(await lastNotice()) && await none(), await lastNotice());
+  check('cutscene run: Play for a cutscene with no shots says to add a shot', await play('none') === false && /add a shot first/.test(await lastNotice()) && await none(), await lastNotice());
+  // The gallery shows Play off with the reason, and the editor's Preview refuses with the same notice.
+  await page.locator('button[aria-label="Cutscenes"]').click();
+  const row = page.locator('.tabletop-gallery__row[data-cutscene-id="none"]');
+  check('cutscene run: Play for players is disabled on the empty cutscene, with the reason', await row.locator('.tabletop-gallery__play').isDisabled() && /Add a shot first/.test(await row.locator('.tabletop-gallery__play').getAttribute('title')));
+  await page.evaluate(() => { window.boardTest.studio.log.notices.length = 0; window.boardTest.studio.studio.edit('none'); window.boardTest.studio.studio.preview(0); });
+  check('cutscene run: Preview on the empty cutscene gives the same notice', /add a shot first/.test(await lastNotice()) && await none());
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => window.boardTest.studio.studio.state === 'idle', null, { timeout: 8000 });
+});
+
+feature('cutscene run live', async ({ page }) => {
+  const ids = await page.evaluate(() => ({ first: window.boardTest.studio.first, second: window.boardTest.studio.second }));
+  await page.evaluate(() => {
+    window.boardTest.setHosting(true);
+    window.runLog = { changes: 0, cameras: 0 };
+    window.boardTest.api.cutscene.onChange(() => { window.runLog.changes++; });
+    window.boardTest.api.cutscene.onCamera(() => { window.runLog.cameras++; });
+    const stage = document.createElement('div');
+    stage.style.cssText = 'position:fixed;right:0;top:0;width:360px;height:240px;z-index:1';
+    document.body.appendChild(stage);
+    window.boardTest.board.attachPlayer(stage);
+  });
+  const toggle = page.locator('button[aria-label="Players follow my camera"]');
+  check('cutscene live: the toggle shows while a session hosts, not pressed', await toggle.isVisible() && await toggle.getAttribute('aria-pressed') === 'false');
+  await toggle.click();
+  const live = await page.evaluate(() => window.boardTest.api.cutscene.current());
+  check('cutscene live: it publishes a live run on the GM board\'s map, with no shots', live.cutscene.mode === 'live' && live.cutscene.shots.length === 0 && live.cutscene.key === 'k1' && live.maps.k1 === ids.first && live.cutscene.step.shot === 0, JSON.stringify(live));
+  check('cutscene live: the toggle is pressed, the role is live and the bars are on', await toggle.getAttribute('aria-pressed') === 'true' && await page.evaluate(() => window.boardTest.board.cinematicRole === 'live' && window.boardTest.board.cinema.aspect === 2.39 && window.boardTest.board.cinematic === null));
+  const cameras = await page.evaluate(() => window.runLog.cameras);
+  await page.mouse.move(500, 300);
+  await page.mouse.wheel(0, -300);
+  await wait(500);
+  const moved = await page.evaluate(() => ({ cameras: window.runLog.cameras, camera: window.boardTest.api.cutscene.camera(), own: window.boardTest.board.cameraPose(), players: window.boardTest.board.playerPose() }));
+  check('cutscene live: the GM zooming fires onCamera', moved.cameras > cameras, JSON.stringify(moved.cameras));
+  const same = (a, b) => Math.hypot(a.eye.x - b.eye.x, a.eye.y - b.eye.y, a.eye.z - b.eye.z) < 1e-6 && Math.hypot(a.target.x - b.target.x, a.target.y - b.target.y, a.target.z - b.target.z) < 1e-6;
+  check('cutscene live: camera() is the GM board\'s pose', moved.camera !== null && same(moved.camera, moved.own), JSON.stringify(moved.camera));
+  check('cutscene live: the players\' window shows the same pose', moved.players !== null && same(moved.players, moved.own));
+  // A scene switch republishes with a new key.
+  await page.evaluate(() => window.boardTest.studio.host.switchMap(window.boardTest.studio.second));
+  await wait(300);
+  const switched = await page.evaluate(() => window.boardTest.api.cutscene.current());
+  check('cutscene live: a scene switch republishes with the new scene\'s key', switched.cutscene.key === 'k2' && switched.maps.k2 === ids.second && switched.cutscene.step.seq === 2, JSON.stringify(switched));
+  await toggle.click();
+  check('cutscene live: toggling off ends it', await page.evaluate(() => window.boardTest.api.cutscene.current()) === null && await toggle.getAttribute('aria-pressed') === 'false' && await page.evaluate(() => window.boardTest.board.cinematicRole === 'none' && window.boardTest.board.cinema.aspect === null && window.boardTest.studio.studio.state === 'idle'));
+  check('cutscene live: camera() is null once it is over', await page.evaluate(() => window.boardTest.api.cutscene.camera()) === null);
+});
+
+feature('cutscene run closing', async ({ page }) => {
+  const ids = await page.evaluate(() => ({ first: window.boardTest.studio.first, second: window.boardTest.studio.second }));
+  await page.evaluate(({ first, second, make }) => {
+    const { studio, setHosting } = window.boardTest;
+    setHosting(true);
+    studio.store.set(first, [new Function(`return (${make})`)()(first, second)]);
+    window.runLog = { changes: 0 };
+    window.boardTest.api.cutscene.onChange(() => { window.runLog.changes++; });
+  }, { ...ids, make: docks.toString() });
+  await page.evaluate(() => window.boardTest.studio.studio.play('docks'));
+  await page.waitForFunction(() => window.boardTest.api.cutscene.current() !== null);
+  await wait(300);
+  await page.evaluate(() => window.boardTest.studio.studio.dispose());
+  check('cutscene run: closing the board clears api.cutscene and tells the listeners', await page.evaluate(() => window.boardTest.api.cutscene.current() === null && window.runLog.changes === 2));
+  check('cutscene run: and gives the board back', await page.evaluate(() => window.boardTest.board.cinematicRole === 'none' && window.boardTest.board.cinematic === null));
+  // The session going ends a run, with the fade.
+  await page.evaluate(() => window.boardTest.studio.studio.play('docks'));
+  await page.waitForFunction(() => window.boardTest.api.cutscene.current() !== null);
+  await page.evaluate(() => window.boardTest.studio.studio.endRun());
+  check('cutscene run: ending it (the session was released) publishes null', await page.evaluate(() => window.boardTest.api.cutscene.current()) === null);
+});
+
 // ── Cutscenes: authoring while the vault changes, and a map that cannot be shown ─────────────────────────────────────
 feature('cutscene authoring rewrites', async ({ page }) => {
   const result = await page.evaluate(async () => {

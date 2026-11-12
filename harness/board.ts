@@ -21,6 +21,8 @@ import { readMap, type BoardMap, type BoardToken } from '../src/board/mapModel';
 import { CutsceneStudio, type StudioHost } from '../src/cutscene/studio';
 import { DEFAULT_CINEMATIC_SETTINGS, readCinematicSettings, type CinematicSettings } from '../src/cutscene/cinematicSettings';
 import type { Cutscene } from '../src/cutscene/cutsceneData';
+import { CutsceneChannel } from '../src/cutscene/cutsceneRun';
+import type { BoardSession } from '../src/connectContract';
 import { insideFog } from '../src/board/playerView';
 import { AtlasMenu } from '../src/board/atlasMenu';
 import { tokenMenuEntries } from '../src/board/tokenMenu';
@@ -253,6 +255,8 @@ async function main(): Promise<void> {
   const controlled = new Set<string>();
   let wallThickness = 0.12;
   let hosting = false;
+  /** Tells the cutscene source the GM's camera moved (set once the studio exists). */
+  let cutsceneCameraMoved: () => void = () => {};
   const wallPaint = new Map<string, string>();
   const doorProps = new Map<string, string>();
   const doorFlips = new Map<string, DoorFlip>();
@@ -470,6 +474,7 @@ async function main(): Promise<void> {
     lightHeight: (light) => lightHeights.get(light.id) ?? 1,
     lightMenu: (id) => { record.lightMenus.push(id); },
     hosting: () => hosting,
+    cameraMoved: () => cutsceneCameraMoved(),
     sounds: () => (sounds.gone ? null : ((sounds.other ?? sounds) as unknown as SoundEngine)),
     playerAction: (action) => { record.toolActions.push(JSON.parse(JSON.stringify(action))); },
   };
@@ -687,6 +692,8 @@ async function main(): Promise<void> {
     names: [] as string[],
     settings: { ...DEFAULT_CINEMATIC_SETTINGS } as CinematicSettings,
     switches: [] as string[],
+    /** Each time the players' window was lent to a run (true) or given back (false). */
+    lent: [] as boolean[],
   };
   let cutsceneMap = map.path;
   const studioHost: StudioHost = {
@@ -715,11 +722,20 @@ async function main(): Promise<void> {
     askName: (initial) => { cutsceneLog.asked.push(initial); return Promise.resolve(cutsceneLog.names.shift() ?? null); },
     notice: (text) => { cutsceneLog.notices.push(text); },
     holdPlayers: (hold) => { cutsceneLog.holds.push(hold); board.holdPlayers(hold); },
+    session: () => fakeSession as unknown as BoardSession,
+    lendPlayers: (lend) => { cutsceneLog.lent.push(lend); },
+    publishRun: (run) => { channel.publish(owner, run); },
   };
+  // Connect's session as the run sees it: hosting follows `setHosting`; a test can take `cutscenes` away.
+  const fakeSession: { hosting(): boolean; cutscenes: true | undefined } = { hosting: () => hosting, cutscenes: true };
+  // `api.cutscene`, as main.ts makes it: one channel, with this studio as the owner of its run.
+  const channel = new CutsceneChannel();
+  const owner = { end: () => studio.endRun(), dispose: () => studio.endRunNow(), liveCamera: () => studio.liveCamera() };
+  cutsceneCameraMoved = () => channel.cameraMoved(owner);
   const studio = new CutsceneStudio(container, studioHost);
-  board.cinemaButton({ open: () => (studio.state === 'gallery' ? studio.closeGallery() : studio.openGallery()), live: () => false, toggleLive: () => {} });
-  const cutsceneHarness = { studio, host: studioHost, store: cutsceneStore, log: cutsceneLog, first: map.path, second: crypt.path };
-  Object.assign(window, { boardTest: { studio: cutsceneHarness, Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, spawned, palette, paletteCalls, ready: true } });
+  board.cinemaButton({ open: () => (studio.state === 'gallery' ? studio.closeGallery() : studio.openGallery()), live: () => studio.live, toggleLive: () => studio.toggleLive() });
+  const cutsceneHarness = { studio, host: studioHost, store: cutsceneStore, log: cutsceneLog, first: map.path, second: crypt.path, session: fakeSession, channel, owner };
+  Object.assign(window, { boardTest: { studio: cutsceneHarness, api: { cutscene: channel }, Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, spawned, palette, paletteCalls, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });
