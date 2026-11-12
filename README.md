@@ -123,6 +123,31 @@ cell numbers are worked out for the cell under the pointer, never listed.
 
 - **Atlas's toolbar tools on the board:** the toolbar has Atlas's **Random tables** (L), **Asset manager** (Shift+A; A moves the camera) and **Command palette** (Space), in the order you set in Atlas's toolbar (a tool you hid there is hidden here). They are Atlas's own windows, on the same data: the random tables roll your table notes and keep the same history as Atlas; the asset manager spawns tokens and encounters onto the board at the camera's centre (with Atlas's hit point rolls and formations), opens scenes on the board, and sends you to Atlas for the token creator, the encounter builder, new scenes and deleting tokens; the palette runs the board's tools and opens Atlas's own palette for Atlas's settings. They need Atlas VTT 0.12 with the map open in Atlas for its library. See `docs/atlas-parity.md` for how they follow Atlas.
 
+## Sounds
+
+The board has sounds for what it animates, played by each board for what it draws (nothing about sound goes over the
+session, so a player hears the GM move a mini because their own board shows the mini sliding). They follow the camera:
+quieter the farther from it, panned a little left or right by where they are on the screen. A board that is not on screen
+(its tab behind another, or a hidden window) plays nothing, and nothing is queued for when it comes back. The laser
+pointer, discovering the map through line of sight and a condition being removed are silent. The pop-out player window
+plays no sound of its own: the GM's machine plays it once, placed by the GM's camera, and blows the turn horn at full
+volume while that window is open.
+
+- **Settings** (per device): under **Settings > Tabletop for Atlas VTT > Sound**, **Sound volume** and **Mute board
+  sounds**, and one switch per group. The web player has no settings tab: its board has a speaker button in a corner with
+  a volume slider and a **Mute** box, kept in that browser.
+- **Groups:** *Dice* (a clack for each hit, a soft rolling layer, and a dull thunk for a die caught on an edge), *Minis*
+  (picked up and put down, each mini of a group on its own a few tens of milliseconds apart), *Spells* (an impact for each
+  damage type when a spell is cast, and a quiet loop for each damage type while a lasting spell is near the camera),
+  *Conditions* (a sound for each of the 5e conditions, matched by English name, with Portuguese and Spanish aliases, and a
+  neutral tick for any other), *Turns* (the horn when a turn begins: full volume for the players who control that token and
+  for the GM on a monster's turn, quiet for everyone else), *Fog* (a chime when the GM places fog), *Doors* (doors
+  opening, shutting and rattling when locked; a wall material swapped crumbles) and *Water* (a loop for each way painted
+  water moves, heard only when the camera is near it).
+- **Credits:** every sound is either from [Kenney](https://kenney.nl)'s CC0 packs or made for this project; nothing else.
+  `src/assets/sounds/SOURCES.md` lists each file, where it came from, its licence and what was changed, and how to rebuild
+  them.
+
 ## Build and test
 
 ```
