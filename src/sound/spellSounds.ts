@@ -7,8 +7,12 @@ export function spellImpactSound(effect: DamageType | null | undefined): SoundId
   return `spell.impact.${effect ?? 'plain'}` as SoundId;
 }
 
-/** The loop sound for a lasting spell of damage `effect`. */
-export function spellLoopSound(effect: DamageType | null | undefined): SoundId {
+/** The damage types of weapon blows, whose lasting spells stand silent: they have no loop sound. */
+const SILENT_WHILE_STANDING: ReadonlySet<string> = new Set(['bludgeoning', 'piercing', 'slashing']);
+
+/** The loop sound for a lasting spell of damage `effect`, or null for a type that has none (its spell is silent while it stands). */
+export function spellLoopSound(effect: DamageType | null | undefined): SoundId | null {
+  if (effect && SILENT_WHILE_STANDING.has(effect)) return null;
   return `spell.loop.${effect ?? 'plain'}` as SoundId;
 }
 
@@ -24,7 +28,7 @@ export function castsToAnnounce(seen: ReadonlySet<string>, firstLoad: boolean, c
 /**
  * How loud each damage type's loop is: the loudest nearness (to the camera's eye) among that type's lasting spells,
  * `reach` the distance past which it is silent. A type with a lasting spell gets an entry (0 when out of reach); a type
- * with none gets none. A spell without a damage type has the plain loop.
+ * with none gets none. A spell without a damage type has the plain loop; a spell of a type with no loop adds nothing.
  */
 export function spellLoopGains(
   spells: ReadonlyArray<{ id: string; effect: DamageType | null; at: { x: number; y: number; z: number }; lasting: boolean }>,
@@ -34,8 +38,9 @@ export function spellLoopGains(
   const gains = new Map<SoundId, number>();
   for (const spell of spells) {
     if (!spell.lasting) continue;
-    const distance = Math.hypot(spell.at.x - listener.eye.x, spell.at.y - listener.eye.y, spell.at.z - listener.eye.z);
     const id = spellLoopSound(spell.effect);
+    if (!id) continue;
+    const distance = Math.hypot(spell.at.x - listener.eye.x, spell.at.y - listener.eye.y, spell.at.z - listener.eye.z);
     gains.set(id, Math.max(gains.get(id) ?? 0, nearness(distance, reach)));
   }
   return gains;

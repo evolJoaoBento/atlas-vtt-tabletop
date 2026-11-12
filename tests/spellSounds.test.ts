@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { castsToAnnounce, spellImpactSound, spellLoopGains } from '../src/sound/spellSounds';
+import { castsToAnnounce, spellImpactSound, spellLoopGains, spellLoopSound } from '../src/sound/spellSounds';
 
 const listener = { eye: { x: 0, y: 100, z: 0 }, target: { x: 0, y: 0, z: 0 } };
 const reach = 300;
@@ -37,4 +37,22 @@ test('a cold spell beyond reach gives gain 0', () => {
 
 test('a spell that is not lasting gives no entry', () => {
   assert.equal(spellLoopGains([{ id: 'd', effect: 'fire', at: { x: 0, y: 0, z: 0 }, lasting: false }], listener, reach).size, 0);
+});
+
+test('a lasting bludgeoning, piercing or slashing spell has no loop: it adds no entry and breaks nothing', () => {
+  for (const effect of ['bludgeoning', 'piercing', 'slashing'] as const) {
+    assert.equal(spellLoopSound(effect), null, effect);
+    assert.equal(spellLoopGains([{ id: effect, effect, at: { x: 0, y: 0, z: 0 }, lasting: true }], listener, reach).size, 0, effect);
+  }
+  const mixed = spellLoopGains([
+    { id: 'a', effect: 'slashing', at: { x: 0, y: 0, z: 0 }, lasting: true },
+    { id: 'b', effect: 'fire', at: { x: 0, y: 0, z: 20 }, lasting: true },
+    { id: 'c', effect: 'piercing', at: { x: 0, y: 0, z: 10 }, lasting: true },
+  ], listener, reach);
+  assert.deepEqual([...mixed.keys()], ['spell.loop.fire']);
+});
+
+test('every other damage type, and no type, has a loop sound', () => {
+  for (const effect of ['acid', 'cold', 'explosion', 'fire', 'force', 'lightning', 'necrotic', 'poison', 'psychic', 'radiant', 'thunder'] as const) assert.equal(spellLoopSound(effect), `spell.loop.${effect}`);
+  assert.equal(spellLoopSound(null), 'spell.loop.plain');
 });

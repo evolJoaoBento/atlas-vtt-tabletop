@@ -137,15 +137,18 @@ volume while that window is open.
 - **Settings** (per device): under **Settings > Tabletop for Atlas VTT > Sound**, **Sound volume** and **Mute board
   sounds**, and one switch per group. The web player has no settings tab: its board has a speaker button in a corner with
   a volume slider and a **Mute** box, kept in that browser.
-- **Groups:** *Dice* (a clack for each hit, a soft rolling layer, and a dull thunk for a die caught on an edge), *Minis*
+- **Groups:** *Dice* (a clack for each hit, and a dull thunk for a die caught on an edge; the clacks carry the roll, with no
+  rolling loop), *Minis*
   (picked up and put down, each mini of a group on its own a few tens of milliseconds apart), *Spells* (an impact for each
-  damage type when a spell is cast, and a quiet loop for each damage type while a lasting spell is near the camera),
+  damage type when a spell is cast, and a quiet loop for each damage type while a lasting spell is near the camera; a
+  lasting bludgeoning, piercing or slashing spell has no loop and stands silent),
   *Conditions* (a sound for each of the 5e conditions, matched by English name, with Portuguese and Spanish aliases, and a
   neutral tick for any other), *Turns* (the horn when a turn begins: full volume for the players who control that token and
   for the GM on a monster's turn, quiet for everyone else), *Fog* (a chime when the GM places fog), *Doors* (doors
   opening, shutting and rattling when locked; a wall material swapped crumbles) and *Water* (a loop for each way painted
   water moves, heard only when the camera is near it).
-- **Credits:** every sound is either from [Kenney](https://kenney.nl)'s CC0 packs or made for this project; nothing else.
+- **Credits:** every sound is from [Kenney](https://kenney.nl)'s CC0 packs, from the CC0 packs credited under Credits below, from
+  Leonardo Calvo's CC BY 4.0 spell pack (credited there too), or made for this project; nothing else.
   `src/assets/sounds/SOURCES.md` lists each file, where it came from, its licence and what was changed, and how to rebuild
   them.
 
@@ -218,3 +221,16 @@ The dice's shapes, faces and pack format come from [Interactive Dice for Atlas V
 
 The pin and condition icons, and the End combat flag, are from [game-icons.net](https://game-icons.net) (CC BY 3.0), by Lorc, Delapouite and contributors.
 They are the same icons Atlas VTT uses, and pins show the same colours as in Atlas.
+
+Board sounds:
+
+- Magic Spell SFX by Leonardo Calvo ([The Sound Rack](https://thesoundrack.itch.io/freemagicspellsfx)), licensed
+  [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The spell impacts and loops and many condition sounds are cut,
+  faded, normalised and re-encoded from this pack.
+- [Fantasy Ambient Sound Effects Pack](https://kmontesdev.itch.io/fantasy-ambient-sound-effects-pack-cc0) by kmontesdev (CC0), with
+  thanks: the weapon hits, the cave and desert ambience under some spells, and a few condition hits.
+- [Kenney](https://kenney.nl)'s Impact Sounds, RPG Audio and Interface Sounds (CC0).
+- [2 dice roll (29 throws)](https://opengameart.org/content/2-dice-roll-29-throws) by RPG and
+  [80 CC0 RPG SFX](https://opengameart.org/content/80-cc0-rpg-sfx) by rubberduck (CC0), on OpenGameArt: the dice clacks and the
+  wall crumble.
+- The rest is made for this project. `src/assets/sounds/SOURCES.md` lists every file with its source, licence and processing.

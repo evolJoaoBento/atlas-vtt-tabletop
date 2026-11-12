@@ -41,5 +41,5 @@ test('per-sound levels are read as numbers from 0 to 2, and a bad or neutral one
   assert.deepEqual(readSoundSettings({}).levels, {});
   assert.deepEqual(readSoundSettings({ levels: 'many' }).levels, {});
   assert.equal(soundLevel(read, 'fog.chime'), 0.5);
-  assert.equal(soundLevel(read, 'dice.roll'), 1);
+  assert.equal(soundLevel(read, 'dice.caught'), 1);
 });

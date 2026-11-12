@@ -14,29 +14,20 @@ export function hitSound(dieType: string, speed: number): { gain: number; rate: 
 /** Smaller dice ring higher. */
 const RATES: Record<string, number> = { d4: 1.15, d6: 1.05, d8: 1.08, d10: 1.0, d12: 0.96, d20: 0.92, d100: 1.0 };
 
-/** How loud the rolling layer is when the fastest die moves at `fastest`: silent below 0.5, 0.35 from 6, a ramp between. */
-export function rollGain(fastest: number): number {
-  if (fastest < 0.5) return 0;
-  if (fastest >= 6) return 0.35;
-  return 0.35 * ((fastest - 0.5) / 5.5);
-}
-
-/** What a dice table reports, which wiring turns into sounds. */
+/** What a dice table reports, which wiring turns into sounds. (The table also reports the rolling speed; no sound follows it.) */
 export interface DiceSoundSource {
   onHit: (dieType: string, speed: number, at: Point) => void;
-  onRolling: (fastest: number) => void;
   onCaught: (at: Point) => void;
 }
 
-/** Where the sounds go: a board's `sound` and `soundLoop`. */
+/** Where the sounds go: a board's `sound`. */
 export interface DiceSoundSink {
   sound(id: SoundId, options?: PlayOptions): void;
-  soundLoop(key: string, id: SoundId | null, gain: number): void;
 }
 
 /**
- * Makes a dice table's hits, rolling and caught dice heard on a board. At most six clacks in any 50 ms get through
- * (`now` is the clock for that, in ms), so a big handful of dice does not clip.
+ * Makes a dice table's hits and caught dice heard on a board; the clacks alone carry the roll. At most six clacks in
+ * any 50 ms get through (`now` is the clock for that, in ms), so a big handful of dice does not clip.
  */
 export function wireDiceSounds(table: DiceSoundSource, sink: DiceSoundSink, now: () => number = () => performance.now()): void {
   const thinner = new Thinner(6, 50);
@@ -44,10 +35,6 @@ export function wireDiceSounds(table: DiceSoundSource, sink: DiceSoundSink, now:
     const hit = hitSound(dieType, speed);
     if (!hit || !thinner.take(now())) return;
     sink.sound('dice.hit', { at, gain: hit.gain, rate: hit.rate });
-  };
-  table.onRolling = (fastest) => {
-    const gain = rollGain(fastest);
-    sink.soundLoop('dice', gain > 0 ? 'dice.roll' : null, gain);
   };
   table.onCaught = (at) => sink.sound('dice.caught', { at });
 }
