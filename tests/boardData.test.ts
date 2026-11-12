@@ -238,3 +238,40 @@ test('variants read back whole, the broken ones left out; a look gives scale, an
   assert.deepEqual(lookOf({ scale: 1.5, solid: false, lift: 0 }), { scale: 1.5 });
   assert.deepEqual(lookOf(undefined), { scale: 1 });
 });
+
+const cutPose = { eye: { x: 0, y: 5, z: 5 }, target: { x: 0, y: 0, z: 0 } };
+const cutShot = (id: string, at: number, mapPath: string) => ({ id, at, mapPath, ...cutPose, keyframe: false, transition: 'fade' as const });
+const cutscene = (id: string, shots: ReturnType<typeof cutShot>[]) => ({ id, name: id, shots });
+
+test('cutscenes are put by id, replaced and removed', () => {
+  const data = new BoardData();
+  assert.deepEqual(data.cutscenesOf('maps/a.atlasmap'), []);
+  data.putCutscene('maps/a.atlasmap', cutscene('c1', [cutShot('s', 0, 'maps/a.atlasmap')]));
+  assert.equal(data.cutscenesOf('maps/a.atlasmap').length, 1);
+  data.putCutscene('maps/a.atlasmap', cutscene('c1', [cutShot('s', 0, 'maps/a.atlasmap'), cutShot('t', 1000, 'maps/a.atlasmap')]));
+  data.putCutscene('maps/a.atlasmap', cutscene('c2', []));
+  assert.deepEqual(data.cutscenesOf('maps/a.atlasmap').map((c) => [c.id, c.shots.length]), [['c1', 2], ['c2', 0]]);
+  data.removeCutscene('maps/a.atlasmap', 'c1');
+  data.removeCutscene('maps/a.atlasmap', 'c2');
+  assert.deepEqual(data.toJSON(), {});
+});
+
+test('cutscene shots follow a map rename and a map deletion', () => {
+  const make = () => new BoardData({ 'maps/a.atlasmap': { cutscenes: [cutscene('c', [cutShot('s0', 0, 'maps/a.atlasmap'), cutShot('s1', 1000, 'maps/b.atlasmap'), cutShot('s2', 2000, 'maps/a.atlasmap')])] } });
+  const renamed = make();
+  renamed.rename('maps/b.atlasmap', 'maps/c.atlasmap');
+  assert.deepEqual(renamed.cutscenesOf('maps/a.atlasmap')[0].shots.map((s) => s.mapPath), ['maps/a.atlasmap', 'maps/c.atlasmap', 'maps/a.atlasmap']);
+  const gone = make();
+  gone.deleted('maps/b.atlasmap');
+  assert.deepEqual(gone.cutscenesOf('maps/a.atlasmap')[0].shots.map((s) => s.id), ['s0', 's2']);
+  gone.deleted('maps/a.atlasmap');
+  assert.deepEqual(gone.toJSON(), {});
+});
+
+test('readBoardData round-trips cutscenes', () => {
+  const data = new BoardData();
+  data.putCutscene('m', cutscene('c', [cutShot('s0', 0, 'm'), cutShot('s1', 1000, 'm')]));
+  const read = readBoardData(JSON.parse(JSON.stringify(data.toJSON())));
+  assert.deepEqual(read, data.toJSON());
+  assert.equal(read.m?.cutscenes?.[0].shots.length, 2);
+});

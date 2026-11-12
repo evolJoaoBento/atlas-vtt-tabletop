@@ -11,6 +11,7 @@ import { readSavedTable, type SavedArTable } from '../arTable';
 import { readWaterMotion, type SavedWaterMask, type WaterMotion } from './water';
 import { NO_PLACEMENT, readPlacement, type Placement } from './layerPlacement';
 import { mirroredDoor, NO_FLIP, rotatedDoor, type DoorFlip } from './walls';
+import { dropShotMaps, readCutscenes, renameShotMaps, type Cutscene } from '../cutscene/cutsceneData';
 
 export type TokenStyle = 'disc' | 'standee';
 
@@ -65,6 +66,8 @@ export interface MapData {
   water?: { mask: SavedWaterMask; motion?: WaterMotion };
   /** Where the players' printed AR marker sheets lie on this map (`arTable.ts`). */
   arTable?: SavedArTable;
+  /** Cinematic cutscenes made in this map (their shots may look at other maps). */
+  cutscenes?: Cutscene[];
 }
 
 /** A map stacked on another: the base map's path, and how many grid squares above it this one stands. */
@@ -154,6 +157,7 @@ function tidy(map: MapData): MapData | null {
   if (map.hidden === true) out.hidden = true;
   if (map.water) out.water = map.water;
   if (map.arTable) out.arTable = map.arTable;
+  if (map.cutscenes && map.cutscenes.length > 0) out.cutscenes = map.cutscenes;
   return Object.keys(out).length > 0 ? out : null;
 }
 
@@ -229,8 +233,10 @@ export function readBoardData(raw: unknown): BoardDataJSON {
     const wallThickness = typeof value.wallThickness === 'number' && Number.isFinite(value.wallThickness) && value.wallThickness > 0 ? value.wallThickness : undefined;
     const layer = readLayer(value.layer);
     const arTable = readSavedTable(value.arTable);
+    const cutscenes = readCutscenes(value.cutscenes);
     const kept = tidy({
       ...(arTable && { arTable }),
+      cutscenes,
       styles, props, ...(layer && { layer }), ...(value.hidden === true && { hidden: true as const }), ...(readWater(value.water) && { water: readWater(value.water)! }), ...(fogHeight !== undefined && { fogHeight }),
       wallMaterials: strings(value.wallMaterials), doorProps: strings(value.doorProps), lightHeights: heights(value.lightHeights),
       wallHeights: heights(value.wallHeights), wallWidths: widths(value.wallWidths), windows: windows(value.windows), doorFlips: flips(value.doorFlips),
@@ -476,6 +482,25 @@ export class BoardData {
     this.put(mapPath, map);
   }
 
+  /** The cutscenes made in this map. */
+  cutscenesOf(mapPath: string): readonly Cutscene[] {
+    return this.data[mapPath]?.cutscenes ?? [];
+  }
+
+  /** Keeps a cutscene in this map: replaces the one with its id, or adds it at the end. */
+  putCutscene(mapPath: string, cutscene: Cutscene): void {
+    const map = this.data[mapPath] ?? {};
+    const all = map.cutscenes ?? [];
+    const cutscenes = all.some((c) => c.id === cutscene.id) ? all.map((c) => (c.id === cutscene.id ? cutscene : c)) : [...all, cutscene];
+    this.put(mapPath, { ...map, cutscenes });
+  }
+
+  removeCutscene(mapPath: string, id: string): void {
+    const map = this.data[mapPath];
+    if (!map?.cutscenes?.some((c) => c.id === id)) return;
+    this.put(mapPath, { ...map, cutscenes: map.cutscenes.filter((c) => c.id !== id) });
+  }
+
   /** The colour the board's daylight is tinted, '#rrggbb'; null when it is not tinted. */
   tint(mapPath: string): string | null {
     return this.data[mapPath]?.tint ?? null;
@@ -684,7 +709,9 @@ export class BoardData {
       const doorProps = follow(map.doorProps);
       const base = map.layer ? moved(map.layer.base) : null;
       if (base) touched = true;
-      next[to] = { ...map, ...(props ? { props } : {}), ...(wallMaterials ? { wallMaterials } : {}), ...(doorProps ? { doorProps } : {}), ...(map.layer && base ? { layer: { ...map.layer, base } } : {}) };
+      const cutscenes = map.cutscenes?.map((c) => renameShotMaps(c, moved));
+      if (cutscenes?.some((c, i) => c !== map.cutscenes![i])) touched = true;
+      next[to] = { ...map, ...(cutscenes ? { cutscenes } : {}), ...(props ? { props } : {}), ...(wallMaterials ? { wallMaterials } : {}), ...(doorProps ? { doorProps } : {}), ...(map.layer && base ? { layer: { ...map.layer, base } } : {}) };
     }
     if (!touched) return;
     this.data = next;
@@ -710,7 +737,9 @@ export class BoardData {
       const orphan = map.layer !== undefined && under(map.layer.base);
       if (orphan) touched = true;
       const { layer: _layer, ...bare } = map;
-      const kept = tidy({ ...(orphan ? bare : map), props, wallMaterials: keep(map.wallMaterials), doorProps: keep(map.doorProps) });
+      const cutscenes = map.cutscenes?.map((c) => dropShotMaps(c, under));
+      if (cutscenes?.some((c, i) => c !== map.cutscenes![i])) touched = true;
+      const kept = tidy({ ...(orphan ? bare : map), props, wallMaterials: keep(map.wallMaterials), doorProps: keep(map.doorProps), cutscenes });
       if (kept) next[mapPath] = kept;
     }
     if (!touched) return;

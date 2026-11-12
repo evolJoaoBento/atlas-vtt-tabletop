@@ -35,6 +35,7 @@ import { DEFAULT_PACK, defaultPackFiles, releaseDefaultPackSheets } from './src/
 import { choosePack, vendoredPack, type ChosenPack } from './src/dice/dicePack';
 import { SpellLibrary } from './src/spellLibrary';
 import { DEFAULT_SOUND_SETTINGS, readSoundSettings, SOUND_GROUPS, type SoundGroup, type SoundSettings } from './src/sound/soundSettings';
+import { DEFAULT_CINEMATIC_SETTINGS, readCinematicSettings, type CinematicSettings } from './src/cutscene/cinematicSettings';
 import { CATALOG, type SoundId } from './src/sound/catalog';
 import { cleanFolder, DEFAULT_SOUNDS_FOLDER } from './src/sound/customSounds';
 import { SOUND_INFO } from './src/sound/soundInfo';
@@ -88,13 +89,15 @@ interface TabletopSettings {
   dice: TabletopDiceSettings;
   /** Board sounds: volume, mute and a switch per group (per device, as the plugin's data is). */
   sound: SoundSettings;
+  /** How cinematic cutscenes look: letterbox bars, aspect, default transition and fade length. */
+  cinematic: CinematicSettings;
   /** The vault folder of custom sounds that replace the built-in ones (created when first written to). */
   soundsFolder?: string;
   /** The material each kind of wall wears when none is painted on it (the gallery's Defaults); none unless set. */
   materialDefaults?: MaterialDefaults;
 }
 
-const DEFAULT_SETTINGS: TabletopSettings = { folder: DEFAULT_MINIS_FOLDER, propsFolder: DEFAULT_PROPS_FOLDER, materialsFolder: DEFAULT_MATERIALS_FOLDER, quality: DEFAULT_QUALITY, dice: DEFAULT_DICE_SETTINGS, sound: DEFAULT_SOUND_SETTINGS };
+const DEFAULT_SETTINGS: TabletopSettings = { folder: DEFAULT_MINIS_FOLDER, propsFolder: DEFAULT_PROPS_FOLDER, materialsFolder: DEFAULT_MATERIALS_FOLDER, quality: DEFAULT_QUALITY, dice: DEFAULT_DICE_SETTINGS, sound: DEFAULT_SOUND_SETTINGS, cinematic: DEFAULT_CINEMATIC_SETTINGS };
 
 interface SavedData {
   settings?: Partial<TabletopSettings>;
@@ -190,6 +193,7 @@ export default class TabletopPlugin extends Plugin {
     this.settings.quality = readQuality(this.settings.quality);
     this.settings.dice = readDiceSettings(saved.settings?.dice);
     this.settings.sound = readSoundSettings(saved.settings?.sound);
+    this.settings.cinematic = readCinematicSettings(saved.settings?.cinematic);
     this.vaultSounds = new VaultSounds(this.app, () => this.settings.soundsFolder);
     // Obsidian announces every file as created while the vault loads: the folder is watched once that is done.
     // The folder is first listed then too, so a sound asked for while the vault was still loading is not missed.
@@ -528,6 +532,12 @@ export default class TabletopPlugin extends Plugin {
     for (const listener of [...this.soundListeners]) listener();
   }
 
+  /** A cinematic setting changed: saved. */
+  setCinematic(changes: Partial<CinematicSettings>): void {
+    this.settings.cinematic = readCinematicSettings({ ...this.settings.cinematic, ...changes });
+    this.save();
+  }
+
   async setTiltShift(on: boolean): Promise<void> {
     this.settings.tiltShift = on;
     this.save();
@@ -864,7 +874,7 @@ class TabletopSettingTab extends PluginSettingTab {
 
   /** Obsidian 1.13 and later read the settings from here (and search them); earlier versions draw display(). */
   getSettingDefinitions(): SettingDefinitionItem[] {
-    const items: SettingDefinitionItem[] = [...this.generalRows(), { type: 'group', heading: 'Dice', items: this.diceRows() }, { type: 'group', heading: 'Sound', items: this.soundRows() }, ...this.soundListRows().map(({ heading, rows }): SettingDefinitionItem => ({ type: 'group', heading, items: rows }))];
+    const items: SettingDefinitionItem[] = [...this.generalRows(), { type: 'group', heading: 'Dice', items: this.diceRows() }, { type: 'group', heading: 'Sound', items: this.soundRows() }, { type: 'group', heading: 'Cinematic', items: this.cinematicRows() }, ...this.soundListRows().map(({ heading, rows }): SettingDefinitionItem => ({ type: 'group', heading, items: rows }))];
     if (GpuSettings.here()) items.push({ type: 'group', heading: 'Graphics card', items: [this.graphicsRow()] });
     return items;
   }
@@ -878,6 +888,8 @@ class TabletopSettingTab extends PluginSettingTab {
     draw(this.diceRows());
     new Setting(containerEl).setName('Sound').setHeading();
     draw(this.soundRows());
+    new Setting(containerEl).setName('Cinematic').setHeading();
+    draw(this.cinematicRows());
     for (const { heading, rows } of this.soundListRows()) {
       new Setting(containerEl).setName(heading).setHeading();
       draw(rows);
@@ -945,6 +957,31 @@ class TabletopSettingTab extends PluginSettingTab {
           .setValue(plugin.settings.quality)
           .onChange((value) => { void plugin.setQuality(readQuality(value)); }));
       }),
+    ];
+  }
+
+  /** Cinematic cutscenes: the letterbox bars, their shape, the default transition and how long a fade is. */
+  private cinematicRows(): SettingRow[] {
+    const { plugin } = this;
+    return [
+      this.row('Cinematic bars', 'Black bars above and below the board while a cutscene runs, like a film.', (setting) => {
+        setting.addToggle((toggle) => toggle.setValue(plugin.settings.cinematic.bars).onChange((bars) => plugin.setCinematic({ bars })));
+      }, ['cutscene', 'letterbox', 'film']),
+      this.row('Aspect ratio', 'The shape of the picture between the bars.', (setting) => {
+        setting.addDropdown((dropdown) => dropdown
+          .addOptions({ '1.85': '1.85:1', '2': '2:1', '2.39': '2.39:1' })
+          .setValue(String(plugin.settings.cinematic.aspect))
+          .onChange((value) => plugin.setCinematic({ aspect: Number(value) as CinematicSettings['aspect'] })));
+      }, ['cutscene', 'letterbox', 'widescreen']),
+      this.row('Default transition', 'How a new shot is reached. Move glides the camera and only works between shots on the same map; across maps a new shot fades.', (setting) => {
+        setting.addDropdown((dropdown) => dropdown
+          .addOptions({ fade: 'Fade', cut: 'Cut', move: 'Move' })
+          .setValue(plugin.settings.cinematic.transition)
+          .onChange((value) => plugin.setCinematic({ transition: value as CinematicSettings['transition'] })));
+      }, ['cutscene', 'shot']),
+      this.row('Fade length', 'How long a fade takes each way (to black, then back), in seconds.', (setting) => {
+        setting.addSlider((slider) => slider.setLimits(0.1, 3, 0.1).setValue(plugin.settings.cinematic.fadeMs / 1000).setDynamicTooltip().onChange((seconds) => plugin.setCinematic({ fadeMs: Math.round(seconds * 1000) })));
+      }, ['cutscene', 'black', 'seconds']),
     ];
   }
 
