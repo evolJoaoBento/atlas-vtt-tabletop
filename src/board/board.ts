@@ -79,6 +79,8 @@ import { insideFog, pinsShown, playerSees } from './playerView';
 import { instanceBadgeNumbers } from './levels';
 import { positionOf } from './camera';
 import { wireDiceSounds } from '../sound/diceSounds';
+import { doorChanges, RecentDrops, remoteMoves, sceneKey } from '../sound/miniSounds';
+import { staggerOffsets } from '../sound/thinning';
 import type { PlayOptions, SoundEngine, SoundId } from '../sound/soundEngine';
 import { isVideoPath, loadImageTexture, loadMapTexture, MAX_MAP_TEXTURE, mapImageSize, mapTextureFromPicture, plateTexture, screenScale } from './textures';
 import { WallSet } from './wallPieces';
@@ -436,6 +438,9 @@ interface TokenEntry {
   /** How high it stands now (on a solid prop), easing to its stand: the top of the solid props under it, when last found. */
   lift: number;
   stand?: { x: number; y: number; version: number; value: number };
+  /** Sliding to a spot another board put it on (heard picked up at the start): the put-down is heard on arriving, after `glideDelay` ms. */
+  gliding?: boolean;
+  glideDelay?: number;
 }
 
 /** The local player view's own drawing of the scene, in its window. */
@@ -1456,6 +1461,11 @@ export class Board {
     const onMap = map.tokens.filter((token) => !token.offMap && !token.offLevel);
     // Players see the GM's numbers (Atlas 0.10): copies on a level are counted hidden or not, and a token they cannot see shows none.
     const numbers = instanceBadgeNumbers(new Map(onMap.map((token) => [token.id, token])), map.tokenSettings.showInstanceBadges);
+    // News of the scene being played, not another scene (or level) opening: only those moves and doors are heard.
+    const scene = sceneKey(map);
+    const sameScene = scene === this.syncedScene;
+    this.syncedScene = scene;
+    const was = sameScene ? new Map([...this.tokens].map(([id, entry]) => [id, { x: entry.token.x, y: entry.token.y }])) : null;
     const seen = new Set<string>();
     for (const token of onMap) {
       seen.add(token.id);
@@ -1492,6 +1502,8 @@ export class Board {
       entry.piece.dispose();
       this.tokens.delete(id);
     }
+    if (was) this.hearRemoteMoves(was, onMap);
+    this.hearRemoteDoors(map, sameScene);
     if (this.selectedId !== null && !this.tokens.has(this.selectedId)) this.select(null);
     // Tokens just added (the asset manager's spawn) are selected once they stand on the board.
     if (this.pendingSelection && this.pendingSelection.every((id) => this.tokens.has(id))) {
@@ -2351,6 +2363,7 @@ export class Board {
       } else {
         entry.at.x = entry.goal.x;
         entry.at.y = entry.goal.y;
+        if (entry.gliding) this.arrived(entry);
       }
       // On a solid prop the token stands on its top, easing up or down onto it.
       const stand = this.standAt(entry);
@@ -2829,6 +2842,10 @@ export class Board {
   /** A material dragged over walls, shown on them until it is dropped or leaves (null: none). */
   private paintPreview: { ids: string[]; material: string } | null = null;
   private readonly impacts = new Impacts();
+  /** The tokens dropped here in the last two seconds, and the scene and doors as the last sync left them (for what other boards change). */
+  private readonly drops = new RecentDrops(() => this.now());
+  private syncedScene: string | null = null;
+  private doorStates: ReadonlyMap<string, boolean> = new Map();
 
   private previewPaint(preview: { ids: string[]; material: string } | null): void {
     const key = (value: typeof preview): string => (value ? `${value.material}|${value.ids.join(',')}` : '');
@@ -2839,12 +2856,81 @@ export class Board {
   }
 
   /** A mini landing where it was dropped: a ring over the floor and a puff of dust. */
-  private landImpact(tokenId: string, at: { x: number; y: number }): void {
+  private landImpact(tokenId: string, at: { x: number; y: number }, delayMs = 0): void {
     const entry = this.tokens.get(tokenId);
     const cell = this.map?.grid.size ?? 50;
     if (!this.impacts.object3d.parent) this.scene.add(this.impacts.object3d);
     this.impacts.land({ x: at.x, y: this.standAt({ at }), z: at.y }, cell * Math.max(0.5, entry?.token.size ?? 1) * 0.55);
+    this.putDownSound(at, delayMs);
     this.wake(true);
+  }
+
+  /** The minis a drag has just lifted (one, or the group with it), each heard picked up from where it stood, staggered. */
+  private pickUpSound(press: { id: string; members?: ReadonlyMap<string, unknown> }): void {
+    const ids = [...new Set([press.id, ...(press.members?.keys() ?? [])])].filter((id) => this.tokens.has(id));
+    const delays = staggerOffsets(ids.length);
+    ids.forEach((id, index) => {
+      const entry = this.tokens.get(id)!;
+      entry.gliding = false;
+      this.sound('mini.pickup', { at: { x: entry.at.x, y: this.standAt({ at: entry.at }), z: entry.at.y }, delayMs: delays[index] });
+    });
+  }
+
+  /** The sound of a mini set down at `at`. */
+  private putDownSound(at: { x: number; y: number }, delayMs = 0): void {
+    this.sound('mini.putdown', { at: { x: at.x, y: this.standAt({ at }), z: at.y }, delayMs });
+  }
+
+  /** Remembers tokens this board just dropped, so the file echoing the drop back is not heard as someone else's move. */
+  private dropped(ids: Iterable<string>): void {
+    this.drops.mark(ids);
+  }
+
+  /** Whether this board's viewer sees the token at `at`: the GM everything, a player what the fog, the GM and their sight leave. */
+  private heardToken(token: BoardToken, at: { x: number; y: number }): boolean {
+    if (this.audience === 'gm') return true;
+    return playerSees(token, at, this.fog.areas) && !this.beyondSight('player', `t:${token.id}`);
+  }
+
+  /**
+   * Tokens moved by someone else since the last sync of this scene: each is picked up now (staggered, for a group) and
+   * flagged to be put down when its slide ends. The ones dropped here a moment ago, and the one under the pointer, are not.
+   */
+  private hearRemoteMoves(was: ReadonlyMap<string, { x: number; y: number }>, onMap: readonly BoardToken[]): void {
+    const now = new Map(onMap.map((token) => [token.id, { x: token.x, y: token.y }]));
+    const ignore = this.drops.active();
+    if (this.press?.kind === 'token') for (const id of [this.press.id, ...(this.press.members?.keys() ?? [])]) ignore.add(id);
+    const moved = remoteMoves(was, now, this.map?.grid.size ?? 50, ignore);
+    const delays = staggerOffsets(moved.length);
+    moved.forEach((id, index) => {
+      const entry = this.tokens.get(id);
+      const from = was.get(id);
+      if (!entry || !from) return;
+      entry.gliding = true;
+      entry.glideDelay = delays[index];
+      if (this.heardToken(entry.token, from)) this.sound('mini.pickup', { at: { x: from.x, y: this.standAt({ at: from }), z: from.y }, delayMs: delays[index] });
+    });
+  }
+
+  /** A token that slid to a spot another board put it on has got there: it is set down, if this board's viewer sees it there. */
+  private arrived(entry: TokenEntry): void {
+    entry.gliding = false;
+    if (this.heardToken(entry.token, entry.at)) this.putDownSound(entry.at, entry.glideDelay ?? 0);
+  }
+
+  /** Doors opened or shut by someone else since the last sync of this scene. */
+  private hearRemoteDoors(map: BoardMap, sameScene: boolean): void {
+    const states = new Map(map.walls.filter((wall) => wall.type === 'door' || wall.type === 'secret-door').map((wall) => [wall.id, wall.closed]));
+    if (sameScene) for (const change of doorChanges(this.doorStates, states)) this.doorSound(change.id, change.closed ? 'door.shut' : 'door.open');
+    this.doorStates = states;
+  }
+
+  /** A door's sound, at the middle of the door. */
+  private doorSound(id: string, sound: 'door.open' | 'door.shut' | 'door.locked'): void {
+    const wall = this.map?.walls.find((candidate) => candidate.id === id);
+    if (!wall) return;
+    const cell = this.map?.grid.size ?? 50;
+    this.sound(sound, { at: { x: (wall.p1.x + wall.p2.x) / 2, y: (this.wallSquares(id) * cell) / 2, z: (wall.p1.y + wall.p2.y) / 2 } });
   }
 
   /** A material slapped on wall segments: a flash over them and dust off their foot. */
@@ -2855,6 +2941,9 @@ export class Board {
     if (!this.impacts.object3d.parent) this.scene.add(this.impacts.object3d);
     const height = Math.max(...segments.map((wall) => this.wallSquares(wall.id))) * cell;
     this.impacts.slap(segments, height, 0, this.host.wallThickness() * cell);
+    // Heard at the middle of the segments.
+    const middle = (axis: 'x' | 'y'): number => segments.reduce((sum, wall) => sum + (wall.p1[axis] + wall.p2[axis]) / 2, 0) / segments.length;
+    this.sound('wall.crumble', { at: { x: middle('x'), y: height / 2, z: middle('y') } });
     this.wake(true);
   }
 
@@ -2865,8 +2954,11 @@ export class Board {
     if (!wall.locked) {
       wall.closed = !wall.closed;
       this.walls.setOpen(id, !wall.closed);
+      // The file will say the same: that is no news to be heard again.
+      this.doorStates = new Map(this.doorStates).set(id, wall.closed);
       this.wake(true);
-    }
+      this.doorSound(id, wall.closed ? 'door.shut' : 'door.open');
+    } else this.doorSound(id, 'door.locked');
     this.host.toggleDoor(id);
   }
 
@@ -3509,8 +3601,10 @@ export class Board {
     // Moving with no button held: the release was missed.
     if (event.buttons === 0) { this.cancel(); return; }
     const { clientX: x, clientY: y } = event;
+    const lifted = press.moved;
     if (!press.moved && Math.hypot(x - press.x, y - press.y) >= DRAG_PX) press.moved = true;
     if (!press.moved) return;
+    if (!lifted && press.kind === 'token') this.pickUpSound(press);
     if (press.kind === 'rotate') {
       const at = this.boardPoint(x, y);
       if (!at) return;
@@ -3704,6 +3798,9 @@ export class Board {
           }
           carried.goal = { x: carried.token.x, y: carried.token.y };
         }
+        // Set down on another scene: the same sound as any drop, where it was let go here.
+        const delays = staggerOffsets(ids.length);
+        ids.forEach((id, index) => { const carried = this.tokens.get(id); if (carried) this.putDownSound(carried.at, delays[index]); });
         this.endDragLayer();
         this.host.moveTokensToLayer?.(ids, dropped, pill ? undefined : places, !pill);
         this.wake(true);
@@ -3728,13 +3825,16 @@ export class Board {
         }
         if (this.host.moveTokens) this.host.moveTokens(moves);
         else for (const move of moves) this.host.moveToken(move.id, move.x, move.y);
-        for (const move of moves) this.landImpact(move.id, move);
+        this.dropped(moves.map((move) => move.id));
+        const delays = staggerOffsets(moves.length);
+        moves.forEach((move, index) => this.landImpact(move.id, move, delays[index]));
         this.wake(true);
         return;
       }
       const snapped = snapPoint(this.snapGrid('tokens'), entry.at.x, entry.at.y, entry.token.size);
       entry.goal = snapped;
       this.host.moveToken(press.id, snapped.x, snapped.y);
+      this.dropped([press.id]);
       this.landImpact(press.id, snapped);
       this.wake(true);
       return;
@@ -4033,6 +4133,7 @@ export class Board {
     while (taken.has(instance)) instance++;
     map.tokens = [...map.tokens, { ...entry.token, id: newId, x: at.x, y: at.y, instanceNumber: instance }];
     this.sync();
+    this.putDownSound(at);
     this.host.copyToken(entry.token.id, newId, at.x, at.y);
   }
 

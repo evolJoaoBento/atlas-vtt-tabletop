@@ -96,6 +96,132 @@ feature('dice sounds', async ({ page, shot }) => {
   await shot('dice-sounds');
 });
 
+// ── Board sounds: minis picked up and put down (here and seen from other boards), doors, wall swaps ───────────────
+feature('mini sounds', async ({ page, shot }) => {
+  const heard = () => page.evaluate(() => window.boardTest.sounds.plays.map((play) => ({ id: play[0], delayMs: play[1]?.delayMs ?? 0, at: play[1]?.at ?? null })));
+  const clear = () => page.evaluate(() => { window.boardTest.sounds.plays.length = 0; });
+  const only = (list, id) => list.filter((play) => play.id === id);
+  // A token dragged and let go: one pickup when it leaves, one put-down when it lands.
+  const start = await page.evaluate(() => { const e = window.boardTest.board.tokens.get('hero'); return window.boardTest.project(e.at.x, e.at.y, 0); });
+  await clear();
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 40, start.y + 20, { steps: 5 });
+  let now = await heard();
+  check('mini sounds: a token dragged is picked up once as it leaves', only(now, 'mini.pickup').length === 1 && only(now, 'mini.putdown').length === 0, JSON.stringify(now));
+  await page.mouse.move(start.x + 70, start.y + 35, { steps: 5 });
+  await page.mouse.up();
+  await wait(200);
+  now = await heard();
+  check('mini sounds: letting go puts it down once, where it lands', only(now, 'mini.pickup').length === 1 && only(now, 'mini.putdown').length === 1 && !!only(now, 'mini.putdown')[0].at, JSON.stringify(now));
+  // The file echoing the GM's own drop back is no one else's move.
+  const dropped = await page.evaluate(() => window.boardTest.record.moves.at(-1));
+  await clear();
+  await page.evaluate(async (dropped) => {
+    const { board } = window.boardTest;
+    await board.load({ ...board.map, tokens: board.map.tokens.map((t) => (t.id === dropped[0] ? { ...t, x: dropped[1], y: dropped[2] } : t)) });
+  }, dropped);
+  await wait(1200);
+  check('mini sounds: a sync echoing the GM\'s own drop makes no sound', (await heard()).length === 0, JSON.stringify(await heard()));
+  // Five tokens moved by someone else: each is picked up, staggered, and put down on arrival.
+  const five = ['gob', 'gob2', 'noart', 'fallen', 'lurker'];
+  await clear();
+  await page.evaluate(async (five) => {
+    const { board } = window.boardTest;
+    await board.load({ ...board.map, tokens: board.map.tokens.map((t) => (five.includes(t.id) ? { ...t, y: t.y - 140 } : t)) });
+  }, five);
+  await wait(60);
+  now = await heard();
+  const pickups = only(now, 'mini.pickup');
+  const delays = pickups.map((play) => play.delayMs);
+  check('mini sounds: five tokens moved by a sync make five pickups', pickups.length === 5 && only(now, 'mini.putdown').length === 0, JSON.stringify(now));
+  check('mini sounds: their delays are distinct and sorted', new Set(delays).size === 5 && delays.every((d, i) => i === 0 || d > delays[i - 1]), JSON.stringify(delays));
+  await wait(2500);
+  now = await heard();
+  check('mini sounds: when they arrive they are put down, five times', only(now, 'mini.putdown').length === 5 && only(now, 'mini.pickup').length === 5, JSON.stringify(now));
+  // A token that is new, and a token barely nudged, are no moves.
+  await clear();
+  await page.evaluate(async () => {
+    const { board } = window.boardTest;
+    const spawn = { ...board.map.tokens[0], id: 'spawned', x: 700, y: 700 };
+    await board.load({ ...board.map, tokens: [...board.map.tokens.map((t) => (t.id === 'orc' ? { ...t, x: t.x + 5 } : t)), spawn] });
+  });
+  await wait(600);
+  check('mini sounds: a spawned token and a nudge of a few pixels make no sound', (await heard()).length === 0, JSON.stringify(await heard()));
+  // Doors: a click opens, a second shuts; a locked door only rattles.
+  await clear();
+  const hit = await page.evaluate(() => {
+    const { board, project } = window.boardTest;
+    const door = board.map.walls.find((wall) => wall.id === 'door');
+    for (let k = 0; k < 40; k++) {
+      const t = 0.2 + (0.6 * k) / 39;
+      for (const h of [20, 35, 50]) {
+        const at = project(door.p1.x + (door.p2.x - door.p1.x) * t, door.p1.y + (door.p2.y - door.p1.y) * t, h);
+        if (board.doorAt(at.x, at.y) === 'door') return at;
+      }
+    }
+    return null;
+  });
+  check('mini sounds: a door can be found to click', !!hit, JSON.stringify(hit));
+  await page.mouse.click(hit.x, hit.y);
+  await wait(100);
+  now = await heard();
+  check('mini sounds: clicking a shut door records door.open', JSON.stringify(now.map((play) => play.id)) === '["door.open"]' && !!now[0].at, JSON.stringify(now));
+  await page.mouse.click(hit.x, hit.y);
+  await wait(100);
+  now = await heard();
+  check('mini sounds: clicking it again records door.shut', JSON.stringify(now.map((play) => play.id)) === '["door.open","door.shut"]', JSON.stringify(now));
+  await clear();
+  await page.evaluate(async () => {
+    const { board } = window.boardTest;
+    await board.load({ ...board.map, walls: board.map.walls.map((wall) => (wall.id === 'fogdoor' ? { ...wall, locked: true } : wall)) });
+    board.toggleDoor('fogdoor');
+  });
+  now = await heard();
+  check('mini sounds: a locked door clicked records door.locked and stays shut', JSON.stringify(now.map((play) => play.id)) === '["door.locked"]', JSON.stringify(now));
+  // A door changed by someone else, between two syncs of the scene, is heard once.
+  await clear();
+  await page.evaluate(async () => {
+    const { board } = window.boardTest;
+    const open = () => ({ ...board.map, walls: board.map.walls.map((wall) => (wall.id === 'door' ? { ...wall, closed: false } : wall)) });
+    await board.load(open());
+    await board.load(open());
+  });
+  now = await heard();
+  check('mini sounds: a door opened from elsewhere records one door.open', JSON.stringify(now.map((play) => play.id)) === '["door.open"]', JSON.stringify(now));
+  // A material slapped on a wall.
+  await clear();
+  const wall = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    const solid = board.map.walls.find((w) => w.type === 'solid' && !w.chain);
+    for (const t of [0.5, 0.4, 0.6, 0.3, 0.7]) {
+      const x = solid.p1.x + (solid.p2.x - solid.p1.x) * t;
+      const y = solid.p1.y + (solid.p2.y - solid.p1.y) * t;
+      const at = window.boardTest.project(x, y, board.map.grid.size * 0.8);
+      if (board.wallAt(at.x, at.y) === solid.id) return { id: solid.id, at };
+    }
+    return null;
+  });
+  check('mini sounds: a wall can be found to paint', !!wall, JSON.stringify(wall));
+  await page.evaluate((at) => {
+    const { board } = window.boardTest;
+    const transfer = new DataTransfer();
+    transfer.setData('application/x-atlas-tabletop-material', 'mats/stone');
+    board.canvas.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientX: at.x, clientY: at.y, dataTransfer: transfer }));
+  }, wall.at);
+  now = await heard();
+  check('mini sounds: a material slapped on a wall records wall.crumble', JSON.stringify(now.map((play) => play.id)) === '["wall.crumble"]' && !!now[0].at, JSON.stringify(now));
+  // Another scene opening (or switching) is no burst of pickups, nor of doors.
+  await clear();
+  await page.evaluate(async () => {
+    const { board } = window.boardTest;
+    await board.load({ ...board.map, path: 'other.atlasmap', tokens: board.map.tokens.map((t) => ({ ...t, y: t.y + 200 })), walls: board.map.walls.map((wall) => (wall.id === 'door' ? { ...wall, closed: true } : wall)) });
+  });
+  await wait(2500);
+  check('mini sounds: a scene switch makes no sound at all', (await heard()).length === 0, JSON.stringify(await heard()));
+  await shot('mini-sounds');
+});
+
 // ── Item 27: the turn banner and the delayed marker ─────────────────────────────────────────────────────────────
 feature('turn banner and delayed marker', async ({ page, shot }) => {
   await page.evaluate(() => window.boardTest.board.flashTurn('Round 2 · Goblin'));
