@@ -1023,6 +1023,7 @@ export class BoardView extends ItemView {
     const mapPath = (): string => this.path ?? '';
     return {
       sounds: () => this.soundEngine(),
+      controlledByPlayers: (tokenId) => this.services.session?.()?.controllers?.(tokenId)?.some((player) => player.controls) === true,
       spellBook: () => this.services.spellBook?.() ?? null,
       layerHidden: (path) => path !== this.path && boardData.layerHidden(levelOfKey(path) !== null ? `${this.path ?? ''}#${path}` : path),
       water: () => { if (this.map && !onFirstLevel(this.map.levels, this.map.level)) return null; const path = mapPath(); const saved = boardData.water(path); const motion = boardData.waterMotion(path); return saved || motion ? { mask: saved?.mask ?? null, motion } : null; },
@@ -1637,6 +1638,8 @@ export class BoardView extends ItemView {
     const turn = turnAnnouncement(fight);
     if (turn && this.lastTurn !== null && this.lastTurn !== turn.key) this.board?.flashTurn(turn.text);
     this.lastTurn = turn?.key ?? null;
+    // The horn goes through the board's own watcher, which also hears the file's tracker, so one turn sounds once.
+    this.board?.hearTurn(turn?.key ?? null, currentEntries(fight).map((entry) => entry.tokenId));
   }
 
   /** The turn last announced, to flash the banner only when it changes. */

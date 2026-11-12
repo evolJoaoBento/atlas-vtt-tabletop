@@ -222,6 +222,86 @@ feature('mini sounds', async ({ page, shot }) => {
   await shot('mini-sounds');
 });
 
+// ── Board sounds: the fog chime, the turn horn, a sound per condition ───────────────────────────────────────────
+feature('table sounds', async ({ page, shot }) => {
+  const heard = () => page.evaluate(() => window.boardTest.sounds.plays.map((play) => ({ id: play[0], delayMs: play[1]?.delayMs ?? 0, gain: play[1]?.gain ?? null, at: play[1]?.at ?? null })));
+  const clear = () => page.evaluate(() => { window.boardTest.sounds.plays.length = 0; });
+  const ids = (list) => list.map((play) => play.id);
+  const fogOp = (id) => ({ id, type: 'rectangle', timestamp: 99, isErasing: false, offsetX: 0, offsetY: 0, x: 100, y: 100, width: 60, height: 60 });
+  const withFog = (...extra) => page.evaluate(async (extra) => { const { board } = window.boardTest; await board.load({ ...board.map, fog: [...board.map.fog, ...extra] }); }, extra);
+  // The same map again is silent.
+  await clear();
+  await page.evaluate(async () => { const { board } = window.boardTest; await board.load({ ...board.map }); });
+  check('table sounds: reloading the same map records nothing', (await heard()).length === 0, JSON.stringify(await heard()));
+  // Fog the GM places: one chime, even for several operations at once.
+  await withFog(fogOp('n1'));
+  check('table sounds: a new fog operation records fog.chime', JSON.stringify(ids(await heard())) === '["fog.chime"]', JSON.stringify(await heard()));
+  await clear();
+  await withFog(fogOp('n2'), fogOp('n3'), fogOp('n4'));
+  check('table sounds: three fog operations in one sync chime once', JSON.stringify(ids(await heard())) === '["fog.chime"]', JSON.stringify(await heard()));
+  await clear();
+  await page.evaluate(async () => { const { board } = window.boardTest; await board.load({ ...board.map, fog: board.map.fog.slice(0, 3) }); });
+  check('table sounds: fog taken away is silent', (await heard()).length === 0, JSON.stringify(await heard()));
+  // Line-of-sight discovery adds no fog operation.
+  await clear();
+  await page.evaluate(() => { const { board } = window.boardTest; board.refresh(); });
+  await wait(300);
+  check('table sounds: seeing more of the map (no fog operation) is silent', (await heard()).length === 0, JSON.stringify(await heard()));
+  // Conditions.
+  const setConditions = (changes) => page.evaluate(async (changes) => {
+    const { board } = window.boardTest;
+    await board.load({ ...board.map, tokens: board.map.tokens.map((t) => (changes[t.id] ? { ...t, conditions: changes[t.id] } : t)) });
+  }, changes);
+  await clear();
+  await setConditions({ gob: ['c-poisoned'] });
+  let now = await heard();
+  check('table sounds: a condition added records its sound, placed on the token', JSON.stringify(ids(now)) === '["condition.poisoned"]' && !!now[0].at, JSON.stringify(now));
+  await clear();
+  await setConditions({ gob: [] });
+  check('table sounds: a condition removed is silent', (await heard()).length === 0, JSON.stringify(await heard()));
+  await clear();
+  await setConditions({ hero: ['c-poisoned', 'c-frightened', 'c-exhaustion'] });
+  check('table sounds: a valued condition added is heard', JSON.stringify(ids(await heard())) === '["condition.exhaustion"]', JSON.stringify(await heard()));
+  await clear();
+  await setConditions({ gob: ['c-frightened'], gob2: ['c-frightened'], orc: ['c-unknown'] });
+  now = await heard();
+  const delays = now.map((play) => play.delayMs);
+  check('table sounds: conditions on a group are staggered, and an unknown one is the generic sound', now.length === 3 && now.filter((p) => p.id === 'condition.frightened').length === 2 && now.some((p) => p.id === 'condition.applied') && new Set(delays).size === 3, JSON.stringify(now));
+  // The turn.
+  const turn = (index, round = 1) => page.evaluate(async ([index, round]) => { const { board } = window.boardTest; await board.load({ ...board.map, initiative: { ...board.map.initiative, isActive: true, currentIndex: index, round } }); }, [index, round]);
+  await clear();
+  await turn(0);
+  check('table sounds: a fight starting is no turn passing', (await heard()).length === 0, JSON.stringify(await heard()));
+  await turn(1);
+  now = await heard();
+  check('table sounds: the tracker advancing records turn.horn at full volume for a monster', now.length === 1 && now[0].id === 'turn.horn' && now[0].gain === 1, JSON.stringify(now));
+  await clear();
+  await turn(1);
+  check('table sounds: the same turn again is silent', (await heard()).length === 0, JSON.stringify(await heard()));
+  await page.evaluate(() => window.boardTest.controlled.add('gob2'));
+  await turn(2);
+  now = await heard();
+  check('table sounds: a turn of a token a player controls is quiet (0.35) on the GM board', now.length === 1 && now[0].gain === 0.35, JSON.stringify(now));
+  await clear();
+  await page.evaluate(() => { window.boardTest.board.player = {}; });
+  await turn(3);
+  now = await heard();
+  check('table sounds: with the local player window open the GM board blows it at full', now.length === 1 && now[0].gain === 1, JSON.stringify(now));
+  await page.evaluate(() => { window.boardTest.board.player = null; window.boardTest.controlled.clear(); });
+  // The host's live tracker ahead of the file: heard once, not again when the file catches up.
+  await clear();
+  await page.evaluate(() => window.boardTest.board.hearTurn('1:e-other', ['orc']));
+  check('table sounds: the host reporting a turn blows the horn once', JSON.stringify(ids(await heard())) === '["turn.horn"]', JSON.stringify(await heard()));
+  await page.evaluate(() => window.boardTest.board.hearTurn('1:e-other', ['orc']));
+  check('table sounds: reporting it again is silent', (await heard()).length === 1, JSON.stringify(await heard()));
+  // A scene switch is silent whatever changed.
+  await clear();
+  await page.evaluate(async () => { const { board } = window.boardTest; await board.load({ ...board.map, path: 'another.atlasmap', fog: [], tokens: board.map.tokens.map((t) => ({ ...t, conditions: ['c-poisoned'] })), initiative: { ...board.map.initiative, currentIndex: 0, round: 5 } }); });
+  await wait(300);
+  check('table sounds: a scene switch makes no fog, condition or turn sound', (await heard()).length === 0, JSON.stringify(await heard()));
+  await shot('table-sounds');
+});
+
 // A group of minis dragged together: each is picked up and put down, staggered, and the file echoing the drop back is silent.
 feature('mini sounds in a group', async ({ page, shot }) => {
   const heard = () => page.evaluate(() => window.boardTest.sounds.plays.map((play) => ({ id: play[0], delayMs: play[1]?.delayMs ?? 0 })));

@@ -80,6 +80,9 @@ import { instanceBadgeNumbers } from './levels';
 import { positionOf } from './camera';
 import { wireDiceSounds } from '../sound/diceSounds';
 import { doorChanges, RecentDrops, remoteMoves, sceneKey } from '../sound/miniSounds';
+import { currentEntries, turnAnnouncement } from './initiative';
+import { BoardChanges } from '../sound/boardChanges';
+import { conditionSound } from '../sound/conditionSounds';
 import { staggerOffsets } from '../sound/thinning';
 import type { PlayOptions, SoundEngine, SoundId } from '../sound/soundEngine';
 import { isVideoPath, loadImageTexture, loadMapTexture, MAX_MAP_TEXTURE, mapImageSize, mapTextureFromPicture, plateTexture, screenScale } from './textures';
@@ -328,6 +331,8 @@ export interface BoardHost {
   sounds?(): SoundEngine | null;
   /** A Connect player's board: whether the player may drag this token now (one the GM lets them control). */
   canMove?(tokenId: string): boolean;
+  /** The GM's board: whether a Connect player controls this token (a monster's turn has none, and its horn is full). */
+  controlledByPlayers?(tokenId: string): boolean;
   /** A Connect player's board: the token under the pointer (null for none), the pointer in client pixels, Ctrl/Cmd down. */
   hoverToken?(tokenId: string | null, client: { x: number; y: number } | null, modifier: boolean): void;
   /** A Connect player's board: what a tool asks of the session (a ping, a template, laser points). */
@@ -1504,6 +1509,7 @@ export class Board {
     }
     if (was) this.hearRemoteMoves(was, onMap);
     this.hearRemoteDoors(map, sameScene);
+    this.hearMapChanges(map, rules.conditions, scene, sameScene);
     if (this.selectedId !== null && !this.tokens.has(this.selectedId)) this.select(null);
     // Tokens just added (the asset manager's spawn) are selected once they stand on the board.
     if (this.pendingSelection && this.pendingSelection.every((id) => this.tokens.has(id))) {
@@ -2884,6 +2890,53 @@ export class Board {
   /** Remembers tokens this board just dropped, so the file echoing the drop back is not heard as someone else's move. */
   private dropped(ids: Iterable<string>): void {
     this.drops.mark(ids);
+  }
+
+  /**
+   * Fog the GM placed or revealed (one chime however many operations came), a condition put on a token (staggered when
+   * several came together) and a turn passing, since the last sync of this scene. Scene loads and switches are silent.
+   */
+  private hearMapChanges(map: BoardMap, conditions: CollectionRules['conditions'], scene: string, sameScene: boolean): void {
+    const fight = map.initiative ?? null;
+    const current = fight ? currentEntries(fight).map((entry) => entry.tokenId) : [];
+    const turnKey = fight ? turnAnnouncement(fight)?.key ?? null : null;
+    const changes = this.changes.next({
+      id: scene,
+      fogIds: map.fog.map((operation) => operation.id),
+      tokens: map.tokens.filter((token) => !token.offMap && !token.offLevel).map((token) => ({ id: token.id, conditions: token.conditions.map((id) => conditions.get(id)?.name ?? id) })),
+      turnKey,
+      turnTokens: current,
+    });
+    if (changes.fogAdded) this.sound('fog.chime');
+    const heard = changes.conditionsAdded.flatMap((added) => {
+      const entry = this.tokens.get(added.tokenId);
+      return entry && this.heardToken(entry.token, entry.at) ? [{ entry, name: added.name }] : [];
+    });
+    const delays = staggerOffsets(heard.length);
+    heard.forEach(({ entry, name }, index) => this.sound(conditionSound(name), { at: { x: entry.at.x, y: this.standAt(entry), z: entry.at.y }, delayMs: delays[index] }));
+    if (!sameScene) this.hornKey = turnKey;
+    else if (changes.turnChanged && turnKey !== this.hornKey) {
+      this.hornKey = turnKey;
+      this.horn(changes.turnChanged.tokens);
+    }
+  }
+
+  /** What the last map or tracker update said the turn was, so a turn passing is heard once even when two things report it. */
+  private hornKey: string | null = null;
+  private readonly changes = new BoardChanges();
+
+  /** The tracker the host holds moved on to `key` (the GM's board, which follows Atlas's live tracker ahead of the file): a new turn blows the horn once. */
+  hearTurn(key: string | null, tokens: readonly string[]): void {
+    if (key !== null && this.hornKey !== null && key !== this.hornKey) this.horn(tokens);
+    this.hornKey = key;
+  }
+
+  /** The turn horn: full for a turn this board's player owns, for a monster's turn on the GM's board, or while the player window shows; quiet otherwise. */
+  private horn(tokens: readonly string[]): void {
+    const mine = tokens.some((id) => this.host.canMove?.(id) === true);
+    const monster = this.audience === 'gm' && !tokens.some((id) => this.host.controlledByPlayers?.(id) === true);
+    const table = this.audience === 'gm' && this.player !== null;
+    this.sound('turn.horn', { gain: mine || monster || table ? 1 : 0.35 });
   }
 
   /** Whether this board's viewer sees the token at `at`: the GM everything, a player what the fog, the GM and their sight leave. */
