@@ -29,10 +29,26 @@ feature('sound settings', async ({ page, shot }) => {
   const moved = await rec();
   const eye = (r) => r.listeners.at(-1).listener.eye;
   check('sound: a camera move updates the listener', moved.listeners.length > first.listeners.length && JSON.stringify(eye(moved)) !== JSON.stringify(eye(first)), JSON.stringify([first.listeners.length, moved.listeners.length]));
+  // A drag of the camera snaps the pose (the pose is already at the goal when the frame is drawn): the listener follows it all the same.
+  await page.evaluate(() => { const { board } = window.boardTest; board.camera.orbit(0.6, 0); board.camera.snap(); board.wake(true); });
+  await wait(500);
+  const snapped = await rec();
+  check('sound: a camera drag (snapped pose) updates the listener', snapped.listeners.length > moved.listeners.length && JSON.stringify(eye(snapped)) !== JSON.stringify(eye(moved)), JSON.stringify([moved.listeners.length, snapped.listeners.length]));
   await page.evaluate(() => { window.boardTest.board.sound('dice.hit', { gain: 0.5 }); window.boardTest.board.soundLoop('water', 'water.flow', 0.3); });
   const after = await rec();
   check('sound: Board.sound reaches the engine', JSON.stringify(after.plays.at(-1)) === JSON.stringify(['dice.hit', { gain: 0.5 }]));
   check('sound: Board.soundLoop reaches the engine', JSON.stringify(after.loops.at(-1)) === JSON.stringify(['water', 'water.flow', 0.3]));
+  // A board whose tab is behind another is not on screen: nothing plays, its loops go quiet, and they return when it is shown.
+  await page.evaluate(() => { const { board, sounds } = window.boardTest; board.container.style.display = 'none'; sounds.plays.length = 0; board.sound('dice.hit', { gain: 0.5 }); board.soundLoop('water', 'water.waves', 0.2); board.wake(true); });
+  await wait(400);
+  const behind = await rec();
+  check('sound: a board that is not on screen plays no sound', behind.plays.length === 0, JSON.stringify(behind.plays));
+  check('sound: a board that is not on screen keeps its loops silent', JSON.stringify(behind.loops.at(-1)) === JSON.stringify(['water', null, 0.2]), JSON.stringify(behind.loops.slice(-2)));
+  await page.evaluate(() => { const { board } = window.boardTest; board.container.style.display = ''; board.wake(true); });
+  await wait(400);
+  const back = await rec();
+  check('sound: the loops come back when the board is shown again, and nothing played meanwhile bursts out', JSON.stringify(back.loops.at(-1)) === JSON.stringify(['water', 'water.waves', 0.2]) && back.plays.length === 0, JSON.stringify([back.loops.at(-1), back.plays.length]));
+  await page.evaluate(() => window.boardTest.board.soundLoop('water', null, 0));
   // The web speaker control: inside the board, and clear of the layers ruler (a stand-in for a tall stack is drawn).
   await page.evaluate(() => {
     const { board, mountSoundControl, webSound } = window.boardTest;

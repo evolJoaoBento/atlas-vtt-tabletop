@@ -52,6 +52,10 @@ type Loader = (id: SoundId) => Promise<ArrayBuffer[]>;
 
 /** How long after the call a sound still plays once its file finishes decoding; later than that it is dropped. */
 const LATE_START_MS = 300;
+/** Calls further apart than this are not one burst: the audio clock is read afresh for each. */
+const CLOCK_BURST_MS = 300;
+/** How long after the engine is made the one-shot files start to be decoded. */
+const WARM_AFTER_MS = 2000;
 const EASE_SECONDS = 0.4;
 const RATE_SPREAD = 0.04;
 /** What unlocks the audio context: iOS only accepts a touch that ends, desktop a press or a key. */
@@ -92,6 +96,9 @@ export class SoundEngine {
     try {
       const engine = new SoundEngine(() => new Make(), win.document, load, () => Date.now(), () => engines.delete(win));
       engines.set(win, engine);
+      // After the board has opened: decode the one-shots so the first of each plays on the spot, not after its file
+      // loads (a spell's first flames can hold the page past the late-start limit, and the sound was dropped).
+      (win.setTimeout?.bind(win) ?? setTimeout)(() => void engine.warm(), WARM_AFTER_MS);
       return engine;
     } catch {
       return null;
@@ -111,6 +118,8 @@ export class SoundEngine {
   private readonly loops = new Map<string, LoopState>();
   private settings: SoundSettings = DEFAULT_SOUND_SETTINGS;
   private listener: { listener: Listener; span: number } | null = null;
+  /** The audio clock as last seen moving, and the wall time of it, for `audioNow`. */
+  private clockAnchor: { audio: number; wall: number; last: number } | null = null;
   private disposed = false;
 
   private constructor(
@@ -176,6 +185,15 @@ export class SoundEngine {
       if (this.disposed || this.loops.get(key) !== state || !bank.buffers) return;
       this.startLoop(state, bank.buffers);
     });
+  }
+
+  /** Decodes every one-shot sound not yet asked for, one after another, so none is first decoded in the middle of play. */
+  async warm(): Promise<void> {
+    for (const id of Object.keys(CATALOG) as SoundId[]) {
+      if (this.disposed) return;
+      if (CATALOG[id].loop) continue;
+      await this.bankFor(id).ready;
+    }
   }
 
   setListener(listener: Listener, span: number): void {
@@ -253,7 +271,21 @@ export class SoundEngine {
     level.connect(panner);
     panner.connect(this.destinationFor(id));
     source.onended = () => { source.disconnect(); level.disconnect(); panner.disconnect(); };
-    source.start(context.currentTime + (options.delayMs ?? 0) / 1000);
+    source.start(this.audioNow() + (options.delayMs ?? 0) / 1000);
+  }
+
+  /**
+   * Where the audio clock is now. Right after the output device wakes from silence the clock can stand still for about
+   * a second; sounds asked in that time are spaced by the wall clock, instead of all starting on the one instant the
+   * clock shows (a roll's dozens of clacks heaped on each other clipped).
+   */
+  private audioNow(): number {
+    const audio = this.context.currentTime;
+    const wall = this.now();
+    const anchor = this.clockAnchor;
+    if (!anchor || audio !== anchor.audio || wall - anchor.last > CLOCK_BURST_MS) this.clockAnchor = { audio, wall, last: wall };
+    else anchor.last = wall;
+    return audio + (wall - this.clockAnchor!.wall) / 1000;
   }
 
   /** Whether a loop can be heard: its group is on and the sound is not muted. */

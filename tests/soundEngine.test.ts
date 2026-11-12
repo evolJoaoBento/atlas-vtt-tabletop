@@ -152,7 +152,7 @@ test('settings gate: a group off or muted starts nothing, and the volume scales 
 });
 
 test('a sound is placed by the listener and routed through its group gain', async () => {
-  const { context, engine } = setup();
+  const { context, engine } = setup({ now: () => 0 });
   engine.setListener({ eye: { x: 0, y: 100, z: 200 }, target: { x: 0, y: 0, z: 0 } }, 100);
   engine.play('dice.hit');
   await settle();
@@ -332,4 +332,37 @@ test('shared engines are counted per window: the last dispose closes the context
   assert.notEqual(third, first);
   assert.equal(contexts.length, 2);
   third?.dispose();
+});
+
+test('sounds asked while the audio clock stands still keep their spacing instead of all starting on one instant', async () => {
+  // Right after the output device wakes from silence the clock can stand still for about a second.
+  let wall = 1000;
+  const { context, engine } = setup({ now: () => wall });
+  engine.play('dice.hit');
+  await settle();
+  for (const advance of [0, 55, 55, 55]) { wall += advance; engine.play('dice.hit'); }
+  const starts = context.started.map((source) => source.starts[0] ?? NaN);
+  assert.deepEqual(starts.map((at) => Math.round((at - 10) * 1000)), [0, 0, 55, 110, 165]);
+});
+
+test('with the audio clock running, sounds start at the clock and a gap in the calls starts the spacing afresh', async () => {
+  let wall = 1000;
+  const { context, engine } = setup({ now: () => wall });
+  engine.play('dice.hit');
+  await settle();
+  context.currentTime = 11; wall += 55; engine.play('dice.hit');
+  // The clock stood still for a long gap between two calls: the second is not pushed a minute late.
+  context.currentTime = 11; wall += 60_000; engine.play('dice.hit');
+  const starts = context.started.map((source) => source.starts[0] ?? NaN);
+  assert.deepEqual(starts.map((at) => Math.round(at * 1000) / 1000), [10, 11, 11]);
+});
+
+test('warm decodes every one-shot once, plays nothing and leaves loops to their first use', async () => {
+  const { context, engine, loaded } = setup();
+  await engine.warm();
+  assert.equal(context.started.length, 0);
+  const oneShots = Object.keys(CATALOG).filter((id) => !CATALOG[id as keyof typeof CATALOG].loop);
+  assert.deepEqual([...loaded].sort(), oneShots.sort());
+  engine.play('door.open');
+  assert.equal(context.started.length, 1);
 });

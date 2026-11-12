@@ -2428,7 +2428,9 @@ export class Board {
     this.drawMain();
     this.layoutControls();
     this.drawPlayers(shadows, context);
-    if (cameraMoving) { this.host.cameraMoved?.(); this.tellListener(); } else if (!this.listening) this.tellListener();
+    if (cameraMoving) this.host.cameraMoved?.();
+    this.tellListener();
+    this.syncLoopsToScreen();
     this.updateWaterLoops();
     this.continuing = busy || this.held.size > 0 || this.press !== null;
     if (this.continuing) this.wake();
@@ -4397,26 +4399,52 @@ export class Board {
     return player.frozen ? { eye: { ...player.frozen.eye }, target: { ...player.frozen.target } } : this.cameraPose();
   }
 
-  /** Whether the engine has been told where the camera is since the board began. */
-  private listening = false;
+  /** The camera pose the engine was last told, so it is told again whenever the drawn camera differs (a drag snaps the pose, which `update` does not report as a move). */
+  private listened = { x: NaN, y: NaN, z: NaN, yaw: NaN, pitch: NaN, distance: NaN };
 
-  /** Tells the sound engine where the camera is, so sounds are placed against it. */
+  /** Tells the sound engine where the camera is, so sounds are placed against it; nothing is sent while the camera is where it was. */
   private tellListener(): void {
     const engine = this.host.sounds?.();
     if (!engine) return;
     const pose = this.camera.pose;
+    const seen = this.listened;
+    const { x, y, z } = pose.target;
+    if (x === seen.x && y === seen.y && z === seen.z && pose.yaw === seen.yaw && pose.pitch === seen.pitch && pose.distance === seen.distance) return;
+    seen.x = x; seen.y = y; seen.z = z; seen.yaw = pose.yaw; seen.pitch = pose.pitch; seen.distance = pose.distance;
     engine.setListener({ eye: positionOf(pose), target: { ...pose.target } }, pose.distance);
-    this.listening = true;
   }
 
-  /** Plays a board sound; nothing happens when the host gives no engine (the local player window, a window without audio). */
+  /** Whether this board is on screen: a tab behind another is not displayed, and what it draws is not heard (a hidden window is the engine's to silence). */
+  private heardHere(): boolean {
+    return this.container.isConnected && this.container.getClientRects().length > 0;
+  }
+
+  /** Plays a board sound; nothing happens when the host gives no engine (the local player window, a window without audio) or the board is not on screen. */
   sound(id: SoundId, options?: PlayOptions): void {
+    if (!this.heardHere()) return;
     this.host.sounds?.()?.play(id, options);
   }
 
-  /** Keeps (or with a null id stops) the looping sound under `key`, at `gain`. */
+  /** The loops the board wants, by key, whether or not it is on screen to play them. */
+  private loopsAsked = new Map<string, { id: SoundId; gain: number }>();
+  /** Whether the loops were last handed to the engine as playing. */
+  private loopsHeard = true;
+
+  /** Keeps (or with a null id stops) the looping sound under `key`, at `gain`; a board that is not on screen keeps it silent and plays it when it is shown again. */
   soundLoop(key: string, id: SoundId | null, gain: number): void {
-    this.host.sounds?.()?.loop(key, id, gain);
+    if (id === null) this.loopsAsked.delete(key);
+    else this.loopsAsked.set(key, { id, gain });
+    this.host.sounds?.()?.loop(key, id !== null && !this.heardHere() ? null : id, gain);
+  }
+
+  /** The loops go quiet when the board's tab goes behind another, and come back (eased in by the engine) when it is in front again. */
+  private syncLoopsToScreen(): void {
+    const heard = this.heardHere();
+    if (heard === this.loopsHeard) return;
+    this.loopsHeard = heard;
+    const engine = this.host.sounds?.();
+    if (!engine) return;
+    for (const [key, ask] of this.loopsAsked) engine.loop(key, heard ? ask.id : null, ask.gain);
   }
 
   /** Whether the players' camera is frozen where the GM froze it. */
