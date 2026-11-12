@@ -17,7 +17,8 @@ import { PropPiece, TokenPiece, type PoseContext } from './pieces';
 import { WallSet, type WallLookup } from './wallPieces';
 import { NO_FLIP, type DoorFlip } from './walls';
 import { NO_PLACEMENT, type Placement } from './layerPlacement';
-import { WaterMask, readWaterMotion } from './water';
+import { WaterMask, readWaterMotion, type WaterMotionKind } from './water';
+import { waterDistance } from '../sound/waterSound';
 import { WaterSurface } from './waterSurface';
 import { releaseTexture } from './textures';
 
@@ -448,6 +449,19 @@ export class ElevationLayerView {
     this.object3d.updateMatrixWorld(true);
     const local = this.object3d.worldToLocal(new THREE.Vector3(x, this.object3d.position.y, z));
     return { x: local.x, y: local.z };
+  }
+
+  /**
+   * How the layer's painted water moves and how far it lies from a board point (board units); null while it shows none
+   * (no water, put away, or blacked out).
+   */
+  waterReach(x: number, z: number): { kind: WaterMotionKind; distance: number } | null {
+    const water = this.water;
+    const size = this.imageSize;
+    if (!water || !size || !this.content.visible) return null;
+    const at = this.mapPointAt(x, z);
+    const distance = waterDistance(water.mask, size.width, size.height, at);
+    return distance === Infinity ? null : { kind: water.currentMotion.kind, distance: distance * this.object3d.scale.x };
   }
 
   /** Whether its floor has ground at a board point: its image there not see-through (no image: no ground). */

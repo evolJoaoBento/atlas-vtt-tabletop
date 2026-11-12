@@ -58,7 +58,7 @@ import { BoardSurface } from './surface';
 import { FogVolume } from './fogVolume';
 import { LaserBeam } from './laserBeam';
 import { LaserTrail, beamWidth, smoothBeam, type LaserSettings } from './laser';
-import { WaterMask, readWaterMotion, type SavedWaterMask, type WaterMotion } from './water';
+import { WaterMask, readWaterMotion, type SavedWaterMask, type WaterMotion, type WaterMotionKind } from './water';
 import { WaterSurface } from './waterSurface';
 import { EyeView } from './eyeView';
 import { PieceOutline } from './pieceOutline';
@@ -67,6 +67,8 @@ import { SpellPicker, type SpellBook } from './spellPicker';
 import { SpellGizmo } from './spellGizmo';
 import { boxPoints, isInstantaneous, readCastSpells, type DamageType, readSpellRequests, spellHits, spellUnder, type CastSpell, type Spell, type SpellAsk, type SpellTarget, spellLabel } from './spells';
 import { GROW_MS, SpellView } from './spellView';
+import { nearness, placeAt } from '../sound/placement';
+import { waterDistance, waterLoop } from '../sound/waterSound';
 import { castsToAnnounce, spellImpactSound, spellLoopGains } from '../sound/spellSounds';
 import { hitAura, type SpellEffect } from './spellEffects';
 import { inDifficultSpell, pushTo, slide, spellFootprint, spellRuleLights, spellRuleWalls, type SpellRules } from './spellRules';
@@ -554,6 +556,11 @@ export class Board {
   private growingSpells = new Map<string, number>();
   /** The spell loops playing, by key, with the sound and gain last asked of the engine. */
   private spellLoops = new Map<string, { id: SoundId; gain: number }>();
+  /** The water loops going, by motion kind (`water:flow`), with the gain each was last set to. */
+  private waterLoops = new Map<string, { id: SoundId; gain: number }>();
+  /** When (page clock, ms) and from which camera the water loops were last worked out. */
+  private waterLoopsAt = -Infinity;
+  private waterLoopsSeen = { x: NaN, z: NaN, distance: NaN, yaw: NaN, pitch: NaN };
   /** The mouse held for the eyes (pointer lock), and whether the board let go of it itself. */
   private pointerLocked = false;
   private lockReleasing = false;
@@ -869,7 +876,7 @@ export class Board {
       setWaterFill: (sensitivity) => { this.waterFill = Math.min(100, Math.max(0, Math.round(sensitivity))); },
       setWaterBrush: (cells) => { this.waterBrush = Math.min(8, Math.max(0.25, cells)); this.showBrush(); },
       waterMotion: () => this.water?.currentMotion ?? this.chosenWaterMotion ?? readWaterMotion(this.host.water?.()?.motion),
-      setWaterMotion: (motion) => { this.chosenWaterMotion = motion; this.water?.setMotion(motion); this.host.saveWaterMotion?.(motion); this.wake(); },
+      setWaterMotion: (motion) => { this.chosenWaterMotion = motion; this.water?.setMotion(motion); this.waterLoopsAt = -Infinity; this.host.saveWaterMotion?.(motion); this.wake(); },
       measureOn: () => this.tools.tool === 'measure',
       measureShape: () => this.tools.shape,
       selectMeasure: (shape) => {
@@ -1312,7 +1319,7 @@ export class Board {
     if (JSON.stringify(saved?.mask ?? null) !== this.waterKey) { this.loadWater(map); this.wake(); return; }
     if (saved?.motion && this.water) {
       const motion = readWaterMotion(saved.motion);
-      if (JSON.stringify(motion) !== JSON.stringify(this.water.currentMotion)) { this.water.setMotion(motion); this.toolbar.refresh(); this.wake(); }
+      if (JSON.stringify(motion) !== JSON.stringify(this.water.currentMotion)) { this.water.setMotion(motion); this.waterLoopsAt = -Infinity; this.toolbar.refresh(); this.wake(); }
     }
   }
 
@@ -2419,6 +2426,7 @@ export class Board {
     this.layoutControls();
     this.drawPlayers(shadows, context);
     if (cameraMoving) { this.host.cameraMoved?.(); this.tellListener(); } else if (!this.listening) this.tellListener();
+    this.updateWaterLoops();
     this.continuing = busy || this.held.size > 0 || this.press !== null;
     if (this.continuing) this.wake();
     // Flames flicker on a timer, a few times a second, not on every frame the screen can draw; those frames are
@@ -4541,6 +4549,7 @@ export class Board {
   private loadWater(map: BoardMap): void {
     this.water?.dispose();
     this.water = null;
+    this.waterLoopsAt = -Infinity;
     this.chosenWaterMotion = null;
     const saved = this.host.water?.() ?? null;
     this.waterKey = JSON.stringify(saved?.mask ?? null);
@@ -4651,7 +4660,7 @@ export class Board {
     if (!colors) return;
     // 0 takes only the colour clicked, 100 a long way off it (the farthest two colours are 441 apart).
     const tolerance = (this.waterFill / 100) * 200;
-    if (water.mask.fill(at.x, at.y, colors, tolerance, wet, this.fillWalls(water.mask))) water.maskChanged();
+    if (water.mask.fill(at.x, at.y, colors, tolerance, wet, this.fillWalls(water.mask))) { water.maskChanged(); this.waterLoopsAt = -Infinity; }
     this.wake();
   }
 
@@ -4809,7 +4818,7 @@ export class Board {
       if (!wet) return;
       water = this.showWater(WaterMask.forMap(this.size.width, this.size.height, map.grid.size), this.chosenWaterMotion ?? readWaterMotion(this.host.water?.()?.motion));
     }
-    if (water.mask.stroke(from, to, this.waterBrush * map.grid.size, wet)) water.maskChanged();
+    if (water.mask.stroke(from, to, this.waterBrush * map.grid.size, wet)) { water.maskChanged(); this.waterLoopsAt = -Infinity; }
     this.wake();
   }
 
@@ -5567,6 +5576,51 @@ export class Board {
       const kept = this.spellLoops.get(key);
       if (kept && kept.id === next.id && Math.abs(kept.gain - next.gain) < 0.005) continue;
       this.spellLoops.set(key, next);
+      this.soundLoop(key, next.id, next.gain);
+    }
+  }
+
+  /**
+   * Keeps one loop per motion kind of the painted water on the board (the scene's, and that of the layers shown),
+   * heard at the level of the kind's nearest water to where the camera looks (reach: eight cells), as loud as the camera
+   * is close. Worked out when the camera has moved and once a second (or at once, after `waterLoopsAt` is cleared).
+   */
+  private updateWaterLoops(): void {
+    const win = this.container.ownerDocument.defaultView ?? window;
+    const now = win.performance.now();
+    const pose = this.camera.pose;
+    const seen = this.waterLoopsSeen;
+    const moved = pose.target.x !== seen.x || pose.target.z !== seen.z || pose.distance !== seen.distance || pose.yaw !== seen.yaw || pose.pitch !== seen.pitch;
+    if (!moved && now - this.waterLoopsAt < 1000) return;
+    this.waterLoopsAt = now;
+    seen.x = pose.target.x; seen.z = pose.target.z; seen.distance = pose.distance; seen.yaw = pose.yaw; seen.pitch = pose.pitch;
+    const cell = this.map?.grid.size ?? 50;
+    const reach = new Map<WaterMotionKind, number>();
+    const note = (kind: WaterMotionKind, distance: number): void => {
+      reach.set(kind, Math.min(reach.get(kind) ?? Infinity, distance));
+    };
+    if (this.water && this.size) {
+      const distance = waterDistance(this.water.mask, this.size.width, this.size.height, { x: pose.target.x, y: pose.target.z });
+      if (distance !== Infinity) note(this.water.currentMotion.kind, distance);
+    }
+    for (const view of this.layerViews.values()) {
+      const near = view.waterReach(pose.target.x, pose.target.z);
+      if (near) note(near.kind, near.distance);
+    }
+    // How loud the camera's distance makes the water it looks at (the same for every kind).
+    const listener = { eye: positionOf(pose), target: { ...pose.target } };
+    const heard = reach.size > 0 ? placeAt(listener, { ...pose.target }, pose.distance).gain : 0;
+    const wanted = new Map<string, { id: SoundId; gain: number }>();
+    for (const [kind, distance] of reach) wanted.set(`water:${kind}`, { id: waterLoop(kind), gain: nearness(distance, 8 * cell) * heard });
+    for (const key of [...this.waterLoops.keys()]) {
+      if (wanted.has(key)) continue;
+      this.waterLoops.delete(key);
+      this.soundLoop(key, null, 0);
+    }
+    for (const [key, next] of wanted) {
+      const kept = this.waterLoops.get(key);
+      if (kept && kept.id === next.id && Math.abs(kept.gain - next.gain) < 0.005) continue;
+      this.waterLoops.set(key, next);
       this.soundLoop(key, next.id, next.gain);
     }
   }
@@ -6365,6 +6419,8 @@ export class Board {
     this.spellPreview?.view.dispose();
     for (const key of this.spellLoops.keys()) this.soundLoop(key, null, 0);
     this.spellLoops.clear();
+    for (const key of this.waterLoops.keys()) this.soundLoop(key, null, 0);
+    this.waterLoops.clear();
     for (const kept of this.spellViews.values()) kept.view.dispose();
     for (const fading of this.fadingSpells) fading.view.dispose();
     this.fadingSpells = [];

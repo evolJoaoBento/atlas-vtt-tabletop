@@ -2956,6 +2956,47 @@ feature('spell sounds', async ({ page, shot }) => {
   await cast([]);
 });
 
+// ── Board sounds: painted water loops while the camera is near it, one loop per motion kind ──────────────────────
+feature('water sound', async ({ page, shot }) => {
+  const heard = () => page.evaluate(() => JSON.parse(JSON.stringify(window.boardTest.sounds.loops)));
+  const clear = () => page.evaluate(() => { window.boardTest.sounds.plays.length = 0; window.boardTest.sounds.loops.length = 0; });
+  const lastOf = async (key) => (await heard()).filter((loop) => loop[0] === key).at(-1);
+  const look = (x, z, distance) => page.evaluate(([x, z, distance]) => { const { board } = window.boardTest; for (const each of [board.camera.pose, board.camera.goal]) { each.target.x = x; each.target.z = z; each.distance = distance; each.pitch = 0.9; } board.camera.snap(); board.wake(true); }, [x, z, distance]);
+  const cell = await page.evaluate(() => window.boardTest.board.map.grid.size);
+  await look(cell * 4, cell * 4, 400);
+  await wait(500);
+  check('water sound: with no water nothing loops', (await heard()).filter((loop) => String(loop[0]).startsWith('water:') && loop[1] !== null).length === 0, JSON.stringify(await heard()));
+  await clear();
+  // Water painted under the camera, rippling.
+  await page.evaluate(([x, y]) => { const { board } = window.boardTest; const actions = board.toolbarActions(); actions.setWaterMotion({ kind: 'ripples', amount: 0.6, direction: 0, tint: '#1fa3a8', clarity: 0.7 }); actions.setWaterTool('paint'); actions.setWaterBrush(2); board.paintWater({ x, y }, { x: x + 60, y: y + 10 }); actions.setWaterTool(null); }, [cell * 4, cell * 4]);
+  await wait(300);
+  const near = await lastOf('water:ripples');
+  check('water sound: painted ripples loop water.ripples, loudly with the camera over them', near && near[1] === 'water.ripples' && near[2] > 0.5, JSON.stringify(near));
+  await look(cell * 4 + 6000, cell * 4 + 6000, 400);
+  await wait(300);
+  const far = await lastOf('water:ripples');
+  check('water sound: with the camera far away the loop is nearly silent', far && far[1] === 'water.ripples' && far[2] < 0.1, JSON.stringify(far));
+  await look(cell * 4, cell * 4, 400);
+  await wait(300);
+  await clear();
+  await page.evaluate(() => window.boardTest.board.toolbarActions().setWaterMotion({ kind: 'waves', amount: 0.6, direction: 0, tint: '#1fa3a8', clarity: 0.7 }));
+  await wait(300);
+  const waves = await lastOf('water:waves');
+  const stopped = await lastOf('water:ripples');
+  check('water sound: switching the motion to waves loops water.waves', waves && waves[1] === 'water.waves' && waves[2] > 0.5, JSON.stringify(waves));
+  check('water sound: and the ripples loop is stopped', stopped && stopped[1] === null, JSON.stringify(stopped));
+  // Idle, with the camera still: the loop is looked at again about once a second, not on every frame.
+  await clear();
+  await wait(2500);
+  check('water sound: a still camera does not ask the engine over and over', (await heard()).length <= 3, JSON.stringify(await heard()));
+  // The water dried up (here by erasing it): the loop is stopped.
+  await clear();
+  await page.evaluate(([x, y]) => { const { board } = window.boardTest; const actions = board.toolbarActions(); actions.setWaterTool('erase'); actions.setWaterBrush(8); board.paintWater({ x: x - 200, y: y - 200 }, { x: x + 300, y: y + 200 }); actions.setWaterTool(null); }, [cell * 4, cell * 4]);
+  await wait(600);
+  const gone = await lastOf('water:waves');
+  check('water sound: with the water gone the loop is stopped', gone && gone[1] === null, JSON.stringify(await heard()));
+});
+
 feature('door flips', async ({ page, shot }) => {
   const pivot = () => page.evaluate(() => { const door = window.boardTest.board.walls.doors.get('door'); return { x: door.pivot.position.x, z: door.pivot.position.z, turn: door.pivot.rotation.y }; });
   const set = (flip) => page.evaluate((flip) => { const { board, doorFlips } = window.boardTest; if (flip) doorFlips.set('door', flip); else doorFlips.delete('door'); board.refresh(); }, flip);

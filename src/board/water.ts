@@ -57,6 +57,8 @@ const MAX_SIDE = 2048;
 
 export class WaterMask {
   readonly data: Uint8Array;
+  /** Counts the changes made to the cells, so what is derived from them (the sound's search) is made again only then. */
+  version = 0;
 
   private constructor(readonly width: number, readonly height: number, readonly texel: number, data?: Uint8Array) {
     this.data = data ?? new Uint8Array(width * height);
@@ -147,6 +149,7 @@ export class WaterMask {
         if (this.data[k] !== value) { this.data[k] = value; changed = true; }
       }
     }
+    if (changed) this.version++;
     return changed;
   }
 
@@ -190,6 +193,7 @@ export class WaterMask {
         queue[tail++] = n;
       }
     }
+    if (changed) this.version++;
     return changed;
   }
 
