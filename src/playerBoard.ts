@@ -26,6 +26,7 @@ import type { TabletopDiceSettings } from './dice/diceSettings';
 import { loadSound } from './sound/catalog';
 import { SoundEngine } from './sound/soundEngine';
 import type { SoundSettings } from './sound/soundSettings';
+import type { SoundLoader } from './sound/customSounds';
 import { DiceTable } from './dice/diceTable';
 import { DiceTextures } from './dice/diceTextures';
 import type { DiceRules } from './dice/rollRules';
@@ -151,6 +152,8 @@ export interface PlayerBoardDice {
 /** The player's board sounds: their settings on this device, and a way to hear when the player changes them. */
 export interface PlayerBoardSounds {
   settings(): SoundSettings;
+  /** Where the sound files come from (the custom sounds folder first); the bundled sounds when absent. */
+  load?(): SoundLoader;
   onChange?(listener: () => void): () => void;
 }
 
@@ -359,7 +362,7 @@ class PlayerBoard implements PlayerBoardHandle {
     if (this.disposed || !this.soundSettings) return null;
     if (this.engine === undefined) {
       const win = this.parent.ownerDocument.defaultView;
-      this.engine = win ? SoundEngine.shared(win, loadSound) : null;
+      this.engine = win ? SoundEngine.shared(win, this.soundSettings.load?.() ?? loadSound) : null;
       const settings = this.soundSettings;
       this.engine?.configure(settings.settings());
       this.stopSound = settings.onChange?.(() => this.engine?.configure(settings.settings())) ?? null;

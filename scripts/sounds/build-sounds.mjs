@@ -298,6 +298,20 @@ or synthesised for this project (licence "own"). Nothing else is used. Rebuild w
 
     node scripts/sounds/fetch-kenney.mjs && node scripts/sounds/synth.mjs && node scripts/sounds/build-sounds.mjs
 
+## Changing a built-in sound
+
+A sound is one entry of the \`SOUNDS\` table in \`scripts/sounds/build-sounds.mjs\`, and each of its variants is one line.
+To swap a file, change that line and run \`node scripts/sounds/build-sounds.mjs\` from the repository root (it needs
+ffmpeg); it rewrites the MP3s in this folder, \`src/sound/catalog.ts\` and this file.
+
+- Another file from a Kenney pack: change the name in the line, for example \`[RPG('cloth1')]\` to \`[RPG('cloth7')]\`
+  (the optional arguments are the pitch shift in semitones and the gain). The pack must be fetched first.
+- A file of your own: save it as a WAV at \`.sound-src/own/<name>.wav\` and write \`own('<name>')\` as the variant. It must be
+  CC0 or made by you; this file's table then says so.
+- The base level of a sound is the \`gain\` of its entry; the build normalises every file to -1 dBFS.
+
+(Players can also replace a sound on their own computer, with no rebuild: see "Custom sounds" in the README.)
+
 | Sound id | File | Origin | Licence | What changed |
 | --- | --- | --- | --- | --- |
 ${rows.join('\n')}

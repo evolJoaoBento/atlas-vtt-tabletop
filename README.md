@@ -149,6 +149,24 @@ volume while that window is open.
   `src/assets/sounds/SOURCES.md` lists each file, where it came from, its licence and what was changed, and how to rebuild
   them.
 
+### Custom sounds
+
+Any built-in sound can be replaced with a file of your own, without rebuilding anything.
+
+- **The folder:** **Settings > Tabletop for Atlas VTT > Custom sounds folder** (default `Tabletop sounds`, created the first
+  time something is written to it). A file named `<sound id>.<ext>` replaces that sound: `dice.hit.mp3`,
+  `condition.prone.ogg`. Several variants are numbered `<sound id>-1.<ext>`, `<sound id>-2.<ext>`; they replace the built-in
+  set as a set, and a random one plays each time. Accepted: mp3, ogg, wav, m4a, webm, flac.
+- **The list:** under the Sound settings, every sound is listed by group with its name and when it plays, a play button,
+  **Replace…** (pick a file; it is copied into the folder as `<id>.<ext>` in place of any older custom file for it),
+  **Reset** (shown while it is custom; deletes the custom files) and a volume from 0 to 200 % for that sound alone.
+- **Live:** adding, changing, deleting or renaming a file in the folder takes effect at once, also for a loop that is
+  playing (it fades to the new file). A file that cannot be decoded is named in one notice, and the built-in sound plays.
+- **Export built-in sounds** writes every bundled sound to `built-in/<id>-N.mp3` in the folder (for reference and editing;
+  nothing in `built-in/` is ever used) and a `README.md` listing every sound id, its name and when it plays.
+- **Who hears them:** custom sounds play on this computer, on the boards of this vault (and the local player window).
+  Remote players (Connect's player tab in another vault, the web player) hear the built-in sounds for now.
+
 ## Build and test
 
 ```

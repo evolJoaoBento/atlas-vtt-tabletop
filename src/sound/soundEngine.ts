@@ -1,7 +1,8 @@
 import { CATALOG, type SoundId } from './catalog';
+import type { SoundLoader } from './customSounds';
 import { LIMITER, LIMITER_POST_GAIN } from './limiter';
 import { placeAt, type Listener } from './placement';
-import { DEFAULT_SOUND_SETTINGS, SOUND_GROUPS, type SoundGroup, type SoundSettings } from './soundSettings';
+import { DEFAULT_SOUND_SETTINGS, SOUND_GROUPS, soundLevel, type SoundGroup, type SoundSettings } from './soundSettings';
 
 export type { Listener } from './placement';
 export type { SoundId } from './catalog';
@@ -53,7 +54,7 @@ export interface DocumentLike {
   removeEventListener(type: string, listener: () => void, options?: boolean): void;
 }
 
-type Loader = (id: SoundId) => Promise<ArrayBuffer[]>;
+type Loader = SoundLoader;
 /** Whether the board asking for a sound is seen by anyone now; without one, whether the engine's own window is shown. */
 export type Heard = () => boolean;
 
@@ -86,6 +87,10 @@ function knownEntry(id: SoundId): (typeof CATALOG)[SoundId] | null {
 }
 
 const engines = new WeakMap<Window, SoundEngine>();
+/** The engines made by `shared` that are still open, so a changed file can be dropped from all of them. */
+const live = new Set<SoundEngine>();
+/** How long a preview of a looping sound plays, in seconds. */
+const PREVIEW_LOOP_SECONDS = 3;
 
 /**
  * Plays board sounds through one audio context. A sound is dropped, never queued, when the board is hidden, the
@@ -106,12 +111,21 @@ export class SoundEngine {
     try {
       const engine = new SoundEngine(() => new Make(), win.document, load, () => (typeof performance !== 'undefined' ? performance.now() : Date.now()), () => engines.delete(win));
       engines.set(win, engine);
+      live.add(engine);
       // After the board has opened: decode the one-shots so the first of each plays on the spot, not after its file
       // loads (a spell's first flames can hold the page past the late-start limit, and the sound was dropped).
       (win.setTimeout?.bind(win) ?? setTimeout)(() => void engine.warm(), WARM_AFTER_MS);
       return engine;
     } catch {
       return null;
+    }
+  }
+
+  /** Drops the decoded files of `ids` (all sounds when `ids` is 'all') from every open engine; the next play decodes afresh. */
+  static invalidateEverywhere(ids: readonly SoundId[] | 'all'): void {
+    for (const engine of live) {
+      if (ids === 'all') engine.invalidate();
+      else for (const id of ids) engine.invalidate(id);
     }
   }
 
@@ -223,9 +237,60 @@ export class SoundEngine {
     this.loops.set(key, state);
     const bank = this.bankFor(id);
     void bank.ready.then(() => {
-      if (this.disposed || this.loops.get(key) !== state || !bank.buffers) return;
+      if (this.disposed || this.loops.get(key) !== state || this.banks.get(id) !== bank || !bank.buffers) return;
       this.startLoop(state, bank.buffers);
     });
+  }
+
+  /**
+   * Forgets the decoded files of `id` (of every sound without `id`), because the files behind it changed: the next play
+   * decodes the new ones. A one-shot that was in use is decoded again at once, so its next play is not late; a loop
+   * playing it fades out and the new file fades in.
+   */
+  invalidate(id?: SoundId): void {
+    if (this.disposed) return;
+    const ids = id === undefined ? [...this.banks.keys()] : this.banks.has(id) ? [id] : [];
+    for (const one of ids) {
+      this.banks.delete(one);
+      if (!knownEntry(one)?.loop) void this.bankFor(one);
+    }
+    for (const [key, state] of this.loops) {
+      if (id !== undefined && state.id !== id) continue;
+      this.fadeOut(state);
+      state.source = null;
+      state.node = null;
+      const bank = this.bankFor(state.id);
+      void bank.ready.then(() => {
+        if (this.disposed || this.loops.get(key) !== state || this.banks.get(state.id) !== bank || state.source || !bank.buffers) return;
+        this.startLoop(state, bank.buffers);
+      });
+    }
+  }
+
+  /**
+   * Plays `id` once so it can be heard from the settings: it needs no board in view and ignores the group switch (but
+   * not the mute or the volumes). A looping sound plays for a few seconds. Resolves when the sound has started.
+   */
+  async preview(id: SoundId): Promise<void> {
+    if (this.disposed || knownEntry(id) === null || this.settings.muted) return;
+    try {
+      if (this.context.state !== 'running') await this.context.resume();
+      const bank = this.bankFor(id);
+      await bank.ready;
+      if (this.disposed || !bank.buffers || bank.buffers.length === 0) return;
+      const source = this.context.createBufferSource();
+      source.buffer = bank.buffers[Math.floor(Math.random() * bank.buffers.length)];
+      const level = this.context.createGain();
+      level.gain.value = CATALOG[id].gain * soundLevel(this.settings, id);
+      source.connect(level);
+      level.connect(this.master);
+      source.onended = () => { source.disconnect(); level.disconnect(); };
+      const at = this.context.currentTime;
+      source.start(at);
+      if (CATALOG[id].loop) source.stop(at + PREVIEW_LOOP_SECONDS);
+    } catch {
+      // Nothing is played.
+    }
   }
 
   /** Decodes every one-shot sound not yet asked for, one after another, so none is first decoded in the middle of play. */
@@ -255,6 +320,7 @@ export class SoundEngine {
   dispose(): void {
     if (this.disposed || --this.holders > 0) return;
     this.disposed = true;
+    live.delete(this);
     for (const type of GESTURES) this.document.removeEventListener(type, this.unlock, true);
     this.document.removeEventListener('visibilitychange', this.visibilityChanged);
     for (const loop of this.loops.values()) loop.source?.stop();
@@ -286,15 +352,28 @@ export class SoundEngine {
     const bank: Bank = { buffers: null, ready: Promise.resolve() };
     bank.ready = (async () => {
       try {
-        const files = await this.load(id);
-        const decoded = await Promise.all(files.map((file) => this.context.decodeAudioData(file).catch(() => null)));
-        bank.buffers = decoded.filter((buffer) => buffer !== null && buffer !== undefined);
+        let decoded = await this.decodeAll(await this.load(id));
+        // A custom file that does not decode is named to the player; if none of a sound's files plays, its built-in set does.
+        if (decoded.bad.length > 0 && this.load.customFailed) {
+          this.load.customFailed(id, decoded.bad, decoded.good.length === 0);
+          if (decoded.good.length === 0) decoded = await this.decodeAll(await this.load(id, true));
+        }
+        bank.buffers = decoded.good;
       } catch {
         bank.buffers = [];
       }
     })();
     this.banks.set(id, bank);
     return bank;
+  }
+
+  /** Decodes every file, keeping those that decode and the positions of those that do not. */
+  private async decodeAll(files: ArrayBuffer[]): Promise<{ good: unknown[]; bad: number[] }> {
+    const decoded = await Promise.all(files.map((file) => this.context.decodeAudioData(file).catch(() => null)));
+    const good: unknown[] = [];
+    const bad: number[] = [];
+    decoded.forEach((buffer, position) => { if (buffer === null || buffer === undefined) bad.push(position); else good.push(buffer); });
+    return { good, bad };
   }
 
   /** Starts one sound; a failure (a missing audio part, a refused node) is swallowed: sound never breaks the board. */
@@ -309,7 +388,7 @@ export class SoundEngine {
 
   private startOne(id: SoundId, buffers: unknown[], options: PlayOptions): void {
     const context = this.context;
-    let gain = (options.gain ?? 1) * CATALOG[id].gain;
+    let gain = (options.gain ?? 1) * CATALOG[id].gain * soundLevel(this.settings, id);
     let pan = 0;
     if (options.at && this.listener) {
       const placed = placeAt(this.listener.listener, options.at, this.listener.span);
@@ -352,9 +431,10 @@ export class SoundEngine {
     return !this.settings.muted && this.settings.groups[CATALOG[state.id].group];
   }
 
-  /** A loop whose group went off (or that was muted) stops its source; one that is audible again starts it. */
+  /** A loop whose group went off (or that was muted) stops its source; one that is audible again starts it; the rest follow their level. */
   private syncLoops(): void {
     for (const state of this.loops.values()) {
+      if (state.source && this.loopAudible(state)) this.easeLoop(state);
       if (!this.loopAudible(state)) {
         if (!state.source) continue;
         state.source.stop();
@@ -392,7 +472,7 @@ export class SoundEngine {
   }
 
   private easeLoop(state: LoopState): void {
-    if (state.node) this.ramp(state.node, this.seen(state.heard) ? state.gain * CATALOG[state.id].gain : 0);
+    if (state.node) this.ramp(state.node, this.seen(state.heard) ? state.gain * CATALOG[state.id].gain * soundLevel(this.settings, state.id) : 0);
   }
 
   private fadeOut(state: LoopState): void {

@@ -152,3 +152,30 @@ Settings are per device, not shared across the session. Default: on, at a modera
 - Browser checks (`harness/`) that each event asks the engine for its sound (the engine stubbed), and that the spell
   preview has no animation and the cast grows from the right anchor.
 - A listen in the real promo setup (GM and two players) before calling it done.
+
+## Custom sounds (added 2026-11-12, user request)
+
+The GM can replace any built-in sound with a file of their own, from the plugin settings, without rebuilding.
+
+- **Folder:** setting "Custom sounds folder", a vault path, default `Tabletop sounds`, created on first write (not at load).
+  `<sound id>.<ext>` replaces that sound (`dice.hit.mp3`, `condition.prone.ogg`); numbered `<sound id>-1.<ext>`, `-2` and so
+  on replace the built-in set as a set (the engine already picks a random variant). Extensions: mp3, ogg, wav, m4a, webm,
+  flac. Files in a subfolder, and so everything in `built-in/`, are never read as overrides; unknown ids are ignored.
+- **Settings list:** the Sound section lists every sound by the eight groups: human name, a play button, **Replace…**
+  (file picker; copies the file in as `<id>.<ext>`, removing older custom files for the id), **Reset** (only while custom;
+  deletes the id's custom files) and a per-sound volume from 0 to 200 % (default 100 %, stored in the sound settings as
+  `levels`, applied as a gain multiplier for that id, also to loops already playing).
+- **Live reload:** vault create, modify, delete and rename events in the folder invalidate the affected ids
+  (`SoundEngine.invalidate`, dropping the decoded buffers; a one-shot in use is decoded again at once); a playing loop fades
+  out and the new file fades in.
+- **Helpers:** "Export built-in sounds" writes every bundled file to `built-in/<id>-N.mp3` and a `README.md` (naming rule,
+  every id with its name and when it plays).
+- **Fallback:** a custom file that does not decode is skipped; if none of a sound's files decodes, the built-in set plays.
+  One Notice names the file(s), once until the file changes.
+- **Where:** the loader passed to `SoundEngine.shared` (BoardView and the player board) checks the vault folder first, so it
+  applies to the GM's Obsidian boards and the local player window. The Connect player tab in another vault and the web
+  player do not get the GM's files (that needs Connect to ship them as assets); remote players hear the built-in sounds.
+- **Limiter:** the output limiter is a peak limiter only (threshold -3 dB, knee 0, ratio 20, attack 3 ms, release 250 ms)
+  followed by a fixed gain that removes the make-up gain Chromium adds, so a sound below the threshold keeps its level.
+- **Developer side:** swapping a built-in sound is one line of the recipe in `scripts/sounds/build-sounds.mjs` plus running
+  it; see "Changing a built-in sound" in `src/assets/sounds/SOURCES.md`.

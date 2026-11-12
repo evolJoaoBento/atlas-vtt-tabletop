@@ -35,6 +35,12 @@ import { DEFAULT_PACK, defaultPackFiles, releaseDefaultPackSheets } from './src/
 import { choosePack, vendoredPack, type ChosenPack } from './src/dice/dicePack';
 import { SpellLibrary } from './src/spellLibrary';
 import { DEFAULT_SOUND_SETTINGS, readSoundSettings, SOUND_GROUPS, type SoundGroup, type SoundSettings } from './src/sound/soundSettings';
+import { CATALOG, type SoundId } from './src/sound/catalog';
+import { cleanFolder, DEFAULT_SOUNDS_FOLDER } from './src/sound/customSounds';
+import { SOUND_INFO } from './src/sound/soundInfo';
+import { drawSoundControls } from './src/sound/soundRow';
+import { SoundEngine } from './src/sound/soundEngine';
+import { VaultSounds } from './src/sound/vaultSounds';
 import { colorsText, DEFAULT_DICE_SETTINGS, DIE_SQUARES, MOTION_THRESHOLD, readColorsText, readDiceSettings, TOLERANCE, type TabletopDiceSettings } from './src/dice/diceSettings';
 import { ensureDefaultPack, listPacks, packsFolder, type PackFs } from './src/dice/kit/packs';
 
@@ -82,6 +88,8 @@ interface TabletopSettings {
   dice: TabletopDiceSettings;
   /** Board sounds: volume, mute and a switch per group (per device, as the plugin's data is). */
   sound: SoundSettings;
+  /** The vault folder of custom sounds that replace the built-in ones (created when first written to). */
+  soundsFolder?: string;
   /** The material each kind of wall wears when none is painted on it (the gallery's Defaults); none unless set. */
   materialDefaults?: MaterialDefaults;
 }
@@ -182,6 +190,9 @@ export default class TabletopPlugin extends Plugin {
     this.settings.quality = readQuality(this.settings.quality);
     this.settings.dice = readDiceSettings(saved.settings?.dice);
     this.settings.sound = readSoundSettings(saved.settings?.sound);
+    this.vaultSounds = new VaultSounds(this.app, () => this.settings.soundsFolder);
+    // Obsidian announces every file as created while the vault loads: the folder is watched once that is done.
+    this.app.workspace.onLayoutReady(() => { for (const ref of this.vaultSounds.events()) this.registerEvent(ref); });
     this.assignments = new Assignments(readAssignments(saved.assignments));
     this.boardData = new BoardData(readBoardData(saved.board));
     this.register(this.assignments.onChange(() => { this.save(); this.refreshBoards(); }));
@@ -260,6 +271,7 @@ export default class TabletopPlugin extends Plugin {
       materialDefaults: () => readMaterialDefaults(this.settings.materialDefaults),
       diceSettings: () => this.settings.dice,
       soundSettings: () => this.settings.sound,
+      soundLoader: () => this.vaultSounds.custom.load,
       dicePack: () => (this.dicePack ??= vendoredPack()),
       levelShown: (mapPath) => this.levelShown(mapPath),
       boardReady: (view) => {
@@ -372,7 +384,7 @@ export default class TabletopPlugin extends Plugin {
     this.register(this.boardData.onChange((changed) => { const mapPath = changed?.split("#")[0] ?? null; this.boardChanged(mapPath !== null && this.boardData.stackOf(mapPath).length > 1 ? null : mapPath); }));
     this.register(this.materials.onChange(() => { this.materialIndex?.forgetAll(); this.boardChanged(null); }));
     this.players = playerMiniPainter();
-    const board = playerBoardFactory(() => this.settings.quality, () => ({ tiltShift: this.settings.tiltShift === true, occlusion: this.settings.occlusion === true, painted: this.settings.painted === true, sky: readSky(this.settings.sky), edges: readEdges(this.settings.wallEdges), seeThrough: this.settings.seeThrough === true, seeThroughSize: readSeeThroughSize(this.settings.seeThroughSize), layerLook: readLayerLook(this.settings.layerLook) }), { settings: () => this.settings.dice, pack: () => (this.dicePack ??= vendoredPack()) }, () => this.spells(), undefined, { settings: () => this.settings.sound, onChange: (listener) => { this.soundListeners.add(listener); return () => { this.soundListeners.delete(listener); }; } });
+    const board = playerBoardFactory(() => this.settings.quality, () => ({ tiltShift: this.settings.tiltShift === true, occlusion: this.settings.occlusion === true, painted: this.settings.painted === true, sky: readSky(this.settings.sky), edges: readEdges(this.settings.wallEdges), seeThrough: this.settings.seeThrough === true, seeThroughSize: readSeeThroughSize(this.settings.seeThroughSize), layerLook: readLayerLook(this.settings.layerLook) }), { settings: () => this.settings.dice, pack: () => (this.dicePack ??= vendoredPack()) }, () => this.spells(), undefined, { settings: () => this.settings.sound, load: () => this.vaultSounds.custom.load, onChange: (listener) => { this.soundListeners.add(listener); return () => { this.soundListeners.delete(listener); }; } });
     this.api = Object.freeze({
       version: 1 as const,
       playerMinis: this.players.painter,
@@ -484,6 +496,21 @@ export default class TabletopPlugin extends Plugin {
     if (packChanged) void this.loadDicePack();
     // The colours are only the picker's: the dice on the table stay.
     else if (Object.keys(changes).some((key) => key !== 'colors' && key !== 'autoRoll' && key !== 'sheetPinned')) for (const view of this.boards()) view.diceChanged();
+  }
+
+  /** The custom sounds folder of the vault. */
+  vaultSounds!: VaultSounds;
+
+  /** Sets where custom sounds are kept; the folder is looked at afresh. */
+  setSoundsFolder(value: string): void {
+    this.settings.soundsFolder = value.trim() === '' ? undefined : value.trim();
+    this.save();
+    this.vaultSounds.folderChanged();
+  }
+
+  /** Sets how loud one sound is, from 0 to 2 times its normal level. */
+  setSoundLevel(id: SoundId, level: number): void {
+    this.setSound({ levels: { ...this.settings.sound.levels, [id]: level } });
   }
 
   /** The boards and player boards that follow the sound settings (Connect's player tab asks to be told). */
@@ -833,7 +860,7 @@ class TabletopSettingTab extends PluginSettingTab {
 
   /** Obsidian 1.13 and later read the settings from here (and search them); earlier versions draw display(). */
   getSettingDefinitions(): SettingDefinitionItem[] {
-    const items: SettingDefinitionItem[] = [...this.generalRows(), { type: 'group', heading: 'Dice', items: this.diceRows() }, { type: 'group', heading: 'Sound', items: this.soundRows() }];
+    const items: SettingDefinitionItem[] = [...this.generalRows(), { type: 'group', heading: 'Dice', items: this.diceRows() }, { type: 'group', heading: 'Sound', items: this.soundRows() }, ...this.soundListRows().map(({ heading, rows }): SettingDefinitionItem => ({ type: 'group', heading, items: rows }))];
     if (GpuSettings.here()) items.push({ type: 'group', heading: 'Graphics card', items: [this.graphicsRow()] });
     return items;
   }
@@ -847,6 +874,10 @@ class TabletopSettingTab extends PluginSettingTab {
     draw(this.diceRows());
     new Setting(containerEl).setName('Sound').setHeading();
     draw(this.soundRows());
+    for (const { heading, rows } of this.soundListRows()) {
+      new Setting(containerEl).setName(heading).setHeading();
+      draw(rows);
+    }
     if (GpuSettings.here()) {
       new Setting(containerEl).setName('Graphics card').setHeading();
       draw([this.graphicsRow()]);
@@ -937,6 +968,66 @@ class TabletopSettingTab extends PluginSettingTab {
         setting.addToggle((toggle) => toggle.setValue(plugin.settings.sound.groups[group]).onChange((on) => plugin.setSound({ groups: { [group]: on } })));
       }, ['audio'])),
     ];
+  }
+
+  /** The engine that plays previews from the list, held while the settings are open. */
+  private previewEngine: SoundEngine | null = null;
+
+  hide(): void {
+    this.previewEngine?.dispose();
+    this.previewEngine = null;
+  }
+
+  private preview(id: SoundId): void {
+    const { plugin } = this;
+    if (!this.previewEngine) {
+      this.previewEngine = SoundEngine.shared(window, plugin.vaultSounds.custom.load);
+      this.previewEngine?.configure(plugin.settings.sound);
+    }
+    void this.previewEngine?.preview(id);
+  }
+
+  /**
+   * Custom sounds: the folder they are read from, a button that writes the built-in sounds and a README into it, and
+   * then every sound by group, each with play, Replace…, Reset (while custom) and its own volume.
+   */
+  private soundListRows(): Array<{ heading: string; rows: SettingRow[] }> {
+    const { plugin } = this;
+    const files = plugin.vaultSounds;
+    const headings: Record<SoundGroup, string> = { dice: 'Dice sounds', minis: 'Mini sounds', spells: 'Spell sounds', conditions: 'Condition sounds', turns: 'Turn sounds', fog: 'Fog sounds', doors: 'Door sounds', water: 'Water sounds' };
+    const host = {
+      levels: () => plugin.settings.sound.levels,
+      setLevel: (id: SoundId, level: number) => plugin.setSoundLevel(id, level),
+      isCustom: (id: SoundId) => files.custom.isCustom(id),
+      preview: (id: SoundId) => this.preview(id),
+      replace: async (id: SoundId, file: File) => {
+        try {
+          if (!(await files.replace(id, { name: file.name, arrayBuffer: () => file.arrayBuffer() }))) new Notice('Tabletop: use an mp3, ogg, wav, m4a, webm or flac file.');
+        } catch (error) {
+          new Notice(`Tabletop: could not save the sound: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      },
+      reset: async (id: SoundId) => {
+        try { await files.reset(id); } catch (error) { new Notice(`Tabletop: could not reset the sound: ${error instanceof Error ? error.message : String(error)}`); }
+      },
+    };
+    const top: SettingRow[] = [
+      this.row('Custom sounds folder', `Put a file named after a sound (dice.hit.mp3, condition.prone.ogg; variants dice.hit-1.mp3, dice.hit-2.mp3…) in this folder to replace it, or use Replace… below. Custom sounds play on this computer; remote players hear the built-in ones for now. Default: ${DEFAULT_SOUNDS_FOLDER}.`, (setting) => {
+        const apply = debounce((value: string) => plugin.setSoundsFolder(value), 600, true);
+        setting.addText((text) => text.setPlaceholder(DEFAULT_SOUNDS_FOLDER).setValue(plugin.settings.soundsFolder ?? '').onChange((value) => apply(value)));
+      }, ['audio', 'replace', 'custom']),
+      this.row('Export built-in sounds', `Writes every built-in sound into ${cleanFolder(plugin.settings.soundsFolder)}/built-in/ for reference and editing, and a README.md listing every sound id and when it plays. Files in built-in/ are never used as replacements.`, (setting) => {
+        setting.addButton((button) => button.setButtonText('Export').onClick(() => {
+          void files.exportBuiltIn().then((count) => new Notice(`Tabletop: wrote ${count} sounds and a README to ${files.folder}.`), (error) => new Notice(`Tabletop: could not export the sounds: ${error instanceof Error ? error.message : String(error)}`));
+        }));
+      }, ['audio', 'readme']),
+    ];
+    const lists = SOUND_GROUPS.map((group) => ({
+      heading: headings[group],
+      rows: (Object.keys(CATALOG) as SoundId[]).filter((id) => CATALOG[id].group === group)
+        .map((id) => this.row(SOUND_INFO[id].name, SOUND_INFO[id].when, (setting) => drawSoundControls(setting, id, host), ['audio', id])),
+    }));
+    return [{ heading: 'Custom sounds', rows: top }, ...lists];
   }
 
   /** The GM's dice: their size, pack, shadows, the highlight of a die caught on an edge, how they are read, their colours. */

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_SOUND_SETTINGS, readSoundSettings, SOUND_GROUPS } from '../src/sound/soundSettings';
+import { DEFAULT_SOUND_SETTINGS, readSoundSettings, SOUND_GROUPS, soundLevel } from '../src/sound/soundSettings';
 
 test('plugin data saved without sound loads the defaults', () => {
   assert.deepEqual(readSoundSettings(undefined), DEFAULT_SOUND_SETTINGS);
@@ -33,4 +33,13 @@ test('the web player reads its stored choice, and falls back when storage is mis
   assert.deepEqual(loadStoredSound(null), DEFAULT_SOUND_SETTINGS);
   assert.deepEqual(loadStoredSound({ getItem: () => { throw new Error('blocked'); } }), DEFAULT_SOUND_SETTINGS);
   assert.deepEqual(loadStoredSound({ getItem: () => 'not json' }), DEFAULT_SOUND_SETTINGS);
+});
+
+test('per-sound levels are read as numbers from 0 to 2, and a bad or neutral one is dropped', () => {
+  const read = readSoundSettings({ levels: { 'dice.hit': 3, 'door.open': -1, 'fog.chime': 0.5, 'turn.horn': 1, 'water.flow': 'loud', 'x': null } });
+  assert.deepEqual(read.levels, { 'dice.hit': 2, 'door.open': 0, 'fog.chime': 0.5 });
+  assert.deepEqual(readSoundSettings({}).levels, {});
+  assert.deepEqual(readSoundSettings({ levels: 'many' }).levels, {});
+  assert.equal(soundLevel(read, 'fog.chime'), 0.5);
+  assert.equal(soundLevel(read, 'dice.roll'), 1);
 });

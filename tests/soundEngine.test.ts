@@ -493,3 +493,132 @@ test('without a stereo panner a sound goes straight to its group gain', async ()
   const level = context.gains[context.gains.length - 1];
   assert.deepEqual(level.connections, [context.gains[1 + SOUND_GROUPS.indexOf('dice')]]);
 });
+
+test('a sound is played at the level chosen for it, and only that sound', async () => {
+  const { context, engine } = setup();
+  engine.configure({ ...DEFAULT_SOUND_SETTINGS, levels: { 'door.open': 0, 'dice.hit': 2 } });
+  const levelOfLast = () => context.gains[context.gains.length - 1].gain.value;
+  engine.play('door.open');
+  engine.play('dice.hit');
+  engine.play('door.shut');
+  await settle();
+  engine.play('door.open');
+  assert.equal(levelOfLast(), 0);
+  engine.play('dice.hit');
+  assert.ok(Math.abs(levelOfLast() - CATALOG['dice.hit'].gain * 2) < 1e-9);
+  engine.play('door.shut');
+  assert.ok(Math.abs(levelOfLast() - CATALOG['door.shut'].gain) < 1e-9);
+});
+
+test('a loop follows the level chosen for its sound as soon as it changes', async () => {
+  const { context, engine } = setup();
+  engine.loop('w', 'water.flow', 0.5);
+  await settle();
+  const node = context.gains[context.gains.length - 1];
+  assert.equal(node.gain.ramps.at(-1)?.value, 0.5 * CATALOG['water.flow'].gain);
+  engine.configure({ ...DEFAULT_SOUND_SETTINGS, levels: { 'water.flow': 1.5 } });
+  assert.ok(Math.abs((node.gain.ramps.at(-1)?.value ?? 0) - 0.5 * CATALOG['water.flow'].gain * 1.5) < 1e-9);
+});
+
+test('invalidate drops the decoded files of one sound, so its next play loads afresh', async () => {
+  const { context, engine, loaded } = setup();
+  engine.play('dice.hit');
+  engine.play('door.open');
+  await settle();
+  assert.deepEqual(loaded, ['dice.hit', 'door.open']);
+  engine.invalidate('dice.hit');
+  await settle();
+  assert.deepEqual(loaded, ['dice.hit', 'door.open', 'dice.hit']);
+  const before = context.started.length;
+  engine.play('dice.hit');
+  engine.play('door.open');
+  assert.equal(context.started.length, before + 2);
+  assert.deepEqual(loaded, ['dice.hit', 'door.open', 'dice.hit']);
+});
+
+test('invalidate swaps in the new files: what plays after is decoded from what the loader gives now', async () => {
+  let size = 4;
+  const { context, engine } = setup({ load: async () => [new ArrayBuffer(size)] });
+  engine.play('dice.hit');
+  await settle();
+  assert.deepEqual(context.started[0].buffer, { decoded: 4 });
+  size = 9;
+  engine.invalidate('dice.hit');
+  await settle();
+  engine.play('dice.hit');
+  assert.deepEqual(context.started.at(-1)?.buffer, { decoded: 9 });
+});
+
+test('invalidate restarts a playing loop on the new file, fading the old one out', async () => {
+  let size = 4;
+  const { context, engine } = setup({ load: async () => [new ArrayBuffer(size)] });
+  engine.loop('w', 'water.flow', 0.5);
+  await settle();
+  const first = context.sources[0];
+  assert.deepEqual(first.buffer, { decoded: 4 });
+  size = 9;
+  engine.invalidate('water.flow');
+  assert.equal(first.stops.length, 1, 'the old loop is told to stop after its fade');
+  await settle();
+  const second = context.sources.at(-1)!;
+  assert.notEqual(second, first);
+  assert.deepEqual(second.buffer, { decoded: 9 });
+  assert.equal(second.loop, true);
+  assert.equal(second.starts.length, 1);
+});
+
+test('invalidate of one sound leaves the loops of others alone', async () => {
+  const { context, engine } = setup();
+  engine.loop('w', 'water.flow', 0.5);
+  await settle();
+  const count = context.sources.length;
+  engine.invalidate('dice.hit');
+  await settle();
+  assert.equal(context.sources.length, count);
+  assert.equal(context.sources[0].stops.length, 0);
+});
+
+test('a custom file that does not decode is reported, and the built-in files play instead', async () => {
+  const context = new FakeContext();
+  context.decodeAudioData = async (data: ArrayBuffer) => { if (data.byteLength === 1) throw new Error('bad'); return { decoded: data.byteLength }; };
+  const reports: unknown[] = [];
+  const asked: boolean[] = [];
+  const load = Object.assign(async (_id: string, builtIn = false) => { asked.push(builtIn); return builtIn ? [new ArrayBuffer(7)] : [new ArrayBuffer(1)]; }, {
+    customFailed: (id: string, bad: number[], all: boolean) => { reports.push([id, bad, all]); },
+  });
+  const { engine } = setup({ context, load });
+  engine.play('door.open');
+  await settle();
+  assert.deepEqual(reports, [['door.open', [0], true]]);
+  assert.deepEqual(asked, [false, true]);
+  engine.play('door.open');
+  assert.deepEqual(context.started[0].buffer, { decoded: 7 });
+});
+
+test('with some custom variants good and one bad, the good ones play and the bad one is reported', async () => {
+  const context = new FakeContext();
+  context.decodeAudioData = async (data: ArrayBuffer) => { if (data.byteLength === 1) throw new Error('bad'); return { decoded: data.byteLength }; };
+  const reports: unknown[] = [];
+  const load = Object.assign(async () => [new ArrayBuffer(1), new ArrayBuffer(5)], { customFailed: (id: string, bad: number[], all: boolean) => { reports.push([id, bad, all]); } });
+  const { engine } = setup({ context, load });
+  engine.play('door.open');
+  await settle();
+  assert.deepEqual(reports, [['door.open', [0], false]]);
+  assert.deepEqual(context.started[0].buffer, { decoded: 5 });
+});
+
+test('invalidateEverywhere reaches the engines made by shared, and no longer a disposed one', async () => {
+  const context = new FakeContext();
+  const win = { AudioContext: function () { return context; }, document: new FakeDocument(), setTimeout: () => 0 } as unknown as Window;
+  const loaded: string[] = [];
+  const engine = SoundEngine.shared(win, async (id) => { loaded.push(id); return files(); })!;
+  engine.play('dice.hit');
+  await settle();
+  SoundEngine.invalidateEverywhere(['dice.hit']);
+  await settle();
+  assert.deepEqual(loaded, ['dice.hit', 'dice.hit']);
+  engine.dispose();
+  SoundEngine.invalidateEverywhere('all');
+  await settle();
+  assert.deepEqual(loaded, ['dice.hit', 'dice.hit']);
+});

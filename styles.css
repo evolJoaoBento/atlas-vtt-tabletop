@@ -2061,6 +2061,8 @@ body.atlas-tabletop-player-window .view-header {
 .atlas-tabletop-sound { position: absolute; top: 10px; right: 10px; z-index: 30; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .atlas-tabletop-sound__button { width: 36px; height: 36px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: #2a2a2a; color: #fff; border: 0.75px solid rgba(255, 255, 255, 0.4); cursor: pointer; }
 .atlas-tabletop-sound__button:hover { border-color: rgba(255, 255, 255, 0.7); }
+/* A sound in the settings list that is the player's own file. */
+.tabletop-sound-custom { color: var(--text-accent); font-size: var(--font-ui-smaller); margin-right: 4px; }
 .atlas-tabletop-sound__button svg { width: 20px; height: 20px; }
 .atlas-tabletop-sound__button .cross { display: none; }
 .atlas-tabletop-sound__button.is-muted .cross { display: inline; }

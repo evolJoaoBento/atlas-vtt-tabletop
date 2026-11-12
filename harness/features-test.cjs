@@ -3223,6 +3223,74 @@ feature('door flips', async ({ page, shot }) => {
   check('door flips: put back, it is where Atlas draws it', Math.abs(now.x - 525) < 1e-6, JSON.stringify(now));
 });
 
+// ── Custom sounds: a file in the sounds folder replaces a built-in sound live; a per-sound volume silences only it ───
+feature('custom sounds', async ({ page }) => {
+  await page.evaluate(() => {
+    const { SoundEngine, CustomSounds, loadSound, DEFAULT_SOUND_SETTINGS, board, sounds } = window.boardTest;
+    const started = [];
+    const context = {
+      state: 'running', currentTime: 10, destination: {}, gains: [],
+      async resume() {}, async close() {},
+      createGain() { const g = { gain: { value: 1, cancelScheduledValues() {}, setValueAtTime() {}, linearRampToValueAtTime() {}, setTargetAtTime() {} }, connect() {}, disconnect() {} }; context.gains.push(g); return g; },
+      createStereoPanner() { return { pan: { value: 0 }, connect() {}, disconnect() {} }; },
+      createBufferSource() { return { buffer: null, loop: false, playbackRate: { value: 1 }, onended: null, connect() {}, disconnect() {}, stop() {}, start() { started.push({ size: this.buffer.size, level: context.gains[context.gains.length - 1].gain.value }); } }; },
+      async decodeAudioData(data) { return { size: data.byteLength }; },
+    };
+    const vault = new Map();
+    const holder = {};
+    const custom = new CustomSounds(
+      { paths: () => [...vault.keys()], read: async (path) => vault.get(path) },
+      () => 'Tabletop sounds', loadSound, () => {},
+      (ids) => { if (ids === 'all') holder.engine.invalidate(); else for (const id of ids) holder.engine.invalidate(id); },
+    );
+    const engine = SoundEngine.forTest(() => context, { hidden: false, addEventListener() {}, removeEventListener() {} }, custom.load);
+    holder.engine = engine;
+    engine.configure(DEFAULT_SOUND_SETTINGS);
+    sounds.other = engine;
+    board.soundEngineChanged();
+    window.customTest = { started, vault, custom, engine, DEFAULT_SOUND_SETTINGS };
+  });
+  const setDoor = async (closed) => {
+    await page.evaluate(async (closed) => { const { board } = window.boardTest; await board.load({ ...board.map, walls: board.map.walls.map((w) => (w.id === 'door' ? { ...w, closed } : w)) }); }, closed);
+    await wait(450);
+  };
+  const last = () => page.evaluate(() => window.customTest.started.at(-1) ?? null);
+  await setDoor(false);
+  const builtIn = await last();
+  check('custom sounds: with no file in the folder the door plays the built-in sound', builtIn && builtIn.size > 11 && builtIn.level > 0, JSON.stringify(builtIn));
+  await setDoor(true);
+  // The GM drops door.open.mp3 (11 bytes here) into the folder: the board picks it up with no reload.
+  await page.evaluate(() => { const { vault, custom } = window.customTest; vault.set('Tabletop sounds/door.open.mp3', new ArrayBuffer(11)); custom.fileChanged('Tabletop sounds/door.open.mp3'); });
+  await wait(300);
+  await setDoor(false);
+  const custom = await last();
+  check('custom sounds: a file door.open.mp3 in the folder makes the door play the custom buffer', custom && custom.size === 11, JSON.stringify(custom));
+  // The other door sounds are untouched.
+  await setDoor(true);
+  const shut = await last();
+  check('custom sounds: the door shutting, with no custom file for it, still plays its built-in sound', shut && shut.size !== 11, JSON.stringify(shut));
+  // Deleted: back to the built-in sound.
+  await page.evaluate(() => { const { vault, custom } = window.customTest; vault.delete('Tabletop sounds/door.open.mp3'); custom.fileChanged('Tabletop sounds/door.open.mp3'); });
+  await wait(300);
+  await setDoor(false);
+  const reverted = await last();
+  check('custom sounds: deleting the file reverts the door to the built-in sound', reverted && reverted.size !== 11 && reverted.size > 11, JSON.stringify(reverted));
+  // A volume of 0 on door.open silences it and only it.
+  await page.evaluate(() => { const { engine, DEFAULT_SOUND_SETTINGS } = window.customTest; engine.configure({ ...DEFAULT_SOUND_SETTINGS, levels: { 'door.open': 0 } }); });
+  await setDoor(true);
+  const shutAudible = await last();
+  const count = await page.evaluate(() => window.customTest.started.length);
+  await setDoor(false);
+  const silenced = await last();
+  check('custom sounds: a volume of 0 for door.open plays it at no level', silenced && silenced.level === 0 && (await page.evaluate(() => window.customTest.started.length)) === count + 1, JSON.stringify(silenced));
+  check('custom sounds: and door.shut is still heard', shutAudible && shutAudible.level > 0, JSON.stringify(shutAudible));
+  await page.evaluate(() => { const { engine, DEFAULT_SOUND_SETTINGS } = window.customTest; engine.configure(DEFAULT_SOUND_SETTINGS); });
+  await setDoor(true);
+  await setDoor(false);
+  const back = await last();
+  check('custom sounds: the volume back at 100% makes it audible again', back && back.level > 0, JSON.stringify(back));
+});
+
 server.listen(0, async () => {
   const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const errors = [];

@@ -67,6 +67,7 @@ import type { TabletopDiceSettings } from '../dice/diceSettings';
 import { loadSound } from '../sound/catalog';
 import { SoundEngine } from '../sound/soundEngine';
 import type { SoundSettings } from '../sound/soundSettings';
+import type { SoundLoader } from '../sound/customSounds';
 import { documentHasWebgl, NO_WEBGL_HELP, NO_WEBGL_TITLE } from '../webgl';
 import { TABLETOP_ICON } from '../tabletopIcon';
 
@@ -156,6 +157,8 @@ export interface BoardServices {
   dicePack(): ChosenPack;
   /** What the player chose for board sounds (per device). */
   soundSettings(): SoundSettings;
+  /** Where the sound files come from: the vault's custom sounds folder first, the bundled sounds otherwise. */
+  soundLoader?(): SoundLoader;
 }
 
 const tokenName = (token: BoardToken): string => token.name ?? token.imagePath?.split('/').pop()?.replace(/\.[^.]+$/, '') ?? 'Token';
@@ -301,7 +304,7 @@ export class BoardView extends ItemView {
     if (!win) return null;
     if (this.sound?.win !== win) {
       const old = this.sound;
-      const engine = SoundEngine.shared(win, loadSound);
+      const engine = SoundEngine.shared(win, this.services.soundLoader?.() ?? loadSound);
       engine?.configure(this.services.soundSettings());
       this.sound = { win, engine };
       // The tab moved to another window: the board moves its loops and its listener to the new engine, before the old is let go.
