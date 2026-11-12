@@ -2355,7 +2355,7 @@ feature('gm clears spells', async ({ page, shot }) => {
     const cell = board.map.grid.size;
     const x = board.size.width / 2 + cell * 2;
     const y = board.size.height / 2;
-    board.receiveSpells([{ id: 's7', owner: 'p1', color: '#ff0059', spell: { shape: 'sphere', from: 'point', at: { x, y, h: cell }, yaw: 0, pitch: 0, roll: 0, size: cell * 2, length: 0, angle: 0.9 }, name: 'Fireball', about: { line: 'Level 3 Evocation', properties: [['Damage', '8d6 fire']], text: 'A bright streak flashes.' } }]);
+    board.receiveSpells(board.map.path, [{ id: 's7', owner: 'p1', color: '#ff0059', spell: { shape: 'sphere', from: 'point', at: { x, y, h: cell }, yaw: 0, pitch: 0, roll: 0, size: cell * 2, length: 0, angle: 0.9 }, name: 'Fireball', about: { line: 'Level 3 Evocation', properties: [['Damage', '8d6 fire']], text: 'A bright streak flashes.' } }]);
     return window.boardTest.project(x, y, cell);
   });
   await wait(500);
@@ -2414,7 +2414,7 @@ feature('gm clears spells', async ({ page, shot }) => {
     const { board } = window.boardTest;
     const cell = board.map.grid.size;
     const e = board.tokens.get('gob');
-    board.receiveSpells([{ id: 's8', owner: 'p1', color: '#ff0059', spell: { shape: 'sphere', from: 'point', at: { x: e.at.x, y: e.at.y, h: cell }, yaw: 0, pitch: 0, roll: 0, size: cell * 2, length: 0, angle: 0.9 }, name: 'Fog Cloud' }]);
+    board.receiveSpells(board.map.path, [{ id: 's8', owner: 'p1', color: '#ff0059', spell: { shape: 'sphere', from: 'point', at: { x: e.at.x, y: e.at.y, h: cell }, yaw: 0, pitch: 0, roll: 0, size: cell * 2, length: 0, angle: 0.9 }, name: 'Fog Cloud' }]);
     return window.boardTest.project(e.at.x, e.at.y, cell * 0.3);
   });
   await wait(300);
@@ -2425,7 +2425,7 @@ feature('gm clears spells', async ({ page, shot }) => {
   const priority = await page.evaluate(() => ({ card: window.boardTest.board.spellCardShown, spell: window.boardTest.board.hoveredSpell }));
   await page.keyboard.up('Control');
   check('spells: Ctrl over a creature inside a spell is the creature, not the spell', priority.card === null && priority.spell === null, JSON.stringify(priority));
-  await page.evaluate(() => { const { board, modes, setHosting } = window.boardTest; board.receiveSpells([]); modes.on = false; setHosting(false); });
+  await page.evaluate(() => { const { board, modes, setHosting } = window.boardTest; board.receiveSpells(board.map.path, []); modes.on = false; setHosting(false); });
 });
 
 feature('gm casts through eyes', async ({ page, shot }) => {
@@ -2561,7 +2561,7 @@ feature('spell rules', async ({ page, shot }) => {
   const cast = (list) => page.evaluate((list) => {
     const { board } = window.boardTest;
     const cell = board.map.grid.size;
-    board.receiveSpells(list.map(([id, at, shape, rules, extra]) => {
+    board.receiveSpells(board.map.path, list.map(([id, at, shape, rules, extra]) => {
       const point = typeof at === 'string' ? board.tokens.get(at).at : at;
       const spell = { shape, from: 'point', at: { x: point.x, y: point.y, h: cell * 0.5 }, yaw: 0, pitch: 0, roll: 0, size: cell * (extra?.size ?? 1), length: shape === 'wall' || shape === 'cylinder' ? cell * 2 : 0, angle: 0.9, ...(shape === 'wall' ? { to: { x: point.x + cell * 4, y: point.y } } : {}), ...(extra?.caster ? { caster: extra.caster } : {}) };
       return { id, owner: 'p1', color: '#ff0059', spell, ...(rules ? { rules } : {}) };
@@ -2638,7 +2638,7 @@ feature('spell hit auras', async ({ page, shot }) => {
   const cast = (list) => page.evaluate((list) => {
     const { board } = window.boardTest;
     const cell = board.map.grid.size;
-    board.receiveSpells(list.map(([id, token, effect, radius], k) => {
+    board.receiveSpells(board.map.path, list.map(([id, token, effect, radius], k) => {
       const e = board.tokens.get(token);
       return { id, owner: 'p1', color: '#ff0059', spell: { shape: 'sphere', from: 'point', at: { x: e.at.x, y: e.at.y, h: cell * 0.5 }, yaw: 0, pitch: 0, roll: 0, size: cell * radius, length: 0, angle: 0.9, ...(effect ? { effect } : {}) } };
     }));
@@ -2723,10 +2723,10 @@ feature('spell rules cast', async ({ page, shot }) => {
     const sent = await page.evaluate((before) => window.boardTest.record.toolActions.slice(before).find((action) => action.type === 'spell' && action.change.add), before);
     await page.evaluate(() => window.boardTest.board.seeFrom(null));
     // Connect sends it back as cast: the board stands what it does.
-    await page.evaluate((change) => window.boardTest.board.receiveSpells(change ? [{ id: 'x1', owner: 'gm', color: '#ffffff', spell: change.add, rules: change.rules, name: change.name }] : []), sent?.change);
+    await page.evaluate((change) => window.boardTest.board.receiveSpells(window.boardTest.board.map.path, change ? [{ id: 'x1', owner: 'gm', color: '#ffffff', spell: change.add, rules: change.rules, name: change.name }] : []), sent?.change);
     await wait(300);
     const standing = await page.evaluate(() => window.boardTest.board.ruleState());
-    await page.evaluate(() => window.boardTest.board.receiveSpells([]));
+    await page.evaluate(() => window.boardTest.board.receiveSpells(window.boardTest.board.map.path, []));
     return { effects, sent, aimed, standing };
   };
   const fog = await castOne('fog cloud');
@@ -2859,7 +2859,7 @@ feature('spell sounds', async ({ page, shot }) => {
   const cast = (list) => page.evaluate((list) => {
     const { board } = window.boardTest;
     const cell = board.map.grid.size;
-    board.receiveSpells(list.map(([id, x, y, effect, shape, lasting]) => ({
+    board.receiveSpells(board.map.path, list.map(([id, x, y, effect, shape, lasting]) => ({
       id, owner: 'p1', color: '#ff0059',
       spell: { shape, from: 'point', at: { x, y, h: shape === 'wall' ? 0 : cell * 0.5 }, ...(shape === 'wall' ? { to: { x: x + cell * 3, y } } : {}), yaw: 0, pitch: 0, roll: 0, size: shape === 'wall' ? cell * 0.2 : cell * 0.9, length: shape === 'wall' ? cell * 2 : 0, angle: 0.9, ...(effect ? { effect } : {}) },
       ...(lasting ? {} : { about: { line: 'Evocation', text: 'x', properties: [['Duration', 'Instantaneous']] } }),
@@ -2947,12 +2947,12 @@ feature('spell sounds', async ({ page, shot }) => {
   for (const scene of ['other-scene.md', null]) {
     await page.evaluate(async ([scene, home]) => { const { board } = window.boardTest; window.boardTest.sounds.plays.length = 0; await board.load({ ...board.map, path: scene ?? home }); }, [scene, spot.path]);
     await wait(500);
-    await page.evaluate((list) => window.boardTest.board.receiveSpells(list), [standing('z1', spot), standing('z2', { x: spot.x + 200, y: spot.y })]);
+    await page.evaluate((list) => window.boardTest.board.receiveSpells(window.boardTest.board.map.path, list), [standing('z1', spot), standing('z2', { x: spot.x + 200, y: spot.y })]);
     await wait(150);
     switched.push(await page.evaluate(() => { const { board } = window.boardTest; return { plays: window.boardTest.sounds.plays.length, growing: board.growingSpells.size, scales: [...board.spellViews.values()].map((kept) => kept.view.mesh.scale.x) }; }));
   }
   check('spell sounds: after a scene switch, standing spells arriving later are silent and whole', switched.every((one) => one.plays === 0 && one.growing === 0 && one.scales.length === 2 && one.scales.every((scale) => scale === 1)), JSON.stringify(switched));
-  await page.evaluate((list) => window.boardTest.board.receiveSpells(list), [standing('z1', spot), standing('z2', { x: spot.x + 200, y: spot.y }), standing('z3', { x: spot.x - 200, y: spot.y })]);
+  await page.evaluate((list) => window.boardTest.board.receiveSpells(window.boardTest.board.map.path, list), [standing('z1', spot), standing('z2', { x: spot.x + 200, y: spot.y }), standing('z3', { x: spot.x - 200, y: spot.y })]);
   await wait(150);
   const added = await heard();
   check('spell sounds: then one new cast makes exactly one impact', added.plays.filter((play) => String(play[0]).startsWith('spell.impact')).length === 1, JSON.stringify(added.plays));
@@ -2971,7 +2971,7 @@ feature('spell sounds', async ({ page, shot }) => {
       const { board } = window.boardTest;
       board.audience = 'player';
       const cell = board.map.grid.size;
-      board.receiveSpells([{ id: 'u1', owner: 'p1', color: '#fff', spell: { shape: 'sphere', from: 'point', at: { x: fogged.x, y: fogged.y, h: cell * 0.5 }, yaw: 0, pitch: 0, roll: 0, size: cell, length: 0, angle: 1, effect: 'fire' } }]);
+      board.receiveSpells(board.map.path, [{ id: 'u1', owner: 'p1', color: '#fff', spell: { shape: 'sphere', from: 'point', at: { x: fogged.x, y: fogged.y, h: cell * 0.5 }, yaw: 0, pitch: 0, roll: 0, size: cell, length: 0, angle: 1, effect: 'fire' } }]);
       const plays = window.boardTest.sounds.plays.length;
       board.audience = 'gm';
       return plays;
@@ -2979,6 +2979,161 @@ feature('spell sounds', async ({ page, shot }) => {
     check('spell sounds: a player\'s board makes no impact for a spell under the fog', result === 0, JSON.stringify(result));
   }
   await cast([]);
+});
+
+// ── Board sounds: a spell list's first list seeds under the scene it is for, whatever map the board shows yet ─────
+feature('spell scene key', async ({ page }) => {
+  const impacts = () => page.evaluate(() => window.boardTest.sounds.plays.filter((play) => String(play[0]).startsWith('spell.impact')).length);
+  const fireLoop = () => page.evaluate(() => window.boardTest.sounds.loops.filter((loop) => loop[0] === 'spell:fire').at(-1) ?? null);
+  const spot = await page.evaluate(() => { const { board } = window.boardTest; const e = board.tokens.get('hero'); return { x: e.at.x, y: e.at.y, cell: board.map.grid.size, path: board.map.path }; });
+  const standing = (id, dx) => ({ id, owner: 'p1', color: '#fff', spell: { shape: 'sphere', from: 'point', at: { x: spot.x + dx, y: spot.y, h: 20 }, yaw: 0, pitch: 0, roll: 0, size: 60, length: 0, angle: 1, effect: 'fire' } });
+  // (a) A fresh board, as Connect's replay mounts it: the list comes before its map has loaded; the next list's one new cast is heard and grows.
+  const fresh = await page.evaluate(async ([first, second]) => {
+    const { Board, host, QUALITY, board, sounds } = window.boardTest;
+    const div = document.createElement('div');
+    div.style.cssText = 'position:fixed;left:0;top:0;width:400px;height:300px;';
+    document.body.appendChild(div);
+    const made = new Board(div, host, QUALITY.medium);
+    sounds.plays.length = 0;
+    made.receiveSpells(board.map.path, first);
+    await made.load({ ...board.map });
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const seeded = sounds.plays.filter((play) => String(play[0]).startsWith('spell.impact')).length;
+    made.receiveSpells(board.map.path, second);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const result = { seeded, impacts: sounds.plays.filter((play) => String(play[0]).startsWith('spell.impact')).length, growing: made.growingSpells.size };
+    made.dispose();
+    div.remove();
+    return result;
+  }, [[standing('q1', 0)], [standing('q1', 0), standing('q2', spot.cell * 2)]]);
+  check('spell scene key: a fresh board given its list before its map is silent for the standing spells', fresh.seeded === 0, JSON.stringify(fresh));
+  check('spell scene key: then one new cast makes exactly one impact and grows', fresh.impacts === 1 && fresh.growing === 1, JSON.stringify(fresh));
+  // (b) The GM's board: home's lasting fire loops near the camera.
+  await page.evaluate((spot) => { const { board } = window.boardTest; for (const each of [board.camera.pose, board.camera.goal]) { each.target.x = spot.x; each.target.z = spot.y; each.distance = 120; each.pitch = 0.9; } board.camera.snap(); board.wake(true); }, spot);
+  await page.evaluate((list) => window.boardTest.board.receiveSpells(window.boardTest.board.map.path, list), [standing('h1', 0)]);
+  await wait(400);
+  const home = await fireLoop();
+  check('spell scene key: the shown scene\'s lasting spell loops', home && home[1] === 'spell.loop.fire', JSON.stringify(home));
+  // Another scene's list comes while home's map is still shown (Atlas presents the new layer first): nothing plays, and home's loop stops.
+  await page.evaluate(() => { window.boardTest.sounds.plays.length = 0; });
+  await page.evaluate((list) => window.boardTest.board.receiveSpells('other-scene.md', list), [standing('o1', 0), standing('o2', spot.cell * 2)]);
+  await wait(400);
+  const early = { impacts: await impacts(), growing: await page.evaluate(() => window.boardTest.board.growingSpells.size), loop: await fireLoop() };
+  check('spell scene key: a new scene\'s standing list arriving before its map makes no impact and does not grow', early.impacts === 0 && early.growing === 0, JSON.stringify(early));
+  check('spell scene key: no loop follows a list whose map is not shown yet', early.loop && early.loop[1] === null, JSON.stringify(early.loop));
+  // Its map catches up: nothing is forgotten again, nothing plays; one new cast then makes one impact.
+  await page.evaluate(async () => { const { board } = window.boardTest; await board.load({ ...board.map, path: 'other-scene.md' }); });
+  await wait(500);
+  const caught = await impacts();
+  check('spell scene key: the map catching up makes no sound', caught === 0, JSON.stringify(caught));
+  await page.evaluate((list) => window.boardTest.board.receiveSpells('other-scene.md', list), [standing('o1', 0), standing('o2', spot.cell * 2), standing('o3', -spot.cell * 2)]);
+  await wait(400);
+  check('spell scene key: then one new cast makes exactly one impact', (await impacts()) === 1, JSON.stringify(await impacts()));
+  const there = await fireLoop();
+  check('spell scene key: the new scene\'s lasting spells loop once its map is shown', there && there[1] === 'spell.loop.fire', JSON.stringify(there));
+  // Back home: the map changes first, the other scene's list is still held: its loop stops until home's list comes.
+  await page.evaluate(async (path) => { const { board } = window.boardTest; await board.load({ ...board.map, path }); }, spot.path);
+  await wait(400);
+  const back = await fireLoop();
+  check('spell scene key: after a scene switch, the last scene\'s spells no longer loop', back && back[1] === null, JSON.stringify(back));
+});
+
+// ── Board sounds: a hidden window plays nothing and owes nothing; the players' window keeps the GM board heard ──────
+feature('hidden window sounds', async ({ page }) => {
+  const plays = () => page.evaluate(() => window.boardTest.sounds.plays.map((play) => play[0]));
+  // Hidden: no frames come (they are held here, as a hidden window gets none) and the document says hidden.
+  await page.evaluate(() => {
+    const t = window.boardTest;
+    t.heldFrames = [];
+    t.realFrame = window.requestAnimationFrame;
+    window.requestAnimationFrame = (callback) => { t.heldFrames.push(callback); return 900000 + t.heldFrames.length; };
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await wait(300);
+  await page.evaluate(() => { window.boardTest.sounds.plays.length = 0; });
+  await page.evaluate(async () => {
+    const { board } = window.boardTest;
+    await board.load({ ...board.map, tokens: board.map.tokens.map((t) => (['gob', 'gob2', 'noart'].includes(t.id) ? { ...t, y: t.y - 140 } : t)) });
+  });
+  await wait(200);
+  const hidden = await plays();
+  check('hidden window sounds: moves synced while hidden pick nothing up', hidden.length === 0, JSON.stringify(hidden));
+  // Shown again: the frames run, the tokens slide there, and no put-down bursts out.
+  await page.evaluate(() => {
+    const t = window.boardTest;
+    delete document.hidden;
+    window.requestAnimationFrame = t.realFrame;
+    document.dispatchEvent(new Event('visibilitychange'));
+    const held = t.heldFrames;
+    t.heldFrames = [];
+    for (const callback of held) callback(performance.now());
+  });
+  await wait(2500);
+  const shown = await plays();
+  check('hidden window sounds: shown again, no put-down plays for the moves made while hidden', !shown.includes('mini.putdown'), JSON.stringify(shown));
+  check('hidden window sounds: and the tokens did slide to their new places', await page.evaluate(() => { const e = window.boardTest.board.tokens.get('gob'); return Math.abs(e.at.y - e.goal.y) < 1; }));
+  // The GM's window hidden: silent alone, heard while the players' window is in view (the table hears this machine).
+  const asked = await page.evaluate(() => {
+    const { board, sounds } = window.boardTest;
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    sounds.plays.length = 0;
+    sounds.heards.length = 0;
+    board.sound('dice.hit');
+    const alone = sounds.plays.length;
+    board.player = { container: { ownerDocument: { hidden: false } } };
+    board.sound('dice.hit');
+    const table = sounds.plays.length - alone;
+    const rule = sounds.heards.at(-1);
+    board.player = null;
+    delete document.hidden;
+    return { alone, table, rule };
+  });
+  check('hidden window sounds: a hidden GM window with no players\' window plays nothing', asked.alone === 0, JSON.stringify(asked));
+  check('hidden window sounds: a hidden GM window plays for the players\' window in view, and tells the engine so', asked.table === 1 && asked.rule === true, JSON.stringify(asked));
+});
+
+// ── Board sounds: a player's own turn has the full horn, paused or not ───────────────────────────────────────────
+feature('paused horn', async ({ page }) => {
+  const horns = await page.evaluate(() => {
+    const { board, host, sounds } = window.boardTest;
+    board.audience = 'player';
+    // Paused: the player may move nothing, but still controls their token.
+    host.canMove = () => false;
+    host.controls = (id) => id === 'gob';
+    board.hearTurn('k1', ['gob']);
+    sounds.plays.length = 0;
+    board.hearTurn('k2', ['gob']);
+    const mine = sounds.plays.at(-1);
+    host.controls = () => false;
+    board.hearTurn('k3', ['gob']);
+    const theirs = sounds.plays.at(-1);
+    delete host.canMove;
+    delete host.controls;
+    board.audience = 'gm';
+    return { mine: mine ? [mine[0], mine[1]?.gain] : null, theirs: theirs ? [theirs[0], theirs[1]?.gain] : null };
+  });
+  check('paused horn: the player\'s own turn is at full volume while the game is paused', JSON.stringify(horns.mine) === '["turn.horn",1]', JSON.stringify(horns));
+  check('paused horn: another\'s turn is quiet', JSON.stringify(horns.theirs) === '["turn.horn",0.35]', JSON.stringify(horns));
+});
+
+// ── Board sounds: the tab moving to another window moves the board's loops and listener to that window's engine ──
+feature('engine swap', async ({ page }) => {
+  const swapped = await page.evaluate(() => {
+    const { board, sounds } = window.boardTest;
+    board.soundLoop('rain', 'water.flow', 0.3);
+    const other = { plays: [], loops: [], listeners: [], play(id, options) { this.plays.push([id, options]); }, loop(key, id, gain) { this.loops.push([key.replace(/^board\d+:/, ''), id, gain]); }, setListener(listener, span) { this.listeners.push(span); } };
+    window.boardTest.otherEngine = other;
+    sounds.loops.length = 0;
+    sounds.other = other;
+    board.soundEngineChanged();
+    return { old: sounds.loops.filter((loop) => loop[0] === 'rain'), fresh: other.loops.filter((loop) => loop[0] === 'rain') };
+  });
+  check('engine swap: the loop stops on the old engine', JSON.stringify(swapped.old) === '[["rain",null,0]]', JSON.stringify(swapped));
+  check('engine swap: and starts on the new one', JSON.stringify(swapped.fresh) === '[["rain","water.flow",0.3]]', JSON.stringify(swapped));
+  await wait(400);
+  const told = await page.evaluate(() => window.boardTest.otherEngine.listeners.length);
+  check('engine swap: the new engine is told where the camera is without the camera moving', told >= 1, JSON.stringify(told));
 });
 
 // ── Board sounds: painted water loops while the camera is near it, one loop per motion kind ──────────────────────

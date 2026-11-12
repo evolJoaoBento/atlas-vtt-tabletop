@@ -82,6 +82,7 @@ import { insideFog, pinsShown, playerSees } from './playerView';
 import { instanceBadgeNumbers } from './levels';
 import { positionOf } from './camera';
 import { wireDiceSounds } from '../sound/diceSounds';
+import { boardHeard } from '../sound/boardHeard';
 import { doorChanges, RecentDrops, remoteMoves, sceneKey } from '../sound/miniSounds';
 import { currentEntries, turnAnnouncement } from './initiative';
 import { BoardChanges } from '../sound/boardChanges';
@@ -334,6 +335,8 @@ export interface BoardHost {
   sounds?(): SoundEngine | null;
   /** A Connect player's board: whether the player may drag this token now (one the GM lets them control). */
   canMove?(tokenId: string): boolean;
+  /** A Connect player's board: whether this player controls the token, paused or not (their own turn's horn is full). */
+  controls?(tokenId: string): boolean;
   /** The GM's board: whether a Connect player controls this token (a monster's turn has none, and its horn is full). */
   controlledByPlayers?(tokenId: string): boolean;
   /** A Connect player's board: the token under the pointer (null for none), the pointer in client pixels, Ctrl/Cmd down. */
@@ -2964,7 +2967,7 @@ export class Board {
 
   /** The turn horn: full for a turn this board's player owns, for a monster's turn on the GM's board, or while the player window shows; quiet otherwise. */
   private horn(tokens: readonly string[]): void {
-    const mine = tokens.some((id) => this.host.canMove?.(id) === true);
+    const mine = tokens.some((id) => this.host.controls?.(id) === true);
     const monster = this.audience === 'gm' && !tokens.some((id) => this.host.controlledByPlayers?.(id) === true);
     const table = this.audience === 'gm' && this.player !== null;
     this.sound('turn.horn', { gain: mine || monster || table ? 1 : 0.35 });
@@ -2986,11 +2989,13 @@ export class Board {
     if (this.press?.kind === 'token') for (const id of [this.press.id, ...(this.press.members?.keys() ?? [])]) ignore.add(id);
     const moved = remoteMoves(was, now, this.map?.grid.size ?? 50, ignore);
     const delays = staggerOffsets(moved.length);
+    const heard = this.heard();
     moved.forEach((id, index) => {
       const entry = this.tokens.get(id);
       const from = was.get(id);
       if (!entry || !from) return;
-      entry.gliding = true;
+      // Owed only while the board is heard: a move synced to a hidden window is not put down in a burst when it is shown.
+      entry.gliding = heard;
       entry.glideDelay = delays[index];
       if (this.heardToken(entry.token, from)) this.sound('mini.pickup', { at: { x: from.x, y: this.standAt({ at: from }), z: from.y }, delayMs: delays[index] });
     });
@@ -4369,6 +4374,8 @@ export class Board {
     resize.observe(container);
     renderer.setSize(Math.max(1, container.clientWidth), Math.max(1, container.clientHeight), false);
     this.player = { container, canvas, renderer, view, resize, frozen: null, shadowsDirty: true, blind: false, tilt: null };
+    doc.addEventListener('visibilitychange', this.playersVisibility);
+    this.reissueLoops();
     this.toolbar.refresh();
     this.wake(true);
   }
@@ -4378,6 +4385,8 @@ export class Board {
     const player = this.player;
     if (!player) return;
     this.player = null;
+    player.container.ownerDocument.removeEventListener('visibilitychange', this.playersVisibility);
+    if (!this.disposed) this.reissueLoops();
     player.resize.disconnect();
     player.tilt?.dispose();
     player.renderer.dispose();
@@ -4427,10 +4436,22 @@ export class Board {
     this.onScreen = this.container.isConnected && this.container.getClientRects().length > 0;
   }
 
-  /** Plays a board sound; nothing happens when the host gives no engine (the local player window, a window without audio) or the board is not on screen. */
+  /**
+   * Whether this board is heard now: on screen in a shown window, or driving the local players' window while that is in
+   * view (the table hears the GM's machine). The windows' visibility is read live, so a hidden one counts at once.
+   */
+  private heard(): boolean {
+    const players = this.player?.container?.ownerDocument ?? null;
+    return boardHeard({ onScreen: this.onScreen, hidden: this.container.ownerDocument.hidden }, players ? { hidden: players.hidden } : null);
+  }
+
+  /** The rule handed to the engine with each sound and loop, so it asks this board, not only its own window. */
+  private readonly heardRule = (): boolean => this.heard();
+
+  /** Plays a board sound; nothing happens when the host gives no engine (the local player window, a window without audio) or nobody sees the board. */
   sound(id: SoundId, options?: PlayOptions): void {
-    if (!this.onScreen) return;
-    this.host.sounds?.()?.play(id, options);
+    if (!this.heard()) return;
+    this.host.sounds?.()?.play(id, options, this.heardRule);
   }
 
   /** The loops the board wants, by key, whether or not it is on screen to play them. */
@@ -4448,17 +4469,42 @@ export class Board {
     else this.loopsAsked.set(key, { id, gain });
     const engine = this.host.sounds?.() ?? null;
     if (engine) this.loopEngine = engine;
-    engine?.loop(this.loopPrefix + key, id !== null && !this.onScreen ? null : id, gain);
+    engine?.loop(this.loopPrefix + key, id !== null && !this.loopsWanted() ? null : id, gain, this.heardRule);
+  }
+
+  /** Whether the loops are kept going: the board is on screen, or the players' window it drives is open (a hidden window's are eased silent by the engine, by `heard`). */
+  private loopsWanted(): boolean {
+    return this.onScreen || this.player !== null;
   }
 
   /** The loops go quiet when the board's tab goes behind another, and come back (eased in by the engine) when it is in front again. */
   private syncLoopsToScreen(): void {
-    const heard = this.onScreen;
-    if (heard === this.loopsHeard) return;
-    this.loopsHeard = heard;
-    const engine = this.host.sounds?.();
+    if (this.loopsWanted() !== this.loopsHeard) this.reissueLoops();
+  }
+
+  /** Hands every loop the board wants to the engine again: stopped or kept as `loopsWanted` says, and eased by `heard`. */
+  private reissueLoops(): void {
+    const wanted = this.loopsWanted();
+    this.loopsHeard = wanted;
+    const engine = this.host.sounds?.() ?? null;
     if (!engine) return;
-    for (const [key, ask] of this.loopsAsked) engine.loop(this.loopPrefix + key, heard ? ask.id : null, ask.gain);
+    this.loopEngine = engine;
+    for (const [key, ask] of this.loopsAsked) engine.loop(this.loopPrefix + key, wanted ? ask.id : null, ask.gain, this.heardRule);
+  }
+
+  /** The players' window was shown or hidden: no frame may come to tell the engine (both windows hidden), so the loops are eased now. */
+  private readonly playersVisibility = (): void => this.reissueLoops();
+
+  /**
+   * The host's engine is another one (the tab moved to another window): this board's loops stop on the old engine and
+   * start on the new, and the new one is told where the camera is on the next frame.
+   */
+  soundEngineChanged(): void {
+    for (const key of this.loopsAsked.keys()) this.loopEngine?.loop(this.loopPrefix + key, null, 0);
+    this.loopEngine = null;
+    this.listened = { x: NaN, y: NaN, z: NaN, yaw: NaN, pitch: NaN, distance: NaN };
+    this.reissueLoops();
+    this.wake();
   }
 
   /** Whether the players' camera is frozen where the GM froze it. */
@@ -5509,8 +5555,12 @@ export class Board {
     return true;
   }
 
-  /** The scene's spells, from Connect: each drawn in its caster's colour, what it hits outlined; and the GM's asks. */
-  receiveSpells(list: readonly unknown[], asks: readonly unknown[] = []): void {
+  /**
+   * The scene's spells, from Connect: each drawn in its caster's colour, what it hits outlined; and the GM's asks.
+   * `scene` is the scene the list is for (Connect's scene id on a player's board, the map's path on the GM's): its
+   * first list only seeds what stands there, whether or not the board has loaded that scene's map yet.
+   */
+  receiveSpells(scene: string, list: readonly unknown[], asks: readonly unknown[] = []): void {
     if (this.audience === 'player') {
       const requests = readSpellRequests(asks).filter((request) => this.tokens.has(request.tokenId));
       if (requests.length > 0 || this.caster) {
@@ -5519,7 +5569,7 @@ export class Board {
       }
     }
     this.castSpells = readCastSpells(list);
-    this.noteCasts();
+    this.noteCasts(scene);
     this.timeInstantaneous();
     this.drawSpells();
     if (this.audience === 'gm') this.landSpells();
@@ -5531,7 +5581,6 @@ export class Board {
   private drawSpells(): void {
     const walls = this.map?.walls ?? [];
     const wanted = new Set<string>();
-    this.syncCastScene();
     const announced = this.newCasts;
     for (const cast of this.castSpells) {
       wanted.add(cast.id);
@@ -5563,9 +5612,8 @@ export class Board {
     this.applyRules();
   }
 
-  /** Forgets what was seen of the spells when another scene (or level) is shown: its first list only seeds them. */
-  private syncCastScene(): void {
-    const scene = this.map ? sceneKey(this.map) : '';
+  /** Forgets what was seen of the spells when a list for another scene comes: its first list only seeds them. The map catching up later forgets nothing. */
+  private syncCastScene(scene: string): void {
     if (scene === this.castScene) return;
     this.castScene = scene;
     this.announcedCasts = null;
@@ -5577,8 +5625,8 @@ export class Board {
    * Notes the casts a spell list brings. The first list a scene gets, whenever it arrives, only seeds what is seen: its
    * spells are already standing, whole and silent. Each list after announces the ids new to it.
    */
-  private noteCasts(): void {
-    this.syncCastScene();
+  private noteCasts(scene: string): void {
+    this.syncCastScene(scene);
     const ids = this.castSpells.map((cast) => cast.id);
     this.newCasts = new Set(castsToAnnounce(this.announcedCasts ?? new Set(), this.announcedCasts === null, ids));
     this.announcedCasts = new Set(ids);
@@ -5607,8 +5655,11 @@ export class Board {
   private updateSpellLoops(): void {
     const cell = this.map?.grid.size ?? 50;
     const pose = this.camera.pose;
+    // Only the shown scene's spells loop: none from the last scene's list while the new one has not come, nor from a new
+    // scene's list while its map is still loading.
+    const shown = this.map !== null && this.castScene === this.map.path;
     const lasting = this.castSpells
-      .filter((cast) => !isInstantaneous(cast) && this.spellViews.has(cast.id) && !this.spellHidden(cast.spell))
+      .filter((cast) => shown && !isInstantaneous(cast) && this.spellViews.has(cast.id) && !this.spellHidden(cast.spell))
       .map((cast) => ({ id: cast.id, effect: cast.spell.effect ?? null, at: this.spellSpot(cast.spell), lasting: true }));
     const gains = spellLoopGains(lasting, { eye: positionOf(pose), target: { ...pose.target } }, 6 * cell);
     const wanted = new Map([...gains].map(([id, gain]) => [`spell:${id.replace('spell.loop.', '')}`, { id, gain }]));

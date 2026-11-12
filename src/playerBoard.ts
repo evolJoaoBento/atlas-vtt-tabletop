@@ -322,7 +322,7 @@ class PlayerBoard implements PlayerBoardHandle {
   readonly spells = true as const;
   receiveSpells(sceneId: string, spells: readonly unknown[], asks: readonly unknown[] = []): void {
     if (sceneId !== this.scene?.sceneId) return;
-    this.board.receiveSpells(spells, asks);
+    this.board.receiveSpells(sceneId, spells, asks);
   }
 
   receivePing(ping: unknown): void {
@@ -480,6 +480,7 @@ class PlayerBoard implements PlayerBoardHandle {
       rules: () => this.shown!.rules,
       moveToken: (id, x, y) => { this.host.sendMove(id, x, y); },
       canMove: (id) => this.connected && !this.paused && this.controlled.has(id),
+      controls: (id) => this.controlled.has(id),
       openNote: (pinId) => this.host.openPin(pinId),
       hoverToken: (id, client, modifier) => this.host.hover(id, client, modifier),
       playerAction: (action) => {

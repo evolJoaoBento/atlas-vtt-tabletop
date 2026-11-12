@@ -300,10 +300,15 @@ export class BoardView extends ItemView {
     const win = this.contentEl.ownerDocument.defaultView;
     if (!win) return null;
     if (this.sound?.win !== win) {
-      this.releaseSound();
+      const old = this.sound;
       const engine = SoundEngine.shared(win, loadSound);
       engine?.configure(this.services.soundSettings());
       this.sound = { win, engine };
+      // The tab moved to another window: the board moves its loops and its listener to the new engine, before the old is let go.
+      if (old) {
+        this.board?.soundEngineChanged();
+        old.engine?.dispose();
+      }
     }
     return this.sound.engine;
   }
@@ -895,7 +900,7 @@ export class BoardView extends ItemView {
     if (!session?.hosting()) {
       board.receiveTemplates([]);
       // Not hosting: the GM's own spells, kept here alone.
-      board.receiveSpells(this.localSpells.filter((cast) => cast.path === path).map(({ path: _path, ...cast }) => cast));
+      board.receiveSpells(path, this.localSpells.filter((cast) => cast.path === path).map(({ path: _path, ...cast }) => cast));
       board.setHandout(null);
       board.setBanner(null);
       board.refreshToolbar();
@@ -904,7 +909,7 @@ export class BoardView extends ItemView {
     const overlay = session.overlay(path);
     board.tools.coneAngle = overlay.coneAngle;
     board.receiveTemplates(overlay.templates);
-    board.receiveSpells(overlay.spells ?? []);
+    board.receiveSpells(path, overlay.spells ?? []);
     const handout = overlay.handout;
     const file = handout ? this.app.vault.getAbstractFileByPath(handout.path) : null;
     board.setHandout(handout ? { title: handout.title, url: file instanceof TFile ? this.app.vault.getResourcePath(file) : null } : null);

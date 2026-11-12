@@ -294,8 +294,12 @@ async function main(): Promise<void> {
     loopKeys: [] as string[],
     /** A closed tab's host gives no engine any more. */
     gone: false,
+    /** Another window's engine, once the tab has moved there: the host gives it instead of this one. */
+    other: null as unknown,
     listeners: [] as Array<{ listener: unknown; span: number }>,
-    play(id: string, options?: unknown) { this.plays.push([id, options]); },
+    /** What the board's own rule for being heard said as each sound was asked (null: no rule given). */
+    heards: [] as Array<boolean | null>,
+    play(id: string, options?: unknown, heard?: () => boolean) { this.plays.push([id, options]); this.heards.push(heard ? heard() : null); },
     loop(key: string, id: string | null, gain: number) { this.loopKeys.push(key); this.loops.push([key.replace(/^board\d+:/, ''), id, gain]); },
     setListener(listener: unknown, span: number) { this.listeners.push({ listener, span }); },
   };
@@ -459,7 +463,7 @@ async function main(): Promise<void> {
     lightHeight: (light) => lightHeights.get(light.id) ?? 1,
     lightMenu: (id) => { record.lightMenus.push(id); },
     hosting: () => hosting,
-    sounds: () => (sounds.gone ? null : (sounds as unknown as SoundEngine)),
+    sounds: () => (sounds.gone ? null : ((sounds.other ?? sounds) as unknown as SoundEngine)),
     playerAction: (action) => { record.toolActions.push(JSON.parse(JSON.stringify(action))); },
   };
   const container = document.getElementById('board')!;
@@ -663,7 +667,7 @@ async function main(): Promise<void> {
   const palette = new PaletteWindow(container, lootApp as never, paletteHost);
   // Atlas's own Ctrl-hover window, as BoardView routes it: its dice links throw the board's dice for the hovered hero.
   routeAtlasWindowRolls(document, (formula, label, side) => boardDice.cardRoll('hero', formula, label, side));
-  Object.assign(window, { boardTest: { sounds, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, spawned, palette, paletteCalls, ready: true } });
+  Object.assign(window, { boardTest: { Board, host, sounds, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, spawned, palette, paletteCalls, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });
