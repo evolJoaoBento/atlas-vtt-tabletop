@@ -66,7 +66,8 @@ import { SpellCaster } from './spellCaster';
 import { SpellPicker, type SpellBook } from './spellPicker';
 import { SpellGizmo } from './spellGizmo';
 import { boxPoints, isInstantaneous, readCastSpells, type DamageType, readSpellRequests, spellHits, spellUnder, type CastSpell, type Spell, type SpellAsk, type SpellTarget, spellLabel } from './spells';
-import { SpellView } from './spellView';
+import { GROW_MS, SpellView } from './spellView';
+import { castsToAnnounce, spellImpactSound, spellLoopGains } from '../sound/spellSounds';
 import { hitAura, type SpellEffect } from './spellEffects';
 import { inDifficultSpell, pushTo, slide, spellFootprint, spellRuleLights, spellRuleWalls, type SpellRules } from './spellRules';
 import { SpellRulePanel } from './spellRulePanel';
@@ -544,6 +545,13 @@ export class Board {
   private spellTimer = 0;
   /** The map the spells were last drawn for (their cut by the walls is redone on another). */
   private spellMap: BoardMap | null = null;
+  /** The casts this board has seen on the scene it shows (their sound is made once), and which scene that is. */
+  private announcedCasts = new Set<string>();
+  private castScene: string | null = null;
+  /** Casts growing into place, from when (the page's clock, seconds). */
+  private growingSpells = new Map<string, number>();
+  /** The spell loops playing, by key, with the sound and gain last asked of the engine. */
+  private spellLoops = new Map<string, { id: SoundId; gain: number }>();
   /** The mouse held for the eyes (pointer lock), and whether the board let go of it itself. */
   private pointerLocked = false;
   private lockReleasing = false;
@@ -5419,7 +5427,7 @@ export class Board {
       this.spellPreview?.view.dispose();
       this.spellPreview = null;
       if (spell) {
-        const view = new SpellView(spell, this.host.ownColor?.() ?? '#7c5cff', this.map?.walls ?? [], 0.45, this.map?.grid.size ?? 50);
+        const view = new SpellView(spell, this.host.ownColor?.() ?? '#7c5cff', this.map?.walls ?? [], 0.45, this.map?.grid.size ?? 50, { plain: true });
         view.setRules(rules);
         this.spellPreviewRules = rulesKey;
         this.scene.add(view.object3d);
@@ -5466,6 +5474,13 @@ export class Board {
   private drawSpells(): void {
     const walls = this.map?.walls ?? [];
     const wanted = new Set<string>();
+    // A scene (or level) shown for the first time has its spells already standing: whole, and silent.
+    const scene = this.map ? sceneKey(this.map) : '';
+    const firstLoad = scene !== this.castScene;
+    if (firstLoad) { this.announcedCasts.clear(); this.growingSpells.clear(); }
+    this.castScene = scene;
+    const announced = new Set(castsToAnnounce(this.announcedCasts, firstLoad, this.castSpells.map((cast) => cast.id)));
+    this.announcedCasts = new Set(this.castSpells.map((cast) => cast.id));
     for (const cast of this.castSpells) {
       wanted.add(cast.id);
       const key = JSON.stringify([cast.spell, cast.color, cast.rules ?? null]);
@@ -5474,9 +5489,18 @@ export class Board {
       kept?.view.dispose();
       const view = new SpellView(cast.spell, cast.color, walls, 0.4, this.map?.grid.size ?? 50);
       view.setRules(cast.rules);
+      if (announced.has(cast.id)) {
+        // Newly cast: it grows into place, with its damage's sound where it stands (not when it is out of sight).
+        view.grow(0);
+        this.growingSpells.set(cast.id, this.spellClock());
+        if (!this.spellHidden(cast.spell)) this.sound(spellImpactSound(cast.spell.effect), { at: this.spellSpot(cast.spell) });
+        this.wake();
+      } else if (!this.growingSpells.has(cast.id)) view.grow(1);
+      else view.grow(Math.min(1, (this.spellClock() - this.growingSpells.get(cast.id)!) * 1000 / GROW_MS));
       this.scene.add(view.object3d);
       this.spellViews.set(cast.id, { key, view, instant: isInstantaneous(cast) });
     }
+    for (const id of [...this.growingSpells.keys()]) if (!wanted.has(id)) this.growingSpells.delete(id);
     for (const [id, kept] of this.spellViews) {
       if (wanted.has(id)) continue;
       this.spellViews.delete(id);
@@ -5484,6 +5508,47 @@ export class Board {
       if (kept.instant && this.spellMap === this.map) { this.fadingSpells.push({ view: kept.view, start: this.spellClock() }); this.wake(); } else kept.view.dispose();
     }
     this.applyRules();
+  }
+
+  /** Where a spell is heard: the middle of a wall, else its anchor (board space, y up). */
+  private spellSpot(spell: Spell): { x: number; y: number; z: number } {
+    const to = spell.to;
+    return { x: to ? (spell.at.x + to.x) / 2 : spell.at.x, y: spell.at.h + (spell.shape === 'wall' ? spell.length / 2 : 0), z: to ? (spell.at.y + to.y) / 2 : spell.at.y };
+  }
+
+  /**
+   * Whether this board does not show a spell's anchor: on a player's board, under the fog or on a square nobody in
+   * sight sees. (The spell's drawing is not cut by the fog, but its sound is not heard from there.)
+   */
+  private spellHidden(spell: Spell): boolean {
+    if (this.audience !== 'player') return false;
+    const spot = this.spellSpot(spell);
+    return insideFog(this.fog.areas, { x: spot.x, y: spot.z }) || this.pointBeyond('player', spot.x, spot.z);
+  }
+
+  /**
+   * Keeps one loop per damage type going for the lasting spells seen on the board, at the loudest level any of them is
+   * heard from the camera (reach: six cells); a type with none left is stopped.
+   */
+  private updateSpellLoops(): void {
+    const cell = this.map?.grid.size ?? 50;
+    const pose = this.camera.pose;
+    const lasting = this.castSpells
+      .filter((cast) => !isInstantaneous(cast) && this.spellViews.has(cast.id) && !this.spellHidden(cast.spell))
+      .map((cast) => ({ id: cast.id, effect: cast.spell.effect ?? null, at: this.spellSpot(cast.spell), lasting: true }));
+    const gains = spellLoopGains(lasting, { eye: positionOf(pose), target: { ...pose.target } }, 6 * cell);
+    const wanted = new Map([...gains].map(([id, gain]) => [`spell:${id.replace('spell.loop.', '')}`, { id, gain }]));
+    for (const key of [...this.spellLoops.keys()]) {
+      if (wanted.has(key)) continue;
+      this.spellLoops.delete(key);
+      this.soundLoop(key, null, 0);
+    }
+    for (const [key, next] of wanted) {
+      const kept = this.spellLoops.get(key);
+      if (kept && kept.id === next.id && Math.abs(kept.gain - next.gain) < 0.005) continue;
+      this.spellLoops.set(key, next);
+      this.soundLoop(key, next.id, next.gain);
+    }
   }
 
   /** The page's clock, seconds (what spells are animated by). */
@@ -5722,9 +5787,15 @@ export class Board {
     if (this.impacts.active) { this.impacts.step(); this.wake(); }
     const views = [...[...this.spellViews.values()].map((kept) => kept.view), ...(this.spellPreview ? [this.spellPreview.view] : [])];
     const moving = views.filter((view) => view.animated);
-    if (moving.length === 0 && this.spellAuras.size === 0 && this.fadingSpells.length === 0) return;
+    if (moving.length === 0 && this.spellAuras.size === 0 && this.fadingSpells.length === 0 && this.growingSpells.size === 0) return;
     const time = this.spellClock();
     const height = this.renderer.domElement.height;
+    // Casts grow into place by the clock, however many frames that takes.
+    for (const [id, start] of [...this.growingSpells]) {
+      const progress = (time - start) * 1000 / GROW_MS;
+      this.spellViews.get(id)?.view.grow(Math.min(1, progress));
+      if (progress >= 1) this.growingSpells.delete(id);
+    }
     for (const view of moving) view.tick(time, height);
     this.fadingSpells = this.fadingSpells.filter((fading) => {
       const left = 1 - (time - fading.start) / INSTANT_FADE_SECONDS;
@@ -5753,6 +5824,7 @@ export class Board {
       this.fadingSpells = [];
       this.drawSpells();
     }
+    this.updateSpellLoops();
     if (this.eye) this.caster?.frame();
     this.animateSpells();
     const adjusting = this.caster?.adjusting;
@@ -6270,6 +6342,8 @@ export class Board {
     this.caster?.dispose();
     this.spellGizmo?.dispose();
     this.spellPreview?.view.dispose();
+    for (const key of this.spellLoops.keys()) this.soundLoop(key, null, 0);
+    this.spellLoops.clear();
     for (const kept of this.spellViews.values()) kept.view.dispose();
     for (const fading of this.fadingSpells) fading.view.dispose();
     this.fadingSpells = [];

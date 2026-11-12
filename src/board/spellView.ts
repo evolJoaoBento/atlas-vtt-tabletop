@@ -5,7 +5,8 @@
  */
 import * as THREE from 'three';
 import { visibilityPolygon } from './lineOfSight';
-import { clipped, reachOf, turnOf, type Spell } from './spells';
+import { smoother } from './camera';
+import { clipped, reachOf, turnOf, type Spell, type SpellShape } from './spells';
 import { DAMAGE_COLORS, SpellEffect } from './spellEffects';
 import type { BoardWall } from './walls';
 import type { SpellRules, WallLook } from './spellRules';
@@ -76,6 +77,28 @@ function geometryOf(spell: Spell): THREE.BufferGeometry {
   }
 }
 
+/** Where a shape grows from as it is cast: its centre, its base (a cylinder's, a wall's foot), or its tip (a cone's). */
+export type SpellAnchor = 'centre' | 'base' | 'tip';
+
+/** How long a cast takes to grow into place, ms. */
+export const GROW_MS = 500;
+
+export function anchorFor(shape: SpellShape): SpellAnchor {
+  return shape === 'cone' ? 'tip' : shape === 'cylinder' || shape === 'wall' ? 'base' : 'centre';
+}
+
+/**
+ * The scale a shape has `progress` (0 to 1) of the way through growing into place, eased. A sphere and a cube grow
+ * all round from their centre. Any other shape grows along its own axis (`y` here, whatever that is in space: a
+ * cylinder's length, a wall's height, a cone's length) and keeps its width, from its base or tip. `lift` is how far its
+ * centre moves to keep that end where it is, in half the shape's extent along the axis (never above 0).
+ */
+export function growScale(shape: SpellShape, progress: number): { x: number; y: number; z: number; lift: number } {
+  const k = smoother(progress);
+  if (anchorFor(shape) === 'centre') return { x: k, y: k, z: k, lift: 0 };
+  return { x: 1, y: k, z: 1, lift: k - 1 };
+}
+
 export class SpellView {
   readonly object3d = new THREE.Group();
   private readonly mesh: THREE.Mesh;
@@ -89,7 +112,7 @@ export class SpellView {
 
   get spell(): Spell { return this.current; }
 
-  constructor(spell: Spell, color: string, walls: readonly BoardWall[], opacity = 0.5, cell = 50) {
+  constructor(spell: Spell, color: string, walls: readonly BoardWall[], opacity = 0.5, cell = 50, options: { plain?: boolean } = {}) {
     // With a damage, the shape takes the damage's colours, its caster's at its very edge, and fainter, for what is in it.
     this.current = spell;
     const damage = spell.effect ? DAMAGE_COLORS[spell.effect] : null;
@@ -125,10 +148,57 @@ export class SpellView {
     this.object3d.userData.spell = true;
     this.stand(spell);
     if (clipped(spell)) this.clip(walls);
-    if (spell.effect) {
+    if (spell.effect && !options.plain) {
       const { mask, maskBox, useMask } = this.material.uniforms;
       this.effect = new SpellEffect(spell.effect, spell, cell, this.object3d.quaternion, { mask: mask!, maskBox: maskBox!, useMask: useMask! });
       this.object3d.add(this.effect.object3d);
+    }
+  }
+
+  /** Where it grows from when cast. */
+  get anchorOf(): SpellAnchor {
+    return anchorFor(this.current.shape);
+  }
+
+  /** How far grown it is (1: whole). */
+  private grown = 1;
+
+  /** Shows it `progress` (0 to 1) of the way grown into place, its damage's look fading in with it. */
+  grow(progress: number): void {
+    this.grown = Math.max(0, Math.min(1, progress));
+    this.placeGrown(this.mesh);
+    if (this.solid) this.placeGrown(this.solid);
+    this.effect?.fade(this.grown);
+  }
+
+  /** Scales and moves `part` (the shape's geometry) for how far grown it is. */
+  private placeGrown(part: THREE.Mesh): void {
+    const spell = this.current;
+    const scale = growScale(spell.shape, this.grown);
+    part.position.set(0, 0, 0);
+    switch (spell.shape) {
+      case 'sphere':
+      case 'cube':
+        part.scale.set(scale.x, scale.y, scale.z);
+        break;
+      case 'wall':
+        // The box's height is its y, centred; its foot stays down.
+        part.scale.set(1, Math.max(1e-4, scale.y), 1);
+        part.position.y = scale.lift * spell.length / 2;
+        break;
+      case 'cylinder': {
+        // Its axis along z, its base the +z end; cast from the caster it lies from 0 back to -length.
+        const half = spell.length / 2;
+        part.scale.set(1, 1, Math.max(1e-4, scale.y));
+        part.position.z = (spell.from === 'self' ? 0 : half) * (1 - scale.y);
+        break;
+      }
+      case 'cone': {
+        // Its tip the +z end; cast from the caster it lies from 0 back to -size.
+        part.scale.set(1, 1, Math.max(1e-4, scale.y));
+        part.position.z = (spell.from === 'self' ? 0 : spell.size / 2) * (1 - scale.y);
+        break;
+      }
     }
   }
 
@@ -248,6 +318,7 @@ export class SpellView {
       this.solid.raycast = () => {};
       this.object3d.add(this.solid);
       this.mesh.visible = false;
+      if (this.grown < 1) this.placeGrown(this.solid);
     }
     const uniforms = this.material.uniforms;
     // Its own look first (the rules may have changed while it was aimed), then theirs over it.

@@ -2684,7 +2684,7 @@ feature('spell rules cast', async ({ page, shot }) => {
       const view = window.boardTest.board.spellPreview?.view;
       let solid = false;
       view?.object3d.traverse((node) => { if (node.isMesh && node.material && node.material.isMeshStandardMaterial) solid = true; });
-      return { drawn: !!view, solid, color: view ? '#' + view.material.uniforms.color.value.getHexString() : null, shape: view?.spell.shape };
+      return { drawn: !!view, animated: view?.animated, solid, color: view ? '#' + view.material.uniforms.color.value.getHexString() : null, shape: view?.spell.shape };
     });
     // Placed (a wall at both ends, turning the view between), then cast.
     for (let k = 0; k < 4; k++) {
@@ -2705,9 +2705,9 @@ feature('spell rules cast', async ({ page, shot }) => {
     return { effects, sent, aimed, standing };
   };
   const fog = await castOne('fog cloud');
-  check('spell rules cast: a note with rules shows them under Effects, its drawing shows them while aimed, the cast sends them and the board stands them', /obscures/.test(fog.effects ?? '') && fog.aimed.color === '#c9ced4' && fog.sent?.change?.rules?.obscure === true && fog.sent.change.name === 'Fog Cloud' && fog.standing.sightOnly > 0, JSON.stringify({ ...fog, sent: fog.sent?.change?.rules }));
+  check('spell rules cast: a note with rules shows them under Effects, its drawing shows them while aimed, the cast sends them and the board stands them', /obscures/.test(fog.effects ?? '') && fog.aimed.animated === false && fog.aimed.color === '#c9ced4' && fog.sent?.change?.rules?.obscure === true && fog.sent.change.name === 'Fog Cloud' && fog.standing.sightOnly > 0, JSON.stringify({ ...fog, sent: fog.sent?.change?.rules }));
   const wall = await castOne('wall of stone');
-  check('spell rules cast: Wall of Stone is a wall, aimed solid stone, cast as one, standing as a wall', wall.aimed.shape === 'wall' && wall.aimed.solid && wall.sent?.change?.add?.shape === 'wall' && wall.sent.change.rules?.wall?.look === 'stone' && wall.standing.walls === 1, JSON.stringify({ aimed: wall.aimed, rules: wall.sent?.change?.rules, shape: wall.sent?.change?.add?.shape, standing: wall.standing }));
+  check('spell rules cast: Wall of Stone is a wall, aimed solid stone, cast as one, standing as a wall', wall.aimed.animated === false && wall.aimed.shape === 'wall' && wall.aimed.solid && wall.sent?.change?.add?.shape === 'wall' && wall.sent.change.rules?.wall?.look === 'stone' && wall.standing.walls === 1, JSON.stringify({ aimed: wall.aimed, rules: wall.sent?.change?.rules, shape: wall.sent?.change?.add?.shape, standing: wall.standing }));
   await page.evaluate(() => window.boardTest.setSpellNotes(null));
 });
 
@@ -2728,6 +2728,7 @@ feature('spell search', async ({ page, shot }) => {
       size: element.querySelector('[data-spell-field="size"]')?.value ?? null,
       effect: element.querySelector('[data-spell-field="effect"]')?.value ?? null,
       preview: !!window.boardTest.board.spellPreview,
+      animated: window.boardTest.board.spellPreview?.view.animated,
     };
   });
   const pick = (name, source) => page.evaluate(({ name, source }) => {
@@ -2779,9 +2780,9 @@ feature('spell search', async ({ page, shot }) => {
     const { board } = window.boardTest;
     const card = board.container.querySelector('.atlas-tabletop-spellcard');
     const bar = board.container.querySelector('.atlas-tabletop-spellbar');
-    return { stage: bar?.dataset.stage, card: card && !card.hidden ? card.textContent : null, picker: !!board.container.querySelector('.atlas-tabletop-spellpicker'), text: bar?.querySelector('.atlas-tabletop-spellbar__text')?.textContent ?? '', preview: !!board.spellPreview };
+    return { stage: bar?.dataset.stage, card: card && !card.hidden ? card.textContent : null, picker: !!board.container.querySelector('.atlas-tabletop-spellpicker'), text: bar?.querySelector('.atlas-tabletop-spellbar__text')?.textContent ?? '', preview: !!board.spellPreview, animated: board.spellPreview?.view.animated };
   });
-  check('spell search: Aim aims it and draws it, the spell\'s words open over the view', aiming.stage === 'aim' && aiming.preview && !aiming.picker && /Fireball/.test(aiming.card ?? '') && /8d6/.test(aiming.card ?? '') && /^Fireball/.test(aiming.text), JSON.stringify(aiming));
+  check('spell search: Aim aims it and draws it, the spell\'s words open over the view', aiming.stage === 'aim' && aiming.preview && aiming.animated === false && !aiming.picker && /Fireball/.test(aiming.card ?? '') && /8d6/.test(aiming.card ?? '') && /^Fireball/.test(aiming.text), JSON.stringify(aiming));
   await shot('spell-aim-card');
   const folded = await page.evaluate(() => {
     const { board } = window.boardTest;
@@ -2806,7 +2807,7 @@ feature('spell search', async ({ page, shot }) => {
   await pick('Cone of Cold', 'SRD 2014');
   await wait(400);
   const panel = await picker();
-  check('spell ask: the panel finds the spell and draws it at the token', sent && panel.title.startsWith('Ask') && panel.shape === 'cone' && panel.effect === 'cold' && panel.preview, JSON.stringify(panel));
+  check('spell ask: the panel finds the spell and draws it at the token', sent && panel.title.startsWith('Ask') && panel.shape === 'cone' && panel.effect === 'cold' && panel.preview && panel.animated === false, JSON.stringify(panel));
   await shot('spell-ask-panel');
   await button('Send to the player');
   await wait(100);
@@ -2824,6 +2825,113 @@ feature('spell search', async ({ page, shot }) => {
   await page.evaluate(() => window.boardTest.board.container.querySelector('.atlas-tabletop-spellpicker__close').click());
   await page.evaluate(() => window.boardTest.setSpellNotes(null));
   await wait(200);
+});
+
+// ── Board sounds: a cast grows into place with its impact; lasting spells loop near the camera ──────────────────────
+feature('spell sounds', async ({ page, shot }) => {
+  const heard = () => page.evaluate(() => JSON.parse(JSON.stringify({ plays: window.boardTest.sounds.plays, loops: window.boardTest.sounds.loops })));
+  const clear = () => page.evaluate(() => { window.boardTest.sounds.plays.length = 0; window.boardTest.sounds.loops.length = 0; });
+  const cast = (list) => page.evaluate((list) => {
+    const { board } = window.boardTest;
+    const cell = board.map.grid.size;
+    board.receiveSpells(list.map(([id, x, y, effect, shape, lasting]) => ({
+      id, owner: 'p1', color: '#ff0059',
+      spell: { shape, from: 'point', at: { x, y, h: shape === 'wall' ? 0 : cell * 0.5 }, ...(shape === 'wall' ? { to: { x: x + cell * 3, y } } : {}), yaw: 0, pitch: 0, roll: 0, size: shape === 'wall' ? cell * 0.2 : cell * 0.9, length: shape === 'wall' ? cell * 2 : 0, angle: 0.9, ...(effect ? { effect } : {}) },
+      ...(lasting ? {} : { about: { line: 'Evocation', text: 'x', properties: [['Duration', 'Instantaneous']] } }),
+    })));
+  }, list);
+  const look = (pose) => page.evaluate((pose) => { const { board } = window.boardTest; for (const each of [board.camera.pose, board.camera.goal]) { each.target.x = pose.x; each.target.z = pose.z; each.distance = pose.distance; each.pitch = 0.9; } board.camera.snap(); board.wake(true); }, pose);
+  const scale = (id) => page.evaluate((id) => { const mesh = window.boardTest.board.spellViews.get(id)?.view.mesh; return mesh ? [mesh.scale.x, mesh.scale.y, mesh.scale.z] : null; }, id);
+  const spot = await page.evaluate(() => { const e = window.boardTest.board.tokens.get('hero'); return { x: e.at.x, y: e.at.y, cell: window.boardTest.board.map.grid.size }; });
+  await look({ x: spot.x, z: spot.y, distance: 420 });
+  await wait(500);
+  // Nothing stands on the board yet: that is the scene's first load, silent.
+  await cast([]);
+  await clear();
+  await cast([['f1', spot.x, spot.y, 'fire', 'sphere', false]]);
+  // The scale as frames draw it over the next 700 ms.
+  const samples = await page.evaluate(async () => {
+    const out = [];
+    const t0 = performance.now();
+    while (performance.now() - t0 < 700) { const m = window.boardTest.board.spellViews.get('f1').view.mesh; out.push([Math.round(performance.now() - t0), m.scale.x]); await new Promise((r) => setTimeout(r, 15)); }
+    return out;
+  });
+  const impact = await heard();
+  check('spell sounds: a cast records the impact of its damage type once, where it stands', impact.plays.filter((play) => play[0] === 'spell.impact.fire').length === 1 && !!impact.plays.find((play) => play[0] === 'spell.impact.fire')[1]?.at, JSON.stringify(impact.plays));
+  const during = samples.filter(([, scale]) => scale > 0 && scale < 1);
+  const rising = samples.every(([, scale], k) => k === 0 || scale >= samples[k - 1][1]);
+  check('spell sounds: it grows through sizes between nothing and whole, never shrinking', during.length >= 2 && rising, JSON.stringify(samples));
+  check('spell sounds: it is whole after 600 ms', samples.filter(([at]) => at >= 600).every(([, scale]) => scale === 1), JSON.stringify(samples.slice(-3)));
+  // A frame held half way, for a look.
+  await page.evaluate(() => window.boardTest.board.spellViews.get('f1').view.grow(0.5));
+  await wait(100);
+  await shot('spell-growing');
+  await clear();
+  await cast([['f1', spot.x, spot.y, 'fire', 'sphere', false]]);
+  await wait(200);
+  check('spell sounds: the same spells sent again make no impact', (await heard()).plays.length === 0, JSON.stringify((await heard()).plays));
+  // A wall grows up from its foot: scaled in height, its middle lifted so the foot stays put.
+  await cast([]);
+  await clear();
+  await cast([['w1', spot.x, spot.y, 'fire', 'wall', true]]);
+  await wait(250);
+  const wall = await page.evaluate(() => { const mesh = window.boardTest.board.spellViews.get('w1')?.view.mesh; const length = 2 * window.boardTest.board.map.grid.size; return mesh ? { scaleY: mesh.scale.y, foot: mesh.position.y - mesh.scale.y * length / 2, expected: -length / 2 } : null; });
+  check('spell sounds: a wall grows from its foot (the foot stays where it was)', wall && wall.scaleY > 0 && wall.scaleY < 1 && Math.abs(wall.foot - wall.expected) < 1e-6, JSON.stringify(wall));
+  await wait(500);
+  // Lasting: its loop is heard with the camera near and not with it far.
+  await look({ x: spot.x, z: spot.y, distance: 120 });
+  await wait(300);
+  const near = (await heard()).loops.filter((loop) => loop[0] === 'spell:fire').at(-1);
+  check('spell sounds: a lasting fire wall loops spell.loop.fire with the camera near it', near && near[1] === 'spell.loop.fire' && near[2] > 0.3, JSON.stringify(near));
+  await look({ x: spot.x + 6000, z: spot.y + 6000, distance: 300 });
+  await wait(300);
+  const far = (await heard()).loops.filter((loop) => loop[0] === 'spell:fire').at(-1);
+  check('spell sounds: with the camera far, the loop is silent', far && far[2] < 0.01, JSON.stringify(far));
+  await look({ x: spot.x, z: spot.y, distance: 300 });
+  await cast([['w1', spot.x, spot.y, 'fire', 'wall', true], ['w2', spot.x + spot.cell * 8, spot.y, 'fire', 'wall', true], ['c1', spot.x, spot.y, 'cold', 'sphere', true]]);
+  await wait(300);
+  const keys = [...new Set((await heard()).loops.filter((loop) => loop[0].startsWith('spell:')).map((loop) => loop[0]))].sort();
+  check('spell sounds: one loop per damage type however many spells', JSON.stringify(keys) === JSON.stringify(['spell:cold', 'spell:fire']), JSON.stringify(keys));
+  await cast([['c1', spot.x, spot.y, 'cold', 'sphere', true]]);
+  await wait(300);
+  const stopped = (await heard()).loops.filter((loop) => loop[0] === 'spell:fire').at(-1);
+  check('spell sounds: when the last fire spell is gone its loop is stopped', stopped && stopped[1] === null, JSON.stringify(stopped));
+  // Another scene: spells already standing there make no sound.
+  await cast([]);
+  const quiet = await page.evaluate(async () => {
+    const { board } = window.boardTest;
+    const cell = board.map.grid.size;
+    const at = board.map.tokens[0];
+    window.boardTest.sounds.plays.length = 0;
+    await board.load({ ...board.map, path: 'other-scene.md' });
+    board.receiveSpells([{ id: 'z1', owner: 'p1', color: '#fff', spell: { shape: 'sphere', from: 'point', at: { x: at.x, y: at.y, h: cell * 0.5 }, yaw: 0, pitch: 0, roll: 0, size: cell, length: 0, angle: 1, effect: 'fire' } }]);
+    return window.boardTest.sounds.plays.length;
+  });
+  await wait(200);
+  check('spell sounds: spells already on a scene just opened are silent', quiet === 0, JSON.stringify(quiet));
+  // A player's board is silent for a cast under the fog.
+  const fogged = await page.evaluate(() => {
+    const { board, insideFog } = window.boardTest;
+    const cell = board.map.grid.size;
+    for (let x = cell; x < cell * 30; x += cell / 2) for (let y = cell; y < cell * 30; y += cell / 2) if (insideFog(board.fog.areas, { x, y })) return { x, y };
+    return null;
+  });
+  check('spell sounds: the test map has fog to cast under', fogged !== null);
+  if (fogged) {
+    await cast([]);
+    await clear();
+    const result = await page.evaluate((fogged) => {
+      const { board } = window.boardTest;
+      board.audience = 'player';
+      const cell = board.map.grid.size;
+      board.receiveSpells([{ id: 'u1', owner: 'p1', color: '#fff', spell: { shape: 'sphere', from: 'point', at: { x: fogged.x, y: fogged.y, h: cell * 0.5 }, yaw: 0, pitch: 0, roll: 0, size: cell, length: 0, angle: 1, effect: 'fire' } }]);
+      const plays = window.boardTest.sounds.plays.length;
+      board.audience = 'gm';
+      return plays;
+    }, fogged);
+    check('spell sounds: a player\'s board makes no impact for a spell under the fog', result === 0, JSON.stringify(result));
+  }
+  await cast([]);
 });
 
 feature('door flips', async ({ page, shot }) => {
