@@ -292,6 +292,8 @@ async function main(): Promise<void> {
     loops: [] as unknown[][],
     /** The keys as the board gave them (each board's own prefix on them). */
     loopKeys: [] as string[],
+    /** A closed tab's host gives no engine any more. */
+    gone: false,
     listeners: [] as Array<{ listener: unknown; span: number }>,
     play(id: string, options?: unknown) { this.plays.push([id, options]); },
     loop(key: string, id: string | null, gain: number) { this.loopKeys.push(key); this.loops.push([key.replace(/^board\d+:/, ''), id, gain]); },
@@ -457,7 +459,7 @@ async function main(): Promise<void> {
     lightHeight: (light) => lightHeights.get(light.id) ?? 1,
     lightMenu: (id) => { record.lightMenus.push(id); },
     hosting: () => hosting,
-    sounds: () => sounds as unknown as SoundEngine,
+    sounds: () => (sounds.gone ? null : (sounds as unknown as SoundEngine)),
     playerAction: (action) => { record.toolActions.push(JSON.parse(JSON.stringify(action))); },
   };
   const container = document.getElementById('board')!;

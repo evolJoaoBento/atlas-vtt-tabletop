@@ -333,7 +333,7 @@ export class BoardView extends ItemView {
     this.initiative = null;
     this.reload.cancel();
     this.dropBoard();
-    // After the board: its disposal may still stop loops through the engine.
+    // After the board: it stops its own loops on the engine it holds, even though `closed` now keeps `soundEngine()` from handing one out.
     this.releaseSound();
     this.playerWindow?.waiting(true);
     this.playerWindow = null;

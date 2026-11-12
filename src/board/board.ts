@@ -4437,6 +4437,8 @@ export class Board {
   private loopsAsked = new Map<string, { id: SoundId; gain: number }>();
   /** Whether the loops were last handed to the engine as playing. */
   private loopsHeard = true;
+  /** The engine the loops were handed to, kept so they can be stopped when the board goes, after its host has stopped giving the engine out (a closed tab). */
+  private loopEngine: ReturnType<NonNullable<BoardHost['sounds']>> = null;
   /** Makes this board's loop keys its own: boards in one window share an engine, and one going behind a tab must not stop another's loop. */
   private readonly loopPrefix = `board${nextBoardNumber++}:`;
 
@@ -4444,7 +4446,9 @@ export class Board {
   soundLoop(key: string, id: SoundId | null, gain: number): void {
     if (id === null) this.loopsAsked.delete(key);
     else this.loopsAsked.set(key, { id, gain });
-    this.host.sounds?.()?.loop(this.loopPrefix + key, id !== null && !this.onScreen ? null : id, gain);
+    const engine = this.host.sounds?.() ?? null;
+    if (engine) this.loopEngine = engine;
+    engine?.loop(this.loopPrefix + key, id !== null && !this.onScreen ? null : id, gain);
   }
 
   /** The loops go quiet when the board's tab goes behind another, and come back (eased in by the engine) when it is in front again. */
@@ -6458,6 +6462,9 @@ export class Board {
     this.caster?.dispose();
     this.spellGizmo?.dispose();
     this.spellPreview?.view.dispose();
+    // Every loop of this board stops on the engine it shares with other boards (the host may no longer hand it out).
+    for (const key of this.loopsAsked.keys()) this.loopEngine?.loop(this.loopPrefix + key, null, 0);
+    this.loopsAsked.clear();
     for (const key of this.spellLoops.keys()) this.soundLoop(key, null, 0);
     this.spellLoops.clear();
     for (const key of this.waterLoops.keys()) this.soundLoop(key, null, 0);

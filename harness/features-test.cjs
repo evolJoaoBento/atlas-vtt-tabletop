@@ -77,6 +77,13 @@ feature('sound settings', async ({ page, shot }) => {
   await shot('sound-control-short');
 });
 
+// ── Board sounds: a board that closes stops its own loops on the engine it shares, though its host gives no engine now ──
+feature('closed board sounds', async ({ page }) => {
+  await page.evaluate(() => { const { board, sounds } = window.boardTest; board.soundLoop('water', 'water.flow', 0.3); board.soundLoop('dice', 'dice.roll', 0.2); sounds.loops.length = 0; sounds.gone = true; board.dispose(); });
+  const stops = await page.evaluate(() => window.boardTest.sounds.loops.map((loop) => [loop[0], loop[1]]));
+  check('closed board sounds: each loop of the board is stopped on the shared engine', JSON.stringify(stops.filter((loop) => loop[1] === null).map((loop) => loop[0]).sort()) === '["dice","water"]', JSON.stringify(stops));
+});
+
 // ── Board sounds: dice clack per hit (at most 6 in 50 ms), a rolling layer that stops when the dice rest ───────────
 feature('dice sounds', async ({ page, shot }) => {
   await page.evaluate(() => {
