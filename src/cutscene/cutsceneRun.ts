@@ -166,9 +166,8 @@ export class CutsceneRun {
     };
     this.active = a;
     this.host.lendPlayers(true);
-    this.applyBoard();
     // The local players' window fades in as a player's board does: the reveal comes on at its black, with its bars.
-    board.setReveal(false);
+    this.applyBoard(false);
     board.fadePlayers(a.settings.fadeMs, () => { if (this.active === a && this.board === board) board.setReveal(true); });
     this.announce(a);
     this.changed();
@@ -188,8 +187,8 @@ export class CutsceneRun {
 
   // ── The board ────────────────────────────────────────────────────────────
 
-  /** Puts the run's role, driver, bars and reveal on the board at hand. */
-  private applyBoard(): void {
+  /** Puts the run's role, driver, bars and reveal on the board at hand; `reveal` false leaves the reveal off for now (a live run's start, which turns it on at the players' window's black). */
+  private applyBoard(reveal = true): void {
     const a = this.active;
     const board = this.board;
     if (!a || !board) return;
@@ -198,7 +197,7 @@ export class CutsceneRun {
     board.cinema.setBars(a.settings.bars ? a.settings.aspect : null);
     // The local players' window draws as remote players do: everything, whatever the GM's fog and sight hide.
     board.setPlayersCinematic(true);
-    board.setReveal(true);
+    board.setReveal(reveal);
     board.refreshToolbar();
   }
 

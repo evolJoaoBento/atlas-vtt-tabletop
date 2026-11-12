@@ -3999,9 +3999,19 @@ feature('cutscene run live', async ({ page }) => {
   });
   const toggle = page.locator('button[aria-label="Players follow my camera"]');
   check('cutscene live: the toggle shows while a session hosts, not pressed', await toggle.isVisible() && await toggle.getAttribute('aria-pressed') === 'false');
-  await toggle.click();
-  // The players' window fades in as a player's board does: black first, the reveal and its bars at the black, then clear.
-  const enter = await page.evaluate(async () => {
+  // Every reveal change is logged with the time since the toggle was pressed, and the bars the players' window had then.
+  const logReveals = () => page.evaluate(() => {
+    const b = window.boardTest.board;
+    window.reveals = [];
+    window.pressedAt = performance.now();
+    if (!b.loggedReveal) {
+      b.loggedReveal = true;
+      const set = b.setReveal.bind(b);
+      b.setReveal = (on) => { window.reveals.push({ on, at: performance.now() - window.pressedAt }); set(on); };
+    }
+  });
+  // Frames on a software renderer are far apart, so the samples catch the fade somewhere dark, rarely at its black.
+  const sampleFade = () => page.evaluate(async () => {
     const b = window.boardTest.board;
     const samples = [];
     const stop = performance.now() + 2500;
@@ -4009,14 +4019,15 @@ feature('cutscene run live', async ({ page }) => {
       samples.push({ black: b.playerCinema?.black ?? 0, reveal: b.reveal, bars: b.playerCinema?.aspect ?? null, gm: b.cinema.black });
       await new Promise((r) => requestAnimationFrame(r));
     }
-    return samples;
+    return { samples, reveals: window.reveals, overlay: b.playerCinema === null, reveal: b.reveal };
   });
-  const peak = Math.max(...enter.map((s) => s.black));
-  const firstReveal = enter.findIndex((s) => s.reveal);
-  const firstBars = enter.findIndex((s) => s.bars !== null);
-  // Frames on a software renderer are far apart, so the samples catch the fade near its black, not at it.
-  check('cutscene live: the players\' window fades to black and back as the run starts, the GM\'s view never black', peak >= 0.5 && enter.at(-1).black < 0.01 && enter.every((s) => s.gm === 0), JSON.stringify({ peak, last: enter.at(-1) }));
-  check('cutscene live: the reveal and the window\'s bars come on at its black, not before', firstReveal > 0 && firstBars > 0 && enter[firstReveal - 1].black > 0 && enter[firstReveal].black >= 0.5 && enter[firstBars].black >= 0.5 && enter.at(-1).reveal && enter.at(-1).bars === 2.39, JSON.stringify({ firstReveal, firstBars, before: enter[firstReveal - 1], at: enter[firstReveal] }));
+  await logReveals();
+  await toggle.click();
+  // The players' window fades in as a player's board does: black first, the reveal and its bars at the black (600 ms), then clear.
+  const enter = await sampleFade();
+  const on = enter.reveals.filter((r) => r.on);
+  check('cutscene live: the players\' window fades to black and back as the run starts, the GM\'s view never black', Math.max(...enter.samples.map((s) => s.black)) > 0.1 && enter.samples.at(-1).black < 0.01 && enter.samples.every((s) => s.gm === 0), JSON.stringify({ samples: enter.samples.map((s) => s.black.toFixed(2)) }));
+  check('cutscene live: the reveal and the window\'s bars come on at its black, not before', on.length === 1 && on[0].at >= 600 && enter.samples.every((s) => (s.bars !== null) === s.reveal) && enter.samples.at(-1).reveal && enter.samples.at(-1).bars === 2.39, JSON.stringify({ reveals: enter.reveals, samples: enter.samples.map((s) => [s.reveal, s.bars]) }));
   const live = await page.evaluate(() => window.boardTest.api.cutscene.current());
   check('cutscene live: it publishes a live run on the GM board\'s map, with no shots', live.cutscene.mode === 'live' && live.cutscene.shots.length === 0 && live.cutscene.key === 'k1' && live.maps.k1 === ids.first && live.cutscene.step.shot === 0, JSON.stringify(live));
   check('cutscene live: the toggle is pressed, the role is live and the bars are on', await toggle.getAttribute('aria-pressed') === 'true' && await page.evaluate(() => window.boardTest.board.cinematicRole === 'live' && window.boardTest.board.cinema.aspect === 2.39 && window.boardTest.board.cinematic === null));
@@ -4034,23 +4045,15 @@ feature('cutscene run live', async ({ page }) => {
   await wait(300);
   const switched = await page.evaluate(() => window.boardTest.api.cutscene.current());
   check('cutscene live: a scene switch republishes with the new scene\'s key', switched.cutscene.key === 'k2' && switched.maps.k2 === ids.second && switched.cutscene.step.seq === 2, JSON.stringify(switched));
+  await logReveals();
   await toggle.click();
   check('cutscene live: toggling off ends it', await page.evaluate(() => window.boardTest.api.cutscene.current()) === null && await toggle.getAttribute('aria-pressed') === 'false' && await page.evaluate(() => window.boardTest.board.cinematicRole === 'none' && window.boardTest.board.cinema.aspect === null && window.boardTest.studio.studio.state === 'idle'));
   check('cutscene live: camera() is null once it is over', await page.evaluate(() => window.boardTest.api.cutscene.camera()) === null);
-  // The players' window fades out: its reveal and bars stay until its black, and go there.
-  const leave = await page.evaluate(async () => {
-    const b = window.boardTest.board;
-    const samples = [];
-    const stop = performance.now() + 2500;
-    while (performance.now() < stop) {
-      samples.push({ black: b.playerCinema?.black ?? null, reveal: b.reveal, bars: b.playerCinema?.aspect ?? null });
-      await new Promise((r) => requestAnimationFrame(r));
-    }
-    return { samples, overlay: b.playerCinema === null, reveal: b.reveal };
-  });
-  const leavePeak = Math.max(...leave.samples.map((s) => s.black ?? 0));
-  const revealGone = leave.samples.findIndex((s) => !s.reveal);
-  check('cutscene live: toggling off fades the players\' window out, the reveal going at its black, and lets the window go after', leavePeak >= 0.5 && revealGone > 0 && (leave.samples[revealGone].black ?? 0) >= 0.5 && leave.samples[0].bars === 2.39 && leave.overlay && !leave.reveal, JSON.stringify({ leavePeak, revealGone, at: leave.samples[revealGone], first: leave.samples[0], overlay: leave.overlay }));
+  // The players' window fades out: its reveal and bars stay until its black (600 ms), and go there.
+  const leave = await sampleFade();
+  const off = leave.reveals.filter((r) => !r.on);
+  const dark = leave.samples.filter((s) => s.black > 0.1);
+  check('cutscene live: toggling off fades the players\' window out, the reveal and its bars going at its black, and lets the window go after', off.length === 1 && off[0].at >= 600 && dark.length > 0 && leave.samples[0].bars === 2.39 && leave.samples.every((s) => s.black === 0 || (s.bars !== null) === s.reveal) && leave.overlay && !leave.reveal, JSON.stringify({ reveals: leave.reveals, samples: leave.samples.map((s) => [s.black.toFixed(2), s.reveal, s.bars]), overlay: leave.overlay }));
 });
 
 feature('cutscene run closing', async ({ page }) => {
