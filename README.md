@@ -133,6 +133,7 @@ pointer, discovering the map through line of sight and a condition being removed
 plays no sound of its own: the GM's machine plays it once, placed by the GM's camera, and blows the turn horn at full
 volume while that window is open.
 
+- **Defaults:** every group on, volume 0.6.
 - **Settings** (per device): under **Settings > Tabletop for Atlas VTT > Sound**, **Sound volume** and **Mute board
   sounds**, and one switch per group. The web player has no settings tab: its board has a speaker button in a corner with
   a volume slider and a **Mute** box, kept in that browser.

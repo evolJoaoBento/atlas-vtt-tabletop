@@ -38,9 +38,11 @@ feature('sound settings', async ({ page, shot }) => {
   const after = await rec();
   check('sound: Board.sound reaches the engine', JSON.stringify(after.plays.at(-1)) === JSON.stringify(['dice.hit', { gain: 0.5 }]));
   check('sound: Board.soundLoop reaches the engine', JSON.stringify(after.loops.at(-1)) === JSON.stringify(['water', 'water.flow', 0.3]));
+  check('sound: a board puts its own prefix on its loop keys, so boards sharing an engine cannot stop each other loops', await page.evaluate(() => window.boardTest.sounds.loopKeys.length > 0 && window.boardTest.sounds.loopKeys.every((key) => /^board\d+:/.test(key))), await page.evaluate(() => JSON.stringify(window.boardTest.sounds.loopKeys.slice(-3))));
   // A board whose tab is behind another is not on screen: nothing plays, its loops go quiet, and they return when it is shown.
-  await page.evaluate(() => { const { board, sounds } = window.boardTest; board.container.style.display = 'none'; sounds.plays.length = 0; board.sound('dice.hit', { gain: 0.5 }); board.soundLoop('water', 'water.waves', 0.2); board.wake(true); });
+  await page.evaluate(() => { const { board, sounds } = window.boardTest; board.container.style.display = 'none'; sounds.plays.length = 0; board.wake(true); });
   await wait(400);
+  await page.evaluate(() => { const { board } = window.boardTest; board.sound('dice.hit', { gain: 0.5 }); board.soundLoop('water', 'water.waves', 0.2); });
   const behind = await rec();
   check('sound: a board that is not on screen plays no sound', behind.plays.length === 0, JSON.stringify(behind.plays));
   check('sound: a board that is not on screen keeps its loops silent', JSON.stringify(behind.loops.at(-1)) === JSON.stringify(['water', null, 0.2]), JSON.stringify(behind.loops.slice(-2)));

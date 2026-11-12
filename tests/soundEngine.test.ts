@@ -366,3 +366,14 @@ test('warm decodes every one-shot once, plays nothing and leaves loops to their 
   engine.play('door.open');
   assert.equal(context.started.length, 1);
 });
+
+test('a delay asked of a sound is kept on top of the spacing while the audio clock stands still', async () => {
+  let wall = 1000;
+  const { context, engine } = setup({ now: () => wall });
+  engine.play('dice.hit');
+  await settle();
+  wall += 55; engine.play('dice.hit', { delayMs: 100 });
+  wall += 55; engine.play('dice.hit', { delayMs: 100 });
+  const starts = context.started.map((source) => source.starts[0] ?? NaN);
+  assert.deepEqual(starts.map((at) => Math.round((at - 10) * 1000)), [0, 155, 210]);
+});

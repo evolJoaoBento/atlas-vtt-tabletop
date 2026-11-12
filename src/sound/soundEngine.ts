@@ -94,7 +94,7 @@ export class SoundEngine {
     const Make = Context.AudioContext ?? Context.webkitAudioContext;
     if (!Make) return null;
     try {
-      const engine = new SoundEngine(() => new Make(), win.document, load, () => Date.now(), () => engines.delete(win));
+      const engine = new SoundEngine(() => new Make(), win.document, load, () => (typeof performance !== 'undefined' ? performance.now() : Date.now()), () => engines.delete(win));
       engines.set(win, engine);
       // After the board has opened: decode the one-shots so the first of each plays on the spot, not after its file
       // loads (a spell's first flames can hold the page past the late-start limit, and the sound was dropped).

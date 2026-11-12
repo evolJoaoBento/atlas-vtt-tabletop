@@ -290,9 +290,11 @@ async function main(): Promise<void> {
   const sounds = {
     plays: [] as unknown[][],
     loops: [] as unknown[][],
+    /** The keys as the board gave them (each board's own prefix on them). */
+    loopKeys: [] as string[],
     listeners: [] as Array<{ listener: unknown; span: number }>,
     play(id: string, options?: unknown) { this.plays.push([id, options]); },
-    loop(key: string, id: string | null, gain: number) { this.loops.push([key, id, gain]); },
+    loop(key: string, id: string | null, gain: number) { this.loopKeys.push(key); this.loops.push([key.replace(/^board\d+:/, ''), id, gain]); },
     setListener(listener: unknown, span: number) { this.listeners.push({ listener, span }); },
   };
   const host: BoardHost = {

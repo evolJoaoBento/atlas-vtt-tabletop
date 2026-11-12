@@ -518,6 +518,9 @@ type Press =
   | { kind: 'tool'; x: number; y: number; moved: boolean }
   | { kind: 'water'; last: { x: number; y: number } };
 
+/** Numbers the boards, so each has loop keys of its own on the window's shared sound engine. */
+let nextBoardNumber = 0;
+
 export class Board {
   readonly canvas: HTMLCanvasElement;
   camera: OrbitCamera = new OrbitCamera();
@@ -1744,6 +1747,7 @@ export class Board {
   private fitted = { width: 0, height: 0, ratio: 0 };
 
   fit(): void {
+    this.lookOnScreen();
     // The room tracking session sizes the picture itself (and refuses a change while it shows).
     if (this.room) return;
     const width = Math.max(1, this.container.clientWidth);
@@ -2310,6 +2314,7 @@ export class Board {
   private frame(time: number): void {
     this.frameId = 0;
     if (this.disposed) return;
+    this.lookOnScreen();
     const interval = this.last === 0 ? 0 : (time - this.last) / 1000;
     const dt = Math.min(LONGEST_STEP, interval);
     this.last = time;
@@ -4414,14 +4419,17 @@ export class Board {
     engine.setListener({ eye: positionOf(pose), target: { ...pose.target } }, pose.distance);
   }
 
-  /** Whether this board is on screen: a tab behind another is not displayed, and what it draws is not heard (a hidden window is the engine's to silence). */
-  private heardHere(): boolean {
-    return this.container.isConnected && this.container.getClientRects().length > 0;
+  /** Whether this board was on screen when last looked at: a tab behind another is not displayed, and what it draws is not heard (a hidden window is the engine's to silence). */
+  private onScreen = true;
+
+  /** Looks once whether the board is on screen (a layout read): at the top of each frame and when the container is resized. */
+  private lookOnScreen(): void {
+    this.onScreen = this.container.isConnected && this.container.getClientRects().length > 0;
   }
 
   /** Plays a board sound; nothing happens when the host gives no engine (the local player window, a window without audio) or the board is not on screen. */
   sound(id: SoundId, options?: PlayOptions): void {
-    if (!this.heardHere()) return;
+    if (!this.onScreen) return;
     this.host.sounds?.()?.play(id, options);
   }
 
@@ -4429,22 +4437,24 @@ export class Board {
   private loopsAsked = new Map<string, { id: SoundId; gain: number }>();
   /** Whether the loops were last handed to the engine as playing. */
   private loopsHeard = true;
+  /** Makes this board's loop keys its own: boards in one window share an engine, and one going behind a tab must not stop another's loop. */
+  private readonly loopPrefix = `board${nextBoardNumber++}:`;
 
   /** Keeps (or with a null id stops) the looping sound under `key`, at `gain`; a board that is not on screen keeps it silent and plays it when it is shown again. */
   soundLoop(key: string, id: SoundId | null, gain: number): void {
     if (id === null) this.loopsAsked.delete(key);
     else this.loopsAsked.set(key, { id, gain });
-    this.host.sounds?.()?.loop(key, id !== null && !this.heardHere() ? null : id, gain);
+    this.host.sounds?.()?.loop(this.loopPrefix + key, id !== null && !this.onScreen ? null : id, gain);
   }
 
   /** The loops go quiet when the board's tab goes behind another, and come back (eased in by the engine) when it is in front again. */
   private syncLoopsToScreen(): void {
-    const heard = this.heardHere();
+    const heard = this.onScreen;
     if (heard === this.loopsHeard) return;
     this.loopsHeard = heard;
     const engine = this.host.sounds?.();
     if (!engine) return;
-    for (const [key, ask] of this.loopsAsked) engine.loop(key, heard ? ask.id : null, ask.gain);
+    for (const [key, ask] of this.loopsAsked) engine.loop(this.loopPrefix + key, heard ? ask.id : null, ask.gain);
   }
 
   /** Whether the players' camera is frozen where the GM froze it. */

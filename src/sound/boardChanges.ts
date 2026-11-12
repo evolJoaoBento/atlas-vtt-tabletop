@@ -27,6 +27,7 @@ export interface HeardChanges {
 export class BoardChanges {
   private scene: string | null = null;
   private fog = new Set<string>();
+  private fogCount = 0;
   private conditions = new Map<string, Set<string>>();
   private turn: string | null = null;
 
@@ -34,7 +35,8 @@ export class BoardChanges {
     const same = map.id === this.scene;
     const changes: HeardChanges = { fogAdded: false, conditionsAdded: [], turnChanged: null };
     if (same) {
-      changes.fogAdded = map.fogIds.some((id) => !this.fog.has(id));
+      // An operation whose id repeats one already on the map still counts: the list is longer.
+      changes.fogAdded = map.fogIds.length > this.fogCount || map.fogIds.some((id) => !this.fog.has(id));
       for (const token of map.tokens) {
         const had = this.conditions.get(token.id);
         if (!had) continue;
@@ -44,6 +46,7 @@ export class BoardChanges {
     }
     this.scene = map.id;
     this.fog = new Set(map.fogIds);
+    this.fogCount = map.fogIds.length;
     this.conditions = new Map(map.tokens.map((token) => [token.id, new Set(token.conditions.map(conditionKey))]));
     this.turn = map.turnKey;
     return changes;

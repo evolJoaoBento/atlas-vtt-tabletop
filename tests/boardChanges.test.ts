@@ -50,3 +50,10 @@ test('a different map id reports nothing again', () => {
   assert.deepEqual(changes.next(map({ id: 'b', fogIds: ['z'], tokens: [{ id: 't1', conditions: ['Stunned'] }], turnKey: '9:x' })), NOTHING);
   assert.equal(changes.next(map({ id: 'b', fogIds: ['z', 'y'] })).fogAdded, true);
 });
+
+test('a fog operation that reuses the id of one already there still counts as fog added (the GM board stayed silent for it)', () => {
+  const changes = new BoardChanges();
+  changes.next(map({ fogIds: ['f1', 'f1'] }));
+  assert.equal(changes.next(map({ fogIds: ['f1', 'f1', 'f1'] })).fogAdded, true);
+  assert.equal(changes.next(map({ fogIds: ['f1', 'f1', 'f1'] })).fogAdded, false);
+});
