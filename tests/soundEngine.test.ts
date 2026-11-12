@@ -2,14 +2,16 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { CATALOG } from '../src/sound/catalog';
 import { SoundEngine, type ContextLike, type DocumentLike } from '../src/sound/soundEngine';
-import { DEFAULT_SOUND_SETTINGS, readSoundSettings } from '../src/sound/soundSettings';
+import { DEFAULT_SOUND_SETTINGS, readSoundSettings, SOUND_GROUPS } from '../src/sound/soundSettings';
 
 class FakeParam {
   ramps: Array<{ value: number; at: number }> = [];
+  targets: Array<{ value: number; at: number; constant: number }> = [];
   constructor(public value = 1) {}
   cancelScheduledValues() {}
   setValueAtTime() {}
   linearRampToValueAtTime(value: number, at: number) { this.ramps.push({ value, at }); }
+  setTargetAtTime(value: number, at: number, constant: number) { this.targets.push({ value, at, constant }); }
 }
 class FakeNode {
   connections: unknown[] = [];
@@ -18,6 +20,13 @@ class FakeNode {
 }
 class FakeGain extends FakeNode { gain = new FakeParam(); }
 class FakePanner extends FakeNode { pan = new FakeParam(0); }
+class FakeCompressor extends FakeNode {
+  threshold = new FakeParam(-24);
+  knee = new FakeParam(30);
+  ratio = new FakeParam(12);
+  attack = new FakeParam(0.003);
+  release = new FakeParam(0.25);
+}
 class FakeSource extends FakeNode {
   buffer: unknown = null;
   loop = false;
@@ -37,12 +46,14 @@ class FakeContext implements ContextLike {
   gains: FakeGain[] = [];
   sources: FakeSource[] = [];
   panners: FakePanner[] = [];
+  compressors: FakeCompressor[] = [];
   resumed = 0;
   closed = false;
   async resume() { this.resumed++; this.state = 'running'; }
   async close() { this.closed = true; }
   createGain() { const node = new FakeGain(); this.gains.push(node); return node; }
   createStereoPanner() { const node = new FakePanner(); this.panners.push(node); return node; }
+  createDynamicsCompressor() { const node = new FakeCompressor(); this.compressors.push(node); return node; }
   createBufferSource() { const node = new FakeSource(); this.sources.push(node); return node; }
   async decodeAudioData(data: ArrayBuffer) { return { decoded: data.byteLength }; }
   get started() { return this.sources.filter((source) => source.starts.length > 0); }
@@ -63,8 +74,8 @@ class FakeDocument implements DocumentLike {
 const files = async () => [new ArrayBuffer(4), new ArrayBuffer(8)];
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-function setup(options: { state?: string; load?: (id: string) => Promise<ArrayBuffer[]>; now?: () => number } = {}) {
-  const context = new FakeContext();
+function setup(options: { state?: string; load?: (id: string) => Promise<ArrayBuffer[]>; now?: () => number; context?: FakeContext } = {}) {
+  const context = options.context ?? new FakeContext();
   if (options.state) context.state = options.state;
   const document = new FakeDocument();
   const loaded: string[] = [];
@@ -136,7 +147,7 @@ test('settings gate: a group off or muted starts nothing, and the volume scales 
   const { context, engine } = setup();
   const master = context.gains[0];
   engine.configure({ ...DEFAULT_SOUND_SETTINGS, volume: 0.3 });
-  assert.equal(master.gain.value, 0.3);
+  assert.equal(master.gain.targets.at(-1)?.value, 0.3);
   engine.configure({ ...DEFAULT_SOUND_SETTINGS, groups: { ...DEFAULT_SOUND_SETTINGS.groups, dice: false } });
   engine.play('dice.hit');
   await settle();
@@ -145,7 +156,7 @@ test('settings gate: a group off or muted starts nothing, and the volume scales 
   await settle();
   assert.equal(context.started.length, 1);
   engine.configure({ ...DEFAULT_SOUND_SETTINGS, muted: true });
-  assert.equal(master.gain.value, 0);
+  assert.equal(master.gain.targets.at(-1)?.value, 0);
   engine.play('mini.pickup');
   await settle();
   assert.equal(context.started.length, 1);
@@ -376,4 +387,97 @@ test('a delay asked of a sound is kept on top of the spacing while the audio clo
   wall += 55; engine.play('dice.hit', { delayMs: 100 });
   const starts = context.started.map((source) => source.starts[0] ?? NaN);
   assert.deepEqual(starts.map((at) => Math.round((at - 10) * 1000)), [0, 155, 210]);
+});
+
+test('a volume or group change glides the gain over a few milliseconds instead of jumping (no zipper clicks)', () => {
+  const { context, engine } = setup();
+  const master = context.gains[0];
+  const dice = context.gains[1 + SOUND_GROUPS.indexOf('dice')];
+  engine.configure({ ...DEFAULT_SOUND_SETTINGS, volume: 0.9, groups: { ...DEFAULT_SOUND_SETTINGS.groups, dice: false } });
+  assert.deepEqual(master.gain.targets.at(-1), { value: 0.9, at: 10, constant: 0.02 });
+  assert.deepEqual(dice.gain.targets.at(-1), { value: 0, at: 10, constant: 0.02 });
+});
+
+test('a soft limiter sits between the master gain and the speakers, so a loud pile of sounds does not clip', () => {
+  const { context } = setup();
+  const master = context.gains[0];
+  const limiter = context.compressors[0];
+  assert.ok(limiter, 'a compressor is made');
+  assert.deepEqual(master.connections, [limiter]);
+  assert.deepEqual(limiter.connections, [context.destination]);
+  assert.equal(limiter.threshold.value, -6);
+  assert.equal(limiter.ratio.value, 12);
+  assert.equal(limiter.knee.value, 0);
+  assert.ok(limiter.attack.value <= 0.005);
+});
+
+test('without a compressor the master gain goes straight to the speakers', async () => {
+  const context = new FakeContext();
+  (context as unknown as { createDynamicsCompressor?: unknown }).createDynamicsCompressor = undefined;
+  const { engine } = setup({ context });
+  assert.deepEqual(context.gains[0].connections, [context.destination]);
+  engine.play('dice.hit');
+  await settle();
+  assert.equal(context.started.length, 1);
+});
+
+test('the host decides whether its sound is heard: a hidden window still plays for a player window in view, and not for a board nobody sees', async () => {
+  const { context, document, engine } = setup();
+  engine.play('dice.hit');
+  await settle();
+  document.hidden = true;
+  engine.play('dice.hit', {}, () => true);
+  await settle();
+  assert.equal(context.started.length, 2);
+  document.hidden = false;
+  engine.play('dice.hit', {}, () => false);
+  await settle();
+  assert.equal(context.started.length, 2);
+});
+
+test('a loop eases by the rule its host gives when the window visibility changes', async () => {
+  const { context, document, engine } = setup();
+  let shown = true;
+  engine.loop('w', 'water.flow', 0.5, () => shown);
+  await settle();
+  const node = context.gains[context.gains.length - 1];
+  assert.equal(node.gain.ramps.at(-1)?.value, 0.5 * CATALOG['water.flow'].gain);
+  // The window hides, but the host's players' window is still in view: the loop keeps playing.
+  document.hidden = true;
+  document.fire('visibilitychange');
+  assert.equal(node.gain.ramps.at(-1)?.value, 0.5 * CATALOG['water.flow'].gain);
+  // Its rule now says nobody sees it: asked again, it eases to silence.
+  shown = false;
+  engine.loop('w', 'water.flow', 0.5, () => shown);
+  assert.equal(node.gain.ramps.at(-1)?.value, 0);
+  shown = true;
+  document.hidden = false;
+  document.fire('visibilitychange');
+  assert.equal(node.gain.ramps.at(-1)?.value, 0.5 * CATALOG['water.flow'].gain);
+});
+
+test('a sound that fails to start never throws into the board', async () => {
+  const context = new FakeContext();
+  context.createBufferSource = () => { throw new Error('broken'); };
+  const { engine } = setup({ context });
+  engine.play('dice.hit');
+  await settle();
+  assert.doesNotThrow(() => engine.play('dice.hit'));
+  engine.loop('w', 'water.flow', 0.5);
+  await settle();
+  assert.doesNotThrow(() => engine.configure({ ...DEFAULT_SOUND_SETTINGS, muted: true }));
+  assert.doesNotThrow(() => engine.configure(DEFAULT_SOUND_SETTINGS));
+  assert.doesNotThrow(() => engine.loop('w', null, 0));
+});
+
+test('without a stereo panner a sound goes straight to its group gain', async () => {
+  const context = new FakeContext();
+  (context as unknown as { createStereoPanner?: unknown }).createStereoPanner = undefined;
+  const { engine } = setup({ context });
+  engine.setListener({ eye: { x: 0, y: 100, z: 200 }, target: { x: 0, y: 0, z: 0 } }, 100);
+  engine.play('dice.hit', { at: { x: 50, y: 0, z: 0 } });
+  await settle();
+  assert.equal(context.started.length, 1);
+  const level = context.gains[context.gains.length - 1];
+  assert.deepEqual(level.connections, [context.gains[1 + SOUND_GROUPS.indexOf('dice')]]);
 });

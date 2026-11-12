@@ -19,10 +19,12 @@ interface ParamLike {
   cancelScheduledValues(time: number): unknown;
   setValueAtTime(value: number, time: number): unknown;
   linearRampToValueAtTime(value: number, time: number): unknown;
+  setTargetAtTime(value: number, time: number, constant: number): unknown;
 }
 interface NodeLike { connect(to: unknown): unknown; disconnect(): void }
 interface GainLike extends NodeLike { gain: ParamLike }
 interface PannerLike extends NodeLike { pan: ParamLike }
+interface CompressorLike extends NodeLike { threshold: ParamLike; knee: ParamLike; ratio: ParamLike; attack: ParamLike; release: ParamLike }
 interface SourceLike extends NodeLike {
   buffer: unknown;
   loop: boolean;
@@ -38,7 +40,9 @@ export interface ContextLike {
   resume(): Promise<void>;
   close(): Promise<void>;
   createGain(): GainLike;
-  createStereoPanner(): PannerLike;
+  /** Missing on Safari before 14.1: sounds are then not placed left or right. */
+  createStereoPanner?(): PannerLike;
+  createDynamicsCompressor?(): CompressorLike;
   createBufferSource(): SourceLike;
   decodeAudioData(data: ArrayBuffer): Promise<unknown>;
 }
@@ -49,6 +53,8 @@ export interface DocumentLike {
 }
 
 type Loader = (id: SoundId) => Promise<ArrayBuffer[]>;
+/** Whether the board asking for a sound is seen by anyone now; without one, whether the engine's own window is shown. */
+export type Heard = () => boolean;
 
 /** How long after the call a sound still plays once its file finishes decoding; later than that it is dropped. */
 const LATE_START_MS = 300;
@@ -57,6 +63,8 @@ const CLOCK_BURST_MS = 300;
 /** How long after the engine is made the one-shot files start to be decoded. */
 const WARM_AFTER_MS = 2000;
 const EASE_SECONDS = 0.4;
+/** How quickly a volume or group change settles (the time constant of its glide), so a dragged slider makes no clicks. */
+const SETTLE_SECONDS = 0.02;
 const RATE_SPREAD = 0.04;
 /** What unlocks the audio context: iOS only accepts a touch that ends, desktop a press or a key. */
 const GESTURES = ['pointerdown', 'pointerup', 'touchend', 'keydown'];
@@ -68,6 +76,7 @@ interface LoopState {
   gain: number;
   source: SourceLike | null;
   node: GainLike | null;
+  heard: Heard | null;
 }
 
 /** The catalogue entry of `id`, or null for an id that is not in it (such as one built from vault data at run time). */
@@ -80,7 +89,7 @@ const engines = new WeakMap<Window, SoundEngine>();
 /**
  * Plays board sounds through one audio context. A sound is dropped, never queued, when the board is hidden, the
  * context has not been unlocked by a first gesture, or its group is off. Chain per sound:
- * source -> gain -> pan -> group gain -> master gain -> destination.
+ * source -> gain -> pan -> group gain -> master gain -> limiter -> destination.
  */
 export class SoundEngine {
   /**
@@ -131,15 +140,36 @@ export class SoundEngine {
   ) {
     this.context = contextFactory();
     this.master = this.context.createGain();
-    this.master.connect(this.context.destination);
+    this.master.connect(this.limiter() ?? this.context.destination);
     for (const group of SOUND_GROUPS) {
       const node = this.context.createGain();
       node.connect(this.master);
       this.groupGains.set(group, node);
     }
     this.configure(DEFAULT_SOUND_SETTINGS);
+    this.master.gain.value = DEFAULT_SOUND_SETTINGS.volume;
     for (const type of GESTURES) this.document.addEventListener(type, this.unlock, true);
     this.document.addEventListener('visibilitychange', this.visibilityChanged);
+  }
+
+  /**
+   * A soft limiter before the speakers, so a big roll on top of a spell at full volume does not clip: above -6 dB the
+   * level is pressed down twelve to one, at once. Null where the context has no compressor (the chain is then direct).
+   */
+  private limiter(): CompressorLike | null {
+    try {
+      const limiter = this.context.createDynamicsCompressor?.();
+      if (!limiter) return null;
+      limiter.threshold.value = -6;
+      limiter.knee.value = 0;
+      limiter.ratio.value = 12;
+      limiter.attack.value = 0.002;
+      limiter.release.value = 0.2;
+      limiter.connect(this.context.destination);
+      return limiter;
+    } catch {
+      return null;
+    }
   }
 
   /** Starts the context on the first gesture; a sound asked for before that is not played. */
@@ -147,24 +177,28 @@ export class SoundEngine {
     if (this.context.state !== 'running') void this.context.resume().catch(() => {});
   };
 
-  /** Loops go quiet while the board is hidden and come back when it is shown. */
+  /** Loops go quiet while nobody sees their board and come back when it is seen (each by its board's rule). */
   private readonly visibilityChanged = (): void => {
     for (const loop of this.loops.values()) this.easeLoop(loop);
   };
 
-  play(id: SoundId, options: PlayOptions = {}): void {
-    if (!this.canPlay(id)) return;
+  /** Plays `id` once; `heard` is the asking board's rule for whether anyone sees it (else the engine's window being shown). */
+  play(id: SoundId, options: PlayOptions = {}, heard?: Heard): void {
+    if (!this.canPlay(id, heard)) return;
     const asked = this.now();
     const bank = this.bankFor(id);
     if (bank.buffers) { this.start(id, bank.buffers, options); return; }
     void bank.ready.then(() => {
-      if (!bank.buffers || this.now() - asked > LATE_START_MS || !this.canPlay(id)) return;
+      if (!bank.buffers || this.now() - asked > LATE_START_MS || !this.canPlay(id, heard)) return;
       this.start(id, bank.buffers, options);
     });
   }
 
-  /** Keeps the looping sound `id` going under `key` at `gain`, eased over 400 ms. `null` fades it out and stops it. */
-  loop(key: string, id: SoundId | null, gain: number): void {
+  /**
+   * Keeps the looping sound `id` going under `key` at `gain`, eased over 400 ms. `null` fades it out and stops it.
+   * `heard` is the asking board's rule for whether anyone sees it: silent (eased to 0) while it says no.
+   */
+  loop(key: string, id: SoundId | null, gain: number, heard?: Heard): void {
     if (this.disposed) return;
     if (id !== null && knownEntry(id) === null) return;
     const current = this.loops.get(key);
@@ -174,11 +208,12 @@ export class SoundEngine {
     }
     if (current && current.id === id) {
       current.gain = gain;
+      current.heard = heard ?? null;
       this.easeLoop(current);
       return;
     }
     if (current) this.fadeOut(current);
-    const state: LoopState = { id, gain, source: null, node: null };
+    const state: LoopState = { id, gain, source: null, node: null, heard: heard ?? null };
     this.loops.set(key, state);
     const bank = this.bankFor(id);
     void bank.ready.then(() => {
@@ -202,10 +237,11 @@ export class SoundEngine {
 
   configure(settings: SoundSettings): void {
     this.settings = settings;
-    this.master.gain.value = settings.muted ? 0 : settings.volume;
+    const at = this.context.currentTime;
+    this.master.gain.setTargetAtTime(settings.muted ? 0 : settings.volume, at, SETTLE_SECONDS);
     for (const group of SOUND_GROUPS) {
       const node = this.groupGains.get(group);
-      if (node) node.gain.value = settings.groups[group] ? 1 : 0;
+      if (node) node.gain.setTargetAtTime(settings.groups[group] ? 1 : 0, at, SETTLE_SECONDS);
     }
     this.syncLoops();
   }
@@ -221,11 +257,16 @@ export class SoundEngine {
     void this.context.close().catch(() => {});
   }
 
-  /** A sound plays only on a visible board, with an unlocked context, and when its group is on and the sound is not muted. */
-  private canPlay(id: SoundId): boolean {
-    if (this.disposed || this.document.hidden || this.context.state !== 'running') return false;
+  /** A sound plays only on a board someone sees, with an unlocked context, and when its group is on and the sound is not muted. */
+  private canPlay(id: SoundId, heard?: Heard): boolean {
+    if (this.disposed || !this.seen(heard ?? null) || this.context.state !== 'running') return false;
     const entry = knownEntry(id);
     return entry !== null && !this.settings.muted && this.settings.groups[entry.group];
+  }
+
+  /** Whether a board is seen: by its own rule, else by the engine's window being shown. */
+  private seen(heard: Heard | null): boolean {
+    return heard ? heard() : !this.document.hidden;
   }
 
   private destinationFor(id: SoundId): GainLike {
@@ -250,8 +291,17 @@ export class SoundEngine {
     return bank;
   }
 
+  /** Starts one sound; a failure (a missing audio part, a refused node) is swallowed: sound never breaks the board. */
   private start(id: SoundId, buffers: unknown[], options: PlayOptions): void {
     if (buffers.length === 0) return;
+    try {
+      this.startOne(id, buffers, options);
+    } catch {
+      // Nothing is played.
+    }
+  }
+
+  private startOne(id: SoundId, buffers: unknown[], options: PlayOptions): void {
     const context = this.context;
     let gain = (options.gain ?? 1) * CATALOG[id].gain;
     let pan = 0;
@@ -265,12 +315,15 @@ export class SoundEngine {
     source.playbackRate.value = (options.rate ?? 1) * (1 + (Math.random() * 2 - 1) * RATE_SPREAD);
     const level = context.createGain();
     level.gain.value = gain;
-    const panner = context.createStereoPanner();
-    panner.pan.value = pan;
+    // Without a panner (old Safari) the sound is not placed left or right, only made quieter with distance.
+    const panner = context.createStereoPanner?.() ?? null;
     source.connect(level);
-    level.connect(panner);
-    panner.connect(this.destinationFor(id));
-    source.onended = () => { source.disconnect(); level.disconnect(); panner.disconnect(); };
+    if (panner) {
+      panner.pan.value = pan;
+      level.connect(panner);
+      panner.connect(this.destinationFor(id));
+    } else level.connect(this.destinationFor(id));
+    source.onended = () => { source.disconnect(); level.disconnect(); panner?.disconnect(); };
     source.start(this.audioNow() + (options.delayMs ?? 0) / 1000);
   }
 
@@ -310,24 +363,30 @@ export class SoundEngine {
     }
   }
 
+  /** Starts a loop's source; on a failure the loop is left without one (so nothing tries to stop it), and the board goes on. */
   private startLoop(state: LoopState, buffers: unknown[]): void {
     if (buffers.length === 0 || !this.loopAudible(state)) return;
-    const context = this.context;
-    const source = context.createBufferSource();
-    source.buffer = buffers[Math.floor(Math.random() * buffers.length)];
-    source.loop = true;
-    const node = context.createGain();
-    node.gain.value = 0;
-    source.connect(node);
-    node.connect(this.destinationFor(state.id));
-    state.source = source;
-    state.node = node;
-    source.start();
-    this.easeLoop(state);
+    try {
+      const context = this.context;
+      const source = context.createBufferSource();
+      source.buffer = buffers[Math.floor(Math.random() * buffers.length)];
+      source.loop = true;
+      const node = context.createGain();
+      node.gain.value = 0;
+      source.connect(node);
+      node.connect(this.destinationFor(state.id));
+      source.start();
+      state.source = source;
+      state.node = node;
+      this.easeLoop(state);
+    } catch {
+      state.source = null;
+      state.node = null;
+    }
   }
 
   private easeLoop(state: LoopState): void {
-    if (state.node) this.ramp(state.node, this.document.hidden ? 0 : state.gain * CATALOG[state.id].gain);
+    if (state.node) this.ramp(state.node, this.seen(state.heard) ? state.gain * CATALOG[state.id].gain : 0);
   }
 
   private fadeOut(state: LoopState): void {
