@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { CATALOG } from '../src/sound/catalog';
+import { compressorMakeupGain } from '../src/sound/limiter';
 import { SoundEngine, type ContextLike, type DocumentLike } from '../src/sound/soundEngine';
 import { DEFAULT_SOUND_SETTINGS, readSoundSettings, SOUND_GROUPS } from '../src/sound/soundSettings';
 
@@ -398,17 +399,28 @@ test('a volume or group change glides the gain over a few milliseconds instead o
   assert.deepEqual(dice.gain.targets.at(-1), { value: 0, at: 10, constant: 0.02 });
 });
 
-test('a soft limiter sits between the master gain and the speakers, so a loud pile of sounds does not clip', () => {
+test('a peak limiter sits between the master gain and the speakers, so a loud pile of sounds does not clip', () => {
   const { context } = setup();
   const master = context.gains[0];
   const limiter = context.compressors[0];
   assert.ok(limiter, 'a compressor is made');
   assert.deepEqual(master.connections, [limiter]);
-  assert.deepEqual(limiter.connections, [context.destination]);
-  assert.equal(limiter.threshold.value, -6);
-  assert.equal(limiter.ratio.value, 12);
+  assert.equal(limiter.threshold.value, -3);
+  assert.equal(limiter.ratio.value, 20);
   assert.equal(limiter.knee.value, 0);
-  assert.ok(limiter.attack.value <= 0.005);
+  assert.equal(limiter.attack.value, 0.003);
+  assert.equal(limiter.release.value, 0.25);
+});
+
+test('a fixed gain after the limiter takes back the make-up gain Chromium adds, so quiet sounds keep their level', () => {
+  const { context } = setup();
+  const limiter = context.compressors[0];
+  const post = limiter.connections[0] as FakeGain;
+  assert.deepEqual(post.connections, [context.destination]);
+  // Chromium's make-up for a hard knee: 0.6 of the loss a full-scale input suffers, here 0.6 * 2.85 = 1.71 dB.
+  assert.ok(Math.abs(compressorMakeupGain(-3, 20) - 1.2178) < 0.0005);
+  assert.ok(Math.abs(post.gain.value - 0.8212) < 0.0005, `post gain ${post.gain.value}`);
+  assert.ok(Math.abs(post.gain.value * compressorMakeupGain(-3, 20) - 1) < 1e-9);
 });
 
 test('without a compressor the master gain goes straight to the speakers', async () => {

@@ -1,4 +1,5 @@
 import { CATALOG, type SoundId } from './catalog';
+import { LIMITER, LIMITER_POST_GAIN } from './limiter';
 import { placeAt, type Listener } from './placement';
 import { DEFAULT_SOUND_SETTINGS, SOUND_GROUPS, type SoundGroup, type SoundSettings } from './soundSettings';
 
@@ -140,12 +141,12 @@ export class SoundEngine {
   ) {
     this.context = contextFactory();
     this.master = this.context.createGain();
-    this.master.connect(this.limiter() ?? this.context.destination);
     for (const group of SOUND_GROUPS) {
       const node = this.context.createGain();
       node.connect(this.master);
       this.groupGains.set(group, node);
     }
+    this.master.connect(this.limiter() ?? this.context.destination);
     this.configure(DEFAULT_SOUND_SETTINGS);
     this.master.gain.value = DEFAULT_SOUND_SETTINGS.volume;
     for (const type of GESTURES) this.document.addEventListener(type, this.unlock, true);
@@ -153,19 +154,24 @@ export class SoundEngine {
   }
 
   /**
-   * A soft limiter before the speakers, so a big roll on top of a spell at full volume does not clip: above -6 dB the
-   * level is pressed down twelve to one, at once. Null where the context has no compressor (the chain is then direct).
+   * A peak limiter before the speakers, so a big roll on top of a spell at full volume does not clip: above -3 dB the
+   * level is pressed down twenty to one, at once. Chromium adds make-up gain to a compressor on its own; a fixed gain
+   * after the limiter takes it back out, so a sound under the threshold keeps the level it had. Null where the context
+   * has no compressor (the chain is then direct).
    */
   private limiter(): CompressorLike | null {
     try {
       const limiter = this.context.createDynamicsCompressor?.();
       if (!limiter) return null;
-      limiter.threshold.value = -6;
-      limiter.knee.value = 0;
-      limiter.ratio.value = 12;
-      limiter.attack.value = 0.002;
-      limiter.release.value = 0.2;
-      limiter.connect(this.context.destination);
+      limiter.threshold.value = LIMITER.threshold;
+      limiter.knee.value = LIMITER.knee;
+      limiter.ratio.value = LIMITER.ratio;
+      limiter.attack.value = LIMITER.attack;
+      limiter.release.value = LIMITER.release;
+      const post = this.context.createGain();
+      post.gain.value = LIMITER_POST_GAIN;
+      limiter.connect(post);
+      post.connect(this.context.destination);
       return limiter;
     } catch {
       return null;
