@@ -4318,6 +4318,27 @@ playerFeature('player cutscene hand back', async ({ page }) => {
   check('player cutscene: handBack calls cutsceneOver once, stays black, and does not reload the own scene', out.over === 1 && out.black >= 0.99 && out.id === 'cutscene:r1:k1', JSON.stringify(out));
 });
 
+playerFeature('player cutscene hand back with a queued run', async ({ page }) => {
+  await prepare(page);
+  const out = await page.evaluate(async () => {
+    const t = window.playerTest;
+    const h = t.handle;
+    h.setCutscene(window.fx.run({ shot: 0, seq: 1 }, 'k1'), { startBlack: true, handBack: true });
+    h.setCutsceneScene('r1', 'k1', window.fx.scene1(), t.extras);
+    await window.fx.until(() => window.fx.black() < 0.01, 10000);
+    h.setCutscene(null);
+    // A run told while this one is left waits for it.
+    h.setCutscene(window.fx.run({ shot: 0, seq: 1 }, 'k1', 'r2'), { startBlack: true });
+    h.setCutsceneScene('r2', 'k1', window.fx.scene1(), t.extras);
+    const handed = await window.fx.until(() => h.run?.handedBack === true, 10000);
+    // Told again after the hand back: the waiting run starts, and the news is its update, not a second start.
+    h.setCutscene(window.fx.run({ shot: 0, seq: 2 }, 'k1', 'r2'), { startBlack: true });
+    const buttons = document.querySelectorAll('.tabletop-cinema-roll').length;
+    return { handed, run: h.run?.cutscene.runId ?? null, buttons };
+  });
+  check('player cutscene: a run handed back with another waiting starts it once, with one Roll button', out.handed && out.run === 'r2' && out.buttons === 1, JSON.stringify(out));
+});
+
 playerFeature('player cutscene disconnect', async ({ page }) => {
   await prepare(page);
   await page.evaluate(() => window.fx.odd());
@@ -4405,13 +4426,25 @@ playerFeature('player cutscene readmitted while the own map reloads', async ({ p
   await wait(1500);
   const gap = await runNow(page);
   check('player cutscene readmitted late: the board is between the leave fade and the own scene', gap.run === 'r1' && gap.restoring === true, JSON.stringify(gap));
+  // The player never sees their own map on the way: the board stays black from the news until the run is starting again.
   await page.evaluate(() => {
     const t = window.playerTest;
+    const old = t.handle.run;
+    window.blackSeen = { min: 1, samples: 0 };
+    const watch = () => {
+      if (t.handle.run !== old) return;
+      window.blackSeen.min = Math.min(window.blackSeen.min, window.fx.black());
+      window.blackSeen.samples += 1;
+      setTimeout(watch, 25);
+    };
     t.handle.setConnected(true);
     t.handle.setCutscene(window.fx.run({ shot: 0, seq: 2 }, 'k1'), { startBlack: true });
     t.handle.setCutsceneScene('r1', 'k1', window.fx.scene1(), t.extras);
+    watch();
   });
   const playing = await playsK1(page, 'r1');
+  const seen = await page.evaluate(() => window.blackSeen);
+  check('player cutscene readmitted late: a player reconnecting mid-run never shows their own map unblacked', seen.samples > 5 && seen.min >= 0.99, JSON.stringify(seen));
   const now = await runNow(page);
   check('player cutscene readmitted late: once the own scene is back the same run plays again, its scene drawn, locked', playing && now.role === 'locked', JSON.stringify(now));
   await page.evaluate(() => window.playerTest.handle.setCutscene(null));

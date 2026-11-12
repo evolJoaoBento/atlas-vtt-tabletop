@@ -180,6 +180,14 @@ const IMAGE_PATIENCE_MS = 4000;
 /** A frame longer than this is a tab that was asleep: the live camera does not take it as time passed. */
 const LIVE_STEP_MS = 250;
 
+/** Later options win, but one set to `undefined` does not override an earlier value. */
+function mergeOptions(first: PlayerCutsceneOptions, later: PlayerCutsceneOptions): PlayerCutsceneOptions {
+  const merged: PlayerCutsceneOptions = { ...first };
+  if (later.startBlack !== undefined) merged.startBlack = later.startBlack;
+  if (later.handBack !== undefined) merged.handBack = later.handBack;
+  return merged;
+}
+
 /** The button over the board that opens the dice tray during a run. */
 interface RollButton {
   root: HTMLElement;
@@ -599,7 +607,8 @@ class PlayerBoard implements PlayerBoardHandle {
     // A run handed back is over for this board: the next starts it afresh, still black.
     if (run?.handedBack) {
       this.finish(run);
-      run = null;
+      // A run that was waiting has started: the news is its update, not a second start.
+      run = this.run;
     }
     if (run && (run.state.leaving || run.restoring !== null)) {
       // The run is past its End (fading out, or the own scene coming back): any run that comes now waits until it is
@@ -607,7 +616,7 @@ class PlayerBoard implements PlayerBoardHandle {
       const same = this.queued?.cutscene.runId === cutscene.runId;
       // The scenes the run just left had under the same id are from before the drop: Connect sends them again, as they are now.
       if (!same && cutscene.runId === run.cutscene.runId) this.cutScenes.delete(cutscene.runId);
-      this.queued = { cutscene, options: same ? { ...this.queued!.options, ...options } : options };
+      this.queued = { cutscene, options: same ? mergeOptions(this.queued!.options, options) : options };
       // Its scenes are taken from now on, even when the run just left had the same id.
       if (this.endedRun === cutscene.runId) this.endedRun = null;
       return;
@@ -746,7 +755,8 @@ class PlayerBoard implements PlayerBoardHandle {
       if (run.keep) this.board.restoreCamera(run.keep);
       run.restoring.done = now;
     }
-    if (run.restoring?.done != null && !run.handedBack && !view.locked && now - run.restoring.done >= run.cutscene.look.fadeMs) this.finish(run);
+    // A run waiting that starts black needs no fade in from the own scene: the board stays black until it begins.
+    if (run.restoring?.done != null && !run.handedBack && !view.locked && (this.queuedBlack() || now - run.restoring.done >= run.cutscene.look.fadeMs)) this.finish(run);
     this.updateRoll(run, view);
   }
 
@@ -780,6 +790,11 @@ class PlayerBoard implements PlayerBoardHandle {
     this.reload();
   }
 
+  /** A run is waiting to start and asks to begin black (a player admitted again mid-run). */
+  private queuedBlack(): boolean {
+    return this.queued?.options.startBlack === true;
+  }
+
   /** The camera of this frame: the run's, the live one eased, or the player's own while their scene shows. */
   private cameraOf(run: Run, view: PlayerCutsceneView, now: number): { eye: Vec3; target: Vec3 } {
     if (view.camera) return view.camera;
@@ -796,7 +811,7 @@ class PlayerBoard implements PlayerBoardHandle {
   private blackOf(run: Run, view: PlayerCutsceneView, now: number): number {
     const restoring = run.restoring;
     if (!restoring) return view.black;
-    if (run.handedBack || restoring.done === null) return 1;
+    if (run.handedBack || restoring.done === null || this.queuedBlack()) return 1;
     // Once the own scene is drawn the picture fades in from it, however long it took.
     return Math.max(view.black, clamp01(1 - (now - restoring.done) / run.cutscene.look.fadeMs));
   }
