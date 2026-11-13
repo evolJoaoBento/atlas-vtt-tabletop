@@ -43,3 +43,12 @@ test('per-sound levels are read as numbers from 0 to 2, and a bad or neutral one
   assert.equal(soundLevel(read, 'fog.chime'), 0.5);
   assert.equal(soundLevel(read, 'dice.caught'), 1);
 });
+
+test('the water loops start at 5 %, and a chosen level, 100 % too, is kept over that', () => {
+  const fresh = readSoundSettings({});
+  for (const id of ['water.ripples', 'water.flow', 'water.waves', 'water.still']) assert.equal(soundLevel(fresh, id), 0.05, id);
+  const chosen = readSoundSettings({ levels: { 'water.flow': 1, 'water.still': 0.05, 'water.waves': 0.5 } });
+  assert.deepEqual(chosen.levels, { 'water.flow': 1, 'water.waves': 0.5 });
+  assert.equal(soundLevel(chosen, 'water.flow'), 1);
+  assert.equal(soundLevel(chosen, 'water.still'), 0.05);
+});

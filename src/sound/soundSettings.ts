@@ -15,10 +15,23 @@ export interface SoundSettings {
   levels: Readonly<Record<string, number>>;
 }
 
-/** The multiplier chosen for the sound `id`: 1 unless set. */
+/** The level a sound starts at before the player moves its slider: 1, except the water loops, which stay in the background. */
+export const DEFAULT_SOUND_LEVELS: Readonly<Record<string, number>> = Object.freeze({
+  'water.ripples': 0.05,
+  'water.flow': 0.05,
+  'water.waves': 0.05,
+  'water.still': 0.05,
+});
+
+/** The level `id` starts at (see `DEFAULT_SOUND_LEVELS`). */
+export function defaultSoundLevel(id: string): number {
+  return DEFAULT_SOUND_LEVELS[id] ?? 1;
+}
+
+/** The multiplier chosen for the sound `id`: its default level unless set. */
 export function soundLevel(settings: Pick<SoundSettings, 'levels'>, id: string): number {
   const level = settings.levels[id];
-  return typeof level === 'number' ? level : 1;
+  return typeof level === 'number' ? level : defaultSoundLevel(id);
 }
 
 /** The defaults, frozen: shared by every reader, so nothing may change them (a copy is made to change one). */
@@ -40,11 +53,11 @@ export function readSoundSettings(raw: unknown): SoundSettings {
   for (const group of SOUND_GROUPS) {
     if (typeof stored[group] === 'boolean') groups[group] = stored[group] as boolean;
   }
-  // A level of exactly 1 is the same as none, and anything that is not a number is dropped.
+  // A level equal to the sound's default is the same as none, and anything that is not a number is dropped.
   const levels: Record<string, number> = {};
   const storedLevels = source.levels !== null && typeof source.levels === 'object' ? (source.levels as Record<string, unknown>) : {};
   for (const [id, level] of Object.entries(storedLevels)) {
-    if (typeof level === 'number' && Number.isFinite(level) && level !== 1) levels[id] = Math.min(MAX_SOUND_LEVEL, Math.max(0, level));
+    if (typeof level === 'number' && Number.isFinite(level) && level !== defaultSoundLevel(id)) levels[id] = Math.min(MAX_SOUND_LEVEL, Math.max(0, level));
   }
   return { volume, muted: typeof source.muted === 'boolean' ? source.muted : DEFAULT_SOUND_SETTINGS.muted, groups, levels };
 }

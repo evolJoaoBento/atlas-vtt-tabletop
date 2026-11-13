@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { CATALOG } from '../src/sound/catalog';
 import { compressorMakeupGain, LIMITER } from '../src/sound/limiter';
 import { SoundEngine, type ContextLike, type DocumentLike } from '../src/sound/soundEngine';
-import { DEFAULT_SOUND_SETTINGS, readSoundSettings, SOUND_GROUPS } from '../src/sound/soundSettings';
+import { DEFAULT_SOUND_SETTINGS, defaultSoundLevel, readSoundSettings, SOUND_GROUPS } from '../src/sound/soundSettings';
 
 class FakeParam {
   ramps: Array<{ value: number; at: number }> = [];
@@ -186,10 +186,10 @@ test('loop eases', async () => {
   const source = context.started[0];
   assert.equal(source.loop, true);
   const node = context.gains[context.gains.length - 1];
-  assert.deepEqual(node.gain.ramps.at(-1), { value: 0.5 * CATALOG['water.ripples'].gain, at: 10.4 });
+  assert.deepEqual(node.gain.ramps.at(-1), { value: 0.5 * CATALOG['water.ripples'].gain * defaultSoundLevel('water.ripples'), at: 10.4 });
   engine.loop('w', 'water.ripples', 0.2);
   assert.equal(context.sources.length, 1);
-  assert.deepEqual(node.gain.ramps.at(-1), { value: 0.2 * CATALOG['water.ripples'].gain, at: 10.4 });
+  assert.deepEqual(node.gain.ramps.at(-1), { value: 0.2 * CATALOG['water.ripples'].gain * defaultSoundLevel('water.ripples'), at: 10.4 });
   engine.loop('w', null, 0);
   assert.deepEqual(node.gain.ramps.at(-1), { value: 0, at: 10.4 });
   assert.equal(source.stops.length, 1);
@@ -214,7 +214,7 @@ test('loops go silent while the board is hidden and return when shown', async ()
   assert.equal(node.gain.ramps.at(-1)?.value, 0);
   document.hidden = false;
   document.fire('visibilitychange');
-  assert.equal(node.gain.ramps.at(-1)?.value, 0.5 * CATALOG['water.flow'].gain);
+  assert.equal(node.gain.ramps.at(-1)?.value, 0.5 * CATALOG['water.flow'].gain * defaultSoundLevel('water.flow'));
 });
 
 test('a file that fails to load plays nothing and is not asked for again', async () => {
@@ -456,11 +456,11 @@ test('a loop eases by the rule its host gives when the window visibility changes
   engine.loop('w', 'water.flow', 0.5, () => shown);
   await settle();
   const node = context.gains[context.gains.length - 1];
-  assert.equal(node.gain.ramps.at(-1)?.value, 0.5 * CATALOG['water.flow'].gain);
+  assert.equal(node.gain.ramps.at(-1)?.value, 0.5 * CATALOG['water.flow'].gain * defaultSoundLevel('water.flow'));
   // The window hides, but the host's players' window is still in view: the loop keeps playing.
   document.hidden = true;
   document.fire('visibilitychange');
-  assert.equal(node.gain.ramps.at(-1)?.value, 0.5 * CATALOG['water.flow'].gain);
+  assert.equal(node.gain.ramps.at(-1)?.value, 0.5 * CATALOG['water.flow'].gain * defaultSoundLevel('water.flow'));
   // Its rule now says nobody sees it: asked again, it eases to silence.
   shown = false;
   engine.loop('w', 'water.flow', 0.5, () => shown);
@@ -468,7 +468,7 @@ test('a loop eases by the rule its host gives when the window visibility changes
   shown = true;
   document.hidden = false;
   document.fire('visibilitychange');
-  assert.equal(node.gain.ramps.at(-1)?.value, 0.5 * CATALOG['water.flow'].gain);
+  assert.equal(node.gain.ramps.at(-1)?.value, 0.5 * CATALOG['water.flow'].gain * defaultSoundLevel('water.flow'));
 });
 
 test('a sound that fails to start never throws into the board', async () => {
@@ -518,7 +518,7 @@ test('a loop follows the level chosen for its sound as soon as it changes', asyn
   engine.loop('w', 'water.flow', 0.5);
   await settle();
   const node = context.gains[context.gains.length - 1];
-  assert.equal(node.gain.ramps.at(-1)?.value, 0.5 * CATALOG['water.flow'].gain);
+  assert.equal(node.gain.ramps.at(-1)?.value, 0.5 * CATALOG['water.flow'].gain * defaultSoundLevel('water.flow'));
   engine.configure({ ...DEFAULT_SOUND_SETTINGS, levels: { 'water.flow': 1.5 } });
   assert.ok(Math.abs((node.gain.ramps.at(-1)?.value ?? 0) - 0.5 * CATALOG['water.flow'].gain * 1.5) < 1e-9);
 });
