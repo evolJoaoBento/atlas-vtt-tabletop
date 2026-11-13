@@ -32,8 +32,11 @@ export interface AtlasToolButton {
   run(): void;
 }
 
-/** The board's toolbar modes: Play (the game's tools) and Edit (building the board). */
-export type BoardMode = 'play' | 'edit';
+/**
+ * The board's toolbar modes: Play (the game's tools), Edit (building the board) and Cinematic (the GM's cutscenes; only
+ * the mode switch and the live toggle show). Play and Edit are remembered; Cinematic is not.
+ */
+export type BoardMode = 'play' | 'edit' | 'cinematic';
 
 /** A material the paint tool offers: its folder, its name and its thumbnail (null while there is none). */
 export interface PaintMaterial { path: string; name: string; thumb: string | null }
@@ -147,9 +150,8 @@ export interface DiceButton {
   close(): void;
 }
 
-/** The cutscene buttons: the film button opens the gallery; the live toggle makes the players follow the GM's camera. */
+/** The cutscene toggle: the live toggle makes the players follow the GM's camera. */
 export interface CinemaButtons {
-  open(): void;
   live(): boolean;
   toggleLive(): void;
 }
@@ -166,9 +168,6 @@ const LOG_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 
 /** Lucide's `notebook-text` (ISC): the stat sheet's button. */
 const SHEET_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h4"/><path d="M2 10h4"/><path d="M2 14h4"/><path d="M2 18h4"/><rect width="16" height="20" x="4" y="2" rx="2"/><path d="M9.5 8h5"/><path d="M9.5 12H16"/><path d="M9.5 16H14"/></svg>';
-
-/** Lucide's `clapperboard` (ISC): the cutscenes button. */
-const CINEMA_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3Z"/><path d="m6.2 5.3 3.1 3.9"/><path d="m12.4 3.4 3.1 4"/><path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>';
 
 /** Lucide's `radio` (ISC): players following the GM's camera. */
 const LIVE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19.1"/></svg>';
@@ -362,10 +361,10 @@ export class BoardToolbar {
     this.historyGroup.style.display = this.actions.undo ? '' : 'none';
     // The board's modes: Play (the game's tools) and Edit (walls, water, materials, the board's settings).
     this.modeGroup = el('div', 'atlas-tool-group atlas-tabletop-modes', bar);
-    for (const [mode, label] of [['play', 'Play mode'], ['edit', 'Edit mode']] as const) {
+    for (const [mode, label] of [['play', 'Play mode'], ['edit', 'Edit mode'], ['cinematic', 'Cinematic mode']] as const) {
       const button = toolIn(this.modeGroup, modeIcon(mode), () => { if (this.actions.mode?.() !== mode) this.actions.setMode?.(mode); });
       button.setAttribute('aria-label', label);
-      button.title = mode === 'play' ? 'Play mode: the game\'s tools' : 'Edit mode: wall paint, water, and wall heights by Ctrl + drag';
+      button.title = mode === 'play' ? 'Play mode: the game\'s tools' : mode === 'edit' ? 'Edit mode: wall paint, water, and wall heights by Ctrl + drag' : 'Cinematic mode: make and run cutscenes';
       button.dataset.mode = mode;
       this.modeButtons.push({ mode, button });
     }
@@ -926,13 +925,17 @@ export class BoardToolbar {
     for (const { mode: one, button } of this.modeButtons) {
       button.classList.toggle('is-active', one === mode);
       button.setAttribute('aria-pressed', String(one === mode));
+      // Cinematic is the GM's (the board has cutscenes to offer).
+      if (one === 'cinematic') (button.closest('.atlas-tool-button') as HTMLElement).style.display = this.cinema ? '' : 'none';
     }
-    const editing = mode !== 'play';
-    const playing = mode !== 'edit';
+    const cinematic = mode === 'cinematic';
+    const editing = mode === null || mode === 'edit';
+    const playing = mode === null || mode === 'play';
+    this.bar.classList.toggle('atlas-tabletop-bar--cinematic', cinematic);
     const show = (part: HTMLElement | null | undefined, on: boolean): void => { if (part) part.classList.toggle('atlas-tabletop-off-mode', !on); };
     show(this.measureGroup, playing);
     show(this.templateGroup, playing);
-    show(this.endSlot, playing);
+    show(this.endSlot, playing || cinematic);
     show(this.atlasGroup, playing);
     show(this.waterGroup, editing);
     show(this.lightingGroup, editing);
@@ -1047,13 +1050,13 @@ export class BoardToolbar {
   }
 
   /**
-   * Puts the Cutscenes button in the end slot (after the dice buttons), and beside it a toggle "Players follow my
-   * camera" that shows only while a session hosts; null takes them away. Returns where they sit.
+   * Puts the toggle "Players follow my camera" in the end slot (after the dice buttons); it shows only while a session
+   * hosts. It also makes the Cinematic mode button available. Null takes them away. Returns where it sits.
    */
   setCinema(handlers: CinemaButtons | null): HTMLElement | null {
     this.cinema?.anchor.remove();
     this.cinema = null;
-    if (!handlers) return null;
+    if (!handlers) { this.refresh(); return null; }
     const doc = this.row.ownerDocument;
     const anchor = doc.win.createDiv();
     anchor.className = 'atlas-tabletop-cinema-tools';
@@ -1079,7 +1082,6 @@ export class BoardToolbar {
       anchor.appendChild(wrapper);
       return button;
     };
-    make('Cutscenes', CINEMA_SVG, () => handlers.open());
     const live = make('Players follow my camera', LIVE_SVG, () => handlers.toggleLive());
     this.cinema = { handlers, anchor, live };
     const beside = (this.sheet ?? this.diceLog ?? this.dice)?.anchor ?? null;

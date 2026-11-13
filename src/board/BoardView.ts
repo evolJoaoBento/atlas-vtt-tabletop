@@ -509,7 +509,6 @@ export class BoardView extends ItemView {
       cardOf: (tokenId) => this.cardOf(tokenId),
     });
     board.cinemaButton({
-      open: () => { if (this.studio?.state === 'gallery') this.studio.closeGallery(); else this.studio?.openGallery(); },
       live: () => this.studio?.live === true,
       toggleLive: () => this.studio?.toggleLive(),
     });
@@ -1333,8 +1332,16 @@ export class BoardView extends ItemView {
         assignments.set(mapPath(), tokenId, { mini: glb, scale: have?.scale ?? 1, turn: have?.turn ?? 0, ...(have?.base ? { base: have.base } : {}) });
       },
       materials: () => this.services.materials.list().map((folder) => ({ path: folder.path, name: folder.name, thumb: this.services.materials.thumbnail(folder.path) })),
-      boardMode: () => (this.app.loadLocalStorage(BOARD_MODE_KEY) === 'edit' ? 'edit' : 'play'),
-      setBoardMode: (mode) => this.app.saveLocalStorage(BOARD_MODE_KEY, mode),
+      // Cinematic is the cutscene gallery or editor being open; it is never kept, so a board opens in the last Play or Edit.
+      boardMode: () => (this.studio?.cinematic ? 'cinematic' : this.app.loadLocalStorage(BOARD_MODE_KEY) === 'edit' ? 'edit' : 'play'),
+      setBoardMode: (mode) => {
+        if (mode === 'cinematic') {
+          this.studio?.openGallery();
+          return;
+        }
+        this.app.saveLocalStorage(BOARD_MODE_KEY, mode);
+        this.studio?.leaveCinematic();
+      },
       paintWall: (id, material, whole) => {
         const walls = this.map?.walls ?? [];
         const wall = walls.find((candidate) => candidate.id === id);

@@ -263,6 +263,7 @@ export class CutsceneStudio {
     if (this.state !== 'idle' || !this.host.mapPath()) return;
     this.mode = 'gallery';
     this.renderGallery();
+    this.board?.refreshToolbar();
   }
 
   closeGallery(): void {
@@ -272,6 +273,21 @@ export class CutsceneStudio {
     this.confirming = null;
     this.gallery?.remove();
     this.gallery = null;
+    this.board?.refreshToolbar();
+  }
+
+  /** Whether the gallery or the editor (and its preview) is open: the board's Cinematic mode. A run for players is not. */
+  get cinematic(): boolean {
+    const state = this.state;
+    return state === 'gallery' || state === 'editing' || state === 'previewing';
+  }
+
+  /** The GM picked Play or Edit: the gallery or the editor closes (the cutscene is saved as it is edited). A run goes on. */
+  leaveCinematic(): void {
+    if (this.session) {
+      if (this.session.preview) this.backToEditing();
+      this.stopEditing();
+    } else this.closeGallery();
   }
 
   private renderGallery(): void {
@@ -436,6 +452,7 @@ export class CutsceneStudio {
     this.session = { home, cutscene, keep: board.keepCamera(), driver, preview: null };
     this.applyBoard();
     this.showEditor();
+    this.board?.refreshToolbar();
   }
 
   /** Puts the session's role and driver, the bars and the hold on the board at hand. */
@@ -617,6 +634,7 @@ export class CutsceneStudio {
       this.session = null;
       this.leaving = false;
       this.mode = 'idle';
+      this.board?.refreshToolbar();
     }
   }
 

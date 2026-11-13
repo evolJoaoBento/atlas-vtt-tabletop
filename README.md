@@ -177,7 +177,15 @@ camera does), then gives it back where it was. It needs **Connect for Atlas VTT 
 players' (a player on a Connect without them, or without Tabletop's board, does not see the shots). On your own, with no
 session, you can build and preview cutscenes all the same.
 
-- **Building:** the **Cutscenes** button (a clapperboard, at the right end of the toolbar) opens the scene's gallery. **+**
+- **Cinematic mode:** the toolbar's mode switch has three modes, **Play**, **Edit** and **Cinematic** (a clapperboard).
+  Choosing Cinematic opens the scene's cutscene gallery, and the toolbar shows only the mode switch and the **Players
+  follow my camera** toggle (while a session hosts); Play's and Edit's tools are put away. Choosing Play or Edit closes the
+  gallery or the editor (the work is already saved), and so does closing the gallery itself (its **×**, or Escape): the
+  switch goes back to the Play or Edit you came from, so it never shows Cinematic with nothing open. Opening a cutscene
+  from the gallery stays in Cinematic. A cutscene running for players keeps running when you switch to Play or Edit, and
+  its **Previous**, **Next** and **End** stay on screen. Play and Edit are remembered between sessions; Cinematic is not,
+  so a board opens in the last Play or Edit. It is the GM's mode: players' boards and the player window do not change.
+- **Building:** in Cinematic mode, the gallery's **+**
   asks for a name and opens the timeline along the bottom of the board; the cinematic bars come on and your camera is
   free: **W/S** (or the up and down arrows) fly along the view, **A/D** (or left and right) across it, **Q** goes down and
   **E** up, dragging with either mouse button looks about, the wheel dollies in and out. There are no camera limits (look

@@ -326,9 +326,12 @@ export interface BoardHost {
   paintWall(id: string, material: string | null, whole: boolean): void;
   /** The materials the paint tool offers (the gallery's). */
   materials?(): Array<{ path: string; name: string; thumb: string | null }>;
-  /** The toolbar's mode, kept for the GM (null: the board has no modes); keeping a new one. */
-  boardMode?(): 'play' | 'edit' | null;
-  setBoardMode?(mode: 'play' | 'edit'): void;
+  /**
+   * The toolbar's mode for the GM (null: the board has no modes), and choosing a new one. Play and Edit are kept
+   * between sessions; Cinematic lasts while the cutscene gallery or editor is open.
+   */
+  boardMode?(): 'play' | 'edit' | 'cinematic' | null;
+  setBoardMode?(mode: 'play' | 'edit' | 'cinematic'): void;
   /** A mini dragged from the gallery onto a token: that token is drawn as it. */
   assignMini?(tokenId: string, glb: string): void;
   /** Alt + drag on a token turns its mini: its turn in degrees now (null with no mini), and where a drag saves it. */
@@ -872,7 +875,7 @@ export class Board {
       selectTool: (tool) => { this.waterTool = null; this.showBrush(); this.stopPainting(); this.setLaser(tool === 'laser'); this.toolbar.refresh(); },
       ...(this.audience === 'gm' && {
         mode: () => this.host.boardMode?.() ?? null,
-        setMode: (mode: 'play' | 'edit') => this.setMode(mode),
+        setMode: (mode: 'play' | 'edit' | 'cinematic') => this.setMode(mode),
         painting: () => this.painting,
         setPainting: (material: string | null) => this.paintWith(material),
         materials: () => this.host.materials?.() ?? [],
@@ -6451,7 +6454,8 @@ export class Board {
 
   /** Paints walls with a material on click (from the gallery, without dragging); null stops. */
   paintWith(material: string | null): void {
-    if (material && this.host.boardMode?.() === 'play') this.setMode('edit');
+    const current = this.host.boardMode?.();
+    if (material && (current === 'play' || current === 'cinematic')) this.setMode('edit');
     if (material) {
       // One tool at a time: painting puts the water brush, the ruler and the template away.
       if (this.waterTool) { this.waterTool = null; this.showBrush(); }
@@ -6469,10 +6473,10 @@ export class Board {
     if (this.painting !== null) this.paintWith(null);
   }
 
-  /** Play or Edit: the toolbar's tools of that mode; leaving Edit puts its tools (paint, water, handles) away. */
-  private setMode(mode: 'play' | 'edit'): void {
+  /** Play, Edit or Cinematic: the toolbar's tools of that mode; leaving Edit puts its tools (paint, water, handles) away. */
+  private setMode(mode: 'play' | 'edit' | 'cinematic'): void {
     this.host.setBoardMode?.(mode);
-    if (mode === 'play') {
+    if (mode !== 'edit') {
       this.stopPainting();
       if (this.waterTool) { this.waterTool = null; this.showBrush(); }
       this.hideHandles();
@@ -6489,9 +6493,10 @@ export class Board {
     return grid.snap === on ? grid : { ...grid, snap: on };
   }
 
-  /** Building the board is allowed: Edit mode, or a board without modes. */
+  /** Building the board is allowed: Edit mode, or a board without modes (Play and Cinematic do not build). */
   private get editing(): boolean {
-    return this.host.boardMode?.() !== 'play';
+    const mode = this.host.boardMode?.() ?? null;
+    return mode === null || mode === 'edit';
   }
 
   get isPainting(): boolean {

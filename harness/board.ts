@@ -265,6 +265,8 @@ async function main(): Promise<void> {
   const windowSpans = new Map<string, { bottom: number; top: number }>();
   // The toolbar's modes, off unless a check turns them on (the other checks see every tool).
   const modes: { on: boolean; mode: 'play' | 'edit' } = { on: false, mode: 'play' };
+  // The cutscene studio, once it exists: Cinematic is its gallery or editor being open (never kept in `modes`), as in BoardView.
+  let cinematicStudio: { readonly cinematic: boolean; openGallery(): void; leaveCinematic(): void } | null = null;
   const lightHeights = new Map<string, number>();
   let ambientLevel = 1;
   let tintKept: string | null = null;
@@ -455,8 +457,12 @@ async function main(): Promise<void> {
     doorFlip: (id) => doorFlips.get(id) ?? NO_FLIP,
     readMaterial: async () => brickMaterial(),
     materials: () => [{ path: 'materials/brick', name: 'brick', thumb: null }, { path: 'materials/stone', name: 'stone', thumb: null }],
-    boardMode: () => (modes.on ? modes.mode : null),
-    setBoardMode: (mode) => { modes.mode = mode; },
+    boardMode: () => (modes.on ? (cinematicStudio?.cinematic ? 'cinematic' : modes.mode) : null),
+    setBoardMode: (mode) => {
+      if (mode === 'cinematic') { cinematicStudio?.openGallery(); return; }
+      modes.mode = mode;
+      cinematicStudio?.leaveCinematic();
+    },
     toggleDoor: (id) => { record.doors.push(id); },
     wallMenu: (id) => { record.wallMenus.push(id); },
     paintWall: (id, material, whole) => {
@@ -733,7 +739,8 @@ async function main(): Promise<void> {
   const owner = { end: () => studio.endRun(), dispose: () => studio.endRunNow(), liveCamera: () => studio.liveCamera() };
   cutsceneCameraMoved = () => channel.cameraMoved(owner);
   const studio = new CutsceneStudio(container, studioHost);
-  board.cinemaButton({ open: () => (studio.state === 'gallery' ? studio.closeGallery() : studio.openGallery()), live: () => studio.live, toggleLive: () => studio.toggleLive() });
+  cinematicStudio = studio;
+  board.cinemaButton({ live: () => studio.live, toggleLive: () => studio.toggleLive() });
   const cutsceneHarness = { studio, host: studioHost, store: cutsceneStore, log: cutsceneLog, first: map.path, second: crypt.path, session: fakeSession, channel, owner };
   Object.assign(window, { boardTest: { studio: cutsceneHarness, api: { cutscene: channel }, Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, spawned, palette, paletteCalls, ready: true } });
 }

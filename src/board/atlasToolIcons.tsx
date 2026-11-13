@@ -3,7 +3,7 @@
  * Atlas's own coin mark (copied) and lucide-react at Atlas's version, rendered once to SVG markup for the board's toolbar.
  */
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Brush, Circle, Command, Eraser, Eye, Hammer, ImageIcon, PaintBucket, PaintRoller, Redo2, Ruler, Swords, Triangle, Undo2, Waves } from 'lucide-react';
+import { Brush, Circle, Clapperboard, Command, Eraser, Eye, Hammer, ImageIcon, PaintBucket, PaintRoller, Redo2, Ruler, Swords, Triangle, Undo2, Waves } from 'lucide-react';
 import { CoinIcon } from '../atlasPort/app/react/components/CoinIcon';
 import type { AtlasToolId } from './atlasTools';
 
@@ -26,10 +26,10 @@ export function waterIcon(id: 'tool' | 'paint' | 'erase' | 'fill'): string {
   return water[id];
 }
 
-/** The board's two modes (Play, Edit) and the wall paint tool (painting, taking a material off). */
-let modes: Record<'play' | 'edit' | 'paint' | 'unpaint' | 'view', string> | null = null;
-export function modeIcon(id: 'play' | 'edit' | 'paint' | 'unpaint' | 'view'): string {
-  modes ??= { play: renderToStaticMarkup(<Swords />), edit: renderToStaticMarkup(<Hammer />), paint: renderToStaticMarkup(<PaintRoller />), unpaint: renderToStaticMarkup(<Eraser />), view: renderToStaticMarkup(<Eye />) };
+/** The board's three modes (Play, Edit, Cinematic) and the wall paint tool (painting, taking a material off). */
+let modes: Record<'play' | 'edit' | 'cinematic' | 'paint' | 'unpaint' | 'view', string> | null = null;
+export function modeIcon(id: 'play' | 'edit' | 'cinematic' | 'paint' | 'unpaint' | 'view'): string {
+  modes ??= { play: renderToStaticMarkup(<Swords />), edit: renderToStaticMarkup(<Hammer />), cinematic: renderToStaticMarkup(<Clapperboard />), paint: renderToStaticMarkup(<PaintRoller />), unpaint: renderToStaticMarkup(<Eraser />), view: renderToStaticMarkup(<Eye />) };
   return modes[id];
 }
 
