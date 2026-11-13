@@ -1202,6 +1202,23 @@ feature('line of sight', async ({ page, shot }) => {
   await wait(600);
   now = await probe();
   check('sight: with the door open the goblin in line with it is in view again', now.shown.gob === true && now.sight.includes('t:gob'), JSON.stringify(now));
+  // Atlas 0.14: a defeated token (hp spent) gives no sight; with every seer defeated the players see nothing.
+  await page.evaluate(() => {
+    const { board } = window.boardTest;
+    const hero = board.tokens.get('hero').token;
+    board.changeToken('hero', { ...hero, resources: { ...hero.resources, hp: { current: 0, max: hero.resources?.hp?.max ?? 10 } } });
+  });
+  await wait(600);
+  now = await probe();
+  check('sight: a defeated token gives no sight (Atlas 0.14): the goblin it saw is out of view', now.shown.gob === false && !now.sight.includes('t:gob'), JSON.stringify(now));
+  await page.evaluate(() => {
+    const { board } = window.boardTest;
+    const hero = board.tokens.get('hero').token;
+    board.changeToken('hero', { ...hero, resources: { ...hero.resources, hp: { current: hero.resources.hp.max || 10, max: hero.resources.hp.max || 10 } } });
+  });
+  await wait(600);
+  now = await probe();
+  check('sight: healed, the hero sees the goblin again', now.shown.gob === true, JSON.stringify(now));
   // Previewing a token's point of view, from its right-click menu, with the setting off.
   await mode('off');
   await page.evaluate(async () => {
@@ -1676,6 +1693,30 @@ feature('asset manager', async ({ page, shot }) => {
   check('it lands at the camera centre, within a cell', token && Math.abs(token.x - result.centre.x) <= result.size && Math.abs(token.y - result.centre.y) <= result.size, JSON.stringify(result));
   await wait(800);
   check('the asset manager closes after spawning', (await win.count()) === 0);
+});
+
+// Atlas 0.14 dropped a few rules the ported UI still uses; Tabletop restates them. Run with ATLAS_CSS of 0.13.1 and of 0.14.
+feature('atlas css restated', async ({ page, shot }) => {
+  const got = await page.evaluate(() => {
+    const root = document.createElement('div');
+    root.className = 'atlas-vtt-plugin';
+    root.style.cssText = 'position:fixed;left:0;top:0;width:300px;height:200px;z-index:9999;background:#222';
+    root.innerHTML = '<div style="display:flex;flex-direction:column;height:100px"><div class="atlas-command-palette-options"><p style="height:400px">long</p></div></div><h3 class="atlas-text-dialog__title">Title</h3><label class="atlas-file-tables__header-check"><input type="checkbox">Header row</label>';
+    document.body.appendChild(root);
+    const cs = (selector) => getComputedStyle(root.querySelector(selector));
+    const out = {
+      options: [cs('.atlas-command-palette-options').overflowY, cs('.atlas-command-palette-options').flexGrow, cs('.atlas-command-palette-options').minHeight],
+      title: [cs('.atlas-text-dialog__title').marginTop, cs('.atlas-text-dialog__title').textWrapStyle ?? cs('.atlas-text-dialog__title').textWrap],
+      check: [cs('.atlas-file-tables__header-check').display, cs('.atlas-file-tables__header-check').columnGap, cs('.atlas-file-tables__header-check').alignItems],
+    };
+    out.areaHeight = root.querySelector('.atlas-command-palette-options').getBoundingClientRect().height;
+    return out;
+  });
+  check('css: the palette options are a scrolling column that can shrink (native scrollbar, as Atlas 0.14)', got.options[0] === 'auto' && got.options[1] === '1' && got.options[2] === '0px' && got.areaHeight <= 100, JSON.stringify(got));
+  check('css: the dialog title has no margin and wraps pretty', got.title[0] === '0px' && got.title[1] === 'pretty', JSON.stringify(got));
+  check('css: the table import header checkbox is a flex row with a gap', got.check[0] === 'flex' && got.check[1] === '8px' && got.check[2] === 'center', JSON.stringify(got));
+  await shot('atlas-css-restated');
+  await page.evaluate(() => document.querySelector('.atlas-vtt-plugin[style*="9999"]')?.remove());
 });
 
 // ── Atlas's command palette over the board (Atlas's own component, src/palette/PaletteWindow.tsx) ───────────────

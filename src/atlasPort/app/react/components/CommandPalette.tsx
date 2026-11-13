@@ -1004,9 +1004,8 @@ export function CommandPalette({ isOpen, onClose, toolbarRef, onCustomizeToolbar
                     </>
                   )}
 
-                  <OverlayScroll
+                  <div
                     ref={optionsContainerRef}
-                    frameClassName="atlas-command-palette-options-frame"
                     className="atlas-command-palette-options"
                     onMouseMove={handleMouseMove}
                   >
@@ -1031,7 +1030,7 @@ export function CommandPalette({ isOpen, onClose, toolbarRef, onCustomizeToolbar
                         )}
                       </div>
                     )}
-                  </OverlayScroll>
+                  </div>
 
                   {!activePanel && (
                     <div className="atlas-command-palette-footer">

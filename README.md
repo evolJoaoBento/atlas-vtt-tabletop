@@ -1,6 +1,6 @@
 # Tabletop for Atlas VTT
 
-**Compatible with Atlas VTT 0.12.0** (TrueScale and the player window bar), and 0.11.
+**Compatible with Atlas VTT 0.14.0** (rooms, pin names, defeated tokens give no sight), and still compatible with 0.13.
 
 Tabletop for Atlas VTT is a community extension. It is not made, endorsed or supported by Atlas VTT or Atlas Online.
 

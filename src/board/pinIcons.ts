@@ -25,6 +25,15 @@ export function pinGlyph(icon: string): string | null {
   return PIN_GLYPHS[resolve(icon)] ?? null;
 }
 
+/**
+ * The name floated over a pin on the map, as Connect sends it to players: only where the pin has "show name" on
+ * (Atlas 0.14), and then the GM's name, else its note's. A label alone is never floated.
+ */
+export function pinShownName(pin: Pick<BoardPin, 'notePath' | 'label' | 'name' | 'showName'>): string {
+  if (pin.showName !== true) return '';
+  return pinTitle({ ...pin, label: null });
+}
+
 /** The title over a pin: the note's heading when it links to one, else the note's name, else the pin's label. */
 export function pinTitle(pin: Pick<BoardPin, 'notePath' | 'label' | 'name'>): string {
   // Atlas 0.14: the name the GM gave the pin, else its note's.

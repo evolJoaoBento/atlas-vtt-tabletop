@@ -209,7 +209,7 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
     backgroundColor: text.backgroundColor, padding: text.padding, borderRadius: text.borderRadius, opacity: text.opacity,
     align: text.align, bold: text.bold, italic: text.italic, rotation: text.rotation, scale: text.scale,
   }));
-  const pins: BoardPin[] = (scene.pins ?? []).map((pin) => ({ id: pin.id, x: pin.x, y: pin.y, notePath: pin.id, icon: pin.icon ?? 'number', label: pin.label, hex: false, name: pin.name ?? pin.title }));
+  const pins: BoardPin[] = (scene.pins ?? []).map((pin) => ({ id: pin.id, x: pin.x, y: pin.y, notePath: pin.id, icon: pin.icon ?? 'number', label: pin.label, hex: false, name: pin.name ?? pin.title, ...(pin.name ? { showName: true } : {}) }));
   const initiative = readInitiative(scene.initiative
     ? { entries: scene.initiative.entries.map((entry, order) => ({ ...entry, order })), round: scene.initiative.round, isActive: scene.initiative.active, ...(scene.initiative.sides ? { sides: scene.initiative.sides } : {}) }
     : null);

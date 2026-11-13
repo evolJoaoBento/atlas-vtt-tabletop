@@ -108,4 +108,16 @@ export const PATCHES = [
     find: "import { customizeToolbarCommand } from './command-palette/customizeToolbarCommand';",
     replace: "import { customizeToolbarCommand } from './command-palette/customizeToolbarCommand';\nimport { tabletopCommands } from '@shims/tabletopCommands';",
   },
+  {
+    // Atlas 0.14 dropped the overlay scrollbar for native ones: the palette's options are a plain scrolling column
+    // (`.atlas-command-palette-options { flex: 1; min-height: 0; overflow-y: auto }`, restated in styles.css for 0.13).
+    file: 'react/components/CommandPalette.tsx',
+    find: '<OverlayScroll\n                    ref={optionsContainerRef}\n                    frameClassName="atlas-command-palette-options-frame"\n                    className="atlas-command-palette-options"',
+    replace: '<div\n                    ref={optionsContainerRef}\n                    className="atlas-command-palette-options"',
+  },
+  {
+    file: 'react/components/CommandPalette.tsx',
+    find: '                  </OverlayScroll>',
+    replace: '                  </div>',
+  },
 ];

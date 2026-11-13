@@ -21,7 +21,7 @@ import { isDowned, type BoardGrid, type BoardIcon, type BoardInk, type BoardPin,
 import { inkTriangles } from './ink';
 import type { ResourceDefinition } from './resources';
 import { mapIconSvg } from './mapIcons';
-import { pinTitle } from './pinIcons';
+import { pinShownName } from './pinIcons';
 import { canvasTexture, delayedMarkerTexture, downedMarkerTexture, hiddenMarkerTexture, loadImageTexture, pinTexture, plateTexture } from './textures';
 
 /**
@@ -508,7 +508,7 @@ export class PinPiece {
     this.hitTarget = new THREE.Sprite(new THREE.SpriteMaterial({ map: pinTexture(pin), sizeAttenuation: false, transparent: true }));
     this.hitTarget.userData.pinId = pin.id;
     this.object3d.add(this.hitTarget);
-    const text = pinTitle(pin);
+    const text = pinShownName(pin);
     if (text) {
       const plate = plateTexture(text);
       this.title = new THREE.Sprite(new THREE.SpriteMaterial({ map: plate.texture, sizeAttenuation: false, transparent: true }));

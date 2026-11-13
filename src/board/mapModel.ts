@@ -100,6 +100,8 @@ export interface BoardPin {
   hex: boolean;
   /** The name the GM gave it (Atlas 0.14), trimmed and cut to Atlas's 60; null where it has none (named by its note). */
   name?: string | null;
+  /** Atlas 0.14's "show name": only then is the name floated over the pin on the map. */
+  showName?: boolean;
   /** Players may read its note online (Atlas's "Readable by players"); the GM's board marks it. Never set on a player's board. */
   readable?: boolean;
 }
@@ -287,6 +289,7 @@ function readPin(pin: Raw): BoardPin | null {
     label: typeof pin.label === 'string' ? pin.label : null,
     hex: pin.hex === true,
     name: typeof pin.name === 'string' && pin.name.trim() !== '' ? pin.name.trim().slice(0, 60) : null,
+    ...(pin.showName === true ? { showName: true } : {}),
     ...(pin.readable === true ? { readable: true } : {}),
   };
 }
