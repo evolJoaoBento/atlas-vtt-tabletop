@@ -14,7 +14,9 @@
     "check:atlas": "node scripts/check-atlas-members.mjs",
     "test:ui": "node harness/run-ui.mjs",
     "test:ui:all": "node harness/run-ui.mjs --all",
-    "sync:atlas": "node scripts/sync-atlas-port.mjs"
+    "sync:atlas": "node scripts/sync-atlas-port.mjs",
+    "sync:connect": "node scripts/sync-connect.mjs",
+    "check:connect": "node scripts/sync-connect.mjs --check"
   },
   "devDependencies": {
     "@types/react": "19.3.0",
