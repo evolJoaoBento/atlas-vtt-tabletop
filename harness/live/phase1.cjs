@@ -48,7 +48,8 @@ window.__L = (() => {
     mtime: async (p) => (await app.vault.adapter.stat(p)).mtime,
     file: async (p) => JSON.parse(await app.vault.adapter.read(p)),
   };
-  if (!window.__noticeWatch) {
+  if (window.__noticeWatch) window.__noticeWatch.disconnect();
+  {
     window.__noticeWatch = new MutationObserver(() => document.querySelectorAll('.notice').forEach((n) => { const text = n.innerText; if (text && !L.notices.includes(text)) L.notices.push(text); }));
     window.__noticeWatch.observe(document.body, { childList: true, subtree: true });
   }
@@ -198,6 +199,7 @@ async function step(o, n, name, run) {
       const id = svc.getCollectionForMap(L.CELLAR);
       const before = structuredClone(svc.getCollectionSettings(id).gridDefaults ?? null);
       await svc.updateCollectionSettings(id, { gridDefaults: { ...(before ?? {}), measurementMode: 'metric', diagonalRule: 'manhattan', unitType: 'custom', unitName: 'mi', unitDistance: 1 } });
+      // No reload is asked for: the board hears Atlas's change of the collection.
       await L.sleep(2500);
       const view = board.view; const size = view.map.grid.size, ox = view.map.grid.offsetX, oy = view.map.grid.offsetY;
       const at = (cx, cy) => ({ x: ox + size / 2 + size * cx, y: oy + size / 2 + size * cy });

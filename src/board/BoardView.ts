@@ -10,7 +10,7 @@ import type { MaterialDefaults } from '../materialDefaults';
 import { placeSurvey, type ArSurvey, type SavedArTable } from '../arTable';
 import type { BoardMark, BoardSession, BoardViewer, GmCutscene } from '../connectContract';
 import type { CutsceneOwner } from '../cutscene/cutsceneRun';
-import { ItemView, Menu, Modal, Notice, TFile, debounce, setIcon, type App, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
+import { ItemView, Menu, Modal, Notice, TFile, debounce, setIcon, type App, type EventRef, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
 import { ATLAS_VIEW_TYPE, presentedSceneOf, tabViewOf, type AtlasView } from '../atlas';
 import { AtlasBridge } from '../atlasBridge';
 import { BoardAtlasTools } from './boardAtlasTools';
@@ -291,6 +291,8 @@ export class BoardView extends ItemView {
       this.reload();
     }));
     this.registerEvent(this.app.vault.on('delete', (file) => { if (file.path === this.path) this.leaf.detach(); }));
+    // Atlas saved a collection's settings (its units, its diagonal rule, its conditions): the board reads its rules again.
+    this.registerEvent((this.app.workspace as unknown as { on(name: string, callback: () => void): EventRef }).on('atlas-vtt:collection-settings-changed', () => this.reload()));
     this.registerDomEvent(this.contentEl, 'pointerdown', () => { this.services.focused(this); this.followHost(); }, true);
     const host = this.services.host;
     if (host) {
@@ -1155,6 +1157,17 @@ export class BoardView extends ItemView {
   private async readRules(path: string): Promise<CollectionRules> {
     const collection = collectionOf(path);
     if (!collection) return emptyRules();
+    // Atlas's running asset service has the collection's settings as they are now (it writes them to disk a moment
+    // after a change, in a hidden folder Obsidian announces nothing of): read from it while Atlas is there.
+    try {
+      const bridge = new AtlasBridge(this.app);
+      const service = bridge.assetService();
+      const id = bridge.collectionFor(path) ?? collection;
+      const settings = service?.getCollectionSettings(id);
+      if (settings && typeof settings === 'object') return readCollectionRules({ collections: { [collection]: { settings } } }, collection);
+    } catch {
+      // Not readable just now: the file is.
+    }
     try {
       return readCollectionRules(JSON.parse(await this.app.vault.adapter.read(ASSETS_METADATA_PATH)), collection);
     } catch {

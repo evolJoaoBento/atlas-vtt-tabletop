@@ -46,6 +46,7 @@ const MEMBERS = [
   ['getLaserPointerSettings', 'atlasBridge.ts (settings service)'],
   ['setLaserPointerSettings', 'atlasBridge.ts (settings service)'],
   ['getDiceVolume', 'atlasBridge.ts (settings service)'],
+  ['atlas-vtt:collection-settings-changed', 'BoardView.ts (workspace event: a collection\'s settings were saved)'],
 ];
 // Members Tabletop reads defensively and that a given Atlas may not have; reported, not failed.
 const OPTIONAL = new Set(['atlas-vtt:send-map-to-player-view', 'this.deps.service']);
