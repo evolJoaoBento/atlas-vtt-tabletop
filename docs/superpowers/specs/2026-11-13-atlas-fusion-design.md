@@ -277,7 +277,10 @@ Every gate in section 11 is checked first, in a throwaway vault on Atlas 0.15.0,
 | Item | Why it cannot go | What keeps it honest |
 |---|---|---|
 | Ported command palette, initiative tracker panel, loot and random tables, maybe the asset manager (audit #9, #21-23) | Atlas's components live inside the Atlas view's React tree and are not exported. Its commands act on Atlas's own view, not the board. | Re-synced from the pinned tag by `sync:atlas`; parity checker against the installed Atlas |
-| Two fog replays (audit #18) | Atlas's fog result is a private canvas. 3D needs exact polygons; Connect's privacy filter needs a fail-closed raster. | One shared stroke reader feeds both |
+| Two fog replays (audit #18) | Atlas's fog result is a private canvas. 3D needs exact polygons; Connect's privacy filter needs a fail-closed raster. Each needs `clipper2-ts` or a raster of its own, so a shared stroke reader is not worth a package import (Phase 2) | Both read Atlas's stored fog operations; each has its own tests |
+| The dice judge of a physical throw | Atlas has no function that scores dice that already landed: its roller rolls its own | Since Phase 2 it decides critical results (`getDiceCrit`) and exploding faces (`explodingFaces`, `MAX_EXPLOSIONS`) with Atlas's own code from `atlas-shared`; only the scoring of landed dice is Tabletop's |
+| Connect's older shared bundle (`vendor/atlas`: `draw`, `dice3d`, `diceDisplay`, the API types) | They draw (pixi, three) and are no rules; the dice look is Phase 4 | Rules moved to `atlas-shared` in Phase 2; what is left only draws |
+| Tabletop's `src/atlasPort/app/{grid,levels,lighting,vision}` | Pulled in by the ported panels (palette, tracker, loot, asset manager) | Go when the panels are re-synced in Phase 4; the board's own rules read `atlas-shared` |
 | The shared bundle itself | Atlas exposes no API, so its rules are vendored | Verbatim stock files at the same tag as the minimum version |
 | Connect's per-token "Players see" (audit #29) | It extends Atlas's collection-level setting rather than repeating it | Defaults to Atlas's value |
 | Party links (audit #28) | Unknown whether Atlas stores a token-player link (gate G5) | Kept until G5 answers; fused if Atlas has one |
@@ -315,7 +318,7 @@ The user's approval covers both branches of each gate.
 | G2 | **PASS** | `addMapFeatures` with `terrain.difficult` |
 | G3 | **PASS** | `setSceneLighting({ambient, ambientColor})` |
 | G4 | **PASS** | `settingsService.getDragDistance()` / `setDragDistance` (`always` / `combat` / `never`) |
-| G5 | **PASS** (from the source; not live, since there was no campaign) | `players.json`: `characters`, `tokenOwners`, `playerTokens[mapPath]`. Connect's party links fuse into it in Phase 2. |
+| G5 | **PASS** (from the source; not live, since there was no campaign) | `players.json`: `characters`, `tokenOwners`, `playerTokens[mapPath]`. Not fused in Phase 2: reading it cannot be checked without a vault with an Atlas Online campaign, so Connect keeps its party links until one is at hand. |
 | G6 | **PASS for one host only** | Atlas keeps a single Atlas leaf. Section 4.1 was rewritten around one host that follows the focused board. |
 | G7 | **N/A** (there can be only one host) | About 270 MB for the first load, about 20 MB per further map. Closing frees little. |
 | G8 | **PASS** | Every write has an action and saves through Atlas's autosave in 0.5 to 1 s. Some writes take two steps: |
