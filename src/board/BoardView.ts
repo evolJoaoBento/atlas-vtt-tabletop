@@ -699,11 +699,8 @@ export class BoardView extends ItemView {
   /** The level the board was sent to from its height ruler, while Atlas (if it shows the scene) has not followed yet; null for Atlas's. */
   private chosenLevel: string | null = null;
 
-  /** Game units a grid square spans on this map (the scene's own override, else the measuring rules'). */
+  /** Game units a grid square spans on this map: Atlas's own reading (the scene's distance per cell, else the measuring rules'). */
   private unitDistance(): number {
-    const grid = this.map?.rawGrid as { unitDistanceOverride?: unknown } | undefined;
-    const own = grid?.unitDistanceOverride;
-    if (typeof own === 'number' && Number.isFinite(own) && own > 0) return own;
     const measured = readMeasurement(this.rules.gridDefaults, this.map?.rawGrid).unitDistance;
     return measured > 0 ? measured : 5;
   }

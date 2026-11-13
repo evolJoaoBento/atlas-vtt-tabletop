@@ -50,7 +50,7 @@ test('the lean modes cap textures and resolution; the leanest draws no layers', 
 });
 
 test("a spell's feet on any scale: feet, yards, metres as D&D counts them, five a square for the rest", () => {
-  const scale = (unitType: string, unitDistance: number, mode = 'metric') => feetPerSquare({ mode, unitType, unitDistance, diagonalRule: 'alternating', bands: [] } as never);
+  const scale = (unitType: string, unitDistance: number, mode = 'metric') => feetPerSquare({ mode, unitType, unitDistance, ruleDistance: unitDistance, diagonalRule: 'alternating', rangeBands: [], coneAngle: 90 } as never);
   assert.equal(scale('feet', 5), 5);
   assert.equal(scale('feet', 10), 10);
   assert.equal(scale('meters', 1.5), 5);

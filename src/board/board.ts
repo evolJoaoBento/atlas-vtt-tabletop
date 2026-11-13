@@ -3655,7 +3655,7 @@ export class Board {
   private showToolOverlay(): void {
     const { measure, draft } = this.tools.overlay();
     const map = this.map;
-    const label = measure && map ? formatDistance(pathLengthInCells([measure.start, measure.end], map.grid, this.host.measurement().diagonalRule), this.host.measurement()) : '';
+    const label = measure && map ? this.distanceLabel([measure.start, measure.end]) : '';
     this.marks.setOverlay(measure ? { ...measure, label, color: accent(this.container), cell: map?.grid.size ?? 70 } : null, draft ? { ...draft, color: this.host.ownColor?.() ?? '#ffcc33' } : null, this.tools.coneAngle, this.lastPose?.pixel ?? 0.002);
     this.wake();
   }
@@ -4242,8 +4242,7 @@ export class Board {
     if (!points || !map) { this.wake(); return; }
     const measurement = this.host.measurement();
     // Through a spell's difficult terrain each square costs one more: the share of the path in it, counted again.
-    const cells = pathLengthInCells(points, map.grid, measurement.diagonalRule);
-    const label = formatDistance(cells + cells * this.difficultShare(points), measurement);
+    const label = this.distanceLabel(points, 0, this.difficultShare(points));
     this.rulerState = { points, label };
     const group = new THREE.Group();
     group.position.y = 1.2;
@@ -6029,6 +6028,19 @@ export class Board {
     const landing = snapPoint(this.snapGrid('tokens'), gate.to.x, gate.to.y, entry.token.size);
     this.host.moveTokens([{ id: tokenId, x: landing.x, y: landing.y }]);
     return true;
+  }
+
+  /**
+   * The length of the path through `points` (map pixels) as Atlas labels it: by the collection's diagonal rule, with
+   * `rise` cells of height between its ends, in the map's units and under its unit's name. `extra` is a share of the
+   * path counted again (a spell's difficult terrain).
+   */
+  distanceLabel(points: ReadonlyArray<{ x: number; y: number }>, rise = 0, extra = 0): string {
+    const map = this.map;
+    if (!map) return '';
+    const measurement = this.host.measurement();
+    const cells = pathLengthInCells(points, map.grid, measurement.diagonalRule, rise);
+    return formatDistance(cells + cells * extra, measurement);
   }
 
   /** How much of a path (a share, 0 to 1) runs through difficult terrain a spell makes. */

@@ -1,30 +1,40 @@
 /**
- * Distances on the map, measured as Atlas measures them: along a path of cell centres, in cells (hex steps on a hex
- * grid; on a square grid by the collection's diagonal rule), labelled in the collection's units ("30ft") or, for
- * abstract systems, in squares or named range bands ("Close", "Far"). Pure.
+ * Distances on the map, measured by Atlas's own code (`packages/atlas-shared`, stock Atlas files): along a path of
+ * cell centres, in cells (hex steps on a hex grid; on a square grid by the collection's diagonal rule, the height
+ * between the path's ends counted as a third axis), labelled in the collection's units ("30ft", "8 mi") or, for
+ * abstract systems, in squares or named range bands ("Close", "Far"). What is here only reads the settings out of a
+ * map file and a collection, and hands Atlas the board's grid. Pure.
  */
-import { hexAxial } from './geometry';
+import {
+  formatDistance as atlasFormatDistance,
+  pathLengthInCells as atlasPathLength,
+  readUnitName,
+  resolveMeasurementSettings,
+  type CollectionGridDefaults,
+  type DiagonalRule,
+  type GridGeometry,
+  type GridState,
+  type GridUnitType,
+  type MeasurementSettings,
+} from '../../packages/atlas-shared/src/index';
 import type { BoardGrid } from './mapModel';
 
-export type DiagonalRule = 'equidistant' | 'alternating' | 'euclidean';
-type UnitType = 'feet' | 'yards' | 'meters' | 'units' | 'custom';
+export type { DiagonalRule };
+/** Atlas's measurement settings: the mode, the unit and its name, the distance per cell, the diagonal rule and the range bands. */
+export type Measurement = MeasurementSettings;
 
-export interface Measurement {
-  mode: 'metric' | 'abstract';
-  unitType: UnitType;
-  unitDistance: number;
-  diagonalRule: DiagonalRule;
-  /** Abstract mode: the first band a distance fits in names it. */
-  bands: Array<{ name: string; maxSquares: number }>;
-}
+const UNIT_TYPES: readonly string[] = ['feet', 'yards', 'meters', 'units', 'custom'];
+const DIAGONAL_RULES: readonly string[] = ['equidistant', 'alternating', 'euclidean', 'manhattan'];
+/** The most a distance per square may be: far past any game, short of anything that overflows a label. */
+const MAX_UNIT_DISTANCE = 1_000_000;
 
-const SUFFIX: Record<UnitType, string> = { feet: 'ft', yards: 'yd', meters: 'm', units: 'u', custom: '' };
 /**
- * Feet a square spans, for a spell's feet: feet as they are, yards three each, metres as D&D counts them (1.5 m is a
- * 5-foot square); a scale in no such unit (units, custom, abstract bands) counts five.
+ * Feet a rules square spans, for a spell's feet: feet as they are, yards three each, metres as D&D counts them (1.5 m
+ * is a 5-foot square); a scale in no such unit (units, custom, abstract bands) counts five. A spell's feet are rules
+ * squares, so this reads the collection's distance per square (`ruleDistance`), not a scene's own.
  */
 export function feetPerSquare(measurement: Measurement): number {
-  const distance = measurement.unitDistance > 0 ? measurement.unitDistance : 0;
+  const distance = measurement.ruleDistance > 0 ? measurement.ruleDistance : 0;
   if (measurement.mode !== 'metric' || distance === 0) return 5;
   switch (measurement.unitType) {
     case 'feet': return distance;
@@ -35,71 +45,62 @@ export function feetPerSquare(measurement: Measurement): number {
 }
 
 const isObj = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
-const unit = (value: unknown): UnitType | null => (typeof value === 'string' && value in SUFFIX ? (value as UnitType) : null);
-const rule = (value: unknown): DiagonalRule => (value === 'alternating' || value === 'euclidean' ? value : 'equidistant');
+const positive = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= MAX_UNIT_DISTANCE;
+const unit = (value: unknown): GridUnitType | null => (typeof value === 'string' && UNIT_TYPES.includes(value) ? (value as GridUnitType) : null);
 
-/**
- * The measuring rules: the collection's (`settings.gridDefaults`) when the map is in one, else the map grid's own
- * fields (`unitType`, `unitDistance`, `measurementType`).
- */
-export function readMeasurement(collection: unknown, rawGrid: unknown): Measurement {
-  if (isObj(collection)) {
-    const bands = Array.isArray(collection.abstractRangeBands)
-      ? collection.abstractRangeBands.filter((band): band is { name: string; maxSquares: number } =>
-        isObj(band) && typeof band.name === 'string' && band.name !== '' && Number.isInteger(band.maxSquares) && (band.maxSquares as number) >= 1)
-        .map((band) => ({ name: band.name, maxSquares: band.maxSquares }))
-      : [];
-    return {
-      mode: collection.measurementMode === 'abstract' ? 'abstract' : 'metric',
-      unitType: unit(collection.unitType) ?? 'feet',
-      unitDistance: typeof collection.unitDistance === 'number' && collection.unitDistance > 0 ? collection.unitDistance : 5,
-      diagonalRule: rule(collection.diagonalRule),
-      bands,
-    };
-  }
-  const grid = isObj(rawGrid) ? rawGrid : {};
+/** A collection's `gridDefaults`, field by field as Atlas reads them; what cannot be read takes Atlas's default. */
+function collectionDefaults(collection: Record<string, unknown>): CollectionGridDefaults {
+  const unitType = unit(collection.unitType) ?? 'feet';
+  const bands = Array.isArray(collection.abstractRangeBands)
+    ? collection.abstractRangeBands.filter((band): band is { name: string; maxSquares: number } =>
+      isObj(band) && typeof band.name === 'string' && band.name !== '' && Number.isInteger(band.maxSquares) && (band.maxSquares as number) >= 1)
+      .map((band) => ({ name: band.name, maxSquares: band.maxSquares }))
+    : [];
+  const unitName = unitType === 'custom' ? readUnitName(collection.unitName) : undefined;
   return {
-    mode: grid.measurementType === 'units' ? 'metric' : 'abstract',
-    unitType: unit(grid.unitType) ?? 'feet',
-    unitDistance: typeof grid.unitDistance === 'number' && grid.unitDistance > 0 ? grid.unitDistance : 5,
-    diagonalRule: 'equidistant',
-    bands: [],
+    unitType,
+    ...(unitName !== undefined ? { unitName } : {}),
+    unitDistance: positive(collection.unitDistance) ? collection.unitDistance : 5,
+    measurementMode: collection.measurementMode === 'abstract' ? 'abstract' : 'metric',
+    abstractRangeBands: bands,
+    diagonalRule: typeof collection.diagonalRule === 'string' && DIAGONAL_RULES.includes(collection.diagonalRule) ? (collection.diagonalRule as DiagonalRule) : 'equidistant',
+    ...(positive(collection.coneAngle) && collection.coneAngle <= 360 ? { coneAngle: collection.coneAngle } : {}),
   };
 }
 
-/** A path's length in cells: hex steps on a hex grid, the diagonal rule over the whole path on a square one. */
-export function pathLengthInCells(points: ReadonlyArray<{ x: number; y: number }>, grid: BoardGrid, diagonal: DiagonalRule): number {
+/** The measuring fields of a map's grid, as the file has them: its own unit, and the scene's own distance and unit name. */
+function gridFields(rawGrid: unknown): GridState {
+  const grid = isObj(rawGrid) ? rawGrid : {};
+  const unitType = unit(grid.unitType);
+  const unitName = readUnitName(grid.unitNameOverride);
+  return {
+    ...(grid.measurementType === 'units' ? { measurementType: 'units' } : {}),
+    ...(unitType ? { unitType } : {}),
+    ...(positive(grid.unitDistance) ? { unitDistance: grid.unitDistance } : {}),
+    ...(positive(grid.unitDistanceOverride) ? { unitDistanceOverride: grid.unitDistanceOverride } : {}),
+    ...(unitName !== undefined ? { unitNameOverride: unitName } : {}),
+  } as GridState;
+}
+
+/**
+ * The measuring rules, resolved by Atlas (`resolveMeasurementSettings`): the collection's (`settings.gridDefaults`) when
+ * the map is in one, else the map grid's own fields; a scene's own distance per cell and unit name on top of either.
+ */
+export function readMeasurement(collection: unknown, rawGrid: unknown): Measurement {
+  return resolveMeasurementSettings(isObj(collection) ? collectionDefaults(collection) : undefined, gridFields(rawGrid));
+}
+
+/**
+ * A path's length in cells, by Atlas: hex steps on a hex grid, the diagonal rule over the whole path on a square one.
+ * `rise` is the height between the path's ends in cells, counted as a third axis under the same rule.
+ */
+export function pathLengthInCells(points: ReadonlyArray<{ x: number; y: number }>, grid: BoardGrid, diagonal: DiagonalRule, rise = 0): number {
   if (points.length < 2) return 0;
-  if (grid.type !== 'square') {
-    let steps = 0;
-    for (let i = 1; i < points.length; i++) {
-      const a = hexAxial(grid, points[i - 1].x, points[i - 1].y);
-      const b = hexAxial(grid, points[i].x, points[i].y);
-      const dq = a.q - b.q;
-      const dr = a.r - b.r;
-      steps += (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
-    }
-    return steps;
-  }
-  let straight = 0;
-  let diagonals = 0;
-  let exact = 0;
-  for (let i = 1; i < points.length; i++) {
-    const dx = Math.abs(points[i].x - points[i - 1].x) / grid.size;
-    const dy = Math.abs(points[i].y - points[i - 1].y) / grid.size;
-    straight += Math.abs(dx - dy);
-    diagonals += Math.min(dx, dy);
-    exact += Math.hypot(dx, dy);
-  }
-  if (diagonal === 'euclidean') return exact;
-  if (diagonal === 'alternating') return straight + diagonals + Math.floor(diagonals / 2);
-  return straight + diagonals;
+  const geometry: GridGeometry = { type: grid.type, size: grid.size, offsetX: grid.offsetX, offsetY: grid.offsetY };
+  return atlasPathLength(geometry, points, diagonal, rise);
 }
 
 /** The distance as Atlas labels it. */
 export function formatDistance(cells: number, measurement: Measurement): string {
-  if (measurement.mode === 'metric') return `${Math.round(cells * measurement.unitDistance)}${SUFFIX[measurement.unitType]}`;
-  const squares = Math.round(cells);
-  if (measurement.bands.length === 0) return `${squares} sq`;
-  return (measurement.bands.find((band) => squares <= band.maxSquares) ?? measurement.bands[measurement.bands.length - 1]).name;
+  return atlasFormatDistance(cells, measurement);
 }

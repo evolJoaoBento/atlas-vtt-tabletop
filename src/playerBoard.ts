@@ -150,7 +150,7 @@ export interface PlayerBoardFactory {
 /** Atlas's laser swatches: the GM's colour first, then each player's by their place in the session (Connect's `laserColor`). */
 const LASER_PALETTE = ['#ff0059', '#ff9f2e', '#fff133', '#66ffa9', '#00a9ff', '#3d6bff', '#e85aa8', '#ffffff'];
 const DEFAULT_LIGHT_SQUARES = 1;
-const DEFAULT_MEASUREMENT: Measurement = { mode: 'metric', unitType: 'feet', unitDistance: 5, diagonalRule: 'equidistant', bands: [] };
+const DEFAULT_MEASUREMENT: Measurement = { mode: 'metric', unitType: 'feet', unitDistance: 5, ruleDistance: 5, diagonalRule: 'equidistant', rangeBands: [], coneAngle: 90 };
 
 /** The player's dice as this vault's Tabletop has them: its dice settings, and the pack chosen in them. */
 export interface PlayerBoardDice {
@@ -943,11 +943,17 @@ class PlayerBoard implements PlayerBoardHandle {
       toolsChanged: () => this.host.toolsChanged(),
       eyeChanged: () => this.host.eyeChanged?.(),
       measurement: () => {
-        const measurement = (this.scene as { measurement?: { mode?: string; unitType?: string; unitDistance?: number; diagonalRule?: string; rangeBands?: Array<{ name: string; maxSquares: number }> } } | null)?.measurement;
-        return measurement?.mode ? {
+        // Connect's `PlayerMeasurement`: Atlas's settings as the GM has them, the Manhattan rule and a unit's name included.
+        const measurement = (this.scene as { measurement?: { mode?: string; unitType?: string; unitDistance?: number; ruleDistance?: number; unitName?: string; diagonalRule?: string; rangeBands?: Array<{ name: string; maxSquares: number }>; coneAngle?: number } } | null)?.measurement;
+        if (!measurement?.mode) return DEFAULT_MEASUREMENT;
+        const unitDistance = measurement.unitDistance ?? 5;
+        return {
           mode: measurement.mode as Measurement['mode'], unitType: (measurement.unitType ?? 'feet') as Measurement['unitType'],
-          unitDistance: measurement.unitDistance ?? 5, diagonalRule: (measurement.diagonalRule ?? 'equidistant') as Measurement['diagonalRule'], bands: measurement.rangeBands ?? [],
-        } : DEFAULT_MEASUREMENT;
+          unitDistance, ruleDistance: measurement.ruleDistance ?? unitDistance,
+          ...(typeof measurement.unitName === 'string' && measurement.unitName !== '' ? { unitName: measurement.unitName } : {}),
+          diagonalRule: (measurement.diagonalRule ?? 'equidistant') as Measurement['diagonalRule'], rangeBands: measurement.rangeBands ?? [],
+          coneAngle: measurement.coneAngle ?? 90,
+        };
       },
       fogHeight: () => look()?.fogHeight ?? 1,
       wallThickness: () => look()?.wallThickness ?? 0.12,
