@@ -1,0 +1,121 @@
+{
+  "historyKeys": [
+    "abandonTransaction",
+    "beginTransaction",
+    "clear",
+    "discardTransaction",
+    "endTransaction",
+    "futureStates",
+    "isTracking",
+    "isTravelling",
+    "pastStates",
+    "pause",
+    "redo",
+    "resume",
+    "transaction",
+    "undo",
+    "untracked"
+  ],
+  "actions": [
+    "addMapFeatures",
+    "addMeasure",
+    "addWall",
+    "clearMeasures",
+    "closeMeasurePopover",
+    "deleteMapFeature",
+    "deleteMeasure",
+    "deleteWall",
+    "deleteWalls",
+    "openMeasurePopover",
+    "setMeasureTool",
+    "setTokenAuras",
+    "updateMapFeature",
+    "updateMeasure",
+    "updateWall"
+  ],
+  "p1": {
+    "id": "measure_1794613464743_i9frdxssf",
+    "steps": 1,
+    "inStore": true,
+    "by": "Anna",
+    "hidden": true,
+    "level": "level_probe_ground",
+    "inFile": true
+  },
+  "p2": {
+    "after": {
+      "steps": 1,
+      "walls": 1,
+      "features": 1,
+      "wallId": "wall_1794613467269_th761930y",
+      "featureIds": [
+        "feature_1794613467301_8q9jybdq6"
+      ]
+    },
+    "undone": {
+      "measure": false,
+      "walls": 0,
+      "features": 0
+    },
+    "redone": {
+      "measure": true,
+      "walls": 1,
+      "features": 1
+    },
+    "untracked": {
+      "steps": 0,
+      "measure": false
+    },
+    "cleaned": {
+      "walls": 0,
+      "features": 0
+    }
+  },
+  "p3": {
+    "lit": {
+      "light": {
+        "bright": 20,
+        "dim": 40,
+        "color": "#ffffff",
+        "intensity": 1,
+        "animation": {
+          "type": "none",
+          "speed": 1,
+          "intensity": 1
+        }
+      },
+      "effect": "radiance"
+    },
+    "dark": {
+      "bright": 0,
+      "dim": 15,
+      "color": "#000000",
+      "intensity": 1,
+      "animation": {
+        "type": "none",
+        "speed": 1,
+        "intensity": 1
+      },
+      "darkness": true
+    },
+    "squareDark": {
+      "bright": 0,
+      "dim": 15,
+      "color": "#000000",
+      "intensity": 1,
+      "animation": {
+        "type": "none",
+        "speed": 1,
+        "intensity": 1
+      },
+      "darkness": true
+    },
+    "lightingOn": true
+  },
+  "p4": {
+    "back": true,
+    "extra": true,
+    "by": "Anna"
+  },
+  "clean": true
+}
