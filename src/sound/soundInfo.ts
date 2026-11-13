@@ -6,6 +6,7 @@ export interface SoundInfo { name: string; when: string }
 const cap = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1);
 
 const DAMAGE = ['acid', 'bludgeoning', 'cold', 'explosion', 'fire', 'force', 'lightning', 'necrotic', 'piercing', 'poison', 'psychic', 'radiant', 'slashing', 'thunder', 'plain'] as const;
+const NO_LOOP: readonly string[] = ['bludgeoning', 'piercing', 'slashing'];
 const CONDITIONS = ['blinded', 'charmed', 'deafened', 'exhaustion', 'frightened', 'grappled', 'incapacitated', 'invisible', 'paralyzed', 'petrified', 'poisoned', 'prone', 'restrained', 'stunned', 'unconscious'] as const;
 const WATER = { ripples: 'Ripples', flow: 'Flowing water', waves: 'Waves', still: 'Still water' } as const;
 const WATER_WHEN = {
@@ -18,7 +19,6 @@ const WATER_WHEN = {
 function build(): Record<SoundId, SoundInfo> {
   const info: Record<string, SoundInfo> = {
     'dice.hit': { name: 'Die hits the table', when: 'A die hits the table, a wall or another die. Louder for a harder hit; many play at once in a big roll.' },
-    'dice.roll': { name: 'Dice rolling (loop)', when: 'Under the dice while they tumble; stops when they rest.' },
     'dice.caught': { name: 'Die caught on an edge', when: 'A die comes to rest cocked on an edge or against something, and is highlighted.' },
     'mini.pickup': { name: 'Mini picked up', when: 'A token is lifted by dragging it.' },
     'mini.putdown': { name: 'Mini put down', when: 'A dragged token lands.' },
@@ -34,6 +34,8 @@ function build(): Record<SoundId, SoundInfo> {
   for (const type of DAMAGE) {
     const label = type === 'plain' ? 'Plain magic' : cap(type);
     info[`spell.impact.${type}`] = { name: `${label} impact`, when: type === 'plain' ? 'A spell with no damage type lands.' : `A spell of ${type} damage lands.` };
+    // Weapon-blow spells have no loop: a lasting one is silent while it stands.
+    if (NO_LOOP.includes(type)) continue;
     info[`spell.loop.${type}`] = { name: `${label} (lingering, loop)`, when: type === 'plain' ? 'Under a lasting spell with no damage type, while it stays on the map.' : `Under a lasting ${type} spell, while it stays on the map.` };
   }
   for (const kind of Object.keys(WATER) as Array<keyof typeof WATER>) info[`water.${kind}`] = { name: `${WATER[kind]} (loop)`, when: WATER_WHEN[kind] };

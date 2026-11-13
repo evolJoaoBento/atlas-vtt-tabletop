@@ -5,7 +5,9 @@ import { CATALOG, loadSound } from '../src/sound/catalog';
 
 const CONDITIONS = ['blinded', 'charmed', 'deafened', 'exhaustion', 'frightened', 'grappled', 'incapacitated', 'invisible', 'paralyzed', 'petrified', 'poisoned', 'prone', 'restrained', 'stunned', 'unconscious', 'applied'];
 const DAMAGE = ['acid', 'bludgeoning', 'cold', 'explosion', 'fire', 'force', 'lightning', 'necrotic', 'piercing', 'poison', 'psychic', 'radiant', 'slashing', 'thunder', 'plain'];
-const LOOPS = ['dice.roll', ...DAMAGE.map((d) => `spell.loop.${d}`), 'water.ripples', 'water.flow', 'water.waves', 'water.still'];
+// Weapon-blow spells have no loop, and the dice have no rolling loop.
+const NO_LOOP = ['bludgeoning', 'piercing', 'slashing'];
+const LOOPS = [...DAMAGE.filter((d) => !NO_LOOP.includes(d)).map((d) => `spell.loop.${d}`), 'water.ripples', 'water.flow', 'water.waves', 'water.still'];
 const IDS = [
   'dice.hit', 'dice.caught', 'mini.pickup', 'mini.putdown',
   'door.open', 'door.shut', 'door.locked', 'wall.crumble', 'fog.chime', 'turn.horn',
@@ -31,7 +33,7 @@ test('the catalogue holds no id beyond the listed ones', () => {
 });
 
 test('variant counts', () => {
-  assert.ok(CATALOG['dice.hit'].files.length >= 6);
+  assert.ok(CATALOG['dice.hit'].files.length >= 4);
   assert.ok(CATALOG['mini.pickup'].files.length >= 4);
   assert.ok(CATALOG['mini.putdown'].files.length >= 4);
 });
@@ -59,7 +61,29 @@ test('every mp3 is listed in SOURCES.md with a licence', () => {
   for (const name of readdirSync(dir).filter((file) => file.endsWith('.mp3'))) {
     const row = sources.find((line) => line.includes(name));
     assert.ok(row, `${name} not in SOURCES.md`);
-    assert.match(row, /\b(CC0|own)\b/, `${name} has no licence`);
+    assert.match(row, /\b(CC0|CC BY 4\.0|own)\b/, `${name} has no licence`);
+  }
+});
+
+test('the removed ids are gone: no rolling loop, no loop for weapon-blow spells, no second fog chime', () => {
+  for (const id of ['dice.roll', 'spell.loop.bludgeoning', 'spell.loop.piercing', 'spell.loop.slashing']) assert.equal(catalog[id], undefined, id);
+  assert.equal(CATALOG['fog.chime'].files.length, 1);
+  assert.equal(readdirSync(dir).some((name) => /^(dice\.roll|fog\.chime-2|spell\.loop\.(bludgeoning|piercing|slashing))/.test(name)), false);
+});
+
+test('sounds that reuse another sound\'s file share its bytes, and no two shipped files are the same', () => {
+  const same = (a: string, b: string) => assert.deepEqual(catalog[a]?.files, catalog[b]?.files, `${a} / ${b}`);
+  same('spell.impact.explosion', 'spell.impact.fire');
+  same('spell.loop.plain', 'spell.loop.force');
+  same('condition.charmed', 'condition.applied');
+  same('condition.exhaustion', 'condition.applied');
+  same('condition.grappled', 'condition.restrained');
+  same('condition.unconscious', 'condition.prone');
+  const seen = new Map<string, string>();
+  for (const name of readdirSync(dir).filter((file) => file.endsWith('.mp3'))) {
+    const bytes = readFileSync(`${dir}/${name}`).toString('base64');
+    assert.equal(seen.get(bytes), undefined, `${name} duplicates ${seen.get(bytes)}`);
+    seen.set(bytes, name);
   }
 });
 

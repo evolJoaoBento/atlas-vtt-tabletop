@@ -79,12 +79,12 @@ feature('sound settings', async ({ page, shot }) => {
 
 // ── Board sounds: a board that closes stops its own loops on the engine it shares, though its host gives no engine now ──
 feature('closed board sounds', async ({ page }) => {
-  await page.evaluate(() => { const { board, sounds } = window.boardTest; board.soundLoop('water', 'water.flow', 0.3); board.soundLoop('dice', 'dice.roll', 0.2); sounds.loops.length = 0; sounds.gone = true; board.dispose(); });
+  await page.evaluate(() => { const { board, sounds } = window.boardTest; board.soundLoop('water', 'water.flow', 0.3); board.soundLoop('spell:fire', 'spell.loop.fire', 0.2); sounds.loops.length = 0; sounds.gone = true; board.dispose(); });
   const stops = await page.evaluate(() => window.boardTest.sounds.loops.map((loop) => [loop[0], loop[1]]));
-  check('closed board sounds: each loop of the board is stopped on the shared engine', JSON.stringify(stops.filter((loop) => loop[1] === null).map((loop) => loop[0]).sort()) === '["dice","water"]', JSON.stringify(stops));
+  check('closed board sounds: each loop of the board is stopped on the shared engine', JSON.stringify(stops.filter((loop) => loop[1] === null).map((loop) => loop[0]).sort()) === '["spell:fire","water"]', JSON.stringify(stops));
 });
 
-// ── Board sounds: dice clack per hit (at most 6 in 50 ms), a rolling layer that stops when the dice rest ───────────
+// ── Board sounds: dice clack per hit (at most 6 in 50 ms), no rolling loop; the clacks carry the roll ───────────────
 feature('dice sounds', async ({ page, shot }) => {
   await page.evaluate(() => {
     const { sounds } = window.boardTest;
@@ -104,8 +104,8 @@ feature('dice sounds', async ({ page, shot }) => {
   await page.locator('.atlas-tabletop-dice-prompt__throw').click();
   await page.waitForFunction(() => window.boardTest.board.dice.busy, null, { timeout: 5000 });
   await wait(300);
-  const rolling = await page.evaluate(() => window.boardTest.sounds.loops.filter((loop) => loop[1] === 'dice.roll').length);
-  check('dice sounds: the rolling layer plays while the dice tumble', rolling > 0, rolling);
+  const rolling = await page.evaluate(() => window.boardTest.sounds.loops.length);
+  check('dice sounds: no rolling loop plays while the dice tumble', rolling === 0, rolling);
   await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
   await wait(300);
   const heard = await page.evaluate(() => {
@@ -116,7 +116,7 @@ feature('dice sounds', async ({ page, shot }) => {
   });
   check('dice sounds: the dice clack', heard.hits >= 6, JSON.stringify(heard));
   check('dice sounds: never more than 6 clacks in any 50 ms', heard.worst <= 6, JSON.stringify(heard));
-  check('dice sounds: when the dice rest the rolling layer is stopped', heard.last[0] === 'dice' && heard.last[1] === null, JSON.stringify(heard.last));
+  check('dice sounds: no loop was started or stopped for the dice', heard.last === undefined, JSON.stringify(heard.last));
   check('dice sounds: only dice sounds are made', heard.ids.every((id) => id === 'dice.hit' || id === 'dice.caught'), JSON.stringify(heard.ids));
   await shot('dice-sounds');
 });

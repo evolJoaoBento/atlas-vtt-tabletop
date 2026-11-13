@@ -214,7 +214,7 @@ test('a change in the custom files tells the settings list', async () => {
   sounds.events();
   let told = 0;
   const stop = sounds.onChange(() => told++);
-  const file = new TFile(`${FOLDER}/dice.roll.mp3`);
+  const file = new TFile(`${FOLDER}/dice.caught.mp3`);
   files.set(file.path, { file, data: new ArrayBuffer(2) });
   fire('create', file);
   assert.equal(told, 1);
@@ -231,7 +231,8 @@ test('export writes every bundled file under built-in/ and a README, and nothing
   const paths = [...files.keys()];
   assert.equal(paths.length, expected + 1);
   assert.ok(paths.includes(`${FOLDER}/README.md`));
-  assert.ok(paths.includes(`${FOLDER}/built-in/dice.hit-8.mp3`));
+  assert.ok(paths.includes(`${FOLDER}/built-in/dice.hit-4.mp3`));
+  assert.ok(!paths.some((path) => /dice\.roll|spell\.loop\.(bludgeoning|piercing|slashing)/.test(path)), 'no removed id is exported');
   assert.ok(paths.every((path) => path.startsWith(`${FOLDER}/`)));
   assert.equal(sounds.custom.isCustom('dice.hit'), false, 'the exported copies are not overrides');
 });

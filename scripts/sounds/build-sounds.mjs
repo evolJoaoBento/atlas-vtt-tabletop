@@ -1,6 +1,7 @@
-// Builds the board sounds: reads Kenney's CC0 packs (.sound-src/kenney) and the WAVs from synth.mjs (.sound-src/own),
-// trims, pitches, normalises to -1 dBFS, encodes mono MP3 into src/assets/sounds/, checks the encoded files, and
-// writes SOURCES.md and src/sound/catalog.ts. `--sheet` also writes .sound-src/listen.html, one play button per file.
+// Builds the board sounds: reads Kenney's CC0 packs (.sound-src/kenney), the WAVs from synth.mjs (.sound-src/own) and
+// the downloaded packs listed in PACKS below (.sound-src/calvo, kmontes, round1), trims, pitches, normalises to -1 dBFS,
+// encodes mono MP3 into src/assets/sounds/, checks the encoded files, and writes SOURCES.md and src/sound/catalog.ts.
+// `--sheet` also writes .sound-src/listen.html, one play button per file.
 //   node scripts/sounds/fetch-kenney.mjs && node scripts/sounds/synth.mjs && node scripts/sounds/build-sounds.mjs
 /* global process, console -- this script runs under Node */
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -21,17 +22,93 @@ const RPG = (name, pitch, gain) => kenney(`rpg-audio/Audio/${name}.ogg`, pitch, 
 const UI = (name, pitch, gain) => kenney(`interface-sounds/Audio/${name}.ogg`, pitch, gain);
 const own = (recipe) => [{ own: recipe }];
 
-const DAMAGE = ['acid', 'bludgeoning', 'cold', 'explosion', 'fire', 'force', 'lightning', 'necrotic', 'piercing', 'poison', 'psychic', 'radiant', 'slashing', 'thunder', 'plain'];
+// The downloaded packs. `dir` is the folder under .sound-src that holds the originals (one flat folder per pack, or per
+// download); the rest goes to SOURCES.md and the README credits.
+const PACKS = {
+  calvo: { dir: 'calvo', name: 'Magic Spell SFX', author: 'Leonardo Calvo (The Sound Rack)', licence: 'CC BY 4.0', url: 'https://thesoundrack.itch.io/freemagicspellsfx' },
+  kmontes: { dir: 'kmontes', name: 'Fantasy Ambient Sound Effects Pack', author: 'kmontesdev', licence: 'CC0', url: 'https://kmontesdev.itch.io/fantasy-ambient-sound-effects-pack-cc0' },
+  dice29: { dir: 'round1', name: '2 dice roll (29 throws)', author: 'RPG (OpenGameArt user)', licence: 'CC0', url: 'https://opengameart.org/content/2-dice-roll-29-throws' },
+  cc080: { dir: 'round1', name: '80 CC0 RPG SFX', author: 'rubberduck', licence: 'CC0', url: 'https://opengameart.org/content/80-cc0-rpg-sfx' },
+};
+// One file of a downloaded pack. A loop takes `seg`: it is cut from `from` seconds, `len` long, and its last `xfade`
+// seconds are folded into its first, so the loop's end runs into its start.
+const pick = (pack, file, seg) => [{ pack, file, seg }];
+const LOOP_SEG = (from) => ({ from, len: 6.2, xfade: 0.2 });
+const calvo = (file, seg) => pick('calvo', file, seg);
+const kmontes = (file, seg) => pick('kmontes', file, seg);
+
 const CONDITIONS = ['blinded', 'charmed', 'deafened', 'exhaustion', 'frightened', 'grappled', 'incapacitated', 'invisible', 'paralyzed', 'petrified', 'poisoned', 'prone', 'restrained', 'stunned', 'unconscious', 'applied'];
-const IMPACT_GAIN = { explosion: 0.85, thunder: 0.85, piercing: 0.6, plain: 0.55, cold: 0.65, radiant: 0.65, psychic: 0.65 };
-const LOOP_GAIN = { thunder: 0.45, explosion: 0.45, piercing: 0.25, cold: 0.35, psychic: 0.3, radiant: 0.3, force: 0.4, necrotic: 0.4 };
+// Conditions and damage types that have no file of their own and play another sound's file (one file, several ids).
+const CONDITION_REUSE = { charmed: 'applied', exhaustion: 'applied', grappled: 'restrained', unconscious: 'prone' };
+const CONDITION_FILE = {
+  blinded: calvo('wind_spell_cast_air_sharp_shoot_02.ogg'),
+  deafened: calvo('wind_spell_cast_air_short_noisy_whoosh_02.ogg'),
+  frightened: calvo('dark_spell_cast_invoke_raven_fast_01.ogg'),
+  incapacitated: kmontes('Hit_03.wav'),
+  invisible: calvo('wind_spell_cast_air_short_spacious_whoosh_03.ogg'),
+  paralyzed: calvo('lighting_spell_electric_zap_blast_sparkle_dark_02.ogg'),
+  petrified: calvo('earth_spell_cast_morph_rocks_02.ogg'),
+  poisoned: calvo('acid_spell_cast_bubble_poison_03.ogg'),
+  prone: kmontes('Hit_02.wav'),
+  restrained: kmontes('0009_combat_block_shield_d.wav'),
+  stunned: calvo('lighting_spell_electric_zap_blast_sparkle_bright_03.ogg'),
+  applied: calvo('dark_spell_cast_energy_ball_05.ogg'),
+};
+const IMPACT_FILE = {
+  acid: calvo('acid_spell_cast_squish_whoosh_impact_01.ogg'),
+  bludgeoning: kmontes('0009_combat_staff_hit_c.wav'),
+  cold: calvo('Ice_Spell_fast_impact_02.ogg'),
+  fire: calvo('fire_spell_burst_impact_short_02.ogg'),
+  force: calvo('wind_spell_cast_air_impact_splash_01.ogg'),
+  lightning: calvo('lighting_spell_electric_zap_blast_sparkle_bright_04.ogg'),
+  necrotic: calvo('dark_spell_cast_smash_head_blood_01.ogg'),
+  piercing: kmontes('0009_combat_dagger_hit_wood_c.wav'),
+  plain: kmontes('Hit_04.wav'),
+  poison: calvo('acid_spell_cast_gas_poison_squish_ball__01.ogg'),
+  psychic: calvo('dark_spell_cast_energy_wave_02.ogg'),
+  radiant: calvo('Holy_spell_wave_cast_01.ogg'),
+  slashing: kmontes('0009_combat_sword_hit_flesh_c.wav'),
+  thunder: calvo('lighting_spell_electric_impact_thunder_loud_dark_01.ogg'),
+};
+const IMPACT_REUSE = { explosion: 'fire' };
+// The bludgeoning, piercing and slashing spells have no loop: a lasting one is silent while it stands. The cold loop is
+// the desert night wind, as an icy wind bed, and the plain loop is the force loop.
+const LOOP_FILE = {
+  acid: kmontes('Drips_Cave_Cavern_2B.wav', LOOP_SEG(21)),
+  cold: kmontes('Desert_KalNight_.wav', LOOP_SEG(31)),
+  explosion: calvo('earth_spell_cast_meteor_explosion_04.ogg', LOOP_SEG(3)),
+  fire: calvo('fire_spell_long_soft_01.ogg', LOOP_SEG(2.5)),
+  force: calvo('dark_spell_cast_force_energy_field_01.ogg', LOOP_SEG(3)),
+  lightning: calvo('lighting_spell_electric_loop_static_warm_02.ogg', LOOP_SEG(2)),
+  necrotic: kmontes('Cave_Ambience_Creepy.wav', LOOP_SEG(21)),
+  poison: kmontes('Cave_Ambience_Drips.wav', LOOP_SEG(31)),
+  psychic: calvo('dark_spell_cast_force_energy_field_03.ogg', LOOP_SEG(1.3)),
+  radiant: calvo('Holy_spell_heal_cast_long_07.ogg', LOOP_SEG(2.5)),
+  thunder: calvo('earth_spell_cast_earthquake_power_03.ogg', LOOP_SEG(3)),
+};
+const LOOP_REUSE = { plain: 'force' };
+// Each sound's own level before the caller's gain. Files are all normalised to -1 dBFS, so these even out how loud they
+// are; the overrides were set from the files' measured loudness. Others get the default of their kind.
+const GAIN = {
+  'dice.hit': 1,
+  'wall.crumble': 1,
+  'condition.applied': 0.95, 'condition.blinded': 0.9, 'condition.deafened': 0.5, 'condition.frightened': 0.75, 'condition.incapacitated': 0.5,
+  'condition.invisible': 0.5, 'condition.paralyzed': 0.65, 'condition.petrified': 0.5, 'condition.poisoned': 0.6, 'condition.prone': 0.5,
+  'condition.restrained': 0.5, 'condition.stunned': 0.5,
+  'condition.charmed': 0.95, 'condition.exhaustion': 0.95, 'condition.grappled': 0.5, 'condition.unconscious': 0.5,
+  'spell.impact.acid': 0.7, 'spell.impact.bludgeoning': 0.55, 'spell.impact.cold': 0.85, 'spell.impact.explosion': 0.85, 'spell.impact.fire': 0.7,
+  'spell.impact.force': 0.65, 'spell.impact.lightning': 0.6, 'spell.impact.necrotic': 0.8, 'spell.impact.piercing': 0.6, 'spell.impact.plain': 0.55,
+  'spell.impact.poison': 0.8, 'spell.impact.psychic': 0.55, 'spell.impact.radiant': 0.7, 'spell.impact.slashing': 0.75, 'spell.impact.thunder': 0.65,
+  'spell.loop.acid': 1, 'spell.loop.cold': 0.75, 'spell.loop.explosion': 0.2, 'spell.loop.fire': 0.35, 'spell.loop.force': 0.25,
+  'spell.loop.lightning': 0.2, 'spell.loop.necrotic': 0.35, 'spell.loop.plain': 0.25, 'spell.loop.poison': 1, 'spell.loop.psychic': 0.2,
+  'spell.loop.radiant': 0.45, 'spell.loop.thunder': 0.25,
+};
+const gainOf = (id, fallback) => GAIN[id] ?? fallback;
 
 const SOUNDS = [
-  { id: 'dice.hit', group: 'dice', gain: 0.7, placed: true, max: 0.15, variants: [
-    ...[0, 1, 2, 3, 4].map((i) => [IMPACT(`impactWood_light_00${i}`, 4 + i)]),
-    ...[0, 1, 2].map((i) => [IMPACT(`impactWood_light_00${i}`, 7), IMPACT(`impactPlate_light_00${i}`, 9, 0.35)]),
-  ] },
-  { id: 'dice.roll', group: 'dice', gain: 0.45, placed: true, loop: true, variants: [own('dice-roll')] },
+  // Real dice clacks. Each is the first strong hit of a recorded throw, 0.15 s of it (there is no rolling loop: the clacks
+  // carry the roll).
+  { id: 'dice.hit', group: 'dice', gain: gainOf('dice.hit', 0.7), placed: true, shape: 'hit', variants: ['dice-1.wav', 'dice-5.wav', 'dice-12.wav', 'dice-20.wav'].map((file) => pick('dice29', file)) },
   { id: 'dice.caught', group: 'dice', gain: 0.6, placed: true, max: 0.3, variants: [[UI('error_001', 0)], [UI('error_004', -2)]] },
   { id: 'mini.pickup', group: 'minis', gain: 0.55, placed: true, max: 0.4, variants: [
     [RPG('cloth1')], [RPG('cloth2')], [RPG('cloth3')], [RPG('cloth4')], [RPG('handleSmallLeather')],
@@ -44,12 +121,24 @@ const SOUNDS = [
   { id: 'door.open', group: 'doors', gain: 0.7, placed: true, variants: [[RPG('doorOpen_1')], [RPG('doorOpen_2')]] },
   { id: 'door.shut', group: 'doors', gain: 0.75, placed: true, variants: [[RPG('doorClose_1')], [RPG('doorClose_2')], [RPG('doorClose_3')]] },
   { id: 'door.locked', group: 'doors', gain: 0.6, placed: true, variants: [[RPG('metalClick')], [RPG('metalLatch')]] },
-  { id: 'wall.crumble', group: 'doors', gain: 0.85, placed: true, variants: [own('crumble')] },
-  { id: 'fog.chime', group: 'fog', gain: 0.5, placed: false, variants: [[UI('confirmation_001')], [UI('glass_001', 3)]] },
+  { id: 'wall.crumble', group: 'doors', gain: gainOf('wall.crumble', 0.85), placed: true, max: 1.35, trimTail: true, variants: [pick('cc080', 'stones_01.ogg')] },
+  { id: 'fog.chime', group: 'fog', gain: 0.5, placed: false, variants: [[UI('confirmation_001')]] },
   { id: 'turn.horn', group: 'turns', gain: 0.75, placed: false, variants: [own('horn')] },
-  ...CONDITIONS.map((name) => ({ id: `condition.${name}`, group: 'conditions', gain: name === 'applied' ? 0.55 : 0.6, placed: true, variants: [own(`condition-${name}`)] })),
-  ...DAMAGE.map((name) => ({ id: `spell.impact.${name}`, group: 'spells', gain: IMPACT_GAIN[name] ?? 0.75, placed: true, variants: [own(`spell-impact-${name}`)] })),
-  ...DAMAGE.map((name) => ({ id: `spell.loop.${name}`, group: 'spells', gain: LOOP_GAIN[name] ?? 0.4, placed: true, loop: true, variants: [own(`spell-loop-${name}`)] })),
+  ...CONDITIONS.map((name) => {
+    const id = `condition.${name}`;
+    const base = { id, group: 'conditions', gain: gainOf(id, 0.6), placed: true };
+    return CONDITION_REUSE[name] ? { ...base, reuse: `condition.${CONDITION_REUSE[name]}` } : { ...base, max: 1.1, variants: [CONDITION_FILE[name]] };
+  }),
+  ...[...Object.keys(IMPACT_FILE), ...Object.keys(IMPACT_REUSE)].sort().map((name) => {
+    const id = `spell.impact.${name}`;
+    const base = { id, group: 'spells', gain: gainOf(id, 0.75), placed: true };
+    return IMPACT_REUSE[name] ? { ...base, reuse: `spell.impact.${IMPACT_REUSE[name]}` } : { ...base, max: 1.9, variants: [IMPACT_FILE[name]] };
+  }),
+  ...[...Object.keys(LOOP_FILE), ...Object.keys(LOOP_REUSE)].sort().map((name) => {
+    const id = `spell.loop.${name}`;
+    const base = { id, group: 'spells', gain: gainOf(id, 0.4), placed: true, loop: true };
+    return LOOP_REUSE[name] ? { ...base, reuse: `spell.loop.${LOOP_REUSE[name]}` } : { ...base, variants: [LOOP_FILE[name]] };
+  }),
   { id: 'water.ripples', group: 'water', gain: 0.35, placed: true, loop: true, variants: [own('water-ripples')] },
   { id: 'water.flow', group: 'water', gain: 0.35, placed: true, loop: true, variants: [own('water-flow')] },
   { id: 'water.waves', group: 'water', gain: 0.4, placed: true, loop: true, variants: [own('water-waves')] },
@@ -91,8 +180,27 @@ function pitchShift(x, semitones) {
   return out;
 }
 
+/** Cuts `len` seconds from `from`, removes the mean, and folds the last `xfade` seconds into the first (equal-power), so the loop's end runs into its start. */
+function loopSegment(x, { from, len, xfade }) {
+  let seg = x.slice(Math.round(from * SR), Math.round((from + len) * SR));
+  const mean = seg.reduce((s, v) => s + v, 0) / seg.length;
+  seg = seg.map((v) => v - mean);
+  const X = Math.min(Math.round(xfade * SR), seg.length >> 2);
+  const N = seg.length - X;
+  const out = seg.slice(0, N);
+  for (let i = 0; i < X; i++) {
+    const t = (i + 0.5) / X;
+    out[i] = seg[i] * Math.sin((t * Math.PI) / 2) + seg[N + i] * Math.cos((t * Math.PI) / 2);
+  }
+  return out;
+}
+
 function loadLayer(layer) {
   if (layer.own) return readWav16(`.sound-src/own/${layer.own}.wav`);
+  if (layer.pack) {
+    const x = decodeWithFfmpeg(`.sound-src/${PACKS[layer.pack].dir}/${layer.file}`);
+    return layer.seg ? loopSegment(x, layer.seg) : x;
+  }
   return pitchShift(decodeWithFfmpeg(`.sound-src/kenney/${layer.k}`), layer.pitch).map((v) => v * layer.gain);
 }
 function mixLayers(layers) {
@@ -103,21 +211,44 @@ function mixLayers(layers) {
 }
 
 /** Trims leading and trailing silence, caps the length, blocks DC, and fades the ends so nothing clicks. */
-function shapeOneShot(x, max, fadeInSec = 0.0015) {
-  const peak = peakOf(x);
+function shapeOneShot(x, max, fadeInSec = 0.0015, external = false, trimTail = false) {
+  // A recording from a downloaded pack can be long, with a loud tail far from its start: find the peak near the start.
+  const peak = peakOf(external && max ? x.slice(0, Math.round((max + 0.5) * SR)) : x);
   let s = 0;
-  while (s < x.length && Math.abs(x[s]) < 0.02 * peak) s++;
+  while (s < x.length && Math.abs(x[s]) < (external ? 0.01 : 0.02) * peak) s++;
   let e = x.length;
-  while (e > 0 && Math.abs(x[e - 1]) < 0.004 * peak) e--;
+  // A pack recording keeps its natural tail (the fade-out below ends it); the other sources lose their silent tail.
+  while ((!external || trimTail) && e > 0 && Math.abs(x[e - 1]) < 0.004 * peak) e--;
   s = Math.max(0, s - 44);
   let out = x.slice(s, Math.max(s + 1, e));
-  if (max && out.length > max * SR) out = out.slice(0, Math.round(max * SR));
-  // A DC blocker (about 24 Hz).
+  const capped = !!max && out.length > max * SR;
+  if (capped) out = out.slice(0, Math.round(max * SR));
+  dcBlock(out);
+  // Their tails are long and soft: a recording that is cut short fades over a quarter of the cap (at most 0.25 s), and
+  // one that ends on its own over 40% of its length (at most 0.25 s).
+  const fadeOutSec = external ? Math.min(0.25, capped ? max * 0.25 : (out.length / SR) * 0.4) : 0.03;
+  const fadeIn = Math.min(Math.round(fadeInSec * SR), out.length >> 2);
+  const fadeOut = Math.min(Math.round(fadeOutSec * SR), out.length >> 1);
+  for (let i = 0; i < fadeIn; i++) out[i] *= i / fadeIn;
+  for (let i = 0; i < fadeOut; i++) out[out.length - 1 - i] *= 0.5 - 0.5 * Math.cos(Math.PI * (i / fadeOut));
+  return out;
+}
+/** A DC blocker (about 24 Hz), in place. */
+function dcBlock(out) {
   let px = 0;
   let py = 0;
   for (let i = 0; i < out.length; i++) { const y = out[i] - px + 0.9966 * py; px = out[i]; py = y; out[i] = y; }
-  const fadeIn = Math.min(Math.round(fadeInSec * SR), out.length >> 2);
-  const fadeOut = Math.min(Math.round(0.03 * SR), out.length >> 1);
+}
+/** A die's clack: 0.15 s from just before the first strong hit of a recorded throw (a later, louder bounce does not win). */
+function shapeHit(x) {
+  const peak = peakOf(x);
+  let p = 0;
+  while (p < x.length && Math.abs(x[p]) < 0.45 * peak) p++;
+  const s = Math.max(0, p - 220);
+  const out = Float32Array.from(x.slice(s, s + Math.round(0.15 * SR)));
+  dcBlock(out);
+  const fadeIn = Math.min(Math.round(0.0015 * SR), out.length >> 2);
+  const fadeOut = Math.min(Math.round(0.04 * SR), out.length >> 1);
   for (let i = 0; i < fadeIn; i++) out[i] *= i / fadeIn;
   for (let i = 0; i < fadeOut; i++) out[out.length - 1 - i] *= 0.5 - 0.5 * Math.cos(Math.PI * (i / fadeOut));
   return out;
@@ -222,12 +353,17 @@ const conditionSignatures = [];
 let total = 0;
 const report = [];
 
+const made = new Map();
 for (const sound of SOUNDS) {
+  // A sound that reuses another's file gets that file's name and no MP3 of its own; it is filled in after the loop.
+  if (sound.reuse) { entries.push({ ...sound, files: [] }); continue; }
   const files = [];
   sound.variants.forEach((layers, index) => {
     const name = `${sound.id}-${index + 1}.mp3`;
     let x = mixLayers(layers);
-    x = sound.loop ? shapeLoop(x) : shapeOneShot(x, sound.max, layers.every((l) => l.own) ? 0.004 : undefined);
+    if (sound.shape === 'hit') x = shapeHit(x);
+    else if (sound.loop) x = shapeLoop(x);
+    else x = shapeOneShot(x, sound.max, layers.every((l) => l.own) ? 0.004 : layers.every((l) => l.pack) ? 0.003 : undefined, layers.every((l) => l.pack), !!sound.trimTail);
     x = normalise(x);
     let kbps = sound.loop ? 48 : 64;
     let mp3;
@@ -253,9 +389,11 @@ for (const sound of SOUNDS) {
         for (let r = 0; r < 24; r++) {
           const shift = Math.round((r * x.length) / 24);
           const trial = encodeChecked(Float32Array.from({ length: x.length }, (_, i) => x[(i + shift) % x.length]));
-          const ratio = measure(trial.decoded, true, trial.signal).wrapJump / measure(trial.decoded, true, trial.signal).p99Jump;
+          // The score is 1 where the seam just passes both checks (the wrap step and the level on either side of the seam).
+          const seam = measure(trial.decoded, true, trial.signal);
+          const ratio = Math.max(seam.wrapJump / seam.p99Jump / 1.5, seam.seamRms / 0.5);
           if (!best || ratio < best.ratio) best = { ...trial, ratio, kbps: rate };
-          if (ratio <= 1.5) break search;
+          if (ratio <= 1) break search;
         }
       }
       ({ signal: x, mp3, decoded, kbps } = { ...best, decoded: best.decoded });
@@ -268,16 +406,32 @@ for (const sound of SOUNDS) {
     if (problems.length) failures.push(`${name}: ${problems.join('; ')}`);
     report.push({ name, bytes: mp3.length, seconds: x.length / SR, ...m });
     if (sound.id.startsWith('condition.')) conditionSignatures.push({ id: sound.id, sig: signature(x) });
-    const origin = layers.map((l) => (l.own ? `own: synth.mjs ${l.own}` : `Kenney ${{ 'impact-sounds': 'Impact Sounds', 'rpg-audio': 'RPG Audio', 'interface-sounds': 'Interface Sounds' }[l.k.split('/')[0]]}: ${l.k.split('/').pop()}`)).join(' + ');
-    const licence = layers.every((l) => l.own) ? 'own' : 'CC0';
+    const origin = layers.map((l) => {
+      if (l.own) return `own: synth.mjs ${l.own}`;
+      if (l.pack) return `${PACKS[l.pack].name} by ${PACKS[l.pack].author} (${PACKS[l.pack].url}): ${l.file}`;
+      return `Kenney ${{ 'impact-sounds': 'Impact Sounds', 'rpg-audio': 'RPG Audio', 'interface-sounds': 'Interface Sounds' }[l.k.split('/')[0]]}: ${l.k.split('/').pop()}`;
+    }).join(' + ');
+    const licence = [...new Set(layers.map((l) => (l.own ? 'own' : l.pack ? PACKS[l.pack].licence : 'CC0')))].join(' + ');
     const changes = [];
     const pitches = layers.filter((l) => l.k && l.pitch).map((l) => `${l.pitch > 0 ? '+' : ''}${l.pitch} st`);
     if (pitches.length) changes.push(`pitch ${pitches.join(', ')}`);
     if (layers.length > 1) changes.push('layered');
-    changes.push(sound.loop ? `DC removed, seamless loop, normalised -1 dBFS, mp3 ${kbps}k` : 'trimmed, faded, normalised -1 dBFS, mp3 64k');
+    const seg = layers.find((l) => l.seg)?.seg;
+    if (seg) changes.push(`cut ${seg.len} s from ${seg.from} s, last ${seg.xfade} s folded into the first`);
+    if (sound.shape === 'hit') changes.push('first clack, 0.15 s, DC removed, faded, normalised -1 dBFS, mp3 64k');
+    else changes.push(sound.loop ? `DC removed, seamless loop, normalised -1 dBFS, mp3 ${kbps}k` : `trimmed${sound.max ? `, at most ${sound.max} s` : ''}, faded, normalised -1 dBFS, mp3 64k`);
     rows.push(`| ${sound.id} | ${name} | ${origin} | ${licence} | ${changes.join('; ')} |`);
+    made.set(sound.id, { licence, origin });
   });
   entries.push({ ...sound, files });
+}
+// A reusing sound points at the other sound's files: one MP3 in the bundle, several ids.
+for (const entry of entries) {
+  if (!entry.reuse) continue;
+  const target = entries.find((e) => e.id === entry.reuse);
+  if (!target || target.reuse || target.files.length === 0) throw new Error(`${entry.id} reuses ${entry.reuse}, which has no files of its own`);
+  entry.files = target.files;
+  rows.push(`| ${entry.id} | ${target.files.join(', ')} | same file as ${target.id} (not stored twice) | ${made.get(target.id).licence} | none |`);
 }
 
 // The nearest pair of condition sounds, by how alike their spectrogram signatures are.
@@ -293,10 +447,23 @@ if (nearest.r > 0.9) failures.push(`conditions too alike: ${nearest.a} / ${neare
 // SOURCES.md
 writeFileSync(`${OUT}/SOURCES.md`, `# Board sound sources
 
-Every file here is either from Kenney's CC0 packs (https://kenney.nl, public domain dedication, no attribution needed)
-or synthesised for this project (licence "own"). Nothing else is used. Rebuild with:
+Every file here is one of:
+
+- from Kenney's CC0 packs (https://kenney.nl, public domain dedication, no attribution needed);
+- from the Fantasy Ambient Sound Effects Pack by kmontesdev, CC0 (https://kmontesdev.itch.io/fantasy-ambient-sound-effects-pack-cc0);
+- from the 2 dice roll (29 throws) pack by RPG and 80 CC0 RPG SFX by rubberduck, both CC0 on OpenGameArt;
+- from the Magic Spell SFX pack by Leonardo Calvo (The Sound Rack), **CC BY 4.0**, which needs credit:
+  https://thesoundrack.itch.io/freemagicspellsfx, licence https://creativecommons.org/licenses/by/4.0/ (the credit is in the
+  README's Credits; the files are cut, faded, normalised and re-encoded, which the licence allows with that notice);
+- or synthesised for this project (licence "own").
+
+Nothing else is used. A sound with no row of its own plays another sound's file (the last rows); the file is stored once.
+Rebuild with:
 
     node scripts/sounds/fetch-kenney.mjs && node scripts/sounds/synth.mjs && node scripts/sounds/build-sounds.mjs
+
+The pack originals are not in the repository. The build reads them from \`.sound-src/calvo/\`, \`.sound-src/kmontes/\` and
+\`.sound-src/round1/\` (flat folders holding the files named in the table below, downloaded from the pack pages above).
 
 ## Changing a built-in sound
 
@@ -306,6 +473,9 @@ ffmpeg); it rewrites the MP3s in this folder, \`src/sound/catalog.ts\` and this 
 
 - Another file from a Kenney pack: change the name in the line, for example \`[RPG('cloth1')]\` to \`[RPG('cloth7')]\`
   (the optional arguments are the pitch shift in semitones and the gain). The pack must be fetched first.
+- A file from a downloaded pack: put the original in that pack's folder under \`.sound-src\` and write
+  \`calvo('<file>')\` or \`kmontes('<file>')\` as the variant (a loop also takes \`LOOP_SEG(<start seconds>)\`). Credit and
+  licence come from the \`PACKS\` table.
 - A file of your own: save it as a WAV at \`.sound-src/own/<name>.wav\` and write \`own('<name>')\` as the variant. It must be
   CC0 or made by you; this file's table then says so.
 - The base level of a sound is the \`gain\` of its entry; the build normalises every file to -1 dBFS.
@@ -319,7 +489,7 @@ ${rows.join('\n')}
 
 // catalog.ts
 const ident = (name) => name.replace(/\.mp3$/, '').replace(/[^A-Za-z0-9]/g, '_').replace(/^(\d)/, '_$1');
-const imports = entries.flatMap((e) => e.files.map((f) => `import ${ident(f)} from '../assets/sounds/${f}';`));
+const imports = [...new Set(entries.flatMap((e) => e.files.map((f) => `import ${ident(f)} from '../assets/sounds/${f}';`)))];
 const idUnion = entries.map((e) => `  | '${e.id}'`).join('\n');
 const body = entries.map((e) => {
   const fields = [`group: '${e.group}'`, `files: [${e.files.map(ident).join(', ')}]`, `gain: ${e.gain}`, `placed: ${e.placed}`];
