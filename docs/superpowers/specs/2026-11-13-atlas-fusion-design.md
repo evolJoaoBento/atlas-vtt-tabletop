@@ -65,12 +65,17 @@ My calls (the user can override any of them; listed again in section 12):
 
 Stock Atlas has no API (audit, "Root finding"). Its rules and saving live in the store of a loaded Atlas view. So:
 
-- **One host per map.** When a board opens map M, Tabletop makes sure an Atlas view holds M, loaded (`mapLoaded`, not `isMapLoading`). It uses, in this order:
-  1. an Atlas view already showing M;
-  2. an Atlas tab of M that is not active (`tabMetaStore` + `switchToTab`), only when that view shows no other map the user is looking at;
-  3. a deferred Atlas leaf of M (`loadIfDeferred`, as `BoardView.openInAtlas` does now);
-  4. a new Atlas leaf opened in the background (`getLeaf('tab')`, `active: false`), with the board kept in front.
-- **Several boards.** Each board map gets its own host. Two boards on one map share one host. A host Tabletop opened is closed by Tabletop when the last board on that map closes. A host the user opened is never closed by Tabletop.
+- **One host, the single Atlas view.** Phase 0 found that stock Atlas 0.15 keeps only one Atlas leaf, and that leaf holds one map at a time. On every layout change Atlas closes extra Atlas leaves and reopens their maps as internal tabs of the one left. So there is exactly one host.
+  - **Map M is "held"** when the host's store has `mapPath === M`, is loaded, and is not loading.
+- **The host follows the focused board (user's choice, 2026-11-13).** When a board gains focus, or opens, the host is made to hold its map:
+  1. If the host already holds it, nothing happens.
+  2. If the host has an internal tab of M, use `switchToTab`.
+  3. If there is a deferred Atlas leaf, use `loadIfDeferred`. Otherwise open a new background leaf. Phase 0's G6 recipe: after `getLeaf('tab')`, make the board's leaf active again **before** `setViewState`. Without that, Atlas takes the front.
+
+  The board stays in front throughout. A host that Tabletop opened is closed when the last board closes; one that the user opened never is.
+- **Boards on other maps** are view-only until they gain focus. They show a bar: "View only. Atlas holds <map>. [Edit here]". The button focuses the board, which moves the host.
+- **Player edits on a map that is not held** are refused at the GM. Connect tells the player: "The GM's Atlas is on another map; try again in a moment." They are never queued and never written to a file. Players are normally on the GM's map, so this is rare.
+- **Connect** asks the same host. Connect never moves the host itself: only a board's focus, or the user in Atlas, does.
 - **The user closes a host.** The board turns read-only and shows a bar: "Atlas closed this map. Editing is paused. [Reopen]". Reopen runs the host steps again. Edits made while the host was loading are queued, in order, and applied once it loads. Nothing is ever written to the file directly.
 - **Writes.** Every edit goes through store actions, with a confirmed action per kind:
   - tokens, initiative, doors, walls, notes, lighting
@@ -78,9 +83,8 @@ Stock Atlas has no API (audit, "Root finding"). Its rules and saving live in the
   - levels and level alignment
   The board's file-path engines are deleted: `initiative.ts`'s apply path and `fileCannotRun`, `tokenEdits.ts`, `resources.ts`, the write side of `fog.ts` and `levels.ts`, and `TokenWriter`'s file branch.
 - **Reads.** The board renders from the host's store and subscribes to it. It reads the `.atlasmap` file only to draw while the host is still loading, and only for display.
-- **Memory.** A background Atlas leaf loads Atlas's 2D canvas for that map.
-  - **Budget:** with 3 boards open on 3 maps, the hosts together add at most 300 MB. Measure this in Phase 1.
-  - If the budget is exceeded, hosts beyond the first two are suspended (closed and reopened on focus), and their boards are read-only meanwhile.
+- **Memory.** Phase 0 measured the cost. The first Atlas load adds about 270 MB, about 100 MB of which is an audio process. Each further map adds about 20 MB.
+  - Closing Atlas frees little, about 57 MB. So Tabletop never closes and reopens the host to save memory. It keeps the host open while any board is open.
   - The board test harness runs with a fake store host. It must not open real Atlas leaves.
 - **Failure.** If Atlas is missing, older than 0.15, or the host fails to load within 15 s, the board opens read-only with the reason shown. Connect behaves the same way.
 - **A missing store action.** If Phase 0 finds no store action for some kind of edit (gate G8), that edit is not offered on the board. An "Edit in Atlas" button opens the host in front instead. A file write is never the fallback.
@@ -197,7 +201,8 @@ Every gate in section 11 is checked first, in a throwaway vault on Atlas 0.15.0,
 
 **Phase 1: Breaks, floor and host**
 - version floor and pairing (section 5)
-- the Atlas host and the read-only board (section 4.1), measured against the memory budget
+- the single Atlas host that follows the focused board, the view-only bar for boards on other maps, and refusal of player edits on maps that are not held (section 4.1)
+- fix the error Tabletop's ported asset manager logs on Atlas 0.15: "[Atlas] Initializing asset service failed: TypeError: te.initialize is not a function"
 - `atlas-shared` with `gridDistance.ts`: Manhattan and height in both plugins' distances
 - custom unit names (`unitName`, `unitNameOverride`), both plugins
 - room-wall re-key and doubled-wall guard; delete Connect's rooms port
@@ -301,6 +306,25 @@ The user's approval covers both branches of each gate.
 | G5 party links | Whether Atlas stores which player controls which token | Connect reads Atlas's | Keep Connect's |
 | G6 background host | A background Atlas leaf, never shown, stays loaded and saves | Section 4.1 as written | The host is opened as a split pane beside the board (visible, can be collapsed) |
 | G7 memory | 3 hosts ≤ 300 MB together | As written | Suspend hosts beyond 2 (section 4.1) |
+
+**Phase 0 results (2026-11-13, stock Atlas 0.15.0; full report `.superpowers/sdd/2026-11-13-atlas-fusion/phase0-report.md`):**
+
+| Gate | Result | What follows |
+|---|---|---|
+| G1m, G1w, G1l, G1q | **PASS** for all four | A `tabletop` field survives the add, the save, a reopen, a full restart and a later save. So 3D extras live on Atlas records: measures keep all 14 damage types, and walls, lights and water motion move off data.json. |
+| G2 | **PASS** | `addMapFeatures` with `terrain.difficult` |
+| G3 | **PASS** | `setSceneLighting({ambient, ambientColor})` |
+| G4 | **PASS** | `settingsService.getDragDistance()` / `setDragDistance` (`always` / `combat` / `never`) |
+| G5 | **PASS** (from the source; not live, since there was no campaign) | `players.json`: `characters`, `tokenOwners`, `playerTokens[mapPath]`. Connect's party links fuse into it in Phase 2. |
+| G6 | **PASS for one host only** | Atlas keeps a single Atlas leaf. Section 4.1 was rewritten around one host that follows the focused board. |
+| G7 | **N/A** (there can be only one host) | About 270 MB for the first load, about 20 MB per further map. Closing frees little. |
+| G8 | **PASS** | Every write has an action and saves through Atlas's autosave in 0.5 to 1 s. Some writes take two steps: |
+
+The G8 writes that take two steps:
+- **Levels:** there is no `addLevel`. Use `setLevels` with the whole array, built with Atlas's `levelEdits.ts` helpers, which go into `atlas-shared`. Alignment is `levels[].alignment`.
+- **Liquids:** there is no `updateLiquid`. Delete and re-add, which gives a new id, so Tabletop must not key anything on liquid ids.
+- **Walls:** there is no delete-by-chain. Filter the walls on `chainId`, then call `deleteWalls`.
+- **Moving between levels:** `moveTokensToLevel` covers tokens only. Other objects move with their own update action.
 | G8 store actions | Each write the design needs has a store action that saves. Checked: tokens incl. `elevation`; initiative; doors and walls incl. `chainId`; notes; `addMeasure` family; `addLiquids`; levels (add a level, set its background and elevation, `levelAlignments`); moving objects between levels | Written through the store | That edit is not offered on the board; "Edit in Atlas" instead (section 4.1). A level action missing makes migration 3 wait until it is found, and the stacks stay as they are. |
 
 ## 12. My calls, for the user to check
@@ -310,7 +334,7 @@ The user's approval covers both branches of each gate.
 3. A player's template is a temporary measure, one per player, removed when they leave. Casts last until cleared.
 4. Measures are not cleared at session end.
 5. Stack member files stay on disk after migration. They are not deleted.
-6. The memory budget is 300 MB for 3 hosts, with suspension beyond 2.
+6. (Superseded by Phase 0.) There is one host, and it is never suspended.
 7. The scene tab bar prefers driving Atlas's own tab strip, if that works live. Otherwise it rebuilds the 0.15 markup.
 8. Phase 0 checks every gate before any plan is written.
 9. Connect gets its own Atlas host and does not need Tabletop. The shared code lives in the Connect repo, under `packages/`, and Tabletop copies it in.
