@@ -15,6 +15,8 @@ export interface FloorState {
   boardText: string | null;
   /** The notice to show, once per Atlas version found; null for none. */
   notice: string | null;
+  /** Whether a board may bring Atlas to its map (claim and follow Atlas's tab): only an Atlas of the floor or later. */
+  follow: boolean;
 }
 
 /**
@@ -22,10 +24,11 @@ export interface FloorState {
  * why. Without Atlas at all the boards still open, to look at; everything they edit lives in Atlas.
  */
 export function floorState(floor: AtlasFloor): FloorState {
-  if (floor.state === 'ok') return { publish: true, boardText: null, notice: null };
-  if (floor.state === 'missing') return { publish: true, boardText: NO_ATLAS_TEXT, notice: null };
+  if (floor.state === 'ok') return { publish: true, boardText: null, notice: null, follow: true };
+  if (floor.state === 'missing') return { publish: true, boardText: NO_ATLAS_TEXT, notice: null, follow: true };
   const text = floorNotice('Tabletop', floor.version);
-  return { publish: false, boardText: text, notice: text };
+  // An older Atlas is never asked to switch map: its view would load a map whose fields it may not keep.
+  return { publish: false, boardText: text, notice: text, follow: false };
 }
 
 /** Whether a session handed over by Connect is of this Tabletop's fusion step: one of another step (or of none) is not taken. */

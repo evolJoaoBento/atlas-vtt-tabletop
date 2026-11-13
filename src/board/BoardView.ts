@@ -297,8 +297,8 @@ export class BoardView extends ItemView {
     const host = this.services.host;
     if (host) {
       // This board needs Atlas's tab while it is open; working on the board (its tab made active, a press on it) brings
-      // Atlas to its map.
-      this.releaseHost = host.claim();
+      // Atlas to its map. Only an Atlas of the floor or later is asked (`floorChanged` claims once one is there).
+      if (this.mayFollow()) this.releaseHost = host.claim();
       this.register(host.onChange(() => {
         // Atlas came to hold this map, or let go of it: the board reads it from the other source.
         const holds = this.path !== null && host.holds(this.path);
@@ -1093,11 +1093,17 @@ export class BoardView extends ItemView {
   /** How the last try to bring Atlas to this map ended, when it failed. */
   private followFailed: 'timeout' | 'no-atlas' | null = null;
 
+  /** Whether the Atlas found may be asked to bring its tab to a map: one older than the floor never is. Unknown: it may. */
+  private mayFollow(): boolean {
+    const floor = this.services.floor?.();
+    return floor ? floorState(floor).follow : true;
+  }
+
   /** Brings Atlas to this board's map (the board staying in front), so what is edited here goes to Atlas's store. */
   private followHost(): void {
     const host = this.services.host;
     const path = this.path;
-    if (!host || !path || this.closed) return;
+    if (!host || !path || this.closed || !this.mayFollow()) return;
     if (host.holds(path)) {
       if (this.followFailed === null) return;
       this.followFailed = null;
@@ -1211,6 +1217,10 @@ export class BoardView extends ItemView {
 
   /** Atlas changed (enabled, disabled, updated): the tab says why it shows nothing, or reads its map again. */
   floorChanged(): void {
+    // An Atlas of the floor came: the board claims its tab now (it did not while an older one was there).
+    // An older one came in its place: the claim is let go, so its tab is never asked for.
+    if (!this.releaseHost && this.services.host && this.mayFollow()) this.releaseHost = this.services.host.claim();
+    else if (this.releaseHost && !this.mayFollow()) { this.releaseHost(); this.releaseHost = null; }
     const blocked = this.noAtlas !== null;
     if (this.showFloor() === blocked) return;
     if (blocked) void this.read();
