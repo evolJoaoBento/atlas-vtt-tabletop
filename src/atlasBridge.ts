@@ -168,6 +168,9 @@ export class AtlasBridge {
       return {
         rules,
         speedOf: (token) => {
+          // A statblock's speed is known once Atlas read it: it is asked for first, as Atlas's canvas does on a press; the
+          // ruler redraws as the drag goes on, and reads it once it is there.
+          call(movement, 'prepare', [token]);
           const speed = call(movement, 'speedOf', token);
           return isMovementSpeed(speed) && Number.isFinite(speed) ? speed : null;
         },

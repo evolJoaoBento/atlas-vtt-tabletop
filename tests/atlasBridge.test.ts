@@ -158,7 +158,12 @@ test('onLoaded fires once Atlas appears', () => {
 
 test("the drag-distance choice and the map's movement are Atlas's own (0.15)", () => {
   const steps = [{ name: 'Move', multiple: 1, color: '#22c55e' }];
-  const movement = { rules: () => ({ steps, countPerTurn: true }), speedOf: (token: { id: string }) => (token.id === 'hero' ? 30 : -1) };
+  const asked: string[] = [];
+  const movement = {
+    rules: () => ({ steps, countPerTurn: true }),
+    prepare: (tokens: Iterable<{ id: string }>) => { for (const token of tokens) asked.push(`prepare:${token.id}`); },
+    speedOf: (token: { id: string }) => { asked.push(`speed:${token.id}`); return token.id === 'hero' ? 30 : -1; },
+  };
   const view = { ...atlasView('a.atlasmap'), serviceManager: { getRendererService: () => ({ getRenderer: () => ({ getTokenRenderer: () => ({ dragRuler: { movement } }) }) }) } };
   const { app } = fakeApp({ plugin: { settingsService: { getDragDistance: () => 'combat' } }, views: [{ leaf: { id: 'atlas' }, view }] });
   const bridge = new AtlasBridge(app as never);
@@ -167,6 +172,8 @@ test("the drag-distance choice and the map's movement are Atlas's own (0.15)", (
   assert.deepEqual(read?.rules, { steps, countPerTurn: true });
   assert.equal(read?.speedOf({ id: 'hero' }), 30);
   assert.equal(read?.speedOf({ id: 'gob' }), null);
+  // A statblock's speed is asked for first, as Atlas's canvas does on a press.
+  assert.deepEqual(asked, ['prepare:hero', 'speed:hero', 'prepare:gob', 'speed:gob']);
   assert.equal(bridge.movementFor('other.atlasmap'), null);
   // Without Atlas, or a choice that is none: always.
   assert.equal(new AtlasBridge(fakeApp().app as never).dragDistance(), 'always');
