@@ -19,13 +19,12 @@ function data(): BoardData {
   board.setDoorProp('m.atlasmap', 'd1', 'minis/door.glb');
   board.setLightHeight('m.atlasmap', 'l1', 1.5);
   board.setFogHeight('m.atlasmap', 2);
-  board.setAmbient('m.atlasmap', 0.3);
   board.addProp('m.atlasmap', { glb: 'minis/barrel.glb', x: 10, y: 20, rotation: 90, scale: 1.5 });
   board.addProp('other.atlasmap', { glb: 'minis/crate.glb', x: 1, y: 1, rotation: 0, scale: 1 });
   return board;
 }
 
-test('a map\'s look: wall heights, materials and door props by wall id, light heights, fog height and ambient', () => {
+test('a map\'s look: wall heights, materials and door props by wall id, light heights and fog height; the light is Atlas\'s', () => {
   const look = boardLookFor(data(), materials, 'm.atlasmap');
   assert.equal(look.wallHeight('w1'), 3);
   assert.equal(look.wallHeight('w2'), null);
@@ -34,7 +33,9 @@ test('a map\'s look: wall heights, materials and door props by wall id, light he
   assert.equal(look.lightHeight('l1'), 1.5);
   assert.equal(look.lightHeight('l2'), null);
   assert.equal(look.fogHeight, 2);
-  assert.equal(look.ambient, 0.3);
+  // The board keeps no light level or tint of its own: players read Atlas's scene lighting.
+  assert.equal(look.ambient, null);
+  assert.equal(look.tint ?? null, null);
   assert.equal(look.wallThickness, 0.12);
 });
 

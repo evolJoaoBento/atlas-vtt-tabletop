@@ -1443,12 +1443,14 @@ export class BoardView extends ItemView {
       },
       wallMenu: (id, event) => this.wallMenu(id, event),
       pinMenu: (id, event) => this.pinMenu(id, event),
-      // Until the GM moves the slider, the board is as light as Atlas's scene (daylight when Atlas's lighting is off).
-      ambient: () => boardData.ambient(mapPath()) ?? (this.map?.lighting.enabled ? this.map.lighting.ambient : 1),
-      setAmbient: (level) => boardData.setAmbient(mapPath(), level),
-      tint: () => boardData.tint(mapPath()),
-      setTint: (color) => boardData.setTint(mapPath(), color),
-      clearTint: () => boardData.clearTint(mapPath()),
+      // The board is as light as Atlas's scene (daylight while Atlas's lighting is off), tinted as Atlas tints it; the
+      // slider and the picker set Atlas's own scene lighting.
+      ambient: () => (this.map?.lighting.enabled ? this.map.lighting.ambient : 1),
+      lightingOn: () => this.map?.lighting.enabled === true,
+      setAmbient: (level) => { writer.setSceneLighting(mapPath(), { ambient: level }).catch((error: unknown) => this.unsaved('light level', error)); },
+      tint: () => this.map?.lighting.ambientColor ?? null,
+      setTint: (color) => { writer.setSceneLighting(mapPath(), { ambientColor: color }).catch((error: unknown) => this.unsaved('tint', error)); },
+      clearTint: () => { writer.setSceneLighting(mapPath(), { ambientColor: undefined }).catch((error: unknown) => this.unsaved('tint', error)); },
       lightHeight: (light) => boardData.lightHeight(mapPath(), light.id) ?? DEFAULT_LIGHT_SQUARES,
       lightMenu: (id, event) => this.lightMenu(id, event),
       miniTurn: (tokenId) => assignments.get(mapPath(), tokenId)?.turn ?? null,

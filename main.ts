@@ -17,7 +17,9 @@ import { AtlasOpenButton } from './src/atlasButton';
 import { setLanguage } from './src/i18n';
 import { BOARD_PROTOCOL_ACTION, boardLink, DEFAULT_SNAPSHOT_FOLDER, latestSnapshot, parseBoardBlock, readBoardLink, snapshotPath } from './src/boardLinks';
 import { renderBoardCard } from './src/boardCard';
-import { resolveLaser, type LaserSettings } from './src/board/laser';
+import { DEFAULT_LASER, resolveLaser, type LaserSettings } from './src/board/laser';
+import { writeBackup } from './src/backups';
+import { AtlasBridge } from './src/atlasBridge';
 import { NotHeldError, TokenWriter } from './src/board/tokenWriter';
 import type { AtlasSceneState } from './src/atlas';
 import { UndoHistory } from './src/board/undoHistory';
@@ -87,8 +89,10 @@ interface TabletopSettings {
   painted?: boolean;
   /** The painted sky's palette. */
   sky?: Sky;
-  /** The laser pointer's colour and size (Atlas's options), for every map. */
+  /** The laser pointer of a Tabletop from before the laser was Atlas's own: read once, to carry it over (`fusionCarryOver`). */
   laser?: Partial<LaserSettings>;
+  /** What the first fusion step stopped keeping here (a map's own light, the laser, the dice sound switch) was carried over or backed up. */
+  fusion1Done?: true;
   /** The GM's dice on the board. */
   dice: TabletopDiceSettings;
   /** Board sounds: volume, mute and a switch per group (per device, as the plugin's data is). */
@@ -295,10 +299,10 @@ export default class TabletopPlugin extends Plugin {
       setOcclusion: (on) => { void this.setOcclusion(on); },
       setAutoRoll: (on) => this.setDice({ autoRoll: on }),
       setSheetPinned: (pinned) => this.setDice({ sheetPinned: pinned }),
-      laser: () => resolveLaser(this.settings.laser),
+      // The laser is Atlas's own (its colour and size, for every map): read from Atlas and changed there.
+      laser: () => resolveLaser(new AtlasBridge(this.app).laser() ?? undefined),
       setLaser: (changes) => {
-        this.settings.laser = resolveLaser({ ...resolveLaser(this.settings.laser), ...changes });
-        this.save();
+        if (!new AtlasBridge(this.app).setLaser(changes)) new Notice('Tabletop: the laser is kept in Atlas, which is not enabled.');
       },
       focused: (view) => { this.lastBoard = view; },
       togglePlayerView: (view) => { void this.togglePlayerView(view); },
@@ -312,7 +316,7 @@ export default class TabletopPlugin extends Plugin {
       spellBook: () => this.spells(),
       materialDefaults: () => readMaterialDefaults(this.settings.materialDefaults),
       diceSettings: () => this.settings.dice,
-      soundSettings: () => this.settings.sound,
+      soundSettings: () => this.soundForEngine(),
       cinematicSettings: () => this.settings.cinematic,
       setCinematicSettings: (changes) => this.setCinematic(changes),
       soundLoader: () => this.vaultSounds.custom.load,
@@ -430,7 +434,7 @@ export default class TabletopPlugin extends Plugin {
     this.register(this.boardData.onChange((changed) => { const mapPath = changed?.split("#")[0] ?? null; this.boardChanged(mapPath !== null && this.boardData.stackOf(mapPath).length > 1 ? null : mapPath); }));
     this.register(this.materials.onChange(() => { this.materialIndex?.forgetAll(); this.boardChanged(null); }));
     this.players = playerMiniPainter();
-    const board = playerBoardFactory(() => this.settings.quality, () => ({ tiltShift: this.settings.tiltShift === true, occlusion: this.settings.occlusion === true, painted: this.settings.painted === true, sky: readSky(this.settings.sky), edges: readEdges(this.settings.wallEdges), seeThrough: this.settings.seeThrough === true, seeThroughSize: readSeeThroughSize(this.settings.seeThroughSize), layerLook: readLayerLook(this.settings.layerLook) }), { settings: () => this.settings.dice, pack: () => (this.dicePack ??= vendoredPack()) }, () => this.spells(), undefined, { settings: () => this.settings.sound, load: () => this.vaultSounds.custom.load, onChange: (listener) => { this.soundListeners.add(listener); return () => { this.soundListeners.delete(listener); }; } });
+    const board = playerBoardFactory(() => this.settings.quality, () => ({ tiltShift: this.settings.tiltShift === true, occlusion: this.settings.occlusion === true, painted: this.settings.painted === true, sky: readSky(this.settings.sky), edges: readEdges(this.settings.wallEdges), seeThrough: this.settings.seeThrough === true, seeThroughSize: readSeeThroughSize(this.settings.seeThroughSize), layerLook: readLayerLook(this.settings.layerLook) }), { settings: () => this.settings.dice, pack: () => (this.dicePack ??= vendoredPack()) }, () => this.spells(), undefined, { settings: () => this.soundForEngine(), load: () => this.vaultSounds.custom.load, onChange: (listener) => { this.soundListeners.add(listener); return () => { this.soundListeners.delete(listener); }; } });
     this.builtApi = Object.freeze({
       version: 1 as const,
       fusion: FUSION_PROTOCOL,
@@ -483,6 +487,8 @@ export default class TabletopPlugin extends Plugin {
     });
     this.applyFloor(atlasFloor(this.app));
     this.register(watchAtlasFloor(this.app, (floor) => this.applyFloor(floor)));
+    this.register(() => { this.followedAtlas?.stop(); this.followedAtlas = null; });
+    this.app.workspace.onLayoutReady(() => { this.followAtlasSettings(); void this.fusionCarryOver(); });
   }
 
   /**
@@ -506,6 +512,9 @@ export default class TabletopPlugin extends Plugin {
       this.api = null;
     }
     for (const board of this.boards()) board.floorChanged();
+    // A reloaded Atlas has a settings service of its own; what could not be carried over without Atlas is tried again.
+    this.followAtlasSettings();
+    if (floor.state === 'ok') void this.fusionCarryOver();
   }
 
   onunload(): void {
@@ -596,6 +605,70 @@ export default class TabletopPlugin extends Plugin {
 
   /** The boards and player boards that follow the sound settings (Connect's player tab asks to be told). */
   private readonly soundListeners = new Set<() => void>();
+
+  /**
+   * The sound settings as an engine takes them: the player's own, with the dice group always on and as loud as Atlas
+   * plays its dice (Atlas's "Dice volume"). Dice have no switch of their own here any more.
+   */
+  private soundForEngine(): SoundSettings {
+    return { ...this.settings.sound, groups: { ...this.settings.sound.groups, dice: true }, diceVolume: new AtlasBridge(this.app).diceVolume() };
+  }
+
+  /** Atlas's settings changed (its dice volume, its laser): the engines and the boards' toolbars follow. */
+  private atlasSettingsChanged(): void {
+    for (const view of this.boards()) view.refreshSound();
+    for (const listener of [...this.soundListeners]) listener();
+  }
+
+  /** Atlas's settings service being followed, and the stop. */
+  private followedAtlas: { plugin: unknown; stop: () => void } | null = null;
+
+  /** Follows the settings of the Atlas that is there now (again after Atlas reloads). */
+  private followAtlasSettings(): void {
+    const plugin = (this.app as unknown as { plugins?: { plugins?: Record<string, unknown> } }).plugins?.plugins?.['atlas-vtt'] ?? null;
+    if (this.followedAtlas?.plugin === plugin) return;
+    this.followedAtlas?.stop();
+    this.followedAtlas = plugin ? { plugin, stop: new AtlasBridge(this.app).onSettingsChange(() => this.atlasSettingsChanged()) } : null;
+    this.atlasSettingsChanged();
+  }
+
+  /**
+   * Once: what Tabletop kept of its own and now takes from Atlas is carried over or backed up, and one notice says so.
+   * - A map's own light level and tint are written to a backup (the board is as light as Atlas's scene now).
+   * - Tabletop's laser goes to Atlas while Atlas's is still its default.
+   * - A dice sound switch that was off is named: dice are as loud as Atlas plays them.
+   */
+  private carryingOver = false;
+
+  private async fusionCarryOver(): Promise<void> {
+    if (this.settings.fusion1Done === true || this.carryingOver) return;
+    const bridge = new AtlasBridge(this.app);
+    const own = this.settings.laser;
+    const ownLaser = own !== undefined && (own.color !== undefined || own.size !== undefined);
+    // A laser to carry over needs Atlas there to take it: tried again when Atlas arrives.
+    if (ownLaser && !bridge.laser()) return;
+    this.carryingOver = true;
+    const lines: string[] = [];
+    const lighting = this.boardData.takeLegacyLighting();
+    if (Object.keys(lighting).length > 0) {
+      try {
+        const folder = await writeBackup(this.app, new Date(), [{ name: 'board-lighting.json', text: JSON.stringify(lighting, null, 2) }]);
+        lines.push(`The light level and tint of ${Object.keys(lighting).length === 1 ? 'one map' : `${Object.keys(lighting).length} maps`} are now Atlas's scene lighting; backup in ${folder}/`);
+      } catch (error) {
+        console.warn('Tabletop: the maps\' own light levels could not be backed up:', error);
+      }
+    }
+    const atlas = bridge.laser();
+    if (ownLaser && atlas) {
+      const mine = resolveLaser(own);
+      if (atlas.color === DEFAULT_LASER.color && atlas.size === DEFAULT_LASER.size && (mine.color !== atlas.color || mine.size !== atlas.size) && bridge.setLaser(mine)) lines.push("Your laser's colour and size are now Atlas's laser.");
+    }
+    if (this.settings.sound.groups.dice === false) lines.push("Dice sounds now follow Atlas's dice volume.");
+    delete this.settings.laser;
+    this.settings.fusion1Done = true;
+    this.save();
+    if (lines.length > 0) new Notice(`Tabletop: ${lines.join(' ')}`, 0);
+  }
 
   /** A sound setting changed: saved, and every board's engine follows. */
   setSound(changes: Partial<Omit<SoundSettings, 'groups'>> & { groups?: Partial<Record<SoundGroup, boolean>> }): void {
@@ -1085,7 +1158,8 @@ class TabletopSettingTab extends PluginSettingTab {
       this.row('Mute board sounds', 'Silences every board sound, on this device.', (setting) => {
         setting.addToggle((toggle) => toggle.setValue(plugin.settings.sound.muted).onChange((muted) => plugin.setSound({ muted })));
       }, ['audio', 'silent']),
-      ...SOUND_GROUPS.map((group) => this.row(names[group][0], names[group][1], (setting) => {
+      // Dice have no switch here: they are as loud as Atlas plays its dice (Atlas's own Dice volume).
+      ...SOUND_GROUPS.filter((group) => group !== 'dice').map((group) => this.row(names[group][0], names[group][1], (setting) => {
         setting.addToggle((toggle) => toggle.setValue(plugin.settings.sound.groups[group]).onChange((on) => plugin.setSound({ groups: { [group]: on } })));
       }, ['audio'])),
     ];

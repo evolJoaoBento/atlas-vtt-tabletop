@@ -144,6 +144,18 @@ test('resume on first gesture', async () => {
   assert.equal(context.started.length, 1);
 });
 
+test("the dice group is as loud as Atlas's dice volume; the other groups are not touched by it", () => {
+  const { context, engine } = setup();
+  const gain = (group: (typeof SOUND_GROUPS)[number]) => context.gains[1 + SOUND_GROUPS.indexOf(group)].gain.targets.at(-1)?.value;
+  engine.configure({ ...DEFAULT_SOUND_SETTINGS, diceVolume: 0.3 });
+  assert.equal(gain('dice'), 0.3);
+  assert.equal(gain('minis'), 1);
+  engine.configure({ ...DEFAULT_SOUND_SETTINGS });
+  assert.equal(gain('dice'), 1);
+  engine.configure({ ...DEFAULT_SOUND_SETTINGS, diceVolume: 0 });
+  assert.equal(gain('dice'), 0);
+});
+
 test('settings gate: a group off or muted starts nothing, and the volume scales the master gain', async () => {
   const { context, engine } = setup();
   const master = context.gains[0];

@@ -68,6 +68,13 @@ test("a 0.14 room wall's height, width, material and window move to Atlas 0.15's
   assert.equal(new BoardData(readBoardData(JSON.parse(JSON.stringify(bare.toJSON())))).roomWallsMoved('maps/b.atlasmap'), true);
 });
 
+test("a map's own light level and tint are no longer kept: they are handed over once, for the backup", () => {
+  const data = new BoardData(readBoardData({ 'maps/a.atlasmap': { ambient: 0.5, tint: '#336699', fogHeight: 2 }, 'maps/b.atlasmap': { ambient: 0.2 }, 'maps/c.atlasmap': { fogHeight: 3 } }));
+  assert.deepEqual(data.takeLegacyLighting(), { 'maps/a.atlasmap': { ambient: 0.5, tint: '#336699' }, 'maps/b.atlasmap': { ambient: 0.2 } });
+  assert.deepEqual(data.takeLegacyLighting(), {});
+  assert.deepEqual(JSON.parse(JSON.stringify(data.toJSON())), { 'maps/a.atlasmap': { fogHeight: 2 }, 'maps/c.atlasmap': { fogHeight: 3 } });
+});
+
 test('readBoardData drops junk', () => {
   assert.deepEqual(readBoardData({ m: { styles: { a: 'standee', b: 'cube', c: 'disc' }, props: [{ id: 'p', glb: 'x.glb', x: 1, y: 2 }, { glb: 3 }] }, n: 5 }), {
     m: { styles: { a: 'standee' }, props: [{ id: 'p', glb: 'x.glb', x: 1, y: 2, rotation: 0, scale: 1 }] },
@@ -87,25 +94,23 @@ test('fog height is one square by default, kept per map, and read back from save
   assert.deepEqual(readBoardData({ a: { fogHeight: -1 }, b: { fogHeight: 'x' }, c: { fogHeight: 0 } }), { c: { fogHeight: 0 } });
 });
 
-test('wall materials (one segment or many), door props, light heights and ambient are kept per map, and read back', () => {
+test('wall materials (one segment or many), door props and light heights are kept per map, and read back', () => {
   const data = new BoardData();
   data.setWallMaterial('m', ['w1', 'w2'], 'atlas-vtt/assets/materials/Bricks');
   data.setWallMaterial('m', ['w2'], 'atlas-vtt/assets/materials/Wood');
   data.setDoorProp('m', 'd1', 'props/door.glb');
   data.setLightHeight('m', 'l1', 1.5);
-  data.setAmbient('m', 0.2);
+  data.setFogHeight('m', 2);
   assert.equal(data.wallMaterial('m', 'w1'), 'atlas-vtt/assets/materials/Bricks');
   assert.equal(data.wallMaterial('m', 'w2'), 'atlas-vtt/assets/materials/Wood');
   assert.equal(data.wallMaterial('m', 'w3'), null);
   assert.equal(data.lightHeight('m', 'l1'), 1.5);
   assert.equal(data.lightHeight('m', 'l2'), null);
-  assert.equal(data.ambient('m'), 0.2);
-  assert.equal(data.ambient('other'), null);
   assert.deepEqual(readBoardData(data.toJSON()), data.toJSON());
   data.setWallMaterial('m', ['w1', 'w2'], null);
   data.setDoorProp('m', 'd1', null);
   data.setLightHeight('m', 'l1', null);
-  assert.deepEqual(data.toJSON(), { m: { ambient: 0.2 } });
+  assert.deepEqual(data.toJSON(), { m: { fogHeight: 2 } });
   assert.deepEqual(readBoardData({ m: { ambient: 2, lightHeights: { a: -1, b: 2 }, wallMaterials: { w: 5 } } }), { m: { lightHeights: { b: 2 } } });
 });
 
@@ -225,23 +230,6 @@ test('a door can be rotated half a turn or mirrored, which only moves its hinge;
   loaded.mirrorDoor('m', 'd');
   assert.deepEqual(loaded.doorFlip('m', 'd'), { hinge: false, side: false });
   assert.deepEqual(loaded.toJSON(), {});
-});
-
-test('a tint is kept per map as a lower-case colour, read back, and taken off by clearing it, which leaves nothing behind', () => {
-  const data = new BoardData();
-  data.setTint('m', '#FFCC88');
-  assert.equal(data.tint('m'), '#ffcc88');
-  assert.equal(data.tint('other'), null);
-  data.setTint('m', 'orange');
-  data.setTint('m', '#fc8');
-  assert.equal(data.tint('m'), '#ffcc88');
-  assert.deepEqual(readBoardData(data.toJSON()), data.toJSON());
-  data.setAmbient('m', 0.3);
-  data.clearTint('m');
-  assert.equal(data.tint('m'), null);
-  assert.deepEqual(data.toJSON(), { m: { ambient: 0.3 } });
-  data.clearTint('m');
-  assert.deepEqual(readBoardData({ m: { tint: 'nope' } }), {});
 });
 
 test('a solid prop and a raised one keep that when saved and read back; a moved prop goes last', () => {

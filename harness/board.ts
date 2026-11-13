@@ -475,6 +475,8 @@ async function main(): Promise<void> {
       board.refresh();
     },
     ambient: () => ambientLevel,
+    // Atlas's scene lighting, switched off by the 'lighting from Atlas' feature.
+    lightingOn: () => (window as unknown as { __lightingOff?: boolean }).__lightingOff !== true,
     setAmbient: (level) => { ambientLevel = level; record.ambients.push(level); board.refresh(); },
     tint: () => tintKept,
     setTint: (color) => { tintKept = color; record.tints.push(color); board.refresh(); },

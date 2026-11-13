@@ -1362,6 +1362,25 @@ feature('line of sight', async ({ page, shot }) => {
 });
 
 // ── Placing a scene of a stack on the plane beyond its height: handles in the middle of the view ───────────────
+feature('lighting from Atlas', async ({ page, shot }) => {
+  // The light level is Atlas's scene lighting: with that off in Atlas, the slider says so and cannot be moved.
+  const slider = page.locator('.atlas-tabletop-lighting-extra input[type="range"]').first();
+  const state = () => slider.evaluate((input) => ({ disabled: input.disabled, title: input.getAttribute('title'), shown: input.offsetParent !== null }));
+  await page.evaluate(() => { window.__lightingOff = true; });
+  await page.locator('button[aria-label^="Lighting"]').click();
+  await wait(400);
+  const off = await state();
+  check('lighting from Atlas: with lighting off in Atlas the slider is disabled and says why', off.shown && off.disabled && off.title === 'Turn on lighting in Atlas to set the light level.', JSON.stringify(off));
+  await shot('lighting-from-atlas-off');
+  await page.locator('button[aria-label^="Lighting"]').click();
+  await wait(300);
+  await page.evaluate(() => { window.__lightingOff = false; });
+  await page.locator('button[aria-label^="Lighting"]').click();
+  await wait(400);
+  const on = await state();
+  check('lighting from Atlas: the light level can be set while the scene is lit in Atlas', on.shown && !on.disabled && on.title === null, JSON.stringify(on));
+});
+
 feature('daylight tint', async ({ page, shot }) => {
   const read = () => page.evaluate(() => { const b = window.boardTest.board; const bg = b.scene.background; let backdrop = null; if (bg && bg.isColor) backdrop = [Math.round(bg.r * 255), Math.round(bg.g * 255), Math.round(bg.b * 255)]; else if (bg && bg.image && bg.image.getContext) { const d = bg.image.getContext('2d').getImageData(1500, 300, 1, 1).data; backdrop = [d[0], d[1], d[2]]; } return { sky: b.hemisphere.color.getHexString(), sun: b.sun.color.getHexString(), backdrop, fog: b.scene.fog ? b.scene.fog.color.getHexString() : null, tints: window.boardTest.record.tints }; });
   const before = await read();

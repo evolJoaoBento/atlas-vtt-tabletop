@@ -137,11 +137,16 @@ export interface ToolbarActions {
   /** The board's ambient light (0–1); a new level, shown while the slider moves and kept when it is let go. */
   ambient(): number;
   setAmbient(level: number, keep: boolean): void;
+  /** Whether the scene's lighting is on in Atlas; off, the light level cannot be set here. Absent: on. */
+  lightingOn?(): boolean;
   /** The colour the daylight is tinted ('#rrggbb'), or null for none; a new one, shown while the picker moves and kept when it is let go; and taking it off. */
   tint(): string | null;
   setTint(color: string, keep: boolean): void;
   resetTint(): void;
 }
+
+/** What the light level's slider says while the scene's lighting is off in Atlas. */
+export const LIGHTING_OFF_TITLE = 'Turn on lighting in Atlas to set the light level.';
 
 /** The board's dice picker, dice log and stat sheet, which open from buttons in the toolbar's end slot. */
 export interface DiceButton {
@@ -1259,6 +1264,11 @@ export class BoardToolbar {
     this.closeDice();
     this.ambientInput.value = String(Math.round(this.actions.ambient() * 100));
     this.ambientValue.textContent = `${this.ambientInput.value}%`;
+    // The light level is Atlas's scene lighting: with that off there is no level to set.
+    const lit = this.actions.lightingOn?.() ?? true;
+    this.ambientInput.disabled = !lit;
+    if (lit) this.ambientInput.removeAttribute('title');
+    else this.ambientInput.title = LIGHTING_OFF_TITLE;
     this.tintInput.value = this.actions.tint() ?? '#ffffff';
     this.tintReset.disabled = this.actions.tint() === null;
     this.tiltInput.checked = this.actions.tiltShift();

@@ -43,6 +43,9 @@ const MEMBERS = [
   ['onLoadFile', 'atlas-host (open a map as a scene tab of the one view)'],
   ['loadIfDeferred', 'atlas-host (wake a deferred Atlas tab)'],
   ['setSceneLighting', 'tokenWriter.ts (the light level and its colour)'],
+  ['getLaserPointerSettings', 'atlasBridge.ts (settings service)'],
+  ['setLaserPointerSettings', 'atlasBridge.ts (settings service)'],
+  ['getDiceVolume', 'atlasBridge.ts (settings service)'],
 ];
 // Members Tabletop reads defensively and that a given Atlas may not have; reported, not failed.
 const OPTIONAL = new Set(['atlas-vtt:send-map-to-player-view', 'this.deps.service']);

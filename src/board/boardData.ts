@@ -52,10 +52,6 @@ export interface MapData {
   windows?: Record<string, { bottom: number; top: number }>;
   /** Door id to how it was turned from the way Atlas draws it: its hinge at the other end, and/or opening to the other side. */
   doorFlips?: Record<string, { hinge?: true; side?: true }>;
-  /** The board's ambient light, 0 (pitch black) to 1 (daylight); unset follows Atlas's scene light. */
-  ambient?: number;
-  /** The colour the board's daylight is tinted, '#rrggbb'; unset leaves it as it is. */
-  tint?: string;
   /** How thick its walls stand, as a share of a grid square; kept only when it is not the default. */
   wallThickness?: number;
   /** This map is a layer of another, standing above it (or below, if negative). */
@@ -152,8 +148,6 @@ function tidy(map: MapData): MapData | null {
   if (map.wallWidths && Object.keys(map.wallWidths).length > 0) out.wallWidths = map.wallWidths;
   if (map.windows && Object.keys(map.windows).length > 0) out.windows = map.windows;
   if (map.doorFlips && Object.keys(map.doorFlips).length > 0) out.doorFlips = map.doorFlips;
-  if (map.ambient !== undefined) out.ambient = map.ambient;
-  if (map.tint !== undefined) out.tint = map.tint;
   if (map.wallThickness !== undefined && map.wallThickness !== DEFAULT_WALL_THICKNESS) out.wallThickness = map.wallThickness;
   if (map.layer) out.layer = map.layer;
   if (map.hidden === true) out.hidden = true;
@@ -221,6 +215,9 @@ function flips(raw: unknown): Record<string, { hinge?: true; side?: true }> {
   return out;
 }
 
+/** What `readBoardData` found of the boards' own light levels and tints (no longer kept), by the data it returned. */
+const legacyLighting = new WeakMap<BoardDataJSON, Record<string, { ambient?: number; tint?: string }>>();
+
 /** Reads saved data, dropping anything malformed. Only standees are stored: a disc is the default. */
 export function readBoardData(raw: unknown): BoardDataJSON {
   const out: BoardDataJSON = {};
@@ -231,8 +228,10 @@ export function readBoardData(raw: unknown): BoardDataJSON {
     if (isObj(value.styles)) for (const [id, style] of Object.entries(value.styles)) if (style === 'standee') styles[id] = style;
     const props = Array.isArray(value.props) ? value.props.map(readProp).filter((prop): prop is PropPlacement => prop !== null) : [];
     const fogHeight = typeof value.fogHeight === 'number' && Number.isFinite(value.fogHeight) && value.fogHeight >= 0 ? value.fogHeight : undefined;
+    // A light level and a tint of the board's own (before Atlas 0.15's lighting was the board's): kept apart, to be backed up once.
     const ambient = typeof value.ambient === 'number' && value.ambient >= 0 && value.ambient <= 1 ? value.ambient : undefined;
     const tint = typeof value.tint === 'string' && /^#[0-9a-f]{6}$/i.test(value.tint) ? value.tint.toLowerCase() : undefined;
+    if (ambient !== undefined || tint !== undefined) legacyLighting.set(out, { ...(legacyLighting.get(out) ?? {}), [path]: { ...(ambient !== undefined && { ambient }), ...(tint !== undefined && { tint }) } });
     const wallThickness = typeof value.wallThickness === 'number' && Number.isFinite(value.wallThickness) && value.wallThickness > 0 ? value.wallThickness : undefined;
     const layer = readLayer(value.layer);
     const arTable = readSavedTable(value.arTable);
@@ -243,8 +242,6 @@ export function readBoardData(raw: unknown): BoardDataJSON {
       styles, props, ...(layer && { layer }), ...(value.hidden === true && { hidden: true as const }), ...(readWater(value.water) && { water: readWater(value.water)! }), ...(fogHeight !== undefined && { fogHeight }),
       wallMaterials: strings(value.wallMaterials), doorProps: strings(value.doorProps), lightHeights: heights(value.lightHeights),
       wallHeights: heights(value.wallHeights), wallWidths: widths(value.wallWidths), windows: windows(value.windows), doorFlips: flips(value.doorFlips),
-      ...(ambient !== undefined && { ambient }),
-      ...(tint !== undefined && { tint }),
       ...(wallThickness !== undefined && { wallThickness }),
       ...(value.roomWallsMoved === true && { roomWallsMoved: true as const }),
     });
@@ -257,8 +254,11 @@ export class BoardData {
   private data: BoardDataJSON;
   private readonly listeners = new Set<(mapPath: string | null) => void>();
 
+  private legacy: Record<string, { ambient?: number; tint?: string }>;
+
   constructor(initial: BoardDataJSON = {}) {
     this.data = initial;
+    this.legacy = legacyLighting.get(initial) ?? {};
   }
 
   toJSON(): BoardDataJSON {
@@ -504,14 +504,14 @@ export class BoardData {
     this.put(mapPath, { ...map, lightHeights });
   }
 
-  /** The board's ambient light (0–1); null when it follows Atlas's scene light. */
-  ambient(mapPath: string): number | null {
-    return this.data[mapPath]?.ambient ?? null;
-  }
-
-  setAmbient(mapPath: string, ambient: number): void {
-    if (!Number.isFinite(ambient) || ambient < 0 || ambient > 1 || this.ambient(mapPath) === ambient) return;
-    this.put(mapPath, { ...(this.data[mapPath] ?? {}), ambient });
+  /**
+   * The light levels and tints the boards once kept of their own, by map: handed over once (then gone), for the backup
+   * written when they stop being used. The board's light is Atlas's scene lighting now.
+   */
+  takeLegacyLighting(): Record<string, { ambient?: number; tint?: string }> {
+    const taken = this.legacy;
+    this.legacy = {};
+    return taken;
   }
 
   /** Where the players' AR marker sheets lie on the map; null for none. */
@@ -546,22 +546,6 @@ export class BoardData {
     this.put(mapPath, { ...map, cutscenes: map.cutscenes.filter((c) => c.id !== id) });
   }
 
-  /** The colour the board's daylight is tinted, '#rrggbb'; null when it is not tinted. */
-  tint(mapPath: string): string | null {
-    return this.data[mapPath]?.tint ?? null;
-  }
-
-  setTint(mapPath: string, tint: string): void {
-    if (!/^#[0-9a-f]{6}$/i.test(tint) || this.tint(mapPath) === tint.toLowerCase()) return;
-    this.put(mapPath, { ...(this.data[mapPath] ?? {}), tint: tint.toLowerCase() });
-  }
-
-  /** Takes the tint off: the daylight is as it was. */
-  clearTint(mapPath: string): void {
-    if (this.tint(mapPath) === null) return;
-    const { tint: _gone, ...rest } = this.data[mapPath] ?? {};
-    this.put(mapPath, rest);
-  }
 
   props(mapPath: string): readonly PropPlacement[] {
     return this.data[mapPath]?.props ?? [];

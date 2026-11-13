@@ -463,6 +463,21 @@ test('with a host, a token goes to another scene in two held steps, and stops be
   assert.deepEqual(calls, [['add', 'to.atlasmap', 'n']]);
 });
 
+test("the light level and its colour are set through Atlas's scene lighting, never in a file", async () => {
+  const calls: unknown[] = [];
+  const live = liveView({ mapPath: 'm.atlasmap', mapLoaded: true, isMapLoading: false, setSceneLighting: (changes) => { calls.push(changes); } }, calls);
+  const writer = new TokenWriter({ views: () => [live.view], process: refused, held: async () => null });
+  assert.equal(await writer.setSceneLighting('m.atlasmap', { ambient: 0.4 }), 'atlas');
+  assert.equal(await writer.setSceneLighting('m.atlasmap', { ambient: 7 }), 'atlas');
+  assert.equal(await writer.setSceneLighting('m.atlasmap', { ambientColor: '#336699' }), 'atlas');
+  assert.equal(await writer.setSceneLighting('m.atlasmap', { ambientColor: undefined }), 'atlas');
+  assert.deepEqual(calls, [{ ambient: 0.4 }, { ambient: 1 }, { ambientColor: '#336699' }, { ambientColor: undefined }]);
+  assert.ok(Object.hasOwn(calls[3] as object, 'ambientColor'));
+  await assert.rejects(writer.setSceneLighting('other.atlasmap', { ambient: 0.4 }), NotHeldError);
+  const old = new TokenWriter({ views: () => [liveView({ mapPath: 'm.atlasmap', mapLoaded: true, isMapLoading: false }, []).view], process: refused });
+  await assert.rejects(old.setSceneLighting('m.atlasmap', { ambient: 0.4 }), /offers no scene lighting/);
+});
+
 test("whenHeld waits for Atlas to finish reading the map, or switch its tab to it; loading says it is on its way", () => {
   let state: Partial<AtlasSceneState> = { mapPath: 'm.atlasmap', mapLoaded: false, isMapLoading: true };
   const listeners = new Set<() => void>();

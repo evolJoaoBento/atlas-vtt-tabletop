@@ -24,6 +24,38 @@ function fakeApp({ plugin = null, views = [], ran = [] }: FakeOptions = {}) {
   return { app, active, ran };
 }
 
+test("the laser and the dice volume are Atlas's own settings", () => {
+  let laser = { color: '#ff0059', size: 16 };
+  const listeners = new Set<() => void>();
+  const settingsService = {
+    getLaserPointerSettings: () => laser,
+    setLaserPointerSettings: (changes: Partial<typeof laser>) => { laser = { ...laser, ...changes }; for (const listener of listeners) listener(); },
+    getDiceVolume: () => 0.3,
+    onChange: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+  };
+  const bridge = new AtlasBridge(fakeApp({ plugin: { settingsService } }).app as never);
+  assert.deepEqual(bridge.laser(), { color: '#ff0059', size: 16 });
+  let heard = 0;
+  const stop = bridge.onSettingsChange(() => { heard += 1; });
+  assert.equal(bridge.setLaser({ color: '#00a9ff' }), true);
+  assert.deepEqual(bridge.laser(), { color: '#00a9ff', size: 16 });
+  assert.equal(heard, 1);
+  stop();
+  bridge.setLaser({ size: 20 });
+  assert.equal(heard, 1);
+  assert.equal(bridge.diceVolume(), 0.3);
+
+  // Without Atlas, or with one that lacks the members: no laser of its own, and dice at full volume.
+  const none = new AtlasBridge(fakeApp().app as never);
+  assert.equal(none.laser(), null);
+  assert.equal(none.setLaser({ color: '#00a9ff' }), false);
+  assert.equal(none.diceVolume(), 1);
+  assert.doesNotThrow(() => none.onSettingsChange(() => {})());
+  const odd = new AtlasBridge(fakeApp({ plugin: { settingsService: { getDiceVolume: () => 7, getLaserPointerSettings: () => ({ color: 5 }) } } }).app as never);
+  assert.equal(odd.diceVolume(), 1);
+  assert.equal(odd.laser(), null);
+});
+
 function atlasView(mapPath: string, assetService: unknown = null) {
   return {
     viewId: 'v1',

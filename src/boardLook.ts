@@ -49,8 +49,8 @@ export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: 
     lightHeight: (id: string) => data.lightHeight(mapPath, id),
     fogHeight: fog,
     wallThickness: data.wallThickness(mapPath),
-    ambient: data.ambient(mapPath),
-    tint: data.tint(mapPath),
+    // The board's light is Atlas's scene lighting, which players are sent with the scene: nothing of its own here.
+    ambient: null,
     ...(layers.length > 0 ? { layers } : {}),
     // Painted water lies on the scene's first level; props stand on their own level.
     ...(onFirstLevel(shown.levels, shown.level) ? waterOf(data, mapPath) : {}),

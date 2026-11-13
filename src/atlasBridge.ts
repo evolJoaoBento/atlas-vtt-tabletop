@@ -29,6 +29,10 @@ export interface AtlasAssetService {
 export interface AtlasSettingsService {
   getToolbarLayout?(): unknown;
   getHotkeys?(): Record<string, string>;
+  getLaserPointerSettings?(): unknown;
+  setLaserPointerSettings?(changes: Record<string, unknown>): void;
+  getDiceVolume?(): unknown;
+  onChange?(listener: () => void): () => void;
   [member: string]: unknown;
 }
 
@@ -116,6 +120,42 @@ export class AtlasBridge {
     try { keys = typeof settings?.getHotkeys === 'function' ? settings.getHotkeys() ?? {} : {}; } catch { keys = {}; }
     const key = keys[id];
     return typeof key === 'string' && key !== '' ? key : DEFAULT_HOTKEYS[id];
+  }
+
+  /** Atlas's laser pointer as the GM set it (its colour and size, for every map); null without Atlas, or one that has none. */
+  laser(): { color: string; size: number } | null {
+    const settings = this.settings();
+    let stored: unknown = null;
+    try { stored = typeof settings?.getLaserPointerSettings === 'function' ? settings.getLaserPointerSettings() : null; } catch { stored = null; }
+    return isObj(stored) && typeof stored.color === 'string' && typeof stored.size === 'number' ? { color: stored.color, size: stored.size } : null;
+  }
+
+  /** Changes Atlas's laser pointer; false when Atlas is not there to keep it. */
+  setLaser(changes: { color?: string; size?: number }): boolean {
+    const settings = this.settings();
+    if (typeof settings?.setLaserPointerSettings !== 'function') return false;
+    try { settings.setLaserPointerSettings({ ...changes }); } catch { return false; }
+    return true;
+  }
+
+  /** How loud Atlas plays dice (0 to 1, its "Dice volume"); 1 without Atlas. */
+  diceVolume(): number {
+    const settings = this.settings();
+    let volume: unknown = 1;
+    try { volume = typeof settings?.getDiceVolume === 'function' ? settings.getDiceVolume() : 1; } catch { volume = 1; }
+    return typeof volume === 'number' && volume >= 0 && volume <= 1 ? volume : 1;
+  }
+
+  /** Hears every change of Atlas's settings; returns the stop (which does nothing without Atlas). */
+  onSettingsChange(listener: () => void): () => void {
+    const settings = this.settings();
+    if (typeof settings?.onChange !== 'function') return () => undefined;
+    try {
+      const stop = settings.onChange(() => listener());
+      return typeof stop === 'function' ? stop : () => undefined;
+    } catch {
+      return () => undefined;
+    }
   }
 
   /** Opens Atlas's own asset manager window (it needs no map view); false without Atlas. */

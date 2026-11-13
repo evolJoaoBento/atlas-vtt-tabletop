@@ -312,7 +312,9 @@ export class SoundEngine {
     this.master.gain.setTargetAtTime(settings.muted ? 0 : settings.volume, at, SETTLE_SECONDS);
     for (const group of SOUND_GROUPS) {
       const node = this.groupGains.get(group);
-      if (node) node.gain.setTargetAtTime(settings.groups[group] ? 1 : 0, at, SETTLE_SECONDS);
+      // Dice are as loud as Atlas plays its own (its "Dice volume").
+      const level = group === 'dice' && typeof settings.diceVolume === 'number' ? Math.min(1, Math.max(0, settings.diceVolume)) : 1;
+      if (node) node.gain.setTargetAtTime(settings.groups[group] ? level : 0, at, SETTLE_SECONDS);
     }
     this.syncLoops();
   }

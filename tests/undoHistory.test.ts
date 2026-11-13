@@ -53,10 +53,11 @@ test('Tabletop\'s own data is recorded, and a slider\'s many changes are one ste
   const assignments = new Assignments();
   recordTabletopData(history, boardData, assignments);
   boardData.addProp('m', { glb: 'tree.glb', x: 10, y: 10, rotation: 0, scale: 1 });
-  for (const level of [0.2, 0.3, 0.4]) { now += 50; boardData.setAmbient('m', level); }
-  assert.equal(boardData.ambient('m'), 0.4);
+  const untouched = boardData.fogHeight('m');
+  for (const level of [0.2, 0.3, 0.4]) { now += 50; boardData.setFogHeight('m', level); }
+  assert.equal(boardData.fogHeight('m'), 0.4);
   await history.undo(['m']);
-  assert.equal(boardData.ambient('m'), null);
+  assert.equal(boardData.fogHeight('m'), untouched);
   assert.equal(boardData.props('m').length, 1);
   await history.undo(['m']);
   assert.equal(boardData.props('m').length, 0);

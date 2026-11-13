@@ -13,6 +13,11 @@ export interface SoundSettings {
   groups: Record<SoundGroup, boolean>;
   /** A multiplier (0 to 2) for single sounds by id, for those not left at 1. */
   levels: Readonly<Record<string, number>>;
+  /**
+   * How loud Atlas plays dice (0 to 1, its own "Dice volume"): the dice group is as loud. Never saved here: the plugin
+   * reads it from Atlas each time it hands the settings to an engine. Absent: full.
+   */
+  diceVolume?: number;
 }
 
 /** The level a sound starts at before the player moves its slider: 1, except the water loops, which stay in the background. */

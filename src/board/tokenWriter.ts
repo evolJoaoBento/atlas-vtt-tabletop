@@ -645,6 +645,22 @@ export class TokenWriter {
     return 'file';
   }
 
+  /**
+   * Sets the scene's light level (0 to 1) and the colour it is tinted, as Atlas's lighting page does: through Atlas's
+   * store alone. An `ambientColor` given as undefined takes the colour off.
+   */
+  async setSceneLighting(path: string, changes: { ambient?: number; ambientColor?: string | undefined }): Promise<'atlas'> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.holder(path)?.atlasStore.getState();
+    if (!state) throw new NotHeldError();
+    if (!state.setSceneLighting) throw TokenWriter.missing('scene lighting');
+    const given: { ambient?: number; ambientColor?: string | undefined } = {};
+    if (typeof changes.ambient === 'number' && Number.isFinite(changes.ambient)) given.ambient = Math.min(1, Math.max(0, changes.ambient));
+    if (Object.hasOwn(changes, 'ambientColor')) given.ambientColor = changes.ambientColor;
+    state.setSceneLighting(given);
+    return 'atlas';
+  }
+
   /** Locks a door (shutting it) or unlocks it. */
   async lockDoor(path: string, id: string, locked: boolean): Promise<'atlas' | 'file'> {
     if (this.holder(path) === null) await this.ready(path);

@@ -313,6 +313,8 @@ export interface BoardHost {
   pinMenu?(id: string, event: MouseEvent): void;
   /** The board's ambient light (0–1), and keeping a new level. */
   ambient(): number;
+  /** Whether the scene's lighting is on in Atlas: the light level can be set only then. Absent: it can. */
+  lightingOn?(): boolean;
   setAmbient(level: number): void;
   /** The colour the daylight is tinted ('#rrggbb'), or null for none; keeping a new one, or taking it off. */
   tint(): string | null;
@@ -939,6 +941,7 @@ export class Board {
       initiativeOpen: () => this.host.initiativeOpen(),
       toggleInitiative: () => this.host.toggleInitiative(),
       ambient: () => this.ambientShown ?? this.host.ambient(),
+      lightingOn: () => this.host.lightingOn?.() ?? true,
       setAmbient: (level, keep) => {
         this.ambientShown = keep ? null : level;
         if (keep) this.host.setAmbient(level);
