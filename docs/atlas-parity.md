@@ -20,8 +20,11 @@ list or a stand-in and run the sync again. Each copy starts with its Atlas sourc
 It also copies Atlas's texts (in every language Atlas speaks) that the copies use and that `src/atlasPort/atlasTextKeys.ts`
 lists, into `src/atlasPort/atlasTextData.ts`.
 
+Tabletop needs Atlas 0.15 or later, and the tables above are checked against 0.15.0 (`ATLAS_CHECKED_VERSION`, which a
+test keeps equal to `MIN_ATLAS_VERSION`).
+
 Three screens are hand-ported from Atlas 0.14's `main.js` and `styles.css` (they are the same in 0.15.0), because no
-0.14 source checkout was at hand, and need Atlas 0.14 or newer for their styling: the text dialog shell
+0.14 source checkout was at hand: the text dialog shell
 (`src/atlasPort/shims/dialogShell.ts`, a boundary in `PORT_ENTRIES`' list; `confirmDialog.ts` and
 `encounterSaveService.ts` use its header, body and footer), the command palette's options (a plain scrolling `div`, by
 patches in `scripts/atlasPortList.mjs`; `OverlayScroll.tsx` is no longer imported) and the table import's header-row

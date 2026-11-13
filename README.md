@@ -1,6 +1,6 @@
 # Tabletop for Atlas VTT
 
-**Compatible with Atlas VTT 0.14.0** (rooms, pin names, defeated tokens give no sight), and still compatible with 0.13.
+**Compatible with Atlas VTT 0.15.0.** Needs Atlas VTT 0.15 or later, and Connect for Atlas VTT 0.10.0 (the same fusion release).
 
 Tabletop for Atlas VTT is a community extension. It is not made, endorsed or supported by Atlas VTT or Atlas Online.
 
@@ -121,7 +121,34 @@ instead of waiting. Smaller maps, and any Atlas before 0.11, are read as the fil
 squares a solid or dashed square grid is drawn as whole lines, a hex grid too fine to draw cell by cell is left off, and
 cell numbers are worked out for the cell under the pointer, never listed.
 
-- **Atlas's toolbar tools on the board:** the toolbar has Atlas's **Random tables** (L), **Asset manager** (Shift+A; A moves the camera) and **Command palette** (Space), in the order you set in Atlas's toolbar (a tool you hid there is hidden here). They are Atlas's own windows, on the same data: the random tables roll your table notes and keep the same history as Atlas; the asset manager spawns tokens and encounters onto the board at the camera's centre (with Atlas's hit point rolls and formations), opens scenes on the board, and sends you to Atlas for the token creator, the encounter builder, new scenes and deleting tokens; the palette runs the board's tools and opens Atlas's own palette for Atlas's settings. They need Atlas VTT with the map open in Atlas for its library, and the ported windows' look (the palette's scrolling list, the dialog header row, the random tables import) follows Atlas 0.14, so it needs Atlas 0.14 or newer for its styling; the rest of Tabletop stays compatible with 0.13. See `docs/atlas-parity.md` for how they follow Atlas.
+- **Atlas's toolbar tools on the board:** the toolbar has Atlas's **Random tables** (L), **Asset manager** (Shift+A; A moves the camera) and **Command palette** (Space), in the order you set in Atlas's toolbar (a tool you hid there is hidden here). They are Atlas's own windows, on the same data: the random tables roll your table notes and keep the same history as Atlas; the asset manager spawns tokens and encounters onto the board at the camera's centre (with Atlas's hit point rolls and formations), opens scenes on the board, and sends you to Atlas for the token creator, the encounter builder, new scenes and deleting tokens; the palette runs the board's tools and opens Atlas's own palette for Atlas's settings. They need Atlas VTT with the map open in Atlas for its library. See `docs/atlas-parity.md` for how they follow Atlas.
+
+## Editing goes through Atlas
+
+Atlas is where a map lives. Everything Atlas keeps (tokens, doors, walls, pins, the initiative tracker, the light level
+and its tint) is edited through Atlas itself, so the board, Atlas and your players always see the same map. Tabletop
+never writes a map file on its own.
+
+- **One Atlas tab, one map at a time.** Atlas keeps a single tab with one map loaded. When you work on a board (you
+  switch to its tab or click on it), Tabletop brings that Atlas tab to the board's map, in the background: the board
+  stays in front. If no Atlas tab is open, Tabletop opens one behind the board and closes it again with the last board.
+- **View only.** A board whose map Atlas is not holding shows the map and edits nothing of Atlas's. A bar says
+  "View only. Atlas holds <map>." with an **Edit here** button, which brings Atlas to this board's map. With two boards
+  on two maps open, the one you are working on is the one you can edit.
+- **What still works on a view-only board:** everything that is Tabletop's own, since Atlas keeps none of it: minis,
+  props, wall heights, widths and materials, windows' openings, door props, light heights, water and cutscenes.
+- **If you close Atlas's tab** the bar says "Atlas closed this map. Editing is paused." with **Reopen**.
+- **Without Atlas** (not installed or not enabled) boards open to look at: "Atlas VTT is not enabled. View only."
+- **Players** (through Connect) who move a token while your Atlas is on another map are told "The GM's Atlas is on
+  another map; try again in a moment."
+
+The light level and the tint in the lighting menu are Atlas's scene lighting (the same values as on Atlas's own
+lighting page); the level can be set while the scene's lighting is on in Atlas. The laser's colour and size, and how
+loud dice are, are Atlas's settings too.
+
+Settings a map kept in Tabletop 1.3 are carried over once, with a backup in `Tabletop backups/<date>/` in your vault:
+the heights, widths, materials and windows of the walls of an Atlas 0.14 room move to the walls Atlas 0.15 makes of that
+room, and a map's own light level and tint are saved to the backup (the board is now as light as Atlas's scene).
 
 ## Sounds
 

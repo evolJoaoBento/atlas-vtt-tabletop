@@ -1268,18 +1268,19 @@ server.listen(0, async () => {
       });
       check('the scene tabs show over the board as Atlas draws them, the active tab and the presented one marked', JSON.stringify(bar) === JSON.stringify([
         { name: 'Tavern', active: true, eye: 'false', eyeOn: false }, { name: 'Crypt', active: false, eye: 'true', eyeOn: true },
+        { name: 'Cellar', active: false, eye: 'false', eyeOn: false },
       ]), bar);
       await page.evaluate(() => {
         const tabs = [...document.querySelectorAll('#board .atlas-scene-tab-bar [role="tab"]')];
         tabs[1].click();
         tabs[0].querySelector('.atlas-scene-tab__action').click();
-        tabs[0].querySelectorAll('.atlas-scene-tab__action')[1].click();
-        tabs[1].querySelectorAll('.atlas-scene-tab__action')[1].click();
+        // Atlas 0.15's tab has no layers button: a right click opens the layers menu.
+        tabs[0].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
         tabs[1].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
-        tabs[0].querySelectorAll('.atlas-scene-tab__action')[2].click();
+        tabs[0].querySelector('.atlas-scene-tab__action--end').click();
         document.querySelector('#board .atlas-scene-tab-bar__add').click();
       });
-      check('a tab switches, its eye presents (and does not switch), its layers button and right click open the layers menu, its cross closes, the plus opens a scene', JSON.stringify((await record()).sceneTabs) === JSON.stringify([['switch', 't2'], ['present', 't1'], ['layers', 't1'], ['layers', 't2'], ['layers', 't2'], ['close', 't1'], ['add']]), (await record()).sceneTabs);
+      check('a tab switches, its eye presents (and does not switch), a right click opens the layers menu, its cross closes, the plus opens a scene', JSON.stringify((await record()).sceneTabs) === JSON.stringify([['switch', 't2'], ['present', 't1'], ['layers', 't1'], ['layers', 't2'], ['close', 't1'], ['add']]), (await record()).sceneTabs);
     }
 
     // 23. The board never shows a blank frame: resizing a WebGL canvas wipes it, so a resize is drawn again before the

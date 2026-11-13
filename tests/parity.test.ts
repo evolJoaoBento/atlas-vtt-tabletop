@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { compareIds, extractAtlasIds } from '../scripts/atlasIds.mjs';
+import { MIN_ATLAS_VERSION } from '../packages/atlas-host/src/index';
 import { ATLAS_ASSET_TABS, ATLAS_CHECKED_VERSION, ATLAS_PALETTE, ATLAS_TOOLBAR, PARITY_STATUSES } from '../src/parity';
 
 const fixture = readFileSync('tests/fixtures/atlas-0.14.0-ids.txt', 'utf8');
@@ -21,7 +22,9 @@ test('the toolbar table holds Atlas 0.14.0 catalog in order', () => {
   assert.equal(status.assets, 'native');
   assert.equal(status.palette, 'native');
   assert.equal(status.fog, 'not-yet');
-  assert.equal(ATLAS_CHECKED_VERSION, '0.14.0');
+  // The Atlas the tables were checked against is the Atlas Tabletop needs.
+  assert.equal(ATLAS_CHECKED_VERSION, MIN_ATLAS_VERSION);
+  assert.equal(ATLAS_CHECKED_VERSION, '0.15.0');
 });
 
 test('compareIds reports new and dropped ids', () => {
