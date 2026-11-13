@@ -7,7 +7,7 @@
 import { readLevelAlignment, readMapStretch, type MapStretch } from './mapStretch';
 import { readFog, type FogOperation } from './fog';
 import { readInitiative, type InitiativeState, type SideId } from './initiative';
-import { readRooms, roomWalls } from './atlasRooms/rooms';
+import { hasConvertedRoomWalls, readRooms, roomWalls } from './atlasRooms/rooms';
 import { readLights, readSceneLighting, readWalls, type BoardLight, type BoardWall, type SceneLighting } from './walls';
 import { hiddenResourcesOf, isDefeated, tokenFromFile, type ResourceDefinition, type ResourceValue } from './resources';
 import { levelBackground, onLevel, onLevelRecord, readLevels, resolveLevel, type BoardLevel } from './levels';
@@ -434,8 +434,9 @@ export function readMapState(path: string, given: unknown, viewedLevel?: string 
     initiative: readInitiative(state.initiative),
     inks: items(here(objects.drawings)).map(readInk).filter((ink): ink is BoardInk => ink !== null),
     fog: readFog(here(objects.fog)),
-    // Atlas 0.14's rooms: the outline of the shown rooms on this level stands as solid walls (all outside is rock).
-    walls: [...readWalls(here(objects.walls)), ...readWalls(Object.fromEntries(roomWalls(readRooms(here(objects.rooms))).map((wall) => [wall.id, wall])))],
+    // A 0.14 file Atlas 0.15 has not saved yet: the outline of the shown rooms on this level stands as solid walls (all
+    // outside is rock). Once the walls hold 0.15's room walls the rooms are those walls, and no outline is added.
+    walls: [...readWalls(here(objects.walls)), ...(hasConvertedRoomWalls(objects.walls) ? [] : readWalls(Object.fromEntries(roomWalls(readRooms(here(objects.rooms))).map((wall) => [wall.id, wall]))))],
     lights: readLights(here(objects.lights), here(objects.tokens)),
     lighting: readSceneLighting(state.lighting),
     rawGrid: state.grid ?? null,

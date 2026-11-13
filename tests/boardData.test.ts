@@ -41,6 +41,33 @@ test('deleting a map drops its data; deleting a GLB drops its props', () => {
   assert.deepEqual(data.toJSON(), { 'b.atlasmap': { props: [{ id: 'q', glb: 'props/xy.glb', x: 0, y: 0, rotation: 0, scale: 1 }] } });
 });
 
+test("a 0.14 room wall's height, width, material and window move to Atlas 0.15's room wall, once", () => {
+  const path = 'maps/a.atlasmap';
+  const data = new BoardData({ [path]: {
+    wallHeights: { room_0_0_80_0: 3, drawn: 1 }, wallWidths: { room_0_0_80_0: 0.2 }, wallMaterials: { room_0_0_80_0: 'Materials/stone' },
+    windows: { room_0_0_80_0: { bottom: 1, top: 2 } },
+  } });
+  assert.deepEqual([...data.wallKeys(path)].sort(), ['drawn', 'room_0_0_80_0']);
+  assert.equal(data.roomWallsMoved(path), false);
+  const moved = data.moveWallKeys(path, [{ from: 'room_0_0_80_0', to: 'room_L1_0_0_80_0' }, { from: 'room_0_0_80_0', to: 'room_L2_0_0_80_0' }, { from: 'absent', to: 'x' }]);
+  assert.equal(moved, 4);
+  assert.equal(data.roomWallsMoved(path), true);
+  for (const id of ['room_L1_0_0_80_0', 'room_L2_0_0_80_0']) {
+    assert.equal(data.wallHeight(path, id), 3);
+    assert.equal(data.wallWidth(path, id), 0.2);
+    assert.equal(data.wallMaterial(path, id), 'Materials/stone');
+    assert.deepEqual(data.windowOf(path, id), { bottom: 1, top: 2 });
+  }
+  assert.equal(data.wallHeight(path, 'room_0_0_80_0'), null);
+  assert.equal(data.wallHeight(path, 'drawn'), 1);
+  assert.equal(data.wallHeight(path, 'x'), null);
+  // Kept across a save and a load, also for a map with nothing else.
+  assert.equal(new BoardData(readBoardData(JSON.parse(JSON.stringify(data.toJSON())))).roomWallsMoved(path), true);
+  const bare = new BoardData();
+  assert.equal(bare.moveWallKeys('maps/b.atlasmap', []), 0);
+  assert.equal(new BoardData(readBoardData(JSON.parse(JSON.stringify(bare.toJSON())))).roomWallsMoved('maps/b.atlasmap'), true);
+});
+
 test('readBoardData drops junk', () => {
   assert.deepEqual(readBoardData({ m: { styles: { a: 'standee', b: 'cube', c: 'disc' }, props: [{ id: 'p', glb: 'x.glb', x: 1, y: 2 }, { glb: 3 }] }, n: 5 }), {
     m: { styles: { a: 'standee' }, props: [{ id: 'p', glb: 'x.glb', x: 1, y: 2, rotation: 0, scale: 1 }] },

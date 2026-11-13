@@ -52,6 +52,19 @@ test("Atlas's store reads as the map file does", () => {
   assert.throws(() => readMapState('m', null), /not an Atlas map/);
 });
 
+test("rooms and Atlas 0.15's room walls are never both drawn", () => {
+  const room = { id: 'r', kind: 'room', name: 'Hall', order: 0, area: [[0, 0, 800, 0, 800, 800, 0, 800]] };
+  // A 0.14 file Atlas 0.15 has not saved yet: the outline is worked out.
+  const old = readMapState('m', { objects: { tokens: {}, rooms: { r: room } } });
+  assert.equal(old.walls.length, 4);
+  assert.ok(old.walls.every((wall) => wall.id.startsWith('room_') && wall.chain === 'rooms'));
+  // Saved by 0.15, with the rooms left in by a merge or a hand edit: only the stored walls.
+  const converted = { room__0_0_800_0: { id: 'room__0_0_800_0', kind: 'wall', type: 'solid', closed: true, chainId: 'rooms_', floor: 'left', p1: { x: 0, y: 0 }, p2: { x: 100, y: 0 } } };
+  const both = readMapState('m', { objects: { tokens: {}, rooms: { r: room }, walls: converted } });
+  assert.deepEqual(both.walls.map((wall) => wall.id), ['room__0_0_800_0']);
+  assert.equal(readMapState('m', { objects: { tokens: {}, walls: converted } }).walls.length, 1);
+});
+
 test('mapStateChanged ignores camera, selection and tool state', () => {
   const state: Record<string, unknown> = { ...JSON.parse(fixture('dungeon.atlasmap')).state, mapPath: 'maps/dungeon.atlasmap' };
   assert.equal(mapStateChanged(state, { ...state }), false);

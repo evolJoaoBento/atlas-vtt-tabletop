@@ -63,7 +63,10 @@ export function openArea(rooms: readonly Room[]): RoomArea {
 
 /**
  * The walls the shown rooms' outline makes: solid, one per edge of their union (rooms that touch or overlap make no
- * wall between them). An edge is named by its ends, as Atlas names it. None where there are no rooms.
+ * wall between them). An edge is named by its ends, as Atlas 0.14 named it (`room_<x1>_<y1>_<x2>_<y2>`, in eighth
+ * pixels, on the chain `rooms`). None where there are no rooms. Only a 0.14 file Atlas 0.15 has not saved yet still has
+ * rooms: 0.15 turns them into real walls as it loads the scene (`room_<level>_<x1>_<y1>_<x2>_<y2>`, on the chain
+ * `rooms_<level>`) and drops them.
  */
 export function roomWalls(rooms: readonly Room[]): RoomWall[] {
   const walls: RoomWall[] = [];
@@ -76,6 +79,16 @@ export function roomWalls(rooms: readonly Room[]): RoomWall[] {
     }
   }
   return walls;
+}
+
+/** Whether `walls` (a scene's wall records) already hold Atlas 0.15's room walls: an id starting `room_` on a chain starting `rooms_`. */
+export function hasConvertedRoomWalls(walls: unknown): boolean {
+  if (typeof walls !== 'object' || walls === null) return false;
+  return Object.entries(walls as Record<string, unknown>).some(([key, raw]) => {
+    const wall = raw as { id?: unknown; chainId?: unknown } | null;
+    const id = typeof wall?.id === 'string' ? wall.id : key;
+    return id.startsWith('room_') && typeof wall?.chainId === 'string' && wall.chainId.startsWith('rooms_');
+  });
 }
 
 /** A room's area from world-pixel polygons (for tests and fixtures): their union, in eighth pixels. */

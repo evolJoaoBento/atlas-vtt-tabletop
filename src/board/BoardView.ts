@@ -50,6 +50,8 @@ import { InitiativePanel, type InitiativePanelHost } from './initiativePanel';
 import { wholeWall, isWindow, windowSpan, WINDOW_STEP } from './walls';
 import { NotHeldError, type TokenChange } from './tokenWriter';
 import { HOST_BAR_LABELS, hostBar, mapName } from './hostBar';
+import { migrationWalls, roomWallMoves } from './roomWallMigration';
+import { writeBackup } from '../backups';
 import type { LaserSettings } from './laser';
 import type { PlayerView } from './PlayerWindow';
 import { DEFAULT_EDGES, DEFAULT_SEE_THROUGH_SIZE, QUALITY, withLooks, type LayerLook, type Quality, type QualityPreset, type WallEdges } from './quality';
@@ -963,6 +965,7 @@ export class BoardView extends ItemView {
       const store = this.services.host?.store(path);
       if (store) {
         map = readMapState(path, store.getState(), this.shownLevel(path));
+        void this.moveRoomWalls(path, store.getState());
       } else {
         const text = await this.app.vault.read(file);
         if (this.closed) return;
@@ -1042,6 +1045,43 @@ export class BoardView extends ItemView {
     board.setHandout(handout ? { title: handout.title, url: file instanceof TFile ? this.app.vault.getResourcePath(file) : null } : null);
     board.setBanner(this.hostBanner());
     board.refreshToolbar();
+  }
+
+  /** The maps whose 0.14 room-wall settings are being moved right now. */
+  private readonly movingRoomWalls = new Set<string>();
+
+  /**
+   * Once per map, when Atlas 0.15 holds it: what the GM set on a 0.14 room's outline (a height, a width, a material, a
+   * window opening) is moved to the walls Atlas 0.15 made of that room, which it named anew. A backup of the map and
+   * of Tabletop's data for it is written first, and one notice says what was moved.
+   */
+  private async moveRoomWalls(path: string, state: unknown): Promise<void> {
+    const { boardData } = this.services;
+    if (boardData.roomWallsMoved(path) || this.movingRoomWalls.has(path)) return;
+    // Only a map with settings under 0.14's room-wall names has anything to move.
+    const old = new Set([...boardData.wallKeys(path)].filter((key) => /^room_-?\d+_-?\d+_-?\d+_-?\d+$/.test(key)));
+    if (old.size === 0) return;
+    const walls = migrationWalls(state);
+    // Atlas has not made walls of the rooms (not a 0.15 store): nothing to move them to yet.
+    if (!walls.some((wall) => wall.chainId?.startsWith('rooms_'))) return;
+    const moves = roomWallMoves(walls, old);
+    this.movingRoomWalls.add(path);
+    try {
+      let folder: string | null = null;
+      if (moves.length > 0) {
+        const name = mapName(path);
+        folder = await writeBackup(this.app, new Date(), [
+          { name: `${name}.atlasmap`, text: await this.app.vault.adapter.read(path) },
+          { name: `${name}.tabletop.json`, text: JSON.stringify(boardData.toJSON()[path] ?? {}, null, 2) },
+        ]);
+      }
+      const moved = boardData.moveWallKeys(path, moves);
+      if (moved > 0 && folder) new Notice(`Tabletop: moved ${moved} wall ${moved === 1 ? 'setting' : 'settings'} to Atlas 0.15's room walls on ${mapName(path)}; backup in ${folder}/`, 0);
+    } catch (error) {
+      console.warn('Tabletop: the room-wall settings could not be moved:', error);
+    } finally {
+      this.movingRoomWalls.delete(path);
+    }
   }
 
   private releaseHost: (() => void) | null = null;
@@ -1522,8 +1562,9 @@ export class BoardView extends ItemView {
       if (own !== null || whole.some((other) => boardData.wallHeight(path, other) !== null)) {
         list.push({ type: 'item', label: 'Back to the fog\'s height', onClick: () => boardData.setWallHeight(path, whole, null) });
       }
-      // A plain wall can be made Atlas's window (it stops only tokens; sight and light pass both ways), and back. Not a
-      // room's outline (Atlas 0.14): it is the rooms' edge, never edited by hand, and has no wall in the file to change.
+      // A plain wall can be made Atlas's window (it stops only tokens; sight and light pass both ways), and back. Not the
+      // outline worked out for a 0.14 file's rooms (chain `rooms`): it has no wall in the file to change. Atlas 0.15's
+      // room walls (chain `rooms_<level>`) are real walls, and can.
       if (!door && wall.chain !== 'rooms') {
         const glazed = isWindow(wall);
         const makeWindow = (ids: readonly string[], on: boolean): void => {

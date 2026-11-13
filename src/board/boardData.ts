@@ -68,6 +68,8 @@ export interface MapData {
   arTable?: SavedArTable;
   /** Cinematic cutscenes made in this map (their shots may look at other maps). */
   cutscenes?: Cutscene[];
+  /** The settings of this map's 0.14 room walls were looked for and moved to Atlas 0.15's room walls: done once. */
+  roomWallsMoved?: true;
 }
 
 /** A map stacked on another: the base map's path, and how many grid squares above it this one stands. */
@@ -158,6 +160,7 @@ function tidy(map: MapData): MapData | null {
   if (map.water) out.water = map.water;
   if (map.arTable) out.arTable = map.arTable;
   if (map.cutscenes && map.cutscenes.length > 0) out.cutscenes = map.cutscenes;
+  if (map.roomWallsMoved === true) out.roomWallsMoved = true;
   return Object.keys(out).length > 0 ? out : null;
 }
 
@@ -243,6 +246,7 @@ export function readBoardData(raw: unknown): BoardDataJSON {
       ...(ambient !== undefined && { ambient }),
       ...(tint !== undefined && { tint }),
       ...(wallThickness !== undefined && { wallThickness }),
+      ...(value.roomWallsMoved === true && { roomWallsMoved: true as const }),
     });
     if (kept) out[path] = kept;
   }
@@ -332,6 +336,47 @@ export class BoardData {
   setWallThickness(mapPath: string, thickness: number): void {
     if (!Number.isFinite(thickness) || thickness <= 0 || this.wallThickness(mapPath) === thickness) return;
     this.put(mapPath, { ...(this.data[mapPath] ?? {}), wallThickness: thickness });
+  }
+
+  /** Every wall id this map keeps a height, a width, a material or a window opening under. */
+  wallKeys(mapPath: string): Set<string> {
+    const map = this.data[mapPath];
+    return new Set([map?.wallHeights, map?.wallWidths, map?.wallMaterials, map?.windows].flatMap((record) => Object.keys(record ?? {})));
+  }
+
+  /** Whether this map's 0.14 room-wall settings were already looked for (`moveWallKeys`). */
+  roomWallsMoved(mapPath: string): boolean {
+    return this.data[mapPath]?.roomWallsMoved === true;
+  }
+
+  /**
+   * Moves what is kept under each `from` wall id (height, width, material, window opening) to its `to`: every `to`
+   * of a `from` gets a copy, then the `from` keys go. Marks the map as done, so it is done once. Returns the number of
+   * settings moved (one per record and `from` that had one).
+   */
+  moveWallKeys(mapPath: string, moves: ReadonlyArray<{ from: string; to: string }>): number {
+    const map = this.data[mapPath] ?? {};
+    let moved = 0;
+    const carry = <V>(record: Record<string, V> | undefined): Record<string, V> | undefined => {
+      if (!record) return record;
+      const next = { ...record };
+      const gone = new Set<string>();
+      for (const { from, to } of moves) {
+        if (!Object.hasOwn(record, from)) continue;
+        next[to] = record[from] as V;
+        gone.add(from);
+      }
+      for (const from of gone) delete next[from];
+      moved += gone.size;
+      return next;
+    };
+    const next: MapData = { ...map, roomWallsMoved: true };
+    for (const key of ['wallHeights', 'wallWidths', 'wallMaterials', 'windows'] as const) {
+      const carried = carry(map[key] as Record<string, never> | undefined);
+      if (carried) (next as Record<string, unknown>)[key] = carried;
+    }
+    this.put(mapPath, next);
+    return moved;
   }
 
   /** The material painted on a wall or door: its vault folder, or null for the plain look. */
