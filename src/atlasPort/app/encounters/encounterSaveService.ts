@@ -31,7 +31,7 @@ function describeTokens(tokens: readonly EncounterTokenDraft[]): string {
  */
 function promptForEncounterName(app: ObsidianApp, tokens: EncounterTokenDraft[]): Promise<string | null> {
   return new Promise((resolve) => {
-    const { root, dialog } = createDialogShell(t('encounter.saveTitle'));
+    const { root, dialog, footer } = createDialogShell(t('encounter.saveTitle'), { onDismiss: () => close(null) });
     dialog.createEl('p', { cls: 'atlas-text-dialog__message', text: t('encounter.createWith', { count: tokens.length }) });
 
     const previewContainer = dialog.createDiv({ cls: 'atlas-encounter-save-preview' });
@@ -63,9 +63,8 @@ function promptForEncounterName(app: ObsidianApp, tokens: EncounterTokenDraft[])
       if (name) close(name);
     };
 
-    const actions = dialog.createDiv({ cls: 'atlas-text-dialog__actions' });
-    actions.createEl('button', { text: t('common.cancel') }).addEventListener('click', () => close(null));
-    actions.createEl('button', { text: t('encounter.save'), cls: 'mod-cta' }).addEventListener('click', submit);
+    footer.createEl('button', { text: t('common.cancel') }).addEventListener('click', () => close(null));
+    footer.createEl('button', { text: t('encounter.save'), cls: 'mod-cta' }).addEventListener('click', submit);
     root.addEventListener('click', (event) => {
       if (event.target === root) close(null);
     });

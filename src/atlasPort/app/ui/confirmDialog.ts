@@ -33,21 +33,21 @@ export interface ChoiceDialogOptions<T> {
  */
 export function chooseAction<T>(options: ChoiceDialogOptions<T>): Promise<T | null> {
   return new Promise((resolve) => {
-    const { root, dialog } = createDialogShell(options.title);
-    dialog.addClass('atlas-text-dialog--confirm');
-    for (const paragraph of options.message) {
-      dialog.createEl('p', { cls: 'atlas-text-dialog__message', text: paragraph });
-    }
-
     const close = (value: T | null): void => {
       root.remove();
       resolve(value);
     };
+    // Atlas 0.14: a header row with a close button, the paragraphs in the body, the buttons in the footer.
+    const { root, dialog, footer } = createDialogShell(options.title, { onDismiss: () => close(null) });
+    dialog.parentElement?.addClass('atlas-text-dialog--confirm');
+    for (const paragraph of options.message) {
+      dialog.createEl('p', { cls: 'atlas-text-dialog__message', text: paragraph });
+    }
 
-    const actions = dialog.createDiv({ cls: 'atlas-text-dialog__actions' });
-    actions.createEl('button', { text: t('common.cancel') }).addEventListener('click', () => close(null));
+    const cancel = footer.createEl('button', { text: t('common.cancel') });
+    cancel.addEventListener('click', () => close(null));
     const buttons = options.choices.map((choice) => {
-      const button = actions.createEl('button', { text: choice.label });
+      const button = footer.createEl('button', { text: choice.label });
       if (choice.style) button.addClass(`mod-${choice.style}`);
       button.addEventListener('click', () => close(choice.value));
       return button;
@@ -63,7 +63,7 @@ export function chooseAction<T>(options: ChoiceDialogOptions<T>): Promise<T | nu
       }
     });
 
-    buttons[buttons.length - 1]?.focus();
+    (options.choices.some((choice) => choice.style === 'warning') ? cancel : buttons[buttons.length - 1])?.focus();
   });
 }
 

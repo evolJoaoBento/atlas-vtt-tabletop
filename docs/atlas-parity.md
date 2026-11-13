@@ -20,6 +20,14 @@ list or a stand-in and run the sync again. Each copy starts with its Atlas sourc
 It also copies Atlas's texts (in every language Atlas speaks) that the copies use and that `src/atlasPort/atlasTextKeys.ts`
 lists, into `src/atlasPort/atlasTextData.ts`.
 
+Three screens are hand-ported from Atlas 0.14's `main.js` and `styles.css` (they are the same in 0.15.0), because no
+0.14 source checkout was at hand, and need Atlas 0.14 or newer for their styling: the text dialog shell
+(`src/atlasPort/shims/dialogShell.ts`, a boundary in `PORT_ENTRIES`' list; `confirmDialog.ts` and
+`encounterSaveService.ts` use its header, body and footer), the command palette's options (a plain scrolling `div`, by
+patches in `scripts/atlasPortList.mjs`; `OverlayScroll.tsx` is no longer imported) and the table import's header-row
+switch (`FileTableImport.tsx`, Atlas's `ToggleLabel`). A later `sync:atlas` from a 0.14 or newer checkout should replace
+the hand edits in the last two files.
+
 | Tabletop | Atlas 0.12.0 source |
 | --- | --- |
 | `src/atlasPort/app/randomTables/*` | `src/app/randomTables/*` (table reading, rolling, generators) |

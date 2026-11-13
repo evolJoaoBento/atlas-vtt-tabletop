@@ -1701,20 +1701,59 @@ feature('atlas css restated', async ({ page, shot }) => {
     const root = document.createElement('div');
     root.className = 'atlas-vtt-plugin';
     root.style.cssText = 'position:fixed;left:0;top:0;width:300px;height:200px;z-index:9999;background:#222';
-    root.innerHTML = '<div style="display:flex;flex-direction:column;height:100px"><div class="atlas-command-palette-options"><p style="height:400px">long</p></div></div><h3 class="atlas-text-dialog__title">Title</h3><label class="atlas-file-tables__header-check"><input type="checkbox">Header row</label>';
+    root.innerHTML = '<div style="display:flex;flex-direction:column;height:100px"><div class="atlas-command-palette-options"><p style="height:400px">long</p></div></div><div class="atlas-file-tables__list"><div class="atlas-file-tables__candidate is-active"><input type="checkbox"><button class="btn atlas-file-tables__candidate-button"><span class="atlas-file-tables__name">Loot</span><span class="atlas-file-tables__location">page 2</span></button></div></div><div class="atlas-toggle-label"><span class="atlas-toggle-label__text">Header row</span></div>';
     document.body.appendChild(root);
     const cs = (selector) => getComputedStyle(root.querySelector(selector));
     const out = {
       options: [cs('.atlas-command-palette-options').overflowY, cs('.atlas-command-palette-options').flexGrow, cs('.atlas-command-palette-options').minHeight],
-      title: [cs('.atlas-text-dialog__title').marginTop, cs('.atlas-text-dialog__title').textWrapStyle ?? cs('.atlas-text-dialog__title').textWrap],
-      check: [cs('.atlas-file-tables__header-check').display, cs('.atlas-file-tables__header-check').columnGap, cs('.atlas-file-tables__header-check').alignItems],
+      list: [cs('.atlas-file-tables__list').display, cs('.atlas-file-tables__list').flexDirection],
+      candidate: [cs('.atlas-file-tables__candidate').display, cs('.atlas-file-tables__candidate').columnGap, cs('.atlas-file-tables__candidate').borderTopStyle],
+      button: [cs('.atlas-file-tables__candidate-button').flexDirection, cs('.atlas-file-tables__candidate-button').textAlign],
+      toggle: [cs('.atlas-toggle-label').display, cs('.atlas-toggle-label').columnGap],
     };
     out.areaHeight = root.querySelector('.atlas-command-palette-options').getBoundingClientRect().height;
     return out;
   });
   check('css: the palette options are a scrolling column that can shrink (native scrollbar, as Atlas 0.14)', got.options[0] === 'auto' && got.options[1] === '1' && got.options[2] === '0px' && got.areaHeight <= 100, JSON.stringify(got));
-  check('css: the dialog title has no margin and wraps pretty', got.title[0] === '0px' && got.title[1] === 'pretty', JSON.stringify(got));
-  check('css: the table import header checkbox is a flex row with a gap', got.check[0] === 'flex' && got.check[1] === '8px' && got.check[2] === 'center', JSON.stringify(got));
+  check('import: the candidate list is a column of bordered rows, each with a checkbox and a stacked name and location', got.list[0] === 'flex' && got.list[1] === 'column' && got.candidate[0] === 'flex' && got.candidate[1] === '8px' && got.candidate[2] === 'solid' && got.button[0] === 'column', JSON.stringify(got));
+  check('import: the header row switch is a labelled flex row (Atlas 0.14)', got.toggle[0] === 'flex' && got.toggle[1] === '8px', JSON.stringify(got));
+  // The dialog shell is Atlas 0.14's: a header row holding the title (an h3), its close button, a body and a footer.
+  await page.evaluate(() => window.boardTest.palette.open()); // (installs Atlas's DOM host, which gives the body createDiv)
+  await wait(800);
+  await page.keyboard.press('Escape');
+  await wait(300);
+  const dialog = await page.evaluate(async () => {
+    const pending = window.boardTest.chooseAction({ title: 'Delete it?', message: ['Really?'], choices: [{ label: 'Delete', value: 1, style: 'warning' }] });
+    const frame = document.querySelector('.atlas-text-dialog');
+    const header = frame.querySelector(':scope > .atlas-text-dialog__header');
+    const title = header?.querySelector('h3');
+    const cs = (el) => getComputedStyle(el);
+    const info = {
+      header: !!header, headerFlex: header ? cs(header).display : null, title: title?.textContent ?? null, titleMargin: title ? cs(title).marginTop : null,
+      close: !!header?.querySelector('button.atlas-close-btn'), body: !!frame.querySelector(':scope > .atlas-text-dialog__body .atlas-text-dialog__message'),
+      footer: [...frame.querySelectorAll(':scope > .atlas-text-dialog__footer > button')].map((b) => b.textContent),
+      labelled: frame.getAttribute('aria-labelledby') === title?.id,
+      noOldTitle: true,
+    };
+    header?.querySelector('button.atlas-close-btn')?.click();
+    info.dismissed = (await pending) === null && !document.querySelector('.atlas-text-dialog-backdrop');
+    return info;
+  });
+  check('dialog: the title sits in a header row (flex, no margin) with a close button; the text in the body, the buttons in the footer', dialog.header && dialog.headerFlex === 'flex' && dialog.title === 'Delete it?' && dialog.titleMargin === '0px' && dialog.close && dialog.body && dialog.footer.join() === 'Cancel,Delete' && dialog.labelled && dialog.noOldTitle, JSON.stringify(dialog));
+  check('dialog: the close button dismisses it', dialog.dismissed === true, JSON.stringify(dialog));
+  // The palette's options are one scrolling column (native scrollbar), not Atlas's removed overlay scroll.
+  await page.evaluate(() => window.boardTest.palette.open());
+  await page.locator('.atlas-tabletop-atlas-ui .atlas-command-palette-options').waitFor({ timeout: 5000 }).catch(() => {});
+  const options = await page.evaluate(() => {
+    const el = document.querySelector('.atlas-command-palette-options');
+    if (!el) return null;
+    const before = el.scrollTop;
+    el.scrollTop = 80;
+    return { overflowY: getComputedStyle(el).overflowY, scrolls: el.scrollHeight > el.clientHeight && el.scrollTop > before, noOverlay: !document.querySelector('.atlas-overlay-scroll'), height: el.clientHeight };
+  });
+  check('palette: the options scroll in a column of their own, with no overlay scroll frame', options && options.overflowY === 'auto' && options.scrolls && options.noOverlay && options.height > 100, JSON.stringify(options));
+  await page.keyboard.press('Escape');
+  await wait(300);
   await shot('atlas-css-restated');
   await page.evaluate(() => document.querySelector('.atlas-vtt-plugin[style*="9999"]')?.remove());
 });

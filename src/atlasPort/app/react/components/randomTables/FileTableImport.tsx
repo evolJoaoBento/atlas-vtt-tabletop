@@ -1,6 +1,8 @@
 // Atlas source: src/app/react/components/randomTables/FileTableImport.tsx @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useId, useMemo, useRef, useState } from 'react';
+import { cn } from '../../../../utils/cn';
+import { ToggleSwitch } from '../../../packages/components/primitives/Toggle';
 import { Button } from '../../../packages/components/primitives/button';
 import { SegmentedControl } from '../../../packages/components/primitives/SegmentedControl';
 import { ProgressStatus } from '../../../packages/components/primitives/ProgressStatus';
@@ -13,7 +15,16 @@ import { TablePreview } from './TablePreview';
 import { useTableFileImport, type FileImportActions } from './useTableFileImport';
 import { t } from '../../../../shims/i18n';
 
-const KINDS = [{ value: 'text', label: t('tables.kind.text') }, { value: 'items', label: t('tables.kind.items') }] as const;
+/** Atlas 0.14's labelled switch (its `ToggleLabel`, hand-ported from main.js): the switch and the text that toggles it. */
+function ToggleLabel({ label, value, onChange, disabled = false, className = '' }: { label: string; value: boolean; onChange: () => void; disabled?: boolean; className?: string }): React.ReactElement {
+  const id = useId();
+  return <div className={cn('atlas-toggle-label', disabled && 'atlas-toggle-label--disabled', className)}>
+    <ToggleSwitch size="s" labelledBy={id} value={value} disabled={disabled} onChange={onChange} />
+    <span id={id} className="atlas-toggle-label__text" onClick={() => { if (!disabled) onChange(); }}>{label}</span>
+  </div>;
+}
+
+const KINDS =[{ value: 'text', label: t('tables.kind.text') }, { value: 'items', label: t('tables.kind.items') }] as const;
 
 /** Discovery is read only. A name and a selection are the only decisions before creating Markdown notes. */
 export function FileTableImport({ folder, ...actions }: FileImportActions & { folder: string }): React.ReactElement {
@@ -73,10 +84,8 @@ export function FileTableImport({ folder, ...actions }: FileImportActions & { fo
             <SegmentedControl<RandomTableKind> value={active.kind} options={KINDS} ariaLabel={t('tables.paste.kind')} disabled={locked} onChange={(kind) => state.update(active.id, { kind })} />
           </div>
           {active.name.trim() === '' && <p className="atlas-file-tables__hint">{t('tables.import.nameRequired')}</p>}
-          {active.headerlessTable && <label className="atlas-file-tables__header-check">
-            <input type="checkbox" checked={active.usesHeader} disabled={locked} onChange={(event) => state.update(active.id, { usesHeader: event.target.checked })} />
-            {t('tables.import.headerRow')}
-          </label>}
+          {active.headerlessTable && <ToggleLabel label={t('tables.import.headerRow')} value={active.usesHeader} disabled={locked}
+            onChange={() => state.update(active.id, { usesHeader: !active.usesHeader })} />}
           <TablePreview table={preview} />
         </> : <p className="atlas-paste-table__empty">{t('tables.import.empty')}</p>}
       </div>

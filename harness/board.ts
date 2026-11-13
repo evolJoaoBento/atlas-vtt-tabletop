@@ -36,6 +36,7 @@ import { materialDrag, type LoadedMaterial } from '../src/materials';
 import { parseMini, type LoadedMini } from '../src/library';
 import { DiceTable } from '../src/dice/diceTable';
 import { TFile, TFolder } from 'obsidian';
+import { chooseAction } from '../src/atlasPort/app/ui/confirmDialog';
 import { LootWindow } from '../src/loot/LootWindow';
 import { AssetWindow } from '../src/assets/AssetWindow';
 import { PaletteWindow } from '../src/palette/PaletteWindow';
@@ -742,7 +743,7 @@ async function main(): Promise<void> {
   cinematicStudio = studio;
   board.cinemaButton({ live: () => studio.live, toggleLive: () => studio.toggleLive() });
   const cutsceneHarness = { studio, host: studioHost, store: cutsceneStore, log: cutsceneLog, first: map.path, second: crypt.path, session: fakeSession, channel, owner };
-  Object.assign(window, { boardTest: { studio: cutsceneHarness, api: { cutscene: channel }, Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, spawned, palette, paletteCalls, ready: true } });
+  Object.assign(window, { boardTest: { studio: cutsceneHarness, api: { cutscene: channel }, Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, spawned, palette, paletteCalls, chooseAction, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

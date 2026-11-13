@@ -34,6 +34,8 @@ export const PORT_ENTRIES = [
 export const BOUNDARIES = {
   'i18n/index.ts': 'i18n.ts',
   'i18n/types.ts': 'i18n.ts',
+  // Atlas 0.14's text dialog (header row, body, footer), hand-ported from its main.js.
+  'ui/dialogShell.ts': 'dialogShell.ts',
   'services/AssetService.ts': 'assetService.ts',
   'services/collectionBundle/installRecord.ts': 'installRecord.ts',
   'plugin/deviceId.ts': 'deviceId.ts',
@@ -114,6 +116,11 @@ export const PATCHES = [
     file: 'react/components/CommandPalette.tsx',
     find: '<OverlayScroll\n                    ref={optionsContainerRef}\n                    frameClassName="atlas-command-palette-options-frame"\n                    className="atlas-command-palette-options"',
     replace: '<div\n                    ref={optionsContainerRef}\n                    className="atlas-command-palette-options"',
+  },
+  {
+    file: 'react/components/CommandPalette.tsx',
+    find: "import { OverlayScroll } from '../../packages/components/primitives/OverlayScroll';\n",
+    replace: '',
   },
   {
     file: 'react/components/CommandPalette.tsx',

@@ -2296,10 +2296,8 @@ body.atlas-tabletop-player-window .view-header {
 .tabletop-menu__tick { width: 16px; text-align: center; }
 
 /*
- * Rules the ported Atlas UI still uses that Atlas 0.14 dropped or moved in its own styles.css. The palette's options are
- * a plain scrolling column as in 0.14 (native scrollbar; the same rule is Atlas's own there, restated for 0.13); the
- * dialog title and the header-row checkbox of the table import are copied from 0.13.1.
+ * The ported Atlas UI follows Atlas 0.14 and is styled by 0.14's stylesheet (dialog header row, import list, labelled
+ * switch). The palette's options are a plain scrolling column as in 0.14: that one rule is Atlas's own there, restated
+ * so a 0.13 Atlas (which wrapped them in its overlay scroll) still scrolls them.
  */
 .atlas-vtt-plugin .atlas-command-palette-options { flex: 1; min-height: 0; overflow-y: auto; }
-.atlas-vtt-plugin .atlas-text-dialog__title { margin: 0; text-wrap: pretty; }
-.atlas-vtt-plugin .atlas-file-tables__header-check { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: var(--font-ui-small); }

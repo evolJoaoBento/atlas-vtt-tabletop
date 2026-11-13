@@ -61,6 +61,20 @@ elementProto.setCssProps ??= function (this: HTMLElement, props: Record<string, 
   for (const [name, value] of Object.entries(props)) this.style.setProperty(name, value);
 };
 
+// Obsidian's element helpers: `parent.createDiv({ cls, text, attr })` makes a child and appends it; `addClass`.
+for (const [name, tag] of [['createDiv', 'div'], ['createSpan', 'span'], ['createEl', '']] as const) {
+  elementProto[name] ??= function (this: HTMLElement, first?: string | object, second?: never): HTMLElement {
+    const tagName = name === 'createEl' ? (first as string) : tag;
+    const options = (name === 'createEl' ? second : first) as { cls?: string | string[]; text?: string; attr?: Record<string, string> } | undefined;
+    const made = this.ownerDocument.createElement(tagName);
+    apply(made, options);
+    for (const key of ['type', 'placeholder', 'value'] as const) { const value = (options as Record<string, string> | undefined)?.[key]; if (value !== undefined) (made as unknown as Record<string, string>)[key] = value; }
+    this.appendChild(made);
+    return made;
+  };
+}
+elementProto.addClass ??= function (this: HTMLElement, ...names: string[]): void { this.classList.add(...names); };
+
 // Obsidian's globals for the window that has the focus.
 (globalThis as unknown as { activeDocument: Document; activeWindow: Window }).activeDocument = document;
 (globalThis as unknown as { activeDocument: Document; activeWindow: Window }).activeWindow = window;
