@@ -57,11 +57,12 @@ window.__L = (() => {
 })();
 return true;`;
 
-async function open() {
+async function open(settle = 4000) {
   const o = await connect(PORT);
   // The plugins load after the window is up.
   for (let i = 0; i < 60; i++) { if (await o.ev("return !!app.plugins && !!app.plugins.plugins && !!app.workspace.layoutReady").catch(() => false)) break; await sleep(1000); }
-  await sleep(4000);
+  // settle 0: the notices of the first seconds are wanted (Connect says what it needs three seconds after the layout is ready).
+  await sleep(settle);
   await o.ev(PAGE);
   return o;
 }
@@ -309,8 +310,8 @@ async function step(o, n, name, run) {
     launch();
     let old;
     try {
-      const p = await open();
-      await sleep(6000);
+      const p = await open(0);
+      await sleep(12000);
       old = await p.ev(`const L = window.__L; const tt = L.tt();
         const board = L.boards()[0];
         if (board && board.loadIfDeferred) await board.loadIfDeferred();

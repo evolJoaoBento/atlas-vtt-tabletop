@@ -1,0 +1,305 @@
+[
+  {
+    "step": 1,
+    "name": "versions and pairing",
+    "pass": true,
+    "evidence": {
+      "atlas": "0.15.0",
+      "tabletop": "1.4.0",
+      "connect": "0.10.0",
+      "loaded": [
+        true,
+        true
+      ],
+      "fusion": 1,
+      "notices": []
+    }
+  },
+  {
+    "step": 2,
+    "name": "no asset-service error once a board and an Atlas view are up",
+    "pass": true,
+    "evidence": {
+      "found": 0,
+      "sample": null
+    }
+  },
+  {
+    "step": 3,
+    "name": "host from nothing: one hidden Atlas tab, the board in front",
+    "pass": true,
+    "evidence": {
+      "before": 0,
+      "leaves": 1,
+      "hidden": true,
+      "boardActive": true,
+      "heldMs": 322,
+      "mark": {
+        "openedBy": "tabletop-for-atlas",
+        "claims": [
+          [
+            "tabletop-for-atlas",
+            1
+          ]
+        ]
+      },
+      "banner": null
+    }
+  },
+  {
+    "step": 4,
+    "name": "the host follows the focused board; the other board is view only; Edit here brings it back",
+    "pass": true,
+    "evidence": {
+      "coveMs": 0,
+      "coveActive": true,
+      "leaves": 1,
+      "cellarBanner": {
+        "text": "View only. Atlas holds Probe Cove.",
+        "button": "Edit here"
+      },
+      "coveBanner": null,
+      "cellarMs": 421,
+      "cellarActive": true,
+      "leavesAfter": 1,
+      "cellarBannerAfter": null,
+      "coveBannerAfter": {
+        "text": "View only. Atlas holds Probe Cellar.",
+        "button": "Edit here"
+      },
+      "atlasHidden": true
+    }
+  },
+  {
+    "step": 5,
+    "name": "an edit on the held board saves through Atlas; on the other board it is refused and no file is written",
+    "pass": true,
+    "evidence": {
+      "via": "atlas",
+      "savedMs": 571,
+      "moved": true,
+      "refused": {
+        "name": "NotHeldError",
+        "message": "Atlas holds another map: click Edit here first."
+      },
+      "coveUntouched": true
+    }
+  },
+  {
+    "step": 6,
+    "name": "a board in a popout: the Atlas tab stays in the main window, the popout board stays active",
+    "pass": true,
+    "evidence": {
+      "ms": 0,
+      "leaves": 1,
+      "atlasInMain": true,
+      "boardInPopout": true,
+      "boardActive": true,
+      "notices": [],
+      "banner": null
+    }
+  },
+  {
+    "step": 7,
+    "name": "the user closes the Atlas tab: editing is paused, Reopen holds the map again",
+    "pass": true,
+    "evidence": {
+      "closed": {
+        "leaves": 0,
+        "banner": {
+          "text": "Atlas closed this map. Editing is paused.",
+          "button": "Reopen"
+        }
+      },
+      "ms": 738,
+      "leaves": 1,
+      "banner": null,
+      "boardActive": true
+    }
+  },
+  {
+    "step": 8,
+    "name": "the host Tabletop opened closes with the last board; one the user opened stays",
+    "pass": true,
+    "evidence": {
+      "afterBoards": 0,
+      "userLeaves": 1,
+      "tabs": [
+        "Probe Upper",
+        "Probe Cellar"
+      ]
+    }
+  },
+  {
+    "step": 9,
+    "name": "distances: Manhattan and a custom unit name, read from the collection",
+    "pass": true,
+    "evidence": {
+      "label": "8 mi",
+      "rule": "manhattan",
+      "unitName": "mi",
+      "restored": true,
+      "gridType": "square"
+    }
+  },
+  {
+    "step": 10,
+    "name": "rooms: Atlas 0.15 converts them, the old wall settings move with a backup, no doubled outline",
+    "pass": true,
+    "evidence": {
+      "ms": 0,
+      "fileHasRooms": false,
+      "roomWalls": 10,
+      "chains": [
+        "rooms_"
+      ],
+      "sampleIds": [
+        "room__5600_1120_1120_1120",
+        "room__5600_2240_5600_1120",
+        "room__8960_2240_5600_2240"
+      ],
+      "heights": {
+        "room__5600_1120_1120_1120": 3
+      },
+      "materials": {
+        "room__1120_1120_1120_4480": "Materials/stone"
+      },
+      "moved": true,
+      "backups": [
+        "Tabletop backups/2026-11-13/board-lighting.json",
+        "Tabletop backups/2026-11-13/Fusion Rooms-2.atlasmap",
+        "Tabletop backups/2026-11-13/Fusion Rooms.atlasmap",
+        "Tabletop backups/2026-11-13/Fusion Rooms.tabletop-2.json",
+        "Tabletop backups/2026-11-13/Fusion Rooms.tabletop.json"
+      ],
+      "backupHasRooms": true,
+      "notices": [
+        "Tabletop: cannot read the material Materials/stone: the material is missing.",
+        "Tabletop: moved 2 wall settings to Atlas 0.15's room walls on Fusion Rooms; backup in Tabletop backups/2026-11-13/"
+      ],
+      "drawn": 10,
+      "unique": 10,
+      "storeWalls": 10
+    }
+  },
+  {
+    "step": 11,
+    "name": "the light level is Atlas's scene lighting: store and file, nothing in Tabletop's data",
+    "pass": true,
+    "evidence": {
+      "store": {
+        "enabled": true,
+        "ambient": 0.42,
+        "ambientColor": "#336699"
+      },
+      "file": {
+        "enabled": true,
+        "ambient": 0.42,
+        "ambientColor": "#336699"
+      },
+      "data": {},
+      "shown": 0.42,
+      "lightingOn": true
+    }
+  },
+  {
+    "step": 12,
+    "name": "the laser and the dice volume are Atlas's settings",
+    "pass": true,
+    "evidence": {
+      "set": {
+        "atlas": "#00a9ff",
+        "board": "#00a9ff"
+      },
+      "gain": 0.30000001192092896,
+      "minis": 1,
+      "hasEngine": true,
+      "restored": {
+        "laser": true,
+        "volume": true
+      },
+      "saved": false
+    }
+  },
+  {
+    "step": 13,
+    "name": "scene tabs in Atlas 0.15's markup",
+    "pass": true,
+    "evidence": {
+      "tabs": [
+        {
+          "name": "Probe Upper",
+          "start": 1,
+          "end": 1,
+          "presented": false
+        },
+        {
+          "name": "Probe Cellar",
+          "start": 1,
+          "end": 1,
+          "presented": true
+        },
+        {
+          "name": "Fusion Rooms",
+          "start": 1,
+          "end": 1,
+          "presented": false
+        }
+      ]
+    }
+  },
+  {
+    "step": 14,
+    "name": "a pin the GM named shows its name on the board",
+    "pass": true,
+    "evidence": {
+      "pins": [
+        {
+          "id": "pin_1794566615236_30uil0mk1",
+          "name": null,
+          "showName": true,
+          "title": null
+        }
+      ],
+      "filePins": [
+        {
+          "showName": true,
+          "name": null,
+          "notePath": "Gilded Flagon/Probe Note.md"
+        }
+      ]
+    }
+  },
+  {
+    "step": 15,
+    "name": "Atlas 0.14: both plugins say they need 0.15, publish nothing, and the board tab says why",
+    "pass": true,
+    "evidence": {
+      "old": {
+        "atlas": "0.14.0",
+        "api": null,
+        "notices": [
+          "Tabletop needs Atlas VTT 0.15 or later (found 0.14.0)",
+          "Connect needs Atlas VTT 0.15 or later (found 0.14.0)"
+        ],
+        "boardText": "3D board unavailable\n\nTabletop needs Atlas VTT 0.15 or later (found 0.14.0)",
+        "connectBound": false
+      },
+      "back": {
+        "atlas": "0.15.0",
+        "api": true
+      },
+      "tabletop": 1,
+      "connect": 1
+    }
+  },
+  {
+    "step": 16,
+    "name": "no console error from Tabletop or Connect across the run",
+    "pass": true,
+    "evidence": {
+      "errors": [],
+      "total": 5
+    }
+  }
+]

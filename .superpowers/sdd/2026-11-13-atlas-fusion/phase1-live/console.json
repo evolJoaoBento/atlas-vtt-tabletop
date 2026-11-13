@@ -1,0 +1,29 @@
+[
+  {
+    "type": "warning",
+    "text": "THREE.WARNING: Multiple instances of Three.js being imported.",
+    "at": "plugin:tabletop-for-atlas",
+    "during": "atlas 0.14"
+  },
+  {
+    "type": "warning",
+    "text": "PixiJS Warning:  [BindGroup] a 'textureSource' was destroyed while still bound to a shader. Remove it from the shader before destroying it.",
+    "at": "plugin:atlas-vtt",
+    "during": "atlas 0.14"
+  },
+  {
+    "type": "warning",
+    "text": "THREE.WARNING: Multiple instances of Three.js being imported.",
+    "at": "plugin:tabletop-for-atlas"
+  },
+  {
+    "type": "warning",
+    "text": "PixiJS Warning:  [BindGroup] a 'textureSource' was destroyed while still bound to a shader. Remove it from the shader before destroying it.",
+    "at": "plugin:atlas-vtt"
+  },
+  {
+    "type": "warning",
+    "text": "Connect for Atlas VTT: this Atlas has no extension API; using the stock Atlas stand-in.",
+    "at": "plugin:atlas-vtt-connect"
+  }
+]
