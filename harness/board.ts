@@ -673,6 +673,12 @@ async function main(): Promise<void> {
     grid: () => map.grid, tokens: () => JSON.parse(spawnText).state.objects.tokens, select: () => {}, joinInitiative: async () => {}, openMap: async () => {},
   };
   const assets = new AssetWindow(container, lootApp as never, spawnHost);
+  // A second asset window whose app has no Atlas view yet (Atlas's tab deferred, or the board opened first): what it logs
+  // while it is made, and while its Open is refused, is kept for the 'asset manager without Atlas' feature.
+  const assetErrors: string[] = [];
+  const logError = console.error;
+  console.error = (...parts: unknown[]) => { assetErrors.push(parts.map((part) => (part instanceof Error ? part.message : String(part))).join(' ')); logError(...parts); };
+  const noAtlasAssets = new AssetWindow(container, { ...lootApp, workspace: { ...(lootApp as { workspace?: object }).workspace, getLeavesOfType: () => [] }, plugins: { plugins: {}, manifests: {} } } as never, spawnHost);
   const spawned = (): Record<string, { x: number; y: number; name: string }> => JSON.parse(spawnText).state.objects.tokens;
   // Atlas's command palette over the board: what each entry asks of the board is recorded.
   const paletteCalls: string[] = [];
@@ -743,7 +749,7 @@ async function main(): Promise<void> {
   cinematicStudio = studio;
   board.cinemaButton({ live: () => studio.live, toggleLive: () => studio.toggleLive() });
   const cutsceneHarness = { studio, host: studioHost, store: cutsceneStore, log: cutsceneLog, first: map.path, second: crypt.path, session: fakeSession, channel, owner };
-  Object.assign(window, { boardTest: { studio: cutsceneHarness, api: { cutscene: channel }, Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, spawned, palette, paletteCalls, chooseAction, ready: true } });
+  Object.assign(window, { boardTest: { studio: cutsceneHarness, api: { cutscene: channel }, Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, spawned, palette, paletteCalls, chooseAction, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

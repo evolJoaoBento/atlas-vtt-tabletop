@@ -1,10 +1,15 @@
 // Stand-in for Atlas's services/AssetService.ts @ 0.12.0 (AGPL-3.0) in the copies. Tabletop never builds Atlas's asset
 // service: `getInstance` hands over Atlas's running one (through a map view, src/atlasBridge.ts). Without it, the copies
-// get an empty one that knows no collection, so they show nothing instead of failing.
+// get an empty one that knows no collection, so they show nothing instead of failing. It answers what the copies call
+// on it as they mount (`initialize`, `getCollections`, `getDefaultCollectionId`): a board is often made before any Atlas
+// view has loaded (Atlas's tab deferred after a restart).
 import type { App } from 'obsidian';
 import { AtlasBridge, type AtlasAssetService } from '../../atlasBridge';
 
 const NONE: AtlasAssetService = {
+  initialize: async () => {},
+  getCollections: async () => [],
+  getDefaultCollectionId: () => 'default',
   getCollectionForMap: () => null,
   getCollectionSettings: () => ({}),
   updateCollectionSettings: async () => {},

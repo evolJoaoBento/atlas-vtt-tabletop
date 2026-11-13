@@ -23,6 +23,11 @@ export class AssetWindow {
   private readonly el: HTMLElement;
   private readonly store = createBoardStore();
   private open_ = false;
+  /**
+   * Whether Atlas's asset manager has been mounted: only at the first Open that Atlas's running service allows. Mounted
+   * sooner it would take the empty stand-in service for good (it asks for the service once, as it mounts).
+   */
+  private mounted = false;
   private tab: AssetTab | undefined;
 
   constructor(host: HTMLElement, private readonly app: App, private readonly board: BoardSpawnHost) {
@@ -46,6 +51,7 @@ export class AssetWindow {
     if (!this.available()) return;
     this.tab = tab;
     this.open_ = true;
+    this.mounted = true;
     // The asset manager acts on this board while it is open.
     setSpawnBoard(this.board);
     setHandOffApp(this.app);
@@ -70,6 +76,7 @@ export class AssetWindow {
   }
 
   private render(): void {
+    if (!this.mounted) return;
     this.root.render(
       <AtlasUIContext.Provider value={{ app: this.app, view: null, pixiApp: null, renderer: null }}>
         <ViewStoreProvider store={this.store}>

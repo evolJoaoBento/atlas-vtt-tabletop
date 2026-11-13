@@ -1759,6 +1759,18 @@ feature('atlas css restated', async ({ page, shot }) => {
 });
 
 // ── Atlas's command palette over the board (Atlas's own component, src/palette/PaletteWindow.tsx) ───────────────
+feature('asset manager without Atlas', async ({ page }) => {
+  // The board is made before any Atlas view exists (Atlas's tab deferred after a restart): nothing may be logged for it.
+  await wait(800);
+  const seen = await page.evaluate(() => {
+    const test = window.boardTest;
+    test.noAtlasAssets.open('tokens');
+    return { available: test.noAtlasAssets.available(), open: test.noAtlasAssets.isOpen(), errors: test.assetErrors.filter((line) => /asset service/i.test(line)) };
+  });
+  check('asset manager without Atlas: it is not available, and Open does nothing', seen.available === false && seen.open === false, JSON.stringify(seen));
+  check('asset manager without Atlas: no "Initializing asset service failed" is logged', seen.errors.length === 0, JSON.stringify(seen.errors));
+});
+
 feature('command palette', async ({ page, shot }) => {
   await page.evaluate(() => window.boardTest.palette.open());
   const win = page.locator('.atlas-tabletop-atlas-ui .atlas-command-palette-window');
