@@ -36,15 +36,26 @@ test('defaultDie is the die of the default roll', () => {
 
 test('explosion: highest faces up, lowest faces down, within scope and repeats', () => {
   const rules: DiceRules = { defaultRoll: '1d10', crit: 'none', explode: { dice: 'default', repeats: false, highFaces: 1, lowFaces: 1 } };
-  assert.equal(explosion(rules, 'd10', 10, true, false), 'up');
-  assert.equal(explosion(rules, 'd10', 1, true, false), 'down');
-  assert.equal(explosion(rules, 'd10', 5, true, false), null);
-  assert.equal(explosion(rules, 'd6', 6, false, false), null);
-  assert.equal(explosion(rules, 'd10', 10, true, true), null);
+  assert.equal(explosion(rules, 'd10', 10, true, 0), 'up');
+  assert.equal(explosion(rules, 'd10', 1, true, 0), 'down');
+  assert.equal(explosion(rules, 'd10', 5, true, 0), null);
+  assert.equal(explosion(rules, 'd6', 6, false, 0), null);
+  assert.equal(explosion(rules, 'd10', 10, true, 1), null);
   const repeating: DiceRules = { ...rules, explode: { dice: 'all', repeats: true, highFaces: 2, lowFaces: 0 } };
-  assert.equal(explosion(repeating, 'd6', 5, false, true), 'up');
-  assert.equal(explosion(repeating, 'd6', 1, false, true), null);
-  assert.equal(explosion(DEFAULT_RULES, 'd20', 20, true, false), null);
+  assert.equal(explosion(repeating, 'd6', 5, false, 1), 'up');
+  assert.equal(explosion(repeating, 'd6', 1, false, 1), null);
+  assert.equal(explosion(DEFAULT_RULES, 'd20', 20, true, 0), null);
+});
+
+test("explosion by Atlas's rules: one face never explodes, a chain goes on up only, a die adds at most 10", () => {
+  const every: DiceRules = { defaultRoll: '1d6', crit: 'none', explode: { dice: 'all', repeats: true, highFaces: 6, lowFaces: 0 } };
+  assert.equal(explosion(every, 'd6', 2, true, 0), 'up');
+  assert.equal(explosion(every, 'd6', 1, true, 0), null, 'the lowest face is left out');
+  const both: DiceRules = { defaultRoll: '1d10', crit: 'none', explode: { dice: 'all', repeats: true, highFaces: 1, lowFaces: 1 } };
+  assert.equal(explosion(both, 'd10', 1, true, 1), null, 'a die thrown for a chain goes on with a high face only');
+  assert.equal(explosion(both, 'd10', 10, true, 1), 'up');
+  assert.equal(explosion(both, 'd10', 10, true, 9), 'up');
+  assert.equal(explosion(both, 'd10', 10, true, 10), null, 'ten dice added: the chain stops');
 });
 
 test('critOf natural: highest face success, 1 failure', () => {
@@ -54,6 +65,14 @@ test('critOf natural: highest face success, 1 failure', () => {
   assert.equal(critOf(DEFAULT_RULES, [d('d20', 12, 20), d('d6', 6, 6)]), undefined, 'only default dice count');
   assert.equal(critOf(DEFAULT_RULES, [d('d20', 20, 20, { dropped: true }), d('d20', 5, 20)]), undefined, 'dropped dice do not count');
   assert.equal(critOf(DEFAULT_RULES, [d('d20', 5, 20), d('d20', 20, 20, { exploded: true })]), undefined, 'explosion dice do not count');
+});
+
+test("critOf by Atlas's rule: the default dice are the first of each group the rules roll", () => {
+  assert.equal(critOf(DEFAULT_RULES, [d('d20', 5, 20), d('d20', 20, 20)]), undefined, 'a second d20 is no default die');
+  assert.equal(critOf({ defaultRoll: '1d6', crit: 'natural' }, [d('d6', 6, 6, { advantage: true }), d('d6', 2, 6)]), undefined, "advantage's own die is no default die");
+  assert.equal(critOf({ defaultRoll: '2d10', crit: 'doubles' }, [d('d10', 7, 10)]), undefined, 'fewer default dice than the rules roll');
+  const set: DiceRules = { defaultRoll: '1d12+1d6', crit: 'natural', groups: [{ die: 'd12', count: 1 }, { die: 'd6', count: 1 }] };
+  assert.equal(critOf(set, [d('d12', 3, 12), d('d6', 6, 6)]), 'success', "a set's groups are its default dice");
 });
 
 test('critOf roll-under, doubles, high-total and none', () => {

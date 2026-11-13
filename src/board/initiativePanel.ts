@@ -134,11 +134,12 @@ export class InitiativePanel {
     if (shown.length > 0 && bySides) {
       // Atlas 0.9 may name sides of its own and order them: the sections follow the fight's order.
       const named = state.sides?.order ?? rules.sides ?? [];
-      for (const side of fightSides(state, rules)) {
+      const sides = fightSides(state, rules);
+      for (const side of sides) {
         const section = this.el('section', `tabletop-initiative-side${state.sides?.active === side ? ' tabletop-initiative-side--active' : ''}`, content);
         if (state.sides?.active === side) section.setAttribute('aria-current', 'true');
         this.el('h4', 'tabletop-initiative-side__label', section, sideLabel(side, named));
-        entries.forEach((entry, index) => { if (sideOf(tokens.get(entry.tokenId)) === side) card(entry, index, section); });
+        entries.forEach((entry, index) => { if (sideOf(tokens.get(entry.tokenId), sides) === side) card(entry, index, section); });
       }
     } else if (shown.length > 0) {
       entries.forEach((entry, index) => card(entry, index, content));
@@ -271,11 +272,12 @@ export class InitiativePanel {
     const state = this.host.state();
     const entry = state.entries.find((candidate) => candidate.id === entryId);
     if (!entry) return [];
-    const bySides = listedBySides(state, this.host.rules());
+    const rules = this.host.rules();
+    const bySides = listedBySides(state, rules);
     const token = this.host.tokens().find((candidate) => candidate.id === entry.tokenId);
     const hidden = token?.hidden ?? false;
     // A token on one of the two built-in sides moves to the other; one on a side Atlas 0.9 named is moved in Atlas.
-    const own = sideOf(token);
+    const own = sideOf(token, fightSides(state, rules));
     const other = own === 'players' || own === 'opponents' ? otherSide(own) : null;
     const item = (label: string, onClick: () => void): MenuEntry => ({ type: 'item', label, onClick });
     return [

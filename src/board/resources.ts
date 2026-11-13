@@ -1,6 +1,7 @@
 /**
- * A token's resources (HP, stress, spell slots, AC…) as Atlas 0.8 keeps them, ported from its `src/app/resources/`
- * so the board shows, edits and saves them by Atlas's own rules:
+ * A token's resources (HP, stress, spell slots, AC…) as Atlas keeps them. What a value is, when it is spent, what
+ * defeats a token, which socket a resource takes and who sees it are Atlas's own code (`packages/atlas-shared`,
+ * `resources/`); what is here reads a collection's list and converts the map file's fields:
  * - each collection defines up to six resources (`settings.resources`); each takes a socket on a token: the first two
  *   are bars, the rest wheels;
  * - in memory a token holds `resources` (`{ current, max }` by key) and `overriddenMax`; the map file keeps the fields
@@ -9,45 +10,28 @@
  * Pure, so it is tested without Obsidian.
  */
 
-/** `drains` starts full and goes down, `fills` starts at 0 and goes up, `static` is one number (an armour class). */
-export type ResourceDirection = 'drains' | 'fills' | 'static';
+import {
+  clampValue,
+  defeatedResources,
+  isDefeated,
+  isKillable,
+  isSocket,
+  MAX_RESOURCES,
+  resourceColor,
+  resourceUpdate,
+  restedResources,
+  slottedResources,
+  visibleResources as atlasVisibleResources,
+  withCurrent,
+  type ResourceDefinition,
+  type ResourceHolder,
+  type ResourceValue,
+  type VisibleResource,
+} from '../../packages/atlas-shared/src/index';
 
-export interface ResourceDefinition {
-  key: string;
-  name: string;
-  field: string;
-  direction: ResourceDirection;
-  /** `#rrggbb`. */
-  color: string;
-  /** Spent (0 when draining, full when filling) marks the token defeated. */
-  defeatedWhenSpent?: boolean;
-  visibleToPlayers: boolean;
-  /** The socket it takes on a token, 0 to 5; without one, the first free socket in list order. */
-  slot?: number;
-}
-
-/** `current` counts in the resource's direction: remaining when draining, used when filling. */
-export interface ResourceValue {
-  current: number;
-  max: number;
-}
-
-export interface ResourceHolder {
-  resources?: Record<string, ResourceValue> | undefined;
-  /** Keys whose maximum was set by hand. */
-  overriddenMax?: string[] | undefined;
-}
-
-export interface VisibleResource {
-  definition: ResourceDefinition;
-  value: ResourceValue;
-  /** Its socket: 0 and 1 are bars, 2 to 5 wheels. */
-  slot: number;
-}
-
-/** A token has this many sockets; the first `BAR_SLOTS` are bars. */
-export const MAX_RESOURCES = 6;
-export const BAR_SLOTS = 2;
+export type { ResourceDefinition, ResourceDirection, ResourceHolder, ResourceValue, VisibleResource } from '../../packages/atlas-shared/src/index';
+export { BAR_SLOTS, MAX_RESOURCES } from '../../packages/atlas-shared/src/index';
+export { clampValue, defeatedResources, isDefeated, isKillable, resourceColor, resourceUpdate, restedResources, slottedResources, withCurrent };
 
 export const HP_RESOURCE: Readonly<ResourceDefinition> = {
   key: 'hp', name: 'HP', field: 'hp', direction: 'drains', color: '#22c55e', defeatedWhenSpent: true, visibleToPlayers: false,
@@ -65,8 +49,6 @@ const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 type Raw = Record<string, unknown>;
 const isRecord = (value: unknown): value is Raw => typeof value === 'object' && value !== null && !Array.isArray(value);
 const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
-
-const isSocket = (slot: unknown): slot is number => typeof slot === 'number' && Number.isInteger(slot) && slot >= 0 && slot < MAX_RESOURCES;
 
 /** A stored definition, or null when a required part is missing or invalid. */
 function parseResourceDefinition(raw: unknown): ResourceDefinition | null {
@@ -120,89 +102,15 @@ export function mapDefinitions(settings: Raw | null, inCollection: boolean): Res
   return inCollection ? [{ ...HP_RESOURCE }] : withLegacyBars(undefined, true);
 }
 
-/** Each resource with its socket, in socket order: a stored socket holds (the first to claim it), the rest fill in. */
-export function slottedResources(definitions: readonly ResourceDefinition[]): Array<{ definition: ResourceDefinition; slot: number }> {
-  const sockets = new Map<number, ResourceDefinition>();
-  const waiting: ResourceDefinition[] = [];
-  for (const definition of definitions) {
-    if (isSocket(definition.slot) && !sockets.has(definition.slot)) sockets.set(definition.slot, definition);
-    else waiting.push(definition);
-  }
-  for (let slot = 0; slot < MAX_RESOURCES && waiting.length > 0; slot++) {
-    if (!sockets.has(slot)) sockets.set(slot, waiting.shift()!);
-  }
-  return [...sockets].sort(([a], [b]) => a - b).map(([slot, definition]) => ({ definition, slot }));
-}
-
-/** Whether a value shows: a static one may be 0, a counting one needs a maximum above 0. */
-function holdsValue(definition: ResourceDefinition, value: ResourceValue): boolean {
-  return definition.direction === 'static' ? value.max >= 0 : value.max > 0;
-}
 
 /**
  * The resources a viewer sees on a token, in socket order: the GM those the map does not hide; players those the
  * collection shows them (`visibleToPlayers`), whatever the map hides from the GM, as Atlas's player window does.
  */
 export function visibleResources(token: ResourceHolder, definitions: readonly ResourceDefinition[], hidden: readonly string[], viewer: 'gm' | 'player' = 'gm'): VisibleResource[] {
-  const shown: VisibleResource[] = [];
-  for (const { definition, slot } of slottedResources(definitions)) {
-    if (viewer === 'gm' ? hidden.includes(definition.key) : !definition.visibleToPlayers) continue;
-    const value = token.resources?.[definition.key];
-    if (!value || !holdsValue(definition, value)) continue;
-    shown.push({ definition, value, slot });
-  }
-  return shown;
-}
-
-export function clampValue(value: ResourceValue): ResourceValue {
-  const max = Math.max(0, value.max);
-  return { current: Math.max(0, Math.min(max, value.current)), max };
-}
-
-export function withCurrent(value: ResourceValue, current: number): ResourceValue {
-  return clampValue({ current: Number.isFinite(current) ? current : value.current, max: value.max });
-}
-
-/** Used up: 0 when draining, full when filling. A value without a maximum, or a static one, is never spent. */
-function isSpent(definition: ResourceDefinition, value: ResourceValue): boolean {
-  if (value.max <= 0 || definition.direction === 'static') return false;
-  return definition.direction === 'drains' ? value.current <= 0 : value.current >= value.max;
-}
-
-export function isDefeated(token: ResourceHolder, definitions: readonly ResourceDefinition[]): boolean {
-  return definitions.some((definition) => {
-    const value = token.resources?.[definition.key];
-    return definition.defeatedWhenSpent === true && value !== undefined && isSpent(definition, value);
-  });
-}
-
-/** Whether the token holds a resource that defeats it when spent: its menu offers Kill. */
-export function isKillable(token: ResourceHolder, definitions: readonly ResourceDefinition[]): boolean {
-  return definitions.some((definition) => definition.defeatedWhenSpent === true && token.resources?.[definition.key] !== undefined);
-}
-
-/** The token update that sets one resource; a hand-set maximum is remembered in `overriddenMax`. */
-export function resourceUpdate(token: ResourceHolder, key: string, next: ResourceValue, maxEdited: boolean): { resources: Record<string, ResourceValue>; overriddenMax?: string[] } {
-  const resources = { ...token.resources, [key]: clampValue(next) };
-  const overridden = token.overriddenMax ?? [];
-  if (!maxEdited || overridden.includes(key)) return { resources };
-  return { resources, overriddenMax: [...overridden, key] };
-}
-
-/** A fresh value: full when the resource drains (a static value is that number), empty when it fills. */
-function startingValue(definition: ResourceDefinition, max: number): ResourceValue {
-  return { current: definition.direction === 'fills' ? 0 : max, max };
-}
-
-/** The token's resources with every defined one back at its start (Reset). */
-export function restedResources(token: ResourceHolder, definitions: readonly ResourceDefinition[]): Record<string, ResourceValue> | undefined {
-  if (!token.resources) return undefined;
-  const next = { ...token.resources };
-  for (const definition of definitions) {
-    const value = next[definition.key];
-    if (value) next[definition.key] = startingValue(definition, value.max);
-  }
-  return next;
+  // Atlas decides what shows, in which socket; the map's hidden list then takes the GM's away (sockets stay put).
+  const shown = atlasVisibleResources(token, definitions, viewer === 'gm' ? 'dm' : 'player');
+  return viewer === 'gm' ? shown.filter(({ definition }) => !hidden.includes(definition.key)) : shown;
 }
 
 /** The Reset entry of Atlas's token menu, worded as Atlas words it. */
@@ -210,16 +118,6 @@ export function resetLabel(definitions: readonly ResourceDefinition[]): string {
   return definitions.every(({ key }) => key === 'hp' || key === 'stress') ? 'Reset (Full HP, Clear Status)' : 'Reset (Restore Resources, Clear Status)';
 }
 
-/** The token's resources with every one that defeats it spent (Kill). */
-export function defeatedResources(token: ResourceHolder, definitions: readonly ResourceDefinition[]): Record<string, ResourceValue> | undefined {
-  if (!token.resources) return undefined;
-  const next = { ...token.resources };
-  for (const definition of definitions) {
-    const value = next[definition.key];
-    if (value && definition.defeatedWhenSpent) next[definition.key] = { current: definition.direction === 'drains' ? 0 : value.max, max: value.max };
-  }
-  return next;
-}
 
 export type ResourceField = keyof ResourceValue;
 
@@ -235,15 +133,6 @@ export function parseValueInput(raw: string, value: ResourceValue, field: Resour
   const current = field === 'current' ? next : value.current;
   if (max <= 0) return null;
   return { current: Math.max(0, Math.min(max, current)), max };
-}
-
-/** The colour a resource shows in: a defeating one turns yellow below 70% left, red below 30%. */
-export function resourceColor(definition: ResourceDefinition, value: ResourceValue): string {
-  if (!definition.defeatedWhenSpent) return definition.color;
-  const share = value.max > 0 ? Math.max(0, Math.min(1, value.current / value.max)) : 0;
-  const left = definition.direction === 'drains' ? share : 1 - share;
-  if (left >= 0.7) return definition.color;
-  return left >= 0.3 ? '#eab308' : '#ef4444';
 }
 
 /** A wheel's gauge, in radians clockwise from the top; a whole maximum of 2 to 8 is cut into one segment per point. */

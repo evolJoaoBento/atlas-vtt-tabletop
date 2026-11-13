@@ -23,6 +23,8 @@ export type DieState = {
   fate?: true;
   /** The label its group had in the formula. */
   label?: string;
+  /** Advantage's or disadvantage's own die (a dice set's): never a default die. */
+  advantage?: true;
   isDefault: boolean;
 };
 
@@ -38,6 +40,8 @@ interface DieLine {
   /** A default die, or thrown for one's explosion: what an explosion rule scoped to default dice reaches. */
   defaultLine: boolean;
   fromExplosion: boolean;
+  /** How many dice its chain of explosions added up to and including this one (0 for a die of the request). */
+  chain: number;
   /** The percentile pair: the tens die names its ones die, the ones die its tens die. */
   pair?: number;
   ones?: true;
@@ -91,7 +95,7 @@ export class RollSession {
         this.modifier += sign * edge.value;
       } else if (this.rollCount() < MAX_DICE) {
         // A die of its own, laid on the table with the rest; it subtracts for disadvantage.
-        this.addDie(edge.die, { isDefault: false, ...(edge.color !== undefined ? { color: edge.color } : {}), ...(sign < 0 ? { negative: true } : {}) });
+        this.addDie(edge.die, { isDefault: false, ...(edge.color !== undefined ? { color: edge.color } : {}), ...(sign < 0 ? { negative: true } : {}), advantage: true });
       }
     }
   }
@@ -225,6 +229,7 @@ export class RollSession {
         ...(state.label !== undefined ? { label: state.label } : {}),
         ...(state.exploded ? { exploded: true } : {}),
         ...(state.negative ? { negative: true } : {}),
+        ...(state.advantage ? { advantage: true } : {}),
         ...(state.color !== undefined ? { color: state.color } : {}),
         ...(rerolled ? { rerolled: true } : {}),
         ...(dropped.has(line.root) && !rerolled ? { dropped: true } : {}),
@@ -244,7 +249,7 @@ export class RollSession {
   }
 
   /** Adds a die (a d100 with its ones d10) and returns its id. */
-  private addDie(die: DieType, from: { isDefault: boolean; color?: string; label?: string; fate?: true; parent?: DieState; up?: boolean; negative?: true; replaces?: DieState }): number {
+  private addDie(die: DieType, from: { isDefault: boolean; color?: string; label?: string; fate?: true; parent?: DieState; up?: boolean; negative?: true; advantage?: true; replaces?: DieState }): number {
     const parentLine = from.parent ? this.lines.get(from.parent.id) : from.replaces ? this.lines.get(from.replaces.id) : undefined;
     const make = (type: DieType, ones: boolean): DieState => {
       const state: DieState = { id: this.nextId++, die: type, status: 'waiting', isDefault: from.isDefault };
@@ -252,6 +257,7 @@ export class RollSession {
       if (from.label !== undefined) state.label = from.label;
       if (from.fate) state.fate = true;
       if (from.negative) state.negative = true;
+      if (from.advantage) state.advantage = true;
       if (from.replaces?.negative) state.negative = true;
       if (from.parent) {
         state.exploded = true;
@@ -263,6 +269,7 @@ export class RollSession {
         root: parentLine?.root ?? state.id,
         defaultLine: parentLine?.defaultLine ?? from.isDefault,
         fromExplosion: from.parent !== undefined,
+        chain: from.parent ? (parentLine?.chain ?? 0) + 1 : (parentLine?.chain ?? 0),
         rerollDepth: from.replaces ? (parentLine?.rerollDepth ?? 0) + 1 : 0,
         ...(ones ? { ones: true } : {}),
         ...(from.parent ? { awaiting: from.up ? 'explode-up' : 'explode-down' } : from.replaces ? { awaiting: 'reroll' } : {}),
@@ -334,7 +341,7 @@ export class RollSession {
     const line = this.lines.get(id);
     const value = this.unitValue(id);
     if (!state || !line || value === null || this.rollCount() >= MAX_DICE) return;
-    const direction = explosion(this.rules, state.die, value, line.defaultLine, line.fromExplosion);
+    const direction = explosion(this.rules, state.die, value, line.defaultLine, line.chain);
     if (direction) line.explodedInto = this.addDie(state.die, { isDefault: false, color: state.color, ...(state.label !== undefined ? { label: state.label } : {}), parent: state, up: direction === 'up' });
   }
 

@@ -1,13 +1,14 @@
 {
   "connect": {
-    "commit": "b89aa589ea58d94e135fa16003265e674b9c9f80"
+    "commit": "75d2b2a6a21d2e0156e9e777e76500183c4bf72c"
   },
   "files": {
     "packages/atlas-shared/README.md": "4fde8a0601b6ef91d03051dbbda39e0faecf5ada86f9c7ccbad71308c6b70c5e",
-    "packages/atlas-shared/SOURCE.json": "85e3fcf559c7f08e4eb08f4fd77c3f64b25a2557c874e1845a31b237a7500a66",
-    "packages/atlas-shared/files.mjs": "69eaceec0165423f97fcf0d7dd421842101974735ca5d7f79f71cfc2bb7a698f",
+    "packages/atlas-shared/SOURCE.json": "3b72b1890e7a286429b5d72deda5e45bf53ecb1224f4a23f36b972083093a973",
+    "packages/atlas-shared/files.mjs": "486b49ada141c0a57ab143cd4c6eecb83f2a0d8a008d9c8ca64b2234694ba031",
     "packages/atlas-shared/src/app/characters/playerTokens.ts": "1af1951ad099d7c86b19713214b89cfd5c24bb1242acaedf5ca3eab8713d0ffc",
     "packages/atlas-shared/src/app/gameSystems/diceRules.ts": "142ea29388b77c7c6b87d72871b5f80445da92ca14362d7089b9c426c8914aa3",
+    "packages/atlas-shared/src/app/gameSystems/diceSets.ts": "bfa24c360007952824658a5b082632e8cc4ecd128eca934475f8564fe59df01f",
     "packages/atlas-shared/src/app/gameSystems/initiativeSideRules.ts": "13deaa1705c9dee9e1d2b49432fc7eed7c3749b47b003332b306971a3c7f0c51",
     "packages/atlas-shared/src/app/grid/GridSystem.ts": "570b56787ce95cbc571bc79af97db628ae1612cb92047aa594918010a6a072e7",
     "packages/atlas-shared/src/app/grid/cellNumbering.ts": "d97f3eb821386134b6ef56c88e5a8df5ad1895e60cf02fe0a6549a8286cb383b",
@@ -44,11 +45,15 @@
     "packages/atlas-shared/src/app/resources/resourceValues.ts": "5a5b3549c1492b51ea07c01505f47a485a4fdfd8f9713a4cbc35b0689ac44b2e",
     "packages/atlas-shared/src/app/resources/visibleResources.ts": "3af45cf5a2722cc17c003af118d4ad70c981ff4e2859c2f477a726ea91f8bc1e",
     "packages/atlas-shared/src/app/statblocks/model/roleTypes.ts": "ae2355672c404cc867b28f8736db2c9234455d3d14771efc35e775b93d1f4c97",
+    "packages/atlas-shared/src/app/tools/diceCrit.ts": "cd641753c2805e3bffb3080c37486c04588dcb5e9202785dd628c4aee4266215",
+    "packages/atlas-shared/src/app/tools/diceExplosion.ts": "36ac09e376f4dced0fb24c9135a2d8a4260afb59c5496776b79c8071b1b20dbd",
+    "packages/atlas-shared/src/app/tools/diceFormula.ts": "f74175c6f9a0133a35443c8aaed9057484b18297b301cd826c4beeaceb905869",
     "packages/atlas-shared/src/app/tools/laserPointerSettings.ts": "752cc670a8ad0b56da7f97cff93c304a08f101db5a4673849cd56c6bc354b7be",
     "packages/atlas-shared/src/app/tools/pinLabels.ts": "152e0057d6431621c8013a7e85125bb873e1e7fa985d9093b1aaaf78a23ac52a",
     "packages/atlas-shared/src/app/types/collectionSettingsTypes.ts": "a4c022ddf1af886f6501616e8428eeb8f6f038099b7a149aff9284b4cae4d288",
     "packages/atlas-shared/src/app/types/creatureFilterTypes.ts": "839a3b59efc9027e5d6e8e54edd020727c3f40445ce266ba2224e0541d0d5339",
-    "packages/atlas-shared/src/app/types/diceRulesTypes.ts": "49c908a6f3fa82328add0c29ea9e2102d42b20d9aff776a866c1b699f62f3d2d",
+    "packages/atlas-shared/src/app/types/diceRulesTypes.ts": "7875c52a27528b5acd8959c7fd9b5733a8a9c818993391f5893c8bf75af4e49f",
+    "packages/atlas-shared/src/app/types/diceSetTypes.ts": "eee6955690031127b04bd06ef90d711d4288d68e79c765e5de1074251d84e09d",
     "packages/atlas-shared/src/app/types/gridTypes.ts": "02a511275e32be6f21b82afd15029216dd9941e38b47a30edd925094f4c415c1",
     "packages/atlas-shared/src/app/types/initiativeRulesTypes.ts": "275ed9af0124949e203ea7961cafeb00fe7967ab66c66d15bdd4cda215e00455",
     "packages/atlas-shared/src/app/types/initiativeTypes.ts": "6406ac9939375b6f381ed6bf53fb102df32a7ed0dd67083bac09f6c205e3709b",
@@ -66,13 +71,13 @@
     "packages/atlas-shared/src/app/types.ts": "03ae07d8c74aa215c5cfbe526e9910bb333cbe787bd66d9ae0cebbd9a9a17f8b",
     "packages/atlas-shared/src/app/utils/hexColor.ts": "dba01c8dbf894a30193ec6e34908dfca2909e64189264e5dc40d97fdf52d5b4f",
     "packages/atlas-shared/src/app/vision/visibility.ts": "39641f0ed0b48a285514552ac66c2d90d7513ae2cb305da29dd1ef50c5d11ca2",
-    "packages/atlas-shared/src/index.ts": "b718bc8eff246889dacbed9aebfef04581b4c155c4d1a540efe5ec692cc882b3",
+    "packages/atlas-shared/src/index.ts": "46ed2578319073bd2a4f32beeacbef222feeae4421885b0e30d042e320b1daee",
     "packages/atlas-host/src/atlasFloor.ts": "405449d94ce817cec153c2e3b33e9d242bd096b518bfbf2940b2be5224aa911b",
     "packages/atlas-host/src/atlasHost.ts": "ea9e9e57b63f76411c7ff52297674a13115669c41ab05a96ec0a759a7f855488",
     "packages/atlas-host/src/hostLeaf.ts": "2aee06b918ec52d289f257b5d96f7df344c1f3d45b448dbd3350de447f19de8d",
     "packages/atlas-host/src/index.ts": "67f00d6bfd360f4391b93cdc776c2efe46ce7b784168c6d4da2d835d366fa300",
     "packages/atlas-host/src/pairing.ts": "fd2ea7bd297a48cf90b8b96926944ae33f6a766f7d80112ecd5c5cf201b04876",
     "packages/atlas-host/src/wake.ts": "28986ec0911ac5e18b9cab496d71f8ad56f2f22c2a05edc2e4b70b8c77798cb2",
-    "src/connectWire.ts": "791b88645980e95b62185823efc24ab00d09c2eae99bee71b06c45607398ec09"
+    "src/connectWire.ts": "829f56bbab6b6ebf744a8faff8660a0eaad12ed0669b165f4412612784e97aef"
   }
 }

@@ -2,6 +2,7 @@
  * How a collection rolls dice, as Atlas describes it in its API (`DiceRules`, `CritRule`, `ExplodeRule`): the roll a
  * bare bonus is added to, how critical results are recognised and which dice explode. Pure.
  */
+import { explodingFaces, getDiceCrit, MAX_EXPLOSIONS, type RollingDice } from '../../packages/atlas-shared/src/index';
 import { DIE_FACES, DIE_TYPES, type DieType } from './kit/faces';
 
 export interface DiceRules {
@@ -116,6 +117,8 @@ export interface RolledDie {
   colorName?: string;
   /** Not counted: the die advantage or disadvantage set aside. */
   dropped?: true;
+  /** Thrown because of advantage or disadvantage: a die of the dice set's own, added or taken off. */
+  advantage?: true;
   /** Counted for nothing: thrown again under a reroll rule, the die that replaced it follows. */
   rerolled?: true;
   /** A Fate die: thrown as a d6, it reads -1, 0 or +1 (`max` 1). */
@@ -275,40 +278,33 @@ function readFormula(formula: string, rules: DiceRules): RollRequest | { error: 
 }
 
 /**
- * Whether a die showing `value` explodes: one of its `highFaces` highest faces rolls again and adds ('up'), one of
- * its `lowFaces` lowest rolls again and subtracts ('down'). `isDefault`: the die is a default die of the roll, or
- * was thrown for one's explosion; `fromExplosion`: it was thrown for an explosion, so explodes only if the rule repeats.
+ * Whether a die showing `value` explodes, by Atlas's own rules (`tools/diceExplosion.ts`): one of its `highFaces`
+ * highest faces rolls again and adds ('up'), one of its `lowFaces` lowest rolls again and subtracts ('down'), and at
+ * least one face never explodes. `isDefault`: the die is a default die of the roll, or was thrown for one's explosion.
+ * `chain`: how many dice its chain has added so far (0 for a die of the request). A die thrown for a chain goes on
+ * with a high face only, and only where the rule repeats, until the chain has added `MAX_EXPLOSIONS`.
  */
-export function explosion(rules: DiceRules, die: DieType, value: number, isDefault: boolean, fromExplosion: boolean): 'up' | 'down' | null {
+export function explosion(rules: DiceRules, die: DieType, value: number, isDefault: boolean, chain: number): 'up' | 'down' | null {
   const rule = rules.explode;
-  if (!rule || (rule.dice === 'default' && !isDefault) || (fromExplosion && !rule.repeats)) return null;
-  if (rule.highFaces > 0 && value > DIE_FACES[die] - rule.highFaces) return 'up';
-  if (rule.lowFaces > 0 && value <= rule.lowFaces) return 'down';
-  return null;
+  if (!rule || (rule.dice === 'default' && !isDefault)) return null;
+  if (chain >= (rule.repeats ? MAX_EXPLOSIONS : 1)) return null;
+  const { high, low } = explodingFaces(DIE_FACES[die], rule.highFaces, rule.lowFaces);
+  if (value > DIE_FACES[die] - high) return 'up';
+  return chain === 0 && value <= low ? 'down' : null;
 }
 
-/** The roll's critical result, from its default dice that count: not set aside, not thrown for an explosion. */
+/**
+ * The roll's critical result, by Atlas's own rule (`tools/diceCrit.ts`): from its default dice, the first of each group
+ * the rules roll that count (not set aside, not thrown again or for an explosion, not advantage's own). Fate dice and
+ * dice that subtract are none of them.
+ */
 export function critOf(rules: DiceRules, rolls: readonly RolledDie[]): 'success' | 'failure' | undefined {
-  const kinds = defaultDice(rules);
-  const dice = rolls.filter((roll) => kinds.includes(roll.die) && !roll.fate && !roll.dropped && !roll.rerolled && !roll.exploded && !roll.negative);
-  if (dice.length === 0) return undefined;
-  switch (rules.crit) {
-    case 'natural':
-      if (dice.some((roll) => roll.value === roll.max)) return 'success';
-      return dice.some((roll) => roll.value === 1) ? 'failure' : undefined;
-    case 'roll-under':
-      if (dice.some((roll) => roll.value === 1)) return 'success';
-      return dice.some((roll) => roll.value === roll.max) ? 'failure' : undefined;
-    case 'doubles':
-      return dice.length > 1 && dice.every((roll) => roll.value === dice[0].value) ? 'success' : undefined;
-    case 'high-total': {
-      const sum = dice.reduce((acc, roll) => acc + roll.value, 0);
-      const highest = dice.reduce((acc, roll) => acc + roll.max, 0);
-      return sum >= highest - 1 ? 'success' : undefined;
-    }
-    default:
-      return undefined;
-  }
+  const rolling: RollingDice | null = rules.groups
+    ? { dice: rules.groups.map((group) => ({ count: group.count, sides: DIE_FACES[group.die] })), crit: rules.crit }
+    : null;
+  const counted = rolls.filter((roll) => !roll.fate);
+  const crit = getDiceCrit(counted, rolling ?? { defaultRoll: rules.defaultRoll, crit: rules.crit });
+  return crit === 'high' ? 'success' : crit === 'low' ? 'failure' : undefined;
 }
 
 /** Whether a die showing `value` is a success of the rule. */

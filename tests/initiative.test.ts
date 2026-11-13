@@ -134,6 +134,13 @@ test('a token fights on the side given it, else the players\' when it sees', () 
   assert.equal(sideOf(undefined), 'opponents');
 });
 
+test("Atlas's rule: a side the fight does not have reads as none, so the token stays listed", () => {
+  // A named side removed from the rules: the token falls back to the players' or the opponents', as Atlas lists it.
+  assert.equal(sideOf({ side: 'dragons', sees: false }), 'opponents');
+  assert.equal(sideOf({ side: 'dragons', sees: true }), 'players');
+  assert.equal(sideOf({ side: 'dragons', sees: false }, ['players', 'dragons', 'opponents']), 'dragons');
+});
+
 test('Atlas 0.9: turns pass defeated and delayed combatants by; a new round clears and keeps sitting out', () => {
   // A start clears delays (as Atlas's does): the first combatant that acts, past the defeated, takes the turn.
   const started = applyInitiative(fight({ entries: [entry('a', 0), entry('b', 1, { delayed: true }), entry('c', 2), entry('d', 3)] }), { type: 'start', rules: DEFAULT, defeated: ['a'] });

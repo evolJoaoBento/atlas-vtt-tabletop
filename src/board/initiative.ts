@@ -10,6 +10,7 @@
  * starts a fight; its fight state is kept as written, the fields a change makes stale are cleared, and a fight only
  * Atlas can run is refused in the file (`fileCannotRun`).
  */
+import { listedBySides as atlasListedBySides, sideOf as atlasSideOf } from '../../packages/atlas-shared/src/index';
 import { t } from '../i18n';
 
 export type InitiativeSide = 'players' | 'opponents';
@@ -184,15 +185,18 @@ export function sidesInOrder(first: InitiativeSide): [InitiativeSide, Initiative
   return [first, otherSide(first)];
 }
 
-/** Whether the list groups the combatants by side: a running fight keeps its mode, else the rules decide. */
+/** Whether the list groups the combatants by side: a running fight keeps its mode, else the rules decide (Atlas's own rule). */
 export function listedBySides(initiative: Pick<InitiativeState, 'isActive' | 'sides'>, rules: InitiativeRules): boolean {
-  return initiative.isActive ? initiative.sides !== undefined : rules.mode === 'sides';
+  return atlasListedBySides(initiative as never, rules as never);
 }
 
-/** A token's side: the one the GM gave it (a named one in Atlas 0.9), else the players' for a token that sees, else the opponents'. */
-export function sideOf(token: { side: SideId | null; sees: boolean } | undefined): SideId {
-  if (token?.side) return token.side;
-  return token?.sees ? 'players' : 'opponents';
+/**
+ * A token's side, by Atlas's own rule (`initiative/sides.ts`): the one the GM gave it where `known` has it (the fight's
+ * sides; the two built-in ones by default), else the players' for a token that sees, else the opponents'.
+ */
+export function sideOf(token: { side: SideId | null; sees: boolean } | undefined, known?: readonly SideId[]): SideId {
+  if (!token) return 'opponents';
+  return atlasSideOf({ side: token.side ?? undefined, vision: { enabled: token.sees } } as never, known as never) as SideId;
 }
 
 // ── Modifiers and the edit popup ────────────────────────────────────────────

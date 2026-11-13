@@ -147,7 +147,7 @@ test('explode down subtracts', () => {
   assert.equal(result.crit, 'failure', 'the first die decides the critical, not its explosion');
 });
 
-test('explosions stop at 20 dice', () => {
+test("a die's explosions stop at Atlas's ten, and a roll at 20 dice", () => {
   const rules: DiceRules = { defaultRoll: '1d20', crit: 'none', explode: { dice: 'all', repeats: true, highFaces: 6, lowFaces: 0 } };
   const session = new RollSession({ dice: { d6: 1 }, modifier: 0 }, rules);
   for (let i = 0; i < 30 && session.result() === null; i++) {
@@ -155,7 +155,14 @@ test('explosions stop at 20 dice', () => {
     assert.ok(next);
     session.settle(next.id, face(3));
   }
-  assert.equal(session.result()?.rolls.length, 20);
+  assert.equal(session.result()?.rolls.length, 11, 'the die and the ten it may add');
+  const many = new RollSession({ dice: { d6: 3 }, modifier: 0 }, rules);
+  for (let i = 0; i < 40 && many.result() === null; i++) {
+    const next = many.dice.find((die) => die.status !== 'settled');
+    assert.ok(next);
+    many.settle(next.id, face(3));
+  }
+  assert.equal(many.result()?.rolls.length, 20);
 });
 
 test('advantage drops the lower d20', () => {
@@ -405,7 +412,7 @@ test("a set's advantage and disadvantage that add a number or a die of their own
   settleAll(down, [4, 5, 3]);
   const result = down.result()!;
   assert.equal(result.total, 6, 'the extra die is taken off');
-  assert.deepEqual(result.rolls.at(-1), { die: 'd6', value: 3, max: 6, negative: true, color: '#ff0000' });
+  assert.deepEqual(result.rolls.at(-1), { die: 'd6', value: 3, max: 6, negative: true, color: '#ff0000', advantage: true }, 'logged as Atlas logs it');
   // A roll with none of the set's dice is not changed.
   const other = new RollSession({ dice: { d6: 1 }, modifier: 0, advantage: 'advantage' }, rules);
   assert.equal(other.dice.length, 1);
