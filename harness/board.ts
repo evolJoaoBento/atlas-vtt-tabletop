@@ -497,6 +497,7 @@ async function main(): Promise<void> {
     tabs: () => [
       { id: 't1', name: 'Tavern', filePath: 'maps/tavern.atlasmap', active: true, presented: false, loaded: true, dirty: false },
       { id: 't2', name: 'Crypt', filePath: 'maps/crypt.atlasmap', active: false, presented: true, loaded: false, dirty: false, layer: '+2' },
+      { id: 't3', name: 'Cellar', filePath: 'maps/cellar.atlasmap', active: false, presented: false, loaded: true, dirty: true },
     ],
     switchTab: (id) => { record.sceneTabs.push(['switch', id]); },
     presentTab: (id) => { record.sceneTabs.push(['present', id]); },

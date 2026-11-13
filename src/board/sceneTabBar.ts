@@ -36,7 +36,6 @@ export interface SceneTabBarHost {
 const icon = (size: number, body: string): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
 const EYE = icon(12, '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>');
-const LAYERS = icon(12, '<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>');
 const CROSS = icon(12, '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>');
 const PLUS = icon(14, '<path d="M5 12h14"/><path d="M12 5v14"/>');
 
@@ -94,7 +93,7 @@ export class SceneTabBar {
       element.setAttribute('role', 'tab');
       element.setAttribute('aria-selected', String(tab.active));
       element.tabIndex = 0;
-      element.className = `atlas-scene-tab ${tab.active ? 'atlas-scene-tab--active' : tab.loaded ? 'atlas-scene-tab--loaded' : 'atlas-scene-tab--sleeping'}`;
+      element.className = `atlas-scene-tab ${tab.active ? 'atlas-scene-tab--active' : tab.loaded ? 'atlas-scene-tab--loaded' : 'atlas-scene-tab--sleeping'}${tab.presented ? ' atlas-scene-tab--presented' : ''}`;
       element.addEventListener('click', () => this.host.switchTab(tab.id));
       element.addEventListener('contextmenu', (event) => {
         if (!this.host.layerMenu) return;
@@ -106,28 +105,31 @@ export class SceneTabBar {
         event.preventDefault();
         this.host.switchTab(tab.id);
       });
-      // Show and close sit at opposite ends, so one is never clicked for the other.
-      element.appendChild(this.action(EYE, tab.presented ? `${tab.name} is shown to players` : `Show ${tab.name} to players`, tab.presented, () => this.host.presentTab(tab.id)));
+      // Atlas 0.15's tab: show at the start, the label (name, then what is said of the scene), close at the end, so one
+      // button is never clicked for the other. The layers have no button of their own: right-click opens their menu.
+      element.appendChild(this.action(EYE, 'start', tab.presented ? `${tab.name} is shown to players` : `Show ${tab.name} to players`, tab.presented, () => this.host.presentTab(tab.id)));
+      const label = doc.win.createSpan();
+      label.className = 'atlas-scene-tab__label';
       const name = doc.win.createSpan();
       name.className = 'atlas-scene-tab__name';
       name.textContent = tab.name;
-      name.title = tab.filePath;
-      element.appendChild(name);
+      name.title = this.host.layerMenu ? `${tab.filePath}\nRight-click for its layers` : tab.filePath;
+      label.appendChild(name);
+      if (tab.layer) {
+        const layer = doc.win.createSpan();
+        layer.className = 'atlas-tabletop-scene-tab__layer';
+        layer.textContent = tab.layer;
+        layer.title = `${tab.name}: layer ${tab.layer}`;
+        label.appendChild(layer);
+      }
       if (tab.dirty) {
         const dirty = doc.win.createSpan();
         dirty.className = 'atlas-scene-tab__dirty';
-        element.appendChild(dirty);
+        label.appendChild(dirty);
       }
-      if (this.host.layerMenu) {
-        const layers = this.action(LAYERS, tab.layer ? `${tab.name}: layer ${tab.layer}` : `Layers of ${tab.name}`, tab.layer !== undefined, () => {
-          const box = layers.getBoundingClientRect();
-          this.host.layerMenu?.(tab.id, { x: box.left, y: box.bottom });
-        });
-        if (tab.layer) layers.classList.add('atlas-tabletop-scene-tab__layer');
-        element.appendChild(layers);
-      }
+      element.appendChild(label);
       if (this.host.closeTab) {
-        element.appendChild(this.action(CROSS, `Close ${tab.name}`, undefined, () => this.host.closeTab?.(tab.id)));
+        element.appendChild(this.action(CROSS, 'end', `Close ${tab.name}`, undefined, () => this.host.closeTab?.(tab.id)));
         element.addEventListener('mousedown', (event) => {
           if (event.button !== 1) return;
           event.preventDefault();
@@ -144,10 +146,10 @@ export class SceneTabBar {
   }
 
   /** An icon button inside a tab, which keeps its events from switching to the tab. */
-  private action(svg: string, label: string, active: boolean | undefined, run: () => void): HTMLButtonElement {
+  private action(svg: string, end: 'start' | 'end', label: string, active: boolean | undefined, run: () => void): HTMLButtonElement {
     const button = this.strip.ownerDocument.win.createEl('button');
     button.type = 'button';
-    button.className = `atlas-scene-tab__action${active ? ' atlas-scene-tab__action--active' : ''}`;
+    button.className = `atlas-scene-tab__action atlas-scene-tab__action--${end}${active ? ' atlas-scene-tab__action--active' : ''}`;
     button.setAttribute('aria-label', label);
     button.title = label;
     if (active !== undefined) button.setAttribute('aria-pressed', String(active));
@@ -157,6 +159,7 @@ export class SceneTabBar {
       run();
     });
     button.addEventListener('mousedown', (event) => event.stopPropagation());
+    button.addEventListener('pointerdown', (event) => event.stopPropagation());
     button.addEventListener('keydown', (event) => event.stopPropagation());
     return button;
   }

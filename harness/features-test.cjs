@@ -1406,6 +1406,46 @@ feature('daylight tint', async ({ page, shot }) => {
   check('tint: Reset takes it off, and the daylight is as it was', after.sky === before.sky && after.sun === before.sun && String(after.backdrop) === String(before.backdrop) && after.fog === before.fog && after.tints.at(-1) === null && await reset.isDisabled(), after);
 });
 
+feature('scene tabs 0.15', async ({ page, shot }) => {
+  // Atlas 0.15's scene tab: [show][label: name, layer, unsaved dot][close], the two buttons at opposite ends.
+  const read = () => page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-scene-tabs .atlas-scene-tab[role="tab"]')].map((tab) => {
+    const label = tab.querySelector(':scope > .atlas-scene-tab__label');
+    return {
+      name: tab.querySelector('.atlas-scene-tab__name')?.textContent ?? null,
+      order: [...tab.children].map((child) => child.className.split(' ').filter((name) => /__(label|action--start|action--end)$/.test(name)).join()),
+      starts: tab.querySelectorAll(':scope > .atlas-scene-tab__action--start').length,
+      ends: tab.querySelectorAll(':scope > .atlas-scene-tab__action--end').length,
+      nameInLabel: !!label?.querySelector(':scope > .atlas-scene-tab__name'),
+      dirtyInLabel: !!label?.querySelector(':scope > .atlas-scene-tab__dirty'),
+      layer: label?.querySelector(':scope > .atlas-tabletop-scene-tab__layer')?.textContent ?? null,
+      presented: tab.classList.contains('atlas-scene-tab--presented'),
+      pressed: tab.querySelector('.atlas-scene-tab__action--start')?.getAttribute('aria-pressed'),
+    };
+  }));
+  const tabs = await read();
+  check('scene tabs 0.15: three tabs, each [show][label][close] with one button at each end', tabs.length === 3 && tabs.every((tab) => tab.starts === 1 && tab.ends === 1 && tab.order.join('|') === 'atlas-scene-tab__action--start|atlas-scene-tab__label|atlas-scene-tab__action--end'), JSON.stringify(tabs));
+  check('scene tabs 0.15: the name sits inside the label', tabs.every((tab) => tab.nameInLabel), JSON.stringify(tabs));
+  const [tavern, crypt, cellar] = tabs;
+  check('scene tabs 0.15: the presented tab is marked, and only it', crypt.presented && crypt.pressed === 'true' && !tavern.presented && !cellar.presented, JSON.stringify(tabs));
+  check('scene tabs 0.15: the layer is a badge in the label, the unsaved dot too', crypt.layer === '+2' && tavern.layer === null && cellar.dirtyInLabel && !tavern.dirtyInLabel, JSON.stringify(tabs));
+  const tab = page.locator('.atlas-tabletop-scene-tabs .atlas-scene-tab[role="tab"]').nth(2);
+  await tab.hover();
+  await wait(300);
+  const edges = await tab.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const start = el.querySelector('.atlas-scene-tab__action--start').getBoundingClientRect();
+    const end = el.querySelector('.atlas-scene-tab__action--end').getBoundingClientRect();
+    return { left: start.left - box.left, right: box.right - end.right, apart: end.left - start.right };
+  });
+  check('scene tabs 0.15: on hover the buttons sit at the two ends of the tab', edges.left >= 0 && edges.left <= 8 && edges.right >= 0 && edges.right <= 8 && edges.apart > 10, JSON.stringify(edges));
+  await shot('scene-tabs-015');
+  const before = await page.evaluate(() => window.boardTest.record.sceneTabs.length);
+  await tab.click({ button: 'right' });
+  await tab.locator('.atlas-scene-tab__action--end').click();
+  const events = await page.evaluate((from) => window.boardTest.record.sceneTabs.slice(from), before);
+  check('scene tabs 0.15: right-click opens the layers menu; close closes, and neither switches', JSON.stringify(events) === JSON.stringify([['layers', 't3'], ['close', 't3']]), JSON.stringify(events));
+});
+
 feature('layer placement', async ({ page, shot }) => {
   await page.evaluate(() => {
     const { board, map } = window.boardTest;
