@@ -37,6 +37,12 @@ const MEMBERS = [
   ['updateCollectionSettings', 'atlasBridge.ts (asset service)'],
   ['setCommandPaletteOpen', 'BoardView.ts (Atlas palette page hand-off)'],
   ['atlas-vtt:generate-dungeon', 'shims/handOffs.tsx (command)'],
+  // The one Atlas host the boards edit through (packages/atlas-host).
+  ['tabMetaStore', 'atlas-host (the scene tabs of the Atlas view)'],
+  ['switchToTab', 'atlas-host (bring up a scene tab)'],
+  ['onLoadFile', 'atlas-host (open a map as a scene tab of the one view)'],
+  ['loadIfDeferred', 'atlas-host (wake a deferred Atlas tab)'],
+  ['setSceneLighting', 'tokenWriter.ts (the light level and its colour)'],
 ];
 // Members Tabletop reads defensively and that a given Atlas may not have; reported, not failed.
 const OPTIONAL = new Set(['atlas-vtt:send-map-to-player-view', 'this.deps.service']);

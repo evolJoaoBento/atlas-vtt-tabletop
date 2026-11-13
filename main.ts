@@ -18,9 +18,10 @@ import { setLanguage } from './src/i18n';
 import { BOARD_PROTOCOL_ACTION, boardLink, DEFAULT_SNAPSHOT_FOLDER, latestSnapshot, parseBoardBlock, readBoardLink, snapshotPath } from './src/boardLinks';
 import { renderBoardCard } from './src/boardCard';
 import { resolveLaser, type LaserSettings } from './src/board/laser';
-import { TokenWriter } from './src/board/tokenWriter';
+import { NotHeldError, TokenWriter } from './src/board/tokenWriter';
+import type { AtlasSceneState } from './src/atlas';
 import { UndoHistory } from './src/board/undoHistory';
-import { recordAtlasWrites, recordedProcess, recordTabletopData } from './src/board/undoRecorders';
+import { recordAtlasWrites, recordTabletopData } from './src/board/undoRecorders';
 import { GALLERY_VIEW_TYPE, GalleryView, importWithNotice, pickFiles } from './src/gallery';
 import { DEFAULT_MINIS_FOLDER, DEFAULT_PROPS_FOLDER, MiniLibrary, PROPS } from './src/library';
 import { DEFAULT_MATERIALS_FOLDER, MaterialLibrary } from './src/materials';
@@ -31,7 +32,7 @@ import { LayerIndex, layersFor } from './src/boardLayers';
 import { playerBoardFactory, type PlayerBoardFactory } from './src/playerBoard';
 import { documentHasWebgl } from './src/webgl';
 import { FUSION_PROTOCOL, type BoardLook, type BoardSession, type BoardSurvey, type CutsceneSource, type GmCameraSource } from './src/connectContract';
-import { atlasFloor, pairingNotice, watchAtlasFloor, type AtlasFloor } from './packages/atlas-host/src/index';
+import { AtlasHost, atlasFloor, pairingNotice, watchAtlasFloor, type AtlasFloor } from './packages/atlas-host/src/index';
 import { floorState, sessionPairs } from './src/atlasFloorGate';
 import { CutsceneChannel } from './src/cutscene/cutsceneRun';
 import { DEFAULT_PACK, defaultPackFiles, releaseDefaultPackSheets } from './src/dice/defaultPack';
@@ -177,6 +178,8 @@ export default class TabletopPlugin extends Plugin {
   props!: MiniLibrary;
   materials!: MaterialLibrary;
   api: TabletopApi | null = null;
+  /** The one Atlas view the boards edit through; null before load and after unload. */
+  private host: AtlasHost | null = null;
   /** The API as built at load: published while Atlas is 0.15 or later (or absent), withdrawn while it is older. */
   private builtApi: TabletopApi | null = null;
   /** The Atlas versions below the floor already told of, and the Connect versions that did not pair: one notice each. */
@@ -225,7 +228,20 @@ export default class TabletopPlugin extends Plugin {
     this.materials = new MaterialLibrary(this.app, () => this.settings.materialsFolder);
     this.register(() => { this.library.dispose(); this.props.dispose(); this.materials.dispose(); });
     this.register(this.materials.onChange(() => { for (const view of this.boards()) view.refreshMaterials(); }));
-    const writer = new TokenWriter({ views: () => mapViews(this.app), process: recordedProcess(this.history, (path, edit) => this.processFile(path, edit)) });
+    // The one Atlas view every edit of Atlas's records goes through (Atlas keeps one map loaded at a time).
+    const host = new AtlasHost(this.app, { pluginId: this.manifest.id });
+    this.host = host;
+    this.register(() => { host.dispose(); this.host = null; });
+    const writer = new TokenWriter({
+      views: () => mapViews(this.app),
+      // No map file is ever written: an edit of a map Atlas does not hold is refused, and the board's bar says why.
+      process: async () => { throw new NotHeldError(); },
+      held: (path) => host.whenHeld(path).then((store) => (store ? store.getState() as unknown as AtlasSceneState : null)),
+      follow: async (path) => {
+        const front = this.app.workspace.getMostRecentLeaf();
+        return front !== null && (await host.follow(path, front)) === 'held';
+      },
+    });
     recordAtlasWrites(this.history, writer);
 
     this.registerView(GALLERY_VIEW_TYPE, (leaf) => new GalleryView(leaf, this.library, this.props, this.materials, (glb, look) => this.placeProp(glb, look), (material) => this.paintWith(material), {
@@ -303,6 +319,7 @@ export default class TabletopPlugin extends Plugin {
       dicePack: () => (this.dicePack ??= vendoredPack()),
       levelShown: (mapPath) => this.levelShown(mapPath),
       floor: () => atlasFloor(this.app),
+      host,
       boardReady: (view) => {
         for (const player of this.playerViews()) if (player.mapPath === view.mapPath) view.showPlayer(player);
         this.refreshPlayerButtons();
@@ -917,11 +934,6 @@ export default class TabletopPlugin extends Plugin {
     new Notice(`Tabletop: click walls or doors to paint them with ${material.split('/').pop()}. Shift-click paints the whole wall. Esc stops.`, 6000);
   }
 
-  private async processFile(path: string, edit: (text: string) => string): Promise<void> {
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof TFile)) throw new Error(`the map ${path} is missing`);
-    await this.app.vault.process(file, edit);
-  }
 }
 
 /** The map a board or player tab shows, from its saved state: a tab Obsidian restored but has not shown holds no view to ask. */

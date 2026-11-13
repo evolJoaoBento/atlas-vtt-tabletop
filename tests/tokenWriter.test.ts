@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type { AtlasSceneState, AtlasView } from '../src/atlas';
 import { HP_RESOURCE, STRESS_RESOURCE } from '../src/board/resources';
-import { TokenWriter, addTokenInText, readTokenInText, copyTokenInText, deleteTokenInText, initiativeActionInText, initiativeInText, lockDoorInText, toggleDoorInText, killTokenInText, moveTokenInText, moveTokensInText, setResourceInText } from '../src/board/tokenWriter';
+import { NotHeldError, TokenWriter, addTokenInText, readTokenInText, copyTokenInText, deleteTokenInText, initiativeActionInText, initiativeInText, lockDoorInText, toggleDoorInText, killTokenInText, moveTokenInText, moveTokensInText, setResourceInText } from '../src/board/tokenWriter';
 import { conditionChange, resetChange } from '../src/board/tokenEdits';
 
 const text = readFileSync('tests/fixtures/dungeon.atlasmap', 'utf8');
@@ -366,6 +366,101 @@ test('taking a token to a scene Atlas holds goes through that store, and a failu
   await assert.rejects(failing.transfer('from.atlasmap', BUGBEAR, 'to.atlasmap', 'tok_x', { x: 1, y: 1 }), /offers no way to add a token/);
   // Only the read of the token happened: nothing was removed.
   assert.deepEqual(edits.filter((entry) => entry.startsWith('failing:')), ['failing:from.atlasmap']);
+});
+
+// ── With a host: Atlas's one store, or nothing ─────────────────────────────
+
+/** A store whose state the test changes, as Atlas's does when it loads a map. */
+function liveView(initial: Partial<AtlasSceneState>, calls: unknown[]): { view: AtlasView; set(next: Partial<AtlasSceneState>): void } {
+  let state: AtlasSceneState = {
+    mapPath: null, mapLoaded: false, isMapLoading: true, objects: { tokens: { t: { id: 't', x: 0, y: 0 } } },
+    updateToken: (id, updates) => { calls.push(['update', id, updates]); },
+    addToken: (data) => { calls.push(['add', state.mapPath, data.id]); return String(data.id); },
+    deleteTokens: (ids) => { calls.push(['delete', state.mapPath, ids]); },
+    ...initial,
+  };
+  return { view: { viewId: 'v', atlasStore: { getState: () => state, subscribe: () => () => {} } }, set: (next) => { state = { ...state, ...next }; } };
+}
+const refused = async (): Promise<never> => { throw new NotHeldError(); };
+
+test('a move waits for the host and goes to its store', async () => {
+  const calls: unknown[] = [];
+  const live = liveView({}, calls);
+  let release: (state: AtlasSceneState | null) => void = () => {};
+  let processed = 0;
+  const writer = new TokenWriter({
+    views: () => [live.view], process: async () => { processed++; },
+    held: () => new Promise((resolve) => { release = resolve; }),
+  });
+  const moving = writer.move('m.atlasmap', 't', 3, 4);
+  await Promise.resolve();
+  assert.deepEqual(calls, []);
+  live.set({ mapPath: 'm.atlasmap', mapLoaded: true, isMapLoading: false });
+  release(live.view.atlasStore.getState());
+  assert.equal(await moving, 'atlas');
+  assert.deepEqual(calls, [['update', 't', { x: 3, y: 4 }]]);
+  assert.equal(processed, 0);
+});
+
+test('queued moves keep their order', async () => {
+  const calls: unknown[] = [];
+  const live = liveView({}, calls);
+  const waiting: Array<(state: AtlasSceneState | null) => void> = [];
+  const writer = new TokenWriter({ views: () => [live.view], process: refused, held: () => new Promise((resolve) => { waiting.push(resolve); }) });
+  const moves = [writer.move('m.atlasmap', 't', 1, 1), writer.move('m.atlasmap', 't', 2, 2), writer.move('m.atlasmap', 't', 3, 3)];
+  await Promise.resolve();
+  live.set({ mapPath: 'm.atlasmap', mapLoaded: true, isMapLoading: false });
+  // The host answers its waiters in call order.
+  for (const resolve of waiting) resolve(live.view.atlasStore.getState());
+  assert.deepEqual(await Promise.all(moves), ['atlas', 'atlas', 'atlas']);
+  assert.deepEqual(calls.map((call) => (call as [string, string, { x: number }])[2].x), [1, 2, 3]);
+});
+
+test('a queued move is refused when the host moves on', async () => {
+  const calls: unknown[] = [];
+  const live = liveView({}, calls);
+  let processed = 0;
+  const writer = new TokenWriter({
+    views: () => [live.view],
+    process: async () => { processed++; throw new NotHeldError(); },
+    held: async () => { live.set({ mapPath: 'other.atlasmap', mapLoaded: true, isMapLoading: false }); return null; },
+  });
+  await assert.rejects(writer.move('m.atlasmap', 't', 3, 4), (error: unknown) => error instanceof NotHeldError && error.message === 'Atlas holds another map: click Edit here first.');
+  // Never applied to the store that now holds another map.
+  assert.deepEqual(calls, []);
+  assert.equal(processed, 1);
+  await assert.rejects(writer.toggleDoor('m.atlasmap', 'door'), NotHeldError);
+  await assert.rejects(writer.initiativeAction('m.atlasmap', { kind: 'next' }), NotHeldError);
+  await assert.rejects(writer.remove('m.atlasmap', 't'), NotHeldError);
+  assert.deepEqual(calls, []);
+});
+
+test('with a host, a token goes to another scene in two held steps, and stops before the delete when a map is not held', async () => {
+  const calls: unknown[] = [];
+  const live = liveView({ mapPath: 'from.atlasmap', mapLoaded: true, isMapLoading: false }, calls);
+  const reach = new Set(['from.atlasmap', 'to.atlasmap']);
+  const follow = async (path: string): Promise<boolean> => {
+    if (!reach.has(path)) return false;
+    live.set({ mapPath: path, objects: { tokens: path === 'from.atlasmap' ? { t: { id: 't', x: 0, y: 0 } } : {} } });
+    return true;
+  };
+  const writer = new TokenWriter({ views: () => [live.view], process: refused, held: async () => null, follow });
+  await writer.transfer('from.atlasmap', 't', 'to.atlasmap', 'n', { x: 5, y: 6 });
+  assert.deepEqual(calls, [['add', 'to.atlasmap', 'n'], ['delete', 'from.atlasmap', ['t']]]);
+
+  // The target does not come to be held: nothing is added, nothing deleted.
+  calls.length = 0;
+  reach.delete('to.atlasmap');
+  await follow('from.atlasmap');
+  await assert.rejects(writer.transfer('from.atlasmap', 't', 'to.atlasmap', 'n', { x: 5, y: 6 }), NotHeldError);
+  assert.deepEqual(calls, []);
+
+  // The way back fails: the token was added there, and is not deleted here.
+  reach.add('to.atlasmap');
+  let trips = 0;
+  const oneWay = new TokenWriter({ views: () => [live.view], process: refused, held: async () => null, follow: async (path) => (trips++ === 0 ? follow(path) : false) });
+  await assert.rejects(oneWay.transfer('from.atlasmap', 't', 'to.atlasmap', 'n', { x: 5, y: 6 }), NotHeldError);
+  assert.deepEqual(calls, [['add', 'to.atlasmap', 'n']]);
 });
 
 test("whenHeld waits for Atlas to finish reading the map, or switch its tab to it; loading says it is on its way", () => {

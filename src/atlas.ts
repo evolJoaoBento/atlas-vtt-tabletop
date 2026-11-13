@@ -27,6 +27,9 @@ export interface AtlasSceneState {
   levels?: ReadonlyArray<{ id: string }>;
   viewedLevel?: string | null;
   remoteView?: unknown;
+  /** Atlas 0.14's scene lighting: whether it is on, the light level and its colour, set as Atlas's lighting page sets them. */
+  lighting?: { enabled?: boolean; ambient?: number; ambientColor?: string };
+  setSceneLighting?: (changes: { enabled?: boolean; ambient?: number; ambientColor?: string | undefined }) => void;
   /** Atlas's own actions: change a token, add one (Atlas numbers it), delete some; Atlas saves the map. */
   updateToken?: (id: string, updates: Record<string, unknown>) => void;
   /** Several tokens in one step (one undo): `[{ id, changes }]`. */

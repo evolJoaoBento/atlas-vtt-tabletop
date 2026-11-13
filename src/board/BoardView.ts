@@ -48,7 +48,8 @@ import { addToInitiative, conditionChange, conditionStep, initiativeEntryFor, in
 import { applyInitiative, currentEntries, delayedTokens, emptyInitiative, fileCannotRun, ownModifier, readInitiative, statblockModifier, turnAnnouncement, type InitiativeAction, type InitiativeState } from './initiative';
 import { InitiativePanel, type InitiativePanelHost } from './initiativePanel';
 import { wholeWall, isWindow, windowSpan, WINDOW_STEP } from './walls';
-import type { TokenChange } from './tokenWriter';
+import { NotHeldError, type TokenChange } from './tokenWriter';
+import { HOST_BAR_LABELS, hostBar, mapName } from './hostBar';
 import type { LaserSettings } from './laser';
 import type { PlayerView } from './PlayerWindow';
 import { DEFAULT_EDGES, DEFAULT_SEE_THROUGH_SIZE, QUALITY, withLooks, type LayerLook, type Quality, type QualityPreset, type WallEdges } from './quality';
@@ -73,7 +74,7 @@ import { SoundEngine } from '../sound/soundEngine';
 import type { SoundSettings } from '../sound/soundSettings';
 import type { SoundLoader } from '../sound/customSounds';
 import { documentHasWebgl, NO_WEBGL_HELP, NO_WEBGL_TITLE } from '../webgl';
-import type { AtlasFloor } from '../../packages/atlas-host/src/index';
+import type { AtlasFloor, AtlasHost } from '../../packages/atlas-host/src/index';
 import { floorState } from '../atlasFloorGate';
 import { TABLETOP_ICON } from '../tabletopIcon';
 
@@ -94,6 +95,11 @@ const HEIGHT_STEP = 0.25;
 
 /** What the board's tab uses of the plugin. */
 export interface BoardServices {
+  /**
+   * The one Atlas view every edit of Atlas's records goes through. The board makes it hold its map when the board is
+   * worked on, and says so when it holds another. Without it (the test harness) the board takes Atlas's views as they are.
+   */
+  host?: AtlasHost;
   /** The Atlas that is there, against the version Tabletop needs; without it the board takes Atlas as it finds it. */
   floor?(): AtlasFloor;
   /** Keeps a prop as a variant in the gallery. */
@@ -282,7 +288,15 @@ export class BoardView extends ItemView {
       this.reload();
     }));
     this.registerEvent(this.app.vault.on('delete', (file) => { if (file.path === this.path) this.leaf.detach(); }));
-    this.registerDomEvent(this.contentEl, 'pointerdown', () => this.services.focused(this), true);
+    this.registerDomEvent(this.contentEl, 'pointerdown', () => { this.services.focused(this); this.followHost(); }, true);
+    const host = this.services.host;
+    if (host) {
+      // This board needs Atlas's tab while it is open; working on the board (its tab made active, a press on it) brings
+      // Atlas to its map.
+      this.releaseHost = host.claim();
+      this.register(host.onChange(() => { this.watchAtlas(); this.sessionChanged(); }));
+      this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => { if (leaf === this.leaf) this.followHost(); }));
+    }
     this.initiative = new InitiativePanel(this.contentEl, this.initiativeHost());
     this.studio = new CutsceneStudio(this.contentEl, this.studioHost());
     // Atlas's scene tabs over the board: switch scenes here, and present one with its eye, as in Atlas.
@@ -371,6 +385,8 @@ export class BoardView extends ItemView {
     this.watched = null;
     this.stopWaiting?.();
     this.stopWaiting = null;
+    this.releaseHost?.();
+    this.releaseHost = null;
     this.initiative?.dispose();
     this.initiative = null;
     this.reload.cancel();
@@ -967,6 +983,8 @@ export class BoardView extends ItemView {
     await board.load(map, shiftY, carry);
     this.menu?.refresh();
     this.watchAtlas();
+    // The board the GM is on brings Atlas to its map as it opens; one opened behind another tab waits to be worked on.
+    if (fresh && (this.app.workspace as unknown as { activeLeaf?: WorkspaceLeaf | null }).activeLeaf === this.leaf) this.followHost();
     // The tracker shows when the map has combatants; the I key or the board settings show or hide it.
     if (fresh) this.initiative?.setOpen(this.liveInitiative().entries.length > 0);
     this.showInitiative();
@@ -997,7 +1015,7 @@ export class BoardView extends ItemView {
       // Not hosting: the GM's own spells, kept here alone.
       board.receiveSpells(path, this.localSpells.filter((cast) => cast.path === path).map(({ path: _path, ...cast }) => cast));
       board.setHandout(null);
-      board.setBanner(null);
+      board.setBanner(this.hostBanner());
       board.refreshToolbar();
       return;
     }
@@ -1008,13 +1026,52 @@ export class BoardView extends ItemView {
     const handout = overlay.handout;
     const file = handout ? this.app.vault.getAbstractFileByPath(handout.path) : null;
     board.setHandout(handout ? { title: handout.title, url: file instanceof TFile ? this.app.vault.getResourcePath(file) : null } : null);
-    // Atlas still reading the map (a session just started, a tab just switched to) holds it in a moment: no banner.
-    const held = this.services.writer.holder(path) !== null || this.services.writer.loading(path);
-    board.setBanner(held ? null : {
-      text: "Players don't see changes made here: open this map in Atlas.",
-      action: { label: 'Open in Atlas', run: () => { void this.openInAtlas(); } },
-    });
+    board.setBanner(this.hostBanner());
     board.refreshToolbar();
+  }
+
+  private releaseHost: (() => void) | null = null;
+  /** How the last try to bring Atlas to this map ended, when it failed. */
+  private followFailed: 'timeout' | 'no-atlas' | null = null;
+
+  /** Brings Atlas to this board's map (the board staying in front), so what is edited here goes to Atlas's store. */
+  private followHost(): void {
+    const host = this.services.host;
+    const path = this.path;
+    if (!host || !path || this.closed) return;
+    if (host.holds(path)) {
+      if (this.followFailed === null) return;
+      this.followFailed = null;
+      this.sessionChanged();
+      return;
+    }
+    void host.follow(path, this.leaf).then((result) => {
+      if (this.closed || path !== this.path) return;
+      this.followFailed = result === 'timeout' || result === 'no-atlas' ? result : null;
+      this.sessionChanged();
+    });
+  }
+
+  /** The bar over the board while Atlas does not hold its map: why the board only shows it, and the way out. */
+  private hostBanner(): { text: string; action?: { label: string; run(): void } } | null {
+    const host = this.services.host;
+    const path = this.path;
+    if (!host || !path) return null;
+    const bar = hostBar({ mapPath: path, status: host.status(), closedByUser: host.closedByUser(), failed: this.followFailed, nameOf: mapName });
+    if (!bar) return null;
+    const action = bar.action;
+    if (!action) return { text: bar.text };
+    return {
+      text: bar.text,
+      action: {
+        label: HOST_BAR_LABELS[action],
+        run: () => {
+          if (action === 'edit-here') this.app.workspace.setActiveLeaf(this.leaf, { focus: true });
+          this.followFailed = null;
+          this.followHost();
+        },
+      },
+    };
   }
 
   /** Someone's ping or laser on this board's map. */
@@ -1038,35 +1095,6 @@ export class BoardView extends ItemView {
     this.board.receiveViewer(viewer.from, viewer.name, viewer.color, viewer.mapPath === this.path ? viewer.pose : null);
   }
 
-  /** Opens this board's map in an Atlas tab beside it, leaving the board in front. */
-  private async openInAtlas(): Promise<void> {
-    const file = this.path ? this.app.vault.getAbstractFileByPath(this.path) : null;
-    if (!(file instanceof TFile)) return;
-    // An Atlas tab of Obsidian's not loaded yet (deferred, since the app started) with this map: it is loaded, not the
-    // map opened again.
-    const deferred = this.app.workspace.getLeavesOfType(ATLAS_VIEW_TYPE).find((leaf) => leaf.isDeferred && (leaf.getViewState().state as { file?: unknown } | undefined)?.file === file.path);
-    if (deferred) {
-      await deferred.loadIfDeferred();
-      this.watchAtlas();
-      this.sessionChanged();
-      return;
-    }
-    // Atlas has a tab of this map already, not the one it shows: that tab is shown, not the map opened again.
-    const found = tabViewOf(this.app, file.path);
-    const tab = found?.view.tabMetaStore.getState().tabs.find((each) => each.filePath === file.path);
-    if (found && tab && found.view.atlasStore.getState().mapPath !== file.path) {
-      await found.view.switchToTab(tab.id);
-      this.watchAtlas();
-      this.sessionChanged();
-      return;
-    }
-    const leaf = this.app.workspace.getLeaf('tab');
-    await leaf.openFile(file, { active: false });
-    this.app.workspace.setActiveLeaf(this.leaf, { focus: true });
-    this.watchAtlas();
-    this.sessionChanged();
-  }
-
   /** The map's conditions and resource names, from Atlas's asset index (in a hidden folder, read off the disk). */
   private async readRules(path: string): Promise<CollectionRules> {
     const collection = collectionOf(path);
@@ -1080,6 +1108,13 @@ export class BoardView extends ItemView {
 
   /** A change the board showed could not be saved: say so, and show the map as it is. */
   private unsaved(what: string, error: unknown): void {
+    // Atlas does not hold this map: the bar over the board says so and offers the way out; the board shows the map as it is.
+    if (error instanceof NotHeldError) {
+      this.sessionChanged();
+      new Notice(`Tabletop: ${this.hostBanner()?.text ?? error.message}`, 5000);
+      this.reload();
+      return;
+    }
     new Notice(`Tabletop: the ${what} was not saved: ${error instanceof Error ? error.message : String(error)}`, 8000);
     this.reload();
   }
@@ -1553,7 +1588,8 @@ export class BoardView extends ItemView {
     // While no Atlas view holds the map (Atlas still reading it as a session starts, or its tab not the active one),
     // its views are followed, so the board knows at once when one does (no layout change says so).
     this.stopWaiting?.();
-    this.stopWaiting = view === null && this.path && !this.closed ? this.services.writer.whenHeld(this.path, () => { this.stopWaiting = null; this.watchAtlas(); }) : null;
+    // With a host its own changes say so (`host.onChange`, in `onOpen`).
+    this.stopWaiting = view === null && this.path && !this.closed && !this.services.host ? this.services.writer.whenHeld(this.path, () => { this.stopWaiting = null; this.watchAtlas(); }) : null;
     if (this.watched?.view === view) return;
     this.watched?.stop();
     this.watched = null;

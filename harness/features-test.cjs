@@ -1759,6 +1759,30 @@ feature('atlas css restated', async ({ page, shot }) => {
 });
 
 // ── Atlas's command palette over the board (Atlas's own component, src/palette/PaletteWindow.tsx) ───────────────
+feature('host bars', async ({ page, shot }) => {
+  // The bar a board shows while Atlas (which keeps one map loaded at a time) does not hold its map.
+  const show = (input) => page.evaluate((given) => {
+    const t = window.boardTest;
+    const bar = t.hostBar({ mapPath: 'maps/tavern.atlasmap', closedByUser: false, failed: null, ...given, nameOf: t.mapName });
+    t.record.hostRuns = t.record.hostRuns ?? [];
+    t.board.setBanner(bar ? { text: bar.text, ...(bar.action ? { action: { label: t.HOST_BAR_LABELS[bar.action], run: () => t.record.hostRuns.push(bar.action) } } : {}) } : null);
+    const el = document.querySelector('.atlas-tabletop-banner');
+    return { bar, shown: !!el && !el.hidden, text: el && !el.hidden ? el.querySelector('span')?.textContent ?? el.textContent : null, button: el && !el.hidden ? el.querySelector('button')?.textContent ?? null : null };
+  }, input);
+  const other = await show({ status: { kind: 'held', mapPath: 'atlas-vtt/collections/Main/scenes/Probe Cove.atlasmap' } });
+  check('host bars: Atlas on another map shows "View only. Atlas holds <map>." with Edit here', other.shown && /View only\. Atlas holds Probe Cove\./.test(other.text ?? '') && other.button === 'Edit here', JSON.stringify(other));
+  await shot('host-bar-view-only');
+  await page.locator('.atlas-tabletop-banner button').click();
+  check('host bars: Edit here runs its action', (await page.evaluate(() => window.boardTest.record.hostRuns)).join() === 'edit-here');
+  const closed = await show({ status: { kind: 'none' }, closedByUser: true });
+  check('host bars: a closed Atlas tab shows "Atlas closed this map. Editing is paused." with Reopen', closed.shown && /Atlas closed this map\. Editing is paused\./.test(closed.text ?? '') && closed.button === 'Reopen', JSON.stringify(closed));
+  await shot('host-bar-closed');
+  const none = await show({ status: { kind: 'none' }, failed: 'no-atlas' });
+  check('host bars: no Atlas shows "Atlas VTT is not enabled. View only." and no button', none.shown && /Atlas VTT is not enabled\. View only\./.test(none.text ?? '') && none.button === null, JSON.stringify(none));
+  const held = await show({ status: { kind: 'held', mapPath: 'maps/tavern.atlasmap' } });
+  check('host bars: no bar while Atlas holds the map', held.bar === null && !held.shown, JSON.stringify(held));
+});
+
 feature('asset manager without Atlas', async ({ page }) => {
   // The board is made before any Atlas view exists (Atlas's tab deferred after a restart): nothing may be logged for it.
   await wait(800);
