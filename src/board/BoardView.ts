@@ -73,6 +73,8 @@ import { SoundEngine } from '../sound/soundEngine';
 import type { SoundSettings } from '../sound/soundSettings';
 import type { SoundLoader } from '../sound/customSounds';
 import { documentHasWebgl, NO_WEBGL_HELP, NO_WEBGL_TITLE } from '../webgl';
+import type { AtlasFloor } from '../../packages/atlas-host/src/index';
+import { floorState } from '../atlasFloorGate';
 import { TABLETOP_ICON } from '../tabletopIcon';
 
 export const BOARD_VIEW_TYPE = 'atlas-tabletop-board';
@@ -92,6 +94,8 @@ const HEIGHT_STEP = 0.25;
 
 /** What the board's tab uses of the plugin. */
 export interface BoardServices {
+  /** The Atlas that is there, against the version Tabletop needs; without it the board takes Atlas as it finds it. */
+  floor?(): AtlasFloor;
   /** Keeps a prop as a variant in the gallery. */
   saveVariant?(variant: Omit<PropVariant, 'id'>): void;
   /** Tabletop's undo history (src/board/undoHistory.ts). */
@@ -925,6 +929,8 @@ export class BoardView extends ItemView {
   private async read(shiftY = 0, carry: Placement = NO_PLACEMENT): Promise<void> {
     const path = this.path;
     if (!path) return;
+    // An Atlas older than Tabletop needs: the tab says so, and no board is made or read.
+    if (this.showFloor()) return;
     const file = this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof TFile)) {
       this.warn(`Tabletop: the map ${path} is missing.`);
@@ -1082,6 +1088,8 @@ export class BoardView extends ItemView {
   }
 
   private noWebgl: HTMLElement | null = null;
+  /** The box that says Atlas is too old, while it is. */
+  private noAtlas: HTMLElement | null = null;
 
   /** Where the board would be: why it cannot be drawn here. */
   private showNoWebgl(): void {
@@ -1097,6 +1105,39 @@ export class BoardView extends ItemView {
     box.append(title, help);
     this.contentEl.appendChild(box);
     this.noWebgl = box;
+  }
+
+  /** Atlas changed (enabled, disabled, updated): the tab says why it shows nothing, or reads its map again. */
+  floorChanged(): void {
+    const blocked = this.noAtlas !== null;
+    if (this.showFloor() === blocked) return;
+    if (blocked) void this.read();
+  }
+
+  /** While Atlas is older than Tabletop needs: says so over the tab, and answers true. Else clears that and answers false. */
+  private showFloor(): boolean {
+    const floor = this.services.floor?.();
+    const state = floor ? floorState(floor) : null;
+    const text = state && !state.publish ? state.boardText : null;
+    if (text === null) {
+      this.noAtlas?.remove();
+      this.noAtlas = null;
+      return false;
+    }
+    if (this.closed) return true;
+    if (!this.noAtlas) {
+      const doc = this.contentEl.ownerDocument;
+      const box = doc.win.createEl('div');
+      box.className = 'atlas-tabletop-no-webgl atlas-tabletop-no-atlas';
+      box.setAttribute('role', 'alert');
+      box.append(doc.win.createEl('strong'), doc.win.createEl('p'));
+      this.contentEl.appendChild(box);
+      this.noAtlas = box;
+    }
+    const [title, help] = [this.noAtlas.querySelector('strong'), this.noAtlas.querySelector('p')];
+    if (title) title.textContent = NO_WEBGL_TITLE;
+    if (help) help.textContent = text;
+    return true;
   }
 
   private hideNoWebgl(): void {

@@ -30,7 +30,9 @@ import { boardLookFor, MaterialIndex } from './src/boardLook';
 import { LayerIndex, layersFor } from './src/boardLayers';
 import { playerBoardFactory, type PlayerBoardFactory } from './src/playerBoard';
 import { documentHasWebgl } from './src/webgl';
-import type { BoardLook, BoardSession, BoardSurvey, CutsceneSource, GmCameraSource } from './src/connectContract';
+import { FUSION_PROTOCOL, type BoardLook, type BoardSession, type BoardSurvey, type CutsceneSource, type GmCameraSource } from './src/connectContract';
+import { atlasFloor, pairingNotice, watchAtlasFloor, type AtlasFloor } from './packages/atlas-host/src/index';
+import { floorState, sessionPairs } from './src/atlasFloorGate';
 import { CutsceneChannel } from './src/cutscene/cutsceneRun';
 import { DEFAULT_PACK, defaultPackFiles, releaseDefaultPackSheets } from './src/dice/defaultPack';
 import { choosePack, vendoredPack, type ChosenPack } from './src/dice/dicePack';
@@ -114,6 +116,8 @@ const isMapPath = (path: string): boolean => path.toLowerCase().endsWith('.atlas
  */
 export interface TabletopApi {
   readonly version: 1;
+  /** The fusion step this Tabletop is a build of: Connect binds only to a Tabletop of its own step. */
+  readonly fusion: number;
   /** The minis on a map's tokens, by Atlas token id. */
   placementsFor(mapPath: string): Readonly<Record<string, MiniPlacement>>;
   /** Calls `listener` when placements change: with the map's path, or null when any map may have changed. */
@@ -173,6 +177,11 @@ export default class TabletopPlugin extends Plugin {
   props!: MiniLibrary;
   materials!: MaterialLibrary;
   api: TabletopApi | null = null;
+  /** The API as built at load: published while Atlas is 0.15 or later (or absent), withdrawn while it is older. */
+  private builtApi: TabletopApi | null = null;
+  /** The Atlas versions below the floor already told of, and the Connect versions that did not pair: one notice each. */
+  private readonly toldFloor = new Set<string>();
+  private readonly toldPairing = new Set<string>();
   private players: ReturnType<typeof playerMiniPainter> | null = null;
   /** The "Open in 3D" button in stock Atlas's toolbar. */
   private atlasButton: AtlasOpenButton | null = null;
@@ -293,6 +302,7 @@ export default class TabletopPlugin extends Plugin {
       soundLoader: () => this.vaultSounds.custom.load,
       dicePack: () => (this.dicePack ??= vendoredPack()),
       levelShown: (mapPath) => this.levelShown(mapPath),
+      floor: () => atlasFloor(this.app),
       boardReady: (view) => {
         for (const player of this.playerViews()) if (player.mapPath === view.mapPath) view.showPlayer(player);
         this.refreshPlayerButtons();
@@ -404,8 +414,9 @@ export default class TabletopPlugin extends Plugin {
     this.register(this.materials.onChange(() => { this.materialIndex?.forgetAll(); this.boardChanged(null); }));
     this.players = playerMiniPainter();
     const board = playerBoardFactory(() => this.settings.quality, () => ({ tiltShift: this.settings.tiltShift === true, occlusion: this.settings.occlusion === true, painted: this.settings.painted === true, sky: readSky(this.settings.sky), edges: readEdges(this.settings.wallEdges), seeThrough: this.settings.seeThrough === true, seeThroughSize: readSeeThroughSize(this.settings.seeThroughSize), layerLook: readLayerLook(this.settings.layerLook) }), { settings: () => this.settings.dice, pack: () => (this.dicePack ??= vendoredPack()) }, () => this.spells(), undefined, { settings: () => this.settings.sound, load: () => this.vaultSounds.custom.load, onChange: (listener) => { this.soundListeners.add(listener); return () => { this.soundListeners.delete(listener); }; } });
-    this.api = Object.freeze({
+    this.builtApi = Object.freeze({
       version: 1 as const,
+      fusion: FUSION_PROTOCOL,
       playerMinis: this.players.painter,
       // Read fresh by Connect on each use: offered only where this window can draw it.
       get playerBoard(): PlayerBoardFactory | undefined { return documentHasWebgl(activeDocument) ? board : undefined; },
@@ -453,8 +464,31 @@ export default class TabletopPlugin extends Plugin {
         onCamera: (listener: () => void) => this.cutscenes.onCamera(listener),
       }),
     });
-    this.app.workspace.trigger(API_READY_EVENT, this.api);
-    this.app.workspace.trigger(OLD_API_READY_EVENT, this.api);
+    this.applyFloor(atlasFloor(this.app));
+    this.register(watchAtlasFloor(this.app, (floor) => this.applyFloor(floor)));
+  }
+
+  /**
+   * Follows the Atlas that is there: at 0.15 or later (or with none) the API is offered and boards draw; below it the
+   * API is withdrawn, one notice names the version found, and board tabs say why they show nothing.
+   */
+  private applyFloor(floor: AtlasFloor): void {
+    const state = floorState(floor);
+    if (state.notice && floor.state === 'old' && !this.toldFloor.has(floor.version)) {
+      this.toldFloor.add(floor.version);
+      new Notice(state.notice, 0);
+    }
+    if (state.publish && !this.api && this.builtApi) {
+      this.api = this.builtApi;
+      this.app.workspace.trigger(API_READY_EVENT, this.api);
+      this.app.workspace.trigger(OLD_API_READY_EVENT, this.api);
+    } else if (!state.publish && this.api) {
+      this.cutscenes.endRun();
+      this.app.workspace.trigger(API_UNLOAD_EVENT);
+      this.app.workspace.trigger(OLD_API_UNLOAD_EVENT);
+      this.api = null;
+    }
+    for (const board of this.boards()) board.floorChanged();
   }
 
   onunload(): void {
@@ -463,9 +497,12 @@ export default class TabletopPlugin extends Plugin {
     this.spellLibrary?.dispose();
     this.atlasButton?.stop();
     this.atlasButton = null;
-    this.app.workspace.trigger(API_UNLOAD_EVENT);
-    this.app.workspace.trigger(OLD_API_UNLOAD_EVENT);
+    if (this.api) {
+      this.app.workspace.trigger(API_UNLOAD_EVENT);
+      this.app.workspace.trigger(OLD_API_UNLOAD_EVENT);
+    }
     this.api = null;
+    this.builtApi = null;
     // Connect lets go of a painter that is gone on its next frame; its views are freed here at once.
     this.players?.dispose();
     this.players = null;
@@ -735,6 +772,16 @@ export default class TabletopPlugin extends Plugin {
 
   /** Connect's session reaches every board: its templates, handout and banner now, its pings and lasers as they come. */
   private attachSession(session: BoardSession): () => void {
+    // A Connect of another fusion step (or from before there was one) would exchange things each reads wrongly.
+    if (!sessionPairs(session)) {
+      const manifests = (this.app as unknown as { plugins?: { manifests?: Record<string, { version?: string } | undefined> } }).plugins?.manifests;
+      const connect = manifests?.['atlas-vtt-connect']?.version ?? null;
+      if (!this.toldPairing.has(connect ?? '')) {
+        this.toldPairing.add(connect ?? '');
+        new Notice(pairingNotice(this.manifest.version, connect), 0);
+      }
+      return () => undefined;
+    }
     const stops = [
       session.onChange(() => { for (const board of this.boards()) board.sessionChanged(); }),
       session.onMark((mark) => { for (const board of this.boards()) board.mark(mark); }),

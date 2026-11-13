@@ -162,6 +162,8 @@ export interface BoardSessionTemplate { id: string; owner: string; shape: 'line'
 
 /** Connect's hosted session, handed to `api.attachSession` (Connect's `BoardSessionHub`; the shapes must stay the same). */
 export interface BoardSession {
+  /** The fusion step Connect is a build of (`FUSION_PROTOCOL`): Tabletop takes only a session of its own step. */
+  readonly fusion: number;
   hosting(): boolean;
   /**
    * A Connect that carries cutscenes to its players says so (and shows them the GM's shots by switching each GM map
