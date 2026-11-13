@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { isDowned, readMap } from '../src/board/mapModel';
+import { MAP_STATE_KEYS, isDowned, mapStateChanged, readMap, readMapState } from '../src/board/mapModel';
 import { HP_RESOURCE } from '../src/board/resources';
 
 const fixture = (name: string): string => readFileSync(`tests/fixtures/${name}`, 'utf8');
@@ -26,6 +26,39 @@ test('reads tokens and pins from a real map', () => {
   const pin = map.pins[0]!;
   assert.deepEqual(pin, { id: 'pin_1792170000001_area-1000', x: 1063.6, y: 1374.7, notePath: 'DotMM Full Test/Adventure/Level 1 - Dungeon Level.md#1. Entry Well', icon: 'number', label: '1', hex: false, name: null, readable: true });
   assert.deepEqual(map.tokenSettings, { showNameplates: true, showInstanceBadges: true, hiddenResources: ['stress'] });
+});
+
+test("Atlas's store reads as the map file does", () => {
+  const text = fixture('dungeon.atlasmap');
+  const state = JSON.parse(text).state;
+  const fromFile = readMap('maps/dungeon.atlasmap', text);
+  const fromStore = readMapState('maps/dungeon.atlasmap', state);
+  assert.deepEqual({ ...fromStore, rawGrid: null }, { ...fromFile, rawGrid: null });
+  assert.equal(fromStore.rawGrid, state.grid);
+  assert.ok(fromStore.tokens.length > 0);
+
+  // In memory Atlas holds a token's resources by key (the file has `hp`, `stress`…), and the levels' alignments apart.
+  const id = Object.keys(state.objects.tokens)[0];
+  const live = structuredClone(state);
+  const { hp: _hp, stress: _stress, hope: _hope, statblockResources: _others, ...bare } = live.objects.tokens[id];
+  live.objects.tokens[id] = { ...bare, resources: { hp: { current: 3, max: 9 } } };
+  live.levels = [{ id: 'ground', name: 'Ground', elevation: { bottom: 0 } }, { id: 'upper', name: 'Upper', elevation: { bottom: 10 } }];
+  live.levelAlignments = { upper: { offset: { x: 10, y: 20 }, scale: 1, stretch: { x: 1, y: 1 } } };
+  const read = readMapState('maps/dungeon.atlasmap', live, 'upper');
+  assert.deepEqual(read.tokens.find((token) => token.id === id)?.resources.hp, { current: 3, max: 9 });
+  assert.equal(read.level, 'upper');
+  assert.deepEqual(read, readMap('maps/dungeon.atlasmap', JSON.stringify({ state: live }), 'upper'));
+  assert.throws(() => readMapState('m', { mapPath: 'm' }), /not an Atlas map/);
+  assert.throws(() => readMapState('m', null), /not an Atlas map/);
+});
+
+test('mapStateChanged ignores camera, selection and tool state', () => {
+  const state: Record<string, unknown> = { ...JSON.parse(fixture('dungeon.atlasmap')).state, mapPath: 'maps/dungeon.atlasmap' };
+  assert.equal(mapStateChanged(state, { ...state }), false);
+  assert.equal(mapStateChanged(state, { ...state, camera: { x: 1 }, selectedIds: ['a'], isDragging: true, measurePopover: {}, diceTrayOpen: true, activeTool: 'measure' }), false);
+  assert.equal(mapStateChanged(state, { ...state, objects: { ...(state.objects as object) } }), true);
+  for (const key of MAP_STATE_KEYS) assert.equal(mapStateChanged(state, { ...state, [key]: {} }), true, key);
+  assert.deepEqual([...MAP_STATE_KEYS], ['mapPath', 'background', 'grid', 'objects', 'levels', 'levelAlignments', 'viewedLevel', 'lighting', 'initiative', 'tokenSettings']);
 });
 
 test('token defaults', () => {

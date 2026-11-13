@@ -383,6 +383,7 @@ export function levelAlignmentsOf(alignments: unknown, levels: unknown): Record<
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/** A map as its file has it: the text is parsed, then read as Atlas's state is (`readMapState`). */
 export function readMap(path: string, text: string, viewedLevel?: string | null): BoardMap {
   let parsed: unknown;
   try {
@@ -390,7 +391,23 @@ export function readMap(path: string, text: string, viewedLevel?: string | null)
   } catch {
     throw new Error('not an Atlas map');
   }
-  const state = isObj(parsed) && isObj(parsed.state) ? parsed.state : null;
+  return readMapState(path, isObj(parsed) ? parsed.state : null, viewedLevel);
+}
+
+/** What of Atlas's state the board draws; a change of anything else (the camera, the selection, a tool, a tray) changes nothing here. */
+export const MAP_STATE_KEYS = ['mapPath', 'background', 'grid', 'objects', 'levels', 'levelAlignments', 'viewedLevel', 'lighting', 'initiative', 'tokenSettings'] as const;
+
+/** Whether the board's picture of the map may have changed between two states of Atlas's store (which replaces what it changes). */
+export function mapStateChanged(prev: Readonly<Record<string, unknown>>, next: Readonly<Record<string, unknown>>): boolean {
+  return MAP_STATE_KEYS.some((key) => prev[key] !== next[key]);
+}
+
+/**
+ * A map as Atlas holds it: the `state` of a map file, or the state of the store of the Atlas view that has the map
+ * loaded (the same shape, with tokens' resources in their in-memory form and the levels' alignments apart).
+ */
+export function readMapState(path: string, given: unknown, viewedLevel?: string | null): BoardMap {
+  const state = isObj(given) ? given : null;
   if (!state || !isObj(state.objects)) throw new Error('not an Atlas map');
   const levels = readLevels(state.levels);
   const level = resolveLevel(levels, viewedLevel);

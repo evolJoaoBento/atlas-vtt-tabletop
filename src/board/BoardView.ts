@@ -36,7 +36,7 @@ import { lookOf } from './boardData';
 import type { UndoHistory } from './undoHistory';
 import { ASSETS_METADATA_PATH, collectionOf, emptyRules, readCollectionRules, type CollectionRules } from './conditions';
 import { levelName, levelRise, onFirstLevel, propsOnLevel, resolveLevel } from './levels';
-import { readMap, type BoardMap, type BoardToken } from './mapModel';
+import { mapStateChanged, readMap, readMapState, type BoardMap, type BoardToken } from './mapModel';
 import { readMeasurement } from './measure';
 import { defeatedResources, isDefeated, tokenFromFile } from './resources';
 import { AtlasMenu, type MenuEntry } from './atlasMenu';
@@ -275,7 +275,8 @@ export class BoardView extends ItemView {
     this.contentEl.empty();
     this.contentEl.addClass('atlas-tabletop-board-view');
     this.registerEvent(this.app.vault.on('modify', (file) => {
-      if (file.path === this.path) this.reload();
+      // Atlas saving the map it holds says nothing new: the board already drew it from Atlas's store.
+      if (file.path === this.path) { if (!this.services.host?.holds(file.path)) this.reload(); }
       else if (file.path === ASSETS_METADATA_PATH) this.reload();
       else if (this.stackPaths.has(file.path)) this.reloadStack();
     }));
@@ -294,7 +295,13 @@ export class BoardView extends ItemView {
       // This board needs Atlas's tab while it is open; working on the board (its tab made active, a press on it) brings
       // Atlas to its map.
       this.releaseHost = host.claim();
-      this.register(host.onChange(() => { this.watchAtlas(); this.sessionChanged(); }));
+      this.register(host.onChange(() => {
+        // Atlas came to hold this map, or let go of it: the board reads it from the other source.
+        const holds = this.path !== null && host.holds(this.path);
+        if (holds !== this.hostHolds) { this.hostHolds = holds; this.reload(); }
+        this.watchAtlas();
+        this.sessionChanged();
+      }));
       this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => { if (leaf === this.leaf) this.followHost(); }));
     }
     this.initiative = new InitiativePanel(this.contentEl, this.initiativeHost());
@@ -951,9 +958,16 @@ export class BoardView extends ItemView {
     }
     let map: BoardMap;
     try {
-      const text = await this.app.vault.read(file);
-      if (this.closed) return;
-      map = readMap(path, text, this.shownLevel(path));
+      // While Atlas holds the map its store is the map: what was just edited is there at once, saved or not. Else the
+      // file is read, to show the map only.
+      const store = this.services.host?.store(path);
+      if (store) {
+        map = readMapState(path, store.getState(), this.shownLevel(path));
+      } else {
+        const text = await this.app.vault.read(file);
+        if (this.closed) return;
+        map = readMap(path, text, this.shownLevel(path));
+      }
     } catch (error) {
       this.warn(`Tabletop: cannot open ${path} in 3D: ${error instanceof Error ? error.message : String(error)}.`);
       return;
@@ -1031,6 +1045,8 @@ export class BoardView extends ItemView {
   }
 
   private releaseHost: (() => void) | null = null;
+  /** Whether Atlas held this board's map when last heard of. */
+  private hostHolds = false;
   /** How the last try to bring Atlas to this map ended, when it failed. */
   private followFailed: 'timeout' | 'no-atlas' | null = null;
 
@@ -1595,10 +1611,16 @@ export class BoardView extends ItemView {
     this.watched = null;
     if (view) {
       let held = view.atlasStore.getState().initiative;
+      let drawn = view.atlasStore.getState() as unknown as Record<string, unknown>;
       const stop = view.atlasStore.subscribe(() => {
         const state = view.atlasStore.getState();
         // Atlas moved to another map in that view: the file is this map's tracker again.
         if (state.mapPath !== this.path) { this.watchAtlas(); return; }
+        // The board draws from this store (with a host): it reads again when what it draws changed, and only then (the
+        // camera, the selection and the tools replace the state many times a second).
+        const now = state as unknown as Record<string, unknown>;
+        if (this.services.host && mapStateChanged(drawn, now)) this.reload();
+        drawn = now;
         // The GM went to another floor (Atlas 0.10): the board shows that floor.
         if (state.viewedLevel !== undefined && this.map && resolveLevel(this.map.levels, state.viewedLevel) !== this.map.level) this.reload();
         if (state.initiative === held) return;
