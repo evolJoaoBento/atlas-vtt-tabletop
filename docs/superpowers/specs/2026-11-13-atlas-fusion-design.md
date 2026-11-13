@@ -83,12 +83,21 @@ Stock Atlas has no API (audit, "Root finding"). Its rules and saving live in the
   - If the budget is exceeded, hosts beyond the first two are suspended (closed and reopened on focus), and their boards are read-only meanwhile.
   - The board test harness runs with a fake store host. It must not open real Atlas leaves.
 - **Failure.** If Atlas is missing, older than 0.15, or the host fails to load within 15 s, the board opens read-only with the reason shown. Connect behaves the same way.
+- **A missing store action.** If Phase 0 finds no store action for some kind of edit (gate G8), that edit is not offered on the board. An "Edit in Atlas" button opens the host in front instead. A file write is never the fallback.
+- **Connect has its own host and does not need Tabletop.** A GM can run Connect with no Tabletop board open. Host code is the same in both plugins.
+  - **Where it lives:** an Obsidian-side module, `atlas-host`, separate from the browser-safe `atlas-shared`. It grows out of Connect's `stockWake.ts`.
+  - **How it is shared:** it is shared the way `atlas-shared` is (section 4.2).
+  - **Both plugins on one map:** they share one host leaf. Each finds an existing view first.
 
 ### 4.2 Shared Atlas logic: one vendored copy of stock 0.15
 
 - **One package** for both repos, `atlas-shared`. It holds selected files of stock Atlas 0.15 `src/app`, taken verbatim at a pinned tag by a sync script with a file list. This is the same approach as Tabletop's `npm run sync:atlas`.
   - Stock has no `src/shared` entry point, so the bundle is our own index over stock files.
   - Licence: both plugins are AGPL-3.0-only, the same as Atlas, so this is allowed. Keep Atlas's headers and credit the tag in `SOURCE.json`.
+- **Where it lives.** It lives in the Connect repo as `packages/atlas-shared/`, with `SOURCE.json` naming the Atlas tag. `atlas-host` lives at `packages/atlas-host/`.
+  - Tabletop copies both in with a sync script. This is the way Connect already vendors Tabletop's player board.
+  - Tabletop's copy carries the same `SOURCE.json`, and a check fails when the two differ.
+  - There is no third repo and no npm publishing.
 - **Browser-safe.** No Obsidian, Node or DOM imports, because Connect's web player page uses it too. The sync script fails on a disallowed import.
 - **It replaces** Tabletop's `measure.ts` rule code, `geometry.ts` `snapPoint`, `gridLines`/`cellNumbers` rules, `levels.ts` and `walls.ts` readers, `atlasPort/app/{grid,levels,lighting,vision}`, the pin and condition icon data, `rollRules.ts`, and the resource readers. In Connect it replaces `vendor/atlas/shared/*` (the shelved fork, API 1.18.0), `stockRules` distance, `initiativeSides.ts`, `stockLevels.ts`, `stockTokens/ported/*`, `view/pinIcons.ts`, and `physicalRolls.ts`'s judge.
 - **Upgrading Atlas** means bumping the tag, running the sync, and running both test suites. A checker fails CI when the shared tag and the plugins' minimum Atlas version differ.
@@ -116,10 +125,19 @@ Stock Atlas has no API (audit, "Root finding"). Its rules and saving live in the
   - READMEs, manifests' descriptions and `ATLAS_CHECKED_VERSION` say 0.15.0.
 - **Plugin pairing.**
   - Connect's board contract gets a `fusion` protocol number. Tabletop sends its number when it attaches; Connect refuses a mismatch with a notice naming both versions.
-  - The web player page carries the same number. A stale hosted page is refused with "This table needs the updated player page". Its hosting is still unknown (open item).
+  - The web player page carries the same number. A stale hosted page is refused with "This table needs the updated player page".
+  - A page from before fusion sends no number at all, so it is refused too. The anti-goal therefore holds whoever hosts the page.
+  - A phase is done once the page is built. Deploying it is the open item.
 - **Contract file.** Tabletop's `connectContract.ts` stops being a hand copy. It is generated from Connect's `boardTypes.ts` by a script in Tabletop, and a check fails if they differ (audit #6).
 
 ## 6. Data migrations: backed up, one-way, reported
+
+Triggers:
+- **Migration 1 runs on its own.** It runs whenever a host loads a scene whose walls hold the new `room_<level>_` ids next to old overrides. That is exactly when Atlas 0.15 has converted the scene, so it needs no sweep.
+- **Migration 3 asks first.** On the first start after Phase 4, the GM is asked: "Move N map stacks to Atlas levels? A backup is made first. [Move] [Later]". The question comes back each start until they choose Move. It also lives in a command.
+  - It walks the stacks one base scene at a time. For each base scene it opens a host, writes through the store, saves and closes.
+  - It re-points cutscene shots across all board data.
+  - Without a host for a scene, that scene is skipped and listed in the summary, never written as a file.
 
 All migrations follow the same rules:
 - They run once per map.
@@ -168,6 +186,14 @@ Each phase:
 - ends with a live check in a **throwaway copy** of the vault on Atlas 0.15.0, using the compat report's live-check steps for that phase.
 
 Upgrading the main and promo vaults is the user's decision, not part of any phase.
+
+Live checks:
+- Scripted where possible. Obsidian is driven over the DevTools protocol in the throwaway vault, as the 0.14 live check was.
+- Anything needing a device or ears is listed for the user: AR, listening.
+
+**Phase 0: Gate spike (no product code)**
+
+Every gate in section 11 is checked first, in a throwaway vault on Atlas 0.15.0, by a script. Results go into this document's gate table, and only then are the phase plans written. A failed gate picks its fallback before planning, so no phase is planned for both branches.
 
 **Phase 1: Breaks, floor and host**
 - version floor and pairing (section 5)
@@ -268,13 +294,14 @@ The user's approval covers both branches of each gate.
 
 | Gate | Check (on Atlas 0.15.0, in a throwaway vault) | If it passes | If it fails |
 |---|---|---|---|
-| G1 extra fields | A measure, a wall and a light with an extra `tabletop` field survive `addMeasure` / `addWall` → Atlas save → reload of the file → `_8t` reader | 3D extras live on Atlas records | Measures: Atlas's 6 effects + plain (section 7). Walls and lights: keep data.json keyed by id, plus endpoint re-key. Water motion goes on `flow` / `course`. |
+| G1 extra fields | Checked **separately for each record type**: G1m measures, G1w walls, G1l lights, G1q liquids. A record with an extra `tabletop` field survives the store's add action → Atlas save → reload of the file → the reader. | That type keeps its 3D extras on the Atlas record. For G1m, all 14 damage types keep their sounds whatever the others give. | G1m: Atlas's 6 effects + plain (section 7). G1w and G1l: keep data.json keyed by id, plus the endpoint re-key. G1q: water motion goes on `flow` / `course`. |
 | G2 map-feature add | A store action that adds an `objects.mapFeatures` polygon with `terrain.difficult` | Difficult spells write it | The spell's difficult area becomes a measure with `tabletop.difficult` that only Tabletop's ruler counts. It is a documented gap: Atlas's ruler does not count it. |
 | G3 lighting write | The store action Atlas's lighting page uses for `ambient` / `ambientColor` | The slider writes it | The slider is removed from the board, and "Lighting in Atlas" opens Atlas's page |
 | G4 distance display | The `settingsService` getter for "dragged token shows its distance" | Both rulers obey it | Always show the distance (today's behaviour) |
 | G5 party links | Whether Atlas stores which player controls which token | Connect reads Atlas's | Keep Connect's |
 | G6 background host | A background Atlas leaf, never shown, stays loaded and saves | Section 4.1 as written | The host is opened as a split pane beside the board (visible, can be collapsed) |
 | G7 memory | 3 hosts ≤ 300 MB together | As written | Suspend hosts beyond 2 (section 4.1) |
+| G8 store actions | Each write the design needs has a store action that saves. Checked: tokens incl. `elevation`; initiative; doors and walls incl. `chainId`; notes; `addMeasure` family; `addLiquids`; levels (add a level, set its background and elevation, `levelAlignments`); moving objects between levels | Written through the store | That edit is not offered on the board; "Edit in Atlas" instead (section 4.1). A level action missing makes migration 3 wait until it is found, and the stacks stay as they are. |
 
 ## 12. My calls, for the user to check
 
@@ -285,6 +312,10 @@ The user's approval covers both branches of each gate.
 5. Stack member files stay on disk after migration. They are not deleted.
 6. The memory budget is 300 MB for 3 hosts, with suspension beyond 2.
 7. The scene tab bar prefers driving Atlas's own tab strip, if that works live. Otherwise it rebuilds the 0.15 markup.
+8. Phase 0 checks every gate before any plan is written.
+9. Connect gets its own Atlas host and does not need Tabletop. The shared code lives in the Connect repo, under `packages/`, and Tabletop copies it in.
+10. Migration 1 runs on its own. Migration 3 asks first, and asks again on each start until the GM says Move.
+11. Live checks are scripted over DevTools. Device checks and listening go to you.
 
 ## 13. Left to the builder
 
