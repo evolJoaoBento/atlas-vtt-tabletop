@@ -11,6 +11,8 @@ import { hasConvertedRoomWalls, readRooms, roomWalls } from './atlasRooms/rooms'
 import { readLights, readSceneLighting, readWalls, type BoardLight, type BoardWall, type SceneLighting } from './walls';
 import { hiddenResourcesOf, isDefeated, tokenFromFile, type ResourceDefinition, type ResourceValue } from './resources';
 import { levelBackground, onLevel, onLevelRecord, readLevels, resolveLevel, type BoardLevel } from './levels';
+import { tokenHeight } from '../../packages/atlas-shared/src/index';
+import { ownSpeed } from './tokenHeight';
 
 export type GridType = 'square' | 'hex-vertical' | 'hex-horizontal';
 
@@ -76,6 +78,10 @@ export interface BoardToken {
   offMap: boolean;
   /** The level it stands on (Atlas 0.10); null for a scene of one level. */
   levelId: string | null;
+  /** How high it stands over its level's floor, in game units (Atlas 0.15's `elevation`, read with `tokenHeight`): 0 on the floor. */
+  elevation: number;
+  /** Its own speed in game units, set by hand in Atlas 0.15; null where it has none (it then moves by its statblock's, or the rules'). */
+  speed: number | null;
   /** On another level than the one shown: it stays in the map for the tracker, but is not drawn. */
   offLevel: boolean;
   /** On a Connect player's board: each bar's colour as Connect worked it out (yellow, then red as it runs low), by key. */
@@ -272,6 +278,8 @@ function readToken(token: Raw): BoardToken | null {
     side: typeof token.side === 'string' && token.side !== '' ? token.side : null,
     offMap: token.offMap === true,
     levelId: null,
+    elevation: tokenHeight(token),
+    speed: ownSpeed(token.speed),
     offLevel: false,
     sees: isObj(token.vision) && token.vision.enabled === true,
   };

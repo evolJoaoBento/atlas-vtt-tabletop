@@ -12,6 +12,8 @@ import type { FogOperation } from './fog';
 import { readInitiative, DEFAULT_INITIATIVE_RULES } from './initiative';
 import type { BoardGrid, BoardIcon, BoardInk, BoardMap, BoardPin, BoardText, BoardToken, Meter } from './mapModel';
 import type { ResourceDefinition } from './resources';
+import { tokenHeight } from '../../packages/atlas-shared/src/index';
+import { ownSpeed } from './tokenHeight';
 import { NO_FLIP, type BoardLight, type BoardWall, type DoorFlip } from './walls';
 
 /** Connect's id of the darkness it adds to the fog (`darknessFog.ts`). */
@@ -35,6 +37,8 @@ export interface PlayerSceneLike {
     /** Connect's bars: `share` alone for Bar only; `bar: false` and the one number players read for Number only. */
     resources?: Array<{ color: string; share: number; spent: boolean; current?: number; max?: number; fixed?: boolean; bar?: false }>;
     downed?: boolean; side?: string; instance?: number; mini?: { asset: string | null; scale: number; turn: number; base?: 'round' | 'square' };
+    /** Atlas 0.15: its height in game units, and (for a players' token, where the rules name steps) its speed. */
+    elevation?: number; speed?: number;
   }>;
   fog: Record<string, { type: 'brush'; erase: boolean; order: number; radius: number; points: Point[] }
     | { type: 'lasso'; erase: boolean; order: number; points: Point[] }
@@ -184,6 +188,7 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
       conditions: token.conditions.map((condition) => condition.id), conditionValues: values,
       resources, overriddenMax: [], instanceNumber: token.instance ?? null, statblockPath: null,
       side: token.side ?? null, sees: false, offMap: false, levelId: null, offLevel: false,
+      elevation: tokenHeight(token), speed: ownSpeed(token.speed),
       ...(Object.keys(colors).length > 0 ? { resourceColors: colors } : {}),
       ...(Object.keys(shows).length > 0 ? { resourceShows: shows } : {}),
     } satisfies BoardToken;

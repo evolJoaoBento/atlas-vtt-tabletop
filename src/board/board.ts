@@ -29,6 +29,8 @@ import type { PropLook, PropPlacement, TokenStyle } from './boardData';
 import { OrbitCamera, limitsFor } from './camera';
 import type { CollectionRules } from './conditions';
 import { feetPerSquare, formatDistance, pathLengthInCells, type Measurement } from './measure';
+import { riseBetweenEnds } from '../../packages/atlas-shared/src/index';
+import { liftOf } from './tokenHeight';
 import { hexCenter, nearestFootprint, ringDiameter, snapPoint } from './geometry';
 import { imageToWorld, stretchPlacement, worldSize } from './mapStretch';
 import { groupFollow, groupLanding, type GroupMember } from './groupMove';
@@ -2439,10 +2441,12 @@ export class Board {
         entry.at.y = entry.goal.y;
         if (entry.gliding) this.arrived(entry);
       }
-      // On a solid prop the token stands on its top, easing up or down onto it.
-      const stand = this.standAt(entry);
+      // On a solid prop the token stands on its top, easing up or down onto it; at its height (Atlas 0.15) over that.
+      const floor = this.standAt(entry);
+      const stand = floor + this.heightLift(entry.token);
       if (Math.abs(stand - entry.lift) > 0.05) { entry.lift += (stand - entry.lift) * glide; busy = true; changed = true; } else entry.lift = stand;
       entry.piece.pose(entry.at.x, entry.at.y, context, entry.lift);
+      entry.piece.setDrop(entry.lift - floor);
       // A light the token carries goes with it.
       this.rig.place(entry.token.id, entry.at.x, entry.at.y);
       entry.labels.place(entry.piece.figureHeight(), ringDiameter(this.map!.grid, entry.token.size) / 2, entry.piece.top);
@@ -3658,7 +3662,10 @@ export class Board {
   private showToolOverlay(): void {
     const { measure, draft } = this.tools.overlay();
     const map = this.map;
-    const label = measure && map ? this.distanceLabel([measure.start, measure.end]) : '';
+    // A measure from one token to another counts the height between them, as Atlas's ruler does (`rulerRise`); an area counts none.
+    const ends = measure ? [measure.start, measure.end] : [];
+    const rise = measure && map && measure.shape === 'line' ? riseBetweenEnds(ends, (point) => this.heightAt(point), this.host.measurement()) : 0;
+    const label = measure && map ? this.distanceLabel(ends, rise) : '';
     this.marks.setOverlay(measure ? { ...measure, label, color: accent(this.container), cell: map?.grid.size ?? 70 } : null, draft ? { ...draft, color: this.host.ownColor?.() ?? '#ffcc33' } : null, this.tools.coneAngle, this.lastPose?.pixel ?? 0.002);
     this.wake();
   }
@@ -4982,6 +4989,30 @@ export class Board {
   /** A layer's name as the height ruler shows it. */
   private layerName(key: string): string {
     return this.layerMenuItems.find((item) => item.path === key)?.name ?? key.replace(/^.*[/:]/, '').replace(/\.[^.]+$/, '');
+  }
+
+  /**
+   * How far over its floor a token's figure stands, in map pixels: its height (Atlas 0.15, `liftOf`) in squares. A token
+   * below the floor (a negative height: burrowing) is drawn on it, as the board has nothing under the map to show.
+   */
+  private heightLift(token: { elevation: number }): number {
+    const grid = this.map?.grid.size ?? 70;
+    return Math.max(0, liftOf(token, this.host.measurement())) * grid;
+  }
+
+  /**
+   * The height (game units) of the token a measure's point lies on, for Atlas's `riseBetweenEnds`: the shown token
+   * whose footprint holds the point (the first found), else 0, the floor.
+   */
+  private heightAt(point: { x: number; y: number }): number {
+    const grid = this.map?.grid;
+    if (!grid) return 0;
+    for (const entry of this.tokens.values()) {
+      if (!showing(entry.piece.object3d) || (this.audience === 'player' && entry.token.hidden)) continue;
+      const radius = ringDiameter(grid, entry.token.size) / 2;
+      if (Math.hypot(point.x - entry.at.x, point.y - entry.at.y) <= radius) return entry.token.elevation;
+    }
+    return 0;
   }
 
   private standAt(entry: { at: { x: number; y: number }; stand?: { x: number; y: number; version: number; value: number } }): number {

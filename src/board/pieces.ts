@@ -164,6 +164,8 @@ export class TokenPiece {
   private miniShadows: 'real' | 'blob' = 'blob';
   private blobShadow: THREE.Mesh | null = null;
   private carry = 0;
+  /** A thin line from a token standing at a height (Atlas 0.15) down to the floor under it; made when first needed. */
+  private drop: THREE.Line | null = null;
 
   constructor(token: BoardToken, private readonly grid: BoardGrid, private definitions: readonly ResourceDefinition[]) {
     this.token = token;
@@ -340,6 +342,29 @@ export class TokenPiece {
     const radius = ringDiameter(this.grid, this.token.size) / 2;
     this.hitTarget.scale.set(radius, height, radius);
     this.hitTarget.position.y = height / 2;
+  }
+
+  /**
+   * The line down to the floor under a token that stands `depth` over it (Atlas 0.15's height); none at 0. It hangs
+   * from the token, so it follows the figure; the floor is that of the level, or of a solid prop it stands on.
+   */
+  setDrop(depth: number): void {
+    const shown = Number.isFinite(depth) && depth > 0.5;
+    if (!shown && !this.drop) return;
+    if (!this.drop) {
+      const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, -1, 0)]);
+      this.drop = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, depthWrite: false }));
+      this.drop.name = 'height-drop';
+      this.drop.renderOrder = 2;
+      this.object3d.add(this.drop);
+    }
+    this.drop.visible = shown;
+    if (shown) this.drop.scale.set(1, depth, 1);
+  }
+
+  /** How far the drop line reaches down now (0 without one): what the board and its tests read. */
+  get dropDepth(): number {
+    return this.drop?.visible ? this.drop.scale.y : 0;
   }
 
   shake(now: number): void {

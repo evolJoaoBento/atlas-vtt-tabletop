@@ -1878,6 +1878,64 @@ feature('command palette', async ({ page, shot }) => {
 });
 
 // ── The GM's Measure tool (Atlas's), drawn thick in the theme's accent ──────────────────────────────────────────
+// ── Atlas 0.15's token height: a figure stands at its height, a line drops to the floor, a ruler between tokens counts it ──
+feature('token height', async ({ page, shot }) => {
+  // 15 ft on a 5 ft square of 70 px: three squares up.
+  await page.evaluate(() => {
+    const board = window.boardTest.board;
+    const hero = board.tokens.get('hero').token;
+    board.changeToken('hero', { ...hero, elevation: 15 });
+    board.wake(true);
+  });
+  // The figure eases up to its height.
+  for (let i = 0; i < 60; i++) {
+    const y = await page.evaluate(() => window.boardTest.board.tokens.get('hero').piece.object3d.position.y);
+    if (Math.abs(y - 210) < 1) break;
+    await wait(100);
+  }
+  const stood = await page.evaluate(() => {
+    const entry = window.boardTest.board.tokens.get('hero');
+    return { y: entry.piece.object3d.position.y, drop: entry.piece.dropDepth, other: window.boardTest.board.tokens.get('gob').piece.object3d.position.y };
+  });
+  check('a token 15 ft up stands three squares over the floor', Math.abs(stood.y - 210) < 1, JSON.stringify(stood));
+  check('its line drops to the floor under it', Math.abs(stood.drop - 210) < 1, JSON.stringify(stood));
+  check('a token on the floor stays there, with no line', Math.abs(stood.other) < 1, JSON.stringify(stood));
+  await shot('token-height');
+  // A ruler from the lifted hero to a token on the floor two squares away: 10 ft across, 15 ft up.
+  const labels = await page.evaluate(() => {
+    const board = window.boardTest.board;
+    const gob = board.tokens.get('gob').token;
+    board.changeToken('gob', { ...gob, x: 385, y: 245 });
+    board.tokens.get('gob').at = { x: 385, y: 245 };
+    const seen = [];
+    const set = board.marks.setOverlay.bind(board.marks);
+    board.marks.setOverlay = (measure, ...rest) => { if (measure) seen.push(measure.label); return set(measure, ...rest); };
+    const measureOf = (shape, from, to) => {
+      board.toolbarActions().selectMeasure(shape);
+      board.tools.down(from, 0);
+      board.tools.move(to, 16);
+      board.showToolOverlay();
+      board.tools.cancel();
+    };
+    measureOf('line', { x: 245, y: 245 }, { x: 385, y: 245 });
+    measureOf('line', { x: 245, y: 315 }, { x: 385, y: 315 });
+    measureOf('circle', { x: 245, y: 245 }, { x: 385, y: 245 });
+    board.marks.setOverlay = set;
+    board.toolbarActions().selectMeasure('line');
+    return seen;
+  });
+  // Equidistant: the longer of 2 across and 3 up.
+  check('a ruler from the lifted token to one on the floor counts the height between them', labels[0] === '15ft', JSON.stringify(labels));
+  check('a ruler on the floor beside them counts none', labels[1] === '10ft', JSON.stringify(labels));
+  check('an area counts no height, as Atlas measures it', labels[2] === '10ft', JSON.stringify(labels));
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => {
+    const board = window.boardTest.board;
+    board.changeToken('hero', { ...board.tokens.get('hero').token, elevation: 0 });
+    board.changeToken('gob', { ...board.tokens.get('gob').token, x: 525, y: 385 });
+  });
+});
+
 feature('gm measure', async ({ page, shot }) => {
   check('the toolbar has the Measure tool', (await page.locator('.atlas-tabletop-toolbar button[aria-label="Measure"]').count()) === 1);
   await page.evaluate(() => window.boardTest.board.toolbarActions().selectMeasure('circle'));

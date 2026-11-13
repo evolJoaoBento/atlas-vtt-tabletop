@@ -1,6 +1,6 @@
 {
   "connect": {
-    "commit": "75d2b2a6a21d2e0156e9e777e76500183c4bf72c"
+    "commit": "ccfff574ed227148e18f99aabd8b5565064a5919"
   },
   "files": {
     "packages/atlas-shared/README.md": "4fde8a0601b6ef91d03051dbbda39e0faecf5ada86f9c7ccbad71308c6b70c5e",
@@ -78,6 +78,6 @@
     "packages/atlas-host/src/index.ts": "67f00d6bfd360f4391b93cdc776c2efe46ce7b784168c6d4da2d835d366fa300",
     "packages/atlas-host/src/pairing.ts": "fd2ea7bd297a48cf90b8b96926944ae33f6a766f7d80112ecd5c5cf201b04876",
     "packages/atlas-host/src/wake.ts": "28986ec0911ac5e18b9cab496d71f8ad56f2f22c2a05edc2e4b70b8c77798cb2",
-    "src/connectWire.ts": "829f56bbab6b6ebf744a8faff8660a0eaad12ed0669b165f4412612784e97aef"
+    "src/connectWire.ts": "307607af4357d46c569884b7615af4cc0cb757436d7234e8973b1a352996b0eb"
   }
 }
