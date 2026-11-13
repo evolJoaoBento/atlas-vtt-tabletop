@@ -21,7 +21,7 @@ import { resolveLaser, type LaserSettings } from './src/board/laser';
 import { writeBackup } from './src/backups';
 import { carryOver } from './src/fusionCarryOver';
 import { AtlasBridge } from './src/atlasBridge';
-import { NotHeldError, TokenWriter } from './src/board/tokenWriter';
+import { TokenWriter } from './src/board/tokenWriter';
 import type { AtlasSceneState } from './src/atlas';
 import { UndoHistory } from './src/board/undoHistory';
 import { recordAtlasWrites, recordTabletopData } from './src/board/undoRecorders';
@@ -238,9 +238,8 @@ export default class TabletopPlugin extends Plugin {
     this.host = host;
     this.register(() => { host.dispose(); this.host = null; });
     const writer = new TokenWriter({
+      // No map file is ever written: an edit of a map Atlas does not come to hold is refused, and the board's bar says why.
       views: () => mapViews(this.app),
-      // No map file is ever written: an edit of a map Atlas does not hold is refused, and the board's bar says why.
-      process: async () => { throw new NotHeldError(); },
       held: (path) => host.whenHeld(path).then((store) => (store ? store.getState() as unknown as AtlasSceneState : null)),
       follow: async (path) => {
         const front = this.app.workspace.getMostRecentLeaf();

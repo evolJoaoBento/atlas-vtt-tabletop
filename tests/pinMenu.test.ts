@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import type { AtlasSceneState, AtlasView } from '../src/atlas';
 import { readMap, type BoardPin } from '../src/board/mapModel';
 import { canBeReadable, pinMenuEntries } from '../src/board/pinMenu';
-import { pinReadableInText, TokenWriter } from '../src/board/tokenWriter';
+import { NotHeldError, TokenWriter } from '../src/board/tokenWriter';
 
 const mapText = (pins: Record<string, unknown>): string => JSON.stringify({ version: 1, state: { objects: { tokens: {}, pins } } });
 const pin = (over: Partial<BoardPin> = {}): BoardPin => ({ id: 'p', x: 0, y: 0, notePath: 'Notes/Crypt.md', icon: 'pin', label: null, hex: false, ...over });
@@ -37,23 +37,16 @@ test('the pin menu ticks Readable by players and toggles it', () => {
   assert.deepEqual(set, [true, false]);
 });
 
-test('readable goes through Atlas (updateNotePin) when it holds the map, else into the file as Atlas writes it', async () => {
-  const text = mapText({ p: { id: 'p', kind: 'pin', x: 0, y: 0, notePath: 'Notes/Crypt.md' } });
-  const on = JSON.parse(pinReadableInText(text, 'p', true));
-  assert.equal(on.state.objects.pins.p.readable, true);
-  const off = JSON.parse(pinReadableInText(JSON.stringify(on), 'p', false));
-  assert.equal('readable' in off.state.objects.pins.p, false);
-  assert.throws(() => pinReadableInText(text, 'nope', true), /no pin nope/);
+test('readable goes through Atlas (updateNotePin) when it holds the map, and is refused on one it does not', async () => {
   const calls: unknown[] = [];
   const view: AtlasView = {
     viewId: 'v',
     atlasStore: { getState: () => ({ mapPath: 'm.atlasmap', mapLoaded: true, isMapLoading: false, updateNotePin: (id: string, changes: Record<string, unknown>) => { calls.push([id, changes]); } }) as AtlasSceneState, subscribe: () => () => {} },
   };
-  let written = '';
-  const writer = new TokenWriter({ views: () => [view], process: async (_path, edit) => { written = edit(text); } });
-  assert.equal(await writer.setPinReadable('m.atlasmap', 'p', true), 'atlas');
-  assert.equal(await writer.setPinReadable('m.atlasmap', 'p', false), 'atlas');
+  const writer = new TokenWriter({ views: () => [view], held: async () => null });
+  await writer.setPinReadable('m.atlasmap', 'p', true);
+  await writer.setPinReadable('m.atlasmap', 'p', false);
   assert.deepEqual(calls, [['p', { readable: true }], ['p', { readable: undefined }]]);
-  assert.equal(await writer.setPinReadable('other.atlasmap', 'p', true), 'file');
-  assert.equal(JSON.parse(written).state.objects.pins.p.readable, true);
+  await assert.rejects(writer.setPinReadable('other.atlasmap', 'p', true), NotHeldError);
+  assert.equal(calls.length, 2);
 });

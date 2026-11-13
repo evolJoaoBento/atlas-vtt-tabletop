@@ -29,7 +29,8 @@ import { tokenMenuEntries } from '../src/board/tokenMenu';
 import { conditionChange, conditionStep, resetChange } from '../src/board/tokenEdits';
 import { defeatedResources } from '../src/board/resources';
 import { HP_RESOURCE, type ResourceDefinition, type ResourceValue } from '../src/board/resources';
-import { applyInitiative, readInitiative, type InitiativeAction } from '../src/board/initiative';
+import { readInitiative, type InitiativeAction } from '../src/board/initiative';
+import { applyInitiative } from './fakeTracker';
 import { InitiativePanel } from '../src/board/initiativePanel';
 import { NO_FLIP, type BoardWall, type DoorFlip } from '../src/board/walls';
 import { materialDrag, type LoadedMaterial } from '../src/materials';
@@ -676,12 +677,21 @@ async function main(): Promise<void> {
   };
   const loot = new LootWindow(container, { app: lootApp as never, readMap: async () => JSON.stringify({ state: {} }), save: async (_path, settings) => { lootSaves.push(settings); } });
   void loot.setMap('maps/tavern.atlasmap');
-  // Atlas's asset manager over the board: spawned tokens are written into this map text and recorded.
-  let spawnText = JSON.stringify({ version: 4, state: { objects: { tokens: {} } } });
-  const spawnWriter = new TokenWriter({ views: () => [], process: async (_path, edit) => { spawnText = edit(spawnText); } });
+  // Atlas's asset manager over the board: spawned tokens go to this stand-in for Atlas's store (its `addTokens`), and are recorded.
+  const spawnTokens: Record<string, Record<string, unknown>> = {};
+  const spawnState = {
+    mapPath: 'maps/tavern.atlasmap', mapLoaded: true, isMapLoading: false, objects: { tokens: spawnTokens },
+    addTokens: (inputs: ReadonlyArray<Record<string, unknown>>): string[] => inputs.map((input) => {
+      const id = typeof input.id === 'string' ? input.id : `tok_spawn_${Object.keys(spawnTokens).length + 1}`;
+      spawnTokens[id] = { kind: 'token', ...input, id };
+      return id;
+    }),
+  };
+  const spawnView = { viewId: 'spawn', atlasStore: { getState: () => spawnState, subscribe: () => () => {} } };
+  const spawnWriter = new TokenWriter({ views: () => [spawnView as never], held: async () => spawnState as never });
   const spawnHost: BoardSpawnHost = {
     leaf: {} as never, writer: spawnWriter, mapPath: () => 'maps/tavern.atlasmap', centre: () => board.viewCentre(),
-    grid: () => map.grid, tokens: () => JSON.parse(spawnText).state.objects.tokens, select: () => {}, joinInitiative: async () => {}, openMap: async () => {},
+    grid: () => map.grid, tokens: () => spawnTokens as never, select: () => {}, joinInitiative: async () => {}, openMap: async () => {},
   };
   const assets = new AssetWindow(container, lootApp as never, spawnHost);
   // A second asset window whose app has no Atlas view yet (Atlas's tab deferred, or the board opened first): what it logs
@@ -690,7 +700,7 @@ async function main(): Promise<void> {
   const logError = console.error;
   console.error = (...parts: unknown[]) => { assetErrors.push(parts.map((part) => (part instanceof Error ? part.message : String(part))).join(' ')); logError(...parts); };
   const noAtlasAssets = new AssetWindow(container, { ...lootApp, workspace: { ...(lootApp as { workspace?: object }).workspace, getLeavesOfType: () => [] }, plugins: { plugins: {}, manifests: {} } } as never, spawnHost);
-  const spawned = (): Record<string, { x: number; y: number; name: string }> => JSON.parse(spawnText).state.objects.tokens;
+  const spawned = (): Record<string, { x: number; y: number; name: string }> => spawnTokens as never;
   // Atlas's command palette over the board: what each entry asks of the board is recorded.
   const paletteCalls: string[] = [];
   const paletteHost: PaletteHost = {

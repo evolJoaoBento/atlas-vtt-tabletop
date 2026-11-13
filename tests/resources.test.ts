@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import {
   HP_RESOURCE, STRESS_RESOURCE, defeatedResources, hiddenResourcesOf, isDefeated, isKillable, mapDefinitions,
   parseResourceDefinitions, parseValueInput, resourceColor, resourceUpdate, slottedResources, tokenFromFile,
-  tokenToFile, visibleResources, wheelGauge, withCurrent, type ResourceDefinition,
+  visibleResources, wheelGauge, withCurrent, type ResourceDefinition,
 } from '../src/board/resources';
 
 const def = (key: string, extra: Partial<ResourceDefinition> = {}): ResourceDefinition => ({
@@ -33,16 +33,6 @@ test('a bare HP number is out of 100 unless it is larger; maxStress 0 reads as 1
 test('a token with none of the fields is left as it is', () => {
   const raw = { id: 'x', x: 1 };
   assert.equal(tokenFromFile(raw), raw);
-});
-
-test('a token goes back to its file fields; reading it again gives the same token', () => {
-  const memory = { id: 't', resources: { hp: { current: 1, max: 9 }, stress: { current: 2, max: 6 }, ac: { current: 15, max: 15 } }, overriddenMax: ['hp', 'ac'] };
-  const file = tokenToFile(memory) as Record<string, unknown>;
-  assert.deepEqual(file, {
-    id: 't', hp: { current: 1, max: 9 }, stress: { current: 2, max: 6 }, maxStress: 6,
-    statblockResources: { ac: { current: 15, max: 15 } }, maxHpOverridden: true, overriddenMax: ['ac'],
-  });
-  assert.deepEqual(tokenFromFile(file), memory);
 });
 
 test('definitions are parsed as Atlas parses them, without duplicates, at most six', () => {

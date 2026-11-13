@@ -44,8 +44,8 @@ import { tokenMenuEntries } from './tokenMenu';
 import { pinMenuEntries } from './pinMenu';
 import { presentToEntry } from './sessionMenus';
 import { SpellAskModal } from '../spellAskModal';
-import { addToInitiative, conditionChange, conditionStep, initiativeEntryFor, initiativeId, removeFromInitiative, resetChange, type ConditionFields } from './tokenEdits';
-import { applyInitiative, currentEntries, delayedTokens, emptyInitiative, fileCannotRun, ownModifier, readInitiative, statblockModifier, turnAnnouncement, type InitiativeAction, type InitiativeState } from './initiative';
+import { conditionChange, conditionStep, resetChange, type ConditionFields } from './tokenEdits';
+import { currentEntries, delayedTokens, emptyInitiative, ownModifier, readInitiative, statblockModifier, turnAnnouncement, type InitiativeAction, type InitiativeState } from './initiative';
 import { InitiativePanel, type InitiativePanelHost } from './initiativePanel';
 import { wholeWall, isWindow, windowSpan, WINDOW_STEP } from './walls';
 import { NotHeldError, type TokenChange } from './tokenWriter';
@@ -394,8 +394,6 @@ export class BoardView extends ItemView {
     this.menu?.close();
     this.watched?.stop();
     this.watched = null;
-    this.stopWaiting?.();
-    this.stopWaiting = null;
     this.releaseHost?.();
     this.releaseHost = null;
     this.initiative?.dispose();
@@ -1687,11 +1685,7 @@ export class BoardView extends ItemView {
   /** Follows the store of the Atlas view holding this map, if one does; the tracker shows what it holds. */
   private watchAtlas(): void {
     const view = this.path && !this.closed ? this.services.writer.holder(this.path) : null;
-    // While no Atlas view holds the map (Atlas still reading it as a session starts, or its tab not the active one),
-    // its views are followed, so the board knows at once when one does (no layout change says so).
-    this.stopWaiting?.();
-    // With a host its own changes say so (`host.onChange`, in `onOpen`).
-    this.stopWaiting = view === null && this.path && !this.closed && !this.services.host ? this.services.writer.whenHeld(this.path, () => { this.stopWaiting = null; this.watchAtlas(); }) : null;
+    // The host's own changes say when Atlas comes to hold the map, or lets go of it (`host.onChange`, in `onOpen`).
     if (this.watched?.view === view) return;
     this.watched?.stop();
     this.watched = null;
@@ -1724,8 +1718,6 @@ export class BoardView extends ItemView {
     this.followTabs();
   }
 
-  /** Stops following Atlas's views for one that holds this map (`watchAtlas`). */
-  private stopWaiting: (() => void) | null = null;
 
   /** Atlas's scene tabs over the board, followed in the view that holds this map. */
   private sceneTabs: SceneTabBar | null = null;
@@ -1938,28 +1930,13 @@ export class BoardView extends ItemView {
     return this.map?.initiative ?? emptyInitiative();
   }
 
-  /**
-   * A change of the tracker. Through Atlas, its store changes and the tracker follows it; in the file, the board shows
-   * the change at once, with the same dice the file is written with.
-   */
+  /** A change of the tracker: Atlas's store changes (once Atlas holds the map), and the tracker follows it. */
   private initiativeAct(given: InitiativeAction): void {
     const map = this.map;
     if (!map) return;
     this.watchAtlas();
     const action = this.withDefeated(given);
-    const draws: number[] = [];
-    let next = 0;
-    if (!this.watched) {
-      // A fight only Atlas 0.9 runs (by cards, by rolled or named sides) is not played in the file.
-      const refused = fileCannotRun(map.initiative, action);
-      if (refused) {
-        new Notice(`Tabletop: ${refused} runs only in Atlas. Open this map in Atlas to play it.`, 8000);
-        return;
-      }
-      map.initiative = applyInitiative(map.initiative, action, () => { const draw = Math.random(); draws.push(draw); return draw; });
-      this.showInitiative();
-    }
-    this.services.writer.initiativeAction(map.path, action, () => draws[next++] ?? Math.random())
+    this.services.writer.initiativeAction(map.path, action)
       .catch((error: unknown) => this.unsaved('initiative change', error));
   }
 
@@ -2208,12 +2185,6 @@ export class BoardView extends ItemView {
     this.watchAtlas();
     // As Atlas: adding a token opens the tracker.
     if (join) this.initiative?.setOpen(true);
-    if (!this.watched) {
-      const token = map.tokens.find((candidate) => candidate.id === id);
-      const held = map.initiative as unknown as Parameters<typeof removeFromInitiative>[0];
-      map.initiative = readInitiative(join && token ? addToInitiative(held, initiativeEntryFor(token), initiativeId()) : removeFromInitiative(held, id));
-      this.showInitiative();
-    }
     this.services.writer.initiative(map.path, id, join).catch((error: unknown) => this.unsaved('initiative change', error));
   }
 

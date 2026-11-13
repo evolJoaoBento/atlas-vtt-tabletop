@@ -70,34 +70,6 @@ export function recordTabletopData(history: UndoHistory, boardData: BoardData, a
   return () => { stopBoard(); stopMinis(); };
 }
 
-/** Edits a file in place, as the writer's dependency does. */
-export type ProcessFile = (path: string, edit: (text: string) => string) => Promise<unknown>;
-
-/** A file edit that records its text before and after as an undo step (none while an undo is being carried out). */
-export function recordedProcess(history: UndoHistory, process: ProcessFile, label = 'map change'): ProcessFile {
-  const putBack = async (path: string, from: string, to: string): Promise<boolean> => {
-    let matched = false;
-    await process(path, (text) => {
-      matched = text === from;
-      return matched ? to : text;
-    });
-    return matched;
-  };
-  return async (path, edit) => {
-    let before: string | null = null;
-    let after: string | null = null;
-    const result = await process(path, (text) => {
-      before = text;
-      after = edit(text);
-      return after;
-    });
-    if (!history.travelling && before !== null && after !== null && before !== after) {
-      const [from, to] = [before as string, after as string];
-      history.push({ paths: [path], label, undo: () => putBack(path, to, from), redo: () => putBack(path, from, to) });
-    }
-    return result;
-  };
-}
 
 interface AtlasHistory {
   getState(): { pastStates: readonly unknown[]; futureStates: readonly unknown[]; undo(): void; redo(): void };

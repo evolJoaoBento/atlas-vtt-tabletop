@@ -5,8 +5,8 @@
  * - each collection defines up to six resources (`settings.resources`); each takes a socket on a token: the first two
  *   are bars, the rest wheels;
  * - in memory a token holds `resources` (`{ current, max }` by key) and `overriddenMax`; the map file keeps the fields
- *   older Atlas wrote (`hp`, `stress`/`maxStress`, `hope`, `statblockResources`, the override switches), so every
- *   version of Atlas reads it. `tokenFromFile` and `tokenToFile` convert, exactly as Atlas does.
+ *   older Atlas wrote (`hp`, `stress`/`maxStress`, `hope`, `statblockResources`, the override switches). The board
+ *   reads a file with `tokenFromFile`, as Atlas does; it never writes one (Atlas's store does).
  * Pure, so it is tested without Obsidian.
  */
 
@@ -191,30 +191,6 @@ export function tokenFromFile<T extends object>(token: T): T & ResourceHolder {
   return next as T & ResourceHolder;
 }
 
-/** A token as a map file holds it; `tokenFromFile` reads it back unchanged. */
-export function tokenToFile<T extends ResourceHolder>(token: T): object {
-  const { resources, overriddenMax, ...rest } = token;
-  if (!resources && !overriddenMax) return token;
-  const { hp, stress, hope, ...others } = resources ?? {};
-  const overridden = overriddenMax ?? [];
-  const otherOverrides = overridden.filter((key) => key !== 'hp' && key !== 'stress');
-  return {
-    ...rest,
-    ...(hp && { hp }),
-    ...(stress && { stress, maxStress: stress.max }),
-    ...(hope && { hope }),
-    ...(Object.keys(others).length > 0 && { statblockResources: others }),
-    ...(overridden.includes('hp') && { maxHpOverridden: true }),
-    ...(overridden.includes('stress') && { maxStressOverridden: true }),
-    ...(otherOverrides.length > 0 && { overriddenMax: otherOverrides }),
-  };
-}
-
-/** What an initiative entry copies of its token's resources, as Atlas writes it. */
-export function initiativeVitals(token: ResourceHolder): Raw {
-  const { hp, stress } = token.resources ?? {};
-  return { ...(hp && { hp }), ...(stress && { stress }), isDefeated: !!hp && hp.current <= 0 };
-}
 
 /**
  * The resource keys a map hides, from its token settings as the file holds them: the two old switches decide for HP

@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { hpChange, hpKey, readAmount, turned } from '../src/board/groupActions';
 import { HP_RESOURCE, type ResourceDefinition } from '../src/board/resources';
-import { turnTokensInText } from '../src/board/tokenWriter';
+import { NotHeldError, TokenWriter } from '../src/board/tokenWriter';
+import { fakeAtlas } from './fakeAtlasStore';
 
 test('turning wraps within 0 to 360, either way', () => {
   assert.equal(turned(0, 45), 45);
@@ -33,11 +34,13 @@ test('the amount box takes a whole number from 1', () => {
   for (const bad of ['', '0', '-3', '2.5', 'abc', '1000']) assert.equal(readAmount(bad), null, bad);
 });
 
-test('turning tokens in a map file sets each rotation and refuses a token that is not there', () => {
-  const file = JSON.stringify({ state: { objects: { tokens: { a: { id: 'a', x: 1, y: 2 }, b: { id: 'b', x: 3, y: 4, rotation: 90 } } } } });
-  const turned = JSON.parse(turnTokensInText(file, [{ id: 'a', rotation: 45 }, { id: 'b', rotation: 135 }]));
-  assert.equal(turned.state.objects.tokens.a.rotation, 45);
-  assert.equal(turned.state.objects.tokens.b.rotation, 135);
-  assert.equal(turned.state.objects.tokens.a.x, 1, 'nothing else changes');
-  assert.throws(() => turnTokensInText(file, [{ id: 'zz', rotation: 10 }]));
+test("turning tokens goes to Atlas's store as one change, and refuses a token or a map Atlas does not hold", async () => {
+  const atlas = fakeAtlas('m.atlasmap', { a: { id: 'a', x: 1, y: 2 }, b: { id: 'b', x: 3, y: 4, rotation: 90 } });
+  const writer = new TokenWriter(atlas.deps());
+  await writer.rotate('m.atlasmap', [{ id: 'a', rotation: 45 }, { id: 'b', rotation: 135 }]);
+  assert.equal(atlas.state.objects.tokens.a!.rotation, 45);
+  assert.equal(atlas.state.objects.tokens.b!.rotation, 135);
+  assert.equal(atlas.state.objects.tokens.a!.x, 1, 'nothing else changes');
+  await assert.rejects(writer.rotate('m.atlasmap', [{ id: 'zz', rotation: 10 }]), /no token zz/);
+  await assert.rejects(new TokenWriter(atlas.deps(false)).rotate('m.atlasmap', [{ id: 'a', rotation: 10 }]), NotHeldError);
 });

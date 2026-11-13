@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+// The tracker's changes are Atlas's store's; the cases that play them run the harness's stand-in for it (`fakeTracker`),
+// so the board's tracker can be played in the harness as Atlas plays it.
+import { applyInitiative } from '../harness/fakeTracker';
 import {
-  applyInitiative, collectionInitiativeRules, fightSides, fileCannotRun, initiativeEdit, listedBySides, modifierText, parseInitiativeRules,
+  collectionInitiativeRules, fightSides, initiativeEdit, listedBySides, modifierText, parseInitiativeRules,
   readInitiative, rollInitiativeDice, sideLabel, sideOf, sortedEntries, statblockModifier,
   type InitiativeEntry, type InitiativeRules, type InitiativeState,
 } from '../src/board/initiative';
@@ -177,15 +180,11 @@ test('Atlas 0.9: a fight leaves no cards, delays or round marks behind for the n
   assert.deepEqual(['card' in started.entries[0]!, 'delayed' in started.entries[0]!, active(started)], [false, false, 'a']);
 });
 
-test('Atlas 0.9: fights only Atlas runs are refused in the file; its rules are kept whole for Atlas', () => {
+test('Atlas 0.9: its rules are kept whole for Atlas, and a named side is read', () => {
   const cards = collectionInitiativeRules({ initiative: { mode: 'cards', roll: '1d20', firstSide: 'players', deck: 12, dealEachRound: true } });
   assert.deepEqual(cards, { mode: 'cards', roll: '1d20', firstSide: 'players', deck: 12, dealEachRound: true });
-  assert.ok(fileCannotRun(fight(), { type: 'start', rules: cards }));
   const ose = collectionInitiativeRules({ systemPresetId: 'builtin:ose' });
   assert.equal(ose.sideRoll, '1d6');
-  assert.ok(fileCannotRun(fight(), { type: 'start', rules: ose }));
-  assert.ok(fileCannotRun(fight({ isActive: true, sides: { first: 'players', active: 'goblins', order: [{ id: 'players' }, { id: 'goblins', name: 'Goblins' }] } }), { type: 'next' }));
-  assert.equal(fileCannotRun(fight(), { type: 'start', rules: { mode: 'sides', roll: '1d20', firstSide: 'players' } }), null);
   // A named side's turn is read, not dropped.
   assert.equal(readInitiative({ entries: [], isActive: true, sides: { first: 'players', active: 'goblins' } }).sides?.active, 'goblins');
   assert.deepEqual(fightSides({ sides: { first: 'players', active: 'goblins', order: [{ id: 'goblins', name: 'Goblins' }, { id: 'players' }] } }, DEFAULT), ['goblins', 'players']);

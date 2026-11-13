@@ -1,8 +1,8 @@
 /**
  * What the token menu changes, by Atlas's own rules (its store actions `setTokensCondition`,
  * `changeTokensConditionValue`, `resetTokens`, `addToInitiative` and `removeFromInitiative`): each returns the
- * token fields (or the initiative state) after the change, a field set to `undefined` being one Atlas deletes. The
- * token writer sends them to Atlas's store or the map file; the board shows them at once. Pure, so it is tested
+ * token fields after the change, a field set to `undefined` being one Atlas deletes. The token writer sends them to
+ * Atlas's store; the board shows them at once. Pure, so it is tested
  * without Obsidian.
  */
 import { restedResources, type ResourceDefinition, type ResourceHolder } from './resources';
@@ -48,25 +48,6 @@ export function resetChange(token: ResourceHolder & ConditionHolder, definitions
 
 // ── Initiative ──────────────────────────────────────────────────────────────
 
-/** A combatant of Atlas's initiative tracker, as its map file keeps it. */
-export interface InitiativeEntry {
-  id: string;
-  tokenId: string;
-  order: number;
-  isActive: boolean;
-  [field: string]: unknown;
-}
-
-export interface InitiativeState {
-  entries: InitiativeEntry[];
-  currentIndex: number;
-  [field: string]: unknown;
-}
-
-/** Atlas's tracker before anyone joined it. */
-function emptyInitiative(): InitiativeState {
-  return { entries: [], currentIndex: -1, round: 0, isActive: false, config: { autoSort: true } };
-}
 
 /** What Atlas puts in the tracker for a token (its `initiativeEntryForToken`). */
 export function initiativeEntryFor(token: { id: string; kind?: string; name?: string | null; imagePath?: string | null; statblockPath?: string | null }): Record<string, unknown> {
@@ -84,27 +65,3 @@ export function initiativeEntryFor(token: { id: string; kind?: string; name?: st
   };
 }
 
-/** The tracker with the token added last (active when it is the only one), unless it is in it already. */
-export function addToInitiative(state: InitiativeState | undefined, entry: Record<string, unknown>, id: string): InitiativeState {
-  const current = state ?? emptyInitiative();
-  if (current.entries.some((other) => other.tokenId === entry.tokenId)) return current;
-  const added: InitiativeEntry = { ...entry, id, order: current.entries.length, isActive: current.entries.length === 0 } as InitiativeEntry;
-  return { ...current, entries: [...current.entries, added] };
-}
-
-/** The tracker without the token: the others' order closed up; its turn, if it had it, passed to the next one. */
-export function removeFromInitiative(state: InitiativeState, tokenId: string): InitiativeState {
-  const index = state.entries.findIndex((entry) => entry.tokenId === tokenId);
-  if (index === -1) return state;
-  const wasActive = state.entries[index].isActive;
-  const entries = state.entries.filter((_, i) => i !== index).map((entry, order) => ({ ...entry, order }));
-  if (!wasActive || entries.length === 0) return { ...state, entries };
-  const next = Math.min(index, entries.length - 1);
-  entries[next] = { ...entries[next], isActive: true };
-  return { ...state, entries, currentIndex: next };
-}
-
-/** A new combatant's id, as Atlas makes them. */
-export function initiativeId(): string {
-  return `init_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-}

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { UndoHistory, type UndoStep } from '../src/board/undoHistory';
-import { recordAtlasWrites, recordedProcess, recordTabletopData } from '../src/board/undoRecorders';
+import { recordAtlasWrites, recordTabletopData } from '../src/board/undoRecorders';
 import { BoardData } from '../src/board/boardData';
 import { Assignments } from '../src/assignments';
 import { TokenWriter } from '../src/board/tokenWriter';
@@ -82,20 +82,6 @@ test('painted water is undone and redone with the board data', async () => {
   assert.equal(boardData.water('m')?.mask.data, 'AQ==');
 });
 
-test('a map file written is put back while it holds what was written', async () => {
-  const history = new UndoHistory();
-  let text = 'before';
-  const process = recordedProcess(history, async (_path, edit) => { text = edit(text); });
-  await process('m', () => 'after');
-  assert.equal((await history.undo(['m']))?.done, true);
-  assert.equal(text, 'before');
-  await history.redo(['m']);
-  assert.equal(text, 'after');
-  text = 'changed elsewhere';
-  assert.equal((await history.undo(['m']))?.done, false);
-  assert.equal(text, 'changed elsewhere');
-});
-
 test("a change Atlas took is undone in Atlas's own history", async () => {
   const history = new UndoHistory();
   const past: number[] = [];
@@ -110,7 +96,7 @@ test("a change Atlas took is undone in Atlas's own history", async () => {
   };
   const state = { mapPath: 'm', mapLoaded: true, objects: { tokens }, updateToken: (id: string, change: { x: number; y: number }) => { tokens[id] = change; past.push(1); future.length = 0; } };
   const view = { atlasStore: Object.assign({ getState: () => state }, { temporal }) };
-  const writer = new TokenWriter({ views: () => [view as never], process: async () => { throw new Error('no file'); } });
+  const writer = new TokenWriter({ views: () => [view as never], held: async () => null });
   recordAtlasWrites(history, writer);
   await writer.move('m', 't', 70, 0);
   assert.equal(history.canUndo(['m']), true);

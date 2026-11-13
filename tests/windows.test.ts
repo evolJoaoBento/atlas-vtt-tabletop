@@ -63,17 +63,11 @@ test('the GM\'s window openings are kept with the board data and read back', () 
   assert.equal(data.windowOf('m', 'a'), null);
 });
 
-test('a plain wall is made a window and back, in the file and through Atlas', async () => {
-  const { TokenWriter, wallsWindowInText } = await import('../src/board/tokenWriter');
-  const map = JSON.stringify({ state: { objects: { walls: { w: { id: 'w', type: 'solid', p1: { x: 0, y: 0 }, p2: { x: 70, y: 0 } }, d: { id: 'd', type: 'door', p1: { x: 0, y: 0 }, p2: { x: 0, y: 70 } } } } } });
-  let file = wallsWindowInText(map, ['w', 'd'], true);
-  assert.equal(JSON.parse(file).state.objects.walls.w.blocks, 'movement');
-  assert.equal('blocks' in JSON.parse(file).state.objects.walls.d, false);
-  file = wallsWindowInText(file, ['w'], false);
-  assert.equal('blocks' in JSON.parse(file).state.objects.walls.w, false);
+test("a plain wall is made a window and back, through Atlas's store", async () => {
+  const { TokenWriter } = await import('../src/board/tokenWriter');
   const calls: unknown[] = [];
   const view = { file: { path: 'm.atlasmap' }, atlasStore: { getState: () => ({ mapPath: 'm.atlasmap', updateWall: (id: string, changes: Record<string, unknown>) => calls.push([id, changes]) }) } };
-  const writer = new TokenWriter({ views: () => [view as never], process: async () => { throw new Error('no file write'); } });
+  const writer = new TokenWriter({ views: () => [view as never], held: async () => null });
   await writer.setWindow('m.atlasmap', ['a', 'b'], true);
   await writer.setWindow('m.atlasmap', ['a'], false);
   assert.deepEqual(calls, [['a', { blocks: 'movement' }], ['b', { blocks: 'movement' }], ['a', { blocks: undefined }]]);

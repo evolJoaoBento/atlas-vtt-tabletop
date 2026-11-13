@@ -2,137 +2,29 @@
  * Saves what the board changes on a map: a token moved, copied (Shift + Alt-drag), killed, reset, hidden or shown, given or
  * relieved of a condition, deleted, put in or taken out of the initiative; a resource stepped or edited; and what the
  * initiative tracker does (turns, rolls, the order, a fight started or ended).
- * Atlas never re-reads a map file it has open: its next save writes what it holds, which would undo a change written
- * to the file behind its back. So while an Atlas view has the map open (and has it loaded), the change goes through
- * Atlas's own store actions, which Atlas shows and saves; otherwise the file is edited, changing only what changed
- * and writing it back the way Atlas writes it (`JSON.stringify`, no indentation).
  *
- * Resources are changed the way Atlas 0.8 changes them: on its memory form (`resources`, `overriddenMax`), converted
- * from and back to the file's fields with Atlas's own rules (`resources.ts`). An older Atlas holds the file's fields in
- * its store too, and is given those.
+ * Atlas's store is the only writer of Atlas's records. Atlas keeps one map loaded at a time and never re-reads a file it
+ * has open, so a change goes through the store actions of the Atlas view holding the map, which Atlas shows and saves.
+ * While Atlas is on its way to the map, a change waits for it (`held`); a map it does not come to hold is not changed
+ * at all (`NotHeldError`), and the board's bar offers Edit here. No map file is ever written.
+ *
+ * A held change is made at once, before any wait: the undo recorder counts the steps Atlas's history gained by the
+ * time the call returns.
  */
 import type { AtlasSceneState, AtlasView } from '../atlas';
-import {
-  defeatedResources, initiativeVitals, resourceUpdate, tokenFromFile, tokenToFile,
-  type ResourceDefinition, type ResourceHolder, type ResourceValue,
-} from './resources';
-import { addToInitiative, initiativeEntryFor, initiativeId, removeFromInitiative, type InitiativeState } from './tokenEdits';
-import { applyInitiative, fileCannotRun, readInitiative, type InitiativeAction } from './initiative';
+import { defeatedResources, resourceUpdate, type ResourceDefinition, type ResourceValue, type ResourceHolder } from './resources';
+import { initiativeEntryFor } from './tokenEdits';
+import type { InitiativeAction } from './initiative';
 
 type RawToken = Record<string, unknown> & { x?: number; y?: number; imagePath?: string; instanceNumber?: number };
-type RawWall = Record<string, unknown> & { type?: string; closed?: boolean; locked?: boolean };
-type MapFile = { state?: { objects?: { tokens?: Record<string, RawToken>; walls?: Record<string, RawWall>; pins?: Record<string, Record<string, unknown>> }; initiative?: InitiativeState } };
 /**
  * What a change does to a token, given it as Atlas holds it in memory (its resources as `resources`): the fields it
- * sets, `undefined` for one it deletes; null when it changes nothing. `resources` and `overriddenMax` are written in
- * the form the map file (or an older Atlas) keeps them.
+ * sets, `undefined` for one it deletes; null when it changes nothing.
  */
 export type TokenChange = (token: ResourceHolder & Record<string, unknown>) => Record<string, unknown> | null;
-type ResourceChange = TokenChange;
-
-function tokensOf(file: MapFile): Record<string, RawToken> {
-  const tokens = file.state?.objects?.tokens;
-  if (!tokens) throw new Error('this map has no tokens');
-  return tokens;
-}
-
-function tokenOf(file: MapFile, id: string): RawToken {
-  const token = tokensOf(file)[id];
-  if (!token) throw new Error(`no token ${id} on this map`);
-  return token;
-}
-
-/** The map file's text with one token moved. Throws when the token is not on the map. */
-export function moveTokenInText(text: string, id: string, x: number, y: number): string {
-  const file = JSON.parse(text) as MapFile;
-  const token = tokenOf(file, id);
-  token.x = x;
-  token.y = y;
-  return JSON.stringify(file);
-}
-
-/** The map file's text with several tokens moved. Throws when one is not on the map. */
-export function moveTokensInText(text: string, moves: ReadonlyArray<{ id: string; x: number; y: number }>): string {
-  const file = JSON.parse(text) as MapFile;
-  for (const move of moves) {
-    const token = tokenOf(file, move.id);
-    token.x = move.x;
-    token.y = move.y;
-  }
-  return JSON.stringify(file);
-}
-
-/** The map file's text with several tokens turned (degrees). Throws when one is not on the map. */
-export function turnTokensInText(text: string, turns: ReadonlyArray<{ id: string; rotation: number }>): string {
-  const file = JSON.parse(text) as MapFile;
-  for (const turn of turns) tokenOf(file, turn.id).rotation = turn.rotation;
-  return JSON.stringify(file);
-}
-
-/** The lowest copy number from 1 no token with the same art holds, as Atlas numbers copies. */
-function nextInstanceNumber(tokens: Record<string, RawToken>, imagePath: string | undefined): number {
-  const taken = new Set(Object.values(tokens).filter((token) => token.imagePath === imagePath).map((token) => token.instanceNumber));
-  let next = 1;
-  while (taken.has(next)) next++;
-  return next;
-}
-
-/** The map file's text with a copy of a token, under a new id, at (x, y). */
-export function copyTokenInText(text: string, id: string, newId: string, x: number, y: number): string {
-  const file = JSON.parse(text) as MapFile;
-  const tokens = tokensOf(file);
-  const source = tokenOf(file, id);
-  const copy: RawToken = { ...structuredClone(source), id: newId, x, y, instanceNumber: nextInstanceNumber(tokens, source.imagePath) };
-  tokens[newId] = copy;
-  return JSON.stringify(file);
-}
-
-/** A token's record as the map file holds it; throws when the token is not on the map. */
-export function readTokenInText(text: string, id: string): Record<string, unknown> {
-  return structuredClone(tokenOf(JSON.parse(text) as MapFile, id));
-}
-
-/** A new token id as Atlas makes them (`addTokens` in its store). */
-export const newTokenId = (): string => `tok_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-
-/**
- * The map file's text with spawned tokens added (each input carries its id), as Atlas's `addTokens` adds them: a token
- * unless it says otherwise, numbered among the copies of its art, kept in the file's form of its resources.
- */
-export function addTokensInText(text: string, inputs: ReadonlyArray<Record<string, unknown> & { id: string }>): string {
-  const file = JSON.parse(text) as MapFile;
-  const tokens = tokensOf(file);
-  for (const input of inputs) {
-    const imagePath = typeof input.imagePath === 'string' ? input.imagePath : undefined;
-    const token = { ...input, kind: input.kind ?? 'token', instanceNumber: nextInstanceNumber(tokens, imagePath) };
-    tokens[input.id] = tokenToFile(token as Parameters<typeof tokenToFile>[0]) as RawToken;
-  }
-  return JSON.stringify(file);
-}
-
-/** What a token keeps when it goes to another scene: everything but its copy number (the new scene numbers it) and the floor it stood on. */
-function arrivingToken(raw: Record<string, unknown>, id: string, x: number, y: number): RawToken {
-  const { instanceNumber: _number, level: _level, levels: _levels, offLevel: _offLevel, levelId: _levelId, ...kept } = raw;
-  return { ...structuredClone(kept), id, x, y } as RawToken;
-}
-
-/** The map file's text with a token that came from another scene, under `id`, at (x, y); it is numbered among the copies of its art. */
-export function addTokenInText(text: string, raw: Record<string, unknown>, id: string, x: number, y: number): string {
-  const file = JSON.parse(text) as MapFile;
-  const tokens = tokensOf(file);
-  const arrived = arrivingToken(raw, id, x, y);
-  tokens[id] = { ...arrived, instanceNumber: nextInstanceNumber(tokens, arrived.imagePath) };
-  return JSON.stringify(file);
-}
-
-/** The fields an older Atlas (and every map file) keeps a token's resources in. */
-const FILE_FIELDS = ['hp', 'stress', 'maxStress', 'hope', 'statblockResources', 'maxHpOverridden', 'maxStressOverridden', 'overriddenMax'];
-
-/** Whether a token is in the file's form (an older Atlas's store, or a file) rather than Atlas 0.8's memory form. */
-const inFileForm = (token: Record<string, unknown>): boolean => !('resources' in token) && FILE_FIELDS.some((field) => field in token);
 
 /** Sets one resource: `edit` turns the value the token holds into the new one. */
-function setResource(key: string, edit: (stored: ResourceValue) => ResourceValue, maxEdited: boolean): ResourceChange {
+function setResource(key: string, edit: (stored: ResourceValue) => ResourceValue, maxEdited: boolean): TokenChange {
   return (token) => {
     const stored = token.resources?.[key];
     if (!stored) throw new Error(`the token has no ${key}`);
@@ -140,152 +32,18 @@ function setResource(key: string, edit: (stored: ResourceValue) => ResourceValue
   };
 }
 
-const kill = (definitions: readonly ResourceDefinition[]): ResourceChange => (token) => {
+const kill = (definitions: readonly ResourceDefinition[]): TokenChange => (token) => {
   const resources = defeatedResources(token, definitions);
   return resources ? { resources } : null;
 };
 
-/** The map file's text with `change` made to a token's resources, its initiative entry's copy of them kept up. */
-function changeInText(text: string, id: string, change: ResourceChange): string {
-  const file = JSON.parse(text) as MapFile;
-  const tokens = tokensOf(file);
-  const held = tokenFromFile(tokenOf(file, id));
-  const changes = change(held);
-  if (!changes) return text;
-  const next: Record<string, unknown> = { ...held, ...changes };
-  for (const [field, value] of Object.entries(next)) if (value === undefined) delete next[field];
-  tokens[id] = tokenToFile(next) as RawToken;
-  const entries = file.state?.initiative?.entries;
-  if (Array.isArray(entries)) {
-    file.state!.initiative!.entries = entries.map((entry) => (
-      typeof entry === 'object' && entry !== null && entry.tokenId === id ? { ...entry, ...initiativeVitals(next) } : entry
-    ));
-  }
-  return JSON.stringify(file);
-}
+/** A new token id as Atlas makes them (`addTokens` in its store). */
+export const newTokenId = (): string => `tok_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 
-/** The map file's text with one resource of a token set; `edit` gets the value the file holds. */
-export function setResourceInText(text: string, id: string, key: string, edit: (stored: ResourceValue) => ResourceValue, maxEdited: boolean): string {
-  return changeInText(text, id, setResource(key, edit, maxEdited));
-}
-
-/** The map file's text with a token killed: every resource that defeats it spent. */
-export function killTokenInText(text: string, id: string, definitions: readonly ResourceDefinition[]): string {
-  return changeInText(text, id, kill(definitions));
-}
-
-/** The map file's text with a token put in the initiative (as Atlas adds it), or taken out. */
-export function initiativeInText(text: string, id: string, join: boolean, entryId: string): string {
-  const file = JSON.parse(text) as MapFile;
-  const raw = tokenOf(file, id);
-  const state = file.state!;
-  if (join) {
-    // The file keeps the token's vitals beside its entry, as Atlas writes them.
-    const entry = { ...initiativeEntryFor(raw as Parameters<typeof initiativeEntryFor>[0]), ...initiativeVitals(tokenFromFile(raw)) };
-    state.initiative = addToInitiative(state.initiative, entry, entryId);
-  } else if (state.initiative) {
-    state.initiative = removeFromInitiative(state.initiative, id);
-  }
-  return JSON.stringify(file);
-}
-
-/** The map file's text without a token, nor its place in the initiative (Atlas's tracker drops it too). */
-export function deleteTokenInText(text: string, id: string): string {
-  const file = JSON.parse(text) as MapFile;
-  tokenOf(file, id);
-  delete tokensOf(file)[id];
-  if (file.state?.initiative) file.state.initiative = removeFromInitiative(file.state.initiative, id);
-  return JSON.stringify(file);
-}
-
-/** The map file's text with the initiative tracker changed as `action` says; `random` rolls the dice. */
-export function initiativeActionInText(text: string, action: InitiativeAction, random: () => number = Math.random): string {
-  const file = JSON.parse(text) as MapFile;
-  if (!file.state) throw new Error('not an Atlas map');
-  const before = readInitiative(file.state.initiative);
-  const refused = fileCannotRun(before, action);
-  if (refused) throw new Error(`${refused} runs only in Atlas: open the map in Atlas to play it`);
-  const after = applyInitiative(before, action, random);
-  file.state.initiative = after;
-  // A combatant kept beside the map (Atlas 0.9) goes with its entry, as in Atlas: nothing else shows it.
-  const tokens = file.state.objects?.tokens;
-  if (tokens && (action.type === 'remove' || action.type === 'reset')) {
-    const kept = new Set(after.entries.map((entry) => entry.tokenId));
-    for (const entry of before.entries) {
-      if (!kept.has(entry.tokenId) && tokens[entry.tokenId]?.offMap === true) delete tokens[entry.tokenId];
-    }
-    if (action.type === 'reset') for (const [id, token] of Object.entries(tokens)) if (token.offMap === true) delete tokens[id];
-  }
-  return JSON.stringify(file);
-}
-
-/** The map file's door, or an error when there is none by that id. */
-function doorOf(file: MapFile, id: string): RawWall {
-  const wall = file.state?.objects?.walls?.[id];
-  if (!wall || (wall.type !== 'door' && wall.type !== 'secret-door')) throw new Error(`no door ${id} on this map`);
-  return wall;
-}
-
-/**
- * The map file's text with the random tables window's saved choices changed, as Atlas's `updateLootRoller` does (it keeps
- * the rest of the block). Atlas's store saves this block with the map (`lootRoller`).
- */
-export function lootRollerInText(text: string, settings: Readonly<Record<string, unknown>>): string {
-  const file = JSON.parse(text) as MapFile & { state?: { lootRoller?: Record<string, unknown> } };
-  if (!file.state) throw new Error('this is not a map file');
-  file.state.lootRoller = { ...(file.state.lootRoller ?? {}), ...settings };
-  return JSON.stringify(file);
-}
-
-/** The map file's text with a door opened or shut, as Atlas's `toggleDoor` does: a locked door stays shut. */
-export function toggleDoorInText(text: string, id: string): string {
-  const file = JSON.parse(text) as MapFile;
-  const door = doorOf(file, id);
-  if (door.locked === true) return text;
-  door.closed = !(door.closed ?? true);
-  return JSON.stringify(file);
-}
-
-/** The map file's text with walls made windows (stopping only tokens) or plain walls again, as Atlas's `updateWall` does. */
-export function wallsWindowInText(text: string, ids: readonly string[], window: boolean): string {
-  const file = JSON.parse(text) as MapFile;
-  for (const id of ids) {
-    const wall = file.state?.objects?.walls?.[id];
-    if (!wall || wall.type !== 'solid') continue;
-    if (window) wall.blocks = 'movement';
-    else delete wall.blocks;
-  }
-  return JSON.stringify(file);
-}
-
-/** The map file's text with Atlas's Snap to grid turned on or off, as Atlas's `setSnapToGrid` does. */
-export function snapToGridInText(text: string, on: boolean): string {
-  const file = JSON.parse(text) as { state?: { grid?: Record<string, unknown> } };
-  if (!file.state) return text;
-  file.state.grid = { ...(file.state.grid ?? {}), snapToGrid: on };
-  return JSON.stringify(file);
-}
-
-/** The map file's text with a door locked (and so shut) or unlocked, as Atlas's `setDoorLocked` does. */
-export function lockDoorInText(text: string, id: string, locked: boolean): string {
-  const file = JSON.parse(text) as MapFile;
-  const door = doorOf(file, id);
-  if (locked) {
-    door.locked = true;
-    door.closed = true;
-  } else {
-    delete door.locked;
-  }
-  return JSON.stringify(file);
-}
-
-/** The map file's text with a pin readable by players or not, as Atlas's pin menu sets it (`readable: true`, or none). */
-export function pinReadableInText(text: string, id: string, readable: boolean): string {
-  const file = JSON.parse(text) as MapFile;
-  const pin = file.state?.objects?.pins?.[id];
-  if (!pin) throw new Error(`no pin ${id} on this map`);
-  if (readable) pin.readable = true; else delete pin.readable;
-  return JSON.stringify(file);
+/** What a token keeps when it goes to another scene: everything but its copy number (the new scene numbers it) and the floor it stood on. */
+function arrivingToken(raw: Record<string, unknown>, id: string, x: number, y: number): RawToken {
+  const { instanceNumber: _number, level: _level, levels: _levels, offLevel: _offLevel, levelId: _levelId, ...kept } = raw;
+  return { ...structuredClone(kept), id, x, y } as RawToken;
 }
 
 /** Sends a tracker change to Atlas's store, the action Atlas's own tracker calls; false when Atlas offers none. */
@@ -335,6 +93,10 @@ function sendToAtlas(state: AtlasSceneState, action: InitiativeAction): boolean 
  * An edit of Atlas's records on a map Atlas does not hold. Atlas keeps one map loaded at a time, and its store is the
  * only thing that writes a map: the edit is refused, and the board's bar offers Edit here.
  */
+/**
+ * An edit of Atlas's records on a map Atlas does not hold. Atlas keeps one map loaded at a time, and its store is the
+ * only thing that writes a map: the edit is refused, and the board's bar offers Edit here.
+ */
 export class NotHeldError extends Error {
   constructor() {
     super('Atlas holds another map: click Edit here first.');
@@ -346,34 +108,16 @@ export interface TokenWriterDeps {
   /** The open Atlas map views. */
   views: () => AtlasView[];
   /**
-   * Edits a vault file in place. The plugin gives one that always rejects with `NotHeldError`: no map file is written
-   * behind Atlas's back. (The file edits below remain for the tests that pin Atlas's file format, until they go.)
-   */
-  process: (path: string, edit: (text: string) => string) => Promise<unknown>;
-  /**
    * The state of Atlas's store once it holds `path`: at once when it does; after the wait when Atlas is on its way to
-   * the map (edits made meanwhile wait here, in the order they were made); null when it is not.
+   * the map (edits made meanwhile wait here, in the order they were made); null when it does not come to.
    */
-  held?: (path: string) => Promise<AtlasSceneState | null>;
-  /** Makes Atlas hold `path` and waits for it; false when it does not come to. */
+  held: (path: string) => Promise<AtlasSceneState | null>;
+  /** Makes Atlas hold `path` and waits for it; false when it does not come to. Without it a token never changes scene. */
   follow?: (path: string) => Promise<boolean>;
 }
 
 export class TokenWriter {
   constructor(private readonly deps: TokenWriterDeps) {}
-
-  /**
-   * The Atlas store holding the map, loaded and holding the token. While Atlas is still reading the map in it saves
-   * nothing, and a token it does not hold it cannot change: then the file is written instead, so nothing is dropped.
-   */
-  private atlas(path: string, id: string): AtlasSceneState | null {
-    for (const view of this.deps.views()) {
-      const state = view.atlasStore.getState();
-      const ready = state.mapLoaded !== false && state.isMapLoading !== true && Object.hasOwn(state.objects?.tokens ?? {}, id);
-      if (state.mapPath === path && ready) return state;
-    }
-    return null;
-  }
 
   /** The Atlas view holding the map, loaded; null when none does. */
   holder(path: string): AtlasView | null {
@@ -384,190 +128,117 @@ export class TokenWriter {
     return null;
   }
 
-  /** Whether an open Atlas view has `path` but is still reading it (it will hold it in a moment). */
-  loading(path: string): boolean {
-    return this.deps.views().some((view) => {
-      const state = view.atlasStore.getState();
-      return state.mapPath === path && state.isMapLoading === true;
-    });
-  }
-
-  /**
-   * Calls `ready` once an open Atlas view holds `path` loaded (Atlas finished reading it, or switched its tab to it):
-   * the open views' stores are followed until then. Returns the stop. The views opened later are not followed (a new
-   * view is a layout change, which the caller watches).
-   */
-  whenHeld(path: string, ready: () => void): () => void {
-    let stops: Array<() => void> = [];
-    const stop = (): void => { for (const each of stops) each(); stops = []; };
-    const check = (): void => {
-      if (stops.length === 0 || this.holder(path) === null) return;
-      stop();
-      ready();
-    };
-    stops = this.deps.views().map((view) => view.atlasStore.subscribe(check));
-    return stop;
-  }
-
-  /** Waits for Atlas when it is on its way to the map, so an edit made while it loads goes to its store. */
+  /** Waits for Atlas when the map is not held yet, so an edit made while it loads goes to its store. */
   private async ready(path: string): Promise<void> {
-    if (this.holder(path) === null && this.deps.held) await this.deps.held(path);
+    await this.deps.held(path);
   }
 
-  /** Atlas holds the map but not the action needed: writing the file would be undone by its next save. */
+  /** The store of the Atlas view holding the map; `NotHeldError` when none does. */
+  private store(path: string): AtlasSceneState {
+    const view = this.holder(path);
+    if (!view) throw new NotHeldError();
+    return view.atlasStore.getState();
+  }
+
+  /** The store holding the map, which must hold the token. */
+  private tokenStore(path: string, id: string): AtlasSceneState {
+    const state = this.store(path);
+    if (!Object.hasOwn(state.objects?.tokens ?? {}, id)) throw new Error(`no token ${id} on this map`);
+    return state;
+  }
+
+  /** Atlas holds the map but not the action needed. */
   private static missing(action: string): Error {
     return new Error(`Atlas has this map open but offers no ${action} here; change it in Atlas`);
   }
 
-  /** Moves the token; says whether Atlas took the move or the file was written. */
-  async move(path: string, id: string, x: number, y: number): Promise<'atlas' | 'file'> {
+  /** Moves the token. */
+  async move(path: string, id: string, x: number, y: number): Promise<void> {
     if (this.holder(path) === null) await this.ready(path);
-    const state = this.atlas(path, id);
-    if (state) {
-      if (!state.updateToken) throw TokenWriter.missing('token update');
-      state.updateToken(id, { x, y });
-      return 'atlas';
-    }
-    await this.deps.process(path, (text) => moveTokenInText(text, id, x, y));
-    return 'file';
+    const state = this.tokenStore(path, id);
+    if (!state.updateToken) throw TokenWriter.missing('token update');
+    state.updateToken(id, { x, y });
   }
 
-  /** Moves several tokens as one change (one undo step in Atlas); says whether Atlas took it or the file was written. */
-  async moveMany(path: string, moves: ReadonlyArray<{ id: string; x: number; y: number }>): Promise<'atlas' | 'file'> {
+  /** Moves several tokens as one change (one undo step in Atlas). */
+  async moveMany(path: string, moves: ReadonlyArray<{ id: string; x: number; y: number }>): Promise<void> {
     const first = moves[0];
-    if (!first) return 'file';
+    if (!first) return;
     if (this.holder(path) === null) await this.ready(path);
-    const state = this.atlas(path, first.id);
-    if (state) {
-      if (state.updateTokens) {
-        state.updateTokens(moves.map(({ id, x, y }) => ({ id, changes: { x, y } })));
-        return 'atlas';
-      }
-      if (!state.updateToken) throw TokenWriter.missing('token update');
-      for (const { id, x, y } of moves) state.updateToken(id, { x, y });
-      return 'atlas';
+    const state = this.tokenStore(path, first.id);
+    if (state.updateTokens) {
+      state.updateTokens(moves.map(({ id, x, y }) => ({ id, changes: { x, y } })));
+      return;
     }
-    await this.deps.process(path, (text) => moveTokensInText(text, moves));
-    return 'file';
+    if (!state.updateToken) throw TokenWriter.missing('token update');
+    for (const { id, x, y } of moves) state.updateToken(id, { x, y });
   }
 
-  /** Turns several tokens as one request each (degrees, 0 to 360); says whether Atlas took it or the file was written. */
-  async rotate(path: string, turns: ReadonlyArray<{ id: string; rotation: number }>): Promise<'atlas' | 'file'> {
+  /** Turns several tokens as one request each (degrees, 0 to 360). */
+  async rotate(path: string, turns: ReadonlyArray<{ id: string; rotation: number }>): Promise<void> {
     const first = turns[0];
-    if (!first) return 'file';
+    if (!first) return;
     if (this.holder(path) === null) await this.ready(path);
-    const state = this.atlas(path, first.id);
-    if (state) {
-      if (state.updateTokens) {
-        state.updateTokens(turns.map(({ id, rotation }) => ({ id, changes: { rotation } })));
-        return 'atlas';
-      }
-      if (!state.updateToken) throw TokenWriter.missing('token update');
-      for (const { id, rotation } of turns) state.updateToken(id, { rotation });
-      return 'atlas';
+    const state = this.tokenStore(path, first.id);
+    if (state.updateTokens) {
+      state.updateTokens(turns.map(({ id, rotation }) => ({ id, changes: { rotation } })));
+      return;
     }
-    await this.deps.process(path, (text) => turnTokensInText(text, turns));
-    return 'file';
+    if (!state.updateToken) throw TokenWriter.missing('token update');
+    for (const { id, rotation } of turns) state.updateToken(id, { rotation });
   }
 
   /** Copies the token to (x, y) under `newId` (Atlas numbers the copy). */
-  async copy(path: string, id: string, newId: string, x: number, y: number): Promise<'atlas' | 'file'> {
+  async copy(path: string, id: string, newId: string, x: number, y: number): Promise<void> {
     if (this.holder(path) === null) await this.ready(path);
-    const state = this.atlas(path, id);
-    if (state) {
-      if (!state.addToken) throw TokenWriter.missing('way to add a token');
-      const source = structuredClone(state.objects.tokens[id]) as unknown as RawToken;
-      delete source.instanceNumber;
-      state.addToken({ ...source, id: newId, x, y });
-      return 'atlas';
-    }
-    await this.deps.process(path, (text) => copyTokenInText(text, id, newId, x, y));
-    return 'file';
+    const state = this.tokenStore(path, id);
+    if (!state.addToken) throw TokenWriter.missing('way to add a token');
+    const source = structuredClone(state.objects.tokens[id]) as unknown as RawToken;
+    delete source.instanceNumber;
+    state.addToken({ ...source, id: newId, x, y });
   }
 
-  /**
-   * Changes a token's resources through Atlas's store: Atlas 0.8 holds them in memory as `resources` (it writes the
-   * file's fields only when saving, from those), an older Atlas as the file's fields.
-   */
-  private changeInAtlas(state: AtlasSceneState, id: string, change: ResourceChange): void {
+  /** Changes a token through Atlas's store, which holds its resources as `resources`. */
+  private async change(path: string, id: string, change: TokenChange): Promise<void> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.tokenStore(path, id);
     if (!state.updateToken) throw TokenWriter.missing('token update');
-    const live = state.objects.tokens[id] as unknown as Record<string, unknown>;
-    if (!inFileForm(live)) {
-      const changes = change(live);
-      if (changes) state.updateToken(id, changes);
-      return;
-    }
-    const held = tokenFromFile(live);
-    const changes = change(held);
-    if (!changes) return;
-    const { resources: _resources, overriddenMax: _overriddenMax, ...others } = changes;
-    const touchesResources = 'resources' in changes || 'overriddenMax' in changes;
-    const fileForm = tokenToFile({ ...held, ...changes }) as Record<string, unknown>;
-    const resourceFields = touchesResources ? Object.fromEntries(FILE_FIELDS.filter((field) => field in fileForm).map((field) => [field, fileForm[field]])) : {};
-    state.updateToken(id, { ...others, ...resourceFields });
-  }
-
-  private async change(path: string, id: string, change: ResourceChange): Promise<'atlas' | 'file'> {
-    if (this.holder(path) === null) await this.ready(path);
-    const state = this.atlas(path, id);
-    if (state) {
-      this.changeInAtlas(state, id, change);
-      return 'atlas';
-    }
-    await this.deps.process(path, (text) => changeInText(text, id, change));
-    return 'file';
+    const changes = change(state.objects.tokens[id] as unknown as ResourceHolder & Record<string, unknown>);
+    if (changes) state.updateToken(id, changes);
   }
 
   /**
-   * Sets one of the token's resources: `edit` gets the value Atlas (or the file) holds now, so steps made in quick
-   * succession add up even before the board has read them back.
+   * Sets one of the token's resources: `edit` gets the value Atlas holds now, so steps made in quick succession add up
+   * even before the board has read them back.
    */
-  resource(path: string, id: string, key: string, edit: (stored: ResourceValue) => ResourceValue, maxEdited: boolean): Promise<'atlas' | 'file'> {
+  resource(path: string, id: string, key: string, edit: (stored: ResourceValue) => ResourceValue, maxEdited: boolean): Promise<void> {
     return this.change(path, id, setResource(key, edit, maxEdited));
   }
 
-  /** Changes the token as `change` says (a condition, hidden or shown, Reset), through Atlas or in the file. */
-  update(path: string, id: string, change: TokenChange): Promise<'atlas' | 'file'> {
+  /** Changes the token as `change` says (a condition, hidden or shown, Reset). */
+  update(path: string, id: string, change: TokenChange): Promise<void> {
     return this.change(path, id, change);
   }
 
-  /**
-   * Puts the token in Atlas's initiative tracker, or takes it out. Through Atlas, its tracker opens too, as Atlas's
-   * menu opens it.
-   */
-  async initiative(path: string, id: string, join: boolean): Promise<'atlas' | 'file'> {
+  /** Puts the token in Atlas's initiative tracker, or takes it out; its tracker opens too, as Atlas's menu opens it. */
+  async initiative(path: string, id: string, join: boolean): Promise<void> {
     if (this.holder(path) === null) await this.ready(path);
-    const state = this.atlas(path, id);
-    if (state) {
-      if (!state.addToInitiative || !state.removeFromInitiative) throw TokenWriter.missing('initiative tracker');
-      if (state.initiativeTrackerOpen === false) state.setInitiativeTrackerOpen?.(true);
-      const entry = state.initiative?.entries.find((candidate) => candidate.tokenId === id);
-      const token = state.objects.tokens[id] as unknown as Parameters<typeof initiativeEntryFor>[0];
-      if (join && !entry) state.addToInitiative(initiativeEntryFor(token));
-      else if (!join && entry) state.removeFromInitiative(entry.id);
-      return 'atlas';
-    }
-    const entryId = initiativeId();
-    await this.deps.process(path, (text) => initiativeInText(text, id, join, entryId));
-    return 'file';
+    const state = this.tokenStore(path, id);
+    if (!state.addToInitiative || !state.removeFromInitiative) throw TokenWriter.missing('initiative tracker');
+    if (state.initiativeTrackerOpen === false) state.setInitiativeTrackerOpen?.(true);
+    const entry = state.initiative?.entries.find((candidate) => candidate.tokenId === id);
+    const token = state.objects.tokens[id] as unknown as Parameters<typeof initiativeEntryFor>[0];
+    if (join && !entry) state.addToInitiative(initiativeEntryFor(token));
+    else if (!join && entry) state.removeFromInitiative(entry.id);
   }
 
-  /**
-   * Changes the initiative tracker as `action` says: through Atlas's own tracker actions (Atlas rolls its own dice), or
-   * in the file with `random`'s.
-   */
-  async initiativeAction(path: string, action: InitiativeAction, random: () => number = Math.random): Promise<'atlas' | 'file'> {
+  /** Changes the initiative tracker as `action` says, through Atlas's own tracker actions (Atlas rolls its own dice). */
+  async initiativeAction(path: string, action: InitiativeAction): Promise<void> {
     if (this.holder(path) === null) await this.ready(path);
-    const view = this.holder(path);
-    if (view) {
-      if (!sendToAtlas(view.atlasStore.getState(), action)) throw TokenWriter.missing('such initiative action');
-      return 'atlas';
-    }
-    await this.deps.process(path, (text) => initiativeActionInText(text, action, random));
-    return 'file';
+    if (!sendToAtlas(this.store(path), action)) throw TokenWriter.missing('such initiative action');
   }
 
-  /** Whether the tracker can do `action` on this map: always in the file; through Atlas, when Atlas offers it. */
+  /** Whether the tracker can do `action` on this map: when Atlas holds it, as Atlas offers it; else it will be asked. */
   offers(path: string, action: 'reset' | 'sitsOut'): boolean {
     const state = this.holder(path)?.atlasStore.getState();
     if (!state) return true;
@@ -576,193 +247,121 @@ export class TokenWriter {
 
   /**
    * Adds spawned tokens (Atlas's token inputs) and gives their ids at once, as Atlas's `addTokens` does: through Atlas's
-   * store when it holds the map (one undo step there), else into the file (`done` settles once it is written).
+   * store when it holds the map (one undo step there); else once it holds it (Atlas keeps an id it is handed), and
+   * `done` rejects with `NotHeldError` when it does not come to.
    */
-  addTokensNow(path: string, inputs: ReadonlyArray<Record<string, unknown>>): { ids: string[]; via: 'atlas' | 'file'; done: Promise<unknown> } {
+  addTokensNow(path: string, inputs: ReadonlyArray<Record<string, unknown>>): { ids: string[]; done: Promise<unknown> } {
+    type Adds = { addTokens?: (inputs: ReadonlyArray<Record<string, unknown>>) => string[] };
     const view = this.holder(path);
     if (view) {
-      const add = (view.atlasStore.getState() as { addTokens?: (inputs: ReadonlyArray<Record<string, unknown>>) => string[] }).addTokens;
+      const add = (view.atlasStore.getState() as Adds).addTokens;
       if (typeof add !== 'function') throw TokenWriter.missing('way to add tokens');
-      return { ids: add(inputs), via: 'atlas', done: Promise.resolve() };
+      return { ids: add(inputs), done: Promise.resolve() };
     }
     const withIds = inputs.map((input) => ({ ...input, id: typeof input.id === 'string' ? input.id : newTokenId() }));
-    // With a host: the ids are given at once (Atlas keeps an id it is handed), and the tokens go to Atlas's store once it
-    // holds the map, as every other edit made while it loads does. Not held in the end, they are refused, never filed.
-    const wait = this.deps.held;
-    if (wait) {
-      const done = wait(path).then(() => {
-        const store = this.holder(path)?.atlasStore.getState() as { addTokens?: (inputs: ReadonlyArray<Record<string, unknown>>) => string[] } | undefined;
-        if (!store) throw new NotHeldError();
-        if (typeof store.addTokens !== 'function') throw TokenWriter.missing('way to add tokens');
-        store.addTokens(withIds);
-      });
-      return { ids: withIds.map((input) => input.id), via: 'atlas', done };
-    }
-    return { ids: withIds.map((input) => input.id), via: 'file', done: this.deps.process(path, (text) => addTokensInText(text, withIds)) };
+    const done = this.deps.held(path).then(() => {
+      const store = this.store(path) as Adds;
+      if (typeof store.addTokens !== 'function') throw TokenWriter.missing('way to add tokens');
+      store.addTokens(withIds);
+    });
+    return { ids: withIds.map((input) => input.id), done };
   }
 
-  /** Saves the random tables window's choices for the map: through Atlas's `updateLootRoller`, or in the file. */
-  async lootRoller(path: string, settings: Readonly<Record<string, unknown>>): Promise<'atlas' | 'file'> {
+  /** Saves the random tables window's choices for the map, through Atlas's `updateLootRoller`. */
+  async lootRoller(path: string, settings: Readonly<Record<string, unknown>>): Promise<void> {
     if (this.holder(path) === null) await this.ready(path);
-    const view = this.holder(path);
-    if (view) {
-      const update = (view.atlasStore.getState() as { updateLootRoller?: (settings: Readonly<Record<string, unknown>>) => void }).updateLootRoller;
-      if (typeof update !== 'function') throw TokenWriter.missing('random tables');
-      update(settings);
-      return 'atlas';
-    }
-    await this.deps.process(path, (text) => lootRollerInText(text, settings));
-    return 'file';
+    const update = (this.store(path) as { updateLootRoller?: (settings: Readonly<Record<string, unknown>>) => void }).updateLootRoller;
+    if (typeof update !== 'function') throw TokenWriter.missing('random tables');
+    update(settings);
   }
 
-  /** Opens or shuts a door (a locked one stays shut): through Atlas, or in the file. */
-  async toggleDoor(path: string, id: string): Promise<'atlas' | 'file'> {
+  /** Opens or shuts a door (a locked one stays shut). */
+  async toggleDoor(path: string, id: string): Promise<void> {
     if (this.holder(path) === null) await this.ready(path);
-    const view = this.holder(path);
-    if (view) {
-      const state = view.atlasStore.getState();
-      if (!state.toggleDoor) throw TokenWriter.missing('door action');
-      state.toggleDoor(id);
-      return 'atlas';
-    }
-    await this.deps.process(path, (text) => toggleDoorInText(text, id));
-    return 'file';
+    const state = this.store(path);
+    if (!state.toggleDoor) throw TokenWriter.missing('door action');
+    state.toggleDoor(id);
   }
 
   /** Makes walls Atlas's windows (they stop only tokens; sight and light pass both ways), or plain walls again. */
-  async setWindow(path: string, ids: readonly string[], window: boolean): Promise<'atlas' | 'file'> {
+  async setWindow(path: string, ids: readonly string[], window: boolean): Promise<void> {
     if (this.holder(path) === null) await this.ready(path);
-    const view = this.holder(path);
-    if (view) {
-      const state = view.atlasStore.getState();
-      if (!state.updateWall) throw TokenWriter.missing('wall update');
-      for (const id of ids) state.updateWall(id, { blocks: window ? 'movement' : undefined });
-      return 'atlas';
-    }
-    await this.deps.process(path, (text) => wallsWindowInText(text, ids, window));
-    return 'file';
+    const state = this.store(path);
+    if (!state.updateWall) throw TokenWriter.missing('wall update');
+    for (const id of ids) state.updateWall(id, { blocks: window ? 'movement' : undefined });
   }
 
   /** Turns Atlas's Snap to grid (for tokens) on or off for the map. */
-  async setSnapToGrid(path: string, on: boolean): Promise<'atlas' | 'file'> {
+  async setSnapToGrid(path: string, on: boolean): Promise<void> {
     if (this.holder(path) === null) await this.ready(path);
-    const view = this.holder(path);
-    if (view) {
-      const state = view.atlasStore.getState();
-      if (!state.setSnapToGrid) throw TokenWriter.missing('snap to grid');
-      state.setSnapToGrid(on);
-      return 'atlas';
-    }
-    await this.deps.process(path, (text) => snapToGridInText(text, on));
-    return 'file';
+    const state = this.store(path);
+    if (!state.setSnapToGrid) throw TokenWriter.missing('snap to grid');
+    state.setSnapToGrid(on);
   }
 
   /**
-   * Sets the scene's light level (0 to 1) and the colour it is tinted, as Atlas's lighting page does: through Atlas's
-   * store alone. An `ambientColor` given as undefined takes the colour off.
+   * Sets the scene's light level (0 to 1) and the colour it is tinted, as Atlas's lighting page does. An
+   * `ambientColor` given as undefined takes the colour off.
    */
-  async setSceneLighting(path: string, changes: { ambient?: number; ambientColor?: string | undefined }): Promise<'atlas'> {
+  async setSceneLighting(path: string, changes: { ambient?: number; ambientColor?: string | undefined }): Promise<void> {
     if (this.holder(path) === null) await this.ready(path);
-    const state = this.holder(path)?.atlasStore.getState();
-    if (!state) throw new NotHeldError();
+    const state = this.store(path);
     if (!state.setSceneLighting) throw TokenWriter.missing('scene lighting');
     const given: { ambient?: number; ambientColor?: string | undefined } = {};
     if (typeof changes.ambient === 'number' && Number.isFinite(changes.ambient)) given.ambient = Math.min(1, Math.max(0, changes.ambient));
     if (Object.hasOwn(changes, 'ambientColor')) given.ambientColor = changes.ambientColor;
     state.setSceneLighting(given);
-    return 'atlas';
   }
 
   /** Locks a door (shutting it) or unlocks it. */
-  async lockDoor(path: string, id: string, locked: boolean): Promise<'atlas' | 'file'> {
+  async lockDoor(path: string, id: string, locked: boolean): Promise<void> {
     if (this.holder(path) === null) await this.ready(path);
-    const view = this.holder(path);
-    if (view) {
-      const state = view.atlasStore.getState();
-      if (!state.setDoorLocked) throw TokenWriter.missing('door lock');
-      state.setDoorLocked(id, locked);
-      return 'atlas';
-    }
-    await this.deps.process(path, (text) => lockDoorInText(text, id, locked));
-    return 'file';
+    const state = this.store(path);
+    if (!state.setDoorLocked) throw TokenWriter.missing('door lock');
+    state.setDoorLocked(id, locked);
   }
 
-  /** Lets players read a pin's note online, or not (Atlas's "Readable by players"); through Atlas when it holds the map. */
-  async setPinReadable(path: string, id: string, readable: boolean): Promise<'atlas' | 'file'> {
+  /** Lets players read a pin's note online, or not (Atlas's "Readable by players"). */
+  async setPinReadable(path: string, id: string, readable: boolean): Promise<void> {
     if (this.holder(path) === null) await this.ready(path);
-    const view = this.holder(path);
-    if (view) {
-      const state = view.atlasStore.getState();
-      if (!state.updateNotePin) throw TokenWriter.missing('pin update');
-      state.updateNotePin(id, { readable: readable ? true : undefined });
-      return 'atlas';
-    }
-    await this.deps.process(path, (text) => pinReadableInText(text, id, readable));
-    return 'file';
+    const state = this.store(path);
+    if (!state.updateNotePin) throw TokenWriter.missing('pin update');
+    state.updateNotePin(id, { readable: readable ? true : undefined });
   }
 
   /** Kills the token, as Atlas's Kill does: every resource that defeats it spent. */
-  kill(path: string, id: string, definitions: readonly ResourceDefinition[]): Promise<'atlas' | 'file'> {
+  kill(path: string, id: string, definitions: readonly ResourceDefinition[]): Promise<void> {
     return this.change(path, id, kill(definitions));
   }
 
   /**
    * Takes a token to another scene: added there under `newId` at (x, y), and only then removed from this one, so a
-   * failure leaves it where it was. Atlas holds one map at a time, so with a host (`follow`) this is two held steps:
-   * Atlas is brought to `to` for the add, then back to `from` for the removal; it stops before the removal when
-   * either map does not come to be held.
+   * failure leaves it where it was. Atlas holds one map at a time, so this is two held steps: Atlas is brought to `to`
+   * for the add, then back to `from` for the removal; it stops before the removal when either map does not come to be
+   * held. Without `follow` the token stays where it is (`NotHeldError`).
    */
   async transfer(from: string, id: string, to: string, newId: string, at: { x: number; y: number }): Promise<void> {
-    if (this.deps.follow) return this.transferHeld(this.deps.follow, from, id, to, newId, at);
-    const state = this.atlas(from, id);
-    let raw: Record<string, unknown> | null = state ? structuredClone(state.objects.tokens[id]) as unknown as Record<string, unknown> : null;
-    if (!raw) {
-      await this.deps.process(from, (text) => {
-        raw = readTokenInText(text, id);
-        return text;
-      });
-    }
-    if (!raw) throw new Error(`no token ${id} on ${from}`);
-    const held = this.holder(to);
-    const target = held?.atlasStore.getState();
-    if (target) {
-      if (!target.addToken) throw TokenWriter.missing('way to add a token');
-      const { instanceNumber: _number, level: _level, levels: _levels, offLevel: _offLevel, levelId: _levelId, ...kept } = raw;
-      target.addToken({ ...kept, id: newId, x: at.x, y: at.y });
-    } else {
-      const arriving = raw;
-      await this.deps.process(to, (text) => addTokenInText(text, arriving, newId, at.x, at.y));
-    }
-    await this.remove(from, id);
-  }
-
-  private async transferHeld(follow: (path: string) => Promise<boolean>, from: string, id: string, to: string, newId: string, at: { x: number; y: number }): Promise<void> {
+    const follow = this.deps.follow;
     if (this.holder(from) === null) await this.ready(from);
-    const state = this.atlas(from, id);
-    if (!state) throw new NotHeldError();
+    const state = this.tokenStore(from, id);
+    if (!follow) throw new NotHeldError();
     const raw = structuredClone(state.objects.tokens[id]) as unknown as Record<string, unknown>;
     const target = (await follow(to)) ? this.holder(to)?.atlasStore.getState() : null;
     if (!target) throw new NotHeldError();
     if (!target.addToken) throw TokenWriter.missing('way to add a token');
-    const { instanceNumber: _number, level: _level, levels: _levels, offLevel: _offLevel, levelId: _levelId, ...kept } = raw;
-    target.addToken({ ...kept, id: newId, x: at.x, y: at.y });
+    target.addToken(arrivingToken(raw, newId, at.x, at.y));
     // Back to the map it came from: only there can it be taken away. Not held again, it stays on both, and the caller says so.
-    const back = (await follow(from)) ? this.atlas(from, id) : null;
-    if (!back) throw new NotHeldError();
+    const back = (await follow(from)) ? this.holder(from)?.atlasStore.getState() : null;
+    if (!back || !Object.hasOwn(back.objects?.tokens ?? {}, id)) throw new NotHeldError();
     if (!back.deleteTokens) throw TokenWriter.missing('way to delete a token');
     back.deleteTokens([id]);
   }
 
   /** Deletes the token from the map. */
-  async remove(path: string, id: string): Promise<'atlas' | 'file'> {
+  async remove(path: string, id: string): Promise<void> {
     if (this.holder(path) === null) await this.ready(path);
-    const state = this.atlas(path, id);
-    if (state) {
-      if (!state.deleteTokens) throw TokenWriter.missing('way to delete a token');
-      state.deleteTokens([id]);
-      return 'atlas';
-    }
-    await this.deps.process(path, (text) => deleteTokenInText(text, id));
-    return 'file';
+    const state = this.tokenStore(path, id);
+    if (!state.deleteTokens) throw TokenWriter.missing('way to delete a token');
+    state.deleteTokens([id]);
   }
 }

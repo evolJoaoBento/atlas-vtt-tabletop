@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { afterEach, test } from 'node:test';
 import { TokenWriter } from '../src/board/tokenWriter';
+import { fakeAtlas } from './fakeAtlasStore';
 import { setSpawnBoard, type BoardSpawnHost } from '../src/assets/boardTarget';
 import { spawnEncounterTokens, spawnTokenAsset } from '../src/atlasPort/app/packages/components/asset-manager/utils/tokenSpawnService';
 import type { BoardGrid } from '../src/board/mapModel';
@@ -14,22 +15,23 @@ const MAP = readFileSync('tests/fixtures/dungeon.atlasmap', 'utf8');
 const GRID: BoardGrid = { enabled: true, visible: true, snap: true, type: 'square', size: 70, offsetX: 0, offsetY: 0 } as BoardGrid;
 
 function board(centre = { x: 350, y: 350 }) {
-  let text = MAP;
+  // Atlas holds the map: the spawn goes to its store (`addTokens`).
+  const atlas = fakeAtlas('maps/dungeon.atlasmap', structuredClone(JSON.parse(MAP).state.objects.tokens));
   const selected: string[][] = [];
   const joined: string[][] = [];
-  const writer = new TokenWriter({ views: () => [], process: async (_path, edit) => { text = edit(text); } });
+  const writer = new TokenWriter(atlas.deps());
   const host: BoardSpawnHost = {
     leaf: {} as never, writer,
     mapPath: () => 'maps/dungeon.atlasmap',
     centre: () => centre,
     grid: () => GRID,
-    tokens: () => JSON.parse(text).state.objects.tokens,
+    tokens: () => atlas.state.objects.tokens as never,
     select: (ids) => selected.push([...ids]),
     joinInitiative: async (ids) => { joined.push([...ids]); },
     openMap: async () => {},
   };
   setSpawnBoard(host);
-  return { host, selected, joined, tokens: () => JSON.parse(text).state.objects.tokens as Record<string, Record<string, number | string>> };
+  return { host, selected, joined, tokens: () => atlas.state.objects.tokens as Record<string, Record<string, number | string>> };
 }
 
 afterEach(() => setSpawnBoard(null));
