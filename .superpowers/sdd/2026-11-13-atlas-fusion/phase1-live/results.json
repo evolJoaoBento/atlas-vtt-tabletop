@@ -5,23 +5,14 @@
     "pass": true,
     "evidence": {
       "atlas": "0.15.0",
-      "tabletop": "1.4.0",
-      "connect": "0.10.0",
+      "tabletop": "1.5.0",
+      "connect": "0.11.0",
       "loaded": [
         true,
         true
       ],
-      "fusion": 1,
+      "fusion": 2,
       "notices": []
-    }
-  },
-  {
-    "step": 2,
-    "name": "no asset-service error once a board and an Atlas view are up",
-    "pass": true,
-    "evidence": {
-      "found": 0,
-      "sample": null
     }
   },
   {
@@ -33,7 +24,7 @@
       "leaves": 1,
       "hidden": true,
       "boardActive": true,
-      "heldMs": 684,
+      "heldMs": 0,
       "mark": {
         "openedBy": "tabletop-for-atlas",
         "claims": [
@@ -44,6 +35,15 @@
         ]
       },
       "banner": null
+    }
+  },
+  {
+    "step": 2,
+    "name": "no asset-service error once a board and an Atlas view are up",
+    "pass": true,
+    "evidence": {
+      "found": 0,
+      "sample": null
     }
   },
   {
@@ -59,7 +59,7 @@
         "button": "Edit here"
       },
       "coveBanner": null,
-      "cellarMs": 487,
+      "cellarMs": 253,
       "cellarActive": true,
       "leavesAfter": 1,
       "cellarBannerAfter": null,
@@ -75,8 +75,7 @@
     "name": "an edit on the held board saves through Atlas; on the other board it is refused and no file is written",
     "pass": true,
     "evidence": {
-      "via": "atlas",
-      "savedMs": 592,
+      "savedMs": 568,
       "moved": true,
       "refused": {
         "name": "NotHeldError",
@@ -111,7 +110,7 @@
           "button": "Reopen"
         }
       },
-      "ms": 698,
+      "ms": 627,
       "leaves": 1,
       "banner": null,
       "boardActive": true
@@ -169,9 +168,13 @@
         "Tabletop backups/2026-11-13/board-lighting.json",
         "Tabletop backups/2026-11-13/Fusion Rooms-2.atlasmap",
         "Tabletop backups/2026-11-13/Fusion Rooms-3.atlasmap",
+        "Tabletop backups/2026-11-13/Fusion Rooms-4.atlasmap",
+        "Tabletop backups/2026-11-13/Fusion Rooms-5.atlasmap",
         "Tabletop backups/2026-11-13/Fusion Rooms.atlasmap",
         "Tabletop backups/2026-11-13/Fusion Rooms.tabletop-2.json",
         "Tabletop backups/2026-11-13/Fusion Rooms.tabletop-3.json",
+        "Tabletop backups/2026-11-13/Fusion Rooms.tabletop-4.json",
+        "Tabletop backups/2026-11-13/Fusion Rooms.tabletop-5.json",
         "Tabletop backups/2026-11-13/Fusion Rooms.tabletop.json"
       ],
       "backupHasRooms": true,
@@ -301,7 +304,7 @@
     "pass": true,
     "evidence": {
       "errors": [],
-      "total": 5
+      "total": 15
     }
   }
 ]

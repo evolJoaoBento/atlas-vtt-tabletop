@@ -32,5 +32,10 @@ const data = fs.existsSync(dataFile) ? JSON.parse(fs.readFileSync(dataFile, 'utf
 data.board = data.board || {};
 data.board[MAP] = { wallHeights: { [TOP]: 3 }, wallMaterials: { [LEFT]: 'Materials/stone' } };
 fs.writeFileSync(dataFile, JSON.stringify(data, null, 2));
+// Phase 2: the same cellar on a hex grid (columns of pointy hexes), for a Large token's snap.
+const hex = JSON.parse(fs.readFileSync(path.join(vault, SCENES, 'Probe Cellar.atlasmap'), 'utf8'));
+hex.state.grid = { ...(hex.state.grid || {}), type: 'hex-vertical', snapToGrid: true };
+fs.writeFileSync(path.join(vault, SCENES, 'Fusion Hex.atlasmap'), JSON.stringify(hex));
+
 fs.writeFileSync(path.join(__dirname, 'fixtures.json'), JSON.stringify({ map: MAP, top: TOP, left: LEFT }, null, 2));
 console.log('wrote', MAP, 'with overrides on', TOP, 'and', LEFT);

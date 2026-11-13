@@ -1,0 +1,82 @@
+[
+  {
+    "step": 0,
+    "name": "Phase 1's live check again: nothing regressed",
+    "pass": true,
+    "evidence": {
+      "summary": "16/16 steps passed",
+      "failed": []
+    }
+  },
+  {
+    "step": 17,
+    "name": "a token given a height through Atlas stands that high on the board, and lands when set back",
+    "pass": true,
+    "evidence": {
+      "original": null,
+      "token": "tok_1794200000008_goblinbos",
+      "unit": 5,
+      "cell": 140,
+      "floor": 0,
+      "rose": 775,
+      "drop": 419.69586348688,
+      "landed": 748,
+      "after": 0.38316919610803873
+    }
+  },
+  {
+    "step": 18,
+    "name": "a ruler from a lifted token to one on the floor reads Atlas's distance with the height counted",
+    "pass": true,
+    "evidence": {
+      "label": "15ft",
+      "rule": "equidistant",
+      "unit": 5,
+      "unitName": null,
+      "unitType": "feet",
+      "cells": 3,
+      "expected": 15
+    }
+  },
+  {
+    "step": 19,
+    "name": "movement steps colour the drag ruler against the speed; the drag-distance choice hides it",
+    "pass": true,
+    "evidence": {
+      "unit": 5,
+      "four": {
+        "label": "20 / 30ft",
+        "color": "#22c55e"
+      },
+      "hidden": null,
+      "choice": "always",
+      "restored": "always",
+      "expected": "20 / 30"
+    }
+  },
+  {
+    "step": 20,
+    "name": "a Large token dragged on a hex scene lands where Atlas's own snap puts it",
+    "pass": true,
+    "evidence": {
+      "type": "hex-vertical",
+      "off": [],
+      "rows": 9
+    }
+  },
+  {
+    "step": 21,
+    "name": "edits on a map Atlas does not hold are refused, and no map file is written",
+    "pass": true,
+    "evidence": {
+      "refused": [
+        "NotHeldError",
+        "NotHeldError",
+        "NotHeldError",
+        "NotHeldError"
+      ],
+      "changed": [],
+      "held": true
+    }
+  }
+]

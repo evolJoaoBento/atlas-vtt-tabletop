@@ -12,6 +12,10 @@ const ATLAS = (version) => `C:/Users/joaoo/2075/sound-downloads/atlas-${version}
 const PORT = 9311;
 fs.mkdirSync(OUT, { recursive: true });
 const fixtures = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures.json'), 'utf8'));
+// The builds under test: their versions and the fusion step their wire carries (re-run in later phases).
+const TABLETOP_VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8')).version;
+const CONNECT_VERSION = JSON.parse(fs.readFileSync(path.join(process.env.CONNECT_REPO || 'C:/Users/joaoo/2075/atlas-vtt-connect-cutscenes-wt', 'manifest.json'), 'utf8')).version;
+const FUSION = Number(/export const FUSION_PROTOCOL = (\d+)/.exec(fs.readFileSync(path.join(ROOT, 'src/connectWire.ts'), 'utf8'))[1]);
 const only = process.argv[2] ? new Set(process.argv[2].split(',').map(Number)) : null;
 
 const results = [];
@@ -88,7 +92,7 @@ async function step(o, n, name, run) {
       return { atlas: app.plugins.manifests['atlas-vtt'].version, tabletop: app.plugins.manifests['tabletop-for-atlas'].version, connect: app.plugins.manifests['atlas-vtt-connect'].version,
         loaded: [!!tt, !!c], fusion: tt && tt.api ? tt.api.fusion : null, notices: L.notices.slice() };`);
     const pairing = e.notices.filter((n) => /do not match/.test(n));
-    return { pass: e.atlas === '0.15.0' && e.tabletop === '1.4.0' && e.connect === '0.10.0' && e.loaded.every(Boolean) && e.fusion === 1 && pairing.length === 0, evidence: e };
+    return { pass: e.atlas === '0.15.0' && e.tabletop === TABLETOP_VERSION && e.connect === CONNECT_VERSION && e.loaded.every(Boolean) && e.fusion === FUSION && pairing.length === 0, evidence: e };
   });
 
   await step(o, 3, 'host from nothing: one hidden Atlas tab, the board in front', async () => {
@@ -135,7 +139,8 @@ async function step(o, n, name, run) {
       const writer = cellar.view.services.writer;
       const tokens = L.store().getState().objects.tokens; const id = Object.keys(tokens)[0]; const from = { x: tokens[id].x, y: tokens[id].y };
       const m0 = await L.mtime(L.CELLAR);
-      const via = await writer.move(L.CELLAR, id, from.x + 70, from.y);
+      // Since Phase 2 a write says nothing of where it went: Atlas's store is the only place it can go.
+      await writer.move(L.CELLAR, id, from.x + 70, from.y);
       const savedMs = await L.until(async () => (await L.mtime(L.CELLAR)) !== m0, 5000);
       const fileX = (await L.file(L.CELLAR)).state.objects.tokens[id].x;
       await writer.move(L.CELLAR, id, from.x, from.y);
@@ -144,8 +149,8 @@ async function step(o, n, name, run) {
       let refused = null;
       try { await writer.move(L.COVE, coveId, 10, 10); refused = 'not refused'; } catch (error) { refused = { name: error.name, message: error.message }; }
       await L.sleep(1500);
-      return { via, savedMs, moved: fileX === from.x + 70, refused, coveUntouched: (await L.mtime(L.COVE)) === c0 };`);
-    return { pass: e.via === 'atlas' && e.savedMs !== null && e.savedMs <= 2500 && e.moved && e.refused && e.refused.name === 'NotHeldError' && e.coveUntouched, evidence: e };
+      return { savedMs, moved: fileX === from.x + 70, refused, coveUntouched: (await L.mtime(L.COVE)) === c0 };`);
+    return { pass: e.savedMs !== null && e.savedMs <= 2500 && e.moved && e.refused && e.refused.name === 'NotHeldError' && e.coveUntouched, evidence: e };
   });
 
   await step(o, 6, 'a board in a popout: the Atlas tab stays in the main window, the popout board stays active', async () => {
