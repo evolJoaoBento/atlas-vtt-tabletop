@@ -253,6 +253,9 @@ async function main(): Promise<void> {
   ];
   rules.definitions = definitions;
   let fogHeight = 1;
+  // Atlas 0.15's movement steps and drag-distance choice, as a feature sets them (none, and always, by default).
+  let movement: { rules: { steps: Array<{ name: string; multiple: number; color: string }>; countPerTurn: boolean }; speeds: Record<string, number> } | null = null;
+  let dragDistance: 'always' | 'combat' | 'never' = 'always';
   /** Tokens a Connect player controls (what the GM board asks Connect). */
   const controlled = new Set<string>();
   let wallThickness = 0.12;
@@ -357,6 +360,8 @@ async function main(): Promise<void> {
     scaleProp: (id, scale) => { record.propScales.push([id, scale]); },
     liftProp: (id, lift) => { record.propLifts.push([id, lift]); },
     snapProps: () => snapping.props,
+    setMovement: (value: typeof movement) => { movement = value; },
+    setDragDistance: (value: typeof dragDistance) => { dragDistance = value; },
     setSnap: (kind, on) => { snapping[kind] = on; if (kind === 'tokens') ((board as unknown as { map: BoardMap }).map.grid as { snap: boolean }).snap = on; },
     addProp: (glb, x, y, look) => { record.added.push([glb, x, y, look]); },
     openNote: (path) => { record.notes.push(path); },
@@ -410,6 +415,8 @@ async function main(): Promise<void> {
     wallThickness: () => wallThickness,
     setWallThickness: (thickness) => { wallThickness = thickness; record.thicknesses.push(thickness); board.refresh(); },
     measurement: () => ({ mode: 'metric', unitType: 'feet', unitDistance: 5, diagonalRule: 'equidistant', bands: [] }),
+    movement: () => (movement ? { rules: movement.rules, speedOf: (id: string) => movement?.speeds[id] ?? null } : null),
+    dragDistance: () => dragDistance,
     warn: (message) => { if (!record.warnings.includes(message)) record.warnings.push(message); },
     // A popup window stands in for Obsidian's pop-out: same process, another document.
     switchLayer: (path) => { record.sceneTabs.push(['layer', path]); },

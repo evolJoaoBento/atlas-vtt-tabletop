@@ -40,6 +40,8 @@ import type { DiceRules } from './dice/rollRules';
 import { GENTLE } from './dice/throwInput';
 import type { MeasureShape, PlayerTool, SpellChange, TemplateMark, TemplateShape, TemplateChange } from './board/playerTools';
 import type { Measurement } from './board/measure';
+import { parseMovementRules, readDragDistance } from '../packages/atlas-shared/src/index';
+import { ownSpeed } from './board/tokenHeight';
 import { PLAYER_NOT_HELD_TEXT, PLAYER_REFUSAL_MS } from './board/hostBar';
 import type { SpellBook } from './board/spellPicker';
 
@@ -971,6 +973,15 @@ class PlayerBoard implements PlayerBoardHandle {
           coneAngle: measurement.coneAngle ?? 90,
         };
       },
+      // Atlas 0.15's movement as Connect sends it: the steps in the measurement, a speed on each of the players' tokens.
+      movement: () => {
+        const measurement = (this.scene as { measurement?: { movement?: unknown } } | null)?.measurement;
+        const rules = parseMovementRules(measurement?.movement);
+        if (!rules || rules.steps.length === 0) return null;
+        const tokens = (this.scene as { tokens?: Record<string, { speed?: unknown }> } | null)?.tokens;
+        return { rules, speedOf: (id) => ownSpeed(tokens && Object.hasOwn(tokens, id) ? tokens[id]?.speed : undefined) };
+      },
+      dragDistance: () => readDragDistance((this.scene as { measurement?: { dragDistance?: unknown } } | null)?.measurement?.dragDistance),
       fogHeight: () => look()?.fogHeight ?? 1,
       wallThickness: () => look()?.wallThickness ?? 0.12,
       wallMaterial: (id) => look()?.wallMaterial(id) ?? null,

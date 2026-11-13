@@ -29,7 +29,8 @@ import type { PropLook, PropPlacement, TokenStyle } from './boardData';
 import { OrbitCamera, limitsFor } from './camera';
 import type { CollectionRules } from './conditions';
 import { feetPerSquare, formatDistance, pathLengthInCells, type Measurement } from './measure';
-import { riseBetweenEnds } from '../../packages/atlas-shared/src/index';
+import { BEYOND_SPEED, riseBetweenEnds, showsDragDistance, type DragDistance, type MovementRules } from '../../packages/atlas-shared/src/index';
+import { rulerLook } from './dragMovement';
 import { liftOf } from './tokenHeight';
 import { hexCenter, nearestFootprint, ringDiameter, snapPoint } from './geometry';
 import { imageToWorld, stretchPlacement, worldSize } from './mapStretch';
@@ -148,6 +149,22 @@ const INSTANT_HOLD_SECONDS = 3;
 const INSTANT_FADE_SECONDS = 1.5;
 
 /** Obsidian's accent colour, for highlights; Atlas's purple outside Obsidian. */
+/** Obsidian's error red, which Atlas draws a move past the last movement step in (resolved as `accent` is). */
+function errorColor(element: HTMLElement): string {
+  const view = element.ownerDocument.defaultView;
+  const value = view?.getComputedStyle(element).getPropertyValue('--text-error').trim();
+  if (!value || !view) return ERROR_RED;
+  const probe = element.ownerDocument.createElement('span');
+  probe.style.display = 'none';
+  probe.style.color = value;
+  if (!probe.style.color) return ERROR_RED;
+  element.appendChild(probe);
+  const resolved = view.getComputedStyle(probe).color;
+  probe.remove();
+  return resolved || ERROR_RED;
+}
+const ERROR_RED = '#fb464c';
+
 function accent(element: HTMLElement): string {
   const view = element.ownerDocument.defaultView;
   const value = view?.getComputedStyle(element).getPropertyValue('--interactive-accent').trim();
@@ -234,6 +251,13 @@ export interface BoardHost {
   editResource(id: string, key: string, edit: (stored: ResourceValue) => ResourceValue, maxEdited: boolean): void;
   /** How distances are measured and labelled on this map. */
   measurement(): Measurement;
+  /**
+   * The map's movement (Atlas 0.15): the collection's rules, and a token's speed in game units (null without one).
+   * Without it a drag reads as a plain distance.
+   */
+  movement?(): { rules: MovementRules; speedOf(tokenId: string): number | null } | null;
+  /** When a dragged token shows its distance (Atlas 0.15's setting); without it, always. */
+  dragDistance?(): DragDistance;
   /** How tall the map's fog stands, in grid squares; and saving a new height. */
   fogHeight(): number;
   setFogHeight(height: number): void;
@@ -754,7 +778,7 @@ export class Board {
   private shadowedAt = 0;
   private ruler: THREE.Group | null = null;
   /** The ruler being shown: its points (start, waypoints, landing) and its label. */
-  rulerState: { points: Array<{ x: number; y: number }>; label: string } | null = null;
+  rulerState: { points: Array<{ x: number; y: number }>; label: string; color?: string | null } | null = null;
   /** The token whose resource controls show. */
   private selectedId: string | null = null;
   /** The tokens of a Shift-click selection (two or more; empty without one). */
@@ -4251,14 +4275,22 @@ export class Board {
     this.clearRuler();
     if (!points || !map) { this.wake(); return; }
     const measurement = this.host.measurement();
+    // The GM's choice (Atlas 0.15): a drag shows its distance always, only while a fight runs, or never.
+    if (!showsDragDistance(this.host.dragDistance?.() ?? 'always', map.initiative.isActive === true)) { this.wake(); return; }
     // Through a spell's difficult terrain each square costs one more: the share of the path in it, counted again.
-    const label = this.distanceLabel(points, 0, this.difficultShare(points));
-    this.rulerState = { points, label };
+    const cells = pathLengthInCells(points, map.grid, measurement.diagonalRule) * (1 + this.difficultShare(points));
+    // Against the token's speed, in the colour of the step the move lies in, as Atlas's drag ruler reads it.
+    const press = this.press;
+    const movement = this.host.movement?.() ?? null;
+    const speed = movement && press?.kind === 'token' ? movement.speedOf(press.id) : null;
+    const look = rulerLook(cells, speed, movement?.rules, measurement);
+    const label = look.label;
+    this.rulerState = { points, label, color: look.color };
     const group = new THREE.Group();
     group.position.y = 1.2;
     const segments: number[] = [];
     for (let i = 1; i < points.length; i++) segments.push(points[i - 1].x, points[i - 1].y, points[i].x, points[i].y);
-    const color = accent(this.container);
+    const color = look.color === null ? accent(this.container) : look.color === BEYOND_SPEED ? errorColor(this.container) : look.color;
     const edge = new THREE.Mesh(stripGeometry(segments, map.grid.size * 0.15), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide }));
     const line = new THREE.Mesh(stripGeometry(segments, map.grid.size * 0.09), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide }));
     line.position.y = 0.2;

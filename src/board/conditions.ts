@@ -6,6 +6,7 @@
  */
 import { collectionInitiativeRules, type InitiativeRules } from './initiative';
 import { mapDefinitions, type ResourceDefinition } from './resources';
+import { NO_MOVEMENT_RULES, parseMovementRules, type MovementRules } from '../../packages/atlas-shared/src/index';
 
 export interface ConditionDefinition {
   name: string;
@@ -24,6 +25,11 @@ export interface CollectionRules {
   gridDefaults: unknown;
   /** How it runs a fight in the initiative tracker (`initiative.ts`). */
   initiative: InitiativeRules;
+  /**
+   * Its movement rules as it stores them (Atlas 0.15, read with Atlas's `parseMovementRules`): what a drag reads against
+   * where Atlas's own drag ruler cannot say (no Atlas view holds the map). None: a drag reads as a plain distance.
+   */
+  movement: MovementRules;
 }
 
 export const ASSETS_METADATA_PATH = 'atlas-vtt/.atlas-data/assets-metadata.json';
@@ -40,7 +46,7 @@ export function collectionOf(mapPath: string): string | null {
 
 /** The rules of a map Atlas knows nothing about: no conditions, and the resources Atlas gives such a map. */
 export function emptyRules(inCollection = false): CollectionRules {
-  return { conditions: new Map(), definitions: mapDefinitions(null, inCollection), gridDefaults: null, initiative: collectionInitiativeRules(null) };
+  return { conditions: new Map(), definitions: mapDefinitions(null, inCollection), gridDefaults: null, initiative: collectionInitiativeRules(null), movement: NO_MOVEMENT_RULES };
 }
 
 /** Reads a collection's rules from Atlas's asset index; `collection` is null for a map outside every collection. */
@@ -52,6 +58,7 @@ export function readCollectionRules(metadata: unknown, collection: string | null
   rules.definitions = mapDefinitions(settings, true);
   rules.gridDefaults = isObj(settings.gridDefaults) ? settings.gridDefaults : null;
   rules.initiative = collectionInitiativeRules(settings);
+  rules.movement = parseMovementRules(settings.movement) ?? NO_MOVEMENT_RULES;
   if (Array.isArray(settings.conditions)) {
     for (const entry of settings.conditions) {
       if (!isObj(entry) || typeof entry.id !== 'string' || typeof entry.name !== 'string') continue;

@@ -7,6 +7,7 @@
  */
 import type { App, WorkspaceLeaf } from 'obsidian';
 import { isAtlasView, mapViews, tabViewOf } from './atlas';
+import { isMovementSpeed, parseMovementRules, readDragDistance, type DragDistance, type MovementRules } from '../packages/atlas-shared/src/index';
 import { readToolbarLayout, resolveToolbarLayout, type ToolbarLayout } from './atlasPort/toolbarLayout';
 
 /** Atlas's asset manager tabs (its global window also takes these). */
@@ -136,6 +137,43 @@ export class AtlasBridge {
     if (typeof settings?.setLaserPointerSettings !== 'function') return false;
     try { settings.setLaserPointerSettings({ ...changes }); } catch { return false; }
     return true;
+  }
+
+  /** When a dragged token shows its distance (Atlas 0.15's setting: always, only in a fight, never); `always` without Atlas. */
+  dragDistance(): DragDistance {
+    const settings = this.settings() as { getDragDistance?: () => unknown } | null;
+    let choice: unknown = undefined;
+    try { choice = typeof settings?.getDragDistance === 'function' ? settings.getDragDistance() : undefined; } catch { choice = undefined; }
+    return readDragDistance(choice);
+  }
+
+  /**
+   * The movement of the map at `mapPath` as Atlas's own drag ruler reads it (Atlas 0.15, the view holding the map):
+   * the collection's rules with its game system's applied, and a token's speed (its own, its statblock's, the rules').
+   * Null where no Atlas view holds the map, or its renderer has none.
+   */
+  movementFor(mapPath: string): { rules: MovementRules; speedOf(token: unknown): number | null } | null {
+    for (const view of mapViews(this.app)) {
+      if (view.atlasStore.getState().mapPath !== mapPath) continue;
+      const call = (target: unknown, method: string, ...args: unknown[]): unknown => {
+        if (!isObj(target) || typeof target[method] !== 'function') return undefined;
+        try { return (target[method] as (...a: unknown[]) => unknown).apply(target, args); } catch { return undefined; }
+      };
+      const renderer = call(call(call((view as unknown as { serviceManager?: unknown }).serviceManager, 'getRendererService'), 'getRenderer'), 'getTokenRenderer');
+      const ruler = isObj(renderer) ? renderer.dragRuler : undefined;
+      const movement = isObj(ruler) ? ruler.movement : undefined;
+      if (!isObj(movement)) return null;
+      const rules = parseMovementRules(call(movement, 'rules'));
+      if (!rules) return null;
+      return {
+        rules,
+        speedOf: (token) => {
+          const speed = call(movement, 'speedOf', token);
+          return isMovementSpeed(speed) && Number.isFinite(speed) ? speed : null;
+        },
+      };
+    }
+    return null;
   }
 
   /** How loud Atlas plays dice (0 to 1, its "Dice volume"); 1 without Atlas. */

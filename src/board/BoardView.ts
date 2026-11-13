@@ -1362,6 +1362,25 @@ export class BoardView extends ItemView {
         writer.resource(mapPath(), id, key, edit, maxEdited).catch((error: unknown) => this.unsaved(`${name} change`, error));
       },
       measurement: () => readMeasurement(this.rules.gridDefaults, this.map?.rawGrid),
+      // Atlas 0.15: what Atlas's own drag ruler reads (the system's rules, statblock speeds) where its view holds the map;
+      // else the collection's stored rules, and a token's own speed (the rules' for one without a statblock).
+      movement: () => {
+        const path = this.path;
+        if (!path) return null;
+        const live = new AtlasBridge(this.app).movementFor(path);
+        const raw = (id: string): unknown => (this.services.host?.store(path)?.getState() as { objects?: { tokens?: Record<string, unknown> } } | undefined)?.objects?.tokens?.[id];
+        if (live) return { rules: live.rules, speedOf: (id) => { const token = raw(id); return token ? live.speedOf(token) : null; } };
+        const rules = this.rules.movement;
+        return {
+          rules,
+          speedOf: (id) => {
+            const token = this.map?.tokens.find((candidate) => candidate.id === id);
+            if (!token) return null;
+            return token.speed ?? (token.statblockPath ? null : rules.speed ?? null);
+          },
+        };
+      },
+      dragDistance: () => new AtlasBridge(this.app).dragDistance(),
       fogHeight: () => boardData.fogHeight(mapPath()),
       // Saved with Tabletop's data; the board follows through `refresh`, as for a style change.
       setFogHeight: (height) => boardData.setFogHeight(mapPath(), height),

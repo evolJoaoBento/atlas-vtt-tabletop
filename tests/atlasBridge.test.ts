@@ -155,3 +155,20 @@ test('onLoaded fires once Atlas appears', () => {
   assert.equal(fired, 1);
   assert.equal(tick, null, 'stops watching once loaded');
 });
+
+test("the drag-distance choice and the map's movement are Atlas's own (0.15)", () => {
+  const steps = [{ name: 'Move', multiple: 1, color: '#22c55e' }];
+  const movement = { rules: () => ({ steps, countPerTurn: true }), speedOf: (token: { id: string }) => (token.id === 'hero' ? 30 : -1) };
+  const view = { ...atlasView('a.atlasmap'), serviceManager: { getRendererService: () => ({ getRenderer: () => ({ getTokenRenderer: () => ({ dragRuler: { movement } }) }) }) } };
+  const { app } = fakeApp({ plugin: { settingsService: { getDragDistance: () => 'combat' } }, views: [{ leaf: { id: 'atlas' }, view }] });
+  const bridge = new AtlasBridge(app as never);
+  assert.equal(bridge.dragDistance(), 'combat');
+  const read = bridge.movementFor('a.atlasmap');
+  assert.deepEqual(read?.rules, { steps, countPerTurn: true });
+  assert.equal(read?.speedOf({ id: 'hero' }), 30);
+  assert.equal(read?.speedOf({ id: 'gob' }), null);
+  assert.equal(bridge.movementFor('other.atlasmap'), null);
+  // Without Atlas, or a choice that is none: always.
+  assert.equal(new AtlasBridge(fakeApp().app as never).dragDistance(), 'always');
+  assert.equal(new AtlasBridge(fakeApp({ plugin: { settingsService: { getDragDistance: () => 'sometimes' } } }).app as never).dragDistance(), 'always');
+});

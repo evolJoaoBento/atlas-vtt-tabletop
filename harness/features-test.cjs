@@ -1936,6 +1936,40 @@ feature('token height', async ({ page, shot }) => {
   });
 });
 
+// ── Atlas 0.15's movement steps on the drag ruler, and the GM's choice of when a drag shows its distance ──
+feature('drag ruler movement', async ({ page, shot }) => {
+  const steps = [{ name: 'Move', multiple: 1, color: '#22c55e' }, { name: 'Dash', multiple: 2, color: '#eab308' }];
+  await page.evaluate((steps) => window.boardTest.host.setMovement({ rules: { steps, countPerTurn: false }, speeds: { gob2: 30 } }), steps);
+  // Drags gob2 (875, 385) `cells` squares to the left and reads the ruler before letting go, where it started.
+  const dragFor = async (cells) => {
+    const from = await page.evaluate(() => { const e = window.boardTest.board.tokens.get('gob2'); return window.boardTest.project(e.at.x, e.at.y, 0); });
+    const to = await page.evaluate((cells) => window.boardTest.project(875 - 70 * cells, 385, 0), cells);
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 8; i++) { await page.mouse.move(from.x + ((to.x - from.x) * i) / 8, from.y + ((to.y - from.y) * i) / 8); await wait(20); }
+    await wait(100);
+    const ruler = await page.evaluate(() => { const state = window.boardTest.board.rulerState; return state ? { label: state.label, color: state.color ?? null } : null; });
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+    await wait(200);
+    await page.evaluate(async () => { const { board } = window.boardTest; await board.load({ ...board.map, tokens: board.map.tokens.map((t) => (t.id === 'gob2' ? { ...t, x: 875, y: 385 } : t)) }); });
+    await wait(400);
+    return ruler;
+  };
+  const move = await dragFor(4);
+  check("a drag reads against the token's speed in its step's colour", move?.label === '20 / 30ft' && move?.color === '#22c55e', JSON.stringify(move));
+  const dash = await dragFor(8);
+  check('past the first step, the second step reads and colours it', dash?.label === '40 / 60ft' && dash?.color === '#eab308', JSON.stringify(dash));
+  await page.evaluate(() => window.boardTest.host.setMovement(null));
+  const plain = await dragFor(4);
+  check('without steps the drag reads as a plain distance, in the accent', plain?.label === '20ft' && plain?.color === null, JSON.stringify(plain));
+  await page.evaluate(() => window.boardTest.host.setDragDistance('never'));
+  check("the GM's choice 'never' shows no ruler", (await dragFor(4)) === null);
+  await page.evaluate(() => window.boardTest.host.setDragDistance('combat'));
+  check("'only in a fight' shows none while no fight runs", (await dragFor(4)) === null);
+  await page.evaluate(() => window.boardTest.host.setDragDistance('always'));
+});
+
 feature('gm measure', async ({ page, shot }) => {
   check('the toolbar has the Measure tool', (await page.locator('.atlas-tabletop-toolbar button[aria-label="Measure"]').count()) === 1);
   await page.evaluate(() => window.boardTest.board.toolbarActions().selectMeasure('circle'));

@@ -12,7 +12,7 @@ import type { FogOperation } from './fog';
 import { readInitiative, DEFAULT_INITIATIVE_RULES } from './initiative';
 import type { BoardGrid, BoardIcon, BoardInk, BoardMap, BoardPin, BoardText, BoardToken, Meter } from './mapModel';
 import type { ResourceDefinition } from './resources';
-import { tokenHeight } from '../../packages/atlas-shared/src/index';
+import { NO_MOVEMENT_RULES, tokenHeight } from '../../packages/atlas-shared/src/index';
 import { ownSpeed } from './tokenHeight';
 import { NO_FLIP, type BoardLight, type BoardWall, type DoorFlip } from './walls';
 
@@ -264,7 +264,8 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
       lighting: extras ? { ...extras.lighting } : { enabled: false, ambient: 1, ambientColor: null },
       rawGrid: null,
     },
-    rules: { conditions, definitions: [...definitions.values()], gridDefaults: null, initiative: DEFAULT_INITIATIVE_RULES },
+    // The movement steps reach the board through the measurement (`playerBoard.ts`), not the rules.
+    rules: { conditions, definitions: [...definitions.values()], gridDefaults: null, initiative: DEFAULT_INITIATIVE_RULES, movement: NO_MOVEMENT_RULES },
     minis,
     look,
     layers: layersFromExtras(extras),
