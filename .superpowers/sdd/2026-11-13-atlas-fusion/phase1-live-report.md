@@ -4,7 +4,7 @@ Run 2026-11-13 on real Obsidian, in the throwaway vault `C:\Users\joaoo\fusion-g
 port 9311), by `harness/live/phase1.cjs`. Builds under test: Tabletop 1.4.0 (`feat/atlas-fusion`) and Connect 0.10.0
 (`feat/atlas-fusion`), both at fusion protocol 1, on stock Atlas 0.15.0. No real vault was touched.
 
-**Result: 16 of 16 scripted steps pass.** Evidence for every step is in `phase1-live/results.json`; the console of the
+**Result: 16 of 16 scripted steps pass**, and pass again on the builds with the final review's five fixes (Tabletop `3742262`, Connect `34854bb`). Evidence for every step is in `phase1-live/results.json`; the console of the
 run is in `phase1-live/console.json`; screenshots are beside them.
 
 ## Steps

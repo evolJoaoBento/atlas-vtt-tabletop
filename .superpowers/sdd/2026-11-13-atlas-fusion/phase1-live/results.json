@@ -33,7 +33,7 @@
       "leaves": 1,
       "hidden": true,
       "boardActive": true,
-      "heldMs": 322,
+      "heldMs": 684,
       "mark": {
         "openedBy": "tabletop-for-atlas",
         "claims": [
@@ -59,7 +59,7 @@
         "button": "Edit here"
       },
       "coveBanner": null,
-      "cellarMs": 421,
+      "cellarMs": 487,
       "cellarActive": true,
       "leavesAfter": 1,
       "cellarBannerAfter": null,
@@ -76,7 +76,7 @@
     "pass": true,
     "evidence": {
       "via": "atlas",
-      "savedMs": 571,
+      "savedMs": 592,
       "moved": true,
       "refused": {
         "name": "NotHeldError",
@@ -111,7 +111,7 @@
           "button": "Reopen"
         }
       },
-      "ms": 738,
+      "ms": 698,
       "leaves": 1,
       "banner": null,
       "boardActive": true
@@ -168,8 +168,10 @@
       "backups": [
         "Tabletop backups/2026-11-13/board-lighting.json",
         "Tabletop backups/2026-11-13/Fusion Rooms-2.atlasmap",
+        "Tabletop backups/2026-11-13/Fusion Rooms-3.atlasmap",
         "Tabletop backups/2026-11-13/Fusion Rooms.atlasmap",
         "Tabletop backups/2026-11-13/Fusion Rooms.tabletop-2.json",
+        "Tabletop backups/2026-11-13/Fusion Rooms.tabletop-3.json",
         "Tabletop backups/2026-11-13/Fusion Rooms.tabletop.json"
       ],
       "backupHasRooms": true,
