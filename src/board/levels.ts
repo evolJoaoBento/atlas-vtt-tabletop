@@ -1,8 +1,12 @@
 /**
  * Atlas 0.10's levels (floors): a scene lists its levels bottom first, and every object stands on one (`level`) or
  * several (`levels`, or `'all'`). A view shows the objects of one level. Pure and tolerant of any shape, so a 0.9 map
- * (no levels) reads exactly as before. The rules are Atlas's own (`levels/sceneLevels.ts`).
+ * (no levels) reads exactly as before. Which level an id names, and what stands on a level, are decided by Atlas's own
+ * code (`packages/atlas-shared`, `levels/sceneLevels.ts`); what is here reads a file's levels and adds the board's own
+ * (heights in squares, props, badge numbers).
  */
+import { onLevel as atlasOnLevel, resolveLevel as atlasResolveLevel, type SceneLevels } from '../../packages/atlas-shared/src/index';
+
 export interface BoardLevel {
   id: string;
   name: string | null;
@@ -62,24 +66,15 @@ export function onFirstLevel(levels: readonly BoardLevel[], levelId: string | nu
 /** The level `id` names, else the first: what an unset or unknown level reads as. Null for a scene without levels. */
 export function resolveLevel(levels: readonly BoardLevel[], id: unknown): string | null {
   if (levels.length === 0) return null;
-  return typeof id === 'string' && levels.some((level) => level.id === id) ? id : levels[0].id;
+  return atlasResolveLevel(levels as unknown as SceneLevels, id);
 }
 
 /** Whether `object` stands on level `levelId`: Atlas's rule, where unset or unknown is the first level. */
 export function onLevel(object: unknown, levelId: string | null, levels: readonly BoardLevel[]): boolean {
   if (levelId === null || levels.length === 0) return true;
-  const first = levels[0].id;
-  if (!isObj(object)) return levelId === first;
-  const known = (id: unknown): id is string => typeof id === 'string' && levels.some((level) => level.id === id);
-  const { levels: set, level } = object;
-  if (set === 'all') return true;
-  if (Array.isArray(set)) {
-    const ids = set.filter(known);
-    if (ids.length > 0) return ids.includes(levelId);
-  } else if (known(level)) {
-    return level === levelId;
-  }
-  return levelId === first;
+  // An entry that is no object stands where unset objects do: on the first level.
+  if (!isObj(object)) return levelId === levels[0].id;
+  return atlasOnLevel(object, levelId, levels as unknown as SceneLevels);
 }
 
 /** The entries of an object record that stand on the level; the record as it was where there are no levels. */

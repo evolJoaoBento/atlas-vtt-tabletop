@@ -5,6 +5,7 @@
  * Labels are `column-row` ("0304"), `letter-number` ("C4") or `sequential` (reading order). Pure.
  * A cell's number is worked out when it is asked for: Atlas 0.11's maps hold up to 20 million squares, too many to list.
  */
+import { columnRowLabel, letterNumberLabel } from '../../packages/atlas-shared/src/index';
 import { axialCenter, hexAxial } from './geometry';
 import type { BoardGrid } from './mapModel';
 
@@ -22,18 +23,6 @@ export interface CellNumbers {
   at(x: number, y: number): NumberedCell | null;
 }
 
-/** A, B … Z, AA, AB …: base 26 with no zero. */
-export function columnLetters(n: number): string {
-  let out = '';
-  let rest = n;
-  while (rest > 0) {
-    const digit = (rest - 1) % 26;
-    out = String.fromCharCode(65 + digit) + out;
-    rest = Math.floor((rest - 1) / 26);
-  }
-  return out;
-}
-
 interface Cell {
   col: number;
   row: number;
@@ -44,9 +33,10 @@ interface Cell {
 
 function label(numbering: NonNullable<BoardGrid['numbers']>, cell: Cell, cols: number, rows: number): string {
   if (numbering === 'sequential') return String(cell.order + 1);
-  if (numbering === 'letter-number') return `${columnLetters(cell.col + 1)}${cell.row + 1}`;
-  const pad = (value: number, count: number): string => String(value).padStart(Math.max(2, String(count).length), '0');
-  return `${pad(cell.col + 1, cols)}${pad(cell.row + 1, rows)}`;
+  // Atlas's own labels (`grid/cellNumbering.ts`): "C4", and "0304" with each part as wide as the map needs (two at least).
+  const placed = { column: cell.col, row: cell.row } as Parameters<typeof letterNumberLabel>[0];
+  if (numbering === 'letter-number') return letterNumberLabel(placed);
+  return columnRowLabel(placed, { column: Math.max(2, String(cols).length), row: Math.max(2, String(rows).length) });
 }
 
 /** The numbered cells of a grid as `at` finds them: the cell under a point, or null; and how many columns and rows there are. */

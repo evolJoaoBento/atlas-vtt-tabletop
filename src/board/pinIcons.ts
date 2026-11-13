@@ -2,17 +2,15 @@
  * How a pin looks, read as Atlas reads it: its colour and glyph by icon id (unknown ids are plain pins, the Lucide ids
  * older pins store are mapped to today's icons), and the title the board floats over it.
  */
-import { PIN_GLYPHS, PIN_LEGACY, PIN_TONES } from './pinIconData';
+import { DEFAULT_PIN_ICON, PIN_GLYPHS, PIN_TONES, resolvePinIcon } from './pinIconData';
 import type { BoardPin } from './mapModel';
 
 /** Pins that show their label instead of a glyph. */
 const LABEL_KINDS = new Set(['number', 'letter']);
-const DEFAULT_ICON = 'pin';
+const DEFAULT_ICON = DEFAULT_PIN_ICON;
 
-function resolve(icon: string): string {
-  if (icon in PIN_GLYPHS) return icon;
-  return PIN_LEGACY[icon] ?? DEFAULT_ICON;
-}
+/** Atlas's own rule, for an icon that is not a label kind. */
+const resolve = (icon: string): string => resolvePinIcon(icon);
 
 /** The pin's colour (Atlas's dark-theme tone). Label pins take the default pin's. */
 export function pinTone(icon: string): string {

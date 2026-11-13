@@ -46,5 +46,5 @@ test('a hand edit of the generated wire contract, or of a copied package file, f
 test('the Atlas floor is the tag the shared Atlas files are copied from, and the wire carries the fusion step', () => {
   const source = JSON.parse(readFileSync(join(ROOT, 'packages/atlas-shared/SOURCE.json'), 'utf8')) as { tag: string };
   assert.equal(MIN_ATLAS_VERSION, source.tag);
-  assert.equal(FUSION_PROTOCOL, 1);
+  assert.equal(FUSION_PROTOCOL, 2);
 });

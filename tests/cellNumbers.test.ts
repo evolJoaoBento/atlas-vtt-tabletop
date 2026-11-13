@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { BoardGrid } from '../src/board/mapModel';
-import { columnLetters, numberCells } from '../src/board/cellNumbers';
+import { letterNumberLabel } from '../packages/atlas-shared/src/index';
+import { numberCells } from '../src/board/cellNumbers';
 import { eagerNumberCells } from './cellNumbersEager';
 
 const grid = (over: Partial<BoardGrid> = {}): BoardGrid => ({
@@ -11,7 +12,8 @@ const grid = (over: Partial<BoardGrid> = {}): BoardGrid => ({
 const R = 70 / Math.sqrt(3);
 
 test('letters run A..Z, then AA', () => {
-  assert.deepEqual([1, 2, 26, 27, 28, 52, 53].map(columnLetters), ['A', 'B', 'Z', 'AA', 'AB', 'AZ', 'BA']);
+  // Atlas's own label rule, which the board's numbers are written with.
+  assert.deepEqual([1, 2, 26, 27, 28, 52, 53].map((column) => letterNumberLabel({ column: column - 1, row: 0 } as never)), ['A1', 'B1', 'Z1', 'AA1', 'AB1', 'AZ1', 'BA1']);
 });
 
 test('square cells: column-row, letter-number and sequential labels', () => {
