@@ -586,6 +586,18 @@ export class TokenWriter {
       return { ids: add(inputs), via: 'atlas', done: Promise.resolve() };
     }
     const withIds = inputs.map((input) => ({ ...input, id: typeof input.id === 'string' ? input.id : newTokenId() }));
+    // With a host: the ids are given at once (Atlas keeps an id it is handed), and the tokens go to Atlas's store once it
+    // holds the map, as every other edit made while it loads does. Not held in the end, they are refused, never filed.
+    const wait = this.deps.held;
+    if (wait) {
+      const done = wait(path).then(() => {
+        const store = this.holder(path)?.atlasStore.getState() as { addTokens?: (inputs: ReadonlyArray<Record<string, unknown>>) => string[] } | undefined;
+        if (!store) throw new NotHeldError();
+        if (typeof store.addTokens !== 'function') throw TokenWriter.missing('way to add tokens');
+        store.addTokens(withIds);
+      });
+      return { ids: withIds.map((input) => input.id), via: 'atlas', done };
+    }
     return { ids: withIds.map((input) => input.id), via: 'file', done: this.deps.process(path, (text) => addTokensInText(text, withIds)) };
   }
 

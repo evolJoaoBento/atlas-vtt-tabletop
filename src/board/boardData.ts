@@ -262,7 +262,11 @@ export class BoardData {
   }
 
   toJSON(): BoardDataJSON {
-    return this.data;
+    if (Object.keys(this.legacy).length === 0) return this.data;
+    // The old light levels and tints, not yet backed up, are saved as they were.
+    const out: Record<string, MapData> = { ...this.data };
+    for (const [path, lighting] of Object.entries(this.legacy)) out[path] = { ...(out[path] ?? {}), ...lighting } as MapData;
+    return out;
   }
 
   onChange(listener: (mapPath: string | null) => void): () => void {
@@ -505,13 +509,19 @@ export class BoardData {
   }
 
   /**
-   * The light levels and tints the boards once kept of their own, by map: handed over once (then gone), for the backup
-   * written when they stop being used. The board's light is Atlas's scene lighting now.
+   * The light levels and tints the boards once kept of their own, by map. The board's light is Atlas's scene lighting
+   * now, so nothing reads them; they stay in what is saved until a backup of them is written (`dropLegacyLighting`),
+   * so that nothing is lost should the backup fail.
    */
-  takeLegacyLighting(): Record<string, { ambient?: number; tint?: string }> {
-    const taken = this.legacy;
+  legacyLighting(): Record<string, { ambient?: number; tint?: string }> {
+    return this.legacy;
+  }
+
+  /** Stops keeping the old light levels and tints: called once their backup is written. */
+  dropLegacyLighting(): void {
+    if (Object.keys(this.legacy).length === 0) return;
     this.legacy = {};
-    return taken;
+    this.changed(null);
   }
 
   /** Where the players' AR marker sheets lie on the map; null for none. */

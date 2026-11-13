@@ -40,6 +40,7 @@ import type { DiceRules } from './dice/rollRules';
 import { GENTLE } from './dice/throwInput';
 import type { MeasureShape, PlayerTool, SpellChange, TemplateMark, TemplateShape, TemplateChange } from './board/playerTools';
 import type { Measurement } from './board/measure';
+import { PLAYER_NOT_HELD_TEXT, PLAYER_REFUSAL_MS } from './board/hostBar';
 import type { SpellBook } from './board/spellPicker';
 
 type Point = { x: number; y: number };
@@ -84,7 +85,8 @@ export interface PlayerBoardHandle extends PlayerCutsceneHandle {
   setControlled(tokenIds: readonly string[]): void;
   setConnected(connected: boolean): void;
   setPaused(paused: boolean): void;
-  moveRefused(tokenId: string): void;
+  /** `reason`: `not-held` when the GM's Atlas is on another map just now (Connect passes it on). */
+  moveRefused(tokenId: string, reason?: 'not-held'): void;
   setPlayers(order: readonly string[], self: string | null): void;
   selectTool(tool: PlayerTool): void;
   selectShape(shape: MeasureShape): void;
@@ -336,10 +338,22 @@ class PlayerBoard implements PlayerBoardHandle {
   }
   setPaused(paused: boolean): void { this.paused = paused; }
 
-  /** The GM refused a move: the token goes back to where the scene has it. */
-  moveRefused(_tokenId: string): void {
+  /**
+   * The GM refused a move: the token goes back to where the scene has it. Refused because the GM's Atlas holds another
+   * map just now, the board says so for a few seconds, as the 2D page does.
+   */
+  moveRefused(_tokenId: string, reason?: 'not-held'): void {
     this.reload();
+    if (reason !== 'not-held' || this.disposed) return;
+    const win = this.parent.ownerDocument.defaultView;
+    if (this.refusalTimer !== null) win?.clearTimeout(this.refusalTimer);
+    this.board.setBanner({ text: PLAYER_NOT_HELD_TEXT });
+    this.refusalTimer = win?.setTimeout(() => {
+      this.refusalTimer = null;
+      if (!this.disposed) this.board.setBanner(null);
+    }, PLAYER_REFUSAL_MS) ?? null;
   }
+  private refusalTimer: number | null = null;
 
   setPlayers(order: readonly string[], self: string | null): void {
     this.order = order;
@@ -476,6 +490,8 @@ class PlayerBoard implements PlayerBoardHandle {
 
   dispose(): void {
     this.disposed = true;
+    if (this.refusalTimer !== null) this.parent.ownerDocument.defaultView?.clearTimeout(this.refusalTimer);
+    this.refusalTimer = null;
     this.run?.roll?.picker.dispose();
     this.run?.roll?.root.remove();
     this.run = null;

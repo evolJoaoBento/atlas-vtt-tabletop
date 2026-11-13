@@ -4843,6 +4843,21 @@ feature('player cutscene live', async ({ page }) => {
   check('player cutscene: the live camera glides: it only moves forward, and no frame jumps more than 3 times the median step', out.monotonic && out.count > 10 && out.maxStep <= 3 * out.median + 1e-6 && out.end > 700, JSON.stringify(out));
 }, PLAYER_URL);
 
+feature('player move refused', async ({ page, shot }) => {
+  // A move the GM refused because their Atlas holds another map: the player is told so, as on the 2D page.
+  await prepare(page);
+  const banner = () => page.evaluate(() => { const el = document.querySelector('.atlas-tabletop-banner'); return el && !el.hidden ? el.textContent : null; });
+  await page.evaluate(() => window.playerTest.handle.moveRefused('hero'));
+  await wait(200);
+  check('player move refused: a refusal without a reason says nothing more', (await banner()) === null, await banner());
+  await page.evaluate(() => window.playerTest.handle.moveRefused('hero', 'not-held'));
+  await wait(200);
+  check("player move refused: Atlas on another map shows the GM's-Atlas text", (await banner()) === "The GM's Atlas is on another map; try again in a moment.", await banner());
+  await shot('player-move-refused');
+  await wait(5200);
+  check('player move refused: the text goes away after a few seconds', (await banner()) === null, await banner());
+}, PLAYER_URL);
+
 feature('player cutscene lock', async ({ page }) => {
   await prepare(page);
   await startRun(page);

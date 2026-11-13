@@ -463,6 +463,33 @@ test('with a host, a token goes to another scene in two held steps, and stops be
   assert.deepEqual(calls, [['add', 'to.atlasmap', 'n']]);
 });
 
+test('tokens added while Atlas is on its way to the map wait for it, under the ids given at once; refused when it moves on', async () => {
+  const calls: unknown[] = [];
+  const live = liveView({ addTokens: (inputs: ReadonlyArray<Record<string, unknown>>) => { calls.push(['addTokens', inputs.map((input) => input.id)]); return inputs.map((input) => String(input.id)); } } as never, calls);
+  let release: (state: AtlasSceneState | null) => void = () => {};
+  let processed = 0;
+  const writer = new TokenWriter({ views: () => [live.view], process: async () => { processed++; throw new NotHeldError(); }, held: () => new Promise((resolve) => { release = resolve; }) });
+  const adding = writer.addTokensNow('m.atlasmap', [{ name: 'Goblin', x: 1, y: 2 }, { name: 'Orc', x: 3, y: 4 }]);
+  assert.equal(adding.ids.length, 2);
+  assert.ok(adding.ids.every((id) => typeof id === 'string' && id !== ''));
+  assert.deepEqual(calls, []);
+  live.set({ mapPath: 'm.atlasmap', mapLoaded: true, isMapLoading: false });
+  release(live.view.atlasStore.getState());
+  await adding.done;
+  // Atlas's own store got them, under the very ids handed back; no file was touched.
+  assert.deepEqual(calls, [['addTokens', adding.ids]]);
+  assert.equal(adding.via, 'atlas');
+  assert.equal(processed, 0);
+
+  // Atlas ends on another map: nothing is added anywhere, and the caller hears why.
+  calls.length = 0;
+  const away = new TokenWriter({ views: () => [liveView({ mapPath: 'other.atlasmap', mapLoaded: true, isMapLoading: false }, calls).view], process: async () => { processed++; throw new NotHeldError(); }, held: async () => null });
+  const refusedAdd = away.addTokensNow('m.atlasmap', [{ name: 'Goblin', x: 1, y: 2 }]);
+  await assert.rejects(Promise.resolve(refusedAdd.done), NotHeldError);
+  assert.deepEqual(calls, []);
+  assert.equal(processed, 0);
+});
+
 test("the light level and its colour are set through Atlas's scene lighting, never in a file", async () => {
   const calls: unknown[] = [];
   const live = liveView({ mapPath: 'm.atlasmap', mapLoaded: true, isMapLoading: false, setSceneLighting: (changes) => { calls.push(changes); } }, calls);

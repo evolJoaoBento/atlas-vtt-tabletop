@@ -26,6 +26,8 @@ export interface BoardSpawnHost {
   joinInitiative(ids: readonly string[]): Promise<void>;
   /** Shows another scene on the board. */
   openMap(path: string): Promise<void>;
+  /** Tokens the asset manager asked for could not be added (Atlas does not hold the map): the board says so. */
+  refused?(error: unknown): void;
 }
 
 let current: BoardSpawnHost | null = null;
@@ -63,7 +65,10 @@ export function boardAtlasView(host: BoardSpawnHost | null = current): unknown {
     objects: { tokens: host.tokens() },
     addTokens: (inputs: ReadonlyArray<Record<string, unknown>>): string[] => {
       const { ids, done } = host.writer.addTokensNow(path, inputs);
-      void Promise.resolve(done).catch((error: unknown) => console.error('Tabletop: could not add the tokens', error));
+      void Promise.resolve(done).catch((error: unknown) => {
+        if (host.refused) host.refused(error);
+        else console.error('Tabletop: could not add the tokens', error);
+      });
       return ids;
     },
     setSelection: (ids: readonly string[]) => host.select(ids),

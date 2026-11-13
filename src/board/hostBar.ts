@@ -27,6 +27,11 @@ export const TIMEOUT_TEXT = 'Atlas did not open this map. View only.';
 /** What a refused edit says, in the bar's own words. */
 export const viewOnlyText = (held: string): string => `View only. Atlas holds ${held}.`;
 
+/** What a player is told when their move was refused because the GM's Atlas holds another map just now (Connect's reason `not-held`). */
+export const PLAYER_NOT_HELD_TEXT = "The GM's Atlas is on another map; try again in a moment.";
+/** How long that stays on a player's board. */
+export const PLAYER_REFUSAL_MS = 4000;
+
 /** The name of a map file as people know it: without its folder and extension. */
 export function mapName(path: string): string {
   return (path.split('/').pop() ?? path).replace(/\.atlasmap$/i, '');

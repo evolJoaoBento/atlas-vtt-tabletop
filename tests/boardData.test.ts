@@ -68,11 +68,16 @@ test("a 0.14 room wall's height, width, material and window move to Atlas 0.15's
   assert.equal(new BoardData(readBoardData(JSON.parse(JSON.stringify(bare.toJSON())))).roomWallsMoved('maps/b.atlasmap'), true);
 });
 
-test("a map's own light level and tint are no longer kept: they are handed over once, for the backup", () => {
+test("a map's own light level and tint are no longer used, and are kept only until they are backed up", () => {
   const data = new BoardData(readBoardData({ 'maps/a.atlasmap': { ambient: 0.5, tint: '#336699', fogHeight: 2 }, 'maps/b.atlasmap': { ambient: 0.2 }, 'maps/c.atlasmap': { fogHeight: 3 } }));
-  assert.deepEqual(data.takeLegacyLighting(), { 'maps/a.atlasmap': { ambient: 0.5, tint: '#336699' }, 'maps/b.atlasmap': { ambient: 0.2 } });
-  assert.deepEqual(data.takeLegacyLighting(), {});
-  assert.deepEqual(JSON.parse(JSON.stringify(data.toJSON())), { 'maps/a.atlasmap': { fogHeight: 2 }, 'maps/c.atlasmap': { fogHeight: 3 } });
+  assert.deepEqual(data.legacyLighting(), { 'maps/a.atlasmap': { ambient: 0.5, tint: '#336699' }, 'maps/b.atlasmap': { ambient: 0.2 } });
+  // Until they are backed up they are saved as they were, so a save in between loses nothing.
+  assert.deepEqual(JSON.parse(JSON.stringify(data.toJSON())), { 'maps/a.atlasmap': { ambient: 0.5, tint: '#336699', fogHeight: 2 }, 'maps/b.atlasmap': { ambient: 0.2 }, 'maps/c.atlasmap': { fogHeight: 3 } });
+  data.setFogHeight('maps/a.atlasmap', 4);
+  assert.deepEqual(JSON.parse(JSON.stringify(data.toJSON()))['maps/a.atlasmap'], { ambient: 0.5, tint: '#336699', fogHeight: 4 });
+  data.dropLegacyLighting();
+  assert.deepEqual(data.legacyLighting(), {});
+  assert.deepEqual(JSON.parse(JSON.stringify(data.toJSON())), { 'maps/a.atlasmap': { fogHeight: 4 }, 'maps/c.atlasmap': { fogHeight: 3 } });
 });
 
 test('readBoardData drops junk', () => {

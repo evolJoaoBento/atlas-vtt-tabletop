@@ -614,6 +614,7 @@ export class BoardView extends ItemView {
         select: (ids) => this.board?.selectTokens(ids),
         joinInitiative: async (ids) => { for (const id of ids) await this.services.writer.initiative(this.path ?? '', id, true); this.initiative?.setOpen(true); },
         openMap: async (file) => { await this.leaf.setViewState({ type: BOARD_VIEW_TYPE, state: { file }, active: true }); },
+        refused: (error) => this.unsaved('tokens', error),
       },
     });
   }

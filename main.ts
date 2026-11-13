@@ -17,8 +17,9 @@ import { AtlasOpenButton } from './src/atlasButton';
 import { setLanguage } from './src/i18n';
 import { BOARD_PROTOCOL_ACTION, boardLink, DEFAULT_SNAPSHOT_FOLDER, latestSnapshot, parseBoardBlock, readBoardLink, snapshotPath } from './src/boardLinks';
 import { renderBoardCard } from './src/boardCard';
-import { DEFAULT_LASER, resolveLaser, type LaserSettings } from './src/board/laser';
+import { resolveLaser, type LaserSettings } from './src/board/laser';
 import { writeBackup } from './src/backups';
+import { carryOver } from './src/fusionCarryOver';
 import { AtlasBridge } from './src/atlasBridge';
 import { NotHeldError, TokenWriter } from './src/board/tokenWriter';
 import type { AtlasSceneState } from './src/atlas';
@@ -642,32 +643,26 @@ export default class TabletopPlugin extends Plugin {
 
   private async fusionCarryOver(): Promise<void> {
     if (this.settings.fusion1Done === true || this.carryingOver) return;
-    const bridge = new AtlasBridge(this.app);
-    const own = this.settings.laser;
-    const ownLaser = own !== undefined && (own.color !== undefined || own.size !== undefined);
-    // A laser to carry over needs Atlas there to take it: tried again when Atlas arrives.
-    if (ownLaser && !bridge.laser()) return;
     this.carryingOver = true;
-    const lines: string[] = [];
-    const lighting = this.boardData.takeLegacyLighting();
-    if (Object.keys(lighting).length > 0) {
-      try {
-        const folder = await writeBackup(this.app, new Date(), [{ name: 'board-lighting.json', text: JSON.stringify(lighting, null, 2) }]);
-        lines.push(`The light level and tint of ${Object.keys(lighting).length === 1 ? 'one map' : `${Object.keys(lighting).length} maps`} are now Atlas's scene lighting; backup in ${folder}/`);
-      } catch (error) {
-        console.warn('Tabletop: the maps\' own light levels could not be backed up:', error);
-      }
+    try {
+      const bridge = new AtlasBridge(this.app);
+      const result = await carryOver({
+        legacyLighting: () => this.boardData.legacyLighting(),
+        dropLegacyLighting: () => this.boardData.dropLegacyLighting(),
+        backup: (files) => writeBackup(this.app, new Date(), files),
+        ownLaser: this.settings.laser,
+        atlasLaser: () => bridge.laser(),
+        setAtlasLaser: (laser) => bridge.setLaser(laser),
+        diceOff: this.settings.sound.groups.dice === false,
+      });
+      if (result.laserHandled) delete this.settings.laser;
+      // Not done (a backup that failed, or a laser waiting for Atlas): tried again at the next start, or when Atlas arrives.
+      if (result.done) this.settings.fusion1Done = true;
+      this.save();
+      if (result.lines.length > 0) new Notice(`Tabletop: ${result.lines.join(' ')}`, 0);
+    } finally {
+      this.carryingOver = false;
     }
-    const atlas = bridge.laser();
-    if (ownLaser && atlas) {
-      const mine = resolveLaser(own);
-      if (atlas.color === DEFAULT_LASER.color && atlas.size === DEFAULT_LASER.size && (mine.color !== atlas.color || mine.size !== atlas.size) && bridge.setLaser(mine)) lines.push("Your laser's colour and size are now Atlas's laser.");
-    }
-    if (this.settings.sound.groups.dice === false) lines.push("Dice sounds now follow Atlas's dice volume.");
-    delete this.settings.laser;
-    this.settings.fusion1Done = true;
-    this.save();
-    if (lines.length > 0) new Notice(`Tabletop: ${lines.join(' ')}`, 0);
   }
 
   /** A sound setting changed: saved, and every board's engine follows. */
