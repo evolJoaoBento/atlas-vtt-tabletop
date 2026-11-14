@@ -308,6 +308,46 @@ async function step(n, name, run) {
     return { pass: /session is hosted/.test(out.refused || '') && out.outcomes === 0 && out.backup === null, evidence: out };
   });
 
+  await step(51, "a floor that lay left of the base's corner sets the whole scene aside by whole squares: the base's own level is aligned and its records moved with it, every floor keeps its place against the others, and Atlas reads it back so after a reload", async () => {
+    const side = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures.json'), 'utf8')).side;
+    const out = await o.ev(`
+      const S = window.__S;
+      const SIDE = ${JSON.stringify(side)};
+      await S.hold(S.CELLAR);
+      const data = S.data();
+      const kept = data.stacks().filter((stack) => stack.base !== SIDE.base).flatMap((stack) => stack.members.map((member) => member.path)).map((p) => [p, data.snapshot(p)]);
+      for (const [p, map] of kept) { const { layer, ...rest } = map; data.restore(p, rest); }
+      const before = await S.file(SIDE.base);
+      const upperBefore = await S.file(SIDE.upper);
+      const cell = before.grid.size;
+      const tokenId = Object.keys(before.objects.tokens)[0];
+      const upperToken = Object.keys(upperBefore.objects.tokens)[0];
+      const result = await S.tt().stackMigration.move();
+      for (const [p, map] of kept) data.restore(p, map);
+      const outcome = result.outcomes.find((each) => each.base === SIDE.base) || null;
+      await S.hold(SIDE.base);
+      await S.hold(S.CELLAR);
+      await S.hold(SIDE.base);
+      const s = S.s();
+      const levels = (s.levels || []).map((l) => l.id);
+      const [baseLevel, upperLevel] = levels;
+      const moved = s.objects.tokens[tokenId];
+      const upperId = Object.keys(s.objects.tokens).find((id) => id.startsWith(upperToken) && id !== tokenId && s.objects.tokens[id].level === upperLevel);
+      const upper = upperId ? s.objects.tokens[upperId] : null;
+      return { refused: result.refused, moved: outcome && outcome.moved, lost: outcome && outcome.lost, cell, levels, alignments: s.levelAlignments || null,
+        baseToken: { was: [before.objects.tokens[tokenId].x, before.objects.tokens[tokenId].y], now: moved && [moved.x, moved.y] },
+        upperToken: { was: [upperBefore.objects.tokens[upperToken].x, upperBefore.objects.tokens[upperToken].y], now: upper && [upper.x, upper.y] } };`);
+    const a = out.alignments || {};
+    const [baseLevel, upperLevel] = out.levels || [];
+    const shift = 3 * out.cell;
+    const ok = out.refused === null && out.moved === true && out.levels.length === 2
+      && a[baseLevel] && a[baseLevel].offset.x === shift && a[baseLevel].offset.y === 0 && a[upperLevel] && a[upperLevel].offset.x === shift - 250
+      && out.baseToken.now && Math.abs(out.baseToken.now[0] - (out.baseToken.was[0] + shift)) < 0.01 && out.baseToken.now[1] === out.baseToken.was[1]
+      && out.upperToken.now && Math.abs(out.upperToken.now[0] - (out.upperToken.was[0] + shift - 250)) < 0.01
+      && out.lost.some((line) => /whole scene stands 3 squares to the right/.test(line));
+    return { pass: ok, evidence: out };
+  });
+
   await step(50, 'no console error from Tabletop or Connect across the run', async () => {
     await sleep(1500);
     const errors = o.logs.filter((l) => (l.type === 'error' || l.type === 'pageerror') && /tabletop|connect-for-atlas|Tabletop|Connect/i.test(l.text + l.at));

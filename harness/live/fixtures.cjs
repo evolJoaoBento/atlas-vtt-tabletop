@@ -75,3 +75,16 @@ fresh.assignments[STACK.upper] = { [stackToken]: { mini: GLB, scale: 1, turn: 0 
 fs.writeFileSync(dataFile, JSON.stringify(fresh, null, 2));
 fs.writeFileSync(path.join(__dirname, 'fixtures.json'), JSON.stringify({ map: MAP, top: TOP, left: LEFT, stack: { ...STACK, token: stackToken, wall: stackWall, glb: GLB } }, null, 2));
 console.log('wrote the stack', STACK.base, 'with', STACK.upper, 'and', STACK.lower);
+
+// Phase 4C, the scene set aside: a second stack whose upper floor lay 2.5 squares left of the base's corner, so the
+// whole scene (the base too) goes three squares to the right when it is moved.
+const SIDE = { base: `${SCENES}/Side Base.atlasmap`, upper: `${SCENES}/Side Upper.atlasmap` };
+fs.writeFileSync(path.join(vault, SIDE.base), coveText.split(COVE).join(SIDE.base));
+fs.writeFileSync(path.join(vault, SIDE.upper), coveText.split(COVE).join(SIDE.upper));
+const side = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+for (const key of Object.keys(side.board)) if (key.includes('/Side ')) delete side.board[key];
+side.board[SIDE.upper] = { layer: { base: SIDE.base, elevation: 2, x: -250, y: 0 } };
+fs.writeFileSync(dataFile, JSON.stringify(side, null, 2));
+const written = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures.json'), 'utf8'));
+fs.writeFileSync(path.join(__dirname, 'fixtures.json'), JSON.stringify({ ...written, side: SIDE }, null, 2));
+console.log('wrote the side stack', SIDE.base, 'with', SIDE.upper);
