@@ -52,7 +52,7 @@ import { InitiativePanel, type InitiativePanelHost } from './initiativePanel';
 import { wholeWall, isWindow, mirroredDoor, rotatedDoor, windowSpan, WINDOW_STEP, type DoorFlip } from './walls';
 import { extrasOf, readLightHeight, readWallExtra, type RecordExtras, type WallExtraChange } from './recordExtras';
 import { planExtrasMove } from './extrasMigration';
-import { brushLiquids, givenUpText, legacyWaterLiquids, LIQUID_LIMITS, readLiquids, strokeLiquids, waterSourceOf, type OutlineReport, type WaterSource } from './liquids';
+import { brushLiquids, givenUpText, legacyWaterMove, LIQUID_LIMITS, readLiquids, strokeLiquids, waterSourceOf, type OutlineReport, type WaterSource } from './liquids';
 import { readWaterMotion, WaterMask, type SavedWaterMask, type WaterMotion } from './water';
 import { MeasureFullError, NotHeldError, type TokenChange } from './tokenWriter';
 import { HOST_BAR_LABELS, hostBar, mapName } from './hostBar';
@@ -1247,18 +1247,21 @@ export class BoardView extends ItemView {
     const name = mapName(path);
     // Not moved now, and not tried again while Obsidian runs (so no backup is written over and over).
     const stays = (why: string): void => { WATER_STAYS.add(path); console.warn(`Tabletop: the water painted on ${name} was not moved to Atlas: ${why}`); };
-    const gave: OutlineReport = { holes: 0, thinned: 0, patches: 0 };
-    const add = legacyWaterLiquids(legacy, size.width, size.height, map.grid.size, map.level, gave);
-    // Painted on an image, or a grid, of another size: it cannot be read (and was not drawn before either). It stays
-    // in Tabletop's data, and moves once the map is that size again.
-    if (!add) { stays('it was painted on an image or a grid of another size, and stays in Tabletop\'s data'); return; }
     // All of it or none: the level takes what Atlas keeps there, less what it already has.
     const there = readLiquids(onLevelRecord(view.atlasStore.getState().objects?.liquids, map.level, map.levels)).length;
-    if (add.length > LIQUID_LIMITS.patches - there) {
-      stays(`its ${add.length} patches do not fit beside the ${there} liquids of its level`);
-      new Notice(`Tabletop: the water painted on ${name} was not moved to Atlas: its ${add.length} patches do not fit beside the ${there} liquids this level has (Atlas keeps ${LIQUID_LIMITS.patches}). It is drawn as before; take some liquids off in Atlas, then start Obsidian again.`, 0);
+    const move = legacyWaterMove(legacy, size.width, size.height, map.grid.size, map.level, there);
+    if ('stays' in move) {
+      // Painted on an image, or a grid, of another size: it cannot be read (and was not drawn before either). It stays
+      // in Tabletop's data, and moves once the map is that size again.
+      if (move.stays === 'unreadable') { stays('it was painted on an image or a grid of another size, and stays in Tabletop\'s data'); return; }
+      const why = move.stays === 'no-room'
+        ? `its ${move.patches} patches do not fit beside the ${there} liquids this level has (Atlas keeps ${LIQUID_LIMITS.patches})`
+        : `Atlas would not keep ${move.patches} of its patches (it keeps ${LIQUID_LIMITS.patches} liquids on a level, of ${LIQUID_LIMITS.corners} corners each)`;
+      stays(why);
+      new Notice(`Tabletop: the water painted on ${name} was not moved to Atlas: ${why}. It is drawn as before, and stays in Tabletop's data${move.stays === 'no-room' ? '; take some liquids off in Atlas, then start Obsidian again' : ''}.`, 0);
       return;
     }
+    const { liquids: add, gave } = move;
     MOVING_WATER.add(path);
     try {
       const folder = await writeBackup(this.app, new Date(), [
@@ -1755,7 +1758,8 @@ export class BoardView extends ItemView {
   private tellWaterLimits(gave: OutlineReport): void {
     const text = givenUpText(gave);
     const now = Date.now();
-    if (!text || now - this.waterToldAt < WATER_TOLD_MS) return;
+    // Water left out is always said; fillings and smoothings not over and over.
+    if (!text || (gave.patches === 0 && now - this.waterToldAt < WATER_TOLD_MS)) return;
     this.waterToldAt = now;
     new Notice(`Tabletop: ${text} The board shows what was kept.`, 10000);
   }

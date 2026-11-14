@@ -15,7 +15,7 @@
     "evidence": {
       "hadLegacy": true,
       "moved": 0,
-      "shown": 377,
+      "shown": 0,
       "stepsAfter": -47,
       "liquids": [
         {
@@ -65,15 +65,15 @@
     "evidence": {
       "written": 1,
       "stepsAfter": 1,
-      "drawn": 360,
+      "drawn": 0,
       "corners": 4,
       "level": "level_probe_ground",
       "shownLevel": "level_probe_ground",
-      "two": 2,
+      "two": 1,
       "stepsTwo": 2,
       "inFile": 2,
-      "undone": 368,
-      "dry": 356,
+      "undone": 1,
+      "dry": 0,
       "inData": false
     }
   },
@@ -82,12 +82,12 @@
     "name": "a liquid made in Atlas is drawn on the board and left as it is: by a stroke that erases over it, and by a change of the water's motion, which re-writes only the brush's water",
     "pass": true,
     "evidence": {
-      "drawn": 332,
+      "drawn": 0,
       "painted": 1,
       "still": true,
-      "stillDrawn": 340,
+      "stillDrawn": 1,
       "notDoubled": true,
-      "retinted": 520,
+      "retinted": 558,
       "motionSteps": 1,
       "lavaSame": true,
       "flowGone": true
@@ -105,6 +105,44 @@
       "changed": [],
       "liquids": 0,
       "held": true
+    }
+  },
+  {
+    "step": 42,
+    "name": "strokes that follow each other before the map is read again replace the brush's water, never double it; a motion chosen just before a stroke goes with the stroke and is written once",
+    "pass": true,
+    "evidence": {
+      "atOnce": 1,
+      "stepsAfter": 2,
+      "drawnAtOnce": true,
+      "settled": 1,
+      "drawn": true,
+      "motionSteps": 1,
+      "tinted": true,
+      "chosenLeft": 0,
+      "waiting": false
+    }
+  },
+  {
+    "step": 43,
+    "name": "old painted water is moved only where it can be read: not while another level than the first is shown (it moves once the first is), and a mask of another size stays in Tabletop's data, with no backup and nothing written",
+    "pass": true,
+    "evidence": {
+      "levels": 2,
+      "up": 1382,
+      "waited": {
+        "legacy": true,
+        "brush": 0
+      },
+      "down": 3214,
+      "moved": 966,
+      "onFirst": true,
+      "stayed": {
+        "known": true,
+        "legacy": true,
+        "liquids": 0,
+        "backups": 0
+      }
     }
   },
   {

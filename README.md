@@ -179,9 +179,9 @@ map shows them and refuses the change. A material folder or a door's prop rename
 **Painted water is Atlas's liquids.** The water brush and bucket paint as before; when you let go, what you painted is
 kept in the map as Atlas's own water (outlines that follow your stroke to within a sixteenth of a square), so Atlas's
 2D view shows it in the same colour, flowing the same way, and Atlas's undo takes a stroke back. Atlas keeps 256
-liquids on a level, of 2048 corners each: a lake with more than that has its smallest dry spots filled and its shore
-smoothed (by a quarter of a square at most), the smallest patches past 256 are left out, and a notice says so; the
-board then shows what was kept. The board draws every liquid Atlas has on the level you are on, water, lava and acid
+liquids on a level, of 2048 corners each: a lake with more than that has its smallest dry spots filled, then its shore
+smoothed by a quarter of a square, then the islands in it filled, and only then its shore smoothed further; the
+smallest patches past 256 are left out; a notice says so, and the board then shows what was kept. The board draws every liquid Atlas has on the level you are on, water, lava and acid
 of a generated dungeon too, all as one water for now: in the colour and motion of the water you painted there, or,
 where you painted none, still and in the first liquid's colour. The brush changes only the water it painted: a liquid
 made in Atlas is Atlas's to change, and where you erase over it, it is drawn again when you let go. The water's motion

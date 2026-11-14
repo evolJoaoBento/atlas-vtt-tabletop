@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { givenUpText, sameWet, strokeLiquids, type OutlineReport, legacyWaterLiquids, waterFromWire, wireAreas, brushLiquids, LIQUID_LIMITS, maskOfSource, maskOutlines, motionOf, rasterAreas, readLiquids, waterKeyOf, withoutAreas, type WaterArea } from '../src/board/liquids';
+import { givenUpText, legacyWaterMove, sameWet, strokeLiquids, type OutlineReport, legacyWaterLiquids, waterFromWire, wireAreas, brushLiquids, LIQUID_LIMITS, maskOfSource, maskOutlines, motionOf, rasterAreas, readLiquids, waterKeyOf, withoutAreas, type WaterArea } from '../src/board/liquids';
 import { DEFAULT_WATER_MOTION, WaterMask } from '../src/board/water';
 
 /** A mask of 10 px texels (an 80 px cell) drawn from rows of `#` (wet) and `.` (dry). */
@@ -203,16 +203,20 @@ test("when a liquid would pass Atlas's corners the smallest dry spots inside it 
   assert.deepEqual(whole, noReport());
 });
 
-test('an edge is thinned no further than two texels to fit: a patch that still has too many corners is left out, and told', () => {
+test('an edge is thinned to fit; a patch that no thinning brings under the corners Atlas keeps is left out, and told', () => {
   const comb = ['#.#.#.#.#.#.#.#.#.#.#.#.', '########################'];
   const thinned = noReport();
   const [teeth] = maskOutlines(maskOf(comb), { corners: 20, patches: 256 }, thinned);
   assert.ok(teeth!.polygon.length <= 20);
   assert.deepEqual(thinned, { holes: 0, thinned: 1, patches: 0 });
-  // A big L keeps its six corners however it is thinned: with room for five it is no liquid at all.
+  // A big L with room for five of its six corners is kept as a rougher shape; no shape has two corners: left out.
   const ell = Array.from({ length: 30 }, (_, j) => (j < 10 ? '#'.repeat(30) : '#'.repeat(10) + '.'.repeat(20)));
+  const rough = noReport();
+  const [shape] = maskOutlines(maskOf(ell), { corners: 5, patches: 256 }, rough);
+  assert.ok(shape!.polygon.length >= 3 && shape!.polygon.length <= 5, String(shape!.polygon.length));
+  assert.deepEqual(rough, { holes: 0, thinned: 1, patches: 0 });
   const dropped = noReport();
-  assert.deepEqual(maskOutlines(maskOf(ell), { corners: 5, patches: 256 }, dropped), []);
+  assert.deepEqual(maskOutlines(maskOf(ell), { corners: 2, patches: 256 }, dropped), []);
   assert.deepEqual(dropped, { holes: 0, thinned: 0, patches: 1 });
   // Patches beyond the level's count are told too.
   const dots = ['#.#.##', '......', '###.#.', '###...'];
@@ -221,9 +225,49 @@ test('an edge is thinned no further than two texels to fit: a patch that still h
   assert.deepEqual(cut, { holes: 0, thinned: 0, patches: 3 });
 });
 
+test("a shore is smoothed past two texels only when filling all the dry ground inside was not enough, and the water is kept rather than left out", () => {
+  // A lake with a toothed shore (teeth four texels wide and six tall, which two texels of smoothing leave standing) and an island.
+  const rows = [
+    ...Array.from({ length: 6 }, () => '####....'.repeat(6)),
+    ...Array.from({ length: 10 }, (_, j) => (j >= 3 && j <= 6 ? '#'.repeat(10) + '.'.repeat(10) + '#'.repeat(28) : '#'.repeat(48))),
+  ];
+  const mask = maskOf(rows);
+  const [whole] = maskOutlines(mask);
+  const shore = whole!.polygon.length;
+  assert.equal(whole!.holes.length, 1);
+  // Room for the shore as it is, not for the island too: the island is filled, the shore keeps every tooth.
+  const filled = noReport();
+  const [lake] = maskOutlines(mask, { corners: shore, patches: 256 }, filled);
+  assert.equal(lake!.polygon.length, shore);
+  assert.deepEqual(lake!.holes, []);
+  assert.deepEqual(filled, { holes: 1, thinned: 0, patches: 0 });
+  // Room for less than the shore: it is smoothed as far as it takes, and the lake is still there.
+  const smoothed = noReport();
+  const rough = maskOutlines(mask, { corners: 10, patches: 256 }, smoothed);
+  assert.equal(rough.length, 1);
+  assert.ok(rough[0]!.polygon.length <= 10 && rough[0]!.polygon.length >= 4, String(rough[0]!.polygon.length));
+  assert.deepEqual(smoothed, { holes: 1, thinned: 1, patches: 0 });
+});
+
+test("a map's old painted water moves whole or stays: unreadable, more patches than Atlas keeps, or no room beside the level's liquids", () => {
+  const painted = maskOf(['##..', '##..', '...#']);
+  const motion = { ...DEFAULT_WATER_MOTION, tint: '#123456' };
+  const moved = legacyWaterMove({ mask: painted.save(), motion }, 40, 30, 80, 'ground', 254);
+  assert.ok('liquids' in moved);
+  assert.equal(moved.liquids.length, 2);
+  assert.deepEqual(moved.gave, noReport());
+  // One liquid too many on the level: none of it moves.
+  assert.deepEqual(legacyWaterMove({ mask: painted.save(), motion }, 40, 30, 80, 'ground', 255), { stays: 'no-room', patches: 2 });
+  assert.deepEqual(legacyWaterMove({ mask: painted.save(), motion }, 400, 300, 80, 'ground', 0), { stays: 'unreadable', patches: 0 });
+  // More patches than a level keeps, on an empty level: moving it would leave one out, so it stays.
+  const dots = maskOf(['#.'.repeat(257)]);
+  assert.deepEqual(legacyWaterMove({ mask: dots.save() }, 5140, 10, 80, null, 0), { stays: 'left-out', patches: 1 });
+});
+
 test('what was given up to fit Atlas is said in words, and nothing is said when nothing was', () => {
   assert.equal(givenUpText({ holes: 0, thinned: 0, patches: 0 }), null);
-  assert.equal(givenUpText({ holes: 72, thinned: 1, patches: 1 }), 'Atlas keeps 256 liquids on a level, of 2048 corners each: to fit, 1 of the smallest patch was left out, 72 small dry spots were filled, the edge of the largest water was smoothed.');
+  assert.equal(givenUpText({ holes: 72, thinned: 1, patches: 1 }), 'Atlas keeps 256 liquids on a level, of 2048 corners each: to fit, 1 patch was left out, 72 dry spots were filled, the shore of 1 water was smoothed.');
+  assert.equal(givenUpText({ holes: 1, thinned: 2, patches: 3 }), 'Atlas keeps 256 liquids on a level, of 2048 corners each: to fit, 3 patches were left out, 1 dry spot was filled, the shores of 2 waters were smoothed.');
 });
 
 test('two masks are the same water when the same texels are wet, whatever else they are', () => {

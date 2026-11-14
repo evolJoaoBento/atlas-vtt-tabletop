@@ -40,12 +40,14 @@ export const LIQUID_LIMITS = { corners: 2048, patches: 256 } as const;
 
 /** How far a thinned outline may lie from the texel edge it was traced along, in texels: under half, so no texel's centre changes sides. */
 const THIN = 0.45;
-/** The furthest an outline is thinned to fit Atlas's corners, in texels (a quarter of a square, where the mask has eight texels to a square). */
+/** How far an outline is thinned to fit Atlas's corners while there is dry ground inside it left to fill, in texels (a quarter of a square, where the mask has eight texels to a square). */
 const MOST_THIN = 2;
+/** The furthest an outline is thinned at all, in texels: past this a patch is no shape of the water painted. */
+const LAST_THIN = 64;
 /** Twice the area, in texels, of the dry spots filled before an edge is thinned further: spots of the same reach. */
 const SMALL_HOLE = 2 * MOST_THIN * MOST_THIN;
 
-/** What `maskOutlines` gave up to fit what Atlas keeps: dry spots filled, patches whose edge was thinned past the mask's own texels, patches left out. */
+/** What `maskOutlines` gave up to fit what Atlas keeps: dry spots filled, patches whose edge was smoothed (it no longer gives the mask's own texels back), patches left out. */
 export interface OutlineReport { holes: number; thinned: number; patches: number }
 const KINDS: readonly LiquidKind[] = ['water', 'lava', 'acid'];
 const SURFACES: Record<LiquidKind, string> = { water: '#3b82f6', lava: '#ea580c', acid: '#65a30d' };
@@ -194,9 +196,10 @@ function thinRing(ring: Point[], tolerance: number): Point[] {
  * The outlines of a mask's wet texels: one area per patch (texels joined side by side; two that only touch at a corner
  * are two patches), with the dry ground inside it as its holes. Each ring runs along texel edges and is thinned
  * (`THIN`). A patch of more corners than `limits.corners` gives up as little as fits it, a step at a time: the dry
- * spots of a texel or two inside it are filled, smallest first; its edge is thinned, to within two texels at most;
- * the rest of the dry ground inside it is filled, smallest first; and a patch that still has too many is left out.
- * Only the `limits.patches` largest patches are given. What was given up is added to `report`.
+ * spots of a texel or two inside it are filled, smallest first; its edge is thinned, to within two texels; the rest
+ * of the dry ground inside it is filled, smallest first; its edge is thinned further, as far as it takes (water
+ * with a rough shore rather than none); and only a patch no thinning fits is left out. Only the `limits.patches`
+ * largest patches are given. What was given up is added to `report`.
  */
 export function maskOutlines(mask: WaterMask, limits: { corners: number; patches: number } = LIQUID_LIMITS, report?: OutlineReport): WaterArea[] {
   const { width, height, texel, data } = mask;
@@ -288,11 +291,13 @@ export function maskOutlines(mask: WaterMask, limits: { corners: number; patches
     const dry = [...holes].sort((a, b) => Math.abs(area2(b)) - Math.abs(area2(a)));
     let inner = dry.map((hole) => thinRing(hole, tolerance));
     const count = (): number => polygon.length + inner.reduce((sum, hole) => sum + hole.length, 0);
+    const fine = dry.map((_, at) => inner[at]!.length);
+    const fineShore = polygon.length;
     let filled = 0;
     const fill = (): void => { dry.pop(); inner.pop(); filled += 1; };
     // Too many corners for Atlas. First the dry spots of a texel or two are filled;
     while (count() > limits.corners && dry.length > 0 && Math.abs(area2(dry[dry.length - 1]!)) <= SMALL_HOLE) fill();
-    // then the edge is thinned, to within two texels at most;
+    // then the edge is thinned, to within two texels;
     while (count() > limits.corners && tolerance < MOST_THIN) {
       tolerance = Math.min(MOST_THIN, tolerance * 1.6);
       polygon = thinRing(outer, tolerance);
@@ -300,9 +305,17 @@ export function maskOutlines(mask: WaterMask, limits: { corners: number; patches
     }
     // then the rest of the dry ground inside, smallest first;
     while (count() > limits.corners && dry.length > 0) fill();
+    // then the shore alone, as far as it takes: rough water rather than none;
+    while (count() > limits.corners && tolerance < LAST_THIN) {
+      tolerance = Math.min(LAST_THIN, tolerance * 1.6);
+      polygon = thinRing(outer, tolerance);
+    }
     // and a patch that still has too many is no liquid Atlas would keep.
     if (count() > limits.corners) { if (report) report.patches += 1; continue; }
-    if (report) { report.holes += filled; if (tolerance > THIN) report.thinned += 1; }
+    if (report) {
+      report.holes += filled;
+      if (polygon.length < fineShore || inner.some((hole, at) => hole.length < fine[at]!)) report.thinned += 1;
+    }
     const scale = (ring: Point[]): Point[] => ring.map((point) => ({ x: point.x * texel, y: point.y * texel }));
     areas.push({ polygon: scale(polygon), holes: inner.map(scale), size });
   }
@@ -314,12 +327,32 @@ export function maskOutlines(mask: WaterMask, limits: { corners: number; patches
 /** What `maskOutlines` gave up, in words for the GM; null when nothing was. */
 export function givenUpText(gave: OutlineReport): string | null {
   const parts = [
-    gave.patches > 0 ? `${gave.patches} of the smallest ${gave.patches === 1 ? 'patch was' : 'patches were'} left out` : '',
-    gave.holes > 0 ? `${gave.holes} small dry ${gave.holes === 1 ? 'spot was' : 'spots were'} filled` : '',
-    gave.thinned > 0 ? `the edge of ${gave.thinned === 1 ? 'the largest water was' : `the ${gave.thinned} largest waters was`} smoothed` : '',
+    gave.patches > 0 ? `${gave.patches} ${gave.patches === 1 ? 'patch was' : 'patches were'} left out` : '',
+    gave.holes > 0 ? `${gave.holes} dry ${gave.holes === 1 ? 'spot was' : 'spots were'} filled` : '',
+    gave.thinned > 0 ? `the ${gave.thinned === 1 ? 'shore of 1 water was' : `shores of ${gave.thinned} waters were`} smoothed` : '',
   ].filter((part) => part !== '');
   if (parts.length === 0) return null;
   return `Atlas keeps ${LIQUID_LIMITS.patches} liquids on a level, of ${LIQUID_LIMITS.corners} corners each: to fit, ${parts.join(', ')}.`;
+}
+
+/** How a map's old painted water moves to Atlas: the liquids to write, or why it stays where it is. */
+export type LegacyWaterMove =
+  | { liquids: Array<Record<string, unknown>>; gave: OutlineReport }
+  | { stays: 'unreadable' | 'left-out' | 'no-room'; patches: number };
+
+/**
+ * The move of a map's old painted water (`legacyWaterLiquids`) onto a level that has `there` liquids already: all of
+ * it or none. It stays where the mask cannot be read for a map of this size (`unreadable`), where Atlas would not keep
+ * some of its patches at all (`left-out`, how many), and where the level has no room for all of them beside its own
+ * (`no-room`, how many it has); dry spots filled and a smoothed shore are not reasons to stay (`gave` tells them).
+ */
+export function legacyWaterMove(legacy: { mask: unknown; motion?: unknown }, mapWidth: number, mapHeight: number, cell: number, level: string | null, there: number): LegacyWaterMove {
+  const gave: OutlineReport = { holes: 0, thinned: 0, patches: 0 };
+  const liquids = legacyWaterLiquids(legacy, mapWidth, mapHeight, cell, level, gave);
+  if (!liquids) return { stays: 'unreadable', patches: 0 };
+  if (gave.patches > 0) return { stays: 'left-out', patches: gave.patches };
+  if (liquids.length > LIQUID_LIMITS.patches - there) return { stays: 'no-room', patches: liquids.length };
+  return { liquids, gave };
 }
 
 /** Whether two masks have the same texels wet (no mask is a dry one). */
