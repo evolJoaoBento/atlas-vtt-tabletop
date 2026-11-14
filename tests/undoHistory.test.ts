@@ -108,3 +108,16 @@ test("a change Atlas took is undone in Atlas's own history", async () => {
   past.push(2);
   assert.equal((await history.undo(['m']))?.done, false);
 });
+
+test("the move of a map's 3D settings onto Atlas's records is no step of the board's undo: undoing would bring back what was moved", async () => {
+  const history = new UndoHistory();
+  const boardData = new BoardData({ m: { wallHeights: { w1: 2 }, fogHeight: 2 } });
+  recordTabletopData(history, boardData, new Assignments());
+  boardData.clearLegacyExtras('m');
+  assert.equal(history.canUndo(['m']), false);
+  // What the GM does next is a step, and its undo leaves the move as it is.
+  boardData.setFogHeight('m', 3);
+  assert.equal(history.canUndo(['m']), true);
+  await history.undo(['m']);
+  assert.deepEqual(boardData.toJSON().m, { fogHeight: 2, extrasMoved: true });
+});

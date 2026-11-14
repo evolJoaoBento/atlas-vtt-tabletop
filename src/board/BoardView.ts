@@ -51,6 +51,7 @@ import { currentEntries, delayedTokens, emptyInitiative, ownModifier, readInitia
 import { InitiativePanel, type InitiativePanelHost } from './initiativePanel';
 import { wholeWall, isWindow, mirroredDoor, rotatedDoor, windowSpan, WINDOW_STEP, type DoorFlip } from './walls';
 import { extrasOf, readLightHeight, readWallExtra, type RecordExtras, type WallExtraChange } from './recordExtras';
+import { planExtrasMove } from './extrasMigration';
 import { MeasureFullError, NotHeldError, type TokenChange } from './tokenWriter';
 import { HOST_BAR_LABELS, hostBar, mapName } from './hostBar';
 import { migrationWalls, roomWallMoves } from './roomWallMigration';
@@ -972,7 +973,8 @@ export class BoardView extends ItemView {
       const store = this.services.host?.store(path);
       if (store) {
         map = readMapState(path, store.getState(), this.shownLevel(path));
-        void this.moveRoomWalls(path, store.getState());
+        // Old room-wall names are re-keyed first; then what is kept by Atlas's ids goes onto Atlas's own records.
+        void this.moveRoomWalls(path, store.getState()).then(() => this.moveExtras(path));
       } else {
         const text = await this.app.vault.read(file);
         if (this.closed) return;
@@ -1161,6 +1163,43 @@ export class BoardView extends ItemView {
       console.warn('Tabletop: the room-wall settings could not be moved:', error);
     } finally {
       this.movingRoomWalls.delete(path);
+    }
+  }
+
+  /** The maps whose 3D settings are being moved onto Atlas's records right now. */
+  private readonly movingExtras = new Set<string>();
+
+  /**
+   * Once per map, when Atlas holds it: what the GM set in 3D on its walls, doors and lights, which Tabletop kept in
+   * its own data by Atlas's ids, is moved onto Atlas's own records (`extrasMigration.ts`). A backup of the map and of
+   * Tabletop's data for it is written first, and one notice says what was moved. Nothing is lost that Atlas still has
+   * a record for, so nobody is asked.
+   */
+  private async moveExtras(path: string): Promise<void> {
+    const { boardData, writer } = this.services;
+    const legacy = boardData.legacyExtras(path);
+    if (!legacy || this.movingExtras.has(path) || this.closed) return;
+    // Settings still under 0.14's room-wall names wait for Atlas 0.15 to make walls of the rooms (migration 1).
+    if (!boardData.roomWallsMoved(path) && [...boardData.wallKeys(path)].some((key) => /^room_-?\d+_-?\d+_-?\d+_-?\d+$/.test(key))) return;
+    const view = writer.holder(path);
+    if (!view) return;
+    const move = planExtrasMove(legacy, view.atlasStore.getState().objects ?? {});
+    this.movingExtras.add(path);
+    try {
+      const name = mapName(path);
+      const folder = await writeBackup(this.app, new Date(), [
+        { name: `${name}.atlasmap`, text: await this.app.vault.adapter.read(path) },
+        { name: `${name}.tabletop.json`, text: JSON.stringify(boardData.toJSON()[path] ?? {}, null, 2) },
+      ]);
+      await writer.applyExtrasMove(path, move);
+      boardData.clearLegacyExtras(path);
+      const left = move.dropped > 0 ? ` (${move.dropped} for walls or lights Atlas no longer has were left in the backup)` : '';
+      new Notice(`Tabletop: moved ${move.moved} wall, door and light ${move.moved === 1 ? 'setting' : 'settings'} onto Atlas's own records on ${name}${left}; backup in ${folder}/`, 0);
+    } catch (error) {
+      // Atlas let go of the map, or the backup could not be written: the settings stay where they were, for the next time.
+      if (!(error instanceof NotHeldError)) console.warn('Tabletop: the 3D settings of walls and lights could not be moved:', error);
+    } finally {
+      this.movingExtras.delete(path);
     }
   }
 

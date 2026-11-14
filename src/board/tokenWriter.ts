@@ -16,6 +16,7 @@ import { defeatedResources, resourceUpdate, type ResourceDefinition, type Resour
 import { initiativeEntryFor } from './tokenEdits';
 import type { InitiativeAction } from './initiative';
 import { mergeExtra, type WallExtraChange } from './recordExtras';
+import type { ExtrasMove } from './extrasMigration';
 
 type RawToken = Record<string, unknown> & { x?: number; y?: number; imagePath?: string; instanceNumber?: number };
 /**
@@ -349,6 +350,26 @@ export class TokenWriter {
       const update = state.updateToken;
       this.asOneStep(path, () => update(lightId, { tabletop: mergeExtra((tokens[lightId] as { tabletop?: unknown }).tabletop, { lightHeight: height }) }));
     }
+  }
+
+  /**
+   * Writes a move of the GM's 3D settings onto Atlas's records (`extrasMigration.ts`), outside Atlas's history: a
+   * migration is no step of the GM's undo. `NotHeldError` when Atlas does not hold the map: nothing is moved then.
+   */
+  async applyExtrasMove(path: string, move: ExtrasMove): Promise<void> {
+    if (this.holder(path) === null) await this.ready(path);
+    const view = this.holder(path);
+    if (!view) throw new NotHeldError();
+    const write = (): void => {
+      // Read fresh at every write: an action swaps the store's state.
+      const now = (): AtlasSceneState => view.atlasStore.getState();
+      for (const { id, change } of move.walls) now().updateWall?.(id, { tabletop: mergeExtra(now().objects?.walls?.[id]?.tabletop, change) });
+      for (const { id, height } of move.lights) now().updateLight?.(id, { tabletop: mergeExtra(now().objects?.lights?.[id]?.tabletop, { height }) });
+      for (const { id, height } of move.tokens) now().updateToken?.(id, { tabletop: mergeExtra((now().objects?.tokens?.[id] as { tabletop?: unknown } | undefined)?.tabletop, { lightHeight: height }) });
+    };
+    const untracked = view.atlasStore.temporal?.getState().untracked;
+    if (untracked) untracked(write);
+    else write();
   }
 
   /** Opens or shuts a door (a locked one stays shut). */
