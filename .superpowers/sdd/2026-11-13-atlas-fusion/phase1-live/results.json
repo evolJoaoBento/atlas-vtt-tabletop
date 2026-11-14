@@ -5,13 +5,13 @@
     "pass": true,
     "evidence": {
       "atlas": "0.15.0",
-      "tabletop": "1.6.0",
-      "connect": "0.12.0",
+      "tabletop": "1.7.0",
+      "connect": "0.13.0",
       "loaded": [
         true,
         true
       ],
-      "fusion": 3,
+      "fusion": 4,
       "notices": []
     }
   },
@@ -24,7 +24,7 @@
       "leaves": 1,
       "hidden": true,
       "boardActive": true,
-      "heldMs": 234,
+      "heldMs": 0,
       "mark": {
         "openedBy": "tabletop-for-atlas",
         "claims": [
@@ -59,7 +59,7 @@
         "button": "Edit here"
       },
       "coveBanner": null,
-      "cellarMs": 262,
+      "cellarMs": 295,
       "cellarActive": true,
       "leavesAfter": 1,
       "cellarBannerAfter": null,
@@ -75,7 +75,7 @@
     "name": "an edit on the held board saves through Atlas; on the other board it is refused and no file is written",
     "pass": true,
     "evidence": {
-      "savedMs": 575,
+      "savedMs": 570,
       "moved": true,
       "refused": {
         "name": "NotHeldError",
@@ -110,7 +110,7 @@
           "button": "Reopen"
         }
       },
-      "ms": 583,
+      "ms": 617,
       "leaves": 1,
       "banner": null,
       "boardActive": true
@@ -146,7 +146,7 @@
     "name": "rooms: Atlas 0.15 converts them, the old wall settings move with a backup onto Atlas's own walls, no doubled outline",
     "pass": true,
     "evidence": {
-      "ms": 1,
+      "ms": 0,
       "fileHasRooms": false,
       "roomWalls": 10,
       "chains": [
@@ -173,6 +173,8 @@
         "Tabletop backups/2026-11-14/Fusion Rooms-5.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms-6.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms-7.atlasmap",
+        "Tabletop backups/2026-11-14/Fusion Rooms-8.atlasmap",
+        "Tabletop backups/2026-11-14/Fusion Rooms-9.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-2.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-3.json",
@@ -180,7 +182,11 @@
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-5.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-6.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-7.json",
-        "Tabletop backups/2026-11-14/Fusion Rooms.tabletop.json"
+        "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-8.json",
+        "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-9.json",
+        "Tabletop backups/2026-11-14/Fusion Rooms.tabletop.json",
+        "Tabletop backups/2026-11-14/Probe Cellar.atlasmap",
+        "Tabletop backups/2026-11-14/Probe Cellar.tabletop.json"
       ],
       "backupHasRooms": true,
       "notices": [
@@ -208,7 +214,9 @@
         "ambient": 0.42,
         "ambientColor": "#336699"
       },
-      "data": {},
+      "data": {
+        "waterMoved": true
+      },
       "shown": 0.42,
       "lightingOn": true
     }
