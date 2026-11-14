@@ -348,6 +348,39 @@ async function step(n, name, run) {
     return { pass: ok, evidence: out };
   });
 
+  await step(52, "drawings and texts the GM hid (Atlas 0.16) are drawn on the GM's board and left out of the players' picture; a filled shape with a hole is drawn filled, a line of no width as none", async () => {
+    const out = await o.ev(`
+      const S = window.__S;
+      const leaf = await S.hold(S.CELLAR);
+      const view = leaf.view;
+      const drawingsBefore = S.s().objects.drawings, textsBefore = S.s().objects.texts;
+      const square = [{ x: 300, y: 300 }, { x: 500, y: 300 }, { x: 500, y: 500 }, { x: 300, y: 500 }, { x: 300, y: 300 }];
+      const ids = {
+        secret: S.s().addDrawing({ type: 'pen', points: [{ x: 300, y: 600 }, { x: 500, y: 600 }], color: '#ff0000', width: 6, opacity: 1, hidden: true }),
+        shown: S.s().addDrawing({ type: 'pen', points: [{ x: 300, y: 650 }, { x: 500, y: 650 }], color: '#00ff00', width: 6, opacity: 1 }),
+        box: S.s().addDrawing({ type: 'rectangle', points: square, color: '#000000', width: 0, opacity: 1, fill: 'solid', holes: [[{ x: 380, y: 380 }, { x: 420, y: 380 }, { x: 420, y: 420 }]] }),
+        note: S.s().addText({ x: 400, y: 700, text: 'Trap', fontSize: 24, fontFamily: 'serif', color: '#ffffff', hidden: true }),
+      };
+      const read = await S.until(() => view.map.inks.some((ink) => ink.id === ids.box) && view.map.texts.some((text) => text.id === ids.note), 8000);
+      await S.sleep(500);
+      const board = view.board;
+      const piece = (list, id, key) => list.find((p) => p[key].id === id);
+      board.showFor('player');
+      const player = { secret: piece(board.inks, ids.secret, 'ink').object3d.visible, shown: piece(board.inks, ids.shown, 'ink').object3d.visible, note: piece(board.texts, ids.note, 'label').object3d.visible };
+      board.showFor('gm');
+      const gm = { secret: piece(board.inks, ids.secret, 'ink').object3d.visible, note: piece(board.texts, ids.note, 'label').object3d.visible };
+      const boxPiece = piece(board.inks, ids.box, 'ink');
+      const fill = boxPiece.object3d.children.find((child) => child.name === 'fill');
+      const box = { line: boxPiece.object3d.geometry.attributes.position.count, fill: fill ? fill.geometry.attributes.position.count : 0, read: view.map.inks.find((ink) => ink.id === ids.box) };
+      S.s().setDrawings(drawingsBefore);
+      S.s().setTexts(textsBefore);
+      await S.sleep(800);
+      return { atlas: app.plugins.manifests['atlas-vtt'].version, read: read !== null, player, gm, box: { line: box.line, fill: box.fill, fillRead: box.read && box.read.fill, holes: box.read && box.read.holes.length } };`);
+    const ok = out.read && out.player.secret === false && out.player.shown === true && out.player.note === false && out.gm.secret === true && out.gm.note === true
+      && out.box.line === 0 && out.box.fill > 0 && out.box.fillRead === 'solid' && out.box.holes === 1;
+    return { pass: ok, evidence: out };
+  });
+
   await step(50, 'no console error from Tabletop or Connect across the run', async () => {
     await sleep(1500);
     const errors = o.logs.filter((l) => (l.type === 'error' || l.type === 'pageerror') && /tabletop|connect-for-atlas|Tabletop|Connect/i.test(l.text + l.at));
