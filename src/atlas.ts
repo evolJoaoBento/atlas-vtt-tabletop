@@ -95,6 +95,8 @@ export interface AtlasTemporal {
     untracked?<T>(fn: () => T): T;
     /** Whether an undo or a redo is being applied right now. */
     isTravelling?(): boolean;
+    /** Forgets every step. */
+    clear?(): void;
   };
 }
 

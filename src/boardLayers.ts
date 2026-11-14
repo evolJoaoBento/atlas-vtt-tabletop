@@ -15,13 +15,19 @@ import type { BoardLayerLook } from './connectContract';
 import { waterOf, type MaterialInfo, type MaterialView } from './boardLook';
 import { extrasOf } from './board/recordExtras';
 
-/** Scenes read from the vault and kept until their file changes. */
+/**
+ * Scenes read from the vault and kept until their file changes. A scene whose file changed is answered for as it
+ * was read last until the new reading is in (and `changed` says so): what is built from it never goes blank between
+ * a save and its reading.
+ */
 export class LayerIndex {
   private readonly known = new Map<string, BoardMap | null>();
   private readonly texts = new Map<string, string>();
   /** A scene read at one of its levels, by path and level. */
   private readonly atLevel = new Map<string, BoardMap | null>();
   private readonly reading = new Set<string>();
+  /** Scenes whose file changed while they were being read: read once more. */
+  private readonly again = new Set<string>();
 
   constructor(private readonly vault: Pick<Vault, 'getAbstractFileByPath' | 'read'>, private readonly changed: () => void) {}
 
@@ -56,10 +62,11 @@ export class LayerIndex {
     return this.known.has(path);
   }
 
+  /** The scene's file changed: it is read again; until then it is answered for as it was. */
   forget(path: string): void {
-    this.known.delete(path);
-    this.texts.delete(path);
-    for (const key of [...this.atLevel.keys()]) if (key.startsWith(`${path}\n`)) this.atLevel.delete(key);
+    if (!this.known.has(path)) return;
+    if (!this.reading.has(path)) void this.read(path);
+    else this.again.add(path);
   }
 
   forgetAll(): void {
@@ -73,14 +80,20 @@ export class LayerIndex {
     try {
       const file = this.vault.getAbstractFileByPath(path) as TFile | null;
       const text = file && !('children' in file) ? await this.vault.read(file) : null;
+      const map = text !== null ? readMap(path, text, null) : null;
       if (text !== null) this.texts.set(path, text);
-      this.known.set(path, text !== null ? readMap(path, text, null) : null);
+      else this.texts.delete(path);
+      this.known.set(path, map);
     } catch (error) {
       console.warn('[Tabletop] Could not read a stacked scene for Connect:', error);
+      this.texts.delete(path);
       this.known.set(path, null);
     } finally {
       this.reading.delete(path);
+      // Its levels are read from the new text when next asked for.
+      for (const key of [...this.atLevel.keys()]) if (key.startsWith(`${path}\n`)) this.atLevel.delete(key);
     }
+    if (this.again.delete(path)) void this.read(path);
     this.changed();
   }
 }

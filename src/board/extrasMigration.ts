@@ -17,9 +17,11 @@ export interface ExtrasMove {
   lights: Array<{ id: string; height: number }>;
   /** Tokens that carry a light, and the height that light gets. */
   tokens: Array<{ id: string; height: number }>;
-  /** How many values go onto a record, and how many go nowhere. */
+  /** How many values go onto a record, and how many go nowhere (the backup has them). */
   moved: number;
   dropped: number;
+  /** Of those that go nowhere, the ones whose wall, light or token Atlas no longer has; the rest the record already had, or no record may have. */
+  orphaned: number;
 }
 
 type Raw = Record<string, unknown>;
@@ -28,7 +30,7 @@ const recordOf = (records: unknown, id: string): Raw | null => (isObj(records) &
 
 /** What moving `legacy` onto the records of `objects` (Atlas's store, every level) comes to. */
 export function planExtrasMove(legacy: LegacyExtras, objects: { walls?: unknown; lights?: unknown; tokens?: unknown }): ExtrasMove {
-  const plan: ExtrasMove = { walls: [], lights: [], tokens: [], moved: 0, dropped: 0 };
+  const plan: ExtrasMove = { walls: [], lights: [], tokens: [], moved: 0, dropped: 0, orphaned: 0 };
   // What data.json says of each wall, as the record's field would say it.
   const kept = new Map<string, Raw>();
   const note = (records: Readonly<Record<string, unknown>> | undefined, fields: (value: unknown) => Raw): void => {
@@ -51,6 +53,7 @@ export function planExtrasMove(legacy: LegacyExtras, objects: { walls?: unknown;
     if (moving > 0) plan.walls.push({ id, change });
     plan.moved += moving;
     plan.dropped += all - moving;
+    if (!record) plan.orphaned += all;
   }
   for (const [id, value] of Object.entries(legacy.lightHeights ?? {})) {
     const height = readLightHeight({ height: value }, 'height');
@@ -58,7 +61,10 @@ export function planExtrasMove(legacy: LegacyExtras, objects: { walls?: unknown;
     const token = light ? null : recordOf(objects.tokens, id);
     if (height !== null && light && readLightHeight(light.tabletop, 'height') === null) { plan.lights.push({ id, height }); plan.moved += 1; }
     else if (height !== null && token && readLightHeight(token.tabletop, 'lightHeight') === null) { plan.tokens.push({ id, height }); plan.moved += 1; }
-    else plan.dropped += 1;
+    else {
+      plan.dropped += 1;
+      if (!light && !token) plan.orphaned += 1;
+    }
   }
   return plan;
 }

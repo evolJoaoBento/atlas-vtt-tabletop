@@ -4,7 +4,8 @@
  * rest from Tabletop's own data. Materials are listed only once their settings are read
  * (`MaterialIndex`), so nothing is guessed; Connect hears when they are.
  */
-import { onFirstLevel, propsOnLevel, type BoardLevel } from './board/levels';
+import { onFirstLevel, propsOnLevel, resolveLevel, type BoardLevel } from './board/levels';
+import { readMapState, type BoardMap } from './board/mapModel';
 import type { TFile, TFolder, Vault } from 'obsidian';
 import type { BoardData } from './board/boardData';
 import type { BoardWall } from './board/walls';
@@ -26,6 +27,23 @@ export interface MaterialView {
 }
 
 const isDefault = (tuning: MaterialTuning): boolean => tuning.relief === DEFAULT_TUNING.relief && tuning.occlusion === DEFAULT_TUNING.occlusion && tuning.shine === DEFAULT_TUNING.shine && tuning.depth === DEFAULT_TUNING.depth && tuning.displace === DEFAULT_TUNING.displace && tuning.outward === DEFAULT_TUNING.outward;
+
+/**
+ * The maps a look is built from: the scene (`own`) and, where it has levels, the level players are shown (`levelMap`).
+ * A map Atlas holds is read from Atlas's store (`held`: its state), so what was just set, or undone, is in the look at
+ * once, saved or not; any other map from its file as last read (`scenes`).
+ */
+export function lookMaps(mapPath: string, viewedLevel: string | null, scenes: { map(path: string): BoardMap | null; mapAt(path: string, level: string): BoardMap | null }, held: unknown): { own: BoardMap | null; shown: { levels: readonly BoardLevel[]; level: string | null } | undefined; levelMap: BoardMap | null } {
+  const fromStore = (level?: string | null): BoardMap | null => {
+    if (held === null || held === undefined) return null;
+    try { return readMapState(mapPath, held, level); } catch { return null; }
+  };
+  const stored = fromStore();
+  const own = stored ?? scenes.map(mapPath);
+  const shown = own && own.levels.length > 1 ? { levels: own.levels, level: resolveLevel(own.levels, viewedLevel) } : undefined;
+  const levelMap = shown?.level ? (stored ? fromStore(shown.level) : scenes.mapAt(mapPath, shown.level)) : null;
+  return { own, shown, levelMap };
+}
 
 export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: string, layers: ReadonlyArray<BoardLayerLook> = [], shown: { levels: readonly BoardLevel[]; level: string | null } = { levels: [], level: null }, defaults: { walls: readonly BoardWall[]; chosen: MaterialDefaults } | null = null, extras: RecordExtras = extrasOf(null, data.legacyExtras(mapPath))): BoardLook {
   // Walls with no material painted wear their kind's default, for players too.

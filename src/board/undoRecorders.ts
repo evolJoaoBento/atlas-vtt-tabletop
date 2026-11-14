@@ -54,6 +54,7 @@ export function recordTabletopData(history: UndoHistory, boardData: BoardData, a
     if (history.travelling || before === after) return;
     // A migration's bookkeeping (the 3D settings moved onto Atlas's records) is nothing the GM did: no step to take back.
     if (after?.extrasMoved === true && before?.extrasMoved !== true) return;
+    if (after?.roomWallsMoved === true && before?.roomWallsMoved !== true) return;
     const keys = changedKeys(before, after);
     if (keys.length === 0) return;
     const label = keys.map((key) => LABELS[key] ?? key).join(', ');

@@ -54,7 +54,7 @@ import { extrasOf, readLightHeight, readWallExtra, type RecordExtras, type WallE
 import { planExtrasMove } from './extrasMigration';
 import { MeasureFullError, NotHeldError, type TokenChange } from './tokenWriter';
 import { HOST_BAR_LABELS, hostBar, mapName } from './hostBar';
-import { migrationWalls, roomWallMoves } from './roomWallMigration';
+import { migrationWalls, roomsAwaitAtlas, roomWallMoves } from './roomWallMigration';
 import { writeBackup } from '../backups';
 import type { LaserSettings } from './laser';
 import type { PlayerView } from './PlayerWindow';
@@ -100,6 +100,8 @@ const FLASH_MS = 6000;
 const MEASURE_ACCENT = '#7c5cff';
 /** How long Atlas's measures, walls and features must stay as they are before its records of the kept spells are put in step. */
 const RECONCILE_MS = 150;
+/** The maps whose 3D settings are being moved onto Atlas's records right now, whichever board started it. */
+const MOVING_EXTRAS = new Set<string>();
 const RELOAD_MS = 300;
 /** A light hangs a square above the map until the GM sets its height; the menu steps it a quarter square. */
 const DEFAULT_LIGHT_SQUARES = 1;
@@ -171,6 +173,8 @@ export interface BoardServices {
   playerViewOpen(path: string): boolean;
   /** This board has drawn its map: a player view of that map can be drawn into. */
   boardReady(view: BoardView): void;
+  /** What the GM set in 3D on a wall, a door or a light of this map changed: what players are sent changes with it. */
+  lookChanged?(mapPath: string): void;
   /** The board showed another level of its scene (Atlas levels): what players are sent changes with it. */
   levelShown?(mapPath: string): void;
   /** The GM's camera or the players' moved on this board. */
@@ -772,7 +776,9 @@ export class BoardView extends ItemView {
       const current = level.id === shown.level;
       let map: BoardMap;
       try {
-        map = readMap(path, text, level.id);
+        // A scene Atlas holds is read from its store: what was just set (or moved onto its records) is there, saved or not.
+        const held = this.services.host?.store(path) ?? null;
+        map = held ? readMapState(path, held.getState(), level.id) : readMap(path, text, level.id);
       } catch {
         continue;
       }
@@ -1144,8 +1150,8 @@ export class BoardView extends ItemView {
     const old = new Set([...boardData.wallKeys(path)].filter((key) => /^room_-?\d+_-?\d+_-?\d+_-?\d+$/.test(key)));
     if (old.size === 0) return;
     const walls = migrationWalls(state);
-    // Atlas has not made walls of the rooms (not a 0.15 store): nothing to move them to yet.
-    if (!walls.some((wall) => wall.chainId?.startsWith('rooms_'))) return;
+    // Atlas still holds rooms it has not made walls of: nothing to move them to yet.
+    if (roomsAwaitAtlas(state)) return;
     const moves = roomWallMoves(walls, old);
     this.movingRoomWalls.add(path);
     try {
@@ -1166,8 +1172,6 @@ export class BoardView extends ItemView {
     }
   }
 
-  /** The maps whose 3D settings are being moved onto Atlas's records right now. */
-  private readonly movingExtras = new Set<string>();
 
   /**
    * Once per map, when Atlas holds it: what the GM set in 3D on its walls, doors and lights, which Tabletop kept in
@@ -1178,28 +1182,32 @@ export class BoardView extends ItemView {
   private async moveExtras(path: string): Promise<void> {
     const { boardData, writer } = this.services;
     const legacy = boardData.legacyExtras(path);
-    if (!legacy || this.movingExtras.has(path) || this.closed) return;
-    // Settings still under 0.14's room-wall names wait for Atlas 0.15 to make walls of the rooms (migration 1).
-    if (!boardData.roomWallsMoved(path) && [...boardData.wallKeys(path)].some((key) => /^room_-?\d+_-?\d+_-?\d+_-?\d+$/.test(key))) return;
+    if (!legacy || MOVING_EXTRAS.has(path) || this.closed) return;
     const view = writer.holder(path);
     if (!view) return;
+    // Settings still under 0.14's room-wall names wait for Atlas 0.15 to make walls of the rooms (migration 1).
+    if (!boardData.roomWallsMoved(path) && roomsAwaitAtlas(view.atlasStore.getState())) return;
     const move = planExtrasMove(legacy, view.atlasStore.getState().objects ?? {});
-    this.movingExtras.add(path);
+    MOVING_EXTRAS.add(path);
     try {
       const name = mapName(path);
       const folder = await writeBackup(this.app, new Date(), [
         { name: `${name}.atlasmap`, text: await this.app.vault.adapter.read(path) },
         { name: `${name}.tabletop.json`, text: JSON.stringify(boardData.toJSON()[path] ?? {}, null, 2) },
       ]);
+      // Another board of this map did it meanwhile.
+      if (boardData.legacyExtras(path) === null) return;
       await writer.applyExtrasMove(path, move);
       boardData.clearLegacyExtras(path);
-      const left = move.dropped > 0 ? ` (${move.dropped} for walls or lights Atlas no longer has were left in the backup)` : '';
-      new Notice(`Tabletop: moved ${move.moved} wall, door and light ${move.moved === 1 ? 'setting' : 'settings'} onto Atlas's own records on ${name}${left}; backup in ${folder}/`, 0);
+      const left = move.orphaned > 0 ? ` (${move.orphaned} for walls or lights Atlas no longer has were left in the backup)` : '';
+      if (move.moved > 0 || move.orphaned > 0) new Notice(`Tabletop: moved ${move.moved} wall, door and light ${move.moved === 1 ? 'setting' : 'settings'} onto Atlas's own records on ${name}${left}; backup in ${folder}/`, 0);
+      // The board was read before the move: it is read again with the records as they are now.
+      this.reload();
     } catch (error) {
       // Atlas let go of the map, or the backup could not be written: the settings stay where they were, for the next time.
       if (!(error instanceof NotHeldError)) console.warn('Tabletop: the 3D settings of walls and lights could not be moved:', error);
     } finally {
-      this.movingExtras.delete(path);
+      MOVING_EXTRAS.delete(path);
     }
   }
 
@@ -1703,6 +1711,7 @@ export class BoardView extends ItemView {
     if (!changed) return;
     this.extrasOfMap = null;
     this.refresh();
+    this.services.lookChanged?.(map.path);
   }
 
   /** Sets extras of walls or doors on Atlas's own records (one step of its undo); refused, with the bar's words, on a map Atlas does not hold. */

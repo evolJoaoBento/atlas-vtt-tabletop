@@ -84,6 +84,14 @@ export interface LegacyExtras {
   doorFlips?: Readonly<Record<string, { hinge?: true; side?: true }>>;
 }
 
+/** Where a material folder or a prop model kept on a record is now (`movedPaths.ts`); the path itself until the plugin says otherwise. */
+let movedPath: (path: string) => string = (path) => path;
+
+/** Follows renames of material folders and prop models whenever a record's path is read; null follows none. */
+export function followMovedPaths(resolve: ((path: string) => string) | null): void {
+  movedPath = resolve ?? ((path) => path);
+}
+
 /** The extras of a map's walls, doors and lights, by Atlas's ids. */
 export interface RecordExtras {
   wallHeight(id: string): number | null;
@@ -106,13 +114,14 @@ export function extrasOf(map: { walls: readonly BoardWall[]; lights: readonly Bo
   const walls = new Map((map?.walls ?? []).map((wall) => [wall.id, wall.extra ?? null]));
   const lights = new Map((map?.lights ?? []).map((light) => [light.id, light.ownHeight ?? null]));
   const old = <Value>(record: Readonly<Record<string, Value>> | undefined, id: string): Value | null => (record && Object.hasOwn(record, id) ? record[id] as Value : null);
-  const wallMaterial = (id: string): string | null => walls.get(id)?.material ?? old(legacy?.wallMaterials, id);
+  const now = (path: string | null): string | null => (path === null ? null : movedPath(path));
+  const wallMaterial = (id: string): string | null => now(walls.get(id)?.material ?? old(legacy?.wallMaterials, id));
   return {
     wallHeight: (id) => walls.get(id)?.height ?? old(legacy?.wallHeights, id),
     wallWidth: (id) => walls.get(id)?.width ?? old(legacy?.wallWidths, id),
     wallMaterial,
     windowOf: (id) => walls.get(id)?.window ?? old(legacy?.windows, id),
-    doorProp: (id) => walls.get(id)?.prop ?? old(legacy?.doorProps, id),
+    doorProp: (id) => now(walls.get(id)?.prop ?? old(legacy?.doorProps, id)),
     doorFlip: (id) => {
       const extra = walls.get(id);
       if (extra?.hinge || extra?.side) return { hinge: extra.hinge === true, side: extra.side === true };
@@ -120,12 +129,12 @@ export function extrasOf(map: { walls: readonly BoardWall[]; lights: readonly Bo
       return kept ? { hinge: kept.hinge === true, side: kept.side === true } : NO_FLIP;
     },
     lightHeight: (id) => lights.get(id) ?? old(legacy?.lightHeights, id),
-    usedMaterials: () => [...new Set([...walls.keys()].map(wallMaterial).filter((material): material is string => material !== null))].sort((a, b) => Number(!isOnRecord(walls, a)) - Number(!isOnRecord(walls, b))),
+    usedMaterials: () => {
+      // The records' own first, then what data.json still holds for walls the map has.
+      const onRecords = [...walls.values()].map((extra) => now(extra?.material ?? null));
+      const all = [...walls.keys()].map(wallMaterial);
+      return [...new Set([...onRecords, ...all].filter((material): material is string => material !== null))];
+    },
   };
 }
 
-/** Whether a material is painted on some wall's own record (and not only kept in data.json). */
-function isOnRecord(walls: ReadonlyMap<string, WallExtra | null>, material: string): boolean {
-  for (const extra of walls.values()) if (extra?.material === material) return true;
-  return false;
-}

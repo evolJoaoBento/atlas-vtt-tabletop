@@ -327,9 +327,11 @@ export class TokenWriter {
     if (!state.updateWall) throw TokenWriter.missing('wall update');
     const update = state.updateWall;
     const walls = state.objects?.walls ?? {};
-    const there = ids.filter((id) => Object.hasOwn(walls, id));
-    if (there.length === 0) return;
-    this.asOneStep(path, () => { for (const id of there) update(id, { tabletop: mergeExtra(walls[id]?.tabletop, change) }); });
+    // A wall that already is as asked is left alone: setting what is there is no step of anyone's undo.
+    const next = ids.filter((id) => Object.hasOwn(walls, id)).map((id) => ({ id, tabletop: mergeExtra(walls[id]?.tabletop, change) }))
+      .filter(({ id, tabletop }) => JSON.stringify(tabletop ?? null) !== JSON.stringify(mergeExtra(walls[id]?.tabletop, {}) ?? null));
+    if (next.length === 0) return;
+    this.asOneStep(path, () => { for (const { id, tabletop } of next) update(id, { tabletop }); });
   }
 
   /**
@@ -367,9 +369,19 @@ export class TokenWriter {
       for (const { id, height } of move.lights) now().updateLight?.(id, { tabletop: mergeExtra(now().objects?.lights?.[id]?.tabletop, { height }) });
       for (const { id, height } of move.tokens) now().updateToken?.(id, { tabletop: mergeExtra((now().objects?.tokens?.[id] as { tabletop?: unknown } | undefined)?.tabletop, { lightHeight: height }) });
     };
-    const untracked = view.atlasStore.temporal?.getState().untracked;
-    if (untracked) untracked(write);
-    else write();
+    if (move.walls.length + move.lights.length + move.tokens.length === 0) return;
+    // All of it or none: a move half written would leave data.json cleared of what never reached a record.
+    const history = view.atlasStore.temporal?.getState();
+    if (!history?.untracked) throw TokenWriter.missing('untracked writes');
+    const state = view.atlasStore.getState();
+    if (move.walls.length > 0 && !state.updateWall) throw TokenWriter.missing('wall update');
+    if (move.lights.length > 0 && !state.updateLight) throw TokenWriter.missing('light update');
+    if (move.tokens.length > 0 && !state.updateToken) throw TokenWriter.missing('token update');
+    history.untracked(write);
+    // Atlas's undo puts back the whole records a step changed, as they were: a step from before the move would take
+    // what was moved away with it, and Tabletop's data no longer has it. Its older steps on this map are let go, once.
+    const after = view.atlasStore.temporal?.getState();
+    if (after && after.pastStates.length + after.futureStates.length > 0) after.clear?.();
   }
 
   /** Opens or shuts a door (a locked one stays shut). */

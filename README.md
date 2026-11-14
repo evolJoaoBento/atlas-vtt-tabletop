@@ -171,8 +171,9 @@ and material, a window's opening, the prop standing in for a door and how the do
 hangs (a placed light, or one a token carries) ride on that wall, light or token in the map itself. So they go when
 it is deleted in Atlas, come along when it is copied, and are taken back by Atlas's undo (one step each). Maps made
 before this are moved the first time Atlas holds them: a backup of the map and of Tabletop's data for it is written
-to `Tabletop backups/<date>/` first, and a notice says what moved. Setting them needs Atlas to hold the map, as every
-other edit does; a board on another map shows them and refuses the change.
+to `Tabletop backups/<date>/` first, and a notice says what moved (Atlas's undo steps for that map from before the
+move are let go then, once). Setting them needs Atlas to hold the map, as every other edit does; a board on another
+map shows them and refuses the change. A material folder or a door's prop renamed in the vault is still found.
 
 The light level and the tint in the lighting menu are Atlas's scene lighting (the same values as on Atlas's own
 lighting page); the level can be set while the scene's lighting is on in Atlas. The laser's colour and size, and how

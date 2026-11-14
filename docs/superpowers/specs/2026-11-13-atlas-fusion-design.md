@@ -299,6 +299,8 @@ Every gate in section 11 is checked first, in a throwaway vault on Atlas 0.15.0,
 - **Tabletop's dice colour list.** The die looks like Atlas's dice.
 - **Lasting spells on open boards at the moment of upgrade** are not carried over (they were never saved).
 - **Setting a wall, a door or a light in 3D without Atlas on the map (Phase 4A).** Heights, widths, materials, window openings, door props and light heights are on Atlas's records, so setting one needs Atlas to hold that map; it used to be kept in Tabletop's data whatever Atlas held.
+- **Atlas's undo steps from before the move (Phase 4A).** When a map's 3D settings are moved onto Atlas's records, the steps Atlas's undo held for that map are let go, once: undoing one would put a wall or a light back as it was before the move, without the setting, and Tabletop's data no longer has it (the backup does).
+- **A deleted material or door prop.** A wall painted with a material folder that is deleted keeps naming it on its record and wears the plain look (a notice says the material is missing); it used to be unpainted in Tabletop's data. A renamed folder or prop is followed.
 - **Casting without Atlas on the map (Phase 3).** A cast or a template needs Atlas to hold that map. On a split party's other scene, or with Atlas on another map, it is refused and the player is told; nothing is written.
 - **Several templates per player.** A player has one template at a time; placing another takes the place of the last. Templates go when their player leaves and when a session starts or ends. The GM's own stay until removed.
 - **Fresh casts on reopening.** Kept spells are in the map: opening a board shows them standing, with no cast sound, and carries out no push, teleport or summons again.

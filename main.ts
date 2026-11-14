@@ -4,7 +4,8 @@ import { readSurvey, type ArSurvey } from './src/arTable';
 import { Assignments, readAssignments, type AssignmentData, type MiniPlacement } from './src/assignments';
 import { mapViews, presentedSceneOf, tabViewOf } from './src/atlas';
 import { SpellUpkeep } from './src/board/spellUpkeep';
-import { extrasOf } from './src/board/recordExtras';
+import { extrasOf, followMovedPaths } from './src/board/recordExtras';
+import { MovedPaths } from './src/board/movedPaths';
 import { resolveLevel } from './src/board/levels';
 import { BOARD_VIEW_TYPE, BoardView, HOVER_SOURCE } from './src/board/BoardView';
 import { PLAYER_VIEW_TYPE, PlayerView } from './src/board/PlayerWindow';
@@ -32,7 +33,7 @@ import { DEFAULT_MINIS_FOLDER, DEFAULT_PROPS_FOLDER, MiniLibrary, PROPS } from '
 import { DEFAULT_MATERIALS_FOLDER, MaterialLibrary } from './src/materials';
 import { GpuSettings, currentChip, gpuChoices, type GpuPreference } from './src/gpu';
 import { playerMiniPainter, type PlayerMiniPainter } from './src/playerMinis';
-import { boardLookFor, MaterialIndex } from './src/boardLook';
+import { boardLookFor, lookMaps, MaterialIndex } from './src/boardLook';
 import { LayerIndex, layersFor } from './src/boardLayers';
 import { playerBoardFactory, type PlayerBoardFactory } from './src/playerBoard';
 import { documentHasWebgl } from './src/webgl';
@@ -114,6 +115,8 @@ interface SavedData {
   settings?: Partial<TabletopSettings>;
   assignments?: AssignmentData;
   board?: BoardDataJSON;
+  /** Material folders and prop models renamed in the vault, old path to new (`MovedPaths`). */
+  movedPaths?: Record<string, string>;
 }
 
 const isMapPath = (path: string): boolean => path.toLowerCase().endsWith('.atlasmap');
@@ -171,6 +174,7 @@ export default class TabletopPlugin extends Plugin {
   settings: TabletopSettings = { ...DEFAULT_SETTINGS };
   assignments = new Assignments();
   boardData = new BoardData();
+  movedPaths = new MovedPaths();
   /** Tabletop's undo history, shared by every board. */
   readonly history = new UndoHistory();
   private readonly boardListeners = new Set<(mapPath: string | null) => void>();
@@ -205,7 +209,7 @@ export default class TabletopPlugin extends Plugin {
     return (this.spellLibrary ??= new SpellLibrary(this.app));
   }
   private readonly save = debounce(() => {
-    void this.saveData({ settings: this.settings, assignments: this.assignments.toJSON(), board: this.boardData.toJSON() } satisfies SavedData);
+    void this.saveData({ settings: this.settings, assignments: this.assignments.toJSON(), board: this.boardData.toJSON(), movedPaths: this.movedPaths.toJSON() } satisfies SavedData);
   }, 500, true);
 
   async onload(): Promise<void> {
@@ -227,6 +231,10 @@ export default class TabletopPlugin extends Plugin {
     });
     this.assignments = new Assignments(readAssignments(saved.assignments));
     this.boardData = new BoardData(readBoardData(saved.board));
+    // Material folders and prop models renamed since they were put on a wall of Atlas's: still found.
+    this.movedPaths = new MovedPaths(saved.movedPaths);
+    followMovedPaths((path) => this.movedPaths.resolve(path));
+    this.register(() => followMovedPaths(null));
     this.register(this.assignments.onChange(() => { this.save(); this.refreshBoards(); }));
     this.register(this.boardData.onChange(() => { this.save(); this.refreshBoards(); }));
     this.register(recordTabletopData(this.history, this.boardData, this.assignments));
@@ -331,6 +339,8 @@ export default class TabletopPlugin extends Plugin {
       levelShown: (mapPath) => this.levelShown(mapPath),
       floor: () => atlasFloor(this.app),
       host,
+      // What the GM set in 3D on a wall, a door or a light changed in Atlas's store: players are sent the look again.
+      lookChanged: (mapPath) => this.boardChanged(this.boardData.stackOf(mapPath).length > 1 ? null : mapPath),
       boardReady: (view) => {
         for (const player of this.playerViews()) if (player.mapPath === view.mapPath) view.showPlayer(player);
         this.refreshPlayerButtons();
@@ -410,6 +420,7 @@ export default class TabletopPlugin extends Plugin {
     this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
       this.assignments.rename(oldPath, file.path);
       this.boardData.rename(oldPath, file.path);
+      if (this.movedPaths.note(oldPath, file.path, 'children' in file)) { this.save(); this.refreshBoards(); this.boardChanged(null); }
       this.library.fileChanged(file.path, oldPath);
       this.props.fileChanged(file.path, oldPath);
       this.materials.fileChanged(file.path, oldPath);
@@ -460,12 +471,11 @@ export default class TabletopPlugin extends Plugin {
       boardLook: (mapPath: string) => {
         // The level players are sent is the one the GM's Atlas view shows (Connect sends that level's objects).
         const viewed = this.viewedLevel(mapPath);
-        const own = this.layerIndex!.map(mapPath);
-        const shown = own && own.levels.length > 1 ? { levels: own.levels, level: resolveLevel(own.levels, viewed) } : undefined;
+        // A map Atlas holds is read from its store (what was just set or undone is there, saved or not), any other from its file.
+        const { own, shown, levelMap } = lookMaps(mapPath, viewed, this.layerIndex!, this.host?.store(mapPath)?.getState() ?? null);
         const chosen = readMaterialDefaults(this.settings.materialDefaults);
         const layers = this.settings.shareLayers === false ? [] : layersFor(this.boardData, this.materialIndex!, this.layerIndex!, mapPath, viewed, chosen);
         // The walls players get: the scene's, and the level shown's.
-        const levelMap = shown?.level ? this.layerIndex!.mapAt(mapPath, shown.level) : null;
         const walls = [...(own?.walls ?? []), ...(levelMap?.walls ?? [])];
         // What the GM set on them in 3D rides on Atlas's own records, as the map's file has them.
         const extras = extrasOf({ walls, lights: [...(own?.lights ?? []), ...(levelMap?.lights ?? [])] }, this.boardData.legacyExtras(mapPath));

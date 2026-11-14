@@ -309,6 +309,19 @@ export class BoardData {
   restore(mapPath: string, map: MapData | undefined): void {
     if (this.data[mapPath] === map) return;
     const next = { ...this.data };
+    // What a migration did is never taken back with an older step: the settings it moved onto Atlas's records do not
+    // come back into this data (they would be moved again, over what was changed since), and its marks stay.
+    const now = this.data[mapPath];
+    if (now?.extrasMoved === true || now?.roomWallsMoved === true) {
+      const kept: MapData = { ...(map ?? {}) };
+      if (now.extrasMoved === true) { for (const key of LEGACY_EXTRAS) delete kept[key]; kept.extrasMoved = true; }
+      if (now.roomWallsMoved === true) {
+        kept.roomWallsMoved = true;
+        // The re-keyed records are the ones that count; an older step knows them under the old names.
+        if (now.extrasMoved !== true) for (const key of ['wallHeights', 'wallWidths', 'wallMaterials', 'windows'] as const) { if (now[key] !== undefined) (kept as Record<string, unknown>)[key] = now[key]; else delete kept[key]; }
+      }
+      map = kept;
+    }
     if (map) next[mapPath] = map;
     else delete next[mapPath];
     this.data = next;

@@ -36,7 +36,7 @@ test("what data.json kept by Atlas's ids goes to the record of that id: a wall's
 });
 
 test('a map with nothing kept, or whose records Atlas does not have, moves nothing', () => {
-  assert.deepEqual(planExtrasMove({}, objects()), { walls: [], lights: [], tokens: [], moved: 0, dropped: 0 });
+  assert.deepEqual(planExtrasMove({}, objects()), { walls: [], lights: [], tokens: [], moved: 0, dropped: 0, orphaned: 0 });
   const none = planExtrasMove(LEGACY, {});
   assert.deepEqual([none.walls, none.lights, none.tokens, none.moved], [[], [], [], 0]);
   assert.equal(none.dropped, 12);

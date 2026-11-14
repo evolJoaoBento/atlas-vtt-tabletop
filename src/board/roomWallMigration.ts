@@ -22,6 +22,16 @@ const point = (value: unknown): { x: number; y: number } | null =>
  * Every wall of a scene as Atlas's store (or a map file's `state`) holds them, on every level: never the walls of the
  * level shown alone, or the other levels' settings would be left behind for good.
  */
+/**
+ * Whether settings kept under 0.14's room-wall names must wait: Atlas still holds rooms it has not made walls of (a
+ * 0.14 file it has not converted). With no room left, or walls of them made, nothing more will ever be re-keyed.
+ */
+export function roomsAwaitAtlas(state: unknown): boolean {
+  const objects = isObj(state) && isObj(state.objects) ? state.objects : null;
+  if (!objects || !isObj(objects.rooms) || Object.keys(objects.rooms).length === 0) return false;
+  return !migrationWalls(state).some((wall) => wall.chainId?.startsWith('rooms_'));
+}
+
 export function migrationWalls(state: unknown): MigrationWall[] {
   const walls = isObj(state) && isObj(state.objects) && isObj(state.objects.walls) ? state.objects.walls : {};
   const out: MigrationWall[] = [];
