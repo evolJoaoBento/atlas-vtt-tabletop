@@ -166,6 +166,14 @@ board offers **Edit here**; without it the cast is refused and nothing is writte
 map are there when it is opened again, standing and silent; a square template grows from the middle of its near side
 and a line is one square wide, as Atlas shapes them; each player has one template at a time.
 
+**What you set on a wall, a door or a light in 3D is kept on Atlas's own record.** A wall's or door's height, width
+and material, a window's opening, the prop standing in for a door and how the door was turned, and how high a light
+hangs (a placed light, or one a token carries) ride on that wall, light or token in the map itself. So they go when
+it is deleted in Atlas, come along when it is copied, and are taken back by Atlas's undo (one step each). Maps made
+before this are moved the first time Atlas holds them: a backup of the map and of Tabletop's data for it is written
+to `Tabletop backups/<date>/` first, and a notice says what moved. Setting them needs Atlas to hold the map, as every
+other edit does; a board on another map shows them and refuses the change.
+
 The light level and the tint in the lighting menu are Atlas's scene lighting (the same values as on Atlas's own
 lighting page); the level can be set while the scene's lighting is on in Atlas. The laser's colour and size, and how
 loud dice are, are Atlas's settings too.

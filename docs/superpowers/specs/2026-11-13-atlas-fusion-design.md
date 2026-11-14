@@ -120,7 +120,7 @@ Stock Atlas has no API (audit, "Root finding"). Its rules and saving live in the
 | Tabletop water mask | `objects.liquids` | 4 |
 | `lineOfSight` / `sightStyle` settings | Atlas `state.lighting.enabled` + `playerSight()` | 4 |
 | Dice colour list, die look | Atlas `getDiceLook()` + dice set colours | 4 |
-| 3D wall, door and light extras in data.json | extra fields on Atlas wall and light records if gate G1 passes; else keep, keyed by id with endpoint re-key | 4 |
+| 3D wall, door and light extras in data.json | a `tabletop` field on Atlas's wall, light and token records (done in 4A: G1w, G1l and a probe of tokens passed) | 4 |
 
 ## 5. Atlas 0.15 floor and plugin pairing
 
@@ -154,6 +154,7 @@ All migrations follow the same rules:
    - Guard: skip the computed room outline when the walls already hold `room_` ids with a `rooms_` chain (compat item 3).
    - Then delete Connect's rooms port. Tabletop keeps a read of `objects.rooms` only for 0.14 files that Atlas 0.15 has not saved yet.
 2. **Spells to measures (Phase 3).** Spells live in the board session, not in files, so none are saved to migrate. Lasting spells on boards that are open at upgrade are not carried over. Nothing is lost on disk.
+   **3D extras onto records (Phase 4A).** What data.json kept by Atlas's ids (wall and door heights, widths, materials, window openings, door props and flips, light heights) goes onto the record of that id, in its `tabletop` field. It loses nothing Atlas still has a record for, so it runs on its own like migration 1, once per map, when Atlas holds the map, after the backup; a value whose record is gone stays in the backup only.
 3. **Stacks to levels (Phase 4).** Each stack member becomes a level of the base scene:
    - `elevation.bottom = layer.elevation × unitDistance`
    - the member's background, its tokens, walls, lights, pins, drawings, texts and fog, tagged with the new level id
@@ -297,6 +298,7 @@ Every gate in section 11 is checked first, in a throwaway vault on Atlas 0.15.0,
 - **Spell heights.** A sphere or cube's height has no Atlas meaning, and Atlas and 2D players see a flat area. 3D keeps the height only while G1 holds.
 - **Tabletop's dice colour list.** The die looks like Atlas's dice.
 - **Lasting spells on open boards at the moment of upgrade** are not carried over (they were never saved).
+- **Setting a wall, a door or a light in 3D without Atlas on the map (Phase 4A).** Heights, widths, materials, window openings, door props and light heights are on Atlas's records, so setting one needs Atlas to hold that map; it used to be kept in Tabletop's data whatever Atlas held.
 - **Casting without Atlas on the map (Phase 3).** A cast or a template needs Atlas to hold that map. On a split party's other scene, or with Atlas on another map, it is refused and the player is told; nothing is written.
 - **Several templates per player.** A player has one template at a time; placing another takes the place of the last. Templates go when their player leaves and when a session starts or ends. The GM's own stay until removed.
 - **Fresh casts on reopening.** Kept spells are in the map: opening a board shows them standing, with no cast sound, and carries out no push, teleport or summons again.
