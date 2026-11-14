@@ -1,7 +1,7 @@
 # Atlas fusion Phase 3: live check on Atlas 0.15.0
 
 Run 2026-11-14 in the throwaway vault (`C:\Users\joaoo\fusion-gate-vault`), Obsidian role `fusion` on port 9311, with
-Tabletop 1.6.0 (1f26db6) and Connect 0.12.0 (e4e9e31) installed by `harness/live/install.cjs`, Atlas 0.15.0, fixtures
+Tabletop 1.6.0 (c69df6e, with the final review's fixes; first run on 1f26db6) and Connect 0.12.0 (d1d436b; first run on e4e9e31) installed by `harness/live/install.cjs`, Atlas 0.15.0, fixtures
 written by `harness/live/fixtures.cjs`. Script: `harness/live/phase3.cjs`. Results: `phase3-live/results.json`;
 Phase 2's own: `phase2-live/results.json`; Phase 1's own: `phase1-live/results.json`.
 
@@ -20,6 +20,9 @@ Phase 2's own: `phase2-live/results.json`; Phase 1's own: `phase1-live/results.j
 | 30 | A board closed and opened again on a map with a kept spell (one with a push rule) shows it standing | PASS | no `spell.impact.*` sound, no fresh cast, nothing growing, no review open, 0 undo steps, still one measure |
 | 31 | No console error from Tabletop or Connect; the map is left with no measure, wall or ground of a spell | PASS | 0 errors; the two Phase 0 probe records (a `tabletop` field that is no spell's, on a measure and on a map feature) were read as plain records and never touched |
 
+The run was made twice: before the final review (10/10) and again on the builds with its fixes (10/10, the table's
+evidence is the first run's; the second's is in `phase3-live/results.json`).
+
 ## What went wrong on the way
 
 - The first run of the new steps failed step 31 on the script's own check: it counted every record with a `tabletop`
@@ -31,6 +34,9 @@ Phase 2's own: `phase2-live/results.json`; Phase 1's own: `phase1-live/results.j
 
 ## Not checked live
 
+- The final review's fixes that need a player or the player window: hidden measures left out of the players' window
+  (unit tests and the harness's `hidden measures`), a measure following a token, the upkeep with no board open, the
+  level a player's measure lands on, a player's refusal words (unit tests).
 - A player's cast, template, refusal and limits, and what players are sent (no player session in this run): covered by
   Connect's unit tests (`measureHost`, `projectMeasures`, `sceneMeasures`, `sceneMarks`, `stockMeasures`).
 - A measure dragged with the mouse in Atlas's own UI: the step moves it through the same store action (`updateMeasure`).
