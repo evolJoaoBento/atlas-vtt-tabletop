@@ -5,7 +5,7 @@
 
 import type { BoardCutscene, GmCutscene } from '../connectContract';
 import type { CinematicSettings } from './cinematicSettings';
-import { levelOfPlace, mapOfPlace, placeOf, type Cutscene } from './cutsceneData';
+import { levelOfPlace, mapOfPlace, placeAt, placeOf, type Cutscene } from './cutsceneData';
 
 export interface BroadcastInput {
   runId: string;
@@ -63,6 +63,12 @@ export function broadcastOf(input: BroadcastInput): GmCutscene {
     key,
   };
   return { cutscene, maps, ...(Object.keys(levels).length > 0 ? { levels } : {}) };
+}
+
+/** The places a publication keyed, in key order (`k1` first): what the next publication of the same run is given as `earlier`. */
+export function keyedPlaces(told: Pick<GmCutscene, 'maps' | 'levels'>): string[] {
+  const number = (key: string): number => Number(key.slice(1));
+  return Object.keys(told.maps).sort((a, b) => number(a) - number(b)).map((key) => placeAt(told.maps[key]!, told.levels?.[key]));
 }
 
 const KEY = /^k[0-9]{1,4}$/;

@@ -962,6 +962,9 @@ export class BoardView extends ItemView {
       this.services.boardReady(this);
       // A board made while a cutscene is being made (a scene switch, a retry after a failed first read) takes over the camera driver and role.
       this.studio?.mapChanged();
+    } else if (levelChanged && !this.closed) {
+      // Another level of the same scene: a cutscene running on the board follows it (a live run tells players the new floor).
+      this.studio?.mapChanged();
     }
   }
 

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { broadcastOf, readBoardCutscene } from '../src/cutscene/broadcast';
+import { broadcastOf, keyedPlaces, readBoardCutscene } from '../src/cutscene/broadcast';
 import { CutsceneChannel } from '../src/cutscene/cutsceneRun';
 import { DEFAULT_CINEMATIC_SETTINGS } from '../src/cutscene/cinematicSettings';
 import { levelOfPlace, mapOfPlace, placeAt, placed, placeOf, type Cutscene, type Shot } from '../src/cutscene/cutsceneData';
@@ -247,4 +247,17 @@ test('two levels of one map are two keys for players, each with its level; a map
   // A live run on a level: its one key carries it; a place keyed earlier keeps its key.
   const live = broadcastOf({ ...input, mode: 'live', cutscene: null, mapPath: placeAt('maps/keep.atlasmap', 'level_up'), earlier: ['maps/keep.atlasmap'] });
   assert.deepEqual([live.cutscene.key, live.maps, live.levels], ['k2', { k2: 'maps/keep.atlasmap' }, { k2: 'level_up' }]);
+});
+
+test("the places a run has keyed are named back in key order, each a map with its level: a later announce keeps every key", () => {
+  const levels: Cutscene = { id: 'c', name: 'Keep', shots: [shot('a', 0, 'maps/keep.atlasmap', { level: 'l1' }), shot('b', 1000, 'maps/keep.atlasmap', { level: 'l2' }), shot('c', 2000, 'maps/road.atlasmap')] };
+  const first = broadcastOf({ ...input, cutscene: levels, mapPath: placeAt('maps/keep.atlasmap', 'l1') });
+  const earlier = keyedPlaces(first);
+  assert.deepEqual(earlier, [placeAt('maps/keep.atlasmap', 'l1'), placeAt('maps/keep.atlasmap', 'l2'), 'maps/road.atlasmap']);
+  const later = broadcastOf({ ...input, cutscene: levels, step: { shot: 1, seq: 2 }, mapPath: placeAt('maps/keep.atlasmap', 'l2'), earlier });
+  assert.deepEqual(later.cutscene.shots.map((s) => s.key), first.cutscene.shots.map((s) => s.key));
+  assert.equal(later.cutscene.key, 'k2');
+  // Keys beyond nine sort as numbers.
+  const many = { cutscene: first.cutscene, maps: Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`k${i + 1}`, `m${i + 1}`])) };
+  assert.deepEqual(keyedPlaces(many as never).slice(8), ['m9', 'm10', 'm11']);
 });

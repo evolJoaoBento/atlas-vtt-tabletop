@@ -30,6 +30,7 @@ window.__S = (() => {
   const DIR = 'atlas-vtt/collections/The Gilded Flagon/scenes/';
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const ws = app.workspace;
+  window.ws = ws;
   const FIX = ${JSON.stringify(FIX)};
   const S = {
     sleep, FIX, CELLAR: DIR + 'Probe Cellar.atlasmap', BASE: FIX.base, UPPER: FIX.upper, LOWER: FIX.lower,
@@ -114,7 +115,7 @@ async function step(n, name, run) {
       return { notice, pending, mine, hadLater: !!later, gone, changed: Object.keys(after).filter((p) => after[p] !== before[p]), dataSame: JSON.stringify(S.data().toJSON()) === dataBefore, held: S.s().mapPath };`);
     const mine = out.mine;
     const ok = !!out.notice && out.pending.some(([base, members]) => base === FIX.base && members.length === 2) && mine && mine.skipped === null
-      && JSON.stringify(mine.levels) === JSON.stringify(['Stack Lower', 'Stack Base', 'Stack Upper']) && mine.lost.some((line) => /Stack Upper: .*pixels/.test(line))
+      && JSON.stringify(mine.levels) === JSON.stringify(['Stack Lower', 'Stack Base', 'Stack Upper']) && mine.lost.some((line) => /Stack Upper: .*initiative/.test(line))
       && out.hadLater && out.gone && out.changed.length === 0 && out.dataSame;
     return { pass: ok, evidence: out };
   });
@@ -139,8 +140,18 @@ async function step(n, name, run) {
       const memberTimes = { upper: (await app.vault.adapter.stat(S.UPPER)).mtime, lower: (await app.vault.adapter.stat(S.LOWER)).mtime };
       const day = new Date(); const two = (n) => String(n).padStart(2, '0'); const folder = 'Tabletop backups/' + day.getFullYear() + '-' + two(day.getMonth() + 1) + '-' + two(day.getDate());
       const backupsBefore = (await app.vault.adapter.exists(folder)) ? (await app.vault.adapter.list(folder)).files.length : 0;
+      // The base is what players are shown, naming no level (as a scene without levels is presented): after the move
+      // they must still be shown the base's floor, though the lower floor is the scene's first.
+      await S.hold(S.BASE);
+      const presented = app.plugins.plugins['atlas-vtt'].presentedScene;
+      const presentedBefore = presented.get();
+      const baseTab = (ws.getLeavesOfType('atlas-vtt')[0].view.tabMetaStore.getState().tabs || []).find((tab) => tab.filePath === S.BASE);
+      if (baseTab) presented.set({ tabId: baseTab.id, filePath: S.BASE });
+      await S.hold(S.CELLAR);
       const t0 = Date.now();
       const result = await S.tt().stackMigration.move();
+      const presentedAfter = presented.get();
+      presented.set(presentedBefore);
       const took = Date.now() - t0;
       for (const [p, map] of kept) data.restore(p, map);
       const outcome = result.outcomes.find((each) => each.base === S.BASE) || null;
@@ -161,6 +172,7 @@ async function step(n, name, run) {
       const water = on('liquids', upper && upper.id).filter((l) => l.tabletop && l.tabletop.brush === true);
       const out = {
         refused: result.refused, backup: result.backup, took, outcome, backAt,
+        presented: { set: !!baseTab, after: presentedAfter }, undoLeft: S.tt().history.canUndo([S.BASE]),
         backups: { added: backups.length - backupsBefore, names: backups.filter((n) => /^Stack |^Stacks moved/.test(n)) },
         levels, alignment: s.levelAlignments || null, viewed: s.viewedLevel || null, background: s.background,
         upper: {
@@ -177,6 +189,7 @@ async function step(n, name, run) {
       // Tabletop's data.
       const baseData = data.toJSON()[S.BASE] || {};
       const shot = ((baseData.cutscenes || [])[0] || { shots: [] }).shots.find((each) => each.id === 's2');
+      const baseShot = ((baseData.cutscenes || [])[0] || { shots: [] }).shots.find((each) => each.id === 's1');
       const prop = (baseData.props || []).find((each) => /^prop_stack@/.test(each.id));
       out.data = {
         stackLeft: data.stacks().some((stack) => stack.base === S.BASE), journal: data.stackJournal(S.BASE),
@@ -184,6 +197,7 @@ async function step(n, name, run) {
         prop: prop && { level: prop.level, moved: near(prop, move({ x: 280, y: 280 })) },
         hidden: lower ? data.layerHidden(S.BASE + '#atlas-level:' + lower.id) : null,
         shot: shot && { mapPath: shot.mapPath, level: shot.level, eye: shot.eye, wantEye: { ...move({ x: 700, y: 1400 }), up: 840 * k } },
+        baseShot: baseShot && { mapPath: baseShot.mapPath, level: baseShot.level },
         memberKeeps: { style: data.style(S.UPPER, S.FIX.token), layer: data.layerOf(S.UPPER), water: !!(data.toJSON()[S.UPPER] || {}).water },
       };
       out.members = { upperChanged: (await app.vault.adapter.stat(S.UPPER)).mtime !== memberTimes.upper, lowerChanged: (await app.vault.adapter.stat(S.LOWER)).mtime !== memberTimes.lower,
@@ -204,6 +218,8 @@ async function step(n, name, run) {
       && o45.data.hidden === true && o45.data.shot && o45.data.shot.mapPath === FIX.base && o45.data.shot.level === lv[2].id
       && Math.abs(o45.data.shot.eye.x - o45.data.shot.wantEye.x) < 0.05 && Math.abs(o45.data.shot.eye.z - o45.data.shot.wantEye.y) < 0.05 && Math.abs(o45.data.shot.eye.y - o45.data.shot.wantEye.up) < 0.05
       && o45.data.memberKeeps.style === 'standee' && o45.data.memberKeeps.layer === null
+      && o45.data.baseShot && o45.data.baseShot.level === lv[1].id
+      && o45.presented.set && o45.presented.after && o45.presented.after.filePath === FIX.base && o45.presented.after.levelId === lv[1].id && o45.undoLeft === false
       && o45.backups.names.some((n) => /^Stack Base.*\.atlasmap$/.test(n)) && o45.backups.names.some((n) => /^Stack Upper.*\.minis\.json$/.test(n)) && o45.backups.names.some((n) => /^Stacks moved/.test(n))
       && o45.members.upperStillAScene > 0 && o45.members.lowerStillAScene > 0 && /Probe Cellar/.test(o45.backAt || '');
     return { pass: ok, evidence: out };

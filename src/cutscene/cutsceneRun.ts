@@ -8,7 +8,7 @@
 import type { Board } from '../board/board';
 import type { CameraKeep } from '../board/camera';
 import type { CutsceneSource, GmCutscene } from '../connectContract';
-import { broadcastOf } from './broadcast';
+import { broadcastOf, keyedPlaces } from './broadcast';
 import type { CinematicSettings } from './cinematicSettings';
 import { limitProblem, mapOfPlace, placed, placeOf, type Cutscene, type Vec3 } from './cutsceneData';
 import type { CinematicDriver } from './drivenView';
@@ -183,7 +183,8 @@ export class CutsceneRun {
     const mapPath = a.mode === 'prepared' ? placeOf(a.cutscene!.shots[shot]) : (this.host.place() ?? a.home);
     a.livePath = mapPath;
     const told = broadcastOf({ runId: a.runId, mode: a.mode, cutscene: a.cutscene, step: { shot, seq: a.seq }, mapPath, settings: a.settings, earlier: a.keyed });
-    for (const path of Object.values(told.maps)) if (!a.keyed.includes(path)) a.keyed.push(path);
+    // The places keyed so far, a map with its level: each keeps its key for the whole run.
+    for (const place of keyedPlaces(told)) if (!a.keyed.includes(place)) a.keyed.push(place);
     this.publish(told);
   }
 
