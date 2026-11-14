@@ -1,5 +1,5 @@
 // node harness/live/phase1.cjs
-// The Atlas fusion Phase 1 live check: drives the throwaway vault's Obsidian (role `fusion`, port 9311, Atlas 0.15.0,
+// The Atlas fusion Phase 1 live check: drives the throwaway vault's Obsidian (role `fusion`, port 9311, the Atlas build in ATLAS_BUILD (0.15.0 unless set),
 // the Tabletop and Connect builds under test) over DevTools. Each step records pass or fail with its evidence in
 // .superpowers/sdd/2026-11-13-atlas-fusion/phase1-live/results.json; a failed step does not stop the run.
 const fs = require('fs'), path = require('path'), { execSync } = require('child_process');
@@ -72,6 +72,10 @@ async function open(settle = 4000) {
 }
 const launch = () => { execSync(`node "${path.join(__dirname, 'launch.cjs')}" fusion ${PORT} ${VAULT}`, { stdio: 'inherit' }); };
 const kill = () => { try { execSync(`powershell -NoProfile -File "${path.join(__dirname, 'kill.ps1')}" -Role fusion`); } catch {} };
+// The Atlas build the run is checked against (`ATLAS_BUILD=0.16.0 node harness/live/phase4c.cjs`): the version step
+// expects it, and the floor step puts it back after showing an older Atlas.
+const BUILD = process.env.ATLAS_BUILD || '0.15.0';
+if (!/^\d+\.\d+\.\d+$/.test(BUILD)) throw new Error('ATLAS_BUILD is no version: ' + BUILD);
 const install = (version) => execSync(`node "${path.join(__dirname, 'install.cjs')}" ${VAULT} --atlas "${ATLAS(version)}"`, { stdio: 'pipe' });
 
 async function step(o, n, name, run) {
@@ -92,7 +96,7 @@ async function step(o, n, name, run) {
       return { atlas: app.plugins.manifests['atlas-vtt'].version, tabletop: app.plugins.manifests['tabletop-for-atlas'].version, connect: app.plugins.manifests['atlas-vtt-connect'].version,
         loaded: [!!tt, !!c], fusion: tt && tt.api ? tt.api.fusion : null, notices: L.notices.slice() };`);
     const pairing = e.notices.filter((n) => /do not match/.test(n));
-    return { pass: e.atlas === '0.15.0' && e.tabletop === TABLETOP_VERSION && e.connect === CONNECT_VERSION && e.loaded.every(Boolean) && e.fusion === FUSION && pairing.length === 0, evidence: e };
+    return { pass: e.atlas === BUILD && e.tabletop === TABLETOP_VERSION && e.connect === CONNECT_VERSION && e.loaded.every(Boolean) && e.fusion === FUSION && pairing.length === 0, evidence: e };
   });
 
   await step(o, 3, 'host from nothing: one hidden Atlas tab, the board in front', async () => {
@@ -332,14 +336,14 @@ async function step(o, n, name, run) {
       allLogs.push(...p.logs.map((l) => ({ ...l, during: 'atlas 0.14' })));
     } finally {
       kill(); await sleep(2500);
-      install('0.15.0');
+      install(BUILD);
       launch();
     }
     o = await open();
     const back = await o.ev(`return { atlas: app.plugins.manifests['atlas-vtt'].version, api: !!window.__L.tt().api };`);
     const tabletop = old.notices.filter((n) => n === 'Tabletop needs Atlas VTT 0.15 or later (found 0.14.0)').length;
     const connect = old.notices.filter((n) => n === 'Connect needs Atlas VTT 0.15 or later (found 0.14.0)').length;
-    return { pass: old.atlas === '0.14.0' && old.api === null && tabletop === 1 && connect === 1 && /Tabletop needs Atlas VTT 0\.15 or later \(found 0\.14\.0\)/.test(old.boardText || '') && back.atlas === '0.15.0' && back.api, evidence: { old, back, tabletop, connect } };
+    return { pass: old.atlas === '0.14.0' && old.api === null && tabletop === 1 && connect === 1 && /Tabletop needs Atlas VTT 0\.15 or later \(found 0\.14\.0\)/.test(old.boardText || '') && back.atlas === BUILD && back.api, evidence: { old, back, tabletop, connect } };
   });
 
   await step(o, 16, "no console error from Tabletop or Connect across the run", async () => {
