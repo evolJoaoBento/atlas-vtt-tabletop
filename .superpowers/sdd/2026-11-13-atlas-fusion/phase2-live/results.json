@@ -2,15 +2,10 @@
   {
     "step": 0,
     "name": "Phase 1's live check again: nothing regressed",
-    "pass": false,
+    "pass": true,
     "evidence": {
-      "summary": "12/16 steps passed",
-      "failed": [
-        "FAIL  1. versions and pairing  {\"atlas\":\"0.16.0\",\"tabletop\":\"1.8.0\",\"connect\":\"0.14.0\",\"loaded\":[true,true],\"fusion\":4,\"notices\":[]}",
-        "FAIL  3. host from nothing: one hidden Atlas tab, the board in front  {\"before\":0,\"leaves\":1,\"hidden\":false,\"boardActive\":true,\"heldMs\":813,\"mark\":{\"openedBy\":\"tabletop-for-atlas\",\"claims\":[[\"tabletop-for-atlas\",1]]},\"banner\":null}",
-        "FAIL  4. the host follows the focused board; the other board is view only; Edit here brings it back  {\"coveMs\":0,\"coveActive\":true,\"leaves\":1,\"cellarBanner\":{\"text\":\"View only. Atlas holds Probe Cove.\",\"button\":\"Edit here\"},\"coveBanner\":null,\"cellarMs\":343,\"cellarActive\":true,\"leavesAfter\":1,\"cellarBannerAfter\":null,\"coveBannerAfter\":{\"text\":\"View only. Atlas holds Probe Cellar.\",\"button\":\"Edit here\"},\"atlasHidden\":false}",
-        "FAIL  10. rooms: Atlas 0.15 converts them, the old wall settings move with a backup onto Atlas's own walls, no doubled outline  {\"ms\":0,\"fileHasRooms\":false,\"roomWalls\":10,\"chains\":[\"rooms_\"],\"sampleIds\":[\"room__5600_1120_1120_1120\",\"room__5600_2240_5600_1120\",\"room__8960_2240_5600_2240\"],\"heights\":{\"room__5600_1120_1120_1120\":3},\"materials\":{\"room__1120_1120_1120_4480\":\"Materials/stone\"},\"left\":[],\"extrasMoved\":true,\"moved\":true,\"backups\":[\"Tabletop backups/2026-11-14/Fusion Rooms-10.atlasmap\",\"Tabletop backups/2026-11-14/Fusion Rooms-11.atlasmap\",\"Tabletop backups/2026-11-14/Fusion Rooms-12.atlasmap\",\"Tabletop backups/2026-11-14/Fusion Rooms-13.atlasmap\",\"Tabletop backups/2026-11-14/Fusion Rooms-14.atlasmap\",\"Tableto"
-      ]
+      "summary": "16/16 steps passed",
+      "failed": []
     }
   },
   {
@@ -24,9 +19,9 @@
       "cell": 140,
       "floor": 0,
       "rose": 763,
-      "drop": 419.5154551531236,
-      "landed": 780,
-      "after": 0.38299042553289653
+      "drop": 419.3878300192573,
+      "landed": 748,
+      "after": 0.6113135424163796
     }
   },
   {

@@ -1,0 +1,26 @@
+[
+  {
+    "step": 52,
+    "name": "drawings and texts the GM hid (Atlas 0.16) are drawn on the GM's board and left out of the players' picture; a filled shape with a hole is drawn filled, a line of no width as none",
+    "pass": true,
+    "evidence": {
+      "atlas": "0.16.0",
+      "read": true,
+      "player": {
+        "secret": false,
+        "shown": true,
+        "note": false
+      },
+      "gm": {
+        "secret": true,
+        "note": true
+      },
+      "box": {
+        "line": 0,
+        "fill": 21,
+        "fillRead": "solid",
+        "holes": 1
+      }
+    }
+  }
+]

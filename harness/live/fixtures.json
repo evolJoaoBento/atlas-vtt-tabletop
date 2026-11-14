@@ -9,5 +9,9 @@
     "token": "tok_1794200000008_goblinbos",
     "wall": "wall_1794200000021_solid2218",
     "glb": "atlas-vtt/assets/minis/Goblin Raider.glb"
+  },
+  "side": {
+    "base": "atlas-vtt/collections/The Gilded Flagon/scenes/Side Base.atlasmap",
+    "upper": "atlas-vtt/collections/The Gilded Flagon/scenes/Side Upper.atlasmap"
   }
 }

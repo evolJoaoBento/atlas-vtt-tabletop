@@ -2,12 +2,10 @@
   {
     "step": 0,
     "name": "Phases 1 to 4A's live checks again: nothing regressed",
-    "pass": false,
+    "pass": true,
     "evidence": {
-      "summary": "5/6 steps passed",
-      "failed": [
-        "FAIL  0. Phases 1 to 3's live checks again: nothing regressed, and the rooms map's old wall settings ended on Atlas's walls  {\"summary\":\"9/10 steps passed\",\"failed\":[\"FAIL  0. Phase 1's and Phase 2's live checks again: nothing regressed  {\\\"summary\\\":\\\"5/6 steps passed\\\",\\\"failed\\\":[\\\"FAIL  0. Phase 1's live check again: nothing regressed  {\\\\\\\"summary\\\\\\\":\\\\\\\"12/16 steps passed\\\\\\\",\\\\\\\"failed\\\\\\\":[\\\\\\\"FAIL  1. versions and pairing  {\\\\\\\\\\\\\\\"atlas\\\\\\\\\\\\\\\":\\\\\\\\\\\\\\\"0.16.0\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"tabletop\\\\\\\\\\\\\\\":\\\\\\\\\\\\\\\"1.8.0\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"connect\\\\\\\\\\\\\\\":\\\\\\\\\\\\\\\"0.14.0\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"loaded\\\\\\\\\\\\\\\":[true,true],\\\\\\\\\\\\\\\"fusion\\\\\\\\\\\\\\\":4,\\\\\\\\\\\\\\\"notices\\\\\\\\\\\\\\\":[]}\\\\\\\",\\\\\\\"FAIL  3. host from nothing: one hidden Atlas tab, the board in front  {\\\\\\\\\\\\\\\"before\\\\\\\\\\\\\\\":0,\\\\\\\\\\\\\\\"leaves\\\\\\\\\\\\\\\":1,\\\\\\\\\\\\\\\"hidden\\\\\\\\\\\\\\\":false,\\\\\\\\\\\\\\\"boardActive\\\\\\\\\\\\\\\":true,\\\\\\\\\\\\\\\"heldMs\\\\\\\\\\\\\\\":813,\\\\\\\\\\\\\\\"mark\\\\\\\\\\\\\\\":{\\\\\\\\\\\\\\\"openedBy\\\\\\\\\\\\\\\":\\\\\\\\\\\\\\\"tabletop-for-atlas\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\"claims\\\\\\\\\\\\\\\":[[\\\\\\\\\\\\\\\"tabletop-for-atlas\\\\\\\\\\\\\\\","
-      ]
+      "summary": "6/6 steps passed",
+      "failed": []
     }
   },
   {
@@ -65,7 +63,7 @@
     "name": "a finished stroke is Atlas's liquids: the brush's water in the store and the map file, one step of Atlas's undo, drawn by the board; Atlas's undo dries it",
     "pass": true,
     "evidence": {
-      "written": 1,
+      "written": 2,
       "stepsAfter": 1,
       "drawn": 0,
       "corners": 4,
@@ -74,8 +72,8 @@
       "two": 1,
       "stepsTwo": 2,
       "inFile": 2,
-      "undone": 1,
-      "dry": 1,
+      "undone": 0,
+      "dry": 0,
       "inData": false
     }
   },
@@ -89,7 +87,7 @@
       "still": true,
       "stillDrawn": 0,
       "notDoubled": true,
-      "retinted": 564,
+      "retinted": 515,
       "motionSteps": 1,
       "lavaSame": true,
       "flowGone": true
@@ -131,13 +129,13 @@
     "pass": true,
     "evidence": {
       "levels": 2,
-      "up": 1042,
+      "up": 1039,
       "waited": {
         "legacy": true,
         "brush": 0
       },
-      "down": 503,
-      "moved": 213,
+      "down": 538,
+      "moved": 317,
       "onFirst": true,
       "stayed": {
         "known": true,
