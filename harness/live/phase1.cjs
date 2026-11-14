@@ -217,7 +217,7 @@ async function step(o, n, name, run) {
     return { pass: e.label === '8 mi' && e.rule === 'manhattan' && e.unitName === 'mi' && e.restored, evidence: e };
   });
 
-  await step(o, 10, 'rooms: Atlas 0.15 converts them, the old wall settings move with a backup, no doubled outline', async () => {
+  await step(o, 10, "rooms: Atlas 0.15 converts them, the old wall settings move with a backup onto Atlas's own walls, no doubled outline", async () => {
     const e = await o.ev(`const L = window.__L; const MAP = ARG.map;
       const before = L.notices.length;
       const board = await L.openBoard(MAP); await L.focus(board);
@@ -232,19 +232,24 @@ async function step(o, n, name, run) {
       const walls = Object.values(file.state.objects.walls || {});
       const roomWalls = walls.filter((w) => String(w.id).startsWith('room_'));
       const data = L.tt().boardData.toJSON()[MAP] || {};
+      // Since Phase 4A the settings ride on Atlas's own walls (their tabletop field); Tabletop's data keeps none.
+      const onWalls = (key) => Object.fromEntries(walls.filter((w) => w.tabletop && w.tabletop[key] !== undefined).map((w) => [w.id, w.tabletop[key]]));
+      const left = ['wallMaterials', 'doorProps', 'wallHeights', 'wallWidths', 'lightHeights', 'windows', 'doorFlips'].filter((key) => data[key] !== undefined);
       const day = new Date(); const two = (n) => String(n).padStart(2, '0'); const folder = 'Tabletop backups/' + day.getFullYear() + '-' + two(day.getMonth() + 1) + '-' + two(day.getDate());
       const backups = (await app.vault.adapter.exists(folder)) ? (await app.vault.adapter.list(folder)).files : [];
       const mapBackup = backups.find((f) => /Fusion Rooms(-\\d+)?\\.atlasmap$/.test(f));
       const backupHasRooms = mapBackup ? !!JSON.parse(await app.vault.adapter.read(mapBackup)).state.objects.rooms : null;
       const drawn = board.view.map.walls.map((w) => w.id);
       return { ms, fileHasRooms: file.state.objects.rooms !== undefined, roomWalls: roomWalls.length, chains: [...new Set(roomWalls.map((w) => w.chainId))], sampleIds: roomWalls.slice(0, 3).map((w) => w.id),
-        heights: data.wallHeights || {}, materials: data.wallMaterials || {}, moved: data.roomWallsMoved === true, backups, backupHasRooms,
+        heights: onWalls('height'), materials: onWalls('material'), left, extrasMoved: data.extrasMoved === true, moved: data.roomWallsMoved === true, backups, backupHasRooms,
         notices: L.notices.slice(before), drawn: drawn.length, unique: new Set(drawn).size, storeWalls: Object.keys(L.store().getState().objects.walls || {}).length };`, fixtures);
     const heightKeys = Object.keys(e.heights), materialKeys = Object.keys(e.materials);
     const pass = e.ms !== null && !e.fileHasRooms && e.roomWalls > 0 && e.chains.join() === 'rooms_' && e.moved
       && heightKeys.length === 1 && heightKeys[0].startsWith('room__') && e.heights[heightKeys[0]] === 3 && materialKeys.length === 1 && materialKeys[0].startsWith('room__') && e.materials[materialKeys[0]] === 'Materials/stone'
       && e.backups.some((f) => /Fusion Rooms(-\d+)?\.atlasmap$/.test(f)) && e.backups.some((f) => /Fusion Rooms(-\d+)?\.tabletop\.json$/.test(f)) && e.backupHasRooms === true
-      && e.notices.some((n) => /moved 2 wall settings to Atlas 0\.15's room walls on Fusion Rooms; backup in Tabletop backups\//.test(n)) && e.drawn === e.unique && e.drawn === e.storeWalls;
+      && e.left.length === 0 && e.extrasMoved
+      && e.notices.some((n) => /moved 2 wall settings to Atlas 0\.15's room walls on Fusion Rooms; backup in Tabletop backups\//.test(n))
+      && e.notices.some((n) => /moved 2 wall, door and light settings onto Atlas's own records on Fusion Rooms; backup in Tabletop backups\//.test(n)) && e.drawn === e.unique && e.drawn === e.storeWalls;
     await o.shot(path.join(OUT, 'step10-rooms.png'));
     return { pass, evidence: e };
   });
