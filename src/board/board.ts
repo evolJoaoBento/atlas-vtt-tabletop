@@ -579,6 +579,8 @@ export class Board {
   private caster: SpellCaster | null = null;
   /** The scene's spells, from Connect. */
   private castSpells: CastSpell[] = [];
+  /** Whether a spell was kept out of the players' picture at the last drawing (so its view is shown again once none is). */
+  private secretSpells = false;
   private readonly spellViews = new Map<string, { key: string; view: SpellView; instant: boolean }>();
   /** Instantaneous spells taken off the scene, fading out (`start` in seconds, the page's clock). */
   private fadingSpells: Array<{ view: SpellView; start: number }> = [];
@@ -4684,6 +4686,13 @@ export class Board {
     this.fog.show(viewer);
     this.walls.show(viewer);
     this.rig.show(viewer);
+    // What Atlas keeps from its players (a hidden area, a spell on a token they do not see) is not in their picture.
+    this.marks.show(viewer);
+    if (this.castSpells.some((cast) => cast.gmOnly)) {
+      const secret = new Set(this.castSpells.filter((cast) => cast.gmOnly).map((cast) => cast.id));
+      for (const [id, kept] of this.spellViews) kept.view.object3d.visible = gm || !secret.has(id);
+    } else if (this.secretSpells) for (const kept of this.spellViews.values()) kept.view.object3d.visible = true;
+    this.secretSpells = this.castSpells.some((cast) => cast.gmOnly);
     if (this.gizmo) this.gizmo.object3d.visible = gm;
     // The unseen squares: the players' view always, the GM's board under Everyone, or the point of view being previewed.
     this.veilPov.object3d.visible = gm && this.povSight !== null;

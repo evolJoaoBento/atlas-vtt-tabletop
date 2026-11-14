@@ -42,7 +42,7 @@ import type { MeasureShape, PlayerTool, SpellChange, TemplateMark, TemplateShape
 import type { Measurement } from './board/measure';
 import { parseMovementRules, readDragDistance } from '../packages/atlas-shared/src/index';
 import { ownSpeed } from './board/tokenHeight';
-import { PLAYER_NOT_HELD_TEXT, PLAYER_REFUSAL_MS } from './board/hostBar';
+import { PLAYER_REFUSAL_MS, playerRefusalText, type PlayerRefusal } from './board/hostBar';
 import type { SpellBook } from './board/spellPicker';
 
 type Point = { x: number; y: number };
@@ -87,8 +87,11 @@ export interface PlayerBoardHandle extends PlayerCutsceneHandle {
   setControlled(tokenIds: readonly string[]): void;
   setConnected(connected: boolean): void;
   setPaused(paused: boolean): void;
-  /** `reason`: `not-held` when the GM's Atlas is on another map just now (Connect passes it on). */
-  moveRefused(tokenId: string, reason?: 'not-held'): void;
+  /**
+   * `reason` (Connect passes it on): `not-held` when the GM's Atlas is on another map just now; `limit` and `full` when
+   * a spell or a template was not kept (the player or the scene has as many as it may; the map's level is full).
+   */
+  moveRefused(tokenId: string, reason?: PlayerRefusal): void;
   setPlayers(order: readonly string[], self: string | null): void;
   selectTool(tool: PlayerTool): void;
   selectShape(shape: MeasureShape): void;
@@ -341,15 +344,17 @@ class PlayerBoard implements PlayerBoardHandle {
   setPaused(paused: boolean): void { this.paused = paused; }
 
   /**
-   * The GM refused a move: the token goes back to where the scene has it. Refused because the GM's Atlas holds another
-   * map just now, the board says so for a few seconds, as the 2D page does.
+   * The GM refused a move, a spell or a template: the token goes back to where the scene has it. Refused for a reason
+   * (the GM's Atlas holds another map just now, a limit, a full level), the board says so for a few seconds, as the
+   * 2D page does.
    */
-  moveRefused(_tokenId: string, reason?: 'not-held'): void {
+  moveRefused(_tokenId: string, reason?: PlayerRefusal): void {
     this.reload();
-    if (reason !== 'not-held' || this.disposed) return;
+    const text = playerRefusalText(reason);
+    if (text === null || this.disposed) return;
     const win = this.parent.ownerDocument.defaultView;
     if (this.refusalTimer !== null) win?.clearTimeout(this.refusalTimer);
-    this.board.setBanner({ text: PLAYER_NOT_HELD_TEXT });
+    this.board.setBanner({ text });
     this.refusalTimer = win?.setTimeout(() => {
       this.refusalTimer = null;
       if (!this.disposed) this.board.setBanner(null);

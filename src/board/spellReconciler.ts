@@ -14,6 +14,7 @@
  */
 import { measureToSpell, SPELL_CHAIN } from '../../packages/atlas-host/src/spellMeasure';
 import type { AtlasView } from '../atlas';
+import { placedMeasure } from './boardMeasures';
 import { derivedRecords, readSpellRules, type DerivedFeature, type DerivedLight, type DerivedWall, type RuleScale } from './spellRules';
 import { readSpell } from './spells';
 
@@ -58,18 +59,30 @@ function standingBySpell(record: unknown, spellOf: (entry: Raw) => string | null
 
 /**
  * What a pass would write for a store's records (`objects`, every level's): nothing when all is in order. `scale`
- * turns the rules' feet into the scene's units and pixels (`RuleScale`).
+ * turns the rules' feet into the scene's units and pixels (`RuleScale`). With no scale (nothing knows the map's
+ * measuring: no board is open on it) nothing is made or made again: only what stands for a spell that is gone, or
+ * that no longer reads as a spell with rules, is taken away. A spell that follows a token stands what it stands
+ * round that token (`placedMeasure`), and nothing while its token is not on the map.
  */
-export function planReconcile(objects: { measures?: unknown; walls?: unknown; mapFeatures?: unknown }, scale: RuleScale): ReconcilePlan {
+export function planReconcile(objects: { measures?: unknown; walls?: unknown; mapFeatures?: unknown; tokens?: unknown }, scale: RuleScale | null): ReconcilePlan {
   const plan: ReconcilePlan = { deleteWalls: [], addWalls: [], deleteFeatures: [], addFeatures: [], lights: [] };
-  const wanted = new Map<string, { walls: DerivedWall[]; features: DerivedFeature[] }>();
+  /** Per spell with rules: what it should stand; null when there is nothing to shape it by (it keeps what it has). */
+  const wanted = new Map<string, { walls: DerivedWall[]; features: DerivedFeature[] } | null>();
+  const tokens = isObj(objects.tokens) ? objects.tokens : {};
+  const tokenAt = (id: string): { x: number; y: number } | null => {
+    const token = Object.hasOwn(tokens, id) ? tokens[id] : null;
+    return isObj(token) && typeof token.x === 'number' && typeof token.y === 'number' && Number.isFinite(token.x) && Number.isFinite(token.y) ? { x: token.x, y: token.y } : null;
+  };
   for (const [key, value] of Object.entries(isObj(objects.measures) ? objects.measures : {})) {
     if (!isObj(value)) continue;
-    const id = typeof value.id === 'string' && value.id ? value.id : key;
-    const read = measureToSpell(value as never);
+    // Known by its place in Atlas's record, as Atlas knows it.
+    const id = key;
+    const placed = placedMeasure(value as never, tokenAt);
+    const read = placed ? measureToSpell(placed) : null;
     const spell = read ? readSpell(read.spell) : null;
     const rules = read ? readSpellRules(read.meta.rules) : null;
     if (!read || !spell || !rules) continue;
+    if (scale === null) { wanted.set(id, null); continue; }
     const name = rules.name ?? (typeof read.meta.name === 'string' && read.meta.name.trim() ? read.meta.name.trim() : undefined);
     const derived = derivedRecords(id, spell, { ...rules, ...(name ? { name } : {}) }, scale, typeof value.level === 'string' ? value.level : undefined);
     wanted.set(id, derived);
@@ -78,18 +91,21 @@ export function planReconcile(objects: { measures?: unknown; walls?: unknown; ma
   const walls = standingBySpell(objects.walls, (wall) => (typeof wall.chainId === 'string' && wall.chainId.startsWith(CHAIN) ? wall.chainId.slice(CHAIN.length) : null));
   const features = standingBySpell(objects.mapFeatures, (feature) => (isObj(feature.tabletop) && typeof feature.tabletop.spell === 'string' ? feature.tabletop.spell : null));
   for (const [spell, standing] of walls) {
+    if (wanted.get(spell) === null) continue;
     const want = wanted.get(spell)?.walls ?? [];
     if (sameSet(standing.map(wallKey), want.map((wall) => wallKey(wall as unknown as Raw)))) continue;
     plan.deleteWalls.push(...standing.map((wall) => wall.id as string));
     plan.addWalls.push(...want);
   }
   for (const [spell, standing] of features) {
+    if (wanted.get(spell) === null) continue;
     const want = wanted.get(spell)?.features ?? [];
     if (sameSet(standing.map(featureKey), want.map((feature) => featureKey(feature as unknown as Raw)))) continue;
     plan.deleteFeatures.push(...standing.map((feature) => feature.id as string));
     plan.addFeatures.push(...want);
   }
   for (const [spell, derived] of wanted) {
+    if (derived === null) continue;
     if (!walls.has(spell)) plan.addWalls.push(...derived.walls);
     if (!features.has(spell)) plan.addFeatures.push(...derived.features);
   }
@@ -101,7 +117,7 @@ export function planReconcile(objects: { measures?: unknown; walls?: unknown; ma
  * number of records it changed; 0 when all is in order, while Atlas reads a map in or travels its history, and on an
  * Atlas that cannot write outside its history.
  */
-export function reconcileSpells(view: AtlasView, scale: RuleScale): number {
+export function reconcileSpells(view: AtlasView, scale: RuleScale | null): number {
   const state = view.atlasStore.getState();
   if (state.mapLoaded === false || state.isMapLoading === true) return 0;
   const history = view.atlasStore.temporal?.getState();
@@ -113,7 +129,7 @@ export function reconcileSpells(view: AtlasView, scale: RuleScale): number {
     if (state.addWall) for (const wall of plan.addWalls) { state.addWall({ ...wall }); written += 1; }
     if (state.deleteMapFeature) for (const id of plan.deleteFeatures) { state.deleteMapFeature(id); written += 1; }
     if (plan.addFeatures.length > 0 && state.addMapFeatures) { state.addMapFeatures(plan.addFeatures.map((feature) => ({ ...feature }))); written += plan.addFeatures.length; }
-    if (state.updateMeasure) for (const { id, light } of plan.lights) { state.updateMeasure(id, { light: { ...light, animation: { ...light.animation } } }); written += 1; }
+    if (state.updateMeasure) for (const { id, light } of plan.lights) { state.updateMeasure(id, { light: { ...light } }); written += 1; }
   });
   return written;
 }

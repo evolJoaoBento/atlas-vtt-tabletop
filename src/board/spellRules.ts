@@ -288,7 +288,8 @@ export interface DerivedLight {
   dim: number;
   color: string;
   intensity: 1;
-  animation: { type: 'none'; speed: 1; intensity: 1 };
+  /** Steady, as Atlas names it (`LightAnimation`). */
+  animation: 'none';
   darkness?: true;
 }
 
@@ -312,7 +313,7 @@ export function derivedRecords(id: string, spell: Spell, rules: SpellRules | nul
   const features: DerivedFeature[] = rules.difficult && ring.length >= 3
     ? [{ polygon: ring.map((point) => ({ x: point.x, y: point.y })), name: rules.name ?? 'Spell', terrain: { difficult: true }, ...mark, level }]
     : [];
-  const steady = { intensity: 1 as const, animation: { type: 'none' as const, speed: 1 as const, intensity: 1 as const } };
+  const steady = { intensity: 1 as const, animation: 'none' as const };
   let light: DerivedLight | null = null;
   if (rules.dark) {
     if (spellToMeasure(spell).shape === 'circle') {

@@ -303,7 +303,9 @@ Every gate in section 11 is checked first, in a throwaway vault on Atlas 0.15.0,
 - **Template shapes.** A square grows from the middle of its near side and a line is one cell wide, as Atlas shapes them; templates snap as Atlas's areas do.
 - **The GM's colour on the GM's own spells and templates.** They carry no colour: Atlas draws them in its accent.
 - **A spell's light where Atlas has none.** A darkness is Atlas's on a round area only; on a cube or a cone it is the 3D board's alone. A spell's light takes the area's colour in Atlas when the area has one (a player's).
-- **Auras on the board.** Atlas 0.15's token auras are not drawn on the 3D board or Connect's page yet.
+- **An aura's exact reach.** A measure that follows a token (Atlas 0.15's auras, and a spell the GM makes follow its caster) is drawn around its token as large as it was last made in Atlas; it is not worked out again from its reach when the token's size changes.
+- **The sound of an area made in Atlas.** An area with an effect (fire, frost) kept in Atlas is drawn flat on the board and plays no loop there; only spells sound.
+- **A stretched wall or column grows taller.** A spell's sizes ride on its measure's two points, so one resized in Atlas scales whole, its height included.
 
 ## 11. Gates: facts to verify live, each with a fallback
 

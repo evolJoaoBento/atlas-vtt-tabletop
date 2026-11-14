@@ -59,6 +59,8 @@ export interface CastSpell {
   /** The spell's name and words, beside it: shown with Ctrl over it. */
   name?: string;
   about?: SpellAbout;
+  /** What Atlas keeps from its players (its measure is hidden, or started on a token they do not see): drawn for the GM alone. */
+  gmOnly?: true;
 }
 
 /**
@@ -184,7 +186,7 @@ export function readCastSpells(raw: unknown): CastSpell[] {
     const rules = readSpellRules((value as { rules?: unknown }).rules);
     const name = (value as { name?: unknown }).name;
     const about = readSpellAbout((value as { about?: unknown }).about);
-    if (spell) out.push({ id: value.id, owner: value.owner, color: value.color, spell, ...(rules ? { rules } : {}), ...(typeof name === 'string' && name.trim() ? { name: name.trim().slice(0, 60) } : {}), ...(about ? { about } : {}) });
+    if (spell) out.push({ id: value.id, owner: value.owner, color: value.color, spell, ...(rules ? { rules } : {}), ...(typeof name === 'string' && name.trim() ? { name: name.trim().slice(0, 60) } : {}), ...(about ? { about } : {}), ...((value as { gmOnly?: unknown }).gmOnly === true ? { gmOnly: true as const } : {}) });
   }
   return out;
 }

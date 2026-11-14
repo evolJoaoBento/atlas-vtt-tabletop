@@ -30,6 +30,8 @@ export interface TemplateMark {
   ruler?: true;
   /** What the measure is: someone's template (also when unsaid), or an area made in Atlas (no tap takes it off). */
   kind?: 'template' | 'area';
+  /** What Atlas keeps from its players (a hidden measure, one that started on a token they do not see): drawn for the GM alone. */
+  gmOnly?: true;
 }
 
 export type TemplateChange = { add: { shape: TemplateShape; start: Point; end: Point } } | { remove: string } | { clear: true };

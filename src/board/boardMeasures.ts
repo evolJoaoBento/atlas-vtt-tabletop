@@ -5,15 +5,19 @@
  * - `castsOfMeasures`: the measures that hold a spell (their `tabletop` field, `packages/atlas-host` `spellMeasure`),
  *   each read back as the cast the board draws in 3D, where its measure lies now.
  * - `marksOfMeasures`: every other measure flat on the map: an area made in Atlas, a kept ruler as its legs, a
- *   template with its owner. A spell is left out: its 3D shape is its mark; so is a token's aura.
+ *   template with its owner, and a spell that no longer reads as one (as the area its points say).
  * - `spellWrite`, `templateWrite`: what a change asked on the GM's board writes to Atlas's measures.
+ *
+ * Two things of Atlas's are read with every measure (`MeasureLook`): one that follows a token (an aura, or a spell the
+ * GM made follow its caster) lies around that token, not where its points were last written; and what Atlas keeps from
+ * its players (a hidden measure, one that started on a token they did not or do not see) is marked the GM's alone.
  */
-import { measureToSpell, readExtra, spellToMeasure, type MeasureRecord } from '../../packages/atlas-host/src/spellMeasure';
+import { measureKind, measureToSpell, readExtra, spellToMeasure, type MeasureRecord } from '../../packages/atlas-host/src/spellMeasure';
 import type { SpellChange, TemplateChange, TemplateMark } from './playerTools';
 import { readSpellRules } from './spellRules';
 import { isInstantaneous, readSpell, readSpellAbout, type CastSpell } from './spells';
 
-/** A measure of the map's shown level: its id in Atlas and the record as Atlas keeps it. */
+/** A measure of the map's shown level: its id in Atlas (its place in Atlas's record) and the record as Atlas keeps it. */
 export interface BoardMeasure { id: string; record: MeasureRecord }
 
 /** Whose a measure is that names no owner: the GM's, as everything made in Atlas is. */
@@ -21,29 +25,78 @@ export const GM_MEASURE_OWNER = 'gm';
 /** The colour of a spell that names none: white, as the board always cast the GM's. */
 const PLAIN_SPELL = '#ffffff';
 
+type Place = { x: number; y: number };
+
+/** What of the map's tokens places and shows a measure. */
+export interface MeasureLook {
+  /** Where the token stands (its centre, map pixels); null when the map has no such token. Without it, no measure that follows a token is drawn. */
+  tokenAt?(tokenId: string): Place | null;
+  /** Whether players do not see the token (hidden, or not on the map). Without it, every token is taken as seen. */
+  unseen?(tokenId: string): boolean;
+}
+
 const SHAPES: readonly string[] = ['ruler', 'circle', 'cone', 'square', 'line'];
-const isPlace = (value: unknown): value is { x: number; y: number } => typeof value === 'object' && value !== null
+const isPlace = (value: unknown): value is Place => typeof value === 'object' && value !== null
   && Number.isFinite((value as { x?: unknown }).x) && Number.isFinite((value as { y?: unknown }).y);
 
 /** The measures of a record of Atlas's (`objects.measures`, those of the level shown): what reads as one, in the order they were made. */
 export function readMeasures(raw: unknown): BoardMeasure[] {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return [];
   const measures: BoardMeasure[] = [];
-  for (const [key, value] of Object.entries(raw)) {
+  for (const [id, value] of Object.entries(raw)) {
     if (typeof value !== 'object' || value === null) continue;
     const record = value as Partial<MeasureRecord>;
     if (typeof record.shape !== 'string' || !SHAPES.includes(record.shape)) continue;
     if (!Array.isArray(record.points) || record.points.length < 2 || !record.points.every(isPlace)) continue;
-    measures.push({ id: typeof record.id === 'string' && record.id ? record.id : key, record: record as MeasureRecord });
+    measures.push({ id, record: record as MeasureRecord });
   }
   return measures;
 }
 
+/** The token a measure follows (Atlas's `isAura`: a circle with both fields); null for one that follows none. */
+export function followedToken(record: MeasureRecord): string | null {
+  const { follows, aura } = record as { follows?: unknown; aura?: unknown };
+  return record.shape === 'circle' && typeof follows === 'string' && follows !== '' && typeof aura === 'number' && aura > 0 ? follows : null;
+}
+
+/**
+ * A measure where it lies now: one that follows a token is moved to lie around it, as large as it was last made (its
+ * points are where it lay when it was last edited; Atlas places it from the token). Null when its token is not on the map.
+ */
+export function placedMeasure(record: MeasureRecord, tokenAt: MeasureLook['tokenAt']): MeasureRecord | null {
+  const token = followedToken(record);
+  if (token === null) return record;
+  const at = tokenAt?.(token) ?? null;
+  if (!at) return null;
+  const dx = at.x - record.points[0].x;
+  const dy = at.y - record.points[0].y;
+  return dx === 0 && dy === 0 ? record : { ...record, points: record.points.map((point) => ({ x: point.x + dx, y: point.y + dy })) };
+}
+
+/**
+ * Whether Atlas keeps a measure from its players (its `measureShownToPlayers`, read closed): a hidden one, one that
+ * started on a token they did not see then or do not see now (an origin that cannot be read counts as unseen), and one
+ * that follows a token they do not see.
+ */
+function gmOnly(record: MeasureRecord, unseen: MeasureLook['unseen']): boolean {
+  if ((record as { hidden?: unknown }).hidden === true) return true;
+  const token = followedToken(record);
+  if (token !== null && unseen?.(token) === true) return true;
+  const origin = (record as { origin?: unknown }).origin;
+  if (origin === undefined) return false;
+  if (typeof origin !== 'object' || origin === null) return true;
+  const { tokenIds, unseenAtStart } = origin as { tokenIds?: unknown; unseenAtStart?: unknown };
+  if (unseenAtStart !== false || !Array.isArray(tokenIds)) return true;
+  return tokenIds.some((id) => typeof id !== 'string' || unseen?.(id) === true);
+}
+
 /** The map's kept spells as casts, in the order they were made: each read back from its measure where it lies now. */
-export function castsOfMeasures(measures: readonly BoardMeasure[]): CastSpell[] {
+export function castsOfMeasures(measures: readonly BoardMeasure[], look: MeasureLook = {}): CastSpell[] {
   const casts: CastSpell[] = [];
   for (const { id, record } of measures) {
-    const read = measureToSpell(record);
+    if (measureKind(record) !== 'spell') continue;
+    const placed = placedMeasure(record, look.tokenAt);
+    const read = placed ? measureToSpell(placed) : null;
     const spell = read ? readSpell(read.spell) : null;
     if (!read || !spell) continue;
     const rules = readSpellRules(read.meta.rules);
@@ -52,6 +105,7 @@ export function castsOfMeasures(measures: readonly BoardMeasure[]): CastSpell[] 
     casts.push({
       id, owner: read.meta.owner ?? GM_MEASURE_OWNER, color: read.meta.color ?? PLAIN_SPELL, spell,
       ...(rules ? { rules } : {}), ...(name ? { name } : {}), ...(about ? { about } : {}),
+      ...(gmOnly(record, look.unseen) ? { gmOnly: true as const } : {}),
     });
   }
   return casts;
@@ -61,16 +115,18 @@ export function castsOfMeasures(measures: readonly BoardMeasure[]): CastSpell[] 
  * The map's other measures as flat marks, in the order they were made. `cell` is the map's cell size (a line that
  * names no width is one cell wide, as Atlas draws it); `accent` colours a measure that names no colour.
  */
-export function marksOfMeasures(measures: readonly BoardMeasure[], look: { cell: number; accent: string }): TemplateMark[] {
+export function marksOfMeasures(measures: readonly BoardMeasure[], look: MeasureLook & { cell: number; accent: string }): TemplateMark[] {
   const marks: TemplateMark[] = [];
-  for (const { id, record } of measures) {
-    const extra = readExtra(record);
-    if (extra?.kind === 'spell') continue;
-    // An aura (Atlas's `isAura`: a circle with both fields) lies around its token wherever that stands, not where its
-    // points were last written: not drawn here yet.
-    const { follows, aura } = record as { follows?: unknown; aura?: unknown };
-    if (record.shape === 'circle' && typeof follows === 'string' && follows !== '' && typeof aura === 'number' && aura > 0) continue;
-    const shared = { owner: extra?.owner ?? GM_MEASURE_OWNER, color: typeof record.color === 'string' ? record.color : look.accent, kind: extra?.kind === 'template' ? 'template' as const : 'area' as const };
+  for (const { id, record: kept } of measures) {
+    const kind = measureKind(kept);
+    // A spell is drawn in 3D (`castsOfMeasures`).
+    if (kind === 'spell') continue;
+    const record = placedMeasure(kept, look.tokenAt);
+    if (!record) continue;
+    const shared = {
+      owner: readExtra(record)?.owner ?? GM_MEASURE_OWNER, color: typeof record.color === 'string' ? record.color : look.accent, kind,
+      ...(gmOnly(kept, look.unseen) ? { gmOnly: true as const } : {}),
+    };
     if (record.shape === 'ruler') {
       for (let leg = 0; leg + 1 < record.points.length; leg++) {
         marks.push({ id: `${id}:${leg}`, shape: 'line', start: { x: record.points[leg].x, y: record.points[leg].y }, end: { x: record.points[leg + 1].x, y: record.points[leg + 1].y }, ruler: true, ...shared });

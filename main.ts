@@ -3,6 +3,7 @@ import { readMaterialDefaults, type MaterialDefaults } from './src/materialDefau
 import { readSurvey, type ArSurvey } from './src/arTable';
 import { Assignments, readAssignments, type AssignmentData, type MiniPlacement } from './src/assignments';
 import { mapViews, presentedSceneOf, tabViewOf } from './src/atlas';
+import { SpellUpkeep } from './src/board/spellUpkeep';
 import { resolveLevel } from './src/board/levels';
 import { BOARD_VIEW_TYPE, BoardView, HOVER_SOURCE } from './src/board/BoardView';
 import { PLAYER_VIEW_TYPE, PlayerView } from './src/board/PlayerWindow';
@@ -247,6 +248,11 @@ export default class TabletopPlugin extends Plugin {
       },
     });
     recordAtlasWrites(this.history, writer);
+    // What Atlas holds for a kept spell goes with the spell on every map Atlas has open, board or no board.
+    const upkeep = new SpellUpkeep(() => mapViews(this.app));
+    this.register(() => upkeep.dispose());
+    this.app.workspace.onLayoutReady(() => upkeep.sync());
+    this.registerEvent(this.app.workspace.on('layout-change', () => upkeep.sync()));
 
     this.registerView(GALLERY_VIEW_TYPE, (leaf) => new GalleryView(leaf, this.library, this.props, this.materials, (glb, look) => this.placeProp(glb, look), (material) => this.paintWith(material), {
       list: () => readVariants(this.settings.propVariants),

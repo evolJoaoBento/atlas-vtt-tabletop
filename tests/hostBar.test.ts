@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { hostBar, mapName, type HostBarInput } from '../src/board/hostBar';
+import { hostBar, mapName, PLAYER_NOT_HELD_TEXT, playerRefusalText, type HostBarInput } from '../src/board/hostBar';
 
 const CELLAR = 'maps/Cellar.atlasmap';
 const COVE = 'maps/Cove.atlasmap';
@@ -38,4 +38,12 @@ test('no Atlas tab yet and nothing failed: no bar, the board is about to open on
 test('a map is named without its folder and extension', () => {
   assert.equal(mapName('atlas-vtt/collections/Main/scenes/The Cove.atlasmap'), 'The Cove');
   assert.equal(mapName('Cove'), 'Cove');
+});
+
+test('a player is told why the GM turned a move, a spell or a template down, each in its own words', () => {
+  assert.equal(playerRefusalText('not-held'), PLAYER_NOT_HELD_TEXT);
+  assert.match(playerRefusalText('limit') ?? '', /remove one first/);
+  assert.match(playerRefusalText('full') ?? '', /holds no more/);
+  assert.equal(playerRefusalText(undefined), null);
+  assert.equal(playerRefusalText('whim' as never), null);
 });

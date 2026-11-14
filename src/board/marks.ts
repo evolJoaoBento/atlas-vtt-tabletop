@@ -56,7 +56,16 @@ export class BoardMarks {
     if (key === this.templateKey) return;
     this.templateKey = key;
     clear(this.templates);
-    for (const template of list) this.templates.add(this.shape(template.shape, template.start, template.end, template.color, coneAngle, 0.18, template.ruler ? undefined : template.width));
+    for (const template of list) {
+      const drawn = this.shape(template.shape, template.start, template.end, template.color, coneAngle, 0.18, template.ruler ? undefined : template.width);
+      drawn.userData.gmOnly = template.gmOnly === true;
+      this.templates.add(drawn);
+    }
+  }
+
+  /** Shows the templates as `viewer` sees them, for the next drawing: what Atlas keeps from its players is the GM's alone. */
+  show(viewer: 'gm' | 'player'): void {
+    for (const drawn of this.templates.children) drawn.visible = viewer === 'gm' || drawn.userData.gmOnly !== true;
   }
 
   /** The measure or template being dragged, with the measure's distance; nulls clear it. */

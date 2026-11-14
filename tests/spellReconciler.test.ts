@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { spellToMeasure, type SpellLike } from '../packages/atlas-host/src/spellMeasure';
 import type { AtlasView } from '../src/atlas';
 import { planReconcile, reconcileSpells } from '../src/board/spellReconciler';
+import { SpellUpkeep } from '../src/board/spellUpkeep';
 
 const SCALE = { unitsPerFoot: 1, pxPerUnit: 70 / 5 };
 const ball: SpellLike = { shape: 'sphere', from: 'point', at: { x: 500, y: 500, h: 0 }, yaw: 0, pitch: 0, roll: 0, size: 140, length: 0, angle: 1 };
@@ -18,7 +19,7 @@ function atlas(measures: Record<string, Record<string, unknown>>, walls: Record<
   const note = (what: string): void => { log.push(depth > 0 ? what : `${what} TRACKED`); };
   const state = {
     mapPath: 'm.atlasmap', mapLoaded: true, isMapLoading: false,
-    objects: { tokens: {}, measures, walls, mapFeatures },
+    objects: { tokens: {} as Record<string, Record<string, unknown>>, measures, walls, mapFeatures },
     addWall: (data: Record<string, unknown>): string => { const id = `wall_${++next}`; walls[id] = { id, kind: 'wall', ...data }; note('addWall'); return id; },
     deleteWalls: (ids: string[]): void => { for (const id of ids) delete walls[id]; note(`deleteWalls ${ids.length}`); },
     addMapFeatures: (data: ReadonlyArray<Record<string, unknown>>): string[] => data.map((one) => { const id = `feature_${++next}`; mapFeatures[id] = { id, kind: 'map-feature', ...one }; note('addMapFeature'); return id; }),
@@ -95,7 +96,7 @@ test("a spell on a level not shown keeps its records: every level's measures are
 });
 
 test('a light the GM changed or a darkness Atlas cannot make is left alone; nothing is written while Atlas loads a map or travels its history', () => {
-  const edited = { bright: 5, dim: 5, color: '#00ff00', intensity: 1, animation: { type: 'none', speed: 1, intensity: 1 } };
+  const edited = { bright: 5, dim: 5, color: '#00ff00', intensity: 1, animation: 'none' };
   const a = atlas({ day: kept('day', ball, { light: { bright: 20, dim: 20 } }, { light: edited }), cube: kept('cube', { ...ball, shape: 'cube' }, { dark: true }) });
   assert.equal(reconcileSpells(a.view, SCALE), 0);
   assert.equal(a.measures.day!.light, edited);
@@ -107,4 +108,57 @@ test('a light the GM changed or a darkness Atlas cannot make is left alone; noth
   assert.equal(reconcileSpells(b.view, SCALE), 0);
   b.travel(false);
   assert.equal(reconcileSpells(b.view, SCALE), 1);
+});
+
+test('with nothing to shape by, a pass only takes away what stands for a spell that is gone: nothing is made, nothing that still has its spell is touched', () => {
+  const a = atlas({ stone: kept('stone', wallSpell, { wall: { look: 'stone', blocks: 'both' } }), web: kept('web', ball, { difficult: true }) }, {
+    orphan: { id: 'orphan', kind: 'wall', type: 'solid', p1: { x: 0, y: 0 }, p2: { x: 10, y: 0 }, chainId: 'spell:gone' },
+    moved: { id: 'moved', kind: 'wall', type: 'solid', p1: { x: 5, y: 5 }, p2: { x: 10, y: 5 }, chainId: 'spell:stone' },
+    drawn: { id: 'drawn', kind: 'wall', type: 'solid', p1: { x: 0, y: 0 }, p2: { x: 10, y: 0 }, chainId: 'chain_1' },
+  }, {
+    stale: { id: 'stale', kind: 'map-feature', polygon: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }], name: 'Web', terrain: { difficult: true }, tabletop: { spell: 'gone' } },
+  });
+  assert.deepEqual(planReconcile(a.state.objects, null), { deleteWalls: ['orphan'], addWalls: [], deleteFeatures: ['stale'], addFeatures: [], lights: [] });
+  assert.equal(reconcileSpells(a.view, null), 2);
+  assert.deepEqual([Object.keys(a.walls), Object.keys(a.mapFeatures)], [['moved', 'drawn'], []]);
+  assert.ok(a.log.every((line) => !line.endsWith('TRACKED')));
+});
+
+test("a spell that follows a token stands its walls and ground round the token, and a measure is known by its place in Atlas's record", () => {
+  const a = atlas({ fog: { ...kept('other-id', ball, { obscure: true }), follows: 't1', aura: 10 } });
+  a.state.objects.tokens.t1 = { id: 't1', x: 2000, y: 1000 };
+  reconcileSpells(a.view, SCALE);
+  const walls = Object.values(a.walls);
+  assert.equal(walls.length, 32);
+  assert.ok(walls.every((wall) => wall.chainId === 'spell:fog' && Math.abs(Math.hypot((wall.p1 as { x: number }).x - 2000, (wall.p1 as { y: number }).y - 1000) - 140) < 3));
+  // Its token gone from the map: it stands nothing.
+  delete a.state.objects.tokens.t1;
+  reconcileSpells(a.view, SCALE);
+  assert.equal(Object.keys(a.walls).length, 0);
+});
+
+test('the upkeep of every open Atlas map takes a gone spell\'s walls away with no board open, once the store has been still', () => {
+  const a = atlas({}, { orphan: { id: 'orphan', kind: 'wall', type: 'solid', p1: { x: 0, y: 0 }, p2: { x: 10, y: 0 }, chainId: 'spell:gone' } });
+  const timers: Array<() => void> = [];
+  let listener: (() => void) | null = null;
+  let stopped = 0;
+  (a.view.atlasStore as { subscribe: unknown }).subscribe = (fn: () => void) => { listener = fn; return () => { stopped += 1; listener = null; }; };
+  let open = [a.view];
+  const upkeep = new SpellUpkeep(() => open, { setTimeout: ((fn: () => void) => { timers.push(fn); return timers.length; }) as never, clearTimeout: (() => {}) as never });
+  upkeep.sync();
+  assert.equal(Object.keys(a.walls).length, 1);
+  timers.pop()!();
+  assert.deepEqual(Object.keys(a.walls), []);
+  // A spell removed later (a player's, through Connect) leaves its wall for the next pass.
+  a.walls.late = { id: 'late', kind: 'wall', type: 'solid', p1: { x: 0, y: 0 }, p2: { x: 10, y: 0 }, chainId: 'spell:gone-too' };
+  // Atlas hands out new records when one changes: here the measures, with the spell gone.
+  a.state.objects = { ...a.state.objects, measures: {} };
+  listener!();
+  timers.pop()!();
+  assert.deepEqual(Object.keys(a.walls), []);
+  // The view closed: it is followed no more.
+  open = [];
+  upkeep.sync();
+  assert.equal(stopped, 1);
+  upkeep.dispose();
 });

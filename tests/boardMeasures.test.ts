@@ -5,6 +5,7 @@ import { castsOfMeasures, marksOfMeasures, readMeasures, spellWrite, templateWri
 import { readMapState } from '../src/board/mapModel';
 import { shapeOutline } from '../src/board/marks';
 import { templateHit } from '../src/board/playerTools';
+import { readCastSpells } from '../src/board/spells';
 
 const spell: SpellLike = { shape: 'sphere', from: 'point', at: { x: 700, y: 420, h: 70 }, yaw: 0, pitch: 0, roll: 0, size: 140, length: 0, angle: 1, effect: 'fire' };
 const kept = (id: string, record: object): Record<string, unknown> => ({ id, kind: 'measure', ...JSON.parse(JSON.stringify(record)) });
@@ -123,4 +124,45 @@ test("the walls Atlas holds for a spell are not the map's walls: the board stand
   };
   const map = readMapState('m.atlasmap', { mapPath: 'm.atlasmap', backgroundImage: null, grid: { size: 70 }, objects: { tokens: {}, walls } });
   assert.deepEqual(map.walls.map((wall) => wall.id), ['real']);
+});
+
+const circle = { kind: 'measure', shape: 'circle', points: [{ x: 0, y: 0 }, { x: 70, y: 0 }] };
+
+test("what Atlas keeps from players is the GM's alone on the board: a hidden measure, and one that started on a token players did not or do not see", () => {
+  const raw = {
+    h: { ...circle, id: 'h', hidden: true },
+    unseen: { ...circle, id: 'unseen', origin: { tokenIds: ['t1'], unseenAtStart: true } },
+    onHidden: { ...circle, id: 'onHidden', origin: { tokenIds: ['t1', 't2'], unseenAtStart: false } },
+    junk: { ...circle, id: 'junk', origin: 'somewhere' },
+    seen: { ...circle, id: 'seen', origin: { tokenIds: ['t1'], unseenAtStart: false } },
+    plain: { ...circle, id: 'plain' },
+  };
+  const look = { cell: 70, accent: '#7c5cff', unseen: (id: string) => id === 't2' };
+  assert.deepEqual(marksOfMeasures(readMeasures(raw), look).map((mark) => [mark.id, mark.gmOnly === true]), [['h', true], ['unseen', true], ['onHidden', true], ['junk', true], ['seen', false], ['plain', false]]);
+  const casts = castsOfMeasures(readMeasures({ s: { ...kept('s', spellToMeasure(spell)), hidden: true }, p: kept('p', spellToMeasure(spell)) }), look);
+  assert.deepEqual(casts.map((cast) => [cast.id, cast.gmOnly === true]), [['s', true], ['p', false]]);
+  // The board keeps the mark through its own reading of a list of casts.
+  assert.deepEqual(readCastSpells(casts).map((cast) => cast.gmOnly === true), [true, false]);
+});
+
+test('a measure that follows a token lies around that token, wherever its points were last written; with no such token it is not drawn', () => {
+  const aura = { ...circle, id: 'aura', follows: 't1', aura: 10 };
+  const tokenAt = (id: string) => (id === 't1' ? { x: 500, y: 300 } : null);
+  const [mark] = marksOfMeasures(readMeasures({ aura }), { cell: 70, accent: '#7c5cff', tokenAt });
+  assert.deepEqual([mark!.start, mark!.end], [{ x: 500, y: 300 }, { x: 570, y: 300 }]);
+  assert.deepEqual(marksOfMeasures(readMeasures({ aura: { ...aura, follows: 'gone' } }), { cell: 70, accent: '#7c5cff', tokenAt }), []);
+  // A spell made to follow its caster in Atlas (Spirit Guardians): its 3D shape goes with the token.
+  const guardians = { ...kept('g', spellToMeasure({ ...spell, at: { x: 0, y: 0, h: 0 } })), follows: 't1', aura: 10 };
+  const [cast] = castsOfMeasures(readMeasures({ g: guardians }), { tokenAt });
+  assert.deepEqual([Math.round(cast!.spell.at.x), Math.round(cast!.spell.at.y), Math.round(cast!.spell.size)], [500, 300, 140]);
+  assert.deepEqual(castsOfMeasures(readMeasures({ g: guardians })), []);
+  // Seen only with its token.
+  assert.equal(castsOfMeasures(readMeasures({ g: guardians }), { tokenAt, unseen: (id) => id === 't1' })[0]!.gmOnly, true);
+});
+
+test("a measure is known by its place in Atlas's record, whatever id it says; a spell that no longer reads as one is drawn flat, as the area its points say", () => {
+  assert.deepEqual(readMeasures({ real: { ...circle, id: 'other' } }).map((measure) => measure.id), ['real']);
+  const broken = { ...circle, id: 'broken', tabletop: { v: 1, kind: 'spell', rules: 'all of them' } };
+  assert.deepEqual(castsOfMeasures(readMeasures({ broken })), []);
+  assert.deepEqual(marksOfMeasures(readMeasures({ broken }), { cell: 70, accent: '#7c5cff' }).map((mark) => [mark.id, mark.kind]), [['broken', 'area']]);
 });

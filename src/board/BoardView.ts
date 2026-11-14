@@ -521,6 +521,9 @@ export class BoardView extends ItemView {
     if (this.playerWindow) fresh.attachPlayer(this.playerWindow.stage);
     fresh.wake(true);
     this.studio?.mapChanged();
+    // The new board has no measure yet: the map's are shown on it, standing (none is cast again).
+    this.measuresOf = null;
+    this.sessionChanged();
   }
 
   /** The board as it is drawn now, as a PNG, for a snapshot saved in the vault. */
@@ -1046,8 +1049,15 @@ export class BoardView extends ItemView {
     }
     const cone = readMeasurement(this.rules.gridDefaults, map.rawGrid).coneAngle;
     board.tools.coneAngle = ((cone !== undefined && cone > 0 && cone < 180 ? cone : 90) * Math.PI) / 180;
-    board.receiveTemplates(marksOfMeasures(map.measures, { cell: map.grid.size, accent: MEASURE_ACCENT }));
-    board.receiveSpells(map.path, [...castsOfMeasures(map.measures), ...this.flashes.map(({ cast }) => cast)], [], map.measuresElsewhere);
+    // A measure that follows a token lies around it; what Atlas keeps from its players (hidden, or on a token they do
+    // not see) is drawn for the GM alone, never in the players' window.
+    const tokens = new Map(map.tokens.map((token) => [token.id, token]));
+    const look = {
+      tokenAt: (id: string) => { const token = tokens.get(id); return token ? { x: token.x, y: token.y } : null; },
+      unseen: (id: string) => tokens.get(id)?.hidden !== false,
+    };
+    board.receiveTemplates(marksOfMeasures(map.measures, { cell: map.grid.size, accent: MEASURE_ACCENT, ...look }));
+    board.receiveSpells(map.path, [...castsOfMeasures(map.measures, look), ...this.flashes.map(({ cast }) => cast)], [], map.measuresElsewhere);
   }
 
   private reconcileTimer: number | null = null;
@@ -1779,7 +1789,8 @@ export class BoardView extends ItemView {
         if (state.mapPath !== this.path) { this.watchAtlas(); return; }
         // What a kept spell stands in Atlas (walls, difficult ground, light) follows its measure: after a cast, a move, an undo.
         const objects = state.objects;
-        if (objects?.measures !== derived?.measures || objects?.walls !== derived?.walls || objects?.mapFeatures !== derived?.mapFeatures) {
+        // (A spell that follows a token stands them round the token: its moves count too.)
+        if (objects?.measures !== derived?.measures || objects?.walls !== derived?.walls || objects?.mapFeatures !== derived?.mapFeatures || objects?.tokens !== derived?.tokens) {
           derived = objects;
           this.reconcileSoon();
         }

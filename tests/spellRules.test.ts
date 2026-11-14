@@ -112,7 +112,8 @@ test("a spell's difficult ground is one map feature of Atlas's over what it cove
   assert.deepEqual(derivedRecords('m6', longWall, { difficult: true }, SCALE).features, []);
   // Bright for 60 feet and dim for 60 more: Atlas's `dim` is where the light ends.
   const day = derivedRecords('m7', ball(0, 0, 50), { light: { bright: 60, dim: 60, color: '#ffeeaa' } }, { unitsPerFoot: 1.5 / 5, pxPerUnit: 70 / 1.5 });
-  assert.deepEqual(day.light, { bright: 18, dim: 36, color: '#ffeeaa', intensity: 1, animation: { type: 'none', speed: 1, intensity: 1 } });
+  // As Atlas's own lights are kept: `animation` is a word (`LightAnimation`).
+  assert.deepEqual(day.light, { bright: 18, dim: 36, color: '#ffeeaa', intensity: 1, animation: 'none' });
   const dark = derivedRecords('m8', ball(100, 100, 140), { dark: true, obscure: true }, SCALE);
   assert.deepEqual([dark.light?.darkness, dark.light?.bright, dark.light?.color], [true, 0, '#000000']);
   assert.ok(Math.abs((dark.light?.dim ?? 0) - 10) < 0.3);

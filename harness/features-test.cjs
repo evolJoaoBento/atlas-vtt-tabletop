@@ -2612,6 +2612,45 @@ feature('ar viewer eye', async ({ page, shot }) => {
   check('eye: fades when the player leaves AR', await page.evaluate(() => window.boardTest.board.viewers.count === 0));
 });
 
+feature('hidden measures', async ({ page }) => {
+  // What Atlas keeps from its players (a hidden area, a spell on a token they do not see) is drawn for the GM and left
+  // out of the players' picture (the GM's player window); everything else is in both.
+  const seen = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    const cell = board.map.grid.size;
+    const x = board.size.width / 2;
+    const y = board.size.height / 2;
+    const ball = (dx) => ({ shape: 'sphere', from: 'point', at: { x: x + dx, y, h: 0 }, yaw: 0, pitch: 0, roll: 0, size: cell, length: 0, angle: 0.9 });
+    board.receiveTemplates([
+      { id: 'open', owner: 'gm', shape: 'circle', start: { x, y }, end: { x: x + cell, y }, color: '#7c5cff', kind: 'area' },
+      { id: 'secret', owner: 'gm', shape: 'circle', start: { x: x + cell * 3, y }, end: { x: x + cell * 4, y }, color: '#7c5cff', kind: 'area', gmOnly: true },
+    ]);
+    board.receiveSpells(board.map.path, [
+      { id: 'shown', owner: 'gm', color: '#ffffff', spell: ball(-cell * 3) },
+      { id: 'kept', owner: 'gm', color: '#ffffff', spell: ball(-cell * 6), gmOnly: true },
+    ]);
+    const look = () => ({
+      marks: board.marks.templates.children.map((drawn) => drawn.visible),
+      spells: ['shown', 'kept'].map((id) => board.spellViews.get(id).view.object3d.visible),
+    });
+    board.showFor('player');
+    const player = look();
+    board.showFor('gm');
+    const gm = look();
+    // None kept from players any more: the next players' picture shows every spell again.
+    board.receiveSpells(board.map.path, [{ id: 'shown', owner: 'gm', color: '#ffffff', spell: ball(-cell * 3) }, { id: 'kept', owner: 'gm', color: '#ffffff', spell: ball(-cell * 6) }]);
+    board.showFor('player');
+    const after = look();
+    board.showFor('gm');
+    board.receiveTemplates([]);
+    board.receiveSpells(board.map.path, []);
+    return { player, gm, after };
+  });
+  check("hidden measures: the players' picture leaves out the hidden area and the hidden spell, and keeps the rest", JSON.stringify(seen.player) === JSON.stringify({ marks: [true, false], spells: [true, false] }), JSON.stringify(seen.player));
+  check("hidden measures: the GM's picture has them all", JSON.stringify(seen.gm) === JSON.stringify({ marks: [true, true], spells: [true, true] }), JSON.stringify(seen.gm));
+  check('hidden measures: a spell no longer hidden is back in the players\' picture', JSON.stringify(seen.after.spells) === JSON.stringify([true, true]), JSON.stringify(seen.after));
+});
+
 feature('gm clears spells', async ({ page, shot }) => {
   // A player's sphere on the map, the GM hosting in Play mode: Ctrl over it lights it, a click clears it.
   const at = await page.evaluate(() => {
