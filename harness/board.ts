@@ -20,7 +20,7 @@ import { setLanguage } from '../src/i18n';
 import { readMap, type BoardMap, type BoardToken } from '../src/board/mapModel';
 import { CutsceneStudio, type StudioHost } from '../src/cutscene/studio';
 import { DEFAULT_CINEMATIC_SETTINGS, readCinematicSettings, type CinematicSettings } from '../src/cutscene/cinematicSettings';
-import type { Cutscene } from '../src/cutscene/cutsceneData';
+import { levelOfPlace, mapOfPlace, placeAt, type Cutscene } from '../src/cutscene/cutsceneData';
 import { CutsceneChannel } from '../src/cutscene/cutsceneRun';
 import type { BoardSession } from '../src/connectContract';
 import { insideFog } from '../src/board/playerView';
@@ -763,6 +763,7 @@ async function main(): Promise<void> {
     lent: [] as boolean[],
   };
   let cutsceneMap = map.path;
+  let cutsceneLevel: string | null = null;
   const studioHost: StudioHost = {
     board,
     mapPath: () => cutsceneMap,
@@ -774,12 +775,18 @@ async function main(): Promise<void> {
     },
     remove: (mapPath, id) => { cutsceneStore.set(mapPath, (cutsceneStore.get(mapPath) ?? []).filter((c) => c.id !== id)); },
     mapTabs: () => [map.path, crypt.path],
-    switchMap: async (mapPath) => {
+    // A place is a map, or a level of one (`cutsceneData.ts`): these checks' maps have no levels, so a level is only kept.
+    place: () => placeAt(cutsceneMap, cutsceneLevel),
+    at: (place) => place === placeAt(cutsceneMap, cutsceneLevel),
+    showPlace: async (place) => {
+      const mapPath = mapOfPlace(place);
       if (mapPath !== map.path && mapPath !== crypt.path) return false;
-      if (mapPath !== cutsceneMap) {
-        cutsceneLog.switches.push(mapPath);
+      if (place !== placeAt(cutsceneMap, cutsceneLevel)) {
+        cutsceneLog.switches.push(place);
+        const other = mapPath !== cutsceneMap;
         cutsceneMap = mapPath;
-        await board.load(mapPath === crypt.path ? crypt : map);
+        cutsceneLevel = levelOfPlace(place);
+        if (other) await board.load(mapPath === crypt.path ? crypt : map);
         studio.mapChanged();
       }
       return true;

@@ -5,7 +5,7 @@
  * place is pure and exported, so it is tested without a page.
  */
 
-import { retime, type Cutscene, type Shot } from './cutsceneData';
+import { mapOfPlace, retime, type Cutscene, type Shot } from './cutsceneData';
 
 /** How many pixels a second of the cutscene takes on the strip. */
 export const DEFAULT_PX_PER_SECOND = 80;
@@ -36,7 +36,7 @@ export function gapBefore(shots: ReadonlyArray<Pick<Shot, 'at'>>, ms: number): n
 
 /** A map's name as the person knows it: the file name without its folders or extension. */
 export function mapLabel(path: string): string {
-  return path.replace(/^.*\//, '').replace(/\.[^.]+$/, '');
+  return mapOfPlace(path).replace(/^.*\//, '').replace(/\.[^.]+$/, '');
 }
 
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)} s`;

@@ -5,7 +5,7 @@
 
 import type { BoardCutscene, GmCutscene } from '../connectContract';
 import type { CinematicSettings } from './cinematicSettings';
-import type { Cutscene } from './cutsceneData';
+import { levelOfPlace, mapOfPlace, placeOf, type Cutscene } from './cutsceneData';
 
 export interface BroadcastInput {
   runId: string;
@@ -13,35 +13,39 @@ export interface BroadcastInput {
   /** The prepared cutscene; null in live. */
   cutscene: Cutscene | null;
   step: { shot: number; seq: number };
-  /** The map shown now: the step's shot's, or the GM's own in live. */
+  /** The place shown now (`placeAt`: a map, or a level of one): the step's shot's, or the GM's own in live. */
   mapPath: string;
   settings: CinematicSettings;
   /**
-   * Maps that already hold a key earlier in the same run, in order (`earlier[0]` is `k1`): such a map keeps its key, and
-   * a map not among them takes the next number. Omitted, keys count from `k1`.
+   * Places that already hold a key earlier in the same run, in order (`earlier[0]` is `k1`): such a place keeps its key,
+   * and one not among them takes the next number. Omitted, keys count from `k1`.
    */
   earlier?: readonly string[];
 }
 
 /**
- * The run for Connect. Keys are `k1…` by the first appearance of each map (the shots in order, then `mapPath`); nothing
- * in `cutscene` holds a vault path.
+ * The run for Connect. Keys are `k1…` by the first appearance of each place (the shots in order, then `mapPath`): a
+ * map, or a level of one, so two levels of a scene are two keys, of the same map in `maps` and each with its level in
+ * `levels`. Nothing in `cutscene` holds a vault path or a level's id.
  */
 export function broadcastOf(input: BroadcastInput): GmCutscene {
   const keyed = new Map<string, string>((input.earlier ?? []).map((path, i) => [path, `k${i + 1}`]));
   const maps: Record<string, string> = {};
+  const levels: Record<string, string> = {};
   const keyOf = (path: string): string => {
     let key = keyed.get(path);
     if (key === undefined) {
       key = `k${keyed.size + 1}`;
       keyed.set(path, key);
     }
-    maps[key] = path;
+    maps[key] = mapOfPlace(path);
+    const level = levelOfPlace(path);
+    if (level) levels[key] = level;
     return key;
   };
   const shots = input.mode === 'prepared' && input.cutscene
     ? input.cutscene.shots.map((shot) => ({
-      key: keyOf(shot.mapPath),
+      key: keyOf(placeOf(shot)),
       eye: { x: shot.eye.x, y: shot.eye.y, z: shot.eye.z },
       target: { x: shot.target.x, y: shot.target.y, z: shot.target.z },
       at: shot.at,
@@ -58,7 +62,7 @@ export function broadcastOf(input: BroadcastInput): GmCutscene {
     step: { shot: input.step.shot, seq: input.step.seq },
     key,
   };
-  return { cutscene, maps };
+  return { cutscene, maps, ...(Object.keys(levels).length > 0 ? { levels } : {}) };
 }
 
 const KEY = /^k[0-9]{1,4}$/;

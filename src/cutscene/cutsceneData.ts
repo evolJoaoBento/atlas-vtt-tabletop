@@ -50,6 +50,38 @@ export function allowedTransitions(from: Shot, to: Shot): Transition[] {
   return sameScene(from, to) ? ['fade', 'cut', 'move'] : ['fade', 'cut'];
 }
 
+/** What parts a place's map from its level: no vault path holds a line break. */
+const LEVEL_MARK = '\n';
+
+/**
+ * A place a run shows: a map, or one level of a map. While a cutscene plays, two levels of one scene are two scenes
+ * to switch between, so a place is handled as a map is: one string, a map's path being the place of its first level.
+ */
+export function placeAt(mapPath: string, level: string | null | undefined): string {
+  return level ? `${mapPath}${LEVEL_MARK}${level}` : mapPath;
+}
+
+/** The place a shot looks at. */
+export function placeOf(shot: Pick<Shot, 'mapPath' | 'level'>): string {
+  return placeAt(shot.mapPath, shot.level);
+}
+
+export function mapOfPlace(place: string): string {
+  const at = place.indexOf(LEVEL_MARK);
+  return at < 0 ? place : place.slice(0, at);
+}
+
+/** The level a place names; null for a map's own place (its first level, or a scene without levels). */
+export function levelOfPlace(place: string): string | null {
+  const at = place.indexOf(LEVEL_MARK);
+  return at < 0 ? null : place.slice(at + 1) || null;
+}
+
+/** A cutscene as a run plays it: each shot's map is its place. */
+export function placed(c: Cutscene): Cutscene {
+  return { ...c, shots: c.shots.map(({ level, ...shot }) => ({ ...shot, mapPath: placeAt(shot.mapPath, level) })) };
+}
+
 const isObj = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 function readVec(raw: unknown): Vec3 | null {

@@ -138,7 +138,7 @@ export interface TabletopApi {
   /** Draws the minis in a joined player's view: without Tabletop a player sees none. */
   readonly playerMinis: PlayerMiniPainter;
   /** What the GM gave a map on the board (heights, materials, door props, props, fog height, ambient). */
-  boardLook(mapPath: string): BoardLook;
+  boardLook(mapPath: string, level?: string | null): BoardLook;
   /** Calls `listener` when a map's look may have changed: with its path, or null for any map. */
   onBoardChange(listener: (mapPath: string | null) => void): () => void;
   /** The bytes of a material's texture or a prop's GLB, for Connect to send its players. */
@@ -468,9 +468,10 @@ export default class TabletopPlugin extends Plugin {
         if (!(file instanceof TFile) || file.extension.toLowerCase() !== 'glb') throw new Error(`No mini at ${path}.`);
         return this.app.vault.readBinary(file);
       },
-      boardLook: (mapPath: string) => {
-        // The level players are sent is the one the GM's Atlas view shows (Connect sends that level's objects).
-        const viewed = this.viewedLevel(mapPath);
+      boardLook: (mapPath: string, level?: string | null) => {
+        // The level players are sent is the one the GM's Atlas view shows (Connect sends that level's objects), unless
+        // one is asked for (a cutscene's scene at the level its shot names).
+        const viewed = level ?? this.viewedLevel(mapPath);
         // A map Atlas holds is read from its store (what was just set or undone is there, saved or not), any other from its file.
         const { own, shown, levelMap } = lookMaps(mapPath, viewed, this.layerIndex!, this.host?.store(mapPath)?.getState() ?? null);
         const chosen = readMaterialDefaults(this.settings.materialDefaults);

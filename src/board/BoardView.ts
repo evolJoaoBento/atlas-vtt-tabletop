@@ -65,6 +65,7 @@ import { DEFAULT_SKY, type LightingChoice, type Sky } from './look';
 import type { TokenWriter } from './tokenWriter';
 import { BoardDice } from '../dice/boardDice';
 import { DEFAULT_CINEMATIC_SETTINGS, type CinematicSettings } from '../cutscene/cinematicSettings';
+import { levelOfPlace, mapOfPlace, placeAt } from '../cutscene/cutsceneData';
 import { askName } from '../cutscene/nameModal';
 import { CutsceneStudio, type StudioHost } from '../cutscene/studio';
 import { buildAtlasSheet } from '../sheets/nativeSheet';
@@ -484,11 +485,25 @@ export class BoardView extends ItemView {
       save: (mapPath, cutscene) => view.services.boardData.putCutscene(mapPath, cutscene),
       remove: (mapPath, id) => view.services.boardData.removeCutscene(mapPath, id),
       mapTabs: () => tabs().map((tab) => tab.filePath),
-      switchMap: async (mapPath) => {
-        const tab = tabs().find((entry) => entry.filePath === mapPath);
-        if (!tab) return false;
-        await view.switchScene(tab.id);
-        return view.path === mapPath;
+      place: () => (view.path ? placeAt(view.path, view.map?.path === view.path ? view.map.level : null) : null),
+      at: (place) => view.showsPlace(place),
+      showPlace: async (place) => {
+        const mapPath = mapOfPlace(place);
+        if (view.path !== mapPath) {
+          const tab = tabs().find((entry) => entry.filePath === mapPath);
+          if (!tab) return false;
+          await view.switchScene(tab.id);
+          if (view.path !== mapPath) return false;
+        }
+        // The level the place names (a map's own place is its first level), of a scene that has it.
+        const map = view.map;
+        const level = map && map.path === mapPath ? resolveLevel(map.levels, levelOfPlace(place)) : null;
+        if (map && level !== null && level !== map.level) {
+          await view.switchLevel(level);
+          // A run or a preview under way takes the level as it takes a map.
+          view.studio?.mapChanged();
+        }
+        return view.showsPlace(place);
       },
       settings: () => view.services.cinematicSettings?.() ?? DEFAULT_CINEMATIC_SETTINGS,
       setSettings: (changes) => view.services.setCinematicSettings?.(changes),
@@ -505,6 +520,14 @@ export class BoardView extends ItemView {
       },
       publishRun: (run) => view.services.publishCutscene?.(view.cutsceneOwner, run),
     };
+  }
+
+  /** Whether this board shows `place` (a cutscene's: a map, or a level of one): its map, and the level it names of a scene with levels. */
+  private showsPlace(place: string): boolean {
+    const map = this.map;
+    if (!this.path || this.path !== mapOfPlace(place)) return false;
+    if (!map || map.path !== this.path) return levelOfPlace(place) === null;
+    return resolveLevel(map.levels, levelOfPlace(place)) === map.level;
   }
 
   /** Stops drawing into the local player view (it closed, or shows another map). */

@@ -11,7 +11,7 @@ import type { CameraKeep } from '../board/camera';
 import type { BoardSession, GmCutscene } from '../connectContract';
 import { CutsceneRun } from './cutsceneRun';
 import { CINEMATIC_ASPECTS, MAX_FADE_MS, MIN_FADE_MS, type CinematicAspect, type CinematicSettings } from './cinematicSettings';
-import { addShot, allowedTransitions, MAX_AT_MS, MAX_SHOTS, removeShot, retime, setKeyframe, setTransition, updateShot, type Cutscene, type Transition } from './cutsceneData';
+import { addShot, allowedTransitions, levelOfPlace, mapOfPlace, MAX_AT_MS, MAX_SHOTS, placed, placeOf, removeShot, retime, setKeyframe, setTransition, updateShot, type Cutscene, type Transition } from './cutsceneData';
 import type { CinematicDriver } from './drivenView';
 import { FreeCamera } from './freeCamera';
 import { CutscenePlayback } from './playback';
@@ -29,8 +29,15 @@ export interface StudioHost {
   remove(mapPath: string, id: string): void;
   /** The map paths of the GM's Atlas view tabs: the maps a shot can look at. */
   mapTabs(): string[];
-  /** Shows another of those maps on the board; false when it is not a tab. The board is replaced before this resolves. */
-  switchMap(mapPath: string): Promise<boolean>;
+  /** The place the board shows now (`cutsceneData.ts` `placeAt`): its map, and its level where the scene has levels. */
+  place(): string | null;
+  /** Whether the board shows `place`: its map and, of a scene with levels, the level it names (a map's own place is its first level). */
+  at(place: string): boolean;
+  /**
+   * Shows a place on the board: another of those maps (false when it is not a tab; the board is replaced before this
+   * resolves), and the level the place names where it is not the one shown.
+   */
+  showPlace(place: string): Promise<boolean>;
   settings(): CinematicSettings;
   setSettings(changes: Partial<CinematicSettings>): void;
   /** Asks for a name; null when the person gives none. */
@@ -530,7 +537,8 @@ export class CutsceneStudio {
     const session = this.session;
     if (!session || session.preview) return;
     const { eye, target } = (session.driver.free as FreeCamera).pose();
-    const added = this.amend((c) => addShot(c, { id: newId('shot'), at, mapPath: this.host.mapPath() ?? session.home, eye, target }, this.host.settings().transition));
+    const here = this.host.place() ?? session.home;
+    const added = this.amend((c) => addShot(c, { id: newId('shot'), at, mapPath: mapOfPlace(here), level: levelOfPlace(here), eye, target }, this.host.settings().transition));
     if (added) return;
     const count = this.session?.cutscene.shots.length ?? 0;
     if (count >= MAX_SHOTS) this.host.notice(`Tabletop: a cutscene holds at most ${MAX_SHOTS} shots.`);
@@ -545,11 +553,11 @@ export class CutsceneStudio {
     const shot = session?.cutscene.shots.find((candidate) => candidate.id === shotId);
     if (!session || !shot) return;
     session.driver.free = new FreeCamera(shot.eye, shot.target);
-    if (shot.mapPath !== this.host.mapPath()) {
+    if (!this.host.at(placeOf(shot))) {
       if (!this.host.mapTabs().includes(shot.mapPath)) this.host.notice(`Tabletop: ${mapLabel(shot.mapPath)} is not open in an Atlas tab.`);
       else {
         try {
-          await this.host.switchMap(shot.mapPath);
+          await this.host.showPlace(placeOf(shot));
         } catch (error) {
           console.warn('Tabletop: the map could not be shown:', error);
           this.host.notice(`Tabletop: ${mapLabel(shot.mapPath)} could not be shown.`);
@@ -572,7 +580,8 @@ export class CutsceneStudio {
         label: 'Update to current camera',
         run: () => {
           const { eye, target } = (session.driver.free as FreeCamera).pose();
-          this.amend((c) => updateShot(c, shotId, { mapPath: this.host.mapPath() ?? session.home, eye, target }));
+          const here = this.host.place() ?? session.home;
+          this.amend((c) => updateShot(c, shotId, { mapPath: mapOfPlace(here), level: levelOfPlace(here), eye, target }));
         },
       },
       { label: 'Delete', run: () => this.amend((c) => removeShot(c, shotId)) },
@@ -613,7 +622,7 @@ export class CutsceneStudio {
     let home = this.host.mapPath() === session.home;
     try {
       if (!home) {
-        home = await this.host.switchMap(session.home);
+        home = await this.host.showPlace(session.home);
         if (!home) this.host.notice(`Tabletop: ${mapLabel(session.home)} is not open in an Atlas tab; staying on this map.`);
       }
     } catch (error) {
@@ -643,7 +652,7 @@ export class CutsceneStudio {
     const session = this.session;
     if (!session) return;
     if (session.home === from) session.home = to;
-    if (session.preview?.editMap === from) session.preview.editMap = to;
+    if (session.preview?.editMap && mapOfPlace(session.preview.editMap) === from) session.preview.editMap = `${to}${session.preview.editMap.slice(from.length)}`;
   }
 
   // ── Preview ──────────────────────────────────────────────────────────────
@@ -659,14 +668,14 @@ export class CutsceneStudio {
       return;
     }
     this.menu.close();
-    const run = new CutscenePlayback(session.cutscene, fromShot);
+    const run = new CutscenePlayback(placed(session.cutscene), fromShot);
     const preview: Preview = {
       run,
       clock: 0,
       lastNow: null,
       switching: false,
       failed: new Set(),
-      editMap: this.host.mapPath(),
+      editMap: this.host.place(),
       driver: { pose: (now) => this.previewPose(preview, now) },
     };
     session.preview = preview;
@@ -679,13 +688,13 @@ export class CutsceneStudio {
     if (preview.lastNow !== null && !preview.switching) preview.clock += nowMs - preview.lastNow;
     preview.lastNow = nowMs;
     const at = preview.run.frame(preview.clock);
-    if (!preview.switching && at.mapPath !== this.host.mapPath() && !preview.failed.has(at.mapPath)) this.switchFor(preview, at.mapPath);
+    if (!preview.switching && !this.host.at(at.mapPath) && !preview.failed.has(at.mapPath)) this.switchFor(preview, at.mapPath);
     return { eye: at.eye, target: at.target, black: preview.switching ? 1 : at.black };
   }
 
-  /** The shot the run is at looks at another map: show it (at the black midpoint of a fade, or at once for a cut). */
+  /** The shot the run is at looks at another place (a map, or a level of this one): show it (at the black midpoint of a fade, or at once for a cut). */
   private switchFor(preview: Preview, path: string): void {
-    if (!this.host.mapTabs().includes(path)) {
+    if (!this.host.mapTabs().includes(mapOfPlace(path))) {
       preview.failed.add(path);
       this.host.notice(`Tabletop: ${mapLabel(path)} is not open in an Atlas tab, so the preview stays on this map.`);
       return;
@@ -696,7 +705,7 @@ export class CutsceneStudio {
       preview.switching = false;
       preview.lastNow = null;
     };
-    this.host.switchMap(path).then(done, () => done(false));
+    this.host.showPlace(path).then(done, () => done(false));
   }
 
   private previewStep(forward: boolean): void {
@@ -726,7 +735,7 @@ export class CutsceneStudio {
     session.preview = null;
     this.applyBoard();
     this.showEditor();
-    if (preview.editMap && this.host.mapPath() !== preview.editMap) void this.host.switchMap(preview.editMap);
+    if (preview.editMap && !this.host.at(preview.editMap)) void this.host.showPlace(preview.editMap);
     this.focusBoard();
   }
 

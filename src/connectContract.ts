@@ -49,6 +49,8 @@ export interface GmCutscene {
   cutscene: BoardCutscene;
   /** key → vault path, for the keys the cutscene uses (every shot's, and `key`). */
   maps: Record<string, string>;
+  /** key → the level of that map the key stands for (Atlas levels), for the keys that name one; a key without one is the level Atlas shows. */
+  levels?: Record<string, string>;
 }
 
 /**

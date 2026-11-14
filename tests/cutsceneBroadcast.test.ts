@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { broadcastOf, readBoardCutscene } from '../src/cutscene/broadcast';
 import { CutsceneChannel } from '../src/cutscene/cutsceneRun';
 import { DEFAULT_CINEMATIC_SETTINGS } from '../src/cutscene/cinematicSettings';
-import type { Cutscene, Shot } from '../src/cutscene/cutsceneData';
+import { levelOfPlace, mapOfPlace, placeAt, placed, placeOf, type Cutscene, type Shot } from '../src/cutscene/cutsceneData';
+import { mapLabel } from '../src/cutscene/timelineView';
 
 const shot = (id: string, at: number, mapPath: string, extra: Partial<Shot> = {}): Shot => ({
   id, at, mapPath, eye: { x: at, y: 500, z: 900 }, target: { x: at, y: 0, z: 100 }, keyframe: false, transition: 'fade', ...extra,
@@ -215,4 +216,35 @@ test('readBoardCutscene keeps nothing of what it was given', () => {
   const read = readBoardCutscene(sent)!;
   sent.shots[0].eye.x = 12345;
   assert.notEqual(read.shots[0].eye.x, 12345);
+});
+
+test('a place is a map and, where the shot names one, a level of it; a map alone is a place too', () => {
+  const up = shot('u', 0, 'maps/keep.atlasmap', { level: 'level_up' });
+  assert.equal(placeOf(shot('g', 0, 'maps/keep.atlasmap')), 'maps/keep.atlasmap');
+  assert.notEqual(placeOf(up), 'maps/keep.atlasmap');
+  assert.equal(placeOf(up), placeAt('maps/keep.atlasmap', 'level_up'));
+  assert.equal(placeAt('maps/keep.atlasmap', null), 'maps/keep.atlasmap');
+  assert.deepEqual([mapOfPlace(placeOf(up)), levelOfPlace(placeOf(up))], ['maps/keep.atlasmap', 'level_up']);
+  assert.deepEqual([mapOfPlace('maps/keep.atlasmap'), levelOfPlace('maps/keep.atlasmap')], ['maps/keep.atlasmap', null]);
+  // A place is named by its map.
+  assert.equal(mapLabel(placeOf(up)), 'keep');
+  // A cutscene as the run plays it: each shot's map is its place, so two levels of one scene are two scenes to switch between.
+  const played = placed({ id: 'c', name: 'c', shots: [shot('g', 0, 'maps/keep.atlasmap'), up] });
+  assert.deepEqual(played.shots.map((each) => [each.mapPath, 'level' in each]), [['maps/keep.atlasmap', false], [placeOf(up), false]]);
+});
+
+test('two levels of one map are two keys for players, each with its level; a map without a level is as before', () => {
+  const levels: Cutscene = { id: 'c', name: 'Keep', shots: [shot('a', 0, 'maps/keep.atlasmap'), shot('b', 1000, 'maps/keep.atlasmap', { level: 'level_up' }), shot('c', 2000, 'maps/keep.atlasmap', { level: 'level_up' }), shot('d', 3000, 'maps/road.atlasmap')] };
+  const out = broadcastOf({ ...input, cutscene: levels, step: { shot: 1, seq: 2 }, mapPath: placeAt('maps/keep.atlasmap', 'level_up') });
+  assert.deepEqual(out.cutscene.shots.map((s) => s.key), ['k1', 'k2', 'k2', 'k3']);
+  assert.deepEqual(out.maps, { k1: 'maps/keep.atlasmap', k2: 'maps/keep.atlasmap', k3: 'maps/road.atlasmap' });
+  assert.deepEqual(out.levels, { k2: 'level_up' });
+  assert.equal(out.cutscene.key, 'k2');
+  // Nothing of a level's id, nor of a path, is in what players are sent.
+  assert.ok(!JSON.stringify(out.cutscene).includes('level_up'));
+  // No level anywhere: no table of levels.
+  assert.equal('levels' in broadcastOf(input), false);
+  // A live run on a level: its one key carries it; a place keyed earlier keeps its key.
+  const live = broadcastOf({ ...input, mode: 'live', cutscene: null, mapPath: placeAt('maps/keep.atlasmap', 'level_up'), earlier: ['maps/keep.atlasmap'] });
+  assert.deepEqual([live.cutscene.key, live.maps, live.levels], ['k2', { k2: 'maps/keep.atlasmap' }, { k2: 'level_up' }]);
 });

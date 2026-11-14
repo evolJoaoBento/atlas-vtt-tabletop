@@ -10,7 +10,7 @@ import type { CameraKeep } from '../board/camera';
 import type { CutsceneSource, GmCutscene } from '../connectContract';
 import { broadcastOf } from './broadcast';
 import type { CinematicSettings } from './cinematicSettings';
-import { limitProblem, type Cutscene, type Vec3 } from './cutsceneData';
+import { limitProblem, mapOfPlace, placed, placeOf, type Cutscene, type Vec3 } from './cutsceneData';
 import type { CinematicDriver } from './drivenView';
 import { CutscenePlayback } from './playback';
 import type { StudioHost } from './studio';
@@ -26,7 +26,7 @@ interface Pose { eye: Vec3; target: Vec3 }
 interface Active {
   mode: 'prepared' | 'live';
   runId: string;
-  /** The map the GM board was on (and the cutscene's own): the run ends back on it. */
+  /** The place the GM board was on (the cutscene's own map, at the level shown): the run ends back on it. */
   home: string;
   keep: CameraKeep;
   /** The settings at the start: a change while it runs does not alter it. */
@@ -50,9 +50,9 @@ interface Active {
   leaveSwap: boolean;
   /** The step counter players see: 1 at the start, +1 for each news. */
   seq: number;
-  /** The maps keyed so far, in key order: a map keeps its key for the whole run (live: a map not seen before takes the next). */
+  /** The places keyed so far, in key order: a place keeps its key for the whole run (live: one not seen before takes the next). */
   keyed: string[];
-  /** The map the last live publish named. */
+  /** The place the last live publish named. */
   livePath: string;
 }
 
@@ -130,13 +130,15 @@ export class CutsceneRun {
       return false;
     }
     // The run begins on the cutscene's own map, where the GM pressed Play.
-    if (this.host.mapPath() !== home && !(await this.host.switchMap(home).catch(() => false))) return false;
+    if (this.host.mapPath() !== home && !(await this.host.showPlace(home).catch(() => false))) return false;
     if (this.active || !this.board) return false;
     const board = this.board;
+    // The level the GM is on, of the cutscene's own map: where the run ends.
+    const start = this.host.place() ?? home;
     const a: Active = {
-      mode: 'prepared', runId: newRunId(), home, keep: board.keepCamera(), settings: { ...this.host.settings() }, cutscene,
-      playback: new CutscenePlayback(cutscene, 0), driver: null, phase: 'entering', clock: 0, lastNow: null, phaseStart: 0,
-      switching: false, failed: new Set(), startPose: board.cameraPose(), frozen: board.cameraPose(), leaveSwap: false, seq: 1, keyed: [], livePath: home,
+      mode: 'prepared', runId: newRunId(), home: start, keep: board.keepCamera(), settings: { ...this.host.settings() }, cutscene,
+      playback: new CutscenePlayback(placed(cutscene), 0), driver: null, phase: 'entering', clock: 0, lastNow: null, phaseStart: 0,
+      switching: false, failed: new Set(), startPose: board.cameraPose(), frozen: board.cameraPose(), leaveSwap: false, seq: 1, keyed: [], livePath: start,
     };
     a.driver = { pose: (now) => this.pose(a, now) };
     this.active = a;
@@ -156,7 +158,7 @@ export class CutsceneRun {
       return;
     }
     const board = this.board;
-    const home = this.host.mapPath();
+    const home = this.host.place();
     if (!board || !home) return;
     const pose = board.cameraPose();
     const a: Active = {
@@ -178,7 +180,7 @@ export class CutsceneRun {
   /** Publishes the run as it stands now. */
   private announce(a: Active): void {
     const shot = a.playback?.shot ?? 0;
-    const mapPath = a.mode === 'prepared' ? a.cutscene!.shots[shot].mapPath : (this.host.mapPath() ?? a.home);
+    const mapPath = a.mode === 'prepared' ? placeOf(a.cutscene!.shots[shot]) : (this.host.place() ?? a.home);
     a.livePath = mapPath;
     const told = broadcastOf({ runId: a.runId, mode: a.mode, cutscene: a.cutscene, step: { shot, seq: a.seq }, mapPath, settings: a.settings, earlier: a.keyed });
     for (const path of Object.values(told.maps)) if (!a.keyed.includes(path)) a.keyed.push(path);
@@ -208,7 +210,7 @@ export class CutsceneRun {
     a.switching = false;
     a.lastNow = null;
     this.applyBoard();
-    if (a.mode === 'live' && this.host.mapPath() !== a.livePath && a.phase === 'playing') {
+    if (a.mode === 'live' && this.host.place() !== a.livePath && a.phase === 'playing') {
       a.seq++;
       this.announce(a);
     }
@@ -242,10 +244,10 @@ export class CutsceneRun {
     if (!e.swapped) return { ...a.frozen, black: a.switching ? 1 : e.black };
     if (!a.leaveSwap) {
       a.leaveSwap = true;
-      if (this.host.mapPath() !== a.home) {
+      if (!this.host.at(a.home)) {
         a.switching = true;
         const done = (): void => { a.switching = false; a.lastNow = null; };
-        this.host.switchMap(a.home).then(done, done);
+        this.host.showPlace(a.home).then(done, done);
       }
     }
     if (e.done && !a.switching) {
@@ -255,10 +257,10 @@ export class CutsceneRun {
     return { ...a.startPose, black: a.switching ? 1 : e.black };
   }
 
-  /** The shot the run is at looks at another map: show it (at the black midpoint of a fade, or at once for a cut). */
+  /** The shot the run is at looks at another place (a map, or a level of this one): show it (at the black midpoint of a fade, or at once for a cut). */
   private followMap(a: Active, path: string): void {
-    if (a.switching || path === this.host.mapPath() || a.failed.has(path)) return;
-    if (!this.host.mapTabs().includes(path)) {
+    if (a.switching || this.host.at(path) || a.failed.has(path)) return;
+    if (!this.host.mapTabs().includes(mapOfPlace(path))) {
       a.failed.add(path);
       this.host.notice(`Tabletop: ${mapLabel(path)} is not open in an Atlas tab, so the cutscene stays on this map.`);
       return;
@@ -269,7 +271,7 @@ export class CutsceneRun {
       a.switching = false;
       a.lastNow = null;
     };
-    this.host.switchMap(path).then(done, () => done(false));
+    this.host.showPlace(path).then(done, () => done(false));
   }
 
   // ── The GM's controls ────────────────────────────────────────────────────
@@ -341,7 +343,7 @@ export class CutsceneRun {
         board.setPlayersCinematic(false);
         board.setReveal(false);
       }
-      if (a.mode === 'prepared' && this.host.mapPath() === a.home) board.restoreCamera(a.keep);
+      if (a.mode === 'prepared' && this.host.at(a.home)) board.restoreCamera(a.keep);
       board.refreshToolbar();
     }
     this.host.lendPlayers(false);

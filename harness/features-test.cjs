@@ -4052,7 +4052,7 @@ feature('cutscene authoring', async ({ page, shot }) => {
   check('authoring: Move sets the second shot\'s transition to move', saved.shots[1].transition === 'move');
   // A shot on another map: the editor stays open, new shots take the new map, and a move across maps is refused.
   const free0 = await page.evaluate(() => JSON.stringify(window.boardTest.board.cinematic.free.pose()));
-  await page.evaluate(() => window.boardTest.studio.host.switchMap(window.boardTest.studio.second));
+  await page.evaluate(() => window.boardTest.studio.host.showPlace(window.boardTest.studio.second));
   await wait(500);
   check('authoring: a scene switch keeps the editor open, the role and the free camera where it was', await studioState() === 'editing' && await role() === 'authoring' && await page.evaluate(() => JSON.stringify(window.boardTest.board.cinematic.free.pose())) === free0);
   at = await timelineAt(page, 4);
@@ -4488,7 +4488,7 @@ feature('cutscene run live', async ({ page }) => {
   check('cutscene live: camera() is the GM board\'s pose', moved.camera !== null && same(moved.camera, moved.own), JSON.stringify(moved.camera));
   check('cutscene live: the players\' window shows the same pose', moved.players !== null && same(moved.players, moved.own));
   // A scene switch republishes with a new key.
-  await page.evaluate(() => window.boardTest.studio.host.switchMap(window.boardTest.studio.second));
+  await page.evaluate(() => window.boardTest.studio.host.showPlace(window.boardTest.studio.second));
   await wait(300);
   const switched = await page.evaluate(() => window.boardTest.api.cutscene.current());
   check('cutscene live: a scene switch republishes with the new scene\'s key', switched.cutscene.key === 'k2' && switched.maps.k2 === ids.second && switched.cutscene.step.seq === 2, JSON.stringify(switched));
@@ -4577,15 +4577,15 @@ feature('cutscene authoring switch fails', async ({ page }) => {
     s.studio.edit('sw');
     const out = { toolbarHidden: getComputedStyle(document.querySelector('.atlas-tabletop-toolbar-row')).visibility === 'hidden' };
     // Go to the second map for real, then make every further switch fail.
-    await s.host.switchMap(s.second);
-    const real = s.host.switchMap;
-    s.host.switchMap = () => Promise.reject(new Error('no such tab'));
+    await s.host.showPlace(s.second);
+    const real = s.host.showPlace;
+    s.host.showPlace = () => Promise.reject(new Error('no such tab'));
     await s.studio.goTo('a');
     out.stillEditing = s.studio.state === 'editing';
     s.studio.stopEditing();
     await new Promise((resolve) => setTimeout(resolve, 500));
     out.after = { state: s.studio.state, role: board.cinematicRole, driver: board.cinematic === null, bars: board.cinema.aspect, hold: s.log.holds.at(-1), toolbar: getComputedStyle(document.querySelector('.atlas-tabletop-toolbar-row')).visibility };
-    s.host.switchMap = real;
+    s.host.showPlace = real;
     // Escape still works: the gallery opens and closes.
     s.studio.openGallery();
     out.opened = s.studio.state;
