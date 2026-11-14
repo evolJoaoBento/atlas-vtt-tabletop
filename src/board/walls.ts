@@ -5,6 +5,7 @@
  * lights under `state.objects.lights` (a token may carry one too, as `light`), keyed by id; the scene's own light is
  * `state.lighting`. Pure, so it is tested without Obsidian.
  */
+import { readLightHeight, readWallExtra, type WallExtra } from './recordExtras';
 
 export type WallType = 'solid' | 'door' | 'secret-door';
 
@@ -35,6 +36,8 @@ export interface BoardWall {
   limited: boolean;
   /** The segments drawn in one stroke share a chain. */
   chain: string | null;
+  /** What the GM set on it in 3D (`recordExtras.ts`: the record's `tabletop` field); absent or null when nothing. */
+  extra?: WallExtra | null;
 }
 
 export type LightAnimation = 'none' | 'torch' | 'candle' | 'pulse' | 'magic';
@@ -62,6 +65,8 @@ export interface BoardLight {
   activeBelowAmbient: number | null;
   /** The token that carries it; null for a light placed on the map. */
   tokenId: string | null;
+  /** Its height above the map as the GM set it, grid squares (the record's `tabletop` field; a carried light's is its token's); absent or null when never set. */
+  ownHeight?: number | null;
 }
 
 export interface SceneLighting {
@@ -84,6 +89,17 @@ function point(raw: unknown): Point | null {
 /** What the chain of a wall Atlas holds for a kept spell begins with (`SPELL_CHAIN`, `packages/atlas-host`). */
 export const SPELL_WALL_CHAIN = 'spell:';
 
+/** A record's 3D extras, where it has any (a record with none reads as it always did). */
+function extraOf(tabletop: unknown): { extra?: WallExtra } {
+  const extra = readWallExtra(tabletop);
+  return extra ? { extra } : {};
+}
+
+function heightOf(tabletop: unknown, key: 'height' | 'lightHeight'): { ownHeight?: number } {
+  const ownHeight = readLightHeight(tabletop, key);
+  return ownHeight !== null ? { ownHeight } : {};
+}
+
 function readWall(raw: Raw): BoardWall | null {
   const id = str(raw.id);
   const p1 = point(raw.p1);
@@ -102,6 +118,7 @@ function readWall(raw: Raw): BoardWall | null {
     blocks: raw.blocks === 'sight' || raw.blocks === 'light' || raw.blocks === 'movement' ? raw.blocks : null,
     limited: raw.limited === true,
     chain: str(raw.chainId),
+    ...extraOf(raw.tabletop),
   };
 }
 
@@ -163,7 +180,7 @@ export function readLights(lights: unknown, tokens: unknown): BoardLight[] {
     if (!id || !at) continue;
     const gate = typeof raw.activeBelowAmbient === 'number' && raw.activeBelowAmbient < 1 ? raw.activeBelowAmbient : null;
     const light = readEmission(raw.emission, id, at, null, num(raw.rotation, 0), raw.hidden === true, gate);
-    if (light) out.push(light);
+    if (light) out.push({ ...light, ...heightOf(raw.tabletop, 'height') });
   }
   for (const raw of items(tokens)) {
     const id = str(raw.id);
@@ -171,7 +188,7 @@ export function readLights(lights: unknown, tokens: unknown): BoardLight[] {
     // A combatant kept beside the map (Atlas 0.9) lights nothing.
     if (!id || !at || !isObj(raw.light) || raw.offMap === true) continue;
     const light = readEmission(raw.light, id, at, id, num(raw.rotation, 0), false, null);
-    if (light) out.push(light);
+    if (light) out.push({ ...light, ...heightOf(raw.tabletop, 'lightHeight') });
   }
   return out;
 }
