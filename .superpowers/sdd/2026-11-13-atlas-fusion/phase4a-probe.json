@@ -1,0 +1,46 @@
+{
+  "actions": [
+    "addLight",
+    "addToken",
+    "addTokens",
+    "addWall",
+    "deleteLight",
+    "deleteToken",
+    "deleteTokens",
+    "deleteWall",
+    "deleteWalls",
+    "updateLight",
+    "updateToken",
+    "updateTokens",
+    "updateWall"
+  ],
+  "wall": {
+    "inStore": true,
+    "doorAfterToggle": true,
+    "afterOwnEdit": true,
+    "inFile": true,
+    "back": true,
+    "removedByUndefined": true
+  },
+  "light": {
+    "inStore": true,
+    "record": [
+      "emission",
+      "id",
+      "kind",
+      "levels",
+      "tabletop",
+      "x",
+      "y"
+    ],
+    "inFile": true,
+    "back": true
+  },
+  "token": {
+    "inStore": true,
+    "inFile": true,
+    "back": true,
+    "restored": true
+  },
+  "clean": true
+}
