@@ -39,3 +39,39 @@ fs.writeFileSync(path.join(vault, SCENES, 'Fusion Hex.atlasmap'), JSON.stringify
 
 fs.writeFileSync(path.join(__dirname, 'fixtures.json'), JSON.stringify({ map: MAP, top: TOP, left: LEFT }, null, 2));
 console.log('wrote', MAP, 'with overrides on', TOP, 'and', LEFT);
+
+// Phase 4C: a scene stack as older Tabletop kept one. The base is the cove; over it the cellar as one floor (its levels
+// taken off), three squares up, shifted, on squares of another size, with a token style, a mini, a prop, a wall height
+// and a cutscene shot that looks at it; under it the cove again (every id collides with the base's), hidden.
+const COVE = `${SCENES}/Probe Cove.atlasmap`;
+const STACK = { base: `${SCENES}/Stack Base.atlasmap`, upper: `${SCENES}/Stack Upper.atlasmap`, lower: `${SCENES}/Stack Lower.atlasmap` };
+const coveText = fs.readFileSync(path.join(vault, COVE), 'utf8');
+fs.writeFileSync(path.join(vault, STACK.base), coveText.split(COVE).join(STACK.base));
+fs.writeFileSync(path.join(vault, STACK.lower), coveText.split(COVE).join(STACK.lower));
+const floor = JSON.parse(fs.readFileSync(path.join(vault, SCENES, 'Probe Cellar.atlasmap'), 'utf8'));
+floor.state.mapPath = STACK.upper;
+floor.state.version = 4;
+for (const key of ['levels', 'levelAlignments', 'viewedLevel', 'exploredMasks']) delete floor.state[key];
+for (const record of Object.values(floor.state.objects)) if (record && typeof record === 'object') for (const entry of Object.values(record)) if (entry && typeof entry === 'object') { delete entry.level; delete entry.levels; }
+fs.writeFileSync(path.join(vault, STACK.upper), JSON.stringify(floor));
+const stackToken = Object.keys(floor.state.objects.tokens)[0];
+const stackWall = Object.keys(floor.state.objects.walls)[0];
+const GLB = 'atlas-vtt/assets/minis/Goblin Raider.glb';
+const fresh = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+fresh.board = fresh.board || {};
+fresh.assignments = fresh.assignments || {};
+for (const key of Object.keys(fresh.board)) if (key.includes('/Stack ')) delete fresh.board[key];
+for (const key of Object.keys(fresh.assignments)) if (key.includes('/Stack ')) delete fresh.assignments[key];
+fresh.board[STACK.upper] = {
+  layer: { base: STACK.base, elevation: 3, x: 200, y: 100 }, styles: { [stackToken]: 'standee' }, wallHeights: { [stackWall]: 3 },
+  props: [{ id: 'prop_stack', glb: GLB, x: 280, y: 280, rotation: 0, scale: 1 }],
+};
+fresh.board[STACK.lower] = { layer: { base: STACK.base, elevation: -2 }, hidden: true };
+fresh.board[STACK.base] = { cutscenes: [{ id: 'cs_floors', name: 'Floors', shots: [
+  { id: 's1', at: 0, mapPath: STACK.base, eye: { x: 900, y: 900, z: 1200 }, target: { x: 900, y: 0, z: 500 }, keyframe: false, transition: 'fade' },
+  { id: 's2', at: 1500, mapPath: STACK.upper, eye: { x: 700, y: 840, z: 1400 }, target: { x: 700, y: 0, z: 700 }, keyframe: false, transition: 'cut' },
+] }] };
+fresh.assignments[STACK.upper] = { [stackToken]: { mini: GLB, scale: 1, turn: 0 } };
+fs.writeFileSync(dataFile, JSON.stringify(fresh, null, 2));
+fs.writeFileSync(path.join(__dirname, 'fixtures.json'), JSON.stringify({ map: MAP, top: TOP, left: LEFT, stack: { ...STACK, token: stackToken, wall: stackWall, glb: GLB } }, null, 2));
+console.log('wrote the stack', STACK.base, 'with', STACK.upper, 'and', STACK.lower);
