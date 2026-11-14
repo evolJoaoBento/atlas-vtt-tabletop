@@ -4,6 +4,7 @@ import { readSurvey, type ArSurvey } from './src/arTable';
 import { Assignments, readAssignments, type AssignmentData, type MiniPlacement } from './src/assignments';
 import { mapViews, presentedSceneOf, tabViewOf } from './src/atlas';
 import { SpellUpkeep } from './src/board/spellUpkeep';
+import { extrasOf } from './src/board/recordExtras';
 import { resolveLevel } from './src/board/levels';
 import { BOARD_VIEW_TYPE, BoardView, HOVER_SOURCE } from './src/board/BoardView';
 import { PLAYER_VIEW_TYPE, PlayerView } from './src/board/PlayerWindow';
@@ -466,7 +467,9 @@ export default class TabletopPlugin extends Plugin {
         // The walls players get: the scene's, and the level shown's.
         const levelMap = shown?.level ? this.layerIndex!.mapAt(mapPath, shown.level) : null;
         const walls = [...(own?.walls ?? []), ...(levelMap?.walls ?? [])];
-        return Object.freeze({ ...boardLookFor(this.boardData, this.materialIndex!, mapPath, layers, shown, { walls, chosen }), layerLook: readLayerLook(this.settings.layerLook) });
+        // What the GM set on them in 3D rides on Atlas's own records, as the map's file has them.
+        const extras = extrasOf({ walls, lights: [...(own?.lights ?? []), ...(levelMap?.lights ?? [])] }, this.boardData.legacyExtras(mapPath));
+        return Object.freeze({ ...boardLookFor(this.boardData, this.materialIndex!, mapPath, layers, shown, { walls, chosen }, extras), layerLook: readLayerLook(this.settings.layerLook) });
       },
       onBoardChange: (listener: (mapPath: string | null) => void) => {
         this.boardListeners.add(listener);

@@ -5,6 +5,7 @@ import { levelName, levelRise, onFirstLevel, propsOnLevel, readLevels } from '..
 import { readMap } from '../src/board/mapModel';
 import { LayerIndex, layersFor } from '../src/boardLayers';
 import { boardLookFor } from '../src/boardLook';
+import { extrasOf } from '../src/board/recordExtras';
 
 const materials = { info: () => null };
 
@@ -107,9 +108,10 @@ test("walls with no material painted go to players wearing their kind's default;
   const data = new BoardData();
   const map = readMap('s.atlasmap', scene, 'b');
   const [first, second] = map.walls;
-  data.setWallMaterial('s.atlasmap', [first!.id], 'mats/brick');
+  // Painted in 3D: on the wall's own record.
+  const painted = extrasOf({ walls: map.walls.map((wall) => (wall.id === first!.id ? { ...wall, extra: { material: 'mats/brick' } } : wall)), lights: [] });
   const known = { info: (folder: string) => ({ scale: 1, maps: { color: `${folder}/c.jpg` } }) };
-  const look = boardLookFor(data, known, 's.atlasmap', [], { levels: map.levels, level: map.level }, { walls: map.walls, chosen: { wall: 'mats/stone' } });
+  const look = boardLookFor(data, known, 's.atlasmap', [], { levels: map.levels, level: map.level }, { walls: map.walls, chosen: { wall: 'mats/stone' } }, painted);
   assert.equal(look.wallMaterial(first!.id), 'mats/brick');
   assert.equal(look.wallMaterial(second!.id), second!.type === 'solid' && second!.blocks === null && !second!.limited ? 'mats/stone' : look.wallMaterial(second!.id));
   assert.ok(look.materials.some((material) => material.id === 'mats/stone'), JSON.stringify(look.materials));

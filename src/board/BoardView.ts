@@ -11,7 +11,7 @@ import { placeSurvey, type ArSurvey, type SavedArTable } from '../arTable';
 import type { BoardMark, BoardSession, BoardViewer, GmCutscene } from '../connectContract';
 import type { CutsceneOwner } from '../cutscene/cutsceneRun';
 import { ItemView, Menu, Modal, Notice, TFile, debounce, setIcon, type App, type EventRef, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
-import { ATLAS_VIEW_TYPE, presentedSceneOf, tabViewOf, type AtlasView } from '../atlas';
+import { ATLAS_VIEW_TYPE, presentedSceneOf, tabViewOf, type AtlasSceneState, type AtlasView } from '../atlas';
 import { AtlasBridge } from '../atlasBridge';
 import { BoardAtlasTools } from './boardAtlasTools';
 import { tabletopCommands } from '../palette/tabletopCommands';
@@ -49,7 +49,8 @@ import { SpellAskModal } from '../spellAskModal';
 import { conditionChange, conditionStep, resetChange, type ConditionFields } from './tokenEdits';
 import { currentEntries, delayedTokens, emptyInitiative, ownModifier, readInitiative, statblockModifier, turnAnnouncement, type InitiativeAction, type InitiativeState } from './initiative';
 import { InitiativePanel, type InitiativePanelHost } from './initiativePanel';
-import { wholeWall, isWindow, windowSpan, WINDOW_STEP } from './walls';
+import { wholeWall, isWindow, mirroredDoor, rotatedDoor, windowSpan, WINDOW_STEP, type DoorFlip } from './walls';
+import { extrasOf, readLightHeight, readWallExtra, type RecordExtras, type WallExtraChange } from './recordExtras';
 import { MeasureFullError, NotHeldError, type TokenChange } from './tokenWriter';
 import { HOST_BAR_LABELS, hostBar, mapName } from './hostBar';
 import { migrationWalls, roomWallMoves } from './roomWallMigration';
@@ -782,13 +783,7 @@ export class BoardView extends ItemView {
         path: levelKey(level.id),
         elevation: levelRise(shown.levels, shown.level, level.id, unit),
         map,
-        wallHeight: (id) => boardData.wallHeight(path, id),
-        windowOf: (id) => boardData.windowOf(path, id),
-        wallWidth: (id) => boardData.wallWidth(path, id),
-        wallMaterial: (id) => boardData.wallMaterial(path, id),
-        doorProp: (id) => boardData.doorProp(path, id),
-        doorFlip: (id) => boardData.doorFlip(path, id),
-        lightHeight: (id) => boardData.lightHeight(path, id) ?? DEFAULT_LIGHT_SQUARES,
+        ...layerExtras(extrasOf(map, boardData.legacyExtras(path))),
         fogHeight: boardData.fogHeight(path),
         wallThickness: boardData.wallThickness(path),
         props: propsOnLevel(boardData.props(path), level.id, shown.levels),
@@ -911,13 +906,7 @@ export class BoardView extends ItemView {
           path: member.path,
           elevation: member.elevation - (mine?.elevation ?? 0),
           map,
-          wallHeight: (id) => boardData.wallHeight(member.path, id),
-          windowOf: (id) => boardData.windowOf(member.path, id),
-          wallWidth: (id) => boardData.wallWidth(member.path, id),
-          wallMaterial: (id) => boardData.wallMaterial(member.path, id),
-          doorProp: (id) => boardData.doorProp(member.path, id),
-          doorFlip: (id) => boardData.doorFlip(member.path, id),
-          lightHeight: (id) => boardData.lightHeight(member.path, id) ?? DEFAULT_LIGHT_SQUARES,
+          ...layerExtras(extrasOf(map, boardData.legacyExtras(member.path))),
           fogHeight: boardData.fogHeight(member.path),
           wallThickness: boardData.wallThickness(member.path),
           props: boardData.props(member.path),
@@ -1551,21 +1540,21 @@ export class BoardView extends ItemView {
       playerViewOpen: () => this.services.playerViewOpen(mapPath()),
       initiativeOpen: () => this.initiative?.isOpen ?? false,
       toggleInitiative: () => this.initiative?.setOpen(!this.initiative.isOpen),
-      wallMaterial: (id) => boardData.wallMaterial(mapPath(), id),
+      wallMaterial: (id) => this.extras().wallMaterial(id),
       materialDefaults: () => this.services.materialDefaults?.() ?? {},
-      wallHeight: (id) => boardData.wallHeight(mapPath(), id),
-      windowOf: (id) => boardData.windowOf(mapPath(), id),
-      wallWidth: (id) => boardData.wallWidth(mapPath(), id),
-      setWallHeight: (id, squares, whole) => boardData.setWallHeight(mapPath(), whole ? wholeWall(this.map?.walls ?? [], id) : [id], squares),
-      setWallWidth: (id, squares, whole) => boardData.setWallWidth(mapPath(), whole ? wholeWall(this.map?.walls ?? [], id) : [id], squares),
+      wallHeight: (id) => this.extras().wallHeight(id),
+      windowOf: (id) => this.extras().windowOf(id),
+      wallWidth: (id) => this.extras().wallWidth(id),
+      setWallHeight: (id, squares, whole) => this.setExtras(mapPath(), whole ? wholeWall(this.map?.walls ?? [], id) : [id], { height: squares }),
+      setWallWidth: (id, squares, whole) => this.setExtras(mapPath(), whole ? wholeWall(this.map?.walls ?? [], id) : [id], { width: squares }),
       setWindowSpan: (id, span, whole) => {
         const walls = this.map?.walls ?? [];
         const ids = whole ? wholeWall(walls, id).filter((other) => walls.some((candidate) => candidate.id === other && isWindow(candidate))) : [id];
-        boardData.setWindow(mapPath(), ids.length > 0 ? ids : [id], span);
+        this.setExtras(mapPath(), ids.length > 0 ? ids : [id], { window: span });
       },
-      setLightHeight: (id, squares) => boardData.setLightHeight(mapPath(), id, squares),
-      doorProp: (id) => boardData.doorProp(mapPath(), id),
-      doorFlip: (id) => boardData.doorFlip(mapPath(), id),
+      setLightHeight: (id, squares) => this.setLightHeight(mapPath(), id, squares),
+      doorProp: (id) => this.extras().doorProp(id),
+      doorFlip: (id) => this.extras().doorFlip(id),
       readMaterial: (path) => this.services.materials.load(path).catch((error: unknown) => {
         this.warn(`Tabletop: cannot read the material ${path}: ${error instanceof Error ? error.message : String(error)}`);
         return null;
@@ -1586,7 +1575,7 @@ export class BoardView extends ItemView {
       tint: () => this.map?.lighting.ambientColor ?? null,
       setTint: (color) => { writer.setSceneLighting(mapPath(), { ambientColor: color }).catch((error: unknown) => this.unsaved('tint', error)); },
       clearTint: () => { writer.setSceneLighting(mapPath(), { ambientColor: undefined }).catch((error: unknown) => this.unsaved('tint', error)); },
-      lightHeight: (light) => boardData.lightHeight(mapPath(), light.id) ?? DEFAULT_LIGHT_SQUARES,
+      lightHeight: (light) => this.extras().lightHeight(light.id) ?? DEFAULT_LIGHT_SQUARES,
       lightMenu: (id, event) => this.lightMenu(id, event),
       miniTurn: (tokenId) => assignments.get(mapPath(), tokenId)?.turn ?? null,
       setMiniTurn: (tokenId, turn) => {
@@ -1614,7 +1603,7 @@ export class BoardView extends ItemView {
         if (!wall) return;
         // Shift paints the whole wall (`wholeWall`); a door is always painted alone.
         const ids = whole ? wholeWall(walls, id) : [id];
-        boardData.setWallMaterial(mapPath(), ids, material);
+        this.setExtras(mapPath(), ids, { material });
       },
       cameraMoved: () => this.services.cameraMoved?.(this),
       hosting: () => this.services.session?.()?.hosting() === true,
@@ -1628,21 +1617,86 @@ export class BoardView extends ItemView {
     };
   }
 
+  private extrasOfMap: { map: BoardMap; walls: BoardMap['walls']; lights: BoardMap['lights']; legacy: unknown; extras: RecordExtras } | null = null;
+
+  /**
+   * What the GM set in 3D on this map's walls, doors and lights: read off Atlas's own records (`recordExtras.ts`), and,
+   * for a map not moved yet, off what Tabletop's data still holds. Worked out again only when the map or that data changed.
+   */
+  private extras(): RecordExtras {
+    const map = this.map && this.map.path === this.path ? this.map : null;
+    const legacy = this.path ? this.services.boardData.legacyExtras(this.path) : null;
+    const kept = this.extrasOfMap;
+    if (map && kept && kept.map === map && kept.walls === map.walls && kept.lights === map.lights && kept.legacy === legacy) return kept.extras;
+    const extras = extrasOf(map, legacy);
+    this.extrasOfMap = map ? { map, walls: map.walls, lights: map.lights, legacy, extras } : null;
+    return extras;
+  }
+
+  /**
+   * The 3D extras of the records the map was read with, as Atlas's store has them now: a height dragged, a material
+   * painted or an undo shows at once. Only the extras: a wall moved, made or deleted waits for the map's next read.
+   */
+  private showExtras(objects: AtlasSceneState['objects'] | undefined): void {
+    const map = this.map;
+    if (!map || map.path !== this.path || !objects) return;
+    const record = (from: Readonly<Record<string, unknown>> | undefined, id: string): Record<string, unknown> | null => {
+      const raw = from && Object.hasOwn(from, id) ? from[id] : null;
+      return typeof raw === 'object' && raw !== null ? raw as Record<string, unknown> : null;
+    };
+    let changed = false;
+    for (const wall of map.walls) {
+      const raw = record(objects.walls, wall.id);
+      if (!raw) continue;
+      const next = readWallExtra(raw.tabletop);
+      if (JSON.stringify(next) === JSON.stringify(wall.extra ?? null)) continue;
+      if (next) wall.extra = next; else delete wall.extra;
+      changed = true;
+    }
+    for (const light of map.lights) {
+      const raw = light.tokenId !== null ? record(objects.tokens, light.tokenId) : record(objects.lights, light.id);
+      if (!raw) continue;
+      const next = readLightHeight(raw.tabletop, light.tokenId !== null ? 'lightHeight' : 'height');
+      if (next === (light.ownHeight ?? null)) continue;
+      if (next !== null) light.ownHeight = next; else delete light.ownHeight;
+      changed = true;
+    }
+    if (!changed) return;
+    this.extrasOfMap = null;
+    this.refresh();
+  }
+
+  /** Sets extras of walls or doors on Atlas's own records (one step of its undo); refused, with the bar's words, on a map Atlas does not hold. */
+  private setExtras(path: string, ids: readonly string[], change: WallExtraChange): void {
+    this.services.writer.setWallExtras(path, ids, change).catch((error: unknown) => this.unsaved('wall', error));
+  }
+
+  private setLightHeight(path: string, id: string, height: number | null): void {
+    if (height !== null && (!Number.isFinite(height) || height < 0)) return;
+    this.services.writer.setLightHeight(path, id, height).catch((error: unknown) => this.unsaved('light height', error));
+  }
+
+  /** Turns a door from the way it stands now (rotated half a turn, or mirrored). */
+  private turnDoor(path: string, id: string, turn: (flip: DoorFlip) => DoorFlip): void {
+    const next = turn(this.extras().doorFlip(id));
+    this.setExtras(path, [id], { hinge: next.hinge ? true : null, side: next.side ? true : null });
+  }
+
   /** A light's menu: how high it hangs, in quarter squares, and back to the default. */
   private lightMenu(id: string, event: MouseEvent): void {
     const path = this.path;
     if (!path) return;
     const { boardData } = this.services;
     const entries = (): MenuEntry[] => {
-      const stored = boardData.lightHeight(path, id);
+      const stored = this.extras().lightHeight(id);
       const height = stored ?? DEFAULT_LIGHT_SQUARES;
-      const set = (next: number): void => boardData.setLightHeight(path, id, Math.max(0, Math.round(next * 4) / 4));
+      const set = (next: number): void => this.setLightHeight(path, id, Math.max(0, Math.round(next * 4) / 4));
       return [
         {
           type: 'item', label: 'Height', keepOpen: true, onClick: () => undefined,
           stepper: { value: `${height} sq`, label: 'Height', canDecrement: height > 0, onDecrement: () => set(height - HEIGHT_STEP), onIncrement: () => set(height + HEIGHT_STEP) },
         },
-        { type: 'item', label: 'Reset height', disabled: stored === null, onClick: () => boardData.setLightHeight(path, id, null) },
+        { type: 'item', label: 'Reset height', disabled: stored === null, onClick: () => this.setLightHeight(path, id, null) },
       ];
     };
     this.menu?.close();
@@ -1676,23 +1730,23 @@ export class BoardView extends ItemView {
       const wall = this.map?.walls.find((candidate) => candidate.id === id);
       if (!wall) return [];
       const door = wall.type !== 'solid';
-      const prop = door ? boardData.doorProp(path, id) : null;
-      const paint = boardData.wallMaterial(path, id);
-      const painted = door ? [] : wholeWall(this.map?.walls ?? [], id).filter((other) => boardData.wallMaterial(path, other) !== null);
+      const prop = door ? this.extras().doorProp(id) : null;
+      const paint = this.extras().wallMaterial(id);
+      const painted = door ? [] : wholeWall(this.map?.walls ?? [], id).filter((other) => this.extras().wallMaterial(other) !== null);
       const list: MenuEntry[] = [];
       // Its own height, by quarter squares; until set, as tall as the fog (a low wall half that).
-      const own = boardData.wallHeight(path, id);
+      const own = this.extras().wallHeight(id);
       const fog = boardData.fogHeight(path);
       const height = own ?? (wall.limited ? fog / 2 : fog);
-      const setHeight = (next: number): void => boardData.setWallHeight(path, [id], Math.max(0, Math.round(next * 4) / 4));
+      const setHeight = (next: number): void => this.setExtras(path, [id], { height: Math.max(0, Math.round(next * 4) / 4) });
       list.push({
         type: 'item', label: own === null ? 'Height (fog)' : 'Height', keepOpen: true, onClick: () => undefined,
         stepper: { value: `${height} sq`, label: 'Height', canDecrement: height > 0, onDecrement: () => setHeight(height - HEIGHT_STEP), onIncrement: () => setHeight(height + HEIGHT_STEP) },
       });
       const whole = door ? [id] : wholeWall(this.map?.walls ?? [], id);
-      if (whole.length > 1) list.push({ type: 'item', label: 'Give the whole wall this height', onClick: () => boardData.setWallHeight(path, whole, height) });
-      if (own !== null || whole.some((other) => boardData.wallHeight(path, other) !== null)) {
-        list.push({ type: 'item', label: 'Back to the fog\'s height', onClick: () => boardData.setWallHeight(path, whole, null) });
+      if (whole.length > 1) list.push({ type: 'item', label: 'Give the whole wall this height', onClick: () => this.setExtras(path, whole, { height: height }) });
+      if (own !== null || whole.some((other) => this.extras().wallHeight(other) !== null)) {
+        list.push({ type: 'item', label: 'Back to the fog\'s height', onClick: () => this.setExtras(path, whole, { height: null }) });
       }
       // A plain wall can be made Atlas's window (it stops only tokens; sight and light pass both ways), and back. Not the
       // outline worked out for a 0.14 file's rooms (chain `rooms`): it has no wall in the file to change. Atlas 0.15's
@@ -1708,21 +1762,21 @@ export class BoardView extends ItemView {
         if (whole.length > 1) list.push({ type: 'item', label: glazed ? 'Make the whole wall plain' : 'Make the whole wall a window', onClick: () => makeWindow(whole, !glazed) });
       }
       // Its own width, by fiftieths of a square; until set, as thick as the map's walls.
-      const ownWidth = boardData.wallWidth(path, id);
+      const ownWidth = this.extras().wallWidth(id);
       const width = ownWidth ?? boardData.wallThickness(path);
-      const setWidth = (next: number): void => boardData.setWallWidth(path, [id], Math.min(WIDTH_MAX, Math.max(WIDTH_STEP, Math.round(next * 100) / 100)));
+      const setWidth = (next: number): void => this.setExtras(path, [id], { width: Math.min(WIDTH_MAX, Math.max(WIDTH_STEP, Math.round(next * 100) / 100)) });
       list.push({
         type: 'item', label: ownWidth === null ? 'Width (default)' : 'Width', keepOpen: true, onClick: () => undefined,
         stepper: { value: `${width} sq`, label: 'Width', canDecrement: width > WIDTH_STEP, onDecrement: () => setWidth(width - WIDTH_STEP), onIncrement: () => setWidth(width + WIDTH_STEP) },
       });
-      if (whole.length > 1) list.push({ type: 'item', label: 'Give the whole wall this width', onClick: () => boardData.setWallWidth(path, whole, width) });
-      if (ownWidth !== null || whole.some((other) => boardData.wallWidth(path, other) !== null)) {
-        list.push({ type: 'item', label: 'Back to the default width', onClick: () => boardData.setWallWidth(path, whole, null) });
+      if (whole.length > 1) list.push({ type: 'item', label: 'Give the whole wall this width', onClick: () => this.setExtras(path, whole, { width: width }) });
+      if (ownWidth !== null || whole.some((other) => this.extras().wallWidth(other) !== null)) {
+        list.push({ type: 'item', label: 'Back to the default width', onClick: () => this.setExtras(path, whole, { width: null }) });
       }
       // Atlas's window: where its opening begins and ends, by quarter squares, inside the wall.
       if (isWindow(wall)) {
-        const span = windowSpan(height, boardData.windowOf(path, id));
-        const setSpan = (ids: readonly string[], next: { bottom: number; top: number }): void => boardData.setWindow(path, ids, windowSpan(height, next));
+        const span = windowSpan(height, this.extras().windowOf(id));
+        const setSpan = (ids: readonly string[], next: { bottom: number; top: number }): void => this.setExtras(path, ids, { window: windowSpan(height, next) });
         list.push({
           type: 'item', label: 'Window bottom', keepOpen: true, onClick: () => undefined,
           stepper: { value: `${span.bottom} sq`, label: 'Window bottom', canDecrement: span.bottom > 0, onDecrement: () => setSpan([id], { ...span, bottom: span.bottom - WINDOW_STEP }), onIncrement: () => setSpan([id], { bottom: Math.min(span.bottom + WINDOW_STEP, span.top - WINDOW_STEP), top: span.top }) },
@@ -1732,8 +1786,8 @@ export class BoardView extends ItemView {
           stepper: { value: `${span.top} sq`, label: 'Window top', canDecrement: span.top - WINDOW_STEP > span.bottom, onDecrement: () => setSpan([id], { ...span, top: span.top - WINDOW_STEP }), onIncrement: () => setSpan([id], { ...span, top: span.top + WINDOW_STEP }) },
         });
         const windowWall = wholeWall(this.map?.walls ?? [], id).filter((other) => this.map?.walls.some((candidate) => candidate.id === other && isWindow(candidate)));
-        if (windowWall.length > 1) list.push({ type: 'item', label: 'Give the whole window this opening', onClick: () => boardData.setWindow(path, windowWall, span) });
-        if (windowWall.some((other) => boardData.windowOf(path, other) !== null)) list.push({ type: 'item', label: 'Default window opening', onClick: () => boardData.setWindow(path, windowWall.length > 0 ? windowWall : [id], null) });
+        if (windowWall.length > 1) list.push({ type: 'item', label: 'Give the whole window this opening', onClick: () => this.setExtras(path, windowWall, { window: span }) });
+        if (windowWall.some((other) => this.extras().windowOf(other) !== null)) list.push({ type: 'item', label: 'Default window opening', onClick: () => this.setExtras(path, windowWall.length > 0 ? windowWall : [id], { window: null }) });
       }
       list.push({ type: 'separator' });
       if (door) {
@@ -1749,19 +1803,19 @@ export class BoardView extends ItemView {
         });
         list.push({ type: 'separator' });
         // How the door is hung: half a turn (hinge at the other end, opening to the other side), or mirrored (only the hinge moves).
-        list.push({ type: 'item', label: 'Rotate 180°', onClick: () => boardData.rotateDoor(path, id) });
-        list.push({ type: 'item', label: 'Mirror', onClick: () => boardData.mirrorDoor(path, id) });
+        list.push({ type: 'item', label: 'Rotate 180°', onClick: () => this.turnDoor(path, id, rotatedDoor) });
+        list.push({ type: 'item', label: 'Mirror', onClick: () => this.turnDoor(path, id, mirroredDoor) });
         list.push({ type: 'separator' });
         list.push({
           type: 'item', label: prop ? 'Change door prop…' : 'Replace with prop…',
-          onClick: () => new MiniPicker(this.app, props, 'door', prop ? { mini: prop, scale: 1, turn: 0 } : null, (result) => boardData.setDoorProp(path, id, result.mini), {
+          onClick: () => new MiniPicker(this.app, props, 'door', prop ? { mini: prop, scale: 1, turn: 0 } : null, (result) => this.setExtras(path, [id], { prop: result.mini }), {
             title: wall.type === 'secret-door' ? 'Prop for this secret door' : 'Prop for this door', action: 'Use prop', fitted: true,
           }).open(),
         });
-        if (prop) list.push({ type: 'item', label: 'Use plain door', onClick: () => boardData.setDoorProp(path, id, null) });
+        if (prop) list.push({ type: 'item', label: 'Use plain door', onClick: () => this.setExtras(path, [id], { prop: null }) });
       }
-      if (paint) list.push({ type: 'item', label: door ? 'Remove material' : 'Remove material from segment', onClick: () => boardData.setWallMaterial(path, [id], null) });
-      if (!door && painted.length > 1) list.push({ type: 'item', label: 'Remove material from whole wall', onClick: () => boardData.setWallMaterial(path, painted, null) });
+      if (paint) list.push({ type: 'item', label: door ? 'Remove material' : 'Remove material from segment', onClick: () => this.setExtras(path, [id], { material: null }) });
+      if (!door && painted.length > 1) list.push({ type: 'item', label: 'Remove material from whole wall', onClick: () => this.setExtras(path, painted, { material: null }) });
       if (list.length === 0) list.push({ type: 'item', label: 'Drag a material from the gallery onto this wall', disabled: true, onClick: () => undefined });
       return list;
     };
@@ -1783,12 +1837,18 @@ export class BoardView extends ItemView {
       let drawn = view.atlasStore.getState() as unknown as Record<string, unknown>;
       let measures = view.atlasStore.getState().objects?.measures;
       let derived = view.atlasStore.getState().objects;
+      let extrasOf3d = view.atlasStore.getState().objects;
       const stop = view.atlasStore.subscribe(() => {
         const state = view.atlasStore.getState();
         // Atlas moved to another map in that view: the file is this map's tracker again.
         if (state.mapPath !== this.path) { this.watchAtlas(); return; }
         // What a kept spell stands in Atlas (walls, difficult ground, light) follows its measure: after a cast, a move, an undo.
         const objects = state.objects;
+        // What the GM set in 3D on a wall, a door or a light (on its record): shown at once, ahead of the map's next read.
+        if (objects?.walls !== extrasOf3d?.walls || objects?.lights !== extrasOf3d?.lights || objects?.tokens !== extrasOf3d?.tokens) {
+          extrasOf3d = objects;
+          this.showExtras(objects);
+        }
         // (A spell that follows a token stands them round the token: its moves count too.)
         if (objects?.measures !== derived?.measures || objects?.walls !== derived?.walls || objects?.mapFeatures !== derived?.mapFeatures || objects?.tokens !== derived?.tokens) {
           derived = objects;
@@ -2155,7 +2215,7 @@ export class BoardView extends ItemView {
       standee: () => boardData.style(map.path, id) === 'standee',
       pov: () => this.board?.povToken === id,
       seeing: () => this.board?.seeingFrom === id,
-      lightHeight: () => (this.map?.lights.some((light) => light.tokenId === id) ? boardData.lightHeight(map.path, id) ?? DEFAULT_LIGHT_SQUARES : null),
+      lightHeight: () => (this.map?.lights.some((light) => light.tokenId === id) ? this.extras().lightHeight(id) ?? DEFAULT_LIGHT_SQUARES : null),
       controllers: () => this.services.session?.()?.controllers?.(id) ?? null,
       resourceShows: () => this.services.session?.()?.resourceShows?.(map.path, id) ?? null,
       spellAsked: () => this.services.session?.()?.spellRequest?.(map.path, id) != null,
@@ -2180,7 +2240,7 @@ export class BoardView extends ItemView {
           if (have) assignments.set(map.path, id, { ...have, base });
         },
         setStandee: (standee) => boardData.setStyle(map.path, id, standee ? 'standee' : 'disc'),
-        setLightHeight: (height) => boardData.setLightHeight(map.path, id, Math.max(0, Math.round(height * 4) / 4)),
+        setLightHeight: (height) => this.setLightHeight(map.path, id, Math.max(0, Math.round(height * 4) / 4)),
         setController: (playerId, controls) => {
           this.services.session?.()?.setController?.(id, playerId, controls);
           this.menu?.refresh();
@@ -2366,4 +2426,12 @@ function levelKey(id: string): string {
 }
 function levelOfKey(key: string): string | null {
   return key.startsWith(LEVEL_KEY) ? key.slice(LEVEL_KEY.length) : null;
+}
+
+/** A layer's extras as its drawing asks for them (`ElevationLayerData`). */
+function layerExtras(extras: RecordExtras): Pick<ElevationLayerData, 'wallHeight' | 'windowOf' | 'wallWidth' | 'wallMaterial' | 'doorProp' | 'doorFlip' | 'lightHeight'> {
+  return {
+    wallHeight: extras.wallHeight, windowOf: extras.windowOf, wallWidth: extras.wallWidth, wallMaterial: extras.wallMaterial,
+    doorProp: extras.doorProp, doorFlip: extras.doorFlip, lightHeight: (id) => extras.lightHeight(id) ?? DEFAULT_LIGHT_SQUARES,
+  };
 }

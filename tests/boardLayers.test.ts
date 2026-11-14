@@ -13,19 +13,15 @@ const wall = (id: string, over: Record<string, unknown> = {}) => ({ id, type: 's
 const light = (id: string, over: Record<string, unknown> = {}) => ({ id, x: 5, y: 6, bright: 10, dim: 20, color: '#ffaa00', intensity: 1, animation: 'torch', angle: null, rotation: 0, hidden: false, darkness: false, activeBelowAmbient: null, tokenId: null, ...over });
 const sceneMap = (over: Record<string, unknown> = {}): BoardMap => ({
   background: 'maps/up.png', grid: { size: 70, offsetX: 5, offsetY: 6 },
-  walls: [wall('w1'), wall('d1', { type: 'door', closed: false })],
-  lights: [light('l1'), light('l2', { hidden: true }), light('carried', { tokenId: 't1' })],
+  // What the GM set on them in 3D rides on the records, as the scene's file has them.
+  walls: [wall('w1', { extra: { height: 2, material: 'mat/brick' } }), wall('d1', { type: 'door', closed: false, extra: { prop: 'minis/door.glb', hinge: true, side: true } })],
+  lights: [light('l1', { ownHeight: 1.5 }), light('l2', { hidden: true }), light('carried', { tokenId: 't1' })],
   ...over,
 } as unknown as BoardMap);
 
 function stacked(): BoardData {
   const data = new BoardData();
   data.setLayer('up.atlasmap', 'ground.atlasmap', 3);
-  data.setWallHeight('up.atlasmap', ['w1'], 2);
-  data.setWallMaterial('up.atlasmap', ['w1'], 'mat/brick');
-  data.setDoorProp('up.atlasmap', 'd1', 'minis/door.glb');
-  data.rotateDoor('up.atlasmap', 'd1');
-  data.setLightHeight('up.atlasmap', 'l1', 1.5);
   data.addProp('up.atlasmap', { glb: 'minis/barrel.glb', x: 1, y: 2, rotation: 90, scale: 1.5 });
   return data;
 }

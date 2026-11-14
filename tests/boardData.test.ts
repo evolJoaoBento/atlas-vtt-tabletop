@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { extrasOf } from '../src/board/recordExtras';
+import { mirroredDoor, rotatedDoor } from '../src/board/walls';
 import { BoardData, DEFAULT_WALL_THICKNESS, lookOf, readBoardData, readVariants } from '../src/board/boardData';
+
+/** What a map's data still holds of the 3D settings, read as the board reads it. */
+const legacy = (data: BoardData, path: string) => extrasOf(null, data.legacyExtras(path));
 
 test('tokens are discs by default; standee round-trips; disc deletes the entry', () => {
   const data = new BoardData();
@@ -53,14 +58,14 @@ test("a 0.14 room wall's height, width, material and window move to Atlas 0.15's
   assert.equal(moved, 4);
   assert.equal(data.roomWallsMoved(path), true);
   for (const id of ['room_L1_0_0_80_0', 'room_L2_0_0_80_0']) {
-    assert.equal(data.wallHeight(path, id), 3);
-    assert.equal(data.wallWidth(path, id), 0.2);
-    assert.equal(data.wallMaterial(path, id), 'Materials/stone');
-    assert.deepEqual(data.windowOf(path, id), { bottom: 1, top: 2 });
+    assert.equal(legacy(data, path).wallHeight(id), 3);
+    assert.equal(legacy(data, path).wallWidth(id), 0.2);
+    assert.equal(legacy(data, path).wallMaterial(id), 'Materials/stone');
+    assert.deepEqual(legacy(data, path).windowOf(id), { bottom: 1, top: 2 });
   }
-  assert.equal(data.wallHeight(path, 'room_0_0_80_0'), null);
-  assert.equal(data.wallHeight(path, 'drawn'), 1);
-  assert.equal(data.wallHeight(path, 'x'), null);
+  assert.equal(legacy(data, path).wallHeight('room_0_0_80_0'), null);
+  assert.equal(legacy(data, path).wallHeight('drawn'), 1);
+  assert.equal(legacy(data, path).wallHeight('x'), null);
   // Kept across a save and a load, also for a map with nothing else.
   assert.equal(new BoardData(readBoardData(JSON.parse(JSON.stringify(data.toJSON())))).roomWallsMoved(path), true);
   const bare = new BoardData();
@@ -99,24 +104,28 @@ test('fog height is one square by default, kept per map, and read back from save
   assert.deepEqual(readBoardData({ a: { fogHeight: -1 }, b: { fogHeight: 'x' }, c: { fogHeight: 0 } }), { c: { fogHeight: 0 } });
 });
 
-test('wall materials (one segment or many), door props and light heights are kept per map, and read back', () => {
-  const data = new BoardData();
-  data.setWallMaterial('m', ['w1', 'w2'], 'atlas-vtt/assets/materials/Bricks');
-  data.setWallMaterial('m', ['w2'], 'atlas-vtt/assets/materials/Wood');
-  data.setDoorProp('m', 'd1', 'props/door.glb');
-  data.setLightHeight('m', 'l1', 1.5);
-  data.setFogHeight('m', 2);
-  assert.equal(data.wallMaterial('m', 'w1'), 'atlas-vtt/assets/materials/Bricks');
-  assert.equal(data.wallMaterial('m', 'w2'), 'atlas-vtt/assets/materials/Wood');
-  assert.equal(data.wallMaterial('m', 'w3'), null);
-  assert.equal(data.lightHeight('m', 'l1'), 1.5);
-  assert.equal(data.lightHeight('m', 'l2'), null);
-  assert.deepEqual(readBoardData(data.toJSON()), data.toJSON());
-  data.setWallMaterial('m', ['w1', 'w2'], null);
-  data.setDoorProp('m', 'd1', null);
-  data.setLightHeight('m', 'l1', null);
-  assert.deepEqual(data.toJSON(), { m: { fogHeight: 2 } });
-  assert.deepEqual(readBoardData({ m: { ambient: 2, lightHeights: { a: -1, b: 2 }, wallMaterials: { w: 5 } } }), { m: { lightHeights: { b: 2 } } });
+test("what a map kept of the GM's 3D settings before they moved to Atlas's records is read as it was, and goes once it has moved", () => {
+  const data = new BoardData({
+    m: { wallMaterials: { w1: 'Bricks' }, doorProps: { d1: 'props/door.glb' }, wallHeights: { w1: 2 }, wallWidths: { w1: 0.3 }, lightHeights: { l1: 1.5 }, windows: { w1: { bottom: 1, top: 2 } }, doorFlips: { d1: { side: true } }, fogHeight: 2 },
+    plain: { fogHeight: 3 },
+  });
+  const old = legacy(data, 'm');
+  assert.deepEqual([old.wallMaterial('w1'), old.doorProp('d1'), old.wallHeight('w1'), old.wallWidth('w1'), old.lightHeight('l1'), old.windowOf('w1'), old.doorFlip('d1')],
+    ['Bricks', 'props/door.glb', 2, 0.3, 1.5, { bottom: 1, top: 2 }, { hinge: false, side: true }]);
+  // The same object until the map's data changes: what reads it need not work it out again.
+  assert.equal(data.legacyExtras('m'), data.legacyExtras('m'));
+  assert.equal(data.legacyExtras('plain'), null);
+  assert.equal(data.legacyExtras('none'), null);
+  let changes = 0;
+  data.onChange(() => { changes += 1; });
+  data.clearLegacyExtras('m');
+  assert.equal(data.legacyExtras('m'), null);
+  assert.deepEqual(data.toJSON().m, { fogHeight: 2, extrasMoved: true });
+  assert.equal(changes, 1);
+  // Done once: a second call changes nothing.
+  data.clearLegacyExtras('m');
+  data.clearLegacyExtras('none');
+  assert.equal(changes, 1);
 });
 
 test('a renamed or deleted material folder or door prop is followed', () => {
@@ -129,17 +138,6 @@ test('a renamed or deleted material folder or door prop is followed', () => {
   assert.deepEqual(data.toJSON(), { m: { wallMaterials: { w: 'mats/Stone' } } });
 });
 
-test('a wall\'s own height is kept per segment, many at once, and cleared back to the fog\'s', () => {
-  const data = new BoardData();
-  data.setWallHeight('m', ['a', 'b'], 2);
-  data.setWallHeight('m', ['b'], 0.5);
-  assert.equal(data.wallHeight('m', 'a'), 2);
-  assert.equal(data.wallHeight('m', 'b'), 0.5);
-  assert.equal(data.wallHeight('m', 'c'), null);
-  assert.deepEqual(readBoardData(data.toJSON()), data.toJSON());
-  data.setWallHeight('m', ['a', 'b'], null);
-  assert.deepEqual(data.toJSON(), {});
-});
 
 test('wall thickness: a share of a square, 0.12 by default, kept per map and read back', () => {
   const data = new BoardData();
@@ -220,21 +218,12 @@ test('a layer can be placed on the plane beyond its height, and that survives a 
   assert.deepEqual(loaded.placementOf('ground'), { x: 0, y: 0, turn: 0 });
 });
 
-test('a door can be rotated half a turn or mirrored, which only moves its hinge; both undo themselves and survive a save', () => {
-  const data = new BoardData();
-  assert.deepEqual(data.doorFlip('m', 'd'), { hinge: false, side: false });
-  data.rotateDoor('m', 'd');
-  assert.deepEqual(data.doorFlip('m', 'd'), { hinge: true, side: true });
-  data.mirrorDoor('m', 'd');
-  // Half a turn then a mirror: the hinge is back, the door opens to the other side.
-  assert.deepEqual(data.doorFlip('m', 'd'), { hinge: false, side: true });
-  const loaded = new BoardData(readBoardData(JSON.parse(JSON.stringify(data.toJSON()))));
-  assert.deepEqual(loaded.doorFlip('m', 'd'), { hinge: false, side: true });
-  loaded.rotateDoor('m', 'd');
-  assert.deepEqual(loaded.doorFlip('m', 'd'), { hinge: true, side: false });
-  loaded.mirrorDoor('m', 'd');
-  assert.deepEqual(loaded.doorFlip('m', 'd'), { hinge: false, side: false });
-  assert.deepEqual(loaded.toJSON(), {});
+test('a door can be rotated half a turn or mirrored, which only moves its hinge; both undo themselves', () => {
+  const none = { hinge: false, side: false };
+  assert.deepEqual(rotatedDoor(none), { hinge: true, side: true });
+  assert.deepEqual(mirroredDoor(rotatedDoor(none)), { hinge: false, side: true });
+  assert.deepEqual(rotatedDoor(rotatedDoor(none)), none);
+  assert.deepEqual(mirroredDoor(mirroredDoor(none)), none);
 });
 
 test('a solid prop and a raised one keep that when saved and read back; a moved prop goes last', () => {

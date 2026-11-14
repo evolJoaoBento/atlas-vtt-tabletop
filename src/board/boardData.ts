@@ -10,7 +10,7 @@
 import { readSavedTable, type SavedArTable } from '../arTable';
 import { readWaterMotion, type SavedWaterMask, type WaterMotion } from './water';
 import { NO_PLACEMENT, readPlacement, type Placement } from './layerPlacement';
-import { mirroredDoor, NO_FLIP, rotatedDoor, type DoorFlip } from './walls';
+import type { LegacyExtras } from './recordExtras';
 import { dropShotMaps, readCutscenes, renameShotMaps, type Cutscene } from '../cutscene/cutsceneData';
 
 export type TokenStyle = 'disc' | 'standee';
@@ -66,7 +66,12 @@ export interface MapData {
   cutscenes?: Cutscene[];
   /** The settings of this map's 0.14 room walls were looked for and moved to Atlas 0.15's room walls: done once. */
   roomWallsMoved?: true;
+  /** What the GM set in 3D on walls, doors and lights (the seven records above) was moved onto Atlas's own records: done once. */
+  extrasMoved?: true;
 }
+
+/** The records of a map's data that held 3D settings by Atlas's ids, before they moved onto Atlas's records. */
+export const LEGACY_EXTRAS = ['wallMaterials', 'doorProps', 'wallHeights', 'wallWidths', 'lightHeights', 'windows', 'doorFlips'] as const;
 
 /** A map stacked on another: the base map's path, and how many grid squares above it this one stands. */
 export interface ElevationLayer {
@@ -155,6 +160,7 @@ function tidy(map: MapData): MapData | null {
   if (map.arTable) out.arTable = map.arTable;
   if (map.cutscenes && map.cutscenes.length > 0) out.cutscenes = map.cutscenes;
   if (map.roomWallsMoved === true) out.roomWallsMoved = true;
+  if (map.extrasMoved === true) out.extrasMoved = true;
   return Object.keys(out).length > 0 ? out : null;
 }
 
@@ -244,6 +250,7 @@ export function readBoardData(raw: unknown): BoardDataJSON {
       wallHeights: heights(value.wallHeights), wallWidths: widths(value.wallWidths), windows: windows(value.windows), doorFlips: flips(value.doorFlips),
       ...(wallThickness !== undefined && { wallThickness }),
       ...(value.roomWallsMoved === true && { roomWallsMoved: true as const }),
+      ...(value.extrasMoved === true && { extrasMoved: true as const }),
     });
     if (kept) out[path] = kept;
   }
@@ -383,129 +390,23 @@ export class BoardData {
     return moved;
   }
 
-  /** The material painted on a wall or door: its vault folder, or null for the plain look. */
-  wallMaterial(mapPath: string, wallId: string): string | null {
-    return this.data[mapPath]?.wallMaterials?.[wallId] ?? null;
+  /**
+   * What this map still keeps of the GM's 3D settings of walls, doors and lights from before they moved onto Atlas's
+   * own records (`recordExtras.ts`): read only, as a fallback while the map was not moved yet; null once it was.
+   * The same object until the map's data changes.
+   */
+  legacyExtras(mapPath: string): LegacyExtras | null {
+    const map = this.data[mapPath];
+    return map && map.extrasMoved !== true && LEGACY_EXTRAS.some((key) => map[key] !== undefined) ? map : null;
   }
 
-  /** The materials painted anywhere on a map, each once, in the order first painted. */
-  usedMaterials(mapPath: string): string[] {
-    return [...new Set(Object.values(this.data[mapPath]?.wallMaterials ?? {}))];
-  }
-
-  /** Paints walls (one segment, or a whole drawn wall) with a material; null takes it off. */
-  setWallMaterial(mapPath: string, wallIds: readonly string[], material: string | null): void {
-    const map = this.data[mapPath] ?? {};
-    const wallMaterials = { ...(map.wallMaterials ?? {}) };
-    for (const id of wallIds) {
-      if (material) wallMaterials[id] = material;
-      else delete wallMaterials[id];
-    }
-    this.put(mapPath, { ...map, wallMaterials });
-  }
-
-  /** A wall's or door's own height in grid squares; null when it stands as tall as the fog. */
-  wallHeight(mapPath: string, wallId: string): number | null {
-    return this.data[mapPath]?.wallHeights?.[wallId] ?? null;
-  }
-
-  /** A wall's or door's own width (thickness) in grid squares; null when it is as thick as the map's walls. */
-  wallWidth(mapPath: string, wallId: string): number | null {
-    return this.data[mapPath]?.wallWidths?.[wallId] ?? null;
-  }
-
-  /** Sets walls' own width (one segment, or a whole wall); null makes them as thick as the map's walls again. */
-  setWallWidth(mapPath: string, wallIds: readonly string[], width: number | null): void {
-    if (width !== null && (!Number.isFinite(width) || width <= 0)) return;
-    const map = this.data[mapPath] ?? {};
-    const wallWidths = { ...(map.wallWidths ?? {}) };
-    for (const id of wallIds) {
-      if (width === null) delete wallWidths[id];
-      else wallWidths[id] = width;
-    }
-    this.put(mapPath, { ...map, wallWidths });
-  }
-
-  /** A window's opening as the GM set it (grid squares from the floor); null for the board's default. */
-  windowOf(mapPath: string, wallId: string): { bottom: number; top: number } | null {
-    return this.data[mapPath]?.windows?.[wallId] ?? null;
-  }
-
-  /** Sets windows' opening (one segment, or a whole window); null gives them the default again. */
-  setWindow(mapPath: string, wallIds: readonly string[], span: { bottom: number; top: number } | null): void {
-    if (span !== null && (!Number.isFinite(span.bottom) || !Number.isFinite(span.top) || span.bottom < 0 || span.top <= span.bottom)) return;
-    const map = this.data[mapPath] ?? {};
-    const kept = { ...(map.windows ?? {}) };
-    for (const id of wallIds) {
-      if (span === null) delete kept[id];
-      else kept[id] = { bottom: span.bottom, top: span.top };
-    }
-    this.put(mapPath, { ...map, windows: kept });
-  }
-
-  /** Sets walls' own height (one segment, or a whole wall); null stands them as tall as the fog again. */
-  setWallHeight(mapPath: string, wallIds: readonly string[], height: number | null): void {
-    if (height !== null && (!Number.isFinite(height) || height < 0)) return;
-    const map = this.data[mapPath] ?? {};
-    const wallHeights = { ...(map.wallHeights ?? {}) };
-    for (const id of wallIds) {
-      if (height === null) delete wallHeights[id];
-      else wallHeights[id] = height;
-    }
-    this.put(mapPath, { ...map, wallHeights });
-  }
-
-  /** The prop standing in for a door's leaf, or null for the plain door. */
-  /** How the GM turned a door from the way Atlas draws it. */
-  doorFlip(mapPath: string, doorId: string): DoorFlip {
-    const kept = this.data[mapPath]?.doorFlips?.[doorId];
-    return kept ? { hinge: kept.hinge === true, side: kept.side === true } : NO_FLIP;
-  }
-
-  private setDoorFlip(mapPath: string, doorId: string, flip: DoorFlip): void {
-    const flips = { ...(this.data[mapPath]?.doorFlips ?? {}) };
-    if (flip.hinge || flip.side) flips[doorId] = { ...(flip.hinge && { hinge: true as const }), ...(flip.side && { side: true as const }) };
-    else delete flips[doorId];
-    this.put(mapPath, { ...(this.data[mapPath] ?? {}), doorFlips: flips });
-  }
-
-  /** Turns a door half a turn: its hinge goes to the other end and it opens to the other side. */
-  rotateDoor(mapPath: string, doorId: string): void {
-    this.setDoorFlip(mapPath, doorId, rotatedDoor(this.doorFlip(mapPath, doorId)));
-  }
-
-  /** Mirrors a door: its hinge goes to the other end, and it opens to the side it did. */
-  mirrorDoor(mapPath: string, doorId: string): void {
-    this.setDoorFlip(mapPath, doorId, mirroredDoor(this.doorFlip(mapPath, doorId)));
-  }
-
-  doorProp(mapPath: string, doorId: string): string | null {
-    return this.data[mapPath]?.doorProps?.[doorId] ?? null;
-  }
-
-  setDoorProp(mapPath: string, doorId: string, glb: string | null): void {
-    if (this.doorProp(mapPath, doorId) === glb) return;
-    const map = this.data[mapPath] ?? {};
-    const doorProps = { ...(map.doorProps ?? {}) };
-    if (glb) doorProps[doorId] = glb;
-    else delete doorProps[doorId];
-    this.put(mapPath, { ...map, doorProps });
-  }
-
-  /** How high a light hangs, in grid squares; null when it was never set. */
-  lightHeight(mapPath: string, lightId: string): number | null {
-    return this.data[mapPath]?.lightHeights?.[lightId] ?? null;
-  }
-
-  /** Sets a light's height in squares; null puts it back at its default. */
-  setLightHeight(mapPath: string, lightId: string, height: number | null): void {
-    if (height !== null && (!Number.isFinite(height) || height < 0)) return;
-    if (this.lightHeight(mapPath, lightId) === height) return;
-    const map = this.data[mapPath] ?? {};
-    const lightHeights = { ...(map.lightHeights ?? {}) };
-    if (height === null) delete lightHeights[lightId];
-    else lightHeights[lightId] = height;
-    this.put(mapPath, { ...map, lightHeights });
+  /** The map's 3D settings were moved onto Atlas's records (or it had none Atlas still knows): its seven records go, once. */
+  clearLegacyExtras(mapPath: string): void {
+    const map = this.data[mapPath];
+    if (!map || (map.extrasMoved === true && LEGACY_EXTRAS.every((key) => map[key] === undefined))) return;
+    const next: MapData = { ...map, extrasMoved: true };
+    for (const key of LEGACY_EXTRAS) delete next[key];
+    this.put(mapPath, next);
   }
 
   /**

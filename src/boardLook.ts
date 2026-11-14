@@ -1,12 +1,14 @@
 /**
  * A map's look on the board as Connect reads it (`BoardLook`): the heights, materials, door props, props, fog height
- * and ambient light the GM gave it, from Tabletop's own data. Materials are listed only once their settings are read
+ * and ambient light the GM gave it: what is set on a wall, a door or a light from Atlas's own records (`extras`), the
+ * rest from Tabletop's own data. Materials are listed only once their settings are read
  * (`MaterialIndex`), so nothing is guessed; Connect hears when they are.
  */
 import { onFirstLevel, propsOnLevel, type BoardLevel } from './board/levels';
 import type { TFile, TFolder, Vault } from 'obsidian';
 import type { BoardData } from './board/boardData';
 import type { BoardWall } from './board/walls';
+import { extrasOf, type RecordExtras } from './board/recordExtras';
 import { defaultsUsed, materialWith, type MaterialDefaults } from './materialDefaults';
 import { placedTable, type ArTable } from './arTable';
 import type { BoardLayerLook, BoardLook, BoardWater } from './connectContract';
@@ -25,28 +27,28 @@ export interface MaterialView {
 
 const isDefault = (tuning: MaterialTuning): boolean => tuning.relief === DEFAULT_TUNING.relief && tuning.occlusion === DEFAULT_TUNING.occlusion && tuning.shine === DEFAULT_TUNING.shine && tuning.depth === DEFAULT_TUNING.depth && tuning.displace === DEFAULT_TUNING.displace && tuning.outward === DEFAULT_TUNING.outward;
 
-export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: string, layers: ReadonlyArray<BoardLayerLook> = [], shown: { levels: readonly BoardLevel[]; level: string | null } = { levels: [], level: null }, defaults: { walls: readonly BoardWall[]; chosen: MaterialDefaults } | null = null): BoardLook {
+export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: string, layers: ReadonlyArray<BoardLayerLook> = [], shown: { levels: readonly BoardLevel[]; level: string | null } = { levels: [], level: null }, defaults: { walls: readonly BoardWall[]; chosen: MaterialDefaults } | null = null, extras: RecordExtras = extrasOf(null, data.legacyExtras(mapPath))): BoardLook {
   // Walls with no material painted wear their kind's default, for players too.
   const wallsById = new Map((defaults?.walls ?? []).map((wall) => [wall.id, wall]));
   const wallMaterial = (id: string): string | null => {
-    const painted = data.wallMaterial(mapPath, id);
+    const painted = extras.wallMaterial(id);
     const wall = wallsById.get(id);
     return wall ? materialWith(painted, wall, defaults?.chosen) : painted;
   };
-  const fromDefaults = defaults ? defaultsUsed(defaults.walls, (index) => data.wallMaterial(mapPath, defaults.walls[index]!.id), defaults.chosen) : [];
-  const used = [...new Set([...data.usedMaterials(mapPath), ...fromDefaults])]
+  const fromDefaults = defaults ? defaultsUsed(defaults.walls, (index) => extras.wallMaterial(defaults.walls[index]!.id), defaults.chosen) : [];
+  const used = [...new Set([...extras.usedMaterials(), ...fromDefaults])]
     .map((id) => ({ id, info: materials.info(id) }))
     .filter((entry): entry is { id: string; info: MaterialInfo } => entry.info !== null)
     .map(({ id, info }) => ({ id, scale: info.scale, maps: { ...info.maps }, ...(!info.tuning || isDefault(info.tuning) ? {} : { tuning: { ...info.tuning } }) }));
   const fog = data.fogHeight(mapPath);
   return Object.freeze({
-    wallHeight: (id: string) => data.wallHeight(mapPath, id),
+    wallHeight: extras.wallHeight,
     wallMaterial,
-    doorProp: (id: string) => data.doorProp(mapPath, id),
-    doorFlip: (id: string) => data.doorFlip(mapPath, id),
-    windowOf: (id: string) => data.windowOf(mapPath, id),
-    wallWidth: (id: string) => data.wallWidth(mapPath, id),
-    lightHeight: (id: string) => data.lightHeight(mapPath, id),
+    doorProp: extras.doorProp,
+    doorFlip: extras.doorFlip,
+    windowOf: extras.windowOf,
+    wallWidth: extras.wallWidth,
+    lightHeight: extras.lightHeight,
     fogHeight: fog,
     wallThickness: data.wallThickness(mapPath),
     // The board's light is Atlas's scene lighting, which players are sent with the scene: nothing of its own here.

@@ -28,14 +28,3 @@ test('a wall given its own width is drawn that thick; the others keep the map th
   assert.equal(depth(0.5), 35);
 });
 
-test("walls' own widths are kept with the board data, and taken off again", () => {
-  const data = new BoardData();
-  data.setWallWidth('m', ['a', 'b'], 0.3);
-  assert.equal(data.wallWidth('m', 'b'), 0.3);
-  const again = new BoardData(readBoardData(JSON.parse(JSON.stringify(data.toJSON()))));
-  assert.equal(again.wallWidth('m', 'a'), 0.3);
-  data.setWallWidth('m', ['a'], null);
-  assert.equal(data.wallWidth('m', 'a'), null);
-  data.setWallWidth('m', ['a'], 0);
-  assert.equal(data.wallWidth('m', 'a'), null);
-});

@@ -51,17 +51,6 @@ test('a window is drawn as a sill and a lintel with an opening between', () => {
   assert.deepEqual(heights([wall('movement')], lookup({ bottom: 0, top: 1 })), [70, 140]);
 });
 
-test('the GM\'s window openings are kept with the board data and read back', () => {
-  const data = new BoardData();
-  data.setWindow('m', ['a', 'b'], { bottom: 0.5, top: 1.5 });
-  assert.deepEqual(data.windowOf('m', 'b'), { bottom: 0.5, top: 1.5 });
-  const again = new BoardData(readBoardData(JSON.parse(JSON.stringify(data.toJSON()))));
-  assert.deepEqual(again.windowOf('m', 'a'), { bottom: 0.5, top: 1.5 });
-  data.setWindow('m', ['a'], null);
-  assert.equal(data.windowOf('m', 'a'), null);
-  data.setWindow('m', ['a'], { bottom: 2, top: 1 });
-  assert.equal(data.windowOf('m', 'a'), null);
-});
 
 test("a plain wall is made a window and back, through Atlas's store", async () => {
   const { TokenWriter } = await import('../src/board/tokenWriter');
