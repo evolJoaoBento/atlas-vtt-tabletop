@@ -15,6 +15,7 @@ import type { AtlasSceneState, AtlasView } from '../atlas';
 import { defeatedResources, resourceUpdate, type ResourceDefinition, type ResourceValue, type ResourceHolder } from './resources';
 import { initiativeEntryFor } from './tokenEdits';
 import type { InitiativeAction } from './initiative';
+import { mergeExtra, type WallExtraChange } from './recordExtras';
 
 type RawToken = Record<string, unknown> & { x?: number; y?: number; imagePath?: string; instanceNumber?: number };
 /**
@@ -312,6 +313,42 @@ export class TokenWriter {
     const there = ids.filter((id) => Object.hasOwn(state.objects?.measures ?? {}, id));
     if (there.length === 0) return;
     this.asOneStep(path, () => { for (const id of there) remove(id); });
+  }
+
+  /**
+   * Sets what the GM sets on walls or doors in 3D (`recordExtras.ts`): each wall's own record takes the change in its
+   * `tabletop` field (a key given as null goes; the field's other keys stay), all in one step of Atlas's history. A
+   * wall Atlas no longer has is passed over.
+   */
+  async setWallExtras(path: string, ids: readonly string[], change: WallExtraChange): Promise<void> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.store(path);
+    if (!state.updateWall) throw TokenWriter.missing('wall update');
+    const update = state.updateWall;
+    const walls = state.objects?.walls ?? {};
+    const there = ids.filter((id) => Object.hasOwn(walls, id));
+    if (there.length === 0) return;
+    this.asOneStep(path, () => { for (const id of there) update(id, { tabletop: mergeExtra(walls[id]?.tabletop, change) }); });
+  }
+
+  /**
+   * Sets how high a light hangs, in grid squares (null: its default again): on the placed light's own record, or, for
+   * a light a token carries (`lightId` is the token's id), on the token's. One step of Atlas's history.
+   */
+  async setLightHeight(path: string, lightId: string, height: number | null): Promise<void> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.store(path);
+    const lights = state.objects?.lights ?? {};
+    const tokens = state.objects?.tokens ?? {};
+    if (Object.hasOwn(lights, lightId)) {
+      if (!state.updateLight) throw TokenWriter.missing('light update');
+      const update = state.updateLight;
+      this.asOneStep(path, () => update(lightId, { tabletop: mergeExtra(lights[lightId]?.tabletop, { height }) }));
+    } else if (Object.hasOwn(tokens, lightId)) {
+      if (!state.updateToken) throw TokenWriter.missing('token update');
+      const update = state.updateToken;
+      this.asOneStep(path, () => update(lightId, { tabletop: mergeExtra((tokens[lightId] as { tabletop?: unknown }).tabletop, { lightHeight: height }) }));
+    }
   }
 
   /** Opens or shuts a door (a locked one stays shut). */

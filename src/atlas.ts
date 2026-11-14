@@ -27,6 +27,7 @@ export interface AtlasSceneState {
     /** Atlas 0.15's kept measures, walls and map features, by id. */
     measures?: Readonly<Record<string, Record<string, unknown>>>;
     walls?: Readonly<Record<string, Record<string, unknown>>>;
+    lights?: Readonly<Record<string, Record<string, unknown>>>;
     mapFeatures?: Readonly<Record<string, Record<string, unknown>>>;
   };
   /** Atlas 0.10's levels (floors) and the one this view shows; an older Atlas has neither. */
@@ -72,6 +73,8 @@ export interface AtlasSceneState {
   addMeasure?: (data: Record<string, unknown>) => string | null;
   updateMeasure?: (id: string, changes: Record<string, unknown>) => void;
   deleteMeasure?: (id: string) => void;
+  /** Changes a placed light's fields; a field given as undefined is removed. */
+  updateLight?: (id: string, changes: Record<string, unknown>) => void;
   /** Atlas's walls and map features, as its own tools make them: add one (its id), take some off. */
   addWall?: (data: Record<string, unknown>) => string;
   deleteWalls?: (ids: string[]) => void;
