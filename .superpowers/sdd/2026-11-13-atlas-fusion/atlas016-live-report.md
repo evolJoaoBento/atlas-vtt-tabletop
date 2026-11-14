@@ -34,8 +34,9 @@ Tabletop f0f7d89 + sync 8a87a17, Connect e260613 + vendor 5304910, the vault's 0
 failed Phase 1 steps 3, 4 and 10 (twice; the second time, in a vault the first chain had moved, 4C's 44, 45 and 51
 too: their stacks were levels already), and the first time 4B's 37 on its notice alone (the move itself was right).
 Phase 1 alone from the copy then passed 16/16, steps 3, 4 and 10 among them, and the chain after it passed every step
-of its own except Phase 1's 10, which needs rooms not yet converted. The 0.16 chain from the copy passed whole. The
-known run-order artifact, not this pass's code (which touches no hosting, rooms, water or stacks).
+of its own except Phase 1's 10, which needs rooms not yet converted. The 0.16 chain from the copy passed whole. Steps 3 and 4 from the copy are an unexplained flake (the hidden host tab showed, `hidden: false`), not the
+run-order artifact: this pass's code touches no hosting, rooms, water or stacks, and Phase 1 alone from the same copy
+passed; step 10 after a first run is the run-order artifact (rooms converted already).
 
 ## New steps
 
