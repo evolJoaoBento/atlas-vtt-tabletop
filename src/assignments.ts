@@ -105,6 +105,21 @@ export class Assignments {
     this.changed(mapPath);
   }
 
+  /**
+   * The minis of a scene that became a level of another (`stackMove.ts`) stand on that scene's tokens too: copied to
+   * `to` under the ids its tokens have there (`ids`: old to new, where one was given anew). The scene keeps its own.
+   * No step of anyone's undo (listeners hear of a change of any map).
+   */
+  adopt(from: string, to: string, ids: Readonly<Record<string, string>>): void {
+    const source = this.data[from];
+    if (!source) return;
+    const target = { ...(this.data[to] ?? {}) };
+    for (const [id, placement] of Object.entries(source)) target[ids[id] ?? id] = placement;
+    if (JSON.stringify(target) === JSON.stringify(this.data[to] ?? {})) return;
+    this.data = { ...this.data, [to]: target };
+    this.changed(null);
+  }
+
   remove(mapPath: string, tokenId: string): void {
     if (!this.data[mapPath]?.[tokenId]) return;
     const map = { ...this.data[mapPath] };

@@ -18,6 +18,8 @@ export interface Shot {
   at: number;
   /** Vault path of the map the camera looks at. */
   mapPath: string;
+  /** The level of that scene the camera looks at (Atlas levels); unset is the first, and all of a scene without levels. */
+  level?: string;
   eye: Vec3;
   target: Vec3;
   /** A keyframe shapes the camera path but the run does not rest on it. */
@@ -38,9 +40,14 @@ export const MIN_SHOT_GAP_MS = 100;
 
 const TRANSITIONS: readonly Transition[] = ['fade', 'cut', 'move'];
 
-/** The transitions that may lead from one shot into the next: a move only stays on one map. */
+/** Whether two shots look at the same scene and the same level of it. */
+export function sameScene(a: Pick<Shot, 'mapPath' | 'level'>, b: Pick<Shot, 'mapPath' | 'level'>): boolean {
+  return a.mapPath === b.mapPath && (a.level ?? null) === (b.level ?? null);
+}
+
+/** The transitions that may lead from one shot into the next: a move only stays on one map, and on one level of it. */
 export function allowedTransitions(from: Shot, to: Shot): Transition[] {
-  return from.mapPath === to.mapPath ? ['fade', 'cut', 'move'] : ['fade', 'cut'];
+  return sameScene(from, to) ? ['fade', 'cut', 'move'] : ['fade', 'cut'];
 }
 
 const isObj = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -63,7 +70,7 @@ function readShot(raw: unknown): Shot | null {
   const target = readVec(raw.target);
   if (!eye || !target || sameVec(eye, target)) return null;
   const transition = TRANSITIONS.find((t) => t === raw.transition) ?? 'fade';
-  return { id: raw.id, at: raw.at, mapPath: raw.mapPath, eye, target, keyframe: raw.keyframe === true, transition };
+  return { id: raw.id, at: raw.at, mapPath: raw.mapPath, ...(typeof raw.level === 'string' && raw.level !== '' ? { level: raw.level } : {}), eye, target, keyframe: raw.keyframe === true, transition };
 }
 
 /** Turns every transition that its two shots do not allow (a move across maps) into a fade. */
@@ -119,13 +126,13 @@ export function limitProblem(c: Cutscene): string | null {
 }
 
 /** Adds a shot at its moment. Refused (unchanged) when it is too close to another shot, repeats an id, has a bad pose, or the cutscene is full or too long. */
-export function addShot(c: Cutscene, shot: Pick<Shot, 'id' | 'at' | 'mapPath' | 'eye' | 'target'>, preferred: Transition): Cutscene {
+export function addShot(c: Cutscene, shot: Pick<Shot, 'id' | 'at' | 'mapPath' | 'eye' | 'target'> & { level?: string | null }, preferred: Transition): Cutscene {
   if (!Number.isFinite(shot.at) || shot.at < 0 || shot.at > MAX_AT_MS || c.shots.length >= MAX_SHOTS || !validPose(shot)) return c;
   if (c.shots.some((other) => other.id === shot.id || Math.abs(other.at - shot.at) < MIN_SHOT_GAP_MS)) return c;
   const index = c.shots.findIndex((other) => other.at > shot.at);
   const at = index < 0 ? c.shots.length : index;
   const before = c.shots[at - 1];
-  const added: Shot = { id: shot.id, at: shot.at, mapPath: shot.mapPath, eye: shot.eye, target: shot.target, keyframe: false, transition: preferred };
+  const added: Shot = { id: shot.id, at: shot.at, mapPath: shot.mapPath, ...(shot.level ? { level: shot.level } : {}), eye: shot.eye, target: shot.target, keyframe: false, transition: preferred };
   if (before && !allowedTransitions(before, added).includes(preferred)) added.transition = 'fade';
   return { ...c, shots: fixTransitions([...c.shots.slice(0, at), added, ...c.shots.slice(at)]) };
 }
@@ -164,9 +171,14 @@ export function setKeyframe(c: Cutscene, shotId: string, keyframe: boolean): Cut
 }
 
 /** Gives a shot a new pose, and mends the transitions into it and out of it that the new map no longer allows. */
-export function updateShot(c: Cutscene, shotId: string, pose: { mapPath: string; eye: Vec3; target: Vec3 }): Cutscene {
+export function updateShot(c: Cutscene, shotId: string, pose: { mapPath: string; level?: string | null; eye: Vec3; target: Vec3 }): Cutscene {
   if (!validPose(pose)) return c;
-  const moved = replaceShot(c, shotId, (shot) => ({ ...shot, mapPath: pose.mapPath, eye: pose.eye, target: pose.target }));
+  const moved = replaceShot(c, shotId, (shot) => {
+    // A pose that says nothing of the level keeps the shot's; one that names none takes it off.
+    const { level: was, ...rest } = shot;
+    const level = pose.level === undefined ? was : pose.level;
+    return { ...rest, mapPath: pose.mapPath, ...(level ? { level } : {}), eye: pose.eye, target: pose.target };
+  });
   return moved === c ? c : { ...moved, shots: fixTransitions(moved.shots) };
 }
 
