@@ -382,3 +382,32 @@ export function waterFromWire(water: unknown): WaterSource | null {
   if (areas.length === 0 && !isObj(water.mask)) return null;
   return { ...(areas.length > 0 ? { areas } : {}), ...(isObj(water.mask) ? { mask: water.mask } : {}), motion: water.motion ?? null };
 }
+
+/**
+ * A level's water as a board is handed it: the outlines of its liquids, the saved mask of a map whose painted water
+ * was not moved to Atlas yet (`legacy`), and its motion: the one `chosen` on the board just now, else the brush's
+ * water's, else the old mask's. Null without water and without a motion chosen.
+ */
+export function waterSourceOf(liquids: readonly BoardLiquid[], legacy: { mask: unknown; motion?: unknown } | null, chosen: WaterMotion | null = null): WaterSource | null {
+  const motion = chosen ?? liquids.find((liquid) => liquid.motion !== null)?.motion ?? legacy?.motion ?? motionOf(liquids);
+  if (liquids.length === 0 && !legacy && !motion) return null;
+  return { areas: liquids.map(({ polygon, holes }) => ({ polygon, holes })), ...(legacy ? { mask: legacy.mask } : {}), motion: motion ?? null };
+}
+
+/** Water for the wire (`BoardWater`): outlines, an old mask not moved yet, and the motion; nothing without water. */
+export function wireWater(liquids: readonly BoardLiquid[], legacy: { mask: unknown; motion?: unknown } | null): { areas?: WireWaterArea[]; mask?: unknown; motion: unknown } | null {
+  const source = waterSourceOf(liquids, legacy);
+  if (!source || (liquids.length === 0 && !legacy)) return null;
+  return { ...(liquids.length > 0 ? { areas: wireAreas(source.areas ?? []) } : {}), ...(legacy ? { mask: legacy.mask } : {}), motion: source.motion };
+}
+
+/**
+ * The water a map kept as a brush mask in Tabletop's data, as the liquids its move to Atlas writes: its outlines as
+ * the brush's water on `level`, with the motion it had, the `room` largest patches at most. Null when the mask
+ * cannot be read for a map of this size (it was painted on another image).
+ */
+export function legacyWaterLiquids(legacy: { mask: unknown; motion?: unknown }, mapWidth: number, mapHeight: number, cell: number, level: string | null, room: number): Array<Record<string, unknown>> | null {
+  const mask = WaterMask.read(legacy.mask, mapWidth, mapHeight, cell);
+  if (!mask) return null;
+  return brushLiquids(maskOutlines(mask, { corners: LIQUID_LIMITS.corners, patches: Math.max(0, room) }), readWaterMotion(legacy.motion), level);
+}

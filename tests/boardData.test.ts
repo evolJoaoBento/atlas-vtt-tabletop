@@ -284,3 +284,21 @@ test('readBoardData round-trips cutscenes', () => {
   assert.deepEqual(read, data.toJSON());
   assert.equal(read.m?.cutscenes?.[0].shots.length, 2);
 });
+
+test("what a map kept of painted water before it moved to Atlas's liquids is read as it was, and goes once it has moved", () => {
+  const water = { mask: { width: 4, height: 4, data: 'AQ==' }, motion: { kind: 'flow' as const, amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 } };
+  const data = new BoardData(readBoardData(JSON.parse(JSON.stringify({ m: { water, fogHeight: 2 }, plain: { fogHeight: 3 } }))));
+  assert.deepEqual(data.legacyWater('m'), water);
+  assert.equal(data.legacyWater('plain'), null);
+  assert.equal(data.legacyWater('none'), null);
+  let changes = 0;
+  data.onChange(() => { changes += 1; });
+  data.clearLegacyWater('m');
+  assert.equal(data.legacyWater('m'), null);
+  assert.deepEqual(data.toJSON().m, { fogHeight: 2, waterMoved: true });
+  // Kept through a save, and done once.
+  assert.deepEqual(readBoardData(JSON.parse(JSON.stringify(data.toJSON()))).m, { fogHeight: 2, waterMoved: true });
+  data.clearLegacyWater('m');
+  data.clearLegacyWater('none');
+  assert.equal(changes, 1);
+});

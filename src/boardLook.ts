@@ -10,6 +10,7 @@ import type { TFile, TFolder, Vault } from 'obsidian';
 import type { BoardData } from './board/boardData';
 import type { BoardWall } from './board/walls';
 import { extrasOf, type RecordExtras } from './board/recordExtras';
+import { wireWater } from './board/liquids';
 import { defaultsUsed, materialWith, type MaterialDefaults } from './materialDefaults';
 import { placedTable, type ArTable } from './arTable';
 import type { BoardLayerLook, BoardLook, BoardWater } from './connectContract';
@@ -45,7 +46,7 @@ export function lookMaps(mapPath: string, viewedLevel: string | null, scenes: { 
   return { own, shown, levelMap };
 }
 
-export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: string, layers: ReadonlyArray<BoardLayerLook> = [], shown: { levels: readonly BoardLevel[]; level: string | null } = { levels: [], level: null }, defaults: { walls: readonly BoardWall[]; chosen: MaterialDefaults } | null = null, extras: RecordExtras = extrasOf(null, data.legacyExtras(mapPath))): BoardLook {
+export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: string, layers: ReadonlyArray<BoardLayerLook> = [], shown: { levels: readonly BoardLevel[]; level: string | null } = { levels: [], level: null }, defaults: { walls: readonly BoardWall[]; chosen: MaterialDefaults } | null = null, extras: RecordExtras = extrasOf(null, data.legacyExtras(mapPath)), water: { water?: BoardWater } = waterOf(null, onFirstLevel(shown.levels, shown.level) ? data.legacyWater(mapPath) : null)): BoardLook {
   // Walls with no material painted wear their kind's default, for players too.
   const wallsById = new Map((defaults?.walls ?? []).map((wall) => [wall.id, wall]));
   const wallMaterial = (id: string): string | null => {
@@ -72,8 +73,8 @@ export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: 
     // The board's light is Atlas's scene lighting, which players are sent with the scene: nothing of its own here.
     ambient: null,
     ...(layers.length > 0 ? { layers } : {}),
-    // Painted water lies on the scene's first level; props stand on their own level.
-    ...(onFirstLevel(shown.levels, shown.level) ? waterOf(data, mapPath) : {}),
+    // The water of the level shown (Atlas's liquids, as the caller read them); props stand on their own level.
+    ...water,
     ...arTableOf(data, mapPath),
     props: propsOnLevel(data.props(mapPath), shown.level, shown.levels).map((prop) => ({ id: prop.id, path: prop.glb, x: prop.x, y: prop.y, scale: prop.scale, turn: prop.rotation, ...(prop.solid ? { solid: true } : {}), ...(prop.lift ? { lift: prop.lift } : {}) })),
     materials: used,
@@ -86,10 +87,13 @@ export function arTableOf(data: BoardData, mapPath: string): { arTable?: ArTable
   return saved ? { arTable: placedTable(saved) } : {};
 }
 
-/** The map's painted water with its motion, for players; nothing when it has none. */
-export function waterOf(data: BoardData, mapPath: string): { water?: BoardWater } {
-  const saved = data.water(mapPath);
-  return saved ? { water: { mask: { ...saved.mask }, motion: data.waterMotion(mapPath) } } : {};
+/**
+ * A level's water for players: the outlines of its liquids as Atlas has them (`map`), the old mask of a map whose
+ * painted water was not moved to Atlas yet (`legacy`), and its motion; nothing when it has none.
+ */
+export function waterOf(map: Pick<BoardMap, 'liquids'> | null, legacy: ReturnType<BoardData['legacyWater']>): { water?: BoardWater } {
+  const water = wireWater(map?.liquids ?? [], legacy);
+  return water ? { water: water as BoardWater } : {};
 }
 
 /** A material's maps by role, as the wire names them. */

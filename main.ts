@@ -6,7 +6,7 @@ import { mapViews, presentedSceneOf, tabViewOf } from './src/atlas';
 import { SpellUpkeep } from './src/board/spellUpkeep';
 import { extrasOf, followMovedPaths } from './src/board/recordExtras';
 import { MovedPaths } from './src/board/movedPaths';
-import { resolveLevel } from './src/board/levels';
+import { onFirstLevel, resolveLevel } from './src/board/levels';
 import { BOARD_VIEW_TYPE, BoardView, HOVER_SOURCE } from './src/board/BoardView';
 import { PLAYER_VIEW_TYPE, PlayerView } from './src/board/PlayerWindow';
 import { BoardData, readBoardData, readVariants, type BoardDataJSON, type PropLook } from './src/board/boardData';
@@ -33,7 +33,7 @@ import { DEFAULT_MINIS_FOLDER, DEFAULT_PROPS_FOLDER, MiniLibrary, PROPS } from '
 import { DEFAULT_MATERIALS_FOLDER, MaterialLibrary } from './src/materials';
 import { GpuSettings, currentChip, gpuChoices, type GpuPreference } from './src/gpu';
 import { playerMiniPainter, type PlayerMiniPainter } from './src/playerMinis';
-import { boardLookFor, lookMaps, MaterialIndex } from './src/boardLook';
+import { boardLookFor, lookMaps, MaterialIndex, waterOf } from './src/boardLook';
 import { LayerIndex, layersFor } from './src/boardLayers';
 import { playerBoardFactory, type PlayerBoardFactory } from './src/playerBoard';
 import { documentHasWebgl } from './src/webgl';
@@ -479,7 +479,9 @@ export default class TabletopPlugin extends Plugin {
         const walls = [...(own?.walls ?? []), ...(levelMap?.walls ?? [])];
         // What the GM set on them in 3D rides on Atlas's own records, as the map's file has them.
         const extras = extrasOf({ walls, lights: [...(own?.lights ?? []), ...(levelMap?.lights ?? [])] }, this.boardData.legacyExtras(mapPath));
-        return Object.freeze({ ...boardLookFor(this.boardData, this.materialIndex!, mapPath, layers, shown, { walls, chosen }, extras), layerLook: readLayerLook(this.settings.layerLook) });
+        // The water of the level players are shown: Atlas's liquids, and an old mask not moved yet (it lies on the first level).
+        const water = waterOf(levelMap ?? own, !shown || onFirstLevel(shown.levels, shown.level) ? this.boardData.legacyWater(mapPath) : null);
+        return Object.freeze({ ...boardLookFor(this.boardData, this.materialIndex!, mapPath, layers, shown, { walls, chosen }, extras, water), layerLook: readLayerLook(this.settings.layerLook) });
       },
       onBoardChange: (listener: (mapPath: string | null) => void) => {
         this.boardListeners.add(listener);

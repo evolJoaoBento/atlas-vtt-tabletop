@@ -68,18 +68,15 @@ test('Tabletop\'s own data is recorded, and a slider\'s many changes are one ste
   assert.equal(assignments.get('m', 't1'), null);
 });
 
-test('painted water is undone and redone with the board data', async () => {
+test("the move of a map's painted water to Atlas's liquids is no step of the board's undo, and an older step does not bring the mask back", async () => {
   const history = new UndoHistory();
-  const boardData = new BoardData();
+  const boardData = new BoardData({ m: { water: { mask: { width: 4, height: 4, data: 'AQ==' }, motion: { kind: 'flow', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 } }, fogHeight: 1.5 } });
   recordTabletopData(history, boardData, new Assignments());
-  boardData.setWater('m', { width: 4, height: 4, data: 'AQ==' });
-  boardData.setWater('m', { width: 4, height: 4, data: 'Ag==' });
-  await history.undo(['m']);
-  assert.equal(boardData.water('m')?.mask.data, 'AQ==');
-  await history.undo(['m']);
-  assert.equal(boardData.water('m'), null);
-  await history.redo(['m']);
-  assert.equal(boardData.water('m')?.mask.data, 'AQ==');
+  boardData.setFogHeight('m', 2);
+  boardData.clearLegacyWater('m');
+  assert.equal((await history.undo(['m']))?.done, true);
+  assert.deepEqual(boardData.toJSON().m, { fogHeight: 1.5, waterMoved: true });
+  assert.equal(history.canUndo(['m']), false);
 });
 
 test("a change Atlas took is undone in Atlas's own history", async () => {

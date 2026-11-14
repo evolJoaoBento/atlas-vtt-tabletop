@@ -140,7 +140,7 @@ export function layersFor(data: BoardData, materials: MaterialView, scenes: Pick
       materials: used,
       fogHeight: data.fogHeight(member.path),
       wallThickness: data.wallThickness(member.path),
-      ...waterOf(data, member.path),
+      ...waterOf(map, data.legacyWater(member.path)),
     });
   }
   return out.sort((a, b) => a.elevation - b.elevation);
@@ -170,7 +170,8 @@ function levelLayersFor(data: BoardData, materials: MaterialView, scenes: Pick<L
     if (data.layerHidden(`${mapPath}#atlas-level:${level.id}`)) continue;
     const map = scenes.mapAt(mapPath, level.id);
     if (!map || !map.background) continue;
-    const water = onFirstLevel(own.levels, level.id) ? waterOf(data, mapPath) : {};
+    // The level's own liquids; a mask painted before water was Atlas's lies on the first level.
+    const water = waterOf(map, onFirstLevel(own.levels, level.id) ? data.legacyWater(mapPath) : null);
     const extras = extrasOf(map, legacy);
     out.push({
       elevation: levelRise(own.levels, shown, level.id, units),

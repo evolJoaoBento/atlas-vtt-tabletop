@@ -701,6 +701,11 @@ export class Board {
   private sightApplied = false;
   private map: BoardMap | null = null;
   private size = { width: 0, height: 0 };
+
+  /** The map's size in map pixels (its image's), once it is drawn; null before. */
+  get mapSize(): { width: number; height: number } | null {
+    return this.size.width > 0 && this.size.height > 0 ? { width: this.size.width, height: this.size.height } : null;
+  }
   private hasImage = false;
   private readonly tokens = new Map<string, TokenEntry>();
   private pins: PinPiece[] = [];

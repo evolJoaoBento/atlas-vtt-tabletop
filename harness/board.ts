@@ -8,10 +8,9 @@ import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { Board, type BoardHost } from '../src/board/board';
 import { SceneTabBar } from '../src/board/sceneTabBar';
-import { BoardData, type PropPlacement } from '../src/board/boardData';
-import { Assignments } from '../src/assignments';
-import { UndoHistory } from '../src/board/undoHistory';
-import { recordTabletopData } from '../src/board/undoRecorders';
+import type { PropPlacement } from '../src/board/boardData';
+import { UndoHistory, type UndoStep } from '../src/board/undoHistory';
+import type { SavedWaterMask, WaterMotion } from '../src/board/water';
 import { emptyRules } from '../src/board/conditions';
 import { QUALITY } from '../src/board/quality';
 import { lookOf } from '../src/board/look';
@@ -291,11 +290,25 @@ async function main(): Promise<void> {
   };
   // The base under the hero's mini, set by the checks (the board reads placements when it syncs).
   let heroBase: 'none' | 'round' | 'square' = 'none';
-  // Tabletop's own board data for the water, with the undo history recording it, as the plugin has them.
-  const waterData = new BoardData();
+  // The map's water as these checks' host keeps it (a saved mask and its motion: in the plugin it is Atlas's liquids),
+  // each change a step of the undo history, a slider's run of changes one step.
   const history = new UndoHistory();
-  recordTabletopData(history, waterData, new Assignments());
   const waterPath = 'map.atlasmap';
+  type KeptWater = { mask: SavedWaterMask | null; motion: WaterMotion | null };
+  const waterStore: KeptWater = { mask: null, motion: null };
+  const setWaterStore = (value: KeptWater): void => { waterStore.mask = value.mask; waterStore.motion = value.motion; board.refresh(); };
+  const waterStep = (from: KeptWater, to: KeptWater, look: boolean): UndoStep => Object.assign({
+    paths: [waterPath], label: look ? 'water look' : 'water',
+    undo: () => { setWaterStore(from); return true; },
+    redo: () => { setWaterStore(to); return true; },
+    ...(look ? { mergeKey: `board:${waterPath}:waterLook`, merge: (earlier: UndoStep) => waterStep((earlier as { from?: KeptWater }).from ?? from, to, look) } : {}),
+  }, { from });
+  const putWater = (next: KeptWater, look: boolean): void => {
+    const before = { ...waterStore };
+    if (JSON.stringify(before) === JSON.stringify(next)) return;
+    setWaterStore(next);
+    history.push(waterStep(before, { ...next }, look));
+  };
   const travel = (way: 'undo' | 'redo'): void => { void history[way]([waterPath]).then(() => board.refreshToolbar()); };
   // The spell notes searched: none until a test gives them (`setSpellNotes`).
   let spellEntries: SpellEntry[] | null = null;
@@ -325,9 +338,10 @@ async function main(): Promise<void> {
   };
   const host: BoardHost = {
     spellBook: () => (spellEntries === null ? null : spellBook),
-    water: () => { const saved = waterData.water(waterPath); const motion = waterData.waterMotion(waterPath); return saved || motion ? { mask: saved?.mask ?? null, motion } : null; },
-    saveWater: (mask) => waterData.setWater(waterPath, mask),
-    saveWaterMotion: (motion) => waterData.setWaterMotion(waterPath, motion),
+    water: () => (waterStore.mask || waterStore.motion ? { mask: waterStore.mask, motion: waterStore.motion } : null),
+    saveWater: (mask) => putWater({ mask, motion: waterStore.motion }, false),
+    // Without water yet the motion is only remembered, for the first stroke.
+    saveWaterMotion: (motion) => { if (waterStore.mask) putWater({ mask: waterStore.mask, motion }, true); else waterStore.motion = motion; },
     undo: () => travel('undo'),
     redo: () => travel('redo'),
     canUndo: () => history.canUndo([waterPath]),
@@ -499,7 +513,6 @@ async function main(): Promise<void> {
   };
   const container = document.getElementById('board')!;
   const board = new Board(container, host, QUALITY.medium);
-  waterData.onChange(() => board.refresh());
   history.onChange(() => board.refreshToolbar());
   // Atlas's scene tabs over the board, from the Atlas view holding its map.
   const sceneTabs = new SceneTabBar(container, {

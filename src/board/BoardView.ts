@@ -36,7 +36,7 @@ import type { BoardData, PropLook, PropVariant } from './boardData';
 import { lookOf } from './boardData';
 import type { UndoHistory } from './undoHistory';
 import { ASSETS_METADATA_PATH, collectionOf, emptyRules, readCollectionRules, type CollectionRules } from './conditions';
-import { levelName, levelRise, onFirstLevel, propsOnLevel, resolveLevel } from './levels';
+import { levelName, levelRise, onFirstLevel, onLevelRecord, propsOnLevel, resolveLevel } from './levels';
 import { mapStateChanged, readMap, readMapMeasures, readMapState, type BoardMap, type BoardToken } from './mapModel';
 import { feetPerSquare, readMeasurement } from './measure';
 import { reconcileSpells } from './spellReconciler';
@@ -52,6 +52,8 @@ import { InitiativePanel, type InitiativePanelHost } from './initiativePanel';
 import { wholeWall, isWindow, mirroredDoor, rotatedDoor, windowSpan, WINDOW_STEP, type DoorFlip } from './walls';
 import { extrasOf, readLightHeight, readWallExtra, type RecordExtras, type WallExtraChange } from './recordExtras';
 import { planExtrasMove } from './extrasMigration';
+import { brushLiquids, legacyWaterLiquids, LIQUID_LIMITS, maskOutlines, readLiquids, waterSourceOf, withoutAreas, type WaterArea, type WaterSource } from './liquids';
+import { readWaterMotion, WaterMask, type SavedWaterMask, type WaterMotion } from './water';
 import { MeasureFullError, NotHeldError, type TokenChange } from './tokenWriter';
 import { HOST_BAR_LABELS, hostBar, mapName } from './hostBar';
 import { migrationWalls, roomsAwaitAtlas, roomWallMoves } from './roomWallMigration';
@@ -102,6 +104,10 @@ const MEASURE_ACCENT = '#7c5cff';
 const RECONCILE_MS = 150;
 /** The maps whose 3D settings are being moved onto Atlas's records right now, whichever board started it. */
 const MOVING_EXTRAS = new Set<string>();
+/** The maps whose painted water is being moved to Atlas's liquids right now. */
+const MOVING_WATER = new Set<string>();
+/** How long the water's sliders must rest before its motion is written to Atlas's liquids (one step of its undo, not one per notch). */
+const WATER_MOTION_MS = 500;
 const RELOAD_MS = 300;
 /** A light hangs a square above the map until the GM sets its height; the menu steps it a quarter square. */
 const DEFAULT_LIGHT_SQUARES = 1;
@@ -407,6 +413,8 @@ export class BoardView extends ItemView {
     this.dropFlashes();
     if (this.reconcileTimer !== null) (this.contentEl.ownerDocument.defaultView ?? window).clearTimeout(this.reconcileTimer);
     this.reconcileTimer = null;
+    if (this.motionTimer !== null) (this.contentEl.ownerDocument.defaultView ?? window).clearTimeout(this.motionTimer);
+    this.motionTimer = null;
     this.stopTabs?.();
     this.stopTabs = null;
     this.sceneTabs?.dispose();
@@ -785,7 +793,6 @@ export class BoardView extends ItemView {
       // A light on several levels lights the shown one already: the layer does not light it twice.
       const lit = new Set(shown.lights.map((light) => light.id));
       if (!current) map = { ...map, lights: map.lights.filter((light) => !lit.has(light.id)) };
-      const water = onFirstLevel(shown.levels, level.id) ? boardData.water(path) : null;
       layers.push({
         path: levelKey(level.id),
         elevation: levelRise(shown.levels, shown.level, level.id, unit),
@@ -794,7 +801,8 @@ export class BoardView extends ItemView {
         fogHeight: boardData.fogHeight(path),
         wallThickness: boardData.wallThickness(path),
         props: propsOnLevel(boardData.props(path), level.id, shown.levels),
-        water: water ? { mask: water.mask, motion: boardData.waterMotion(path) } : null,
+        // The level's own liquids; a mask painted before water was Atlas's lies on the first level.
+        water: waterSourceOf(map.liquids, onFirstLevel(shown.levels, level.id) ? boardData.legacyWater(path) : null),
         // Levels share the scene's grid: each lies where it is.
         stands: NO_PLACEMENT,
         placement: (id) => assignments.get(path, id),
@@ -917,7 +925,7 @@ export class BoardView extends ItemView {
           fogHeight: boardData.fogHeight(member.path),
           wallThickness: boardData.wallThickness(member.path),
           props: boardData.props(member.path),
-          water: (() => { const saved = boardData.water(member.path); const motion = boardData.waterMotion(member.path); return saved ? { mask: saved.mask, motion } : null; })(),
+          water: waterSourceOf(map.liquids, boardData.legacyWater(member.path)),
           // Where it stands on the plane, seen from this scene: the one being played is drawn as it is.
           stands: relativeTo(mine?.placement ?? NO_PLACEMENT, member.placement),
           placement: (id) => assignments.get(member.path, id),
@@ -1015,6 +1023,8 @@ export class BoardView extends ItemView {
     await board.load(map, shiftY, carry);
     this.menu?.refresh();
     this.watchAtlas();
+    // Water painted before water was Atlas's: moved to Atlas's liquids now that the board knows the map's size.
+    void this.moveWater(path);
     // The board the GM is on brings Atlas to its map as it opens; one opened behind another tab waits to be worked on.
     if (fresh && (this.app.workspace as unknown as { activeLeaf?: WorkspaceLeaf | null }).activeLeaf === this.leaf) this.followHost();
     // The tracker shows when the map has combatants; the I key or the board settings show or hide it.
@@ -1211,6 +1221,47 @@ export class BoardView extends ItemView {
     }
   }
 
+  /**
+   * Once per map, when Atlas holds it and the board has drawn it: the water painted on it before water was Atlas's,
+   * which Tabletop kept as a brush mask in its own data, is written as Atlas's liquids (`liquids.ts`: its outlines,
+   * within a sixteenth of a square of the brush's edge, on the scene's first level). A backup of the map and of
+   * Tabletop's data for it is written first, and one notice says what was moved.
+   */
+  private async moveWater(path: string): Promise<void> {
+    const { boardData, writer } = this.services;
+    const legacy = boardData.legacyWater(path);
+    const size = this.board?.mapSize ?? null;
+    const map = this.map;
+    if (!legacy || MOVING_WATER.has(path) || this.closed || !size || !map || map.path !== path) return;
+    const view = writer.holder(path);
+    if (!view) return;
+    // The old mask lay on the scene's first level; the level takes what Atlas keeps there, less what it already has.
+    const first = map.levels[0]?.id ?? null;
+    const there = readLiquids(onLevelRecord(view.atlasStore.getState().objects?.liquids, first, map.levels)).length;
+    const add = legacyWaterLiquids(legacy, size.width, size.height, map.grid.size, first, LIQUID_LIMITS.patches - there);
+    MOVING_WATER.add(path);
+    try {
+      const name = mapName(path);
+      const folder = await writeBackup(this.app, new Date(), [
+        { name: `${name}.atlasmap`, text: await this.app.vault.adapter.read(path) },
+        { name: `${name}.tabletop.json`, text: JSON.stringify(boardData.toJSON()[path] ?? {}, null, 2) },
+      ]);
+      // Another board of this map did it meanwhile.
+      if (boardData.legacyWater(path) === null) return;
+      if (add) await writer.applyWaterMove(path, add);
+      boardData.clearLegacyWater(path);
+      new Notice(add
+        ? `Tabletop: the water painted on ${name} is now Atlas's own (${add.length} ${add.length === 1 ? 'liquid' : 'liquids'}); backup in ${folder}/`
+        : `Tabletop: the water painted on ${name} could not be read (it was painted on an image of another size) and was left in the backup, in ${folder}/`, 0);
+      this.reload();
+    } catch (error) {
+      // Atlas let go of the map, its level is full, or the backup could not be written: the water stays where it was, for the next time.
+      if (!(error instanceof NotHeldError)) console.warn('Tabletop: the painted water could not be moved to Atlas:', error);
+    } finally {
+      MOVING_WATER.delete(path);
+    }
+  }
+
   private releaseHost: (() => void) | null = null;
   /** Whether Atlas held this board's map when last heard of. */
   private hostHolds = false;
@@ -1404,9 +1455,9 @@ export class BoardView extends ItemView {
       controlledByPlayers: (tokenId) => this.services.session?.()?.controllers?.(tokenId)?.some((player) => player.controls) === true,
       spellBook: () => this.services.spellBook?.() ?? null,
       layerHidden: (path) => path !== this.path && boardData.layerHidden(levelOfKey(path) !== null ? `${this.path ?? ''}#${path}` : path),
-      water: () => { if (this.map && !onFirstLevel(this.map.levels, this.map.level)) return null; const path = mapPath(); const saved = boardData.water(path); const motion = boardData.waterMotion(path); return saved || motion ? { mask: saved?.mask ?? null, motion } : null; },
-      saveWater: (mask) => boardData.setWater(mapPath(), mask),
-      saveWaterMotion: (motion) => boardData.setWaterMotion(mapPath(), motion),
+      water: () => this.water(),
+      saveWater: (mask) => this.saveWater(mapPath(), mask),
+      saveWaterMotion: (motion) => this.saveWaterMotion(mapPath(), motion),
       undo: () => this.travel('undo'),
       redo: () => this.travel('redo'),
       canUndo: () => this.services.history?.canUndo(this.undoPaths()) === true,
@@ -1662,6 +1713,78 @@ export class BoardView extends ItemView {
         else if (action.type === 'template') this.gmTemplate(path, action.change);
       },
     };
+  }
+
+  /** The water just painted or re-tinted, handed to the board until the map is read again with it (so it is not drawn twice). */
+  private paintedWater: { liquids: BoardMap['liquids']; source: WaterSource } | null = null;
+  /** The motion chosen on each map this session: for a map with no brush water yet, and while a change waits to be written. */
+  private readonly chosenMotion = new Map<string, WaterMotion>();
+  private motionTimer: number | null = null;
+
+  /**
+   * This map's water as the board draws it: every liquid Atlas has on the level shown (`liquids.ts`), and, on the
+   * first level of a map whose painted water was not moved to Atlas yet, its old mask.
+   */
+  private water(): WaterSource | null {
+    const map = this.map && this.map.path === this.path ? this.map : null;
+    if (!map) return null;
+    if (this.paintedWater?.liquids === map.liquids) return this.paintedWater.source;
+    this.paintedWater = null;
+    const legacy = onFirstLevel(map.levels, map.level) ? this.services.boardData.legacyWater(map.path) : null;
+    return waterSourceOf(map.liquids, legacy, this.chosenMotion.get(map.path) ?? null);
+  }
+
+  /** How this map's brush water moves now: as chosen this session, else as its liquids say, else the default. */
+  private motionNow(map: BoardMap): WaterMotion {
+    return this.chosenMotion.get(map.path) ?? map.liquids.find((liquid) => liquid.motion !== null)?.motion ?? readWaterMotion(this.services.boardData.legacyWater(map.path)?.motion);
+  }
+
+  /**
+   * Writes the brush's water of the level shown to Atlas's liquids: `areas` take the place of the brush-made liquids,
+   * in one step of Atlas's undo. Liquids made in Atlas are not touched.
+   */
+  private writeWater(map: BoardMap, areas: readonly WaterArea[], motion: WaterMotion): void {
+    const add = brushLiquids(areas, motion, map.level);
+    const remove = map.liquids.filter((liquid) => liquid.brush).map((liquid) => liquid.id);
+    const foreign = map.liquids.filter((liquid) => !liquid.brush);
+    // What the board is handed until the map is read again: the same outlines Atlas will give back.
+    const written = add.map((liquid) => ({ polygon: liquid.polygon as WaterArea['polygon'], holes: (liquid.holes as WaterArea['holes'] | undefined) ?? [] }));
+    this.paintedWater = { liquids: map.liquids, source: { areas: [...foreign.map(({ polygon, holes }) => ({ polygon, holes })), ...written], motion } };
+    this.services.writer.replaceLiquids(map.path, remove, add).then((ids) => {
+      if (ids.length < add.length) new Notice('Tabletop: Atlas keeps no more liquids on this level; the smallest patches of water were left out.', 8000);
+    }).catch((error: unknown) => {
+      this.paintedWater = null;
+      this.unsaved('water', error);
+    });
+  }
+
+  /** A finished stroke of the water brush (or bucket): the mask as painted, null when no water is left. */
+  private saveWater(path: string, saved: SavedWaterMask | null): void {
+    const map = this.map;
+    const size = this.board?.mapSize ?? null;
+    if (!map || map.path !== path || !size) return;
+    const painted = saved ? WaterMask.read(saved, size.width, size.height, map.grid.size) : WaterMask.forMap(size.width, size.height, map.grid.size);
+    if (!painted) return;
+    // Where a liquid made in Atlas lies the brush says nothing: that one is Atlas's to change.
+    const foreign = map.liquids.filter((liquid) => !liquid.brush);
+    const areas = maskOutlines(withoutAreas(painted, foreign), { corners: LIQUID_LIMITS.corners, patches: Math.max(0, LIQUID_LIMITS.patches - foreign.length) });
+    this.writeWater(map, areas, this.motionNow(map));
+  }
+
+  /** The water's motion was changed on the board: shown at once, and written to the brush's liquids once the sliders rest. */
+  private saveWaterMotion(path: string, motion: WaterMotion): void {
+    this.chosenMotion.set(path, motion);
+    const win = this.contentEl.ownerDocument.defaultView ?? window;
+    if (this.motionTimer !== null) win.clearTimeout(this.motionTimer);
+    this.motionTimer = win.setTimeout(() => {
+      this.motionTimer = null;
+      const map = this.map;
+      if (this.closed || !map || map.path !== path) return;
+      const mine = map.liquids.filter((liquid) => liquid.brush);
+      // No brush water yet: the motion waits, chosen, for the first stroke.
+      if (mine.length === 0 || JSON.stringify(mine[0]!.motion) === JSON.stringify(motion)) return;
+      this.writeWater(map, mine.map(({ polygon, holes }) => ({ polygon, holes })), motion);
+    }, WATER_MOTION_MS);
   }
 
   private extrasOfMap: { map: BoardMap; walls: BoardMap['walls']; lights: BoardMap['lights']; legacy: unknown; extras: RecordExtras } | null = null;

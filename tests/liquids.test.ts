@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { waterFromWire, wireAreas, brushLiquids, LIQUID_LIMITS, maskOfSource, maskOutlines, motionOf, rasterAreas, readLiquids, waterKeyOf, withoutAreas, type WaterArea } from '../src/board/liquids';
+import { legacyWaterLiquids, waterFromWire, wireAreas, brushLiquids, LIQUID_LIMITS, maskOfSource, maskOutlines, motionOf, rasterAreas, readLiquids, waterKeyOf, withoutAreas, type WaterArea } from '../src/board/liquids';
 import { DEFAULT_WATER_MOTION, WaterMask } from '../src/board/water';
 
 /** A mask of 10 px texels (an 80 px cell) drawn from rows of `#` (wet) and `.` (dry). */
@@ -160,4 +160,21 @@ test('water goes to players as outlines, each ring a flat list of places, and is
   assert.equal(waterFromWire(null), null);
   // A GM of before sent a saved mask: still drawn.
   assert.deepEqual(waterFromWire({ mask: { width: 1, height: 1, data: 'AQ==' }, motion: null }), { mask: { width: 1, height: 1, data: 'AQ==' }, motion: null });
+});
+
+test("a map's old painted water is moved as the brush's liquids on its first level, with the motion it had; a mask made for a map of another size cannot be read", () => {
+  const painted = maskOf(['##..', '##..', '...#']);
+  const motion = { ...DEFAULT_WATER_MOTION, kind: 'waves' as const, tint: '#123456' };
+  const liquids = legacyWaterLiquids({ mask: painted.save(), motion }, 40, 30, 80, 'ground', 256);
+  assert.equal(liquids?.length, 2);
+  assert.deepEqual(liquids!.map((liquid) => [liquid.liquid, liquid.level, (liquid.tabletop as { brush: boolean; motion: unknown }).brush, (liquid.tabletop as { motion: unknown }).motion]), [['water', 'ground', true, motion], ['water', 'ground', true, motion]]);
+  // The very same water back.
+  const back = WaterMask.like(painted);
+  rasterAreas(back, readLiquids(Object.fromEntries(liquids!.map((liquid, index) => [`l${index}`, liquid]))));
+  assert.deepEqual(rowsOf(back), rowsOf(painted));
+  // No room left on the level: the largest patches that fit.
+  assert.equal(legacyWaterLiquids({ mask: painted.save() }, 40, 30, 80, null, 1)?.length, 1);
+  assert.equal('level' in legacyWaterLiquids({ mask: painted.save() }, 40, 30, 80, null, 1)![0]!, false);
+  assert.equal(legacyWaterLiquids({ mask: painted.save(), motion }, 400, 300, 80, null, 256), null);
+  assert.equal(legacyWaterLiquids({ mask: 'junk' }, 40, 30, 80, null, 256), null);
 });

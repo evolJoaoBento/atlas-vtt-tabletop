@@ -58,8 +58,13 @@ export interface MapData {
   layer?: ElevationLayer;
   /** This layer is not drawn on the boards of its stack (the GM hid it); it stays in the stack. */
   hidden?: true;
-  /** Water painted over the map (src/board/water.ts), and how all of it moves. */
+  /**
+   * Water painted over the map before it was kept as Atlas's liquids (`liquids.ts`): its mask and how it moved. Read
+   * only, until the map's water is moved (`legacyWater`).
+   */
   water?: { mask: SavedWaterMask; motion?: WaterMotion };
+  /** The map's painted water was moved to Atlas's liquids: done once. */
+  waterMoved?: true;
   /** Where the players' printed AR marker sheets lie on this map (`arTable.ts`). */
   arTable?: SavedArTable;
   /** Cinematic cutscenes made in this map (their shots may look at other maps). */
@@ -157,6 +162,7 @@ function tidy(map: MapData): MapData | null {
   if (map.layer) out.layer = map.layer;
   if (map.hidden === true) out.hidden = true;
   if (map.water) out.water = map.water;
+  if (map.waterMoved === true) out.waterMoved = true;
   if (map.arTable) out.arTable = map.arTable;
   if (map.cutscenes && map.cutscenes.length > 0) out.cutscenes = map.cutscenes;
   if (map.roomWallsMoved === true) out.roomWallsMoved = true;
@@ -251,6 +257,7 @@ export function readBoardData(raw: unknown): BoardDataJSON {
       ...(wallThickness !== undefined && { wallThickness }),
       ...(value.roomWallsMoved === true && { roomWallsMoved: true as const }),
       ...(value.extrasMoved === true && { extrasMoved: true as const }),
+      ...(value.waterMoved === true && { waterMoved: true as const }),
     });
     if (kept) out[path] = kept;
   }
@@ -312,9 +319,10 @@ export class BoardData {
     // What a migration did is never taken back with an older step: the settings it moved onto Atlas's records do not
     // come back into this data (they would be moved again, over what was changed since), and its marks stay.
     const now = this.data[mapPath];
-    if (now?.extrasMoved === true || now?.roomWallsMoved === true) {
+    if (now?.extrasMoved === true || now?.roomWallsMoved === true || now?.waterMoved === true) {
       const kept: MapData = { ...(map ?? {}) };
       if (now.extrasMoved === true) { for (const key of LEGACY_EXTRAS) delete kept[key]; kept.extrasMoved = true; }
+      if (now.waterMoved === true) { delete kept.water; kept.waterMoved = true; }
       if (now.roomWallsMoved === true) {
         kept.roomWallsMoved = true;
         // The re-keyed records are the ones that count; an older step knows them under the old names.
@@ -529,33 +537,22 @@ export class BoardData {
     return true;
   }
 
-  /** The map's painted water and its motion; null while it has none. */
-  water(mapPath: string): { mask: SavedWaterMask; motion?: WaterMotion } | null {
-    return this.data[mapPath]?.water ?? null;
-  }
-
-  /** Keeps the map's painted water (null: none left); its motion is kept. */
-  setWater(mapPath: string, mask: SavedWaterMask | null): void {
-    const map = this.data[mapPath] ?? {};
-    const motion = map.water?.motion;
-    const { water: _water, ...rest } = map;
-    this.put(mapPath, mask ? { ...rest, water: { mask, ...(motion && { motion }) } } : rest);
-    if (!mask && motion) this.waterMotions.set(mapPath, motion);
-  }
-
-  /** How all of the map's water moves (kept with its water; remembered until water is painted). */
-  waterMotion(mapPath: string): WaterMotion | null {
-    return this.data[mapPath]?.water?.motion ?? this.waterMotions.get(mapPath) ?? null;
-  }
-
-  setWaterMotion(mapPath: string, motion: WaterMotion): void {
-    this.waterMotions.set(mapPath, motion);
+  /**
+   * The water painted on this map before it was kept as Atlas's liquids: its mask and motion, read only, as a fallback
+   * while the map's water was not moved yet; null once it was, or without any.
+   */
+  legacyWater(mapPath: string): { mask: SavedWaterMask; motion?: WaterMotion } | null {
     const map = this.data[mapPath];
-    if (map?.water) this.put(mapPath, { ...map, water: { ...map.water, motion } });
+    return map && map.waterMoved !== true ? map.water ?? null : null;
   }
 
-  /** Motions chosen for maps without water yet. */
-  private readonly waterMotions = new Map<string, WaterMotion>();
+  /** The map's painted water was moved to Atlas's liquids (or could not be read): it leaves this data, once. */
+  clearLegacyWater(mapPath: string): void {
+    const map = this.data[mapPath];
+    if (!map || (map.waterMoved === true && map.water === undefined)) return;
+    const { water: _water, ...rest } = map;
+    this.put(mapPath, { ...rest, waterMoved: true });
+  }
 
   /** Whether this layer is hidden on the boards of its stack. */
   layerHidden(mapPath: string): boolean {
