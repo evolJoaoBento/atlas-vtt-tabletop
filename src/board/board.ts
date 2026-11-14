@@ -62,7 +62,7 @@ import { FogVolume } from './fogVolume';
 import { LaserBeam } from './laserBeam';
 import { LaserTrail, beamWidth, smoothBeam, type LaserSettings } from './laser';
 import { WaterMask, readWaterMotion, type SavedWaterMask, type WaterMotion, type WaterMotionKind } from './water';
-import { maskOfSource, waterKeyOf, type WaterSource } from './liquids';
+import { maskOfSource, sameWet, waterKeyOf, type WaterSource } from './liquids';
 import { WaterSurface } from './waterSurface';
 import { EyeView } from './eyeView';
 import { PieceOutline } from './pieceOutline';
@@ -184,8 +184,12 @@ function accent(element: HTMLElement): string {
 export interface BoardHost {
   /** The map's water (Atlas's liquids as outlines, an old saved mask, or both; and its motion), for the board to draw. */
   water?(): WaterSource | null;
-  /** Keeps the map's painted water (null: no water left). */
-  saveWater?(mask: SavedWaterMask | null): void;
+  /**
+   * Keeps the map's painted water (null: no water left). Where the host keeps it somewhere that may keep something
+   * else (Atlas's liquids: its limits, liquids the brush may not change, a refusal), it gives a promise that settles
+   * once it is kept or refused: the board then draws what `water()` gives, where that is not what was painted.
+   */
+  saveWater?(mask: SavedWaterMask | null): void | Promise<unknown>;
   /** Keeps how all of the map's water moves. */
   saveWaterMotion?(motion: WaterMotion): void;
   /** Tabletop's undo history for this board's map (src/board/undoHistory.ts): a step back, a step forward. */
@@ -610,8 +614,8 @@ export class Board {
   private spellLoops = new Map<string, { id: SoundId; gain: number }>();
   /** The water loops going, by motion kind (`water:flow`), with the gain each was last set to. */
   private waterLoops = new Map<string, { id: SoundId; gain: number }>();
-  /** A finished stroke is being handed to the host: the water it gives meanwhile is not drawn again. */
-  private savingWater = false;
+  /** Finished strokes being kept by the host: the water it gives meanwhile is not drawn again. */
+  private savingWater = 0;
   /** When (page clock, ms) and from which camera the water loops were last worked out. */
   private waterLoopsAt = -Infinity;
   private waterLoopsSeen = { x: NaN, z: NaN, distance: NaN, yaw: NaN, pitch: NaN };
@@ -702,9 +706,14 @@ export class Board {
   private map: BoardMap | null = null;
   private size = { width: 0, height: 0 };
 
-  /** The map's size in map pixels (its image's), once it is drawn; null before. */
+  /** The board's size in map pixels once the map is drawn, null before: the world's (the image's, as Atlas's alignment lays it), or a stand-in size where the image could not be read (`mapSizeKnown`). */
   get mapSize(): { width: number; height: number } | null {
     return this.size.width > 0 && this.size.height > 0 ? { width: this.size.width, height: this.size.height } : null;
+  }
+  private sizeKnown = false;
+  /** Whether `mapSize` is the map's own size: false before it is drawn, and for a map whose image could not be read (or that has none). */
+  get mapSizeKnown(): boolean {
+    return this.sizeKnown && this.mapSize !== null;
   }
   private hasImage = false;
   private readonly tokens = new Map<string, TokenEntry>();
@@ -1391,7 +1400,7 @@ export class Board {
 
   /** The map's water as saved now (an undo or redo, another board of the map): drawn again where it differs. */
   private syncWater(map: BoardMap): void {
-    if (this.press?.kind === 'water' || this.savingWater) return;
+    if (this.press?.kind === 'water' || this.savingWater > 0) return;
     const saved = this.host.water?.() ?? null;
     if (waterKeyOf(saved) !== this.waterKey) { this.loadWater(map); this.wake(); return; }
     if (saved?.motion && this.water) {
@@ -1524,6 +1533,7 @@ export class Board {
     this.fillSource = fillSourceFor(texture, imageSize, world ? matrix ?? null : null, stretch ?? null);
     this.scene.add(this.surface.object3d);
     this.size = { width, height };
+    this.sizeKnown = world !== null || mapImageSize(texture) !== null;
     this.hasImage = texture !== null;
     this.cells = numberCells(map.grid, width, height);
     this.lastGrid = JSON.stringify([map.grid, map.world ?? null]);
@@ -3954,11 +3964,13 @@ export class Board {
     if (press.kind === 'water') {
       const mask = this.water?.mask;
       const saved = mask && !mask.empty ? mask.save() : null;
-      // What the host gives as this map's water once it is kept is what was just painted: nothing to draw again,
-      // neither while it is being kept (the host may refresh the board from within) nor after.
-      this.savingWater = true;
-      try { this.host.saveWater?.(saved); } finally { this.savingWater = false; }
-      this.waterKey = waterKeyOf(this.host.water?.() ?? null);
+      // While the host keeps it the water it gives is not drawn again (it may refresh the board from within, and its
+      // water is a stroke behind until it is kept); once kept, the board shows what the host has.
+      this.savingWater += 1;
+      const kept = (): void => { this.savingWater -= 1; this.showKeptWater(); };
+      let keeping: void | Promise<unknown>;
+      try { keeping = this.host.saveWater?.(saved); } catch (error) { kept(); throw error; }
+      if (keeping instanceof Promise) void keeping.then(kept, kept); else kept();
       return;
     }
     if (press.kind === 'tool') {
@@ -4799,6 +4811,22 @@ export class Board {
     if (!entry) return;
     if (this.allows('camera')) this.camera.lookAt({ x: entry.goal.x, y: 0, z: entry.goal.y });
     this.select(id);
+    this.wake();
+  }
+
+  /**
+   * After a stroke was kept (or refused): where the host's water is the water painted, nothing is drawn again; where
+   * it is not (Atlas's limits gave something up, a liquid the brush may not change was erased over, the stroke was
+   * refused), the board draws what the host has. Not during the next stroke, which ends here again.
+   */
+  private showKeptWater(): void {
+    const map = this.map;
+    if (this.disposed || !map || this.savingWater > 0 || this.press?.kind === 'water') return;
+    const source = this.host.water?.() ?? null;
+    const kept = this.size.width > 0 ? maskOfSource(source, this.size.width, this.size.height, map.grid.size) : null;
+    if (sameWet(kept, this.water?.mask ?? null)) { this.waterKey = waterKeyOf(source); return; }
+    this.loadWater(map);
+    this.toolbar.refresh();
     this.wake();
   }
 

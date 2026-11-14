@@ -3,7 +3,8 @@
 // Tabletop and Connect builds under test). It runs Phase 4A's check again (which runs Phases 1 to 3: nothing
 // regressed), then the steps 4B adds: water painted before is moved to Atlas's liquids with a backup, a stroke is
 // Atlas's liquids and one step of its undo, a liquid made in Atlas is drawn and left alone by the brush and by a motion
-// change, and painting on a map Atlas does not hold is refused.
+// change, painting on a map Atlas does not hold is refused, strokes that follow each other do not double the water,
+// and old water moves only where it can be read (steps 42 and 43 run before 41, the run's last look at the console).
 // Results: .superpowers/sdd/2026-11-13-atlas-fusion/phase4b-live/results.json; a failed step does not stop the run.
 const fs = require('fs'), path = require('path'), { execSync } = require('child_process');
 const { connect, sleep } = require('./obs.cjs');
@@ -215,6 +216,78 @@ async function step(n, name, run) {
       const after = Object.fromEntries(app.vault.getFiles().filter((f) => f.extension === 'atlasmap').map((f) => [f.path, f.stat.mtime]));
       return { refused, changed: Object.keys(after).filter((p) => after[p] !== before[p]), liquids: W.liquids().length - count, held: W.held(W.CELLAR) };`);
     return { pass: out.refused.every((r) => r === 'NotHeldError') && out.changed.length === 0 && out.liquids === 0, evidence: out };
+  });
+
+  await step(42, "strokes that follow each other before the map is read again replace the brush's water, never double it; a motion chosen just before a stroke goes with the stroke and is written once", async () => {
+    const out = await o.ev(`
+      const W = window.__W;
+      const leaf = await W.hold(W.CELLAR);
+      const view = leaf.view;
+      const before = W.liquids().map((l) => l.id);
+      const size = view.board.mapSize, cell = view.map.grid.size;
+      const steps = W.past();
+      // Painted, and at once painted over with less (an erase): the second is planned on what the first wrote.
+      view.board.host.saveWater(W.mask(size, cell, [{ x: 280, y: 280, w: 210, h: 140 }, { x: 840, y: 280, w: 140, h: 140 }]));
+      view.board.host.saveWater(W.mask(size, cell, [{ x: 280, y: 280, w: 210, h: 140 }]));
+      const atOnce = W.brush().length;
+      const stepsAfter = W.past() - steps;
+      // Drawn from Atlas's store at once, ahead of the map's next read.
+      const drawnAtOnce = W.wet(leaf, 350, 350) && !W.wet(leaf, 900, 350);
+      await W.sleep(1500);
+      const settled = W.brush().length;
+      const drawn = W.wet(leaf, 350, 350) && !W.wet(leaf, 900, 350);
+      // A motion chosen, and a stroke before the sliders' wait is over: the stroke carries it; nothing more is written after.
+      const steps2 = W.past();
+      view.board.host.saveWaterMotion({ kind: 'still', amount: 0.2, direction: 0, tint: '#445566', clarity: 0.8 });
+      view.board.host.saveWater(W.mask(size, cell, [{ x: 280, y: 280, w: 210, h: 140 }]));
+      await W.sleep(1500);
+      const brush = W.brush();
+      const out = { atOnce, stepsAfter, drawnAtOnce, settled, drawn, motionSteps: W.past() - steps2, tinted: brush.length === 1 && brush[0].colors.surface === '#445566' && brush[0].tabletop.motion.kind === 'still', chosenLeft: view.chosenMotion.size, waiting: view.motionWait !== null };
+      await W.sweep(before);
+      return out;`);
+    return { pass: out.atOnce === 1 && out.stepsAfter === 2 && out.drawnAtOnce && out.settled === 1 && out.drawn && out.motionSteps === 1 && out.tinted && out.chosenLeft === 0 && !out.waiting, evidence: out };
+  });
+
+  await step(43, "old painted water is moved only where it can be read: not while another level than the first is shown (it moves once the first is), and a mask of another size stays in Tabletop's data, with no backup and nothing written", async () => {
+    const out = await o.ev(`
+      const W = window.__W;
+      const leaf = await W.hold(W.CELLAR);
+      const view = leaf.view, data = W.tt().boardData;
+      const before = W.liquids().map((l) => l.id);
+      const levels = (W.s().levels || []).map((l) => l.id);
+      const size = view.board.mapSize, cell = view.map.grid.size;
+      const motion = { kind: 'waves', amount: 0.4, direction: 0, tint: '#2a6f97', clarity: 0.5 };
+      const put = (path, water) => { const old = { ...(data.toJSON()[path] || {}) }; delete old.waterMoved; delete old.water; data.data = { ...data.data, [path]: water ? { ...old, water } : { ...old, waterMoved: true } }; };
+      // The upper level shown (its image is another one): the old mask, which lay on the first level, waits.
+      W.s().setViewedLevel(levels[1]);
+      const up = await W.until(() => view.map && view.map.level === levels[1], 8000);
+      await W.sleep(1200);
+      put(W.CELLAR, { mask: W.mask(size, cell, [{ x: 140, y: 140, w: 280, h: 140 }]), motion });
+      await view.moveWater(W.CELLAR);
+      await W.sleep(600);
+      const waited = { legacy: data.legacyWater(W.CELLAR) !== null, brush: W.brush().length };
+      // Back on the first level the board reads the map again, and the move runs on its own.
+      W.s().setViewedLevel(levels[0]);
+      const down = await W.until(() => view.map && view.map.level === levels[0], 8000);
+      const moved = await W.until(() => W.brush().length === 1 && data.legacyWater(W.CELLAR) === null, 12000);
+      const onFirst = W.brush().every((l) => (l.level ?? levels[0]) === levels[0]);
+      await W.sweep(before);
+      // The cove: a mask made for an image of another size cannot be read. It stays; nothing is backed up or written.
+      const cove = await W.hold(W.COVE);
+      const coveSize = cove.view.board.mapSize, coveCell = cove.view.map.grid.size;
+      const day = new Date(); const two = (n) => String(n).padStart(2, '0'); const folder = 'Tabletop backups/' + day.getFullYear() + '-' + two(day.getMonth() + 1) + '-' + two(day.getDate());
+      const backups = async () => ((await app.vault.adapter.exists(folder)) ? (await app.vault.adapter.list(folder)).files.length : 0);
+      const backupsBefore = await backups();
+      const coveBefore = W.liquids().length;
+      put(W.COVE, { mask: W.mask({ width: coveSize.width * 2, height: coveSize.height }, coveCell, [{ x: 140, y: 140, w: 280, h: 140 }]), motion });
+      await cove.view.moveWater(W.COVE);
+      await W.sleep(800);
+      const stayed = { known: cove.view.board.mapSizeKnown, legacy: data.legacyWater(W.COVE) !== null, liquids: W.liquids().length - coveBefore, backups: (await backups()) - backupsBefore };
+      put(W.COVE, null);
+      await W.hold(W.CELLAR);
+      return { levels: levels.length, up, waited, down, moved, onFirst, stayed };`);
+    return { pass: out.levels >= 2 && out.up !== null && out.waited.legacy && out.waited.brush === 0 && out.down !== null && out.moved !== null && out.onFirst
+      && out.stayed.known && out.stayed.legacy && out.stayed.liquids === 0 && out.stayed.backups === 0, evidence: out };
   });
 
   await step(41, "no console error from Tabletop or Connect across the run; the cellar is left with no brush water, and Tabletop's data keeps none for it", async () => {

@@ -2327,6 +2327,43 @@ feature('water', async ({ page, shot }) => {
   await page.evaluate(() => window.boardTest.board.toolbarActions().setWaterTool(null));
 });
 
+// ── Water kept as Atlas's liquids: the board is handed outlines, and draws what was kept, not what was painted ──
+feature('water-liquids', async ({ page }) => {
+  const wetCount = () => page.evaluate(() => { const water = window.boardTest.board.water; if (!water) return 0; let n = 0; for (const v of water.mask.data) if (v) n++; return n; });
+  const brushCount = () => page.evaluate(() => Object.values(window.boardTest.liquids() ?? {}).filter((liquid) => liquid.tabletop?.brush === true).length);
+  // The host keeps water as Atlas does from here on: a record of liquids, the brush's own marked.
+  await page.evaluate(() => window.boardTest.setLiquids({}));
+  await page.evaluate(() => { const actions = window.boardTest.board.toolbarActions(); actions.setWaterTool('paint'); actions.setWaterBrush(1.5); });
+  const canvas = await page.locator('canvas').first().boundingBox();
+  const [x, y] = [canvas.x + canvas.width * 0.42, canvas.y + canvas.height * 0.62];
+  const drag = async (fromX, toX) => { await page.mouse.move(fromX, y); await page.mouse.down(); await page.mouse.move(toX, y + 10, { steps: 12 }); await page.mouse.up(); };
+  await drag(x, x + 220);
+  await wait(200);
+  const painted = await wetCount();
+  check('a stroke is kept as a liquid of the brush, and the board draws its outline as the water painted', painted > 0 && (await brushCount()) === 1, JSON.stringify({ painted, brush: await brushCount() }));
+  // The same water as a pool made in Atlas (no mark of the brush): the board is handed its outline, and draws it.
+  await page.evaluate(() => { const [mine] = Object.values(window.boardTest.liquids()); window.boardTest.setLiquids({ pool: { id: 'pool', kind: 'liquid', liquid: 'lava', polygon: mine.polygon, colors: { surface: '#ea580c', deep: '#7c2d12', glint: '#fdba74' } } }); });
+  await wait(200);
+  const pool = await wetCount();
+  check("a liquid made in Atlas is drawn from its outline (the same water as the stroke's)", pool === painted, JSON.stringify({ pool, painted }));
+  // Erasing over it: the brush may not change it. Once the stroke is kept the board draws what the host has.
+  await page.evaluate(() => { const actions = window.boardTest.board.toolbarActions(); actions.setWaterTool('erase'); actions.setWaterBrush(3); });
+  await drag(x - 50, x + 280);
+  await wait(200);
+  const after = await wetCount();
+  check("erasing over Atlas's own liquid leaves it, and the board draws it again once the stroke is kept", after === pool && (await brushCount()) === 0 && (await page.evaluate(() => Object.keys(window.boardTest.liquids()).join())) === 'pool', JSON.stringify({ after, pool }));
+  // Painting over it and beside it: only the water beside it is the brush's; nothing is drawn twice.
+  await page.evaluate(() => { const actions = window.boardTest.board.toolbarActions(); actions.setWaterTool('paint'); actions.setWaterBrush(1.5); });
+  await drag(x + 150, x + 330);
+  await drag(x + 150, x + 330);
+  await wait(200);
+  const more = await wetCount();
+  const kept = await page.evaluate(() => { const { board, liquids } = window.boardTest; return { brush: Object.values(liquids()).filter((liquid) => liquid.tabletop?.brush === true).length, pool: JSON.stringify(liquids().pool.polygon.length) }; });
+  check("painting beside Atlas's liquid adds the brush's water there, in one liquid, stroke after stroke", more > pool && kept.brush === 1, JSON.stringify({ more, pool, kept }));
+  check('no page error', true);
+  await page.evaluate(() => { window.boardTest.board.toolbarActions().setWaterTool(null); window.boardTest.setLiquids(null); });
+});
+
 // ── Undo and redo: the toolbar's buttons take back painted water and bring it back ──────────────────────────────
 feature('undo', async ({ page, shot }) => {
   check('the toolbar has Undo and Redo, both off with nothing done', await page.evaluate(() => { const undo = document.querySelector('.atlas-tabletop-toolbar button[aria-label="Undo"]'); const redo = document.querySelector('.atlas-tabletop-toolbar button[aria-label="Redo"]'); return !!undo && !!redo && undo.disabled && redo.disabled; }));

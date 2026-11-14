@@ -52,7 +52,7 @@ import { InitiativePanel, type InitiativePanelHost } from './initiativePanel';
 import { wholeWall, isWindow, mirroredDoor, rotatedDoor, windowSpan, WINDOW_STEP, type DoorFlip } from './walls';
 import { extrasOf, readLightHeight, readWallExtra, type RecordExtras, type WallExtraChange } from './recordExtras';
 import { planExtrasMove } from './extrasMigration';
-import { brushLiquids, legacyWaterLiquids, LIQUID_LIMITS, maskOutlines, readLiquids, waterSourceOf, withoutAreas, type WaterArea, type WaterSource } from './liquids';
+import { brushLiquids, givenUpText, legacyWaterLiquids, LIQUID_LIMITS, readLiquids, strokeLiquids, waterSourceOf, type OutlineReport, type WaterSource } from './liquids';
 import { readWaterMotion, WaterMask, type SavedWaterMask, type WaterMotion } from './water';
 import { MeasureFullError, NotHeldError, type TokenChange } from './tokenWriter';
 import { HOST_BAR_LABELS, hostBar, mapName } from './hostBar';
@@ -106,6 +106,12 @@ const RECONCILE_MS = 150;
 const MOVING_EXTRAS = new Set<string>();
 /** The maps whose painted water is being moved to Atlas's liquids right now. */
 const MOVING_WATER = new Set<string>();
+/** The maps whose old painted water was not moved and is not tried again while Obsidian runs (it cannot be read, or does not fit). */
+const WATER_STAYS = new Set<string>();
+/** How long after saying what Atlas's limits made a stroke give up it is not said again. */
+const WATER_TOLD_MS = 30000;
+/** What names a level of a map: the motion chosen for water is a level's. */
+const waterLevel = (path: string, level: string | null): string => `${path}\n${level ?? ''}`;
 /** How long the water's sliders must rest before its motion is written to Atlas's liquids (one step of its undo, not one per notch). */
 const WATER_MOTION_MS = 500;
 const RELOAD_MS = 300;
@@ -409,12 +415,12 @@ export class BoardView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    // A change of the water's motion still waiting for the sliders to rest is written now.
+    this.writeMotion();
     this.closed = true;
     this.dropFlashes();
     if (this.reconcileTimer !== null) (this.contentEl.ownerDocument.defaultView ?? window).clearTimeout(this.reconcileTimer);
     this.reconcileTimer = null;
-    if (this.motionTimer !== null) (this.contentEl.ownerDocument.defaultView ?? window).clearTimeout(this.motionTimer);
-    this.motionTimer = null;
     this.stopTabs?.();
     this.stopTabs = null;
     this.sceneTabs?.dispose();
@@ -1224,39 +1230,52 @@ export class BoardView extends ItemView {
   /**
    * Once per map, when Atlas holds it and the board has drawn it: the water painted on it before water was Atlas's,
    * which Tabletop kept as a brush mask in its own data, is written as Atlas's liquids (`liquids.ts`: its outlines,
-   * within a sixteenth of a square of the brush's edge, on the scene's first level). A backup of the map and of
-   * Tabletop's data for it is written first, and one notice says what was moved.
+   * within a sixteenth of a square of the brush's edge, on the scene's first level), all of it or none. A backup of
+   * the map and of Tabletop's data for it is written first, and one notice says what was moved. A mask that cannot
+   * be read on this image, or that does not fit beside the level's liquids, stays where it is.
    */
   private async moveWater(path: string): Promise<void> {
     const { boardData, writer } = this.services;
     const legacy = boardData.legacyWater(path);
-    const size = this.board?.mapSize ?? null;
     const map = this.map;
-    if (!legacy || MOVING_WATER.has(path) || this.closed || !size || !map || map.path !== path) return;
+    // The old mask lay on the scene's first level, over its image: it is read with that level shown, on a board that
+    // knows the image's size (not the stand-in size of an image that could not be read).
+    const size = this.board?.mapSizeKnown ? this.board.mapSize : null;
+    if (!legacy || MOVING_WATER.has(path) || WATER_STAYS.has(path) || this.closed || !size || !map || map.path !== path || !onFirstLevel(map.levels, map.level)) return;
     const view = writer.holder(path);
     if (!view) return;
-    // The old mask lay on the scene's first level; the level takes what Atlas keeps there, less what it already has.
-    const first = map.levels[0]?.id ?? null;
-    const there = readLiquids(onLevelRecord(view.atlasStore.getState().objects?.liquids, first, map.levels)).length;
-    const add = legacyWaterLiquids(legacy, size.width, size.height, map.grid.size, first, LIQUID_LIMITS.patches - there);
+    const name = mapName(path);
+    // Not moved now, and not tried again while Obsidian runs (so no backup is written over and over).
+    const stays = (why: string): void => { WATER_STAYS.add(path); console.warn(`Tabletop: the water painted on ${name} was not moved to Atlas: ${why}`); };
+    const gave: OutlineReport = { holes: 0, thinned: 0, patches: 0 };
+    const add = legacyWaterLiquids(legacy, size.width, size.height, map.grid.size, map.level, gave);
+    // Painted on an image, or a grid, of another size: it cannot be read (and was not drawn before either). It stays
+    // in Tabletop's data, and moves once the map is that size again.
+    if (!add) { stays('it was painted on an image or a grid of another size, and stays in Tabletop\'s data'); return; }
+    // All of it or none: the level takes what Atlas keeps there, less what it already has.
+    const there = readLiquids(onLevelRecord(view.atlasStore.getState().objects?.liquids, map.level, map.levels)).length;
+    if (add.length > LIQUID_LIMITS.patches - there) {
+      stays(`its ${add.length} patches do not fit beside the ${there} liquids of its level`);
+      new Notice(`Tabletop: the water painted on ${name} was not moved to Atlas: its ${add.length} patches do not fit beside the ${there} liquids this level has (Atlas keeps ${LIQUID_LIMITS.patches}). It is drawn as before; take some liquids off in Atlas, then start Obsidian again.`, 0);
+      return;
+    }
     MOVING_WATER.add(path);
     try {
-      const name = mapName(path);
       const folder = await writeBackup(this.app, new Date(), [
         { name: `${name}.atlasmap`, text: await this.app.vault.adapter.read(path) },
         { name: `${name}.tabletop.json`, text: JSON.stringify(boardData.toJSON()[path] ?? {}, null, 2) },
       ]);
       // Another board of this map did it meanwhile.
       if (boardData.legacyWater(path) === null) return;
-      if (add) await writer.applyWaterMove(path, add);
+      await writer.applyWaterMove(path, add);
       boardData.clearLegacyWater(path);
-      new Notice(add
-        ? `Tabletop: the water painted on ${name} is now Atlas's own (${add.length} ${add.length === 1 ? 'liquid' : 'liquids'}); backup in ${folder}/`
-        : `Tabletop: the water painted on ${name} could not be read (it was painted on an image of another size) and was left in the backup, in ${folder}/`, 0);
+      const lost = givenUpText(gave);
+      new Notice(`Tabletop: the water painted on ${name} is now Atlas's own (${add.length} ${add.length === 1 ? 'liquid' : 'liquids'}); backup in ${folder}/${lost ? `. ${lost}` : ''}`, 0);
       this.reload();
     } catch (error) {
-      // Atlas let go of the map, its level is full, or the backup could not be written: the water stays where it was, for the next time.
-      if (!(error instanceof NotHeldError)) console.warn('Tabletop: the painted water could not be moved to Atlas:', error);
+      // Atlas let go of the map: the water stays where it was, for the next time the board reads the map. Anything
+      // else (the backup could not be written, Atlas took fewer liquids than it should): not tried again this run.
+      if (!(error instanceof NotHeldError)) stays(error instanceof Error ? error.message : String(error));
     } finally {
       MOVING_WATER.delete(path);
     }
@@ -1715,11 +1734,11 @@ export class BoardView extends ItemView {
     };
   }
 
-  /** The water just painted or re-tinted, handed to the board until the map is read again with it (so it is not drawn twice). */
-  private paintedWater: { liquids: BoardMap['liquids']; source: WaterSource } | null = null;
-  /** The motion chosen on each map this session: for a map with no brush water yet, and while a change waits to be written. */
+  /** The motion chosen on a level (`waterLevel`) that its brush water does not carry yet: the level has no brush water so far, or the change waits to be written. */
   private readonly chosenMotion = new Map<string, WaterMotion>();
-  private motionTimer: number | null = null;
+  /** The level whose chosen motion waits for the sliders to rest. */
+  private motionWait: { path: string; level: string | null; levels: BoardMap['levels']; timer: number } | null = null;
+  private waterToldAt = -Infinity;
 
   /**
    * This map's water as the board draws it: every liquid Atlas has on the level shown (`liquids.ts`), and, on the
@@ -1728,63 +1747,87 @@ export class BoardView extends ItemView {
   private water(): WaterSource | null {
     const map = this.map && this.map.path === this.path ? this.map : null;
     if (!map) return null;
-    if (this.paintedWater?.liquids === map.liquids) return this.paintedWater.source;
-    this.paintedWater = null;
     const legacy = onFirstLevel(map.levels, map.level) ? this.services.boardData.legacyWater(map.path) : null;
-    return waterSourceOf(map.liquids, legacy, this.chosenMotion.get(map.path) ?? null);
+    return waterSourceOf(map.liquids, legacy, this.chosenMotion.get(waterLevel(map.path, map.level)) ?? null);
   }
 
-  /** How this map's brush water moves now: as chosen this session, else as its liquids say, else the default. */
-  private motionNow(map: BoardMap): WaterMotion {
-    return this.chosenMotion.get(map.path) ?? map.liquids.find((liquid) => liquid.motion !== null)?.motion ?? readWaterMotion(this.services.boardData.legacyWater(map.path)?.motion);
+  /** What Atlas's limits made a write of water give up, said once in a while (a stroke after another on the same lake says the same). */
+  private tellWaterLimits(gave: OutlineReport): void {
+    const text = givenUpText(gave);
+    const now = Date.now();
+    if (!text || now - this.waterToldAt < WATER_TOLD_MS) return;
+    this.waterToldAt = now;
+    new Notice(`Tabletop: ${text} The board shows what was kept.`, 10000);
   }
 
   /**
-   * Writes the brush's water of the level shown to Atlas's liquids: `areas` take the place of the brush-made liquids,
-   * in one step of Atlas's undo. Liquids made in Atlas are not touched.
+   * A finished stroke of the water brush (or bucket): the mask as painted, null when no water is left. It is written
+   * to Atlas's liquids of the level shown, in one step of Atlas's undo: the brush-made liquids Atlas has there at
+   * that moment are replaced by the mask's outlines (`strokeLiquids`); liquids made in Atlas are not touched. Settles
+   * once that is kept or refused: the board then draws what Atlas has.
    */
-  private writeWater(map: BoardMap, areas: readonly WaterArea[], motion: WaterMotion): void {
-    const add = brushLiquids(areas, motion, map.level);
-    const remove = map.liquids.filter((liquid) => liquid.brush).map((liquid) => liquid.id);
-    const foreign = map.liquids.filter((liquid) => !liquid.brush);
-    // What the board is handed until the map is read again: the same outlines Atlas will give back.
-    const written = add.map((liquid) => ({ polygon: liquid.polygon as WaterArea['polygon'], holes: (liquid.holes as WaterArea['holes'] | undefined) ?? [] }));
-    this.paintedWater = { liquids: map.liquids, source: { areas: [...foreign.map(({ polygon, holes }) => ({ polygon, holes })), ...written], motion } };
-    this.services.writer.replaceLiquids(map.path, remove, add).then((ids) => {
-      if (ids.length < add.length) new Notice('Tabletop: Atlas keeps no more liquids on this level; the smallest patches of water were left out.', 8000);
-    }).catch((error: unknown) => {
-      this.paintedWater = null;
-      this.unsaved('water', error);
-    });
-  }
-
-  /** A finished stroke of the water brush (or bucket): the mask as painted, null when no water is left. */
-  private saveWater(path: string, saved: SavedWaterMask | null): void {
+  private saveWater(path: string, saved: SavedWaterMask | null): Promise<void> | void {
     const map = this.map;
     const size = this.board?.mapSize ?? null;
     if (!map || map.path !== path || !size) return;
     const painted = saved ? WaterMask.read(saved, size.width, size.height, map.grid.size) : WaterMask.forMap(size.width, size.height, map.grid.size);
     if (!painted) return;
-    // Where a liquid made in Atlas lies the brush says nothing: that one is Atlas's to change.
-    const foreign = map.liquids.filter((liquid) => !liquid.brush);
-    const areas = maskOutlines(withoutAreas(painted, foreign), { corners: LIQUID_LIMITS.corners, patches: Math.max(0, LIQUID_LIMITS.patches - foreign.length) });
-    this.writeWater(map, areas, this.motionNow(map));
+    const { level, levels } = map;
+    const key = waterLevel(path, level);
+    const gave: OutlineReport = { holes: 0, thinned: 0, patches: 0 };
+    let asked = 0;
+    return this.services.writer.replaceLiquids(path, (record) => {
+      const now = readLiquids(onLevelRecord(record, level, levels));
+      // As chosen on this level just now, else as its brush water moves, else as the old mask did.
+      const motion = this.chosenMotion.get(key) ?? now.find((liquid) => liquid.motion !== null)?.motion ?? readWaterMotion(this.services.boardData.legacyWater(path)?.motion);
+      const stroke = strokeLiquids(painted, now, level, motion, gave);
+      asked = stroke.add.length;
+      return stroke;
+    }).then((ids) => {
+      // The brush's liquids carry the motion now: it is no longer only chosen.
+      if (ids.length > 0) this.chosenMotion.delete(key);
+      this.tellWaterLimits({ ...gave, patches: gave.patches + Math.max(0, asked - ids.length) });
+    }, (error: unknown) => this.unsaved('water', error));
   }
 
-  /** The water's motion was changed on the board: shown at once, and written to the brush's liquids once the sliders rest. */
+  /** The water's motion was changed on the board: shown at once, and written to the brush's liquids of the level once the sliders rest. */
   private saveWaterMotion(path: string, motion: WaterMotion): void {
-    this.chosenMotion.set(path, motion);
+    const map = this.map;
+    if (!map || map.path !== path) return;
+    const key = waterLevel(path, map.level);
+    // A change still waiting on another level is written first: one level waits at a time.
+    if (this.motionWait && waterLevel(this.motionWait.path, this.motionWait.level) !== key) this.writeMotion();
+    this.chosenMotion.set(key, motion);
     const win = this.contentEl.ownerDocument.defaultView ?? window;
-    if (this.motionTimer !== null) win.clearTimeout(this.motionTimer);
-    this.motionTimer = win.setTimeout(() => {
-      this.motionTimer = null;
-      const map = this.map;
-      if (this.closed || !map || map.path !== path) return;
-      const mine = map.liquids.filter((liquid) => liquid.brush);
-      // No brush water yet: the motion waits, chosen, for the first stroke.
-      if (mine.length === 0 || JSON.stringify(mine[0]!.motion) === JSON.stringify(motion)) return;
-      this.writeWater(map, mine.map(({ polygon, holes }) => ({ polygon, holes })), motion);
-    }, WATER_MOTION_MS);
+    if (this.motionWait) win.clearTimeout(this.motionWait.timer);
+    this.motionWait = { path, level: map.level, levels: map.levels, timer: win.setTimeout(() => this.writeMotion(), WATER_MOTION_MS) };
+  }
+
+  /**
+   * Writes the motion that waited to the brush's liquids of its level (whichever level the board shows by now), in
+   * one step of Atlas's undo; a level with no brush water yet keeps it chosen, for its first stroke. Once written or
+   * refused it is no longer chosen: the liquids say how the water moves.
+   */
+  private writeMotion(): void {
+    const wait = this.motionWait;
+    this.motionWait = null;
+    if (!wait) return;
+    (this.contentEl.ownerDocument.defaultView ?? window).clearTimeout(wait.timer);
+    const key = waterLevel(wait.path, wait.level);
+    const motion = this.chosenMotion.get(key);
+    if (!motion) return;
+    let carried = false;
+    const settle = (): void => { if (carried && this.chosenMotion.get(key) === motion) this.chosenMotion.delete(key); };
+    this.services.writer.replaceLiquids(wait.path, (record) => {
+      const mine = readLiquids(onLevelRecord(record, wait.level, wait.levels)).filter((liquid) => liquid.brush);
+      carried = mine.length > 0;
+      if (mine.length === 0 || JSON.stringify(mine[0]!.motion) === JSON.stringify(motion)) return { remove: [], add: [] };
+      return { remove: mine.map((liquid) => liquid.id), add: brushLiquids(mine.map(({ polygon, holes }) => ({ polygon, holes })), motion, wait.level) };
+    }).then(settle, (error: unknown) => {
+      carried = true;
+      settle();
+      if (!this.closed) this.unsaved('water', error);
+    });
   }
 
   private extrasOfMap: { map: BoardMap; walls: BoardMap['walls']; lights: BoardMap['lights']; legacy: unknown; extras: RecordExtras } | null = null;
@@ -2007,6 +2050,7 @@ export class BoardView extends ItemView {
       let held = view.atlasStore.getState().initiative;
       let drawn = view.atlasStore.getState() as unknown as Record<string, unknown>;
       let measures = view.atlasStore.getState().objects?.measures;
+      let liquids = view.atlasStore.getState().objects?.liquids;
       let derived = view.atlasStore.getState().objects;
       let extrasOf3d = view.atlasStore.getState().objects;
       const stop = view.atlasStore.subscribe(() => {
@@ -2024,6 +2068,16 @@ export class BoardView extends ItemView {
         if (objects?.measures !== derived?.measures || objects?.walls !== derived?.walls || objects?.mapFeatures !== derived?.mapFeatures || objects?.tokens !== derived?.tokens) {
           derived = objects;
           this.reconcileSoon();
+        }
+        // A liquid written, taken off or put back (a stroke, a pool made in Atlas, its undo): drawn at once, ahead of
+        // the map's next read, so the board never draws water a write behind.
+        if (objects?.liquids !== liquids) {
+          liquids = objects?.liquids;
+          const map = this.map;
+          if (map && map.path === this.path && state.mapLoaded !== false && state.isMapLoading !== true) {
+            map.liquids = readLiquids(onLevelRecord(liquids, map.level, map.levels));
+            this.board?.refresh();
+          }
         }
         // A measure kept, changed or taken off (a cast, a template, an area drawn in Atlas, its undo): shown at once, ahead of the map's next read.
         if (state.objects?.measures !== measures) {

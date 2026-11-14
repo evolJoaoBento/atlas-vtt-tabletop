@@ -178,11 +178,16 @@ map shows them and refuses the change. A material folder or a door's prop rename
 
 **Painted water is Atlas's liquids.** The water brush and bucket paint as before; when you let go, what you painted is
 kept in the map as Atlas's own water (outlines that follow your stroke to within a sixteenth of a square), so Atlas's
-2D view shows it in the same colour, flowing the same way, and Atlas's undo takes a stroke back. The board draws every
-liquid Atlas has on the level you are on: water, lava and acid of a generated dungeon too (lava and acid as water of
-their colour, for now). The brush changes only the water it painted: a liquid made in Atlas is Atlas's to change, and
-erasing over it does nothing. The water's motion and colour are one for all the brush's water of a level. Water painted
-before this is moved the first time Atlas holds its map, after a backup, with a notice.
+2D view shows it in the same colour, flowing the same way, and Atlas's undo takes a stroke back. Atlas keeps 256
+liquids on a level, of 2048 corners each: a lake with more than that has its smallest dry spots filled and its shore
+smoothed (by a quarter of a square at most), the smallest patches past 256 are left out, and a notice says so; the
+board then shows what was kept. The board draws every liquid Atlas has on the level you are on, water, lava and acid
+of a generated dungeon too, all as one water for now: in the colour and motion of the water you painted there, or,
+where you painted none, still and in the first liquid's colour. The brush changes only the water it painted: a liquid
+made in Atlas is Atlas's to change, and where you erase over it, it is drawn again when you let go. The water's motion
+and colour are one for all the brush's water of a level. Water painted before this is moved, all of it, the first time
+Atlas holds its map with the scene's first level shown, after a backup, with a notice; a mask that no longer fits the
+map's image or grid (it was not drawn before either) stays in Tabletop's data until it does.
 
 The light level and the tint in the lighting menu are Atlas's scene lighting (the same values as on Atlas's own
 lighting page); the level can be set while the scene's lighting is on in Atlas. The laser's colour and size, and how

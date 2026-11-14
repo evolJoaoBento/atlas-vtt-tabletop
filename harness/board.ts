@@ -10,7 +10,8 @@ import { Board, type BoardHost } from '../src/board/board';
 import { SceneTabBar } from '../src/board/sceneTabBar';
 import type { PropPlacement } from '../src/board/boardData';
 import { UndoHistory, type UndoStep } from '../src/board/undoHistory';
-import type { SavedWaterMask, WaterMotion } from '../src/board/water';
+import { readWaterMotion, WaterMask, type SavedWaterMask, type WaterMotion } from '../src/board/water';
+import { readLiquids, strokeLiquids, waterSourceOf } from '../src/board/liquids';
 import { emptyRules } from '../src/board/conditions';
 import { QUALITY } from '../src/board/quality';
 import { lookOf } from '../src/board/look';
@@ -309,6 +310,24 @@ async function main(): Promise<void> {
     setWaterStore(next);
     history.push(waterStep(before, { ...next }, look));
   };
+  // The same water kept as Atlas keeps it (`setLiquids`): a record of liquids, of which the brush changes only its
+  // own. The board is then handed outlines, and a stroke is kept as the plugin's view keeps it (`strokeLiquids`).
+  let liquids: Record<string, Record<string, unknown>> | null = null;
+  let liquidCount = 0;
+  const setLiquids = (record: Record<string, Record<string, unknown>> | null): void => { liquids = record; board.refresh(); };
+  const keepStroke = (mask: SavedWaterMask | null, record: Record<string, Record<string, unknown>>): Promise<void> | void => {
+    const size = board.mapSize;
+    const cell = map.grid.size;
+    if (!size) return;
+    const painted = mask ? WaterMask.read(mask, size.width, size.height, cell) : WaterMask.forMap(size.width, size.height, cell);
+    if (!painted) return;
+    const stroke = strokeLiquids(painted, readLiquids(record), null, readWaterMotion(waterStore.motion));
+    for (const id of stroke.remove) delete record[id];
+    for (const liquid of stroke.add) { const id = `brush_${++liquidCount}`; record[id] = { id, kind: 'liquid', ...liquid }; }
+    // As the view does when Atlas's store changes; the stroke is kept by the time the promise settles.
+    board.refresh();
+    return Promise.resolve();
+  };
   const travel = (way: 'undo' | 'redo'): void => { void history[way]([waterPath]).then(() => board.refreshToolbar()); };
   // The spell notes searched: none until a test gives them (`setSpellNotes`).
   let spellEntries: SpellEntry[] | null = null;
@@ -338,8 +357,8 @@ async function main(): Promise<void> {
   };
   const host: BoardHost = {
     spellBook: () => (spellEntries === null ? null : spellBook),
-    water: () => (waterStore.mask || waterStore.motion ? { mask: waterStore.mask, motion: waterStore.motion } : null),
-    saveWater: (mask) => putWater({ mask, motion: waterStore.motion }, false),
+    water: () => (liquids ? waterSourceOf(readLiquids(liquids), null) : waterStore.mask || waterStore.motion ? { mask: waterStore.mask, motion: waterStore.motion } : null),
+    saveWater: (mask) => (liquids ? keepStroke(mask, liquids) : putWater({ mask, motion: waterStore.motion }, false)),
     // Without water yet the motion is only remembered, for the first stroke.
     saveWaterMotion: (motion) => { if (waterStore.mask) putWater({ mask: waterStore.mask, motion }, true); else waterStore.motion = motion; },
     undo: () => travel('undo'),
@@ -784,7 +803,7 @@ async function main(): Promise<void> {
   cinematicStudio = studio;
   board.cinemaButton({ live: () => studio.live, toggleLive: () => studio.toggleLive() });
   const cutsceneHarness = { studio, host: studioHost, store: cutsceneStore, log: cutsceneLog, first: map.path, second: crypt.path, session: fakeSession, channel, owner };
-  Object.assign(window, { boardTest: { studio: cutsceneHarness, api: { cutscene: channel }, Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, palette, paletteCalls, chooseAction, ready: true } });
+  Object.assign(window, { boardTest: { studio: cutsceneHarness, api: { cutscene: channel }, Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, palette, paletteCalls, chooseAction, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

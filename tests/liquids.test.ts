@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { legacyWaterLiquids, waterFromWire, wireAreas, brushLiquids, LIQUID_LIMITS, maskOfSource, maskOutlines, motionOf, rasterAreas, readLiquids, waterKeyOf, withoutAreas, type WaterArea } from '../src/board/liquids';
+import { givenUpText, sameWet, strokeLiquids, type OutlineReport, legacyWaterLiquids, waterFromWire, wireAreas, brushLiquids, LIQUID_LIMITS, maskOfSource, maskOutlines, motionOf, rasterAreas, readLiquids, waterKeyOf, withoutAreas, type WaterArea } from '../src/board/liquids';
 import { DEFAULT_WATER_MOTION, WaterMask } from '../src/board/water';
 
 /** A mask of 10 px texels (an 80 px cell) drawn from rows of `#` (wet) and `.` (dry). */
@@ -165,16 +165,102 @@ test('water goes to players as outlines, each ring a flat list of places, and is
 test("a map's old painted water is moved as the brush's liquids on its first level, with the motion it had; a mask made for a map of another size cannot be read", () => {
   const painted = maskOf(['##..', '##..', '...#']);
   const motion = { ...DEFAULT_WATER_MOTION, kind: 'waves' as const, tint: '#123456' };
-  const liquids = legacyWaterLiquids({ mask: painted.save(), motion }, 40, 30, 80, 'ground', 256);
+  const liquids = legacyWaterLiquids({ mask: painted.save(), motion }, 40, 30, 80, 'ground');
   assert.equal(liquids?.length, 2);
   assert.deepEqual(liquids!.map((liquid) => [liquid.liquid, liquid.level, (liquid.tabletop as { brush: boolean; motion: unknown }).brush, (liquid.tabletop as { motion: unknown }).motion]), [['water', 'ground', true, motion], ['water', 'ground', true, motion]]);
   // The very same water back.
   const back = WaterMask.like(painted);
   rasterAreas(back, readLiquids(Object.fromEntries(liquids!.map((liquid, index) => [`l${index}`, liquid]))));
   assert.deepEqual(rowsOf(back), rowsOf(painted));
-  // No room left on the level: the largest patches that fit.
-  assert.equal(legacyWaterLiquids({ mask: painted.save() }, 40, 30, 80, null, 1)?.length, 1);
-  assert.equal('level' in legacyWaterLiquids({ mask: painted.save() }, 40, 30, 80, null, 1)![0]!, false);
-  assert.equal(legacyWaterLiquids({ mask: painted.save(), motion }, 400, 300, 80, null, 256), null);
-  assert.equal(legacyWaterLiquids({ mask: 'junk' }, 40, 30, 80, null, 256), null);
+  // All of it or none: the move does not cut it to the room a level has left (the view sees whether it fits).
+  assert.equal(legacyWaterLiquids({ mask: painted.save() }, 40, 30, 80, null)?.length, 2);
+  assert.equal('level' in legacyWaterLiquids({ mask: painted.save() }, 40, 30, 80, null)![0]!, false);
+  assert.equal(legacyWaterLiquids({ mask: painted.save(), motion }, 400, 300, 80, null), null);
+  assert.equal(legacyWaterLiquids({ mask: 'junk' }, 40, 30, 80, null), null);
+  // A mask of the same image on another grid is as unreadable.
+  assert.equal(legacyWaterLiquids({ mask: painted.save(), motion }, 40, 30, 160, null), null);
+});
+
+const wetCount = (mask: WaterMask): number => mask.data.reduce((sum, value) => sum + (value > 0 ? 1 : 0), 0);
+const noReport = (): OutlineReport => ({ holes: 0, thinned: 0, patches: 0 });
+
+test("when a liquid would pass Atlas's corners the smallest dry spots inside it are filled first, the shore keeps its line; what was given up is told", () => {
+  // A lake of 21 by 21 texels with a dry texel at every other place inside: 81 holes of four corners each.
+  const rows = Array.from({ length: 21 }, (_, j) => Array.from({ length: 21 }, (_, i) => (i % 2 === 1 && j % 2 === 1 && i < 19 && j < 19 ? '.' : '#')).join(''));
+  const mask = maskOf(rows);
+  const report = noReport();
+  const [lake] = maskOutlines(mask, { corners: 40, patches: 256 }, report);
+  assert.equal(lake!.polygon.length, 4);
+  assert.equal(lake!.holes.length, 9);
+  assert.deepEqual(report, { holes: 72, thinned: 0, patches: 0 });
+  const back = WaterMask.like(mask);
+  rasterAreas(back, [lake!]);
+  // Only the filled spots changed: the shore is where it was.
+  assert.equal(wetCount(back), wetCount(mask) + 72);
+  // With room for all of it nothing is given up.
+  const whole = noReport();
+  assert.equal(maskOutlines(mask, LIQUID_LIMITS, whole)[0]!.holes.length, 81);
+  assert.deepEqual(whole, noReport());
+});
+
+test('an edge is thinned no further than two texels to fit: a patch that still has too many corners is left out, and told', () => {
+  const comb = ['#.#.#.#.#.#.#.#.#.#.#.#.', '########################'];
+  const thinned = noReport();
+  const [teeth] = maskOutlines(maskOf(comb), { corners: 20, patches: 256 }, thinned);
+  assert.ok(teeth!.polygon.length <= 20);
+  assert.deepEqual(thinned, { holes: 0, thinned: 1, patches: 0 });
+  // A big L keeps its six corners however it is thinned: with room for five it is no liquid at all.
+  const ell = Array.from({ length: 30 }, (_, j) => (j < 10 ? '#'.repeat(30) : '#'.repeat(10) + '.'.repeat(20)));
+  const dropped = noReport();
+  assert.deepEqual(maskOutlines(maskOf(ell), { corners: 5, patches: 256 }, dropped), []);
+  assert.deepEqual(dropped, { holes: 0, thinned: 0, patches: 1 });
+  // Patches beyond the level's count are told too.
+  const dots = ['#.#.##', '......', '###.#.', '###...'];
+  const cut = noReport();
+  assert.equal(maskOutlines(maskOf(dots), { corners: 2048, patches: 2 }, cut).length, 2);
+  assert.deepEqual(cut, { holes: 0, thinned: 0, patches: 3 });
+});
+
+test('what was given up to fit Atlas is said in words, and nothing is said when nothing was', () => {
+  assert.equal(givenUpText({ holes: 0, thinned: 0, patches: 0 }), null);
+  assert.equal(givenUpText({ holes: 72, thinned: 1, patches: 1 }), 'Atlas keeps 256 liquids on a level, of 2048 corners each: to fit, 1 of the smallest patch was left out, 72 small dry spots were filled, the edge of the largest water was smoothed.');
+});
+
+test('two masks are the same water when the same texels are wet, whatever else they are', () => {
+  const a = maskOf(['##..', '....']);
+  const b = maskOf(['##..', '....']);
+  b.version = 7;
+  assert.equal(sameWet(a, b), true);
+  assert.equal(sameWet(a, maskOf(['#...', '....'])), false);
+  assert.equal(sameWet(a, maskOf(['##..', '....', '....'])), false);
+  // No water and a dry mask are the same; no water and some are not.
+  assert.equal(sameWet(null, maskOf(['....', '....'])), true);
+  assert.equal(sameWet(null, null), true);
+  assert.equal(sameWet(null, a), false);
+});
+
+test("a stroke is written against the liquids Atlas has at that moment: every brush liquid there is replaced, a liquid made in Atlas neither removed nor painted under", () => {
+  const motion = { ...DEFAULT_WATER_MOTION, tint: '#224466' };
+  const liquidAt = (id: string, x: number, more: object = {}) => ({ id, kind: 'liquid', liquid: 'water', polygon: [{ x, y: 0 }, { x, y: 10 }, { x: x + 10, y: 10 }, { x: x + 10, y: 0 }], colors: { surface: '#3b82f6' }, ...more });
+  // Atlas has the last stroke's liquid (written a moment ago), an older one, and a pool of its own.
+  const now = readLiquids({
+    older: liquidAt('older', 0, { tabletop: { v: 1, brush: true, motion } }),
+    lastStroke: liquidAt('lastStroke', 20, { tabletop: { v: 1, brush: true, motion } }),
+    pool: liquidAt('pool', 30),
+  });
+  const painted = maskOf(['#..#', '....']);
+  const report = noReport();
+  const write = strokeLiquids(painted, now, 'upper', motion, report);
+  assert.deepEqual(write.remove, ['older', 'lastStroke']);
+  // The texel under Atlas's own pool is not the brush's to write.
+  assert.equal(write.add.length, 1);
+  assert.equal((write.add[0]!.polygon as unknown[]).length, 4);
+  assert.equal(write.add[0]!.level, 'upper');
+  // What Atlas will hold after the write: its own pool and the brush's new water.
+  assert.deepEqual(rowsOf(write.kept), ['#..#', '....']);
+  // Erasing over Atlas's pool changes nothing of it: the board is told what is kept, which is not what was painted.
+  const erased = strokeLiquids(maskOf(['....', '....']), now, 'upper', motion, noReport());
+  assert.deepEqual([erased.remove, erased.add], [['older', 'lastStroke'], []]);
+  assert.deepEqual(rowsOf(erased.kept), ['...#', '....']);
+  assert.equal(sameWet(erased.kept, maskOf(['....', '....'])), false);
 });

@@ -24,6 +24,8 @@ type RawToken = Record<string, unknown> & { x?: number; y?: number; imagePath?: 
  * sets, `undefined` for one it deletes; null when it changes nothing.
  */
 export type TokenChange = (token: ResourceHolder & Record<string, unknown>) => Record<string, unknown> | null;
+/** A change to a map's liquids worked out on those Atlas has at the moment of the write (`objects.liquids`, every level's). */
+export type LiquidPlan = (liquids: Readonly<Record<string, unknown>>) => { remove: readonly string[]; add: ReadonlyArray<Record<string, unknown>> };
 
 /** Sets one resource: `edit` turns the value the token holds into the new one. */
 function setResource(key: string, edit: (stored: ResourceValue) => ResourceValue, maxEdited: boolean): TokenChange {
@@ -387,11 +389,14 @@ export class TokenWriter {
   /**
    * Replaces liquids of the map (`liquids.ts`): `remove` are taken off and `add` kept, together in one step of Atlas's
    * history (Atlas has no update for a liquid). A liquid Atlas no longer has is passed over. The ids Atlas gave.
+   * Given a plan instead, what to take off and what to add is asked of it at the write, with the liquids Atlas has then.
    */
-  async replaceLiquids(path: string, remove: readonly string[], add: ReadonlyArray<Record<string, unknown>>): Promise<string[]> {
+  async replaceLiquids(path: string, change: readonly string[] | LiquidPlan, adding: ReadonlyArray<Record<string, unknown>> = []): Promise<string[]> {
     if (this.holder(path) === null) await this.ready(path);
     const state = this.store(path);
     if (!state.addLiquids || !state.deleteLiquid) throw TokenWriter.missing('liquids');
+    // A plan is made here, on the liquids Atlas has now: what the caller read before may be a write behind.
+    const { remove, add } = typeof change === 'function' ? change(state.objects?.liquids ?? {}) : { remove: change, add: adding };
     const there = remove.filter((id) => Object.hasOwn(state.objects?.liquids ?? {}, id));
     if (there.length === 0 && add.length === 0) return [];
     const view = this.holder(path);

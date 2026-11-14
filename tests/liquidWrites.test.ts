@@ -72,6 +72,26 @@ test("a finished stroke replaces the brush's liquids with its outlines in one st
   assert.deepEqual(Object.keys(a.liquids), ['atlasOwn']);
 });
 
+test("a stroke's write is planned on the liquids Atlas has at the moment of the write, not on what the board read before", async () => {
+  const a = atlas('m.atlasmap', { first: liquid('first') });
+  const writer = new TokenWriter({ views: () => [a.view], held: async () => null });
+  const seen: string[][] = [];
+  const plan = (now: Readonly<Record<string, unknown>>) => { seen.push(Object.keys(now)); return { remove: Object.keys(now), add: [{ liquid: 'water', polygon: triangle }] }; };
+  // Two strokes one after the other, neither waiting for the map to be read again: the second takes off what the first wrote.
+  const [one, two] = await Promise.all([writer.replaceLiquids('m.atlasmap', plan), writer.replaceLiquids('m.atlasmap', plan)]);
+  assert.deepEqual(seen, [['first'], ['liquid_1']]);
+  assert.deepEqual([one, two], [['liquid_1'], ['liquid_2']]);
+  assert.deepEqual(Object.keys(a.liquids), ['liquid_2']);
+  assert.equal(a.past.length, 2);
+  // Atlas comes to the map only when asked to: the plan is made then, on what it holds.
+  const b = atlas('n.atlasmap', { theirs: liquid('theirs') });
+  const views: AtlasView[] = [];
+  const later = new TokenWriter({ views: () => views, held: async () => { views.push(b.view); return null; } });
+  const ids = await later.replaceLiquids('n.atlasmap', (now) => ({ remove: [], add: Object.keys(now).map(() => ({ liquid: 'water', polygon: triangle })) }));
+  assert.deepEqual(ids, ['liquid_1']);
+  assert.deepEqual(Object.keys(b.liquids), ['theirs', 'liquid_1']);
+});
+
 test('on a map Atlas does not hold the water is refused, and nothing is written', async () => {
   const a = atlas('other.atlasmap', { old: liquid('old') });
   const writer = new TokenWriter({ views: () => [a.view], held: async () => null });
