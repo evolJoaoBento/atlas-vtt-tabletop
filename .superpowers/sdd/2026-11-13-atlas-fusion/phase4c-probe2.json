@@ -1,0 +1,262 @@
+{
+  "followed": "held",
+  "heldLower": true,
+  "memberWritten": {
+    "mtimeChanged": true,
+    "textChanged": true
+  },
+  "lowerCounts": {
+    "tokens": 2,
+    "fog": 0,
+    "pins": 1,
+    "texts": 0,
+    "drawings": 0,
+    "walls": 14,
+    "lights": 4,
+    "audios": 0,
+    "lightZones": 0,
+    "measures": 3,
+    "liquids": 2,
+    "mapFeatures": 2
+  },
+  "lowerGrid": {
+    "size": 140,
+    "offsetX": 0,
+    "offsetY": 0,
+    "unitDistance": 5,
+    "mapStretch": null
+  },
+  "lowerLevels": null,
+  "heldBase": true,
+  "applied": true,
+  "k": 0.7142857142857143,
+  "pastAfter": 0,
+  "background": {
+    "now": "atlas-vtt/assets/gilded-flagon-cellar.webp",
+    "members": "atlas-vtt/assets/gilded-flagon-cellar.webp",
+    "bases": "atlas-vtt/assets/smugglers-cove-v8.webm"
+  },
+  "moved": {
+    "tokens": {
+      "ok": true,
+      "was": [
+        2310,
+        1050
+      ],
+      "now": [
+        1750,
+        800
+      ],
+      "tag": "level_probe_lower",
+      "shape": null
+    },
+    "pins": {
+      "ok": true,
+      "was": [
+        900,
+        900
+      ],
+      "now": [
+        742.8571428571429,
+        692.8571428571429
+      ],
+      "tag": "level_probe_lower",
+      "shape": null
+    },
+    "mapFeatures": {
+      "ok": true,
+      "was": [
+        1800,
+        900
+      ],
+      "now": [
+        1385.7142857142858,
+        692.8571428571429
+      ],
+      "tag": "level_probe_lower",
+      "shape": null
+    },
+    "liquids": {
+      "ok": true,
+      "was": [
+        1600,
+        400
+      ],
+      "now": [
+        1242.857142857143,
+        335.7142857142857
+      ],
+      "tag": "level_probe_lower",
+      "shape": null
+    },
+    "measures": {
+      "ok": true,
+      "was": [
+        1200,
+        800
+      ],
+      "now": [
+        957.1428571428571,
+        621.4285714285714
+      ],
+      "tag": "level_probe_lower",
+      "shape": "circle"
+    },
+    "walls": {
+      "ok": true,
+      "was": [
+        280,
+        280
+      ],
+      "now": [
+        300,
+        250
+      ],
+      "tag": [
+        "level_probe_lower"
+      ],
+      "shape": "solid"
+    },
+    "lights": {
+      "ok": true,
+      "was": [
+        2408,
+        336
+      ],
+      "now": [
+        1820,
+        290
+      ],
+      "tag": [
+        "level_probe_lower"
+      ],
+      "shape": null
+    }
+  },
+  "ownToken": {
+    "still": true,
+    "level": "level_probe_base"
+  },
+  "measureRefs": [
+    {
+      "shape": "circle",
+      "follows": null,
+      "origin": null,
+      "tabletop": null
+    },
+    {
+      "shape": "circle",
+      "follows": "tok_1794566615152_gmn2nhci6",
+      "origin": null,
+      "tabletop": null
+    },
+    {
+      "shape": "square",
+      "follows": null,
+      "origin": null,
+      "tabletop": [
+        "probe",
+        "nested"
+      ]
+    }
+  ],
+  "wallChains": [
+    "probe-chain-keep"
+  ],
+  "savedAfterMs": 1303,
+  "savedAfterMsFromWrite": 1354,
+  "file": {
+    "version": 5,
+    "levels": [
+      [
+        "level_probe_lower",
+        -15,
+        {
+          "offset": {
+            "x": 100,
+            "y": 50
+          },
+          "scale": 0.7142857142857143,
+          "stretch": {
+            "x": 1,
+            "y": 1
+          }
+        }
+      ],
+      [
+        "level_probe_base",
+        0,
+        null
+      ]
+    ],
+    "background": "atlas-vtt/assets/gilded-flagon-cellar.webp",
+    "counts": {
+      "tokens": 5,
+      "fog": 0,
+      "pins": 1,
+      "texts": 0,
+      "drawings": 0,
+      "walls": 14,
+      "lights": 4,
+      "audios": 0,
+      "lightZones": 0,
+      "mapFeatures": 2,
+      "liquids": 2,
+      "measures": 3
+    }
+  },
+  "heldBaseAgain": true,
+  "reloaded": {
+    "levels": [
+      "level_probe_lower",
+      "level_probe_base"
+    ],
+    "alignment": {
+      "level_probe_lower": {
+        "offset": {
+          "x": 100,
+          "y": 50
+        },
+        "scale": 0.7142857142857143,
+        "stretch": {
+          "x": 1,
+          "y": 1
+        }
+      }
+    },
+    "counts": {
+      "tokens": 5,
+      "fog": 0,
+      "pins": 1,
+      "texts": 0,
+      "drawings": 0,
+      "walls": 14,
+      "lights": 4,
+      "audios": 0,
+      "lightZones": 0,
+      "mapFeatures": 2,
+      "liquids": 2,
+      "measures": 3
+    },
+    "background": "atlas-vtt/assets/gilded-flagon-cellar.webp",
+    "viewed": "level_probe_lower"
+  },
+  "board": {
+    "levels": [
+      "level_probe_lower",
+      "level_probe_base"
+    ],
+    "shown": "level_probe_lower",
+    "otherLayers": [
+      [
+        "atlas-level:level_probe_base",
+        3
+      ]
+    ],
+    "walls": 14,
+    "tokens": 5
+  },
+  "savedOnLeaving": true,
+  "savedLater": true,
+  "dataLeft": []
+}

@@ -1,0 +1,311 @@
+{
+  "heldUpper": true,
+  "stateKeys": [
+    "_audioDirty",
+    "activeTool",
+    "assetManagerInitialTab",
+    "background",
+    "camera",
+    "commandPalettePage",
+    "currentCollectionId",
+    "diceLog",
+    "dmNotePath",
+    "dmScreenPage",
+    "dungeonGenerator",
+    "exploredBrush",
+    "exploredEdits",
+    "exploredMask",
+    "exploredMasks",
+    "fightsStarted",
+    "grid",
+    "heldTokens",
+    "initiative",
+    "initiativeTrackerOpen",
+    "isAssetManagerOpen",
+    "isCommandPaletteOpen",
+    "isDMScreenOpen",
+    "isDiceLogOpen",
+    "isDiceTrayOpen",
+    "isDragging",
+    "isGMView",
+    "isGridAlignmentOpen",
+    "isGridSettingsOpen",
+    "isMapLoading",
+    "isPlayerView",
+    "isToolbarEditing",
+    "levelAlignments",
+    "levelLinkPopover",
+    "levelSurfacePopover",
+    "levels",
+    "lightPopover",
+    "lightZonePopover",
+    "lighting",
+    "lightingTool",
+    "lootRoller",
+    "mapLoaded",
+    "mapLoadingMessage",
+    "mapLoadingProgress",
+    "mapPath",
+    "measurePopover",
+    "measureTool",
+    "objects",
+    "partyValues",
+    "persistenceEnabled",
+    "pinnedNotePreviews",
+    "playerFrames",
+    "plugin",
+    "roofsHidden",
+    "roomTool",
+    "schema",
+    "selectedIds",
+    "selectionMode",
+    "sound",
+    "tokenSettings",
+    "turnMoves",
+    "version",
+    "viewedLevel",
+    "widgetSettings",
+    "widgetValues"
+  ],
+  "sizeKeys": [
+    [
+      "background",
+      "atlas-vtt/assets/smugglers-cove-v8.webm"
+    ]
+  ],
+  "upperCounts": {
+    "tokens": 3,
+    "fog": 0,
+    "pins": 0,
+    "texts": 0,
+    "drawings": 0,
+    "walls": 0,
+    "lights": 0,
+    "audios": 0,
+    "lightZones": 0
+  },
+  "upperGrid": {
+    "enabled": true,
+    "visible": true,
+    "snapToGrid": true,
+    "type": "square",
+    "size": 100,
+    "offsetX": 0,
+    "offsetY": 0,
+    "opacity": 0.18,
+    "lineType": "solid",
+    "lineWidth": 1,
+    "unitType": "feet",
+    "unitDistance": 5,
+    "measurementType": "units"
+  },
+  "upperLevels": null,
+  "boardSize": {
+    "width": 1920,
+    "height": 1120
+  },
+  "heldBase": true,
+  "baseCounts": {
+    "tokens": 3,
+    "fog": 0,
+    "pins": 0,
+    "texts": 0,
+    "drawings": 0,
+    "walls": 0,
+    "lights": 0,
+    "audios": 0,
+    "lightZones": 0
+  },
+  "fileVersionBefore": 4,
+  "added": {
+    "tokens": 3
+  },
+  "hasUntracked": true,
+  "applied": true,
+  "pastAfter": 0,
+  "levelsInStore": [
+    [
+      "level_probe_first",
+      0,
+      true
+    ],
+    [
+      "level_probe_added",
+      15,
+      true
+    ]
+  ],
+  "alignmentInStore": {
+    "level_probe_added": {
+      "offset": {
+        "x": 140,
+        "y": 70
+      },
+      "scale": 0.5,
+      "stretch": {
+        "x": 1,
+        "y": 1
+      }
+    }
+  },
+  "countsAfter": {
+    "tokens": 6,
+    "fog": 0,
+    "pins": 0,
+    "texts": 0,
+    "drawings": 0,
+    "walls": 0,
+    "lights": 0,
+    "audios": 0,
+    "lightZones": 0
+  },
+  "tokenMoved": {
+    "was": [
+      1150,
+      850
+    ],
+    "now": [
+      715,
+      495
+    ],
+    "want": [
+      715,
+      495
+    ],
+    "level": "level_probe_added"
+  },
+  "ownTokenStill": true,
+  "exploredMasksInStore": [
+    "level_probe_added"
+  ],
+  "fileVersionAfter": 5,
+  "fileLevels": [
+    {
+      "id": "level_probe_first",
+      "bottom": 0,
+      "alignment": null
+    },
+    {
+      "id": "level_probe_added",
+      "bottom": 15,
+      "alignment": {
+        "offset": {
+          "x": 140,
+          "y": 70
+        },
+        "scale": 0.5,
+        "stretch": {
+          "x": 1,
+          "y": 1
+        }
+      }
+    }
+  ],
+  "fileCounts": {
+    "tokens": 6,
+    "fog": 0,
+    "pins": 0,
+    "texts": 0,
+    "drawings": 0,
+    "walls": 0,
+    "lights": 0,
+    "audios": 0,
+    "lightZones": 0
+  },
+  "fileExploredMasks": [
+    "level_probe_added"
+  ],
+  "heldBaseAgain": true,
+  "reloaded": {
+    "levels": [
+      "level_probe_first",
+      "level_probe_added"
+    ],
+    "alignment": {
+      "level_probe_added": {
+        "offset": {
+          "x": 140,
+          "y": 70
+        },
+        "scale": 0.5,
+        "stretch": {
+          "x": 1,
+          "y": 1
+        }
+      }
+    },
+    "counts": {
+      "tokens": 6,
+      "fog": 0,
+      "pins": 0,
+      "texts": 0,
+      "drawings": 0,
+      "walls": 0,
+      "lights": 0,
+      "audios": 0,
+      "lightZones": 0
+    },
+    "exploredMasks": [
+      "level_probe_added"
+    ],
+    "token": [
+      715,
+      495,
+      "level_probe_added"
+    ]
+  },
+  "board": {
+    "levels": [
+      "level_probe_first",
+      "level_probe_added"
+    ],
+    "shown": "level_probe_first",
+    "otherLayers": [
+      [
+        "atlas-level:level_probe_added",
+        3
+      ]
+    ]
+  },
+  "oddInStore": {
+    "offset": {
+      "x": -70,
+      "y": -35
+    },
+    "scale": 0.5,
+    "stretch": {
+      "x": 1,
+      "y": 1,
+      "rotation": 90
+    }
+  },
+  "oddInFile": [
+    null,
+    {
+      "offset": {
+        "x": -70,
+        "y": -35
+      },
+      "scale": 0.5,
+      "stretch": {
+        "x": 1,
+        "y": 1,
+        "rotation": 90
+      }
+    }
+  ],
+  "oddReloaded": {
+    "level_probe_added": {
+      "offset": {
+        "x": 0,
+        "y": 0
+      },
+      "scale": 0.5,
+      "stretch": {
+        "x": 1,
+        "y": 1
+      }
+    }
+  },
+  "dataLeft": []
+}

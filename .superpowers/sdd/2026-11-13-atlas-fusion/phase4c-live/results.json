@@ -1,0 +1,405 @@
+[
+  {
+    "step": 0,
+    "name": "Phases 1 to 4B's live checks again: nothing regressed",
+    "pass": true,
+    "evidence": {
+      "summary": "8/8 steps passed",
+      "failed": []
+    }
+  },
+  {
+    "step": 44,
+    "name": "the ask: a notice since the start says stacks can become levels; the review tells what each would become and what is not kept; Later leaves every scene and all of Tabletop's data as they were",
+    "pass": true,
+    "evidence": {
+      "notice": "Tabletop: 2 scene stacks from before can become Atlas levels. Until then they are not drawn stacked.\nReview and moveLater",
+      "pending": [
+        [
+          "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Base.atlasmap",
+          [
+            [
+              "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Lower.atlasmap",
+              -2
+            ],
+            [
+              "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Upper.atlasmap",
+              3
+            ]
+          ]
+        ],
+        [
+          "atlas-vtt/collections/The Gilded Flagon/scenes/The Gilded Flagon.atlasmap",
+          [
+            [
+              "atlas-vtt/collections/The Gilded Flagon/scenes/Upper Floor.atlasmap",
+              2
+            ]
+          ]
+        ]
+      ],
+      "mine": {
+        "base": "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Base.atlasmap",
+        "moved": false,
+        "levels": [
+          "Stack Lower",
+          "Stack Base",
+          "Stack Upper"
+        ],
+        "lost": [
+          "Stack Upper: players will see everything on it that fog does not cover (its Atlas lighting was on; the base's, which is the scene's from now on, is off)",
+          "Stack Upper: its initiative order stays with the scene of its own"
+        ],
+        "skipped": null
+      },
+      "hadLater": true,
+      "gone": true,
+      "changed": [],
+      "dataSame": true,
+      "held": "atlas-vtt/collections/The Gilded Flagon/scenes/Probe Cellar.atlasmap"
+    }
+  },
+  {
+    "step": 45,
+    "name": "Move makes the stack the levels of its base through Atlas's store: a backup first; three levels in order at their heights, the upper fitted (scale, offset) and every kind of its records moved with it, ids given anew where the base had them, its wall height and old water on its records; saved and read back; Tabletop's data adopted; Atlas back where it was",
+    "pass": true,
+    "evidence": {
+      "refused": null,
+      "backup": "Tabletop backups/2026-11-14",
+      "took": 3228,
+      "outcome": {
+        "base": "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Base.atlasmap",
+        "moved": true,
+        "levels": [
+          "Stack Lower",
+          "Stack Base",
+          "Stack Upper"
+        ],
+        "lost": [
+          "Stack Upper: players will see everything on it that fog does not cover (its Atlas lighting was on; the base's, which is the scene's from now on, is off)",
+          "Stack Upper: its initiative order stays with the scene of its own"
+        ],
+        "skipped": null
+      },
+      "backAt": "atlas-vtt/collections/The Gilded Flagon/scenes/Probe Cellar.atlasmap",
+      "presented": {
+        "set": true,
+        "after": {
+          "tabId": "tab-1794680435562-hontxg",
+          "filePath": "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Base.atlasmap",
+          "levelId": "level_mwgqea56_z94fmj"
+        }
+      },
+      "undoLeft": false,
+      "backups": {
+        "added": 10,
+        "names": [
+          "Stack Base-2.atlasmap",
+          "Stack Base-3.atlasmap",
+          "Stack Base-4.atlasmap",
+          "Stack Base-5.atlasmap",
+          "Stack Base.atlasmap",
+          "Stack Base.minis-2.json",
+          "Stack Base.minis-3.json",
+          "Stack Base.minis-4.json",
+          "Stack Base.minis-5.json",
+          "Stack Base.minis.json",
+          "Stack Base.tabletop-2.json",
+          "Stack Base.tabletop-3.json",
+          "Stack Base.tabletop-4.json",
+          "Stack Base.tabletop-5.json",
+          "Stack Base.tabletop.json",
+          "Stack Lower-2.atlasmap",
+          "Stack Lower-3.atlasmap",
+          "Stack Lower-4.atlasmap",
+          "Stack Lower-5.atlasmap",
+          "Stack Lower.atlasmap",
+          "Stack Lower.minis-2.json",
+          "Stack Lower.minis-3.json",
+          "Stack Lower.minis-4.json",
+          "Stack Lower.minis-5.json",
+          "Stack Lower.minis.json",
+          "Stack Lower.tabletop-2.json",
+          "Stack Lower.tabletop-3.json",
+          "Stack Lower.tabletop-4.json",
+          "Stack Lower.tabletop-5.json",
+          "Stack Lower.tabletop.json",
+          "Stack Upper-2.atlasmap",
+          "Stack Upper-3.atlasmap",
+          "Stack Upper-4.atlasmap",
+          "Stack Upper-5.atlasmap",
+          "Stack Upper.atlasmap",
+          "Stack Upper.minis-2.json",
+          "Stack Upper.minis-3.json",
+          "Stack Upper.minis-4.json",
+          "Stack Upper.minis-5.json",
+          "Stack Upper.minis.json",
+          "Stack Upper.tabletop-2.json",
+          "Stack Upper.tabletop-3.json",
+          "Stack Upper.tabletop-4.json",
+          "Stack Upper.tabletop-5.json",
+          "Stack Upper.tabletop.json",
+          "Stacks moved-2.md",
+          "Stacks moved-3.md",
+          "Stacks moved-4.md",
+          "Stacks moved-5.md",
+          "Stacks moved.md"
+        ]
+      },
+      "levels": [
+        {
+          "id": "level_mwgqea56_wg5eny",
+          "name": "Stack Lower",
+          "bottom": -10,
+          "top": 0,
+          "background": "atlas-vtt/assets/smugglers-cove-v8.webm"
+        },
+        {
+          "id": "level_mwgqea56_z94fmj",
+          "name": "Stack Base",
+          "bottom": 0,
+          "top": 10,
+          "background": "atlas-vtt/assets/smugglers-cove-v8.webm"
+        },
+        {
+          "id": "level_mwgqea56_426ma5",
+          "name": "Stack Upper",
+          "bottom": 15,
+          "top": 25,
+          "background": "atlas-vtt/assets/gilded-flagon-cellar.webp"
+        }
+      ],
+      "alignment": {
+        "level_mwgqea56_426ma5": {
+          "offset": {
+            "x": 200,
+            "y": 100
+          },
+          "scale": 0.7143,
+          "stretch": {
+            "x": 1,
+            "y": 1
+          }
+        }
+      },
+      "viewed": "level_mwgqea56_z94fmj",
+      "background": "atlas-vtt/assets/smugglers-cove-v8.webm",
+      "upper": {
+        "counts": {
+          "tokens": 2,
+          "walls": 14,
+          "lights": 4,
+          "pins": 1,
+          "measures": 3,
+          "mapFeatures": 2,
+          "liquids": 3
+        },
+        "was": {
+          "tokens": 2,
+          "fog": 0,
+          "pins": 1,
+          "texts": 0,
+          "drawings": 0,
+          "walls": 14,
+          "lights": 4,
+          "audios": 0,
+          "lightZones": 0,
+          "measures": 3,
+          "liquids": 2,
+          "mapFeatures": 2
+        },
+        "wallMoved": true,
+        "wallHeight": {
+          "v": 1,
+          "height": 3
+        },
+        "tokenMoved": true,
+        "water": [
+          [
+            4,
+            "#2a6f97"
+          ]
+        ]
+      },
+      "lower": {
+        "tokens": [
+          "tok_1794200000009_kestrel00_s2",
+          "tok_1794200000010_mara00000_s2",
+          "tok_1794200000011_goblin000_s2"
+        ],
+        "aligned": false
+      },
+      "base": {
+        "tokens": [
+          [
+            "tok_1794200000009_kestrel00",
+            "level_mwgqea56_z94fmj"
+          ],
+          [
+            "tok_1794200000010_mara00000",
+            "level_mwgqea56_z94fmj"
+          ],
+          [
+            "tok_1794200000011_goblin000",
+            "level_mwgqea56_z94fmj"
+          ]
+        ]
+      },
+      "file": {
+        "version": 5,
+        "levels": [
+          "level_mwgqea56_wg5eny",
+          "level_mwgqea56_z94fmj",
+          "level_mwgqea56_426ma5"
+        ],
+        "tokens": 8
+      },
+      "data": {
+        "stackLeft": false,
+        "journal": null,
+        "style": "standee",
+        "mini": "atlas-vtt/assets/minis/Goblin Raider.glb",
+        "prop": {
+          "level": "level_mwgqea56_426ma5",
+          "moved": true
+        },
+        "hidden": true,
+        "shot": {
+          "mapPath": "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Base.atlasmap",
+          "level": "level_mwgqea56_426ma5",
+          "eye": {
+            "x": 700.01,
+            "y": 600.01,
+            "z": 1100.02
+          },
+          "wantEye": {
+            "x": 700,
+            "y": 1100,
+            "up": 600
+          }
+        },
+        "baseShot": {
+          "mapPath": "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Base.atlasmap",
+          "level": "level_mwgqea56_z94fmj"
+        },
+        "memberKeeps": {
+          "style": "standee",
+          "layer": null,
+          "water": true
+        }
+      },
+      "members": {
+        "upperChanged": true,
+        "lowerChanged": false,
+        "upperStillAScene": 14,
+        "lowerStillAScene": 3
+      }
+    }
+  },
+  {
+    "step": 46,
+    "name": "the 3D board of the base shows its three floors: the base shown, the other two as layers below and above; the upper floor's wall stands as high as it was set, its mini stands on its token",
+    "pass": true,
+    "evidence": {
+      "levels": [
+        "level_mwgqea56_wg5eny",
+        "level_mwgqea56_z94fmj",
+        "level_mwgqea56_426ma5"
+      ],
+      "shown": "level_mwgqea56_z94fmj",
+      "want": {
+        "base": "level_mwgqea56_z94fmj",
+        "upper": "level_mwgqea56_426ma5",
+        "lower": "level_mwgqea56_wg5eny"
+      },
+      "layers": [
+        [
+          "atlas-level:level_mwgqea56_wg5eny",
+          -2
+        ],
+        [
+          "atlas-level:level_mwgqea56_426ma5",
+          3
+        ]
+      ],
+      "upperWalls": 14,
+      "upperWallHeight": 3,
+      "upperMini": "atlas-vtt/assets/minis/Goblin Raider.glb"
+    }
+  },
+  {
+    "step": 47,
+    "name": "asked again there is nothing to move; a journal left by a move that stopped after Atlas was written is finished at start without a level added twice; one whose write never landed is dropped and its stack is as it was",
+    "pass": true,
+    "evidence": {
+      "again": {
+        "outcomes": 0,
+        "backup": null,
+        "refused": null
+      },
+      "finished": {
+        "stack": false,
+        "journal": null,
+        "levels": 3,
+        "props": 0
+      },
+      "dropped": {
+        "stack": true,
+        "journal": null,
+        "levels": 3
+      }
+    }
+  },
+  {
+    "step": 48,
+    "name": "a cutscene's shot on a level is shown on its level: the board goes to the upper floor for the re-pointed shot, says it is there, and comes back to the base's",
+    "pass": true,
+    "evidence": {
+      "shot": {
+        "mapPath": "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Base.atlasmap",
+        "level": "level_mwgqea56_426ma5"
+      },
+      "before": {
+        "place": "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Base.atlasmap\nlevel_mwgqea56_z94fmj",
+        "at": false,
+        "level": "level_mwgqea56_z94fmj"
+      },
+      "shown": true,
+      "there": {
+        "place": "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Base.atlasmap\nlevel_mwgqea56_426ma5",
+        "at": true,
+        "level": "level_mwgqea56_426ma5",
+        "atlas": "level_mwgqea56_426ma5"
+      },
+      "back": true,
+      "home": {
+        "level": "level_mwgqea56_z94fmj",
+        "at": true,
+        "atMap": false
+      },
+      "levels": {
+        "base": "level_mwgqea56_z94fmj",
+        "upper": "level_mwgqea56_426ma5",
+        "lower": "level_mwgqea56_wg5eny"
+      }
+    }
+  },
+  {
+    "step": 49,
+    "name": "while Connect hosts a session nothing is moved, and it is said why",
+    "pass": true,
+    "evidence": {
+      "refused": "a session is hosted in Connect (end it first)",
+      "outcomes": 0,
+      "backup": null
+    }
+  },
+  {
+    "step": 50,
+    "name": "no console error from Tabletop or Connect across the run",
+    "pass": true,
+    "evidence": {
+      "errors": []
+    }
+  }
+]
