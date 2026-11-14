@@ -89,7 +89,7 @@ interface TabletopSettings {
   lineOfSight?: SightMode;
   sightStyle?: SightStyle;
   layerTick?: number;
-  /** Whether Connect's players see the scenes stacked with a map (their floors, walls and props, never what is on them); on unless false. */
+  /** Whether Connect's players see a scene's other levels (their floors, walls and props, never what is on them); on unless false. */
   shareLayers?: boolean;
   /** The painted lighting. */
   painted?: boolean;
@@ -1151,7 +1151,7 @@ class TabletopSettingTab extends PluginSettingTab {
           .setValue(readSightMode(plugin.settings.lineOfSight))
           .onChange((value) => { void plugin.setLineOfSight(readSightMode(value)); }));
       }, ['sight', 'doors', 'walls', 'hidden', 'vision']),
-      this.row('Layer ruler step', 'The height ruler down the right of the board, shown when scenes are stacked (Elevation layers), has a dash for every this many squares of height. The top of the ruler is the highest layer. Two by default.', (setting) => {
+      this.row('Layer ruler step', 'The height ruler down the right of the board, shown on a scene with floors (Atlas levels), has a dash for every this many squares of height. The top of the ruler is the highest layer. Two by default.', (setting) => {
         setting.addSlider((slider) => slider.setLimits(MIN_LAYER_TICK, MAX_LAYER_TICK, 0.5).setValue(readLayerTick(plugin.settings.layerTick)).setDynamicTooltip().onChange((squares) => { void plugin.setLayerTick(squares); }));
       }, ['layers', 'height', 'ruler', 'elevation']),
       this.row('Sight style', 'How line of sight is judged. Rays: what each token that sees has an unstopped line to (a doorway shows a cone of the room behind it). Cinematic: whole rooms. In a sealed building you see all of it and nothing outside; with a door open you see the whole outside, except every other sealed building, which stays black as one piece until a door of its own opens. Also in the board settings on the toolbar.', (setting) => {
@@ -1160,13 +1160,13 @@ class TabletopSettingTab extends PluginSettingTab {
           .setValue(readSightStyle(plugin.settings.sightStyle))
           .onChange((value) => { void plugin.setSightStyle(readSightStyle(value)); }));
       }, ['sight', 'cinematic', 'rooms', 'buildings']),
-      this.row('Upper layers', 'How the floor image of a map stacked above another (set in the file menu of a map) is drawn in the combined 3D view: whole, half see-through, or hidden so only its walls, props and minis show. Transparent parts of the image always show what is below. Also in the board settings on the toolbar.', (setting) => {
+      this.row('Upper layers', 'How the floor image of a level above the one you are on (Atlas levels) is drawn in the 3D view: whole, half see-through, or hidden so only its walls, props and minis show. Transparent parts of the image always show what is below. Also in the board settings on the toolbar.', (setting) => {
         setting.addDropdown((dropdown) => dropdown
           .addOptions({ solid: 'Solid', faded: 'Faded', transparent: 'Hidden' })
           .setValue(readLayerLook(plugin.settings.layerLook))
           .onChange((value) => { void plugin.setLayerLook(readLayerLook(value)); }));
       }, ['elevation', 'floor', 'stack']),
-      this.row('Show layers to Connect players', 'With Atlas VTT Connect, the players\' 3D board draws the scenes stacked with the one they are on (Elevation layers): each floor, with its walls, doors, lights and props, at its height and place, as the Upper layers setting and line of sight show them. Players never get what is on those scenes (tokens, pins, notes, fog), and a layer is not hidden by its own fog: turn this off to keep the other floors from players.', (setting) => {
+      this.row('Show layers to Connect players', 'With Atlas VTT Connect, the players\' 3D board draws the other levels of the scene they are on: each floor, with its walls, doors, lights and props, at its height and place, as the Upper layers setting and line of sight show them. Players never get what is on those scenes (tokens, pins, notes, fog), and a layer is not hidden by its own fog: turn this off to keep the other floors from players.', (setting) => {
         setting.addToggle((toggle) => toggle.setValue(plugin.settings.shareLayers !== false).onChange((on) => { void plugin.setShareLayers(on); }));
       }, ['connect', 'players', 'layers', 'elevation', 'share']),
       this.row('3D board quality', 'Low draws fastest (no antialiasing, soft blob shadows). Medium is sharper. High gives minis their real shadows and draws at full resolution. Displacement (walls whose material has a height map physically relief out) is off on Low, coarse on Medium and fine on High. On all of them the resolution drops a little while the board cannot keep up.', (setting) => {

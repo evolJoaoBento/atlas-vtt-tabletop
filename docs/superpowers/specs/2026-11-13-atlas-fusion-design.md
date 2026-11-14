@@ -116,7 +116,7 @@ Stock Atlas has no API (audit, "Root finding"). Its rules and saving live in the
 | Tabletop dice volume | Atlas `dice.volume` | 1 |
 | Wall overrides keyed by old room ids | re-keyed by endpoints (section 6) | 1 |
 | Tabletop spells, Connect templates and spells | `objects.measures` (+ Atlas walls, lights, map features) | 3 |
-| Map stacks (`MapData.layer` / `hidden`) | Atlas `state.levels` of the base scene | 4 |
+| Map stacks (`MapData.layer` / `hidden`) | Atlas `state.levels` of the base scene (done in 4C: moved when the GM says so; the stack is no longer drawn) | 4 |
 | Tabletop water mask | `objects.liquids` (done in 4B: the brush's water carries its motion in a `tabletop` field; players get outlines) | 4 |
 | `lineOfSight` / `sightStyle` settings | Atlas `state.lighting.enabled` + `playerSight()` | 4 |
 | Dice colour list, die look | Atlas `getDiceLook()` + dice set colours | 4 |
@@ -163,13 +163,15 @@ All migrations follow the same rules:
    - per-wall overrides re-keyed to the copied walls
    - cutscene shots on a member map re-pointed to the base scene plus the level id (section 7)
 
-   The member files stay on disk, untouched, with a note in the summary. The board then reads levels only. The stack UI, `BoardLayerRecord` and `tokensMoved` are deleted.
+   The member files stay on disk, with a note in the summary. The board then reads levels only. The stack UI and `tokensMoved` are deleted.
+
+   As built (Phase 4C): each member is read as Atlas holds it (its loader makes a file of any age into today's records), so Atlas may re-save a member's file in its current format; the backup is written before that. The write is Atlas's own `applyLevelScene` (the whole scene with its levels) and `alignLevel` per fitted member (Atlas moves that level's records with its image), outside its undo history. Atlas keeps no turn on a level and no level left of or above the scene's origin: a member's turn is not kept and such a place is raised by whole squares; both are listed in the ask. A member under the base becomes the scene's first level. Ids the base already has are given anew (`<id>_s<n>`), with measures' tokens and walls' chains following. A journal in Tabletop's data, saved before the write, lets a move that stopped be finished or dropped at the next start without adding a level twice. `BoardLayerRecord` stays: it is how players are sent a scene's other levels.
 
 ## 7. Intersections with what just shipped
 
 - **Cutscenes.**
-  - A shot gains an optional `level` (the level the camera looks at). Shots on migrated stack members are re-pointed by migration 3.
-  - Cross-map steps stay cross-map between scenes. Level changes within a scene become a level switch on the same map, which allows a move transition.
+  - A shot gains an optional `level` (the level the camera looks at). Shots on migrated stack members are re-pointed by migration 3. (Phase 4C: done; a run's keys for Connect are per map and level, `GmCutscene.levels`, and Connect projects each key's scene at its level.)
+  - Cross-map steps stay cross-map between scenes. Level changes within a scene become a level switch on the same map, which allows a move transition. (Phase 4C: floors are joined by fade or cut; a camera glide between floors is not built yet.)
   - Connect's contract keeps run-local map keys, and adds a level.
 - **Spell sounds.**
   - All 14 damage types keep their own impact and loop sounds while extra fields survive (gate G1).
@@ -296,7 +298,7 @@ Every gate in section 11 is checked first, in a throwaway vault on Atlas 0.15.0,
 - **Per-map 3D ambient and tint different from Atlas's.** One light level everywhere.
 - **Water detail.** Painted water becomes polygons, so brush-level edges are lost (Phase 4B: the outlines lie within a sixteenth of a square of the brush's edge, and give the same brush mask back; past Atlas's limits, 2048 corners a liquid and 256 liquids a level, the smallest dry spots are filled, the shore is smoothed by a quarter of a square, the dry ground inside is filled, the shore is smoothed further only then, the smallest patches are left out, and a notice says so).
 - **Painting water without Atlas on the map, and over Atlas's own liquids (Phase 4B).** A stroke is written to Atlas's liquids, so it needs Atlas to hold the map. The brush changes only the water it made: a liquid made in Atlas (a generated dungeon's) is drawn, and where it is erased over it is drawn again once the stroke is kept (the board shows what Atlas has, not what was painted). All of a level's liquids are drawn as one water: in the brush's motion and colour, or, without brush water, still and in the first liquid's colour. Each change of the water's motion, once the sliders rest, is one step of Atlas's undo (it re-writes the brush's liquids).
-- **Stack placement.** `x/y/turn` becomes Atlas's level alignment; a rotated stack member may sit slightly differently.
+- **Stack placement.** `x/y/turn` becomes Atlas's level alignment; a rotated stack member may sit slightly differently. (Phase 4C: Atlas keeps no turn and no negative offset on a level: a turn is dropped, the level lying unturned about its middle on the grid, and a place left of or above the origin is raised by whole squares; the ask lists both.)
 - **Spell heights.** A sphere or cube's height has no Atlas meaning, and Atlas and 2D players see a flat area. 3D keeps the height only while G1 holds.
 - **Tabletop's dice colour list.** The die looks like Atlas's dice.
 - **Lasting spells on open boards at the moment of upgrade** are not carried over (they were never saved).
