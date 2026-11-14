@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { frameOf, moveOf, planStackMove, stackSkip, type BaseSource, type MemberSource, type SceneFields } from '../src/board/stackMove';
+import { alignmentOf, frameOf, moveOf, planStackMove, stackSkip, type BaseSource, type MemberSource, type SceneFields } from '../src/board/stackMove';
 import { NO_PLACEMENT } from '../src/board/layerPlacement';
 import { DEFAULT_WATER_MOTION, WaterMask } from '../src/board/water';
 
@@ -16,35 +16,48 @@ const member = (name: string, elevation: number, objects: SceneFields['objects']
 const ids = (): (() => string) => { let n = 0; return () => `level_${++n}`; };
 
 test('a member on the same grid, never moved, needs no alignment: it lies in the scene\'s frame', () => {
-  const { alignment, frame, lost } = frameOf(grid(), grid(), NO_PLACEMENT, { width: 2000, height: 1000 });
-  assert.equal(alignment, null);
+  const { frame, stretch, lost } = frameOf(grid(), grid(), NO_PLACEMENT, { width: 2000, height: 1000 });
   assert.deepEqual(frame, { k: 1, x: 0, y: 0 });
+  assert.equal(alignmentOf(frame, stretch, { x: 1, y: 1 }), null);
   assert.deepEqual(lost, []);
   assert.deepEqual(moveOf(frame)({ x: 30, y: 40 }), { x: 30, y: 40 });
 });
 
 test('another cell size, grid offsets and a shift become a scale and an offset; the move is the alignment\'s own', () => {
   // The base's squares are 70 px from (10, 20); the member's 140 px from (40, 0); shifted by hand 70 right, 140 down.
-  const { alignment, frame, lost } = frameOf(grid(70, { offsetX: 10, offsetY: 20 }), grid(140, { offsetX: 40, offsetY: 0 }), { x: 70, y: 140, turn: 0 }, null);
+  const { frame, stretch, lost } = frameOf(grid(70, { offsetX: 10, offsetY: 20 }), grid(140, { offsetX: 40, offsetY: 0 }), { x: 70, y: 140, turn: 0 }, null);
   assert.deepEqual(frame, { k: 0.5, x: 60, y: 160 });
-  assert.deepEqual(alignment, { offset: { x: 60, y: 160 }, scale: 0.5, stretch: { x: 1, y: 1 } });
+  assert.deepEqual(alignmentOf(frame, stretch, { x: 1, y: 1 }), { offset: { x: 60, y: 160 }, scale: 0.5, stretch: { x: 1, y: 1 } });
   assert.deepEqual(lost, []);
   assert.deepEqual(moveOf(frame)({ x: 100, y: 200 }), { x: 110, y: 260 });
 });
 
-test('a place left of or above the base\'s origin is raised by whole squares, so the grids stay lined up, and said', () => {
-  const { alignment, frame, lost } = frameOf(grid(100), grid(100), { x: -250, y: 30, turn: 0 }, null);
-  assert.deepEqual(frame, { k: 1, x: 50, y: 30 });
-  assert.deepEqual(alignment!.offset, { x: 50, y: 30 });
-  assert.equal(lost.length, 1);
-  assert.match(lost[0]!, /3 squares/);
+test('a member that lies left of or above the base\'s corner takes the whole scene with it by whole squares: every floor keeps its place against the others, the base included', () => {
+  // Atlas keeps a grid's offset within a square: a member whose own offset is the larger lies a part of a square left.
+  const plan = planStackMove(
+    base({ tokens: { t1: token('t1', 50, 50) } }, { exploredMask: 'data:base' }),
+    [
+      member('Hall', 2, { tokens: { a: token('a', 140, 40) } }, { scene: scene({ tokens: { a: token('a', 140, 40) } }, { background: 'img/Hall.webp', grid: grid(100, { offsetX: 40, offsetY: 0 }) }) }),
+      member('Roof', 4, { tokens: { b: token('b') } }),
+      member('Yard', 6, {}, { placement: { x: -250, y: 30, turn: 0 } }),
+    ], ids());
+  // The Hall would lie at -40, the Yard at -250: three squares to the right for all of them.
+  assert.deepEqual(plan.baseFrame, { k: 1, x: 300, y: 0 });
+  assert.deepEqual(plan.members.map((each) => each.frame), [{ k: 1, x: 260, y: 0 }, { k: 1, x: 300, y: 0 }, { k: 1, x: 50, y: 30 }]);
+  assert.deepEqual(plan.aligns.map((each) => [each.level, each.alignment.offset]), [['level_1', { x: 300, y: 0 }], ['level_2', { x: 260, y: 0 }], ['level_3', { x: 300, y: 0 }], ['level_4', { x: 50, y: 30 }]]);
+  // The base's memory of what was explored lay on its image where it was: not kept, and said; so is the shift.
+  assert.equal(plan.scene.exploredMask, null);
+  assert.equal(plan.lost.some((line) => /^Keep: .*3 squares to the right/.test(line)), true);
+  assert.equal(plan.lost.some((line) => /^Keep: .*explored/.test(line)), true);
+  // Nothing is raised when nothing lies left of or above the corner.
+  assert.deepEqual(planStackMove(base(), [member('Roof', 4)], ids()).baseFrame, { k: 1, x: 0, y: 0 });
 });
 
 test('a turn is not kept: the level lies unturned about its middle (its corner when its size is not known), on the grid, and said', () => {
   // A 2000 by 1000 map turned a quarter about its corner at the origin and shifted 1000 right: its middle is at (500, 1000).
   const turned = frameOf(grid(100), grid(100), { x: 1000, y: 0, turn: 90 }, { width: 2000, height: 1000 });
-  // Unturned about that middle its corner would be at (-500, 500): raised to the grid at or right of the origin.
-  assert.deepEqual(turned.frame, { k: 1, x: 0, y: 500 });
+  // Unturned about that middle its corner is at (-500, 500), on the grid.
+  assert.deepEqual(turned.frame, { k: 1, x: -500, y: 500 });
   assert.equal(turned.lost.some((line) => /turn of 90/.test(line)), true);
   const corner = frameOf(grid(100), grid(100), { x: 300, y: 200, turn: 180 }, null);
   assert.deepEqual(corner.frame, { k: 1, x: 300, y: 200 });
@@ -52,9 +65,10 @@ test('a turn is not kept: the level lies unturned about its middle (its corner w
 });
 
 test('a member whose image is stretched another way than the base\'s needs an alignment even where it lies in place', () => {
-  const { alignment, frame } = frameOf(grid(100), grid(100, { mapStretch: { x: 1.1, y: 1 } }), NO_PLACEMENT, null);
-  assert.deepEqual(alignment, { offset: { x: 0, y: 0 }, scale: 1, stretch: { x: 1.1, y: 1 } });
+  const { frame, stretch } = frameOf(grid(100), grid(100, { mapStretch: { x: 1.1, y: 1 } }), NO_PLACEMENT, null);
   assert.deepEqual(frame, { k: 1, x: 0, y: 0 });
+  assert.deepEqual(alignmentOf(frame, stretch, { x: 1, y: 1 }), { offset: { x: 0, y: 0 }, scale: 1, stretch: { x: 1.1, y: 1 } });
+  assert.equal(alignmentOf(frame, stretch, { x: 1.1, y: 1 }), null);
 });
 
 test('the levels are the base and the members by height, their heights in the base\'s units; records are tagged by kind', () => {
@@ -173,21 +187,41 @@ test('a member whose 3D settings and old water are still in Tabletop\'s data tak
   assert.equal(blind.lost.some((line) => /Up.*water/.test(line)), true);
 });
 
-test('a fitted member is aligned by Atlas; what is not kept is listed by member', () => {
+test('a fitted member is aligned by Atlas; its sizes kept in pixels are scaled with it; what is not kept is listed by member, what players lose first', () => {
+  const objects = {
+    tokens: { t: token('t', 140, 280) },
+    fog: { f: { id: 'f', type: 'brush', points: [{ x: 0, y: 0 }], brushRadius: 40 }, r: { id: 'r', type: 'rectangle', x: 0, y: 0, width: 100, height: 100 } },
+    drawings: { d: { id: 'd', type: 'pen', points: [], width: 6 } },
+    texts: { x: { id: 'x', x: 0, y: 0, text: 'Loft', fontSize: 32, width: 200 } },
+    audios: { a: { id: 'a', x: 0, y: 0, innerRadius: 100, outerRadius: 300 } },
+    measures: { m: { id: 'm', shape: 'line', points: [], width: 70 }, c: { id: 'c', shape: 'circle', points: [], aura: 10 } },
+  };
   const plan = planStackMove(
-    base({}, { grid: grid(70), lighting: { globalLight: true } }),
-    [member('Loft', 2, { tokens: { t: token('t', 140, 280) } }, {
-      scene: scene({ tokens: { t: token('t', 140, 280) } }, { background: 'img/Loft.webp', grid: grid(140), lighting: { globalLight: false } }),
+    base({}, { grid: grid(70), lighting: { enabled: false } }),
+    [member('Loft', 2, objects, {
+      scene: scene(objects, { background: 'img/Loft.webp', grid: grid(140), lighting: { enabled: true } }),
       placement: { x: 0, y: 0, turn: 90 }, size: null, fogHeight: 2, wallThickness: 0.3, hasInitiative: true,
     })], ids());
   assert.deepEqual(plan.aligns, [{ level: 'level_2', alignment: { offset: { x: 0, y: 0 }, scale: 0.5, stretch: { x: 1, y: 1 } }, frame: { k: 0.5, x: 0, y: 0 } }]);
-  // Its records go in as they lie on the member: Atlas moves them with the level's image.
-  assert.deepEqual([(plan.scene.objects.tokens!.t as { x: number }).x, (plan.scene.objects.tokens!.t as { y: number }).y], [140, 280]);
+  // Its records go in as they lie on the member: Atlas moves their points with the level's image.
+  const out = plan.scene.objects;
+  assert.deepEqual([(out.tokens!.t as { x: number }).x, (out.tokens!.t as { y: number }).y], [140, 280]);
+  // Atlas moves points, not sizes: what is a size in pixels is scaled here.
+  assert.equal((out.fog!.f as { brushRadius: number }).brushRadius, 20);
+  assert.equal((out.fog!.r as { width: number }).width, 100, 'a fog rectangle\'s sides follow its corners in Atlas');
+  assert.equal((out.drawings!.d as { width: number }).width, 3);
+  assert.deepEqual([(out.texts!.x as { fontSize: number }).fontSize, (out.texts!.x as { width: number }).width], [16, 100]);
+  assert.deepEqual([(out.audios!.a as { innerRadius: number }).innerRadius, (out.audios!.a as { outerRadius: number }).outerRadius], [50, 150]);
+  assert.equal((out.measures!.m as { width: number }).width, 35);
+  assert.equal((out.measures!.c as { aura: number }).aura, 10, 'an aura reaches in game units');
   assert.equal(plan.scene.levelAlignments, undefined);
-  for (const said of [/turn of 90/, /fog height/, /wall thickness/, /lighting/, /initiative/, /pixels/]) assert.equal(plan.lost.some((line) => /^Loft: /.test(line) && said.test(line)), true, String(said));
+  for (const said of [/turn of 90/, /fog height/, /wall thickness/, /initiative/]) assert.equal(plan.lost.some((line) => /^Loft: /.test(line) && said.test(line)), true, String(said));
+  // Its lighting was on and the base's is off: players lose their sight limits there. Said first, plainly.
+  assert.match(plan.lost[0]!, /^Loft: players will see everything on it that fog does not cover/);
+  assert.equal(plan.lost.some((line) => /pixels/.test(line)), false);
 });
 
-test('a stack is skipped where it cannot become levels: a base or a member with levels, a scene that was not read, grids too far apart', () => {
+test('a stack is skipped where it cannot become levels: a base or a member with levels, a scene that was not read, grids too far apart, fits Atlas cannot keep', () => {
   const plain = scene();
   const levelled = scene({}, { levels: [{ id: 'a' }, { id: 'b' }] });
   assert.equal(stackSkip(plain, [{ name: 'Up', scene: plain }]), null);
@@ -197,12 +231,55 @@ test('a stack is skipped where it cannot become levels: a base or a member with 
   assert.match(stackSkip(plain, [{ name: 'Up', scene: null }])!, /Up could not be read/);
   assert.match(stackSkip(plain, [{ name: 'Up', scene: scene({}, { grid: grid(3000) }) }])!, /grid/);
   // A scene with one level (Atlas gives it one when a level is edited) has none to speak of.
-  assert.equal(stackSkip(scene({}, { levels: [{ id: 'only' }] }), [{ name: 'Up', scene: plain }]), null);
+  const one = scene({}, { levels: [{ id: 'only' }] });
+  assert.equal(stackSkip(one, [{ name: 'Up', scene: plain }]), null);
   assert.equal(stackSkip(plain, []), 'it has no scenes stacked on it');
+  // A member whose one level has a fit of its own (its image was replaced by one of another size) would need two fits.
+  assert.match(stackSkip(plain, [{ name: 'Up', scene: scene({}, { levels: [{ id: 'only' }], levelAlignments: { only: { offset: { x: 0, y: 0 }, scale: 2, stretch: { x: 1, y: 1 } } } }) }])!, /Up.*fitted/);
+  // The whole scene would have to move (a member lies left of the corner): not on hexes, not a base with a fit of its own,
+  // and not while the base's old painted water (a mask over its image) has not moved to Atlas.
+  const left = { name: 'Up', scene: plain, placement: { x: -250, y: 0, turn: 0 }, elevation: 2 };
+  assert.equal(stackSkip(plain, [left]), null);
+  assert.match(stackSkip(scene({}, { grid: grid(100, { type: 'hex-vertical' }) }), [left])!, /hex/);
+  assert.match(stackSkip(scene({}, { levels: [{ id: 'only' }], levelAlignments: { only: { offset: { x: 0, y: 0 }, scale: 2, stretch: { x: 1, y: 1 } } } }), [left])!, /base.*fitted/);
+  assert.match(stackSkip(plain, [left], { legacyWater: true })!, /painted water/);
+  // The same for a member under the base: the base is then no longer the first level, where an old mask is read.
+  assert.match(stackSkip(plain, [{ name: 'Down', scene: plain, elevation: -2 }], { legacyWater: true })!, /painted water/);
+  assert.equal(stackSkip(plain, [{ name: 'Up', scene: plain, elevation: 2 }], { legacyWater: true }), null);
 });
 
 test('a base and members with no records at all still become levels', () => {
   const plan = planStackMove({ ...base(), scene: { background: null, objects: {}, grid: null } }, [{ ...member('Up', 1), scene: { background: null, objects: {}, grid: null } }], ids());
   assert.equal((plan.scene.levels as unknown[]).length, 2);
   assert.deepEqual(plan.scene.objects, {});
+});
+
+test("a base that Atlas gave its one level keeps that level as it is (its roof, its fit); a member's own level gives its roof", () => {
+  const fit = { offset: { x: 10, y: 0 }, scale: 2, stretch: { x: 1, y: 1 } };
+  const plan = planStackMove(
+    base({ levelSurfaces: { s1: { id: 's1', polygon: [] } } }, { levels: [{ id: 'own', name: 'Tavern', elevation: { bottom: 0, top: 10 }, background: null, foreground: 'img/roof.webp', openArt: false }], levelAlignments: { own: fit } }),
+    [member('Loft', 2, { levelSurfaces: { s2: { id: 's2', polygon: [] } } }, { scene: scene({ levelSurfaces: { s2: { id: 's2', polygon: [] } } }, { background: 'img/Loft.webp', levels: [{ id: 'theirs', foreground: 'img/thatch.webp', openArt: false, sees: ['gone'] }] }) })], ids());
+  assert.deepEqual(plan.scene.levels, [
+    { id: 'own', name: 'Tavern', elevation: { bottom: 0, top: 10 }, background: 'img/base.webp', foreground: 'img/roof.webp', openArt: false },
+    { id: 'level_1', name: 'Loft', elevation: { bottom: 10, top: 20 }, background: 'img/Loft.webp', foreground: 'img/thatch.webp', openArt: false },
+  ]);
+  assert.equal(plan.baseLevel, 'own');
+  assert.deepEqual(plan.scene.levelAlignments, { own: fit });
+  assert.equal((plan.scene.objects.levelSurfaces!.s2 as { level: string }).level, 'level_1');
+});
+
+test('under a member, the base\'s surfaces and stairs name its level too', () => {
+  const plan = planStackMove(base({ levelSurfaces: { s1: { id: 's1', polygon: [] } }, levelLinks: { k1: { id: 'k1', polygon: [] } } }), [member('Cellar', -3)], ids());
+  assert.equal((plan.scene.objects.levelSurfaces!.s1 as { level: string }).level, 'level_1');
+  assert.deepEqual((plan.scene.objects.levelLinks!.k1 as { levels: string[] }).levels, ['level_1']);
+});
+
+test('heights are in the units a square of the base spans as the board reads them; two members at one height are still two floors', () => {
+  const metric = planStackMove({ ...base(), unitDistance: 1.5 }, [member('Up', 2), member('Also', 2)], ids());
+  assert.deepEqual((metric.scene.levels as Array<{ name: string; elevation: unknown }>).map((level) => [level.name, level.elevation]), [['Keep', { bottom: 0, top: 3 }], ['Also', { bottom: 3, top: 13 }], ['Up', { bottom: 3, top: 13 }]]);
+});
+
+test('a spell kept on a duplicated scene names its caster by the id that token has on the base', () => {
+  const plan = planStackMove(base({ tokens: { tok: token('tok') } }), [member('Copy', 3, { tokens: { tok: token('tok') }, measures: { m: { id: 'm', shape: 'circle', tabletop: { v: 1, caster: 'tok', junk: 7 } } } })], ids());
+  assert.deepEqual((plan.scene.objects.measures!.m as { tabletop: unknown }).tabletop, { v: 1, caster: 'tok_s2', junk: 7 });
 });

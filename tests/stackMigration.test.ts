@@ -13,7 +13,7 @@ const scene = (path: string, tokens: Record<string, unknown> = {}, more: Scene =
 });
 
 /** A vault of scenes, Atlas's one view over it, Tabletop's data, and a log of what the move did, in order. */
-function world(options: { scenes?: Record<string, Scene>; busy?: string | null; saves?: boolean; onSave?: (w: { states: Map<string, Scene> }) => void } = {}) {
+function world(options: { scenes?: Record<string, Scene>; busy?: string | null; saves?: boolean; unit?: number; onSave?: (w: { states: Map<string, Scene> }) => void } = {}) {
   const states = new Map<string, Scene>(Object.entries({ [ROAD]: scene(ROAD), ...(options.scenes ?? { [KEEP]: scene(KEEP, { hero: { id: 'hero', x: 1, y: 1 } }), [TOWER]: scene(TOWER, { hero: { id: 'hero', x: 5, y: 5 } }) }) }));
   const files = new Map<string, string>([...states].map(([path, state]) => [path, JSON.stringify({ state })]));
   const boardData = new BoardData(readBoardData({
@@ -35,7 +35,7 @@ function world(options: { scenes?: Record<string, Scene>; busy?: string | null; 
         const planned = held === path ? plan(state as unknown as AtlasSceneState) : null;
         if (!planned) { log.push('write refused'); return null; }
         journalAtWrite.push(boardData.stackJournal(path));
-        Object.assign(state, { levels: planned.scene.levels, objects: planned.scene.objects, background: planned.scene.background });
+        Object.assign(state, { levels: planned.scene.levels, objects: planned.scene.objects, background: planned.scene.background, levelAlignments: planned.scene.levelAlignments });
         if (options.saves !== false) files.set(path, JSON.stringify({ state }));
         log.push(`write ${name(path)}`);
         return planned;
@@ -47,6 +47,9 @@ function world(options: { scenes?: Record<string, Scene>; busy?: string | null; 
     read: async (path) => files.get(path) ?? null,
     backup: async (kept) => { backups.push(kept); log.push(`backup ${kept.length}`); return 'Tabletop backups/2026-11-14'; },
     worldSize: async () => ({ width: 2000, height: 1000 }),
+    unitDistance: async () => options.unit ?? null,
+    present: (path, level) => { log.push(`present ${name(path)} ${level}`); },
+    forget: (paths) => { log.push(`forget ${[...paths].map(name).sort().join(',')}`); },
     save: async () => { log.push('save'); options.onSave?.({ states }); },
     busy: () => options.busy ?? null,
     newLevelId: () => `level_${++level}`,
@@ -61,7 +64,7 @@ test('a stack is moved in this order: backup, members read as Atlas holds them, 
   const { outcomes, backup, refused } = await w.migration.move();
   assert.equal(refused, null);
   assert.equal(backup, 'Tabletop backups/2026-11-14');
-  assert.deepEqual(w.log, ['backup 6', 'hold Tower', 'hold Keep', 'save', 'write Keep', 'save', 'hold Road', 'backup 1']);
+  assert.deepEqual(w.log, ['backup 6', 'hold Tower', 'hold Keep', 'save', 'write Keep', 'present Keep level_1', 'save', 'forget Keep,Tower', 'hold Road', 'backup 1']);
   // The journal was in Tabletop's data, saved, when Atlas was written.
   assert.deepEqual((w.journalAtWrite[0] as { members: Array<{ path: string; level: string }> }).members.map((member) => [member.path, member.level]), [[TOWER, 'level_2']]);
   assert.deepEqual(outcomes, [{ base: KEEP, moved: true, levels: ['Keep', 'Tower'], lost: [], skipped: null }]);
@@ -166,4 +169,35 @@ test('what a move would do is told beforehand from the files, without holding or
   assert.equal(told[0]!.lost.some((line) => /Tower: its turn of 90/.test(line)), true);
   assert.deepEqual(w.log, []);
   assert.equal(w.boardData.stacks().length, 1);
+});
+
+test("the base's old painted water, still a mask in Tabletop's data, keeps a stack with a floor under it from moving; heights are in the base's units as the board reads them; the base's own fit is kept", async () => {
+  const fit = { offset: { x: 10, y: 0 }, scale: 2, stretch: { x: 1, y: 1 } };
+  const w = world({ unit: 1.5, scenes: { [KEEP]: scene(KEEP, {}, { levels: [{ id: 'own', name: 'Tavern' }], levelAlignments: { own: fit } }), [TOWER]: scene(TOWER), [CELLAR]: scene(CELLAR) } });
+  w.boardData.restore(CELLAR, { layer: { base: KEEP, elevation: -2 } });
+  const water = { mask: { width: 1, height: 1, data: 'AQ==' } };
+  w.boardData.restore(KEEP, { ...(w.boardData.snapshot(KEEP) ?? {}), water } as never);
+  const stuck = await w.migration.move();
+  assert.match(stuck.outcomes[0]!.skipped!, /painted water/);
+  assert.equal(w.log.some((line) => line.startsWith('write')), false);
+  // Once that water has moved (the mask is gone), the stack moves.
+  const { water: _water, ...rest } = w.boardData.snapshot(KEEP) as Record<string, unknown>;
+  w.boardData.restore(KEEP, rest as never);
+  const moved = await w.migration.move();
+  assert.equal(moved.outcomes[0]!.moved, true);
+  const kept = w.states.get(KEEP) as { levels: Array<{ id: string; elevation: { bottom: number } }>; levelAlignments: unknown };
+  assert.deepEqual(kept.levels.map((level) => [level.id, level.elevation.bottom]), [['level_1', -3], ['own', 0], ['level_2', 4.5]]);
+  assert.deepEqual(kept.levelAlignments, { own: fit });
+});
+
+test('a move pressed again after Atlas had not saved in time finishes that stack first, and adds no level twice', async () => {
+  const w = world({ saves: false });
+  await w.migration.move();
+  assert.notEqual(w.boardData.stackJournal(KEEP), null);
+  w.files.set(KEEP, JSON.stringify({ state: w.states.get(KEEP) }));
+  const again = await w.migration.move();
+  assert.equal(w.boardData.stackJournal(KEEP), null);
+  assert.deepEqual(w.boardData.stacks(), []);
+  assert.deepEqual(again.outcomes, []);
+  assert.equal((w.states.get(KEEP) as { levels: unknown[] }).levels.length, 2);
 });

@@ -13,6 +13,7 @@ import type { CutsceneOwner } from '../cutscene/cutsceneRun';
 import { ItemView, Menu, Modal, Notice, TFile, debounce, setIcon, type App, type EventRef, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
 import { ATLAS_VIEW_TYPE, presentedSceneOf, tabViewOf, type AtlasSceneState, type AtlasView } from '../atlas';
 import { AtlasBridge } from '../atlasBridge';
+import { collectionRulesOf } from '../collectionRulesOf';
 import { BoardAtlasTools } from './boardAtlasTools';
 import { tabletopCommands } from '../palette/tabletopCommands';
 import { MOSAIC_FROM_BYTES, mapPicture } from '../atlasMosaic';
@@ -1281,25 +1282,8 @@ export class BoardView extends ItemView {
   }
 
   /** The map's conditions and resource names, from Atlas's asset index (in a hidden folder, read off the disk). */
-  private async readRules(path: string): Promise<CollectionRules> {
-    const collection = collectionOf(path);
-    if (!collection) return emptyRules();
-    // Atlas's running asset service has the collection's settings as they are now (it writes them to disk a moment
-    // after a change, in a hidden folder Obsidian announces nothing of): read from it while Atlas is there.
-    try {
-      const bridge = new AtlasBridge(this.app);
-      const service = bridge.assetService();
-      const id = bridge.collectionFor(path) ?? collection;
-      const settings = service?.getCollectionSettings(id);
-      if (settings && typeof settings === 'object') return readCollectionRules({ collections: { [collection]: { settings } } }, collection);
-    } catch {
-      // Not readable just now: the file is.
-    }
-    try {
-      return readCollectionRules(JSON.parse(await this.app.vault.adapter.read(ASSETS_METADATA_PATH)), collection);
-    } catch {
-      return emptyRules(true);
-    }
+  private readRules(path: string): Promise<CollectionRules> {
+    return collectionRulesOf(this.app, path);
   }
 
   /** A change the board showed could not be saved: say so, and show the map as it is. */

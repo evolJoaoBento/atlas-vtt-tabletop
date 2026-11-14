@@ -35,6 +35,12 @@ export interface StackMigrationDeps {
   backup(files: Array<{ name: string; text: string }>): Promise<string>;
   /** A scene's size in its own pixels (its image as its grid alignment draws it); null when it cannot be had. */
   worldSize(background: string | null, grid: unknown): Promise<{ width: number; height: number } | null>;
+  /** Game units a square of the scene spans, as the board reads them (the scene's own, else its collection's); null: the grid's own. */
+  unitDistance(path: string, grid: unknown): Promise<number | null>;
+  /** The base is what players are shown, with no level named (Atlas then shows the scene's first): they are kept on the base's level. */
+  present(base: string, level: string): void;
+  /** Lets go of the undo's older steps of these maps: they hold Tabletop's data from before the move. */
+  forget(paths: readonly string[]): void;
   /** Saves Tabletop's data to disk now. */
   save(): Promise<void>;
   /** Why nothing may be moved now (a session is hosted, a cutscene runs); null when it may. */
@@ -73,6 +79,7 @@ function sceneOf(state: unknown): SceneFields | null {
     background: typeof state.background === 'string' ? state.background : null,
     objects: copy(state.objects) as SceneFields['objects'],
     exploredMask: typeof state.exploredMask === 'string' ? state.exploredMask : null,
+    levelAlignments: isObj(state.levelAlignments) ? (copy(state.levelAlignments) as SceneFields['levelAlignments']) : undefined,
     grid: isObj(state.grid) ? (copy(state.grid) as SceneFields['grid']) : null,
     lighting: copy(state.lighting),
   };
@@ -100,9 +107,14 @@ export class StackMigration {
     return this.deps.boardData.stacks();
   }
 
-  private baseSource(path: string, scene: SceneFields): BaseSource {
+  private baseSource(path: string, scene: SceneFields, unit: number | null): BaseSource {
     const { boardData } = this.deps;
-    return { path, name: nameOf(path), scene, fogHeight: boardData.fogHeight(path), wallThickness: boardData.wallThickness(path) };
+    return { path, name: nameOf(path), scene, fogHeight: boardData.fogHeight(path), wallThickness: boardData.wallThickness(path), ...(unit !== null ? { unitDistance: unit } : {}) };
+  }
+
+  /** What of the base itself decides whether its stack can move (`stackSkip`). */
+  private ownOf(base: string): { legacyWater: boolean } {
+    return { legacyWater: this.deps.boardData.legacyWater(base) !== null };
   }
 
   private async memberSource(member: StackMember, state: unknown): Promise<MemberSource | null> {
@@ -129,12 +141,12 @@ export class StackMigration {
       const read: Array<{ name: string; scene: SceneFields | null }> = [];
       for (const member of members) {
         const source = await this.memberSource(member, await fileState(member.path));
-        read.push({ name: nameOf(member.path), scene: source?.scene ?? null });
+        read.push(source ?? { name: nameOf(member.path), scene: null });
         if (source) sources.push(source);
       }
-      const skipped = stackSkip(baseScene, read);
+      const skipped = stackSkip(baseScene, read, this.ownOf(base));
       if (skipped || !baseScene) { outcomes.push({ base, moved: false, levels: [], lost: [], skipped: skipped ?? 'the base scene could not be read' }); continue; }
-      const plan = planStackMove(this.baseSource(base, baseScene), sources, () => `level_preview_${outcomes.length}_${Math.random().toString(36).slice(2, 8)}`);
+      const plan = planStackMove(this.baseSource(base, baseScene, await this.deps.unitDistance(base, baseScene.grid).catch(() => null)), sources, () => `level_preview_${outcomes.length}_${Math.random().toString(36).slice(2, 8)}`);
       outcomes.push({ base, moved: false, levels: levelNames(plan), lost: plan.lost, skipped: null });
     }
     return outcomes;
@@ -147,6 +159,8 @@ export class StackMigration {
   async move(): Promise<{ outcomes: StackOutcome[]; backup: string | null; refused: string | null }> {
     const busy = this.running ? 'a move is already under way' : this.deps.busy();
     if (busy) return { outcomes: [], backup: null, refused: busy };
+    // A move that stopped after Atlas was written (it had not saved in time) is finished first: no level twice.
+    await this.finishJournals();
     const stacks = this.pending();
     if (stacks.length === 0) return { outcomes: [], backup: null, refused: null };
     this.running = true;
@@ -172,12 +186,18 @@ export class StackMigration {
   private async backupFiles(stacks: ReadonlyArray<{ base: string; members: StackMember[] }>): Promise<Array<{ name: string; text: string }>> {
     const { boardData, assignments } = this.deps;
     const files: Array<{ name: string; text: string }> = [];
-    for (const path of new Set(stacks.flatMap(({ base, members }) => [base, ...members.map((member) => member.path)]))) {
+    const scenes = new Set(stacks.flatMap(({ base, members }) => [base, ...members.map((member) => member.path)]));
+    for (const path of scenes) {
       const name = nameOf(path);
       const text = await this.deps.read(path);
       if (text !== null) files.push({ name: `${name}.atlasmap`, text });
       files.push({ name: `${name}.tabletop.json`, text: JSON.stringify(boardData.toJSON()[path] ?? {}, null, 2) });
       files.push({ name: `${name}.minis.json`, text: JSON.stringify(assignments.forMap(path), null, 2) });
+    }
+    // Other maps whose cutscenes look at one of these scenes: their shots are re-pointed.
+    for (const [path, map] of Object.entries(boardData.toJSON())) {
+      if (scenes.has(path) || !map.cutscenes?.some((cutscene) => cutscene.shots.some((shot) => scenes.has(shot.mapPath)))) continue;
+      files.push({ name: `${nameOf(path)}.tabletop.json`, text: JSON.stringify(map, null, 2) });
     }
     return files;
   }
@@ -193,18 +213,19 @@ export class StackMigration {
       sources.push(source);
     }
     if (!(await this.deps.follow(base))) return skip(stackSkip(null, sources) ?? 'the base scene could not be read');
+    const unit = await this.deps.unitDistance(base, (this.deps.heldState(base) as { grid?: unknown } | null)?.grid ?? null).catch(() => null);
     let journal: StackJournal | null = null;
     let written: StackPlan | null = null;
     for (let attempt = 0; attempt < PLAN_TRIES && !written; attempt++) {
       const state = this.deps.heldState(base);
       const scene = sceneOf(state);
-      const skipped = stackSkip(scene, sources);
+      const skipped = stackSkip(scene, sources, this.ownOf(base));
       if (skipped || !state || !scene) { if (journal) { boardData.setStackJournal(base, null); await this.deps.save(); } return skip(skipped ?? 'the base scene could not be read'); }
       // What the plan is made on, by identity: Atlas replaces these when anything changes.
       const { objects, levels } = state;
-      const plan = planStackMove(this.baseSource(base, scene), sources, this.deps.newLevelId);
+      const plan = planStackMove(this.baseSource(base, scene, unit), sources, this.deps.newLevelId);
       // What Tabletop's side needs to finish is on disk before Atlas is written: a stop after the write loses nothing.
-      journal = { baseLevel: plan.baseLevel, members: plan.members };
+      journal = { baseLevel: plan.baseLevel, ...(plan.baseFrame.x !== 0 || plan.baseFrame.y !== 0 ? { baseFrame: plan.baseFrame } : {}), members: plan.members };
       boardData.setStackJournal(base, journal);
       await this.deps.save();
       // Written only on the state it was planned on (asked again at the write itself, with no wait between).
@@ -222,6 +243,8 @@ export class StackMigration {
       await this.deps.save();
       return skip('the base scene kept changing while it was being moved; try again');
     }
+    // Players shown the base stay on its floor, whichever level is the scene's first now.
+    this.deps.present(base, journal.baseLevel);
     // Atlas saves a moment after a change: Tabletop's side waits for the file.
     const wanted = [journal.baseLevel, ...journal.members.map((member) => member.level)];
     let saved = false;
@@ -238,8 +261,9 @@ export class StackMigration {
   private async adopt(base: string, journal: StackJournal): Promise<void> {
     const { boardData, assignments } = this.deps;
     for (const member of journal.members) assignments.adopt(member.path, base, member.ids.tokens ?? {});
-    boardData.adoptStack(base, journal);
+    const touched = boardData.adoptStack(base, journal);
     await this.deps.save();
+    this.deps.forget(touched);
   }
 
   /** At start: a move that stopped after its journal was kept is finished (the base's file has its levels) or dropped (it has not). */

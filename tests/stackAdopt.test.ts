@@ -56,8 +56,10 @@ test("a moved stack's styles, props, hidden floors and shots are the base's; its
   const history = new UndoHistory();
   recordTabletopData(history, board, minis);
   board.setStackJournal(BASE, journal);
-  board.adoptStack(BASE, journal);
+  const touched = board.adoptStack(BASE, journal);
   minis.adopt(UP, BASE, journal.members[0]!.ids.tokens ?? {});
+  // Every map whose data changed is named: the undo's older steps of them are let go by the move.
+  assert.deepEqual([...touched].sort(), [BASE, LOW, ELSE, UP].sort());
   // Token styles and minis under the ids the tokens have on the base.
   assert.deepEqual([board.style(BASE, 'own'), board.style(BASE, 'tok_s2'), board.style(BASE, 'other'), board.style(BASE, 'tok')], ['standee', 'standee', 'standee', 'disc']);
   assert.deepEqual(Object.keys(minis.forMap(BASE)).sort(), ['other', 'own', 'tok_s2']);
@@ -65,9 +67,10 @@ test("a moved stack's styles, props, hidden floors and shots are the base's; its
   // The member keeps its own: it is still a scene.
   assert.equal(board.style(UP, 'tok'), 'standee');
   assert.equal(minis.get(UP, 'tok')?.mini, 'Minis/a.glb');
-  // Its props stand on its level, where the level's image now lies.
+  // Its props stand on its level, where the level's image now lies; the base's own name the base's level (whichever
+  // level is the scene's first, they stay on the base's floor).
   assert.deepEqual(board.props(BASE), [
-    { id: 'p0', glb: 'Props/a.glb', x: 10, y: 10, rotation: 0, scale: 1 },
+    { id: 'p0', glb: 'Props/a.glb', x: 10, y: 10, rotation: 0, scale: 1, level: 'level_base' },
     { id: 'p1@level_up', glb: 'Props/b.glb', x: 110, y: 260, rotation: 45, scale: 2, solid: true, level: 'level_up' },
   ]);
   assert.equal(board.props(UP).length, 1);
@@ -76,7 +79,7 @@ test("a moved stack's styles, props, hidden floors and shots are the base's; its
   assert.equal(board.layerHidden(`${BASE}#atlas-level:level_low`), false);
   // Shots that looked at a member look at the base's level, from where the camera now is; in every map's cutscenes.
   const intro = board.cutscenesOf(BASE)[0]!;
-  assert.deepEqual(intro.shots.map((each) => [each.id, each.mapPath, each.level ?? null, each.transition]), [['s1', BASE, null, 'fade'], ['s2', BASE, 'level_up', 'cut'], ['s3', BASE, 'level_up', 'move']]);
+  assert.deepEqual(intro.shots.map((each) => [each.id, each.mapPath, each.level ?? null, each.transition]), [['s1', BASE, 'level_base', 'fade'], ['s2', BASE, 'level_up', 'cut'], ['s3', BASE, 'level_up', 'move']]);
   assert.deepEqual([intro.shots[1]!.eye, intro.shots[1]!.target], [{ x: 110, y: 200, z: 260 }, { x: 210, y: 0, z: 360 }]);
   assert.deepEqual(board.cutscenesOf(ELSE)[0]!.shots.map((each) => [each.mapPath, each.level ?? null]), [[ELSE, null], [BASE, 'level_low']]);
   // A cutscene kept under the member's own path stays there, looking at the base's level too.
@@ -105,4 +108,23 @@ test('a shot may name the level it looks at: kept when read, and a move only joi
   const added = addShot(scene('n', []), { id: 'z', at: 0, mapPath: BASE, level: 'level_up', eye: { x: 0, y: 1, z: 0 }, target: { x: 1, y: 0, z: 1 } }, 'fade');
   assert.equal(added.shots[0]!.level, 'level_up');
   assert.equal('level' in addShot(scene('n', []), { id: 'z', at: 0, mapPath: BASE, eye: { x: 0, y: 1, z: 0 }, target: { x: 1, y: 0, z: 1 } }, 'fade').shots[0]!, false);
+});
+
+test("where the whole scene was set aside by whole squares, the base's own props and shots go with it, once", () => {
+  const board = data();
+  const raised: StackJournal = { ...journal, baseFrame: { k: 1, x: 300, y: 100 }, members: [{ path: UP, level: 'level_up', ids: {}, frame: { k: 0.5, x: 360, y: 260 } }] };
+  board.adoptStack(BASE, raised);
+  const [own, theirs] = board.props(BASE);
+  assert.deepEqual([own!.x, own!.y, own!.level], [310, 110, 'level_base']);
+  assert.deepEqual([theirs!.x, theirs!.y, theirs!.level], [410, 360, 'level_up']);
+  const s1 = board.cutscenesOf(BASE)[0]!.shots[0]!;
+  assert.deepEqual([s1.level, s1.eye, s1.target], ['level_base', { x: 400, y: 400, z: 300 }, { x: 600, y: 0, z: 500 }]);
+  const once = JSON.stringify(board.toJSON());
+  board.adoptStack(BASE, raised);
+  assert.equal(JSON.stringify(board.toJSON()), once);
+  // The journal's frame of the base is read back from saved data; junk in its place is no frame.
+  const saved = data();
+  saved.setStackJournal(BASE, raised);
+  assert.deepEqual(new BoardData(readBoardData(JSON.parse(JSON.stringify(saved.toJSON())))).stackJournal(BASE)?.baseFrame, { k: 1, x: 300, y: 100 });
+  assert.equal(new BoardData(readBoardData({ [BASE]: { stackJournal: { ...raised, baseFrame: { k: 'x' } } } })).stackJournal(BASE)?.baseFrame, undefined);
 });

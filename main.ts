@@ -24,6 +24,8 @@ import { writeBackup } from './src/backups';
 import { StackMigration } from './src/stackMigration';
 import { StackMoveModal } from './src/stackMoveModal';
 import { sceneWorldSize } from './src/sceneSize';
+import { collectionRulesOf } from './src/collectionRulesOf';
+import { readMeasurement } from './src/board/measure';
 import { carryOver } from './src/fusionCarryOver';
 import { AtlasBridge } from './src/atlasBridge';
 import { TokenWriter } from './src/board/tokenWriter';
@@ -294,6 +296,18 @@ export default class TabletopPlugin extends Plugin {
       read: async (path) => ((await this.app.vault.adapter.exists(path)) ? this.app.vault.adapter.read(path) : null),
       backup: (files) => writeBackup(this.app, new Date(), files),
       worldSize: (background, grid) => sceneWorldSize(this.app, background, grid),
+      // Heights are in the units a square spans as the board reads them: the scene's own distance, else its collection's.
+      unitDistance: async (path, grid) => {
+        const measured = readMeasurement((await collectionRulesOf(this.app, path)).gridDefaults, grid).unitDistance;
+        return measured > 0 ? measured : null;
+      },
+      // Atlas shows players the first level of a presented scene that names none: the base stays what they see.
+      present: (base, level) => {
+        const presented = presentedSceneOf(this.app);
+        const scene = presented?.get() ?? null;
+        if (scene && scene.filePath === base && !scene.levelId && typeof presented?.set === 'function') presented.set({ ...scene, levelId: level });
+      },
+      forget: (paths) => { for (const path of paths) this.history.forget(path); },
       save: () => this.saveData(this.saved()),
       // Atlas's one tab goes through the scenes while they are read: not under a session's players, nor under a cutscene.
       busy: () => (this.session?.hosting() ? 'a session is hosted in Connect (end it first)' : this.cutscenes.current() ? 'a cutscene is running' : null),

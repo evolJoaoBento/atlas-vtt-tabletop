@@ -40,7 +40,7 @@ function atlas(mapPath: string, options: { untracked?: boolean; levelActions?: b
 const plan = (more: Partial<StackPlan> = {}): StackPlan => ({
   scene: { levels: [{ id: 'base' }, { id: 'up' }], background: 'img/base.webp', objects: { tokens: { t1: { id: 't1', x: 1, y: 1 }, t2: { id: 't2', x: 5, y: 5, level: 'up' } } }, exploredMask: 'data:base', exploredMasks: undefined, levelAlignments: undefined, grid: { size: 100 } },
   aligns: [{ level: 'up', alignment: { offset: { x: 60, y: 160 }, scale: 0.5, stretch: { x: 1, y: 1 } }, frame: { k: 0.5, x: 60, y: 160 } }],
-  baseLevel: 'base', members: [{ path: 'maps/Up.atlasmap', level: 'up', ids: {}, frame: { k: 0.5, x: 60, y: 160 } }], lost: [], ...more,
+  baseLevel: 'base', baseFrame: { k: 1, x: 0, y: 0 }, members: [{ path: 'maps/Up.atlasmap', level: 'up', ids: {}, frame: { k: 0.5, x: 60, y: 160 } }], lost: [], ...more,
 });
 
 test("a planned stack is handed to Atlas whole: the scene, each fitted level aligned with its frame's move, the base's level shown; outside the history, which is cleared", async () => {

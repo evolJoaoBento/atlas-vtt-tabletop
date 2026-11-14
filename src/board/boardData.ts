@@ -85,23 +85,35 @@ export interface MapData {
 export const LEGACY_EXTRAS = ['wallMaterials', 'doorProps', 'wallHeights', 'wallWidths', 'lightHeights', 'windows', 'doorFlips'] as const;
 
 /** A stack's move to Atlas levels, as far as Tabletop's own data needs it: the base's level and each member's (its level, the ids given anew, its frame). */
-export interface StackJournal { baseLevel: string; members: MemberMove[] }
+export interface StackJournal {
+  baseLevel: string;
+  /** Where the base's own pixels lie now, when the whole scene was set aside by whole squares; unset: where they were. */
+  baseFrame?: Frame;
+  members: MemberMove[];
+}
+
+function readFrame(raw: unknown): Frame | undefined {
+  if (!isObj(raw)) return undefined;
+  const { k, x, y } = raw;
+  return typeof k === 'number' && typeof x === 'number' && typeof y === 'number' && Number.isFinite(k + x + y) && k > 0 ? { k, x, y } : undefined;
+}
 
 function readJournal(raw: unknown): StackJournal | undefined {
   if (!isObj(raw) || typeof raw.baseLevel !== 'string' || raw.baseLevel === '' || !Array.isArray(raw.members)) return undefined;
   const members: MemberMove[] = [];
   for (const entry of raw.members) {
-    if (!isObj(entry) || typeof entry.path !== 'string' || typeof entry.level !== 'string' || !isObj(entry.frame)) return undefined;
-    const { k, x, y } = entry.frame;
-    if (typeof k !== 'number' || typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(k + x + y) || !(k > 0)) return undefined;
+    if (!isObj(entry) || typeof entry.path !== 'string' || typeof entry.level !== 'string') return undefined;
+    const frame = readFrame(entry.frame);
+    if (!frame) return undefined;
     const ids: MemberMove['ids'] = {};
     for (const [kind, table] of Object.entries(isObj(entry.ids) ? entry.ids : {})) {
       if (!isObj(table)) continue;
       ids[kind] = Object.fromEntries(Object.entries(table).filter((pair): pair is [string, string] => typeof pair[1] === 'string'));
     }
-    members.push({ path: entry.path, level: entry.level, ids, frame: { k, x, y } });
+    members.push({ path: entry.path, level: entry.level, ids, frame });
   }
-  return { baseLevel: raw.baseLevel, members };
+  const baseFrame = readFrame(raw.baseFrame);
+  return { baseLevel: raw.baseLevel, ...(baseFrame ? { baseFrame } : {}), members };
 }
 
 /** A map stacked on another: the base map's path, and how many grid squares above it this one stands. */
@@ -602,19 +614,29 @@ export class BoardData {
    * scene is the base's too, by level. Token styles go under the ids the tokens have on the base; props stand on the
    * member's level, where its image now lies; a hidden layer is a hidden level; every shot of every map's cutscenes
    * that looked at a member looks at the base and that level, from where the camera now is. The members are stacked no
-   * more (they keep their own data: each is still a scene), and the journal goes. Done twice, it changes nothing the
-   * second time. No step of the GM's undo.
+   * more (they keep their own data: each is still a scene), and the journal goes. The base's own props and shots name
+   * the base's level (whichever level is the scene's first, they stay on the base's floor) and, where the whole scene
+   * was set aside, go with it. Done twice, it changes nothing the second time. No step of the GM's undo; the maps
+   * whose data it changed are returned (an older step of theirs would put the stack back).
    */
-  adoptStack(base: string, journal: StackJournal): void {
+  adoptStack(base: string, journal: StackJournal): string[] {
     const next: Record<string, MapData> = { ...this.data };
     const { stackJournal: _journal, ...own } = next[base] ?? {};
     const styles = { ...(own.styles ?? {}) };
-    const props = [...(own.props ?? [])];
     const moved = new Map(journal.members.map((member) => [member.path, member]));
     const cent = (value: number): number => Math.round(value * 100) / 100;
+    const touched = new Set<string>([base]);
+    const baseAt = moveOf(journal.baseFrame ?? { k: 1, x: 0, y: 0 });
+    // A prop of the base's that names no level stood on the scene's one floor: the base's.
+    const props = (own.props ?? []).map((prop) => {
+      if (prop.level) return prop;
+      const place = baseAt(prop);
+      return { ...prop, x: cent(place.x), y: cent(place.y), level: journal.baseLevel };
+    });
     for (const move of journal.members) {
       const member = next[move.path];
       if (!member) continue;
+      touched.add(move.path);
       const at = moveOf(move.frame);
       for (const [id, style] of Object.entries(member.styles ?? {})) styles[move.ids.tokens?.[id] ?? id] = style;
       for (const prop of member.props ?? []) {
@@ -633,18 +655,23 @@ export class BoardData {
     if (kept) next[base] = kept;
     else delete next[base];
     for (const [path, map] of Object.entries(next)) {
-      if (!map.cutscenes?.some((cutscene) => cutscene.shots.some((shot) => moved.has(shot.mapPath)))) continue;
+      const ours = (shot: { mapPath: string; level?: string }): boolean => moved.has(shot.mapPath) || (shot.mapPath === base && !shot.level);
+      if (!map.cutscenes?.some((cutscene) => cutscene.shots.some(ours))) continue;
+      touched.add(path);
       next[path] = { ...map, cutscenes: map.cutscenes.map((cutscene) => ({ ...cutscene, shots: cutscene.shots.map((shot) => {
+        if (!ours(shot)) return shot;
+        // A member's shot looks at its level; a shot of the base's that named no level looked at its one floor.
         const move = moved.get(shot.mapPath);
-        if (!move) return shot;
-        const at = moveOf(move.frame);
+        const frame = move ? move.frame : journal.baseFrame ?? { k: 1, x: 0, y: 0 };
+        const at = moveOf(frame);
         // The board's x and z are the map's pixels; heights are in pixels of its squares.
-        const through = (point: { x: number; y: number; z: number }): { x: number; y: number; z: number } => { const flat = at({ x: point.x, y: point.z }); return { x: cent(flat.x), y: cent(point.y * move.frame.k), z: cent(flat.y) }; };
-        return { ...shot, mapPath: base, level: move.level, eye: through(shot.eye), target: through(shot.target) };
+        const through = (point: { x: number; y: number; z: number }): { x: number; y: number; z: number } => { const flat = at({ x: point.x, y: point.z }); return { x: cent(flat.x), y: cent(point.y * frame.k), z: cent(flat.y) }; };
+        return { ...shot, mapPath: base, level: move ? move.level : journal.baseLevel, eye: through(shot.eye), target: through(shot.target) };
       }) })) };
     }
     this.data = next;
     this.changed(null);
+    return [...touched];
   }
 
   /** Sets a prop's size, in cells across (a tenth to ten). */

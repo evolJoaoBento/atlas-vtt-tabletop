@@ -166,11 +166,11 @@ export function tabViewOf(app: App, mapPath: string): { view: AtlasTabView; leaf
 }
 
 /** Atlas's presented scene (the eye on its tabs): read, and followed. */
-export function presentedSceneOf(app: App): { get(): { tabId: string; filePath: string; levelId?: string } | null; onChange(listener: () => void): () => void } | null {
+export function presentedSceneOf(app: App): { get(): { tabId: string; filePath: string; levelId?: string } | null; onChange(listener: () => void): () => void; set?(scene: { tabId: string; filePath: string; levelId?: string } | null): void } | null {
   const scene = (app as unknown as { plugins?: { plugins?: Record<string, { presentedScene?: unknown } | undefined> } }).plugins?.plugins?.['atlas-vtt']?.presentedScene as
     { get?: unknown; onChange?: unknown } | undefined;
   return scene && typeof scene.get === 'function' && typeof scene.onChange === 'function'
-    ? scene as { get(): { tabId: string; filePath: string; levelId?: string } | null; onChange(listener: () => void): () => void }
+    ? scene as { get(): { tabId: string; filePath: string; levelId?: string } | null; onChange(listener: () => void): () => void; set?(scene: { tabId: string; filePath: string; levelId?: string } | null): void }
     : null;
 }
 
