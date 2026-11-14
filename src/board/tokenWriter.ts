@@ -17,6 +17,7 @@ import { initiativeEntryFor } from './tokenEdits';
 import type { InitiativeAction } from './initiative';
 import { mergeExtra, type WallExtraChange } from './recordExtras';
 import type { ExtrasMove } from './extrasMigration';
+import { moveOf, type StackPlan } from './stackMove';
 
 type RawToken = Record<string, unknown> & { x?: number; y?: number; imagePath?: string; instanceNumber?: number };
 /**
@@ -384,6 +385,43 @@ export class TokenWriter {
     // what was moved away with it, and Tabletop's data no longer has it. Its older steps on this map are let go, once.
     const after = view.atlasStore.temporal?.getState();
     if (after && after.pastStates.length + after.futureStates.length > 0) after.clear?.();
+  }
+
+  /**
+   * Writes a scene stack as the levels of its base scene (`stackMove.ts`), which Atlas must hold now (it is not waited
+   * for: the caller brought it there). The plan is asked at the write, of the store's state then; null writes
+   * nothing. Atlas's own actions do it: the whole scene in one `applyLevelScene`, then each fitted level aligned,
+   * which moves that level's records with its image, and the base's level shown. Outside Atlas's history and whole or
+   * not at all: a write that breaks puts the scene back as it was. Atlas's older steps on the map are let go, as for
+   * `applyExtrasMove`. The plan written.
+   */
+  async applyStackMove(path: string, plan: (state: AtlasSceneState) => StackPlan | null): Promise<StackPlan | null> {
+    const view = this.holder(path);
+    if (!view) throw new NotHeldError();
+    const history = view.atlasStore.temporal?.getState();
+    if (!history?.untracked) throw TokenWriter.missing('untracked writes');
+    const state = view.atlasStore.getState();
+    if (!state.applyLevelScene || !state.alignLevel) throw TokenWriter.missing('way to write levels');
+    const planned = plan(state);
+    if (!planned) return null;
+    const before = { levels: state.levels, background: state.background, objects: state.objects, exploredMask: state.exploredMask, exploredMasks: state.exploredMasks, levelAlignments: state.levelAlignments, grid: state.grid };
+    const viewed = state.viewedLevel ?? null;
+    // Read fresh at every write: an action swaps the store's state.
+    const now = (): AtlasSceneState => view.atlasStore.getState();
+    history.untracked(() => {
+      try {
+        now().applyLevelScene?.({ ...planned.scene });
+        for (const { level, alignment, frame } of planned.aligns) now().alignLevel?.(level, alignment, moveOf(frame));
+        now().setViewedLevel?.(planned.baseLevel);
+      } catch (error) {
+        now().applyLevelScene?.(before);
+        now().setViewedLevel?.(viewed);
+        throw error;
+      }
+    });
+    const after = view.atlasStore.temporal?.getState();
+    if (after && after.pastStates.length + after.futureStates.length > 0) after.clear?.();
+    return planned;
   }
 
   /**

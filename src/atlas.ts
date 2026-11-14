@@ -35,6 +35,17 @@ export interface AtlasSceneState {
   /** Atlas 0.10's levels (floors) and the one this view shows; an older Atlas has neither. */
   levels?: ReadonlyArray<{ id: string }>;
   viewedLevel?: string | null;
+  /** The rest of what a scene's levels are made of (Atlas's `LevelScene`): the first level's image, what players explored by level, each fitted level's alignment. */
+  background?: string | null;
+  grid?: Record<string, unknown> | null;
+  exploredMask?: string | null;
+  exploredMasks?: Record<string, string>;
+  levelAlignments?: Record<string, unknown>;
+  /** Writes a whole edit of the levels in one step: the levels, the first level's image, every record, the explored memory, the alignments. */
+  applyLevelScene?: (scene: Record<string, unknown>) => void;
+  /** Fits a level's image to the scene's grid; `move` takes what stands on that level alone along. */
+  alignLevel?: (levelId: string, alignment: unknown, move?: (point: { x: number; y: number }) => { x: number; y: number }) => void;
+  setViewedLevel?: (id: string | null) => void;
   remoteView?: unknown;
   /** Atlas 0.14's scene lighting: whether it is on, the light level and its colour, set as Atlas's lighting page sets them. */
   lighting?: { enabled?: boolean; ambient?: number; ambientColor?: string };
