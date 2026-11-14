@@ -170,6 +170,7 @@ const map: BoardMap = {
     token({ id: 'fallenDisc', x: 1225, y: 525, imagePath: 'green.png', name: 'Fallen disc', resources: { hp: { current: 0, max: 9 } } }),
   ],
   rawGrid: null,
+  measures: [], measuresElsewhere: [],
   // A room at the bottom of the map: a door in its north wall, a secret door in its south wall, its west wall one-way.
   walls: [
     wall('n1', 455, 840, 525, 840, { chain: 'room' }), wall('door', 525, 840, 595, 840, { type: 'door' }), wall('n2', 595, 840, 665, 840, { chain: 'room' }),

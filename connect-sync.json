@@ -1,11 +1,11 @@
 {
   "connect": {
-    "commit": "ccfff574ed227148e18f99aabd8b5565064a5919"
+    "commit": "a59d41288709732e09682db32aab702c4c6c78f0"
   },
   "files": {
     "packages/atlas-shared/README.md": "4fde8a0601b6ef91d03051dbbda39e0faecf5ada86f9c7ccbad71308c6b70c5e",
-    "packages/atlas-shared/SOURCE.json": "3b72b1890e7a286429b5d72deda5e45bf53ecb1224f4a23f36b972083093a973",
-    "packages/atlas-shared/files.mjs": "486b49ada141c0a57ab143cd4c6eecb83f2a0d8a008d9c8ca64b2234694ba031",
+    "packages/atlas-shared/SOURCE.json": "f2bd86f0f56c486c77121e03c81cb103dcfdd2773fb370a8ed28c5986d0687ca",
+    "packages/atlas-shared/files.mjs": "432d1cf3f818779c71929789d0746cf5d19d9bdd5b1bcddb717b4260cc3efbcd",
     "packages/atlas-shared/src/app/characters/playerTokens.ts": "1af1951ad099d7c86b19713214b89cfd5c24bb1242acaedf5ca3eab8713d0ffc",
     "packages/atlas-shared/src/app/gameSystems/diceRules.ts": "142ea29388b77c7c6b87d72871b5f80445da92ca14362d7089b9c426c8914aa3",
     "packages/atlas-shared/src/app/gameSystems/diceSets.ts": "bfa24c360007952824658a5b082632e8cc4ecd128eca934475f8564fe59df01f",
@@ -33,7 +33,11 @@
     "packages/atlas-shared/src/app/measure/areaRules.ts": "2bbc7006f84c0971fe7d3393abcbe10e81284ea3a8ca0e36e1d5b24bfefcacb1",
     "packages/atlas-shared/src/app/measure/dragDistance.ts": "9a5ec629be74dcfb3729c59e60fa0f6e4e667255006acc0319de5e0417513961",
     "packages/atlas-shared/src/app/measure/dragMovement.ts": "6a4a991ce28deffd6b134a30cf68dd9e0cc6307b2f43e91f8e8818ba54691ef1",
+    "packages/atlas-shared/src/app/measure/measureEffects.ts": "68b6fe2e7242a3be7cf32f0e36a147269a35ec436c1e09b0de6353974d476136",
+    "packages/atlas-shared/src/app/measure/measureGeometry.ts": "67ef220f3c923feaf726bba2d3303ee404e9ba09acca4fa340888752cc0583c1",
     "packages/atlas-shared/src/app/measure/measureGrid.ts": "2e19c3f9e580096285068a6e0e6eadeb19e818f28d568fe96d5d8a1b766c0e5b",
+    "packages/atlas-shared/src/app/measure/measureSnap.ts": "94b6842b9f863842ca7da47efc5df76d637f6ac8210408341f9bc4b2da6110bc",
+    "packages/atlas-shared/src/app/measure/measureTypes.ts": "c2a3a9ed0e61189afd9678f8c834905582d4fe9485fc3f68b7e0d933ad25bcc2",
     "packages/atlas-shared/src/app/measure/movementRules.ts": "73cf4d937a9fed117b7fc4b4297832136e65ae39bebe31fc7143a462ad528fe5",
     "packages/atlas-shared/src/app/measure/reachSteps.ts": "ac10bf2b079b5f8a45fdb3cea21c747f3fad1d5651d3f27ed81465e47d63aca5",
     "packages/atlas-shared/src/app/measure/tokenHeight.ts": "51346f074d63147c225af3e97bce009b7eaffd540f9cadbe326d0ff32d190b73",
@@ -58,7 +62,7 @@
     "packages/atlas-shared/src/app/types/initiativeRulesTypes.ts": "275ed9af0124949e203ea7961cafeb00fe7967ab66c66d15bdd4cda215e00455",
     "packages/atlas-shared/src/app/types/initiativeTypes.ts": "6406ac9939375b6f381ed6bf53fb102df32a7ed0dd67083bac09f6c205e3709b",
     "packages/atlas-shared/src/app/types/lightPresetTypes.ts": "98829dbea2aa32983d196a77145a96b6d6c8005a69a8bf2ec988be3c08bf49ce",
-    "packages/atlas-shared/src/app/types/lightingTypes.ts": "a1e9d0bae6c42c220ce1734bafd39541f475eee57f909388c3f13477eba42cd1",
+    "packages/atlas-shared/src/app/types/lightingTypes.ts": "329f659038133feb9910a870f885367c294a71e4aa730f5aa2f5e5ad3e92faac",
     "packages/atlas-shared/src/app/types/pinIconPaths.ts": "6ebf997a7d30fbc9cd6df2aa3604425ab03abb9041b7ae13200b8d6d2274bf2c",
     "packages/atlas-shared/src/app/types/pinIcons.ts": "9fc8af4df999d02103ecb29ccaaa95b63355b4d10f2811329bcd99bafb90794d",
     "packages/atlas-shared/src/app/types/randomTableTypes.ts": "df9e414fdb36a9ec40efcf3709c5a7c19ece6269c10762472c49117a93ffc1e9",
@@ -70,14 +74,16 @@
     "packages/atlas-shared/src/app/types/widgetTypes.ts": "f5f3f1bf858e266d7cdddc7e2a64bb46862b159e8cee19e774247ed768c42aa8",
     "packages/atlas-shared/src/app/types.ts": "03ae07d8c74aa215c5cfbe526e9910bb333cbe787bd66d9ae0cebbd9a9a17f8b",
     "packages/atlas-shared/src/app/utils/hexColor.ts": "dba01c8dbf894a30193ec6e34908dfca2909e64189264e5dc40d97fdf52d5b4f",
+    "packages/atlas-shared/src/app/vision/polygonBounds.ts": "55da528b77eee1424b754f78e632bf934a24228f58d10297e6905e325e496a93",
     "packages/atlas-shared/src/app/vision/visibility.ts": "39641f0ed0b48a285514552ac66c2d90d7513ae2cb305da29dd1ef50c5d11ca2",
-    "packages/atlas-shared/src/index.ts": "46ed2578319073bd2a4f32beeacbef222feeae4421885b0e30d042e320b1daee",
+    "packages/atlas-shared/src/index.ts": "f388f96bfb3c2048e7397d96593ccca86fb3e2f63d45c5744ddeb550cbfeb130",
     "packages/atlas-host/src/atlasFloor.ts": "405449d94ce817cec153c2e3b33e9d242bd096b518bfbf2940b2be5224aa911b",
     "packages/atlas-host/src/atlasHost.ts": "ea9e9e57b63f76411c7ff52297674a13115669c41ab05a96ec0a759a7f855488",
     "packages/atlas-host/src/hostLeaf.ts": "2aee06b918ec52d289f257b5d96f7df344c1f3d45b448dbd3350de447f19de8d",
-    "packages/atlas-host/src/index.ts": "67f00d6bfd360f4391b93cdc776c2efe46ce7b784168c6d4da2d835d366fa300",
+    "packages/atlas-host/src/index.ts": "a8ee07a4480dde384ca639fa346b6c947a3a27ae71849f5b566ce93e546a60ce",
     "packages/atlas-host/src/pairing.ts": "fd2ea7bd297a48cf90b8b96926944ae33f6a766f7d80112ecd5c5cf201b04876",
+    "packages/atlas-host/src/spellMeasure.ts": "2ec62086d7c7d48bdd91ec5d3ee169d6feb74c2358f7f202e23b08c958b00692",
     "packages/atlas-host/src/wake.ts": "28986ec0911ac5e18b9cab496d71f8ad56f2f22c2a05edc2e4b70b8c77798cb2",
-    "src/connectWire.ts": "307607af4357d46c569884b7615af4cc0cb757436d7234e8973b1a352996b0eb"
+    "src/connectWire.ts": "8b917d4ad5ba78297c9a836af6eff174f7360102238d40dfa96c409344fe9359"
   }
 }

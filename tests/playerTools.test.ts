@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { LASER_FLUSH_MS, PlayerToolState, squareCorners, conePoints, templateHit } from '../src/board/playerTools';
+import { LASER_FLUSH_MS, PlayerToolState, templateHit } from '../src/board/playerTools';
 
 const at = (x: number, y: number) => ({ x, y });
 
@@ -65,11 +65,7 @@ test('the laser sends its points in batches with their timing, and the last with
   assert.deepEqual(last, [{ type: 'laser', points: [at(12, 0)], dt: [5], lifted: true, color: '#00ffaa' }]);
 });
 
-test('template geometry as Connect draws it: a square from a corner, a cone opening by its angle, hits', () => {
-  assert.deepEqual(squareCorners(at(0, 0), at(140, -70)), [at(0, 0), at(140, 0), at(140, -140), at(0, -140)]);
-  const cone = conePoints(at(0, 0), at(100, 0), Math.PI / 2, 2);
-  assert.deepEqual(cone[0], at(0, 0));
-  assert.ok(Math.abs(cone[1]!.x - 100 * Math.SQRT1_2) < 1e-9 && Math.abs(cone[1]!.y + 100 * Math.SQRT1_2) < 1e-9);
+test('template hits: a thin line within the slack, a cone inside its opening', () => {
   assert.equal(templateHit({ shape: 'line', start: at(0, 0), end: at(100, 0) }, at(50, 3), 5, Math.PI / 2), true);
   assert.equal(templateHit({ shape: 'cone', start: at(0, 0), end: at(100, 0) }, at(50, 60), 0, Math.PI / 2), false);
 });

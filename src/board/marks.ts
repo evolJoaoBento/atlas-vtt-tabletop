@@ -5,7 +5,7 @@
  * by the GM's board while hosting.
  */
 import * as THREE from 'three';
-import { conePoints, squareCorners, type MeasureShape, type TemplateMark, type TemplateShape } from './playerTools';
+import { templateArea, type MeasureShape, type TemplateMark, type TemplateShape } from './playerTools';
 import { plateTexture } from './textures';
 import { stripGeometry } from './surface';
 
@@ -26,19 +26,15 @@ function flat(points: readonly Point[], closed: boolean): THREE.BufferGeometry {
   return new THREE.BufferGeometry().setFromPoints(list.map((point) => new THREE.Vector3(point.x, LIFT, point.y)));
 }
 
-function circlePoints(center: Point, radius: number, segments = 48): Point[] {
-  return Array.from({ length: segments }, (_, index) => {
-    const angle = (index / segments) * Math.PI * 2;
-    return { x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius };
-  });
-}
-
-/** A template's or measure's outline: closed for areas, open for a line. */
-export function shapeOutline(shape: TemplateShape | MeasureShape, start: Point, end: Point, coneAngle: number): { points: Point[]; closed: boolean } {
-  if (shape === 'circle') return { points: circlePoints(start, Math.hypot(end.x - start.x, end.y - start.y)), closed: true };
-  if (shape === 'square') return { points: squareCorners(start, end), closed: true };
-  if (shape === 'cone') return { points: conePoints(start, end, coneAngle), closed: true };
-  return { points: [start, end], closed: false };
+/**
+ * A template's or measure's outline, as Atlas shapes the area (`templateArea`): closed for areas (a line with a
+ * `width` is one), open for a thin line and for an area without a size.
+ */
+export function shapeOutline(shape: TemplateShape | MeasureShape, start: Point, end: Point, coneAngle: number, width?: number): { points: Point[]; closed: boolean } {
+  const area = templateArea({ shape, start, end, ...(width !== undefined ? { width } : {}) }, coneAngle);
+  const ring = area?.rings[0] as readonly Point[] | undefined;
+  if (!ring) return { points: [start, end], closed: false };
+  return { points: ring.map((point) => ({ x: point.x, y: point.y })), closed: true };
 }
 
 export class BoardMarks {
@@ -60,11 +56,11 @@ export class BoardMarks {
     if (key === this.templateKey) return;
     this.templateKey = key;
     clear(this.templates);
-    for (const template of list) this.templates.add(this.shape(template.shape, template.start, template.end, template.color, coneAngle, 0.18));
+    for (const template of list) this.templates.add(this.shape(template.shape, template.start, template.end, template.color, coneAngle, 0.18, template.ruler ? undefined : template.width));
   }
 
   /** The measure or template being dragged, with the measure's distance; nulls clear it. */
-  setOverlay(measure: { shape: MeasureShape; start: Point; end: Point; label: string; color?: string; cell?: number } | null, draft: { shape: TemplateShape; start: Point; end: Point; color: string } | null, coneAngle: number, pixel: number): void {
+  setOverlay(measure: { shape: MeasureShape; start: Point; end: Point; label: string; color?: string; cell?: number } | null, draft: { shape: TemplateShape; start: Point; end: Point; color: string; width?: number } | null, coneAngle: number, pixel: number): void {
     clear(this.overlay);
     if (measure) {
       this.overlay.add(this.measureShape(measure.shape, measure.start, measure.end, measure.color ?? MEASURE_COLOR, coneAngle, measure.cell ?? 70));
@@ -76,7 +72,7 @@ export class BoardMarks {
       sprite.renderOrder = 10;
       this.overlay.add(sprite);
     }
-    if (draft) this.overlay.add(this.shape(draft.shape, draft.start, draft.end, draft.color, coneAngle, 0.18));
+    if (draft) this.overlay.add(this.shape(draft.shape, draft.start, draft.end, draft.color, coneAngle, 0.18, draft.width));
   }
 
   /** Someone's ping: a ring that grows and fades over a second and a half. */
@@ -184,9 +180,9 @@ export class BoardMarks {
     return group;
   }
 
-  private shape(shape: TemplateShape | MeasureShape, start: Point, end: Point, color: string, coneAngle: number, fill: number): THREE.Group {
+  private shape(shape: TemplateShape | MeasureShape, start: Point, end: Point, color: string, coneAngle: number, fill: number, width?: number): THREE.Group {
     const group = new THREE.Group();
-    const { points, closed } = shapeOutline(shape, start, end, coneAngle);
+    const { points, closed } = shapeOutline(shape, start, end, coneAngle, width);
     const line = closed ? new THREE.LineLoop(flat(points, false), new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85, depthTest: false }))
       : new THREE.Line(flat(points, false), new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85, depthTest: false }));
     line.renderOrder = 9;

@@ -133,10 +133,12 @@ export interface BoardLayerLook {
   wallThickness: number | null;
 }
 
-/** What players do on a map, for the GM's board: a ping, or new points of a laser. */
+/** What players do on a map, for the GM's board: a ping, new points of a laser, or an instantaneous spell. */
 export type BoardMark =
   | { kind: 'ping'; mapPath: string; x: number; y: number; color: string }
-  | { kind: 'laser'; mapPath: string; from: string; points: BoardPoint[]; lifted: boolean; color: string };
+  | { kind: 'laser'; mapPath: string; from: string; points: BoardPoint[]; lifted: boolean; color: string }
+  /** A player's instantaneous spell going off (a `CastSpell`): shown for a moment, kept nowhere. */
+  | { kind: 'spell'; mapPath: string; cast: unknown };
 
 /**
  * A player's phone in augmented reality over a map, for the GM's board: where its camera is in board units and which way
@@ -158,8 +160,6 @@ export interface BoardSurvey {
   survey: unknown;
 }
 
-export interface BoardSessionTemplate { id: string; owner: string; shape: 'line' | 'circle' | 'square' | 'cone'; start: BoardPoint; end: BoardPoint; color: string }
-
 /** Connect's hosted session, handed to `api.attachSession` (Connect's `BoardSessionHub`; the shapes must stay the same). */
 export interface BoardSession {
   /** The fusion step Connect is a build of (`FUSION_PROTOCOL`): Tabletop takes only a session of its own step. */
@@ -171,22 +171,22 @@ export interface BoardSession {
    */
   readonly cutscenes?: true;
   presentedMap(): string | null;
-  overlay(mapPath: string): { templates: readonly BoardSessionTemplate[]; spells?: readonly unknown[]; coneAngle: number; handout: { path: string; title: string } | null };
+  /**
+   * What the session shows over the map besides Atlas's records: the handout players see. Templates and spells are no
+   * part of it: they are Atlas's kept measures, which the board reads from the map and writes through Atlas's store.
+   */
+  overlay(mapPath: string): { coneAngle: number; handout: { path: string; title: string } | null };
   onChange(listener: () => void): () => void;
   onMark(listener: (mark: BoardMark) => void): () => void;
   /** Players' phones in augmented reality, as they move. Absent from an older Connect. */
   onViewer?(listener: (viewer: BoardViewer) => void): () => void;
   /** Players' surveys of the table's AR marker sheets. Absent from an older Connect. */
   onSurvey?(listener: (survey: BoardSurvey) => void): () => void;
-  addTemplate(mapPath: string, add: { shape: BoardSessionTemplate['shape']; start: BoardPoint; end: BoardPoint }): boolean;
-  eraseTemplate(mapPath: string, id: string): void;
-  clearTemplates(mapPath: string): void;
-  /** The GM casts a spell on the map's scene (through a token's eyes), in the GM's colour; false when it cannot. */
-  /** `rules` (what it does beyond its shape) go beside the spell; an older Connect leaves them out. */
-  castSpell?(mapPath: string, spell: Spell, rules?: SpellRules, words?: { name: string; about?: SpellAbout }): boolean;
-  /** Takes a player's spell off the map's scene (an older Connect has no spells). */
-  eraseSpell?(mapPath: string, id: string): void;
-  clearSpells?(mapPath: string): void;
+  /**
+   * The GM's instantaneous spell goes off for the players of the map's scene (it is kept nowhere); false when the
+   * session has no such scene.
+   */
+  flashSpell?(mapPath: string, spell: Spell, rules?: SpellRules, words?: { name: string; about?: SpellAbout }): boolean;
   /**
    * Tokens are moving from the map `from` to the stacked map `to` (each as `newId`, the same id unless `to` had one):
    * told before they move, so their players keep them and are shown `to`. Absent from an older Connect.

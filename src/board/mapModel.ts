@@ -10,6 +10,7 @@ import { readInitiative, type InitiativeState, type SideId } from './initiative'
 import { hasConvertedRoomWalls, readRooms, roomWalls } from './atlasRooms/rooms';
 import { readLights, readSceneLighting, readWalls, type BoardLight, type BoardWall, type SceneLighting } from './walls';
 import { hiddenResourcesOf, isDefeated, tokenFromFile, type ResourceDefinition, type ResourceValue } from './resources';
+import { readMeasures, type BoardMeasure } from './boardMeasures';
 import { levelBackground, onLevel, onLevelRecord, readLevels, resolveLevel, type BoardLevel } from './levels';
 import { tokenHeight } from '../../packages/atlas-shared/src/index';
 import { ownSpeed } from './tokenHeight';
@@ -194,6 +195,13 @@ export interface BoardMap {
   lighting: SceneLighting;
   /** Atlas's grid object as stored, for the measuring fields read when the map has no collection rules. */
   rawGrid: unknown;
+  /**
+   * Atlas's kept measures on the level shown, as it stores them (`boardMeasures.ts`): its areas and rulers, and the
+   * templates and spells this board and Connect keep there.
+   */
+  measures: BoardMeasure[];
+  /** The ids of the measures on the scene's other levels: they stand, though this map does not show them. */
+  measuresElsewhere: string[];
 }
 
 type Raw = Record<string, unknown>;
@@ -411,6 +419,16 @@ export function mapStateChanged(prev: Readonly<Record<string, unknown>>, next: R
 }
 
 /**
+ * Atlas's kept measures (`objects.measures`) as a map of the level `level` has them: those on it, and the ids of those
+ * on the scene's other levels.
+ */
+export function readMapMeasures(raw: unknown, level: string | null, levels: readonly BoardLevel[]): Pick<BoardMap, 'measures' | 'measuresElsewhere'> {
+  const measures = readMeasures(onLevelRecord(raw, level, levels));
+  const shown = new Set(measures.map((measure) => measure.id));
+  return { measures, measuresElsewhere: level === null ? [] : readMeasures(raw).map((measure) => measure.id).filter((id) => !shown.has(id)) };
+}
+
+/**
  * A map as Atlas holds it: the `state` of a map file, or the state of the store of the Atlas view that has the map
  * loaded (the same shape, with tokens' resources in their in-memory form and the levels' alignments apart).
  */
@@ -448,5 +466,6 @@ export function readMapState(path: string, given: unknown, viewedLevel?: string 
     lights: readLights(here(objects.lights), here(objects.tokens)),
     lighting: readSceneLighting(state.lighting),
     rawGrid: state.grid ?? null,
+    ...readMapMeasures(objects.measures, level, levels),
   };
 }

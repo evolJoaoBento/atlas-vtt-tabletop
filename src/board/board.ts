@@ -3690,7 +3690,9 @@ export class Board {
     const ends = measure ? [measure.start, measure.end] : [];
     const rise = measure && map && measure.shape === 'line' ? riseBetweenEnds(ends, (point) => this.heightAt(point), this.host.measurement()) : 0;
     const label = measure && map ? this.distanceLabel(ends, rise) : '';
-    this.marks.setOverlay(measure ? { ...measure, label, color: accent(this.container), cell: map?.grid.size ?? 70 } : null, draft ? { ...draft, color: this.host.ownColor?.() ?? '#ffcc33' } : null, this.tools.coneAngle, this.lastPose?.pixel ?? 0.002);
+    this.marks.setOverlay(measure ? { ...measure, label, color: accent(this.container), cell: map?.grid.size ?? 70 } : null, 
+      // Drawn as the measure it becomes: a line one cell wide.
+      draft ? { ...draft, color: this.host.ownColor?.() ?? '#ffcc33', ...(draft.shape === 'line' ? { width: map?.grid.size ?? 70 } : {}) } : null, this.tools.coneAngle, this.lastPose?.pixel ?? 0.002);
     this.wake();
   }
 
@@ -5465,10 +5467,8 @@ export class Board {
       tokenName: (tokenId) => this.tokens.get(tokenId)?.token.name ?? 'your token',
       hasOwn: () => { const me = this.spellOwner(); return me !== null && this.castSpells.some((cast) => cast.owner === me); },
       clearOwn: () => {
-        // The GM's clear takes only the GM's own spells, one by one (a clear from the GM would take everyone's).
-        if (this.audience === 'gm') {
-          for (const cast of this.castSpells) if (cast.owner === GM_SPELL_OWNER) this.host.playerAction?.({ type: 'spell', change: { remove: cast.id } });
-        } else this.host.playerAction?.({ type: 'spell', change: { clear: true } });
+        // Whoever clears takes only their own (the GM's board takes the GM's off Atlas's measures in one step).
+        this.host.playerAction?.({ type: 'spell', change: { clear: true } });
       },
       locked: () => this.pointerLocked,
       lock: (on) => this.lockPointer(on),
@@ -5737,9 +5737,11 @@ export class Board {
   /**
    * The scene's spells, from Connect: each drawn in its caster's colour, what it hits outlined; and the GM's asks.
    * `scene` is the scene the list is for (Connect's scene id on a player's board, the map's path on the GM's): its
-   * first list only seeds what stands there, whether or not the board has loaded that scene's map yet.
+   * first list only seeds what stands there, whether or not the board has loaded that scene's map yet. `standing` are
+   * spells that stand though they are not in the list (on a level not shown): what they summoned is not offered for removal.
    */
-  receiveSpells(scene: string, list: readonly unknown[], asks: readonly unknown[] = []): void {
+  receiveSpells(scene: string, list: readonly unknown[], asks: readonly unknown[] = [], standing: readonly string[] = []): void {
+    this.standingCasts = new Set(standing);
     if (this.audience === 'player') {
       const requests = readSpellRequests(asks).filter((request) => this.tokens.has(request.tokenId));
       if (requests.length > 0 || this.caster) {
@@ -5971,10 +5973,19 @@ export class Board {
     return (this.rulePanel ??= new SpellRulePanel(this.container));
   }
 
-  /** Another scene: its spells already cast are not carried out again. */
+  /** Spells that stand though the list does not have them (on a level of the map not shown). */
+  private standingCasts: ReadonlySet<string> = new Set();
+
+  /**
+   * Another scene, or another level of it: its spells already cast are not carried out again, and the next list only
+   * seeds what stands there (none is announced as newly cast).
+   */
   forgetCasts(): void {
     this.seenCasts = null;
     this.timedCasts = null;
+    this.announcedCasts = null;
+    this.growingSpells.clear();
+    this.newCasts = new Set();
   }
 
   /** Newly cast spells that move or make tokens: carried out (a push after the GM's review). Gone summons: offered for removal. */
@@ -5993,7 +6004,7 @@ export class Board {
       this.landSpell(cast);
     }
     for (const [id, tokens] of [...this.summoned]) {
-      if (present.has(id)) continue;
+      if (present.has(id) || this.standingCasts.has(id)) continue;
       this.summoned.delete(id);
       const left = tokens.filter((token) => this.tokens.has(token));
       if (left.length === 0 || !this.host.removeTokens) continue;

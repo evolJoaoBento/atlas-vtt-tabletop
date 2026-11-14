@@ -10,7 +10,7 @@
 import type { Assignments } from '../assignments';
 import type { BoardData, MapData } from './boardData';
 import type { TokenWriter } from './tokenWriter';
-import type { AtlasView } from '../atlas';
+import type { AtlasTemporal, AtlasView } from '../atlas';
 import type { UndoHistory, UndoStep } from './undoHistory';
 
 /** Board data that a slider or picker changes many times in one gesture: such changes fold into one step. */
@@ -71,21 +71,20 @@ export function recordTabletopData(history: UndoHistory, boardData: BoardData, a
 }
 
 
-interface AtlasHistory {
-  getState(): { pastStates: readonly unknown[]; futureStates: readonly unknown[]; undo(): void; redo(): void };
-}
+type AtlasHistory = AtlasTemporal;
 
 function historyOf(view: AtlasView | null): AtlasHistory | null {
-  const temporal = (view?.atlasStore as { temporal?: AtlasHistory } | undefined)?.temporal;
+  const temporal = view?.atlasStore.temporal;
   return temporal && typeof temporal.getState === 'function' ? temporal : null;
 }
 
 /** The writer's methods that may change a map Atlas holds. */
-const WRITES = ['move', 'moveMany', 'rotate', 'copy', 'resource', 'update', 'initiative', 'initiativeAction', 'addTokensNow', 'lootRoller', 'toggleDoor', 'lockDoor', 'setWindow', 'kill', 'remove'] as const;
+const WRITES = ['move', 'moveMany', 'rotate', 'copy', 'resource', 'update', 'initiative', 'initiativeAction', 'addTokensNow', 'lootRoller', 'toggleDoor', 'lockDoor', 'setWindow', 'kill', 'remove', 'addMeasure', 'removeMeasures'] as const;
 const WRITE_LABELS: Partial<Record<(typeof WRITES)[number], string>> = {
   move: 'token move', moveMany: 'token move', rotate: 'token turn', copy: 'token copy', resource: 'resource', update: 'token',
   initiative: 'initiative', initiativeAction: 'initiative', addTokensNow: 'tokens added', lootRoller: 'loot', toggleDoor: 'door',
   lockDoor: 'door lock', setWindow: 'window', kill: 'token defeated', remove: 'token removed',
+  addMeasure: 'spell or template', removeMeasures: 'spell or template removed',
 };
 
 /**

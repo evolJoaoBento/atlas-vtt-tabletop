@@ -3,7 +3,11 @@
  * (line, circle or cone, shown while dragged), Template (a lasting line, circle, square or cone; a tap on one of the
  * player's own takes it off), Laser (points sent in batches with their timing) and Ping (a click). Points are on the
  * map, in pixels; this decides, the board draws (`marks.ts`) and Connect sends what it returns.
+ *
+ * A lasting template is one of Atlas's kept measures, and lies as Atlas shapes it (`shapedArea`, `packages/atlas-shared`):
+ * a circle around its first point, a cone from it, a square from the middle of its near side, a line as wide as it says.
  */
+import { DEFAULT_CONE_END, shapedArea, type ShapedArea } from '../../packages/atlas-shared/src/index';
 import type { Spell, SpellAbout } from './spells';
 import type { SpellRules } from './spellRules';
 
@@ -20,6 +24,12 @@ export interface TemplateMark {
   start: Point;
   end: Point;
   color: string;
+  /** A line's width, map pixels; a line without one is a thin stroke. */
+  width?: number;
+  /** A leg of a kept ruler: a thin line, no area. */
+  ruler?: true;
+  /** What the measure is: someone's template (also when unsaid), or an area made in Atlas (no tap takes it off). */
+  kind?: 'template' | 'area';
 }
 
 export type TemplateChange = { add: { shape: TemplateShape; start: Point; end: Point } } | { remove: string } | { clear: true };
@@ -39,54 +49,35 @@ export const LASER_FLUSH_MS = 50;
 /** How far from a template's edge a tap still hits it, in map pixels. */
 const TAP_SLACK = 6;
 
-/** A square's side: the drag's longer reach, so it grows from `start` towards the pointer. */
-function squareSide(start: Point, end: Point): number {
-  return Math.max(Math.abs(end.x - start.x), Math.abs(end.y - start.y));
+type Shaped = Pick<TemplateMark, 'shape' | 'start' | 'end'> & Partial<Pick<TemplateMark, 'width' | 'ruler'>>;
+
+/** A template's area as Atlas shapes it (`coneAngle` in radians); null for a thin line (a ruler's leg, a line without a width) and for one without a size. */
+export function templateArea(template: Shaped, coneAngle: number): ShapedArea | null {
+  if (template.ruler || (template.shape === 'line' && !(template.width !== undefined && template.width > 0))) return null;
+  return shapedArea(
+    { shape: template.shape, points: [template.start, template.end], ...(template.width !== undefined ? { width: template.width } : {}) },
+    { coneAngle: (coneAngle * 180) / Math.PI, coneEnd: DEFAULT_CONE_END, lineWidth: template.width ?? 0 },
+  );
 }
 
-/** The corners of a square from `start` (one corner) towards `end`. */
-export function squareCorners(start: Point, end: Point): Point[] {
-  const side = squareSide(start, end);
-  const x = start.x + (end.x < start.x ? -side : side);
-  const y = start.y + (end.y < start.y ? -side : side);
-  return [{ x: start.x, y: start.y }, { x, y: start.y }, { x, y }, { x: start.x, y }];
+function toSegment(point: Point, a: Point, b: Point): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const run = dx * dx + dy * dy;
+  const along = run === 0 ? 0 : Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / run));
+  return Math.hypot(point.x - (a.x + along * dx), point.y - (a.y + along * dy));
 }
 
-/** The outline of a cone from `start` towards `end`, opening by `angle` radians: its apex and arc. */
-export function conePoints(start: Point, end: Point, angle: number, segments = 24): Point[] {
-  const length = Math.hypot(end.x - start.x, end.y - start.y);
-  const direction = Math.atan2(end.y - start.y, end.x - start.x);
-  const points: Point[] = [{ x: start.x, y: start.y }];
-  for (let index = 0; index <= segments; index++) {
-    const at = direction - angle / 2 + (angle * index) / segments;
-    points.push({ x: start.x + Math.cos(at) * length, y: start.y + Math.sin(at) * length });
-  }
-  return points;
-}
-
-/** Whether `point` falls on a template, within `slack` of it. */
-export function templateHit(template: Pick<TemplateMark, 'shape' | 'start' | 'end'>, point: Point, slack: number, coneAngle: number): boolean {
-  const { start, end } = template;
-  const length = Math.hypot(end.x - start.x, end.y - start.y);
-  const distance = Math.hypot(point.x - start.x, point.y - start.y);
-  if (template.shape === 'circle') return distance <= length + slack;
-  if (template.shape === 'square') {
-    const corners = squareCorners(start, end);
-    const xs = corners.map((corner) => corner.x);
-    const ys = corners.map((corner) => corner.y);
-    return point.x >= Math.min(...xs) - slack && point.x <= Math.max(...xs) + slack && point.y >= Math.min(...ys) - slack && point.y <= Math.max(...ys) + slack;
-  }
-  if (template.shape === 'cone') {
-    if (distance > length + slack) return false;
-    if (distance <= slack) return true;
-    const direction = Math.atan2(end.y - start.y, end.x - start.x);
-    const angle = Math.atan2(point.y - start.y, point.x - start.x);
-    const off = Math.abs(Math.atan2(Math.sin(angle - direction), Math.cos(angle - direction)));
-    return off <= coneAngle / 2 + slack / Math.max(distance, 1);
-  }
-  if (length === 0) return distance <= slack;
-  const along = Math.max(0, Math.min(1, ((point.x - start.x) * (end.x - start.x) + (point.y - start.y) * (end.y - start.y)) / (length * length)));
-  return Math.hypot(point.x - (start.x + along * (end.x - start.x)), point.y - (start.y + along * (end.y - start.y))) <= slack;
+/** Whether `point` falls on a template: in its area, or within `slack` of its edge (of the line, for a thin one). */
+export function templateHit(template: Shaped, point: Point, slack: number, coneAngle: number): boolean {
+  const area = templateArea(template, coneAngle);
+  if (!area) return toSegment(point, template.start, template.end) <= slack;
+  if (area.contains(point)) return true;
+  if (!(slack > 0)) return false;
+  if (template.shape === 'circle') return Math.hypot(point.x - template.start.x, point.y - template.start.y) <= area.reach + slack;
+  // Atlas's own points are untyped in the shared copy.
+  const rings = area.rings as ReadonlyArray<readonly Point[]>;
+  return rings.some((ring) => ring.some((corner, index) => toSegment(point, corner, ring[(index + 1) % ring.length]) <= slack));
 }
 
 export class PlayerToolState {
@@ -139,7 +130,7 @@ export class PlayerToolState {
   }
 
   ownTemplates(): boolean {
-    return this.self !== null && this.templates.some((template) => template.owner === this.self);
+    return this.self !== null && this.templates.some((template) => template.owner === this.self && template.kind !== 'area');
   }
 
   clearOwn(): ToolAction[] {
@@ -187,7 +178,7 @@ export class PlayerToolState {
     if (this.tool === 'ping') return moved ? [] : [{ type: 'ping', x: point.x, y: point.y }];
     if (this.tool === 'template') {
       if (!moved) {
-        const own = [...this.templates].reverse().find((template) => (this.eraseAny || template.owner === this.self) && templateHit(template, point, TAP_SLACK, this.coneAngle));
+        const own = [...this.templates].reverse().find((template) => template.kind !== 'area' && (this.eraseAny || template.owner === this.self) && templateHit(template, point, TAP_SLACK, this.coneAngle));
         return own ? [{ type: 'template', change: { remove: own.id } }] : [];
       }
       return [{ type: 'template', change: { add: { shape: this.templateShape, start: drag.start, end: { ...point } } } }];

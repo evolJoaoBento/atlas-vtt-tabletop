@@ -104,6 +104,14 @@ export class NotHeldError extends Error {
   }
 }
 
+/** Atlas's level holds as many measures as it keeps: one more is refused. */
+export class MeasureFullError extends Error {
+  constructor() {
+    super('This level holds as many measures as Atlas keeps: remove one first.');
+    this.name = 'MeasureFullError';
+  }
+}
+
 export interface TokenWriterDeps {
   /** The open Atlas map views. */
   views: () => AtlasView[];
@@ -273,6 +281,37 @@ export class TokenWriter {
     const update = (this.store(path) as { updateLootRoller?: (settings: Readonly<Record<string, unknown>>) => void }).updateLootRoller;
     if (typeof update !== 'function') throw TokenWriter.missing('random tables');
     update(settings);
+  }
+
+  /** Runs `fn` as one step of Atlas's history on the view holding the map (as it stands, where Atlas offers no transaction). */
+  private asOneStep<T>(path: string, fn: () => T): T {
+    const transaction = this.holder(path)?.atlasStore.temporal?.getState().transaction;
+    return transaction ? transaction(fn) : fn();
+  }
+
+  /**
+   * Keeps a measure on the map (a spell, a template: `packages/atlas-host` `spellMeasure`), as Atlas keeps its own, in
+   * one step of its history; its id in Atlas. `MeasureFullError` when the level holds no more.
+   */
+  async addMeasure(path: string, record: Readonly<Record<string, unknown>>): Promise<string> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.store(path);
+    if (!state.addMeasure) throw TokenWriter.missing('measures');
+    const add = state.addMeasure;
+    const id = this.asOneStep(path, () => add({ ...record }));
+    if (id === null) throw new MeasureFullError();
+    return id;
+  }
+
+  /** Takes measures off the map, together in one step of Atlas's history; one Atlas no longer has is passed over. */
+  async removeMeasures(path: string, ids: readonly string[]): Promise<void> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.store(path);
+    if (!state.deleteMeasure) throw TokenWriter.missing('measures');
+    const remove = state.deleteMeasure;
+    const there = ids.filter((id) => Object.hasOwn(state.objects?.measures ?? {}, id));
+    if (there.length === 0) return;
+    this.asOneStep(path, () => { for (const id of there) remove(id); });
   }
 
   /** Opens or shuts a door (a locked one stays shut). */

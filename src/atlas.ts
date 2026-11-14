@@ -22,7 +22,13 @@ export interface AtlasSceneState {
   /** False, or loading, while Atlas reads a map in: it is not saving then. */
   mapLoaded?: boolean;
   isMapLoading?: boolean;
-  objects: { tokens: Readonly<Record<string, AtlasToken>> };
+  objects: {
+    tokens: Readonly<Record<string, AtlasToken>>;
+    /** Atlas 0.15's kept measures, walls and map features, by id. */
+    measures?: Readonly<Record<string, Record<string, unknown>>>;
+    walls?: Readonly<Record<string, Record<string, unknown>>>;
+    mapFeatures?: Readonly<Record<string, Record<string, unknown>>>;
+  };
   /** Atlas 0.10's levels (floors) and the one this view shows; an older Atlas has neither. */
   levels?: ReadonlyArray<{ id: string }>;
   viewedLevel?: string | null;
@@ -62,13 +68,30 @@ export interface AtlasSceneState {
   setSnapToGrid?: (on: boolean) => void;
   /** Changes a wall's fields; a field given as undefined is removed. */
   updateWall?: (id: string, changes: Record<string, unknown>) => void;
+  /** Atlas 0.15's kept measures: keep one (its id; null when the level holds no more), change one, take one off. */
+  addMeasure?: (data: Record<string, unknown>) => string | null;
+  updateMeasure?: (id: string, changes: Record<string, unknown>) => void;
+  deleteMeasure?: (id: string) => void;
   /** Changes a pin's fields (Atlas's pin menu: `readable`); a field given as undefined is removed. */
   updateNotePin?: (id: string, changes: Record<string, unknown>) => void;
+}
+
+/** Atlas's undo history (zundo's, on its store): `transaction` makes every write of `fn` one step, `untracked` none. */
+export interface AtlasTemporal {
+  getState(): {
+    pastStates: readonly unknown[];
+    futureStates: readonly unknown[];
+    undo(): void;
+    redo(): void;
+    transaction?<T>(fn: () => T): T;
+    untracked?<T>(fn: () => T): T;
+  };
 }
 
 interface Store<T> {
   getState(): T;
   subscribe(listener: () => void): () => void;
+  temporal?: AtlasTemporal;
 }
 
 export interface AtlasView {

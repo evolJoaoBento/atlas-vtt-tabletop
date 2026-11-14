@@ -27,16 +27,17 @@ import { MiniPicker } from '../gallery';
 import type { LoadedMini, MiniLibrary } from '../library';
 import type { MaterialLibrary } from '../materials';
 import { Board, GM_SPELL_OWNER, type BoardHost } from './board';
-import type { CastSpell, SpellAsk } from './spells';
+import { isInstantaneous, readCastSpells, type CastSpell, type SpellAsk } from './spells';
+import { castsOfMeasures, marksOfMeasures, spellWrite, templateWrite, type MeasureWrite } from './boardMeasures';
 import type { SpellBook } from './spellPicker';
-import type { SpellChange } from './playerTools';
+import type { SpellChange, TemplateChange } from './playerTools';
 import { isVideoPath } from './textures';
 import type { BoardData, PropLook, PropVariant } from './boardData';
 import { lookOf } from './boardData';
 import type { UndoHistory } from './undoHistory';
 import { ASSETS_METADATA_PATH, collectionOf, emptyRules, readCollectionRules, type CollectionRules } from './conditions';
 import { levelName, levelRise, onFirstLevel, propsOnLevel, resolveLevel } from './levels';
-import { mapStateChanged, readMap, readMapState, type BoardMap, type BoardToken } from './mapModel';
+import { mapStateChanged, readMap, readMapMeasures, readMapState, type BoardMap, type BoardToken } from './mapModel';
 import { readMeasurement } from './measure';
 import { defeatedResources, isDefeated, tokenFromFile } from './resources';
 import { AtlasMenu, type MenuEntry } from './atlasMenu';
@@ -48,7 +49,7 @@ import { conditionChange, conditionStep, resetChange, type ConditionFields } fro
 import { currentEntries, delayedTokens, emptyInitiative, ownModifier, readInitiative, statblockModifier, turnAnnouncement, type InitiativeAction, type InitiativeState } from './initiative';
 import { InitiativePanel, type InitiativePanelHost } from './initiativePanel';
 import { wholeWall, isWindow, windowSpan, WINDOW_STEP } from './walls';
-import { NotHeldError, type TokenChange } from './tokenWriter';
+import { MeasureFullError, NotHeldError, type TokenChange } from './tokenWriter';
 import { HOST_BAR_LABELS, hostBar, mapName } from './hostBar';
 import { migrationWalls, roomWallMoves } from './roomWallMigration';
 import { writeBackup } from '../backups';
@@ -90,6 +91,10 @@ const BOARD_MODE_KEY = 'tabletop-board-mode';
 
 /** The hover source Tabletop registers, so Obsidian's page preview shows stat blocks from the board. */
 export const HOVER_SOURCE = 'tabletop-for-atlas';
+/** How long a player's instantaneous spell shows on the board: as long as Connect shows it to the players. */
+const FLASH_MS = 6000;
+/** The colour of a measure that names none: Atlas's accent, as its measurements always were. */
+const MEASURE_ACCENT = '#7c5cff';
 const RELOAD_MS = 300;
 /** A light hangs a square above the map until the GM sets its height; the menu steps it a quarter square. */
 const DEFAULT_LIGHT_SQUARES = 1;
@@ -224,11 +229,14 @@ export class BoardView extends ItemView {
   private playerWindow: PlayerView | null = null;
   /** The token menu while it is open: it follows the map as it changes. */
   private menu: AtlasMenu | null = null;
-  /** The GM's spells while Connect does not host: on this board alone, per map. */
-  private localSpells: Array<CastSpell & { path: string }> = [];
-  /** The map whose spells the board was last given. */
-  private spellsPath: string | null = null;
-  private nextLocalSpell = 1;
+  /**
+   * Instantaneous spells going off on this board (the GM's own, and players' sent by Connect): among the map's spells
+   * for a moment, kept nowhere. A timer takes a player's off; the board takes the GM's own off after its cast.
+   */
+  private flashes: Array<{ cast: CastSpell; timer: number | null }> = [];
+  private nextFlash = 1;
+  /** The map and level whose measures the board was last given. */
+  private measuresOf: string | null = null;
   /** Atlas's initiative tracker on the board. */
   private initiative: InitiativePanel | null = null;
   /** The Atlas view holding this map, whose store is followed so its tracker shows each change at once. */
@@ -387,6 +395,7 @@ export class BoardView extends ItemView {
 
   async onClose(): Promise<void> {
     this.closed = true;
+    this.dropFlashes();
     this.stopTabs?.();
     this.stopTabs = null;
     this.sceneTabs?.dispose();
@@ -1016,8 +1025,51 @@ export class BoardView extends ItemView {
   }
 
   /**
-   * Connect's session as this board shows it: the map's templates, the handout shown to players, and, while Atlas does
-   * not hold the map (so nothing done here reaches players), a banner that opens it in Atlas.
+   * The map's measures as the board shows them (`boardMeasures.ts`): Atlas's areas, kept rulers and templates flat on
+   * the map, its spells in 3D, with the instantaneous ones going off. Read from the map alone, hosting or not; the
+   * first list of a map or of a level only seeds what stands there, so opening a board casts nothing again.
+   */
+  private showMeasures(): void {
+    const board = this.board;
+    const map = this.map;
+    if (!board || !map || map.path !== this.path) return;
+    const shown = `${map.path}\n${map.level ?? ''}`;
+    if (this.measuresOf !== shown) {
+      this.measuresOf = shown;
+      this.dropFlashes();
+      board.forgetCasts();
+    }
+    const cone = readMeasurement(this.rules.gridDefaults, map.rawGrid).coneAngle;
+    board.tools.coneAngle = ((cone !== undefined && cone > 0 && cone < 180 ? cone : 90) * Math.PI) / 180;
+    board.receiveTemplates(marksOfMeasures(map.measures, { cell: map.grid.size, accent: MEASURE_ACCENT }));
+    board.receiveSpells(map.path, [...castsOfMeasures(map.measures), ...this.flashes.map(({ cast }) => cast)], [], map.measuresElsewhere);
+  }
+
+  /** An instantaneous spell goes off on this board; `ms` takes it off again (null: the board does, after its cast). */
+  private flash(cast: CastSpell, ms: number | null): void {
+    const win = this.contentEl.ownerDocument.defaultView ?? window;
+    this.flashes.push({ cast, timer: ms === null ? null : win.setTimeout(() => this.endFlash(cast.id), ms) });
+    this.showMeasures();
+  }
+
+  /** Takes a spell going off away; false when `id` is none of them. */
+  private endFlash(id: string): boolean {
+    const index = this.flashes.findIndex((flash) => flash.cast.id === id);
+    if (index < 0) return false;
+    const [gone] = this.flashes.splice(index, 1);
+    if (gone.timer !== null) (this.contentEl.ownerDocument.defaultView ?? window).clearTimeout(gone.timer);
+    this.showMeasures();
+    return true;
+  }
+
+  private dropFlashes(): void {
+    const win = this.contentEl.ownerDocument.defaultView ?? window;
+    for (const { timer } of this.flashes.splice(0)) if (timer !== null) win.clearTimeout(timer);
+  }
+
+  /**
+   * Connect's session as this board shows it: the handout shown to players, and, while Atlas does not hold the map (so
+   * nothing done here reaches players), a banner that opens it in Atlas. The map's measures are shown with it.
    */
   sessionChanged(): void {
     // A cutscene run for players needs the session: when it stops hosting, the run ends.
@@ -1026,22 +1078,15 @@ export class BoardView extends ItemView {
     const path = this.path;
     if (!board || !path) return;
     this.showTable();
-    if (this.spellsPath !== path) { this.spellsPath = path; board.forgetCasts(); }
+    this.showMeasures();
     const session = this.services.session?.() ?? null;
     if (!session?.hosting()) {
-      board.receiveTemplates([]);
-      // Not hosting: the GM's own spells, kept here alone.
-      board.receiveSpells(path, this.localSpells.filter((cast) => cast.path === path).map(({ path: _path, ...cast }) => cast));
       board.setHandout(null);
       board.setBanner(this.hostBanner());
       board.refreshToolbar();
       return;
     }
-    const overlay = session.overlay(path);
-    board.tools.coneAngle = overlay.coneAngle;
-    board.receiveTemplates(overlay.templates);
-    board.receiveSpells(path, overlay.spells ?? []);
-    const handout = overlay.handout;
+    const handout = session.overlay(path).handout;
     const file = handout ? this.app.vault.getAbstractFileByPath(handout.path) : null;
     board.setHandout(handout ? { title: handout.title, url: file instanceof TFile ? this.app.vault.getResourcePath(file) : null } : null);
     board.setBanner(this.hostBanner());
@@ -1137,11 +1182,15 @@ export class BoardView extends ItemView {
     };
   }
 
-  /** Someone's ping or laser on this board's map. */
+  /** Someone's ping or laser on this board's map, or a player's instantaneous spell going off there. */
   mark(mark: BoardMark): void {
     if (!this.board || mark.mapPath !== this.path) return;
     if (mark.kind === 'ping') this.board.receivePing(mark.x, mark.y, mark.color);
-    else this.board.receiveLaser(mark.from, mark.points, mark.lifted, mark.color);
+    else if (mark.kind === 'laser') this.board.receiveLaser(mark.from, mark.points, mark.lifted, mark.color);
+    else {
+      const [cast] = readCastSpells([mark.cast]);
+      if (cast && !this.flashes.some((flash) => flash.cast.id === cast.id)) this.flash(cast, FLASH_MS);
+    }
   }
 
   /** Players in AR this board has said it heard of (once each, in the console). */
@@ -1524,17 +1573,12 @@ export class BoardView extends ItemView {
       },
       cameraMoved: () => this.services.cameraMoved?.(this),
       hosting: () => this.services.session?.()?.hosting() === true,
-      // The GM's Template tool while Connect hosts: what it asks goes to every player of the map's scene.
+      // The GM's spells and Template tool: kept in Atlas's measures, where every player of the map's scene gets them.
       playerAction: (action) => {
-        const session = this.services.session?.();
         const path = this.path;
-        if (action.type === 'spell' && path) { this.gmSpell(path, action.change); return; }
-        if (!session || !path) return;
-        if (action.type !== 'template') return;
-        const change = action.change;
-        if ('add' in change) session.addTemplate(path, change.add);
-        else if ('remove' in change) session.eraseTemplate(path, change.remove);
-        else session.clearTemplates(path);
+        if (!path) return;
+        if (action.type === 'spell') this.gmSpell(path, action.change);
+        else if (action.type === 'template') this.gmTemplate(path, action.change);
       },
     };
   }
@@ -1692,10 +1736,20 @@ export class BoardView extends ItemView {
     if (view) {
       let held = view.atlasStore.getState().initiative;
       let drawn = view.atlasStore.getState() as unknown as Record<string, unknown>;
+      let measures = view.atlasStore.getState().objects?.measures;
       const stop = view.atlasStore.subscribe(() => {
         const state = view.atlasStore.getState();
         // Atlas moved to another map in that view: the file is this map's tracker again.
         if (state.mapPath !== this.path) { this.watchAtlas(); return; }
+        // A measure kept, changed or taken off (a cast, a template, an area drawn in Atlas, its undo): shown at once, ahead of the map's next read.
+        if (state.objects?.measures !== measures) {
+          measures = state.objects?.measures;
+          const map = this.map;
+          if (map && map.path === this.path && state.mapLoaded !== false && state.isMapLoading !== true) {
+            Object.assign(map, readMapMeasures(measures, map.level, map.levels));
+            this.showMeasures();
+          }
+        }
         // The board draws from this store (with a host): it reads again when what it draws changed, and only then (the
         // camera, the selection and the tools replace the state many times a second).
         const now = state as unknown as Record<string, unknown>;
@@ -2089,28 +2143,44 @@ export class BoardView extends ItemView {
     this.menu = new AtlasMenu(this.contentEl.ownerDocument, entries, { x: event.clientX, y: event.clientY }, (element, name) => setIcon(element, name), () => { this.menu = null; });
   }
 
+  /** A measure the board asked for was not kept: Atlas holds another map (the bar offers the way out), or its level is full. */
+  private measureRefused(what: string, error: unknown): void {
+    if (error instanceof MeasureFullError) { new Notice(`Tabletop: ${error.message}`, 6000); return; }
+    this.unsaved(what, error);
+  }
+
   /**
-   * A spell change from the GM's board: one cast through a token's eyes (to every player of the scene while Connect
-   * hosts, else kept on this board alone), one erased (the Template tool's tap, Ctrl + click), or the scene's cleared.
+   * A spell change from the GM's board: one cast through a token's eyes, one erased (the Template tool's tap, Ctrl +
+   * click), or the GM's own cleared. A spell that lasts is one of Atlas's kept measures (in one step of its history),
+   * hosting or not: the board, Atlas and every player get it from there. An instantaneous one goes off and is kept
+   * nowhere: shown here, and flashed to the players while Connect hosts.
    */
   private gmSpell(path: string, change: SpellChange): void {
-    const session = this.services.session?.();
-    if (session?.hosting()) {
-      if ('add' in change) {
-        const words = change.name ? { name: change.name, ...(change.about ? { about: change.about } : {}) } : undefined;
-        if (!session.castSpell?.(path, change.add, change.rules, words)) new Notice('Tabletop: this Connect cannot take the GM\'s spells; update it.');
-      } else if ('remove' in change) session.eraseSpell?.(path, change.remove);
-      else if ('clear' in change) session.clearSpells?.(path);
+    if ('remove' in change && this.endFlash(change.remove)) return;
+    if ('clear' in change) for (const { cast } of [...this.flashes]) if (cast.owner === GM_SPELL_OWNER) this.endFlash(cast.id);
+    const write = spellWrite(change, this.map?.measures ?? [], this.map?.level ?? null);
+    if (!write) return;
+    if ('flash' in write) {
+      this.flash({ id: `flash:${this.nextFlash++}`, ...write.flash }, null);
+      const session = this.services.session?.();
+      if ('add' in change && session?.hosting()) session.flashSpell?.(path, change.add, change.rules, change.name ? { name: change.name, ...(change.about ? { about: change.about } : {}) } : undefined);
       return;
     }
-    if ('add' in change) {
-      this.localSpells.push({ path, id: `g${this.nextLocalSpell++}`, owner: GM_SPELL_OWNER, color: '#ffffff', spell: change.add, ...(change.rules ? { rules: change.rules } : {}), ...(change.name ? { name: change.name } : {}), ...(change.about ? { about: change.about } : {}) });
-    } else if ('remove' in change) {
-      this.localSpells = this.localSpells.filter((cast) => !(cast.path === path && cast.id === change.remove));
-    } else if ('clear' in change) {
-      this.localSpells = this.localSpells.filter((cast) => cast.path !== path);
-    } else return;
-    this.sessionChanged();
+    this.writeMeasures(path, write, 'spell');
+  }
+
+  /**
+   * The GM's Template tool: a template placed is one of Atlas's kept measures, as wide and as long as Atlas shapes it;
+   * a tap takes anyone's off, and the clear the GM's own (each in one step of Atlas's history).
+   */
+  private gmTemplate(path: string, change: TemplateChange): void {
+    this.writeMeasures(path, templateWrite(change, this.map?.measures ?? [], this.map?.level ?? null), 'template');
+  }
+
+  private writeMeasures(path: string, write: MeasureWrite, what: string): void {
+    const { writer } = this.services;
+    const done = 'add' in write ? writer.addMeasure(path, write.add) : writer.removeMeasures(path, write.remove);
+    done.catch((error: unknown) => this.measureRefused(what, error));
   }
 
   /**
