@@ -15,6 +15,7 @@ import type { ResourceDefinition } from './resources';
 import { NO_MOVEMENT_RULES, tokenHeight } from '../../packages/atlas-shared/src/index';
 import { ownSpeed } from './tokenHeight';
 import { NO_FLIP, type BoardLight, type BoardWall, type DoorFlip } from './walls';
+import { waterFromWire, type WaterSource } from './liquids';
 
 /** Connect's id of the darkness it adds to the fog (`darknessFog.ts`). */
 export const DARKNESS_FOG_ID = 'atlas-lighting-darkness';
@@ -68,7 +69,7 @@ export interface PlayerLook {
   /** The colour the GM tinted the daylight, or null. */
   tint: string | null;
   /** The scene's painted water, or null. */
-  water: { mask: unknown; motion: unknown } | null;
+  water: WaterSource | null;
   materials: readonly BoardMaterialRecord[];
   props: readonly BoardPropRecord[];
 }
@@ -117,7 +118,7 @@ export function layersFromExtras(extras: BoardExtras | null): ElevationLayerData
       wallThickness: layer.wallThickness ?? 0.12,
       props: layer.props.map((prop) => ({ id: prop.id, glb: prop.asset, x: prop.x, y: prop.y, rotation: prop.turn, scale: prop.scale, ...(prop.solid ? { solid: true } : {}), ...(prop.lift ? { lift: prop.lift } : {}) })),
       stands: { ...layer.stands },
-      water: layer.water ? { mask: layer.water.mask, motion: layer.water.motion ?? null } : null,
+      water: waterFromWire(layer.water),
       placement: () => null,
       style: () => 'disc' as const,
     } satisfies ElevationLayerData;
@@ -248,7 +249,7 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
     wallThickness: extras?.wallThickness ?? null,
     ambient: extras?.ambient ?? null,
     tint: extras?.tint ?? null,
-    water: extras?.water ? { mask: extras.water.mask, motion: extras.water.motion ?? null } : null,
+    water: waterFromWire(extras?.water),
     materials: extras?.materials ?? [],
     props: extras?.props ?? [],
   };

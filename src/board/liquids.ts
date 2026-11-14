@@ -323,3 +323,62 @@ export function brushLiquids(areas: readonly WaterArea[], motion: WaterMotion, l
     tabletop: { v: 1, brush: true, motion: { ...motion } },
   }));
 }
+
+/**
+ * A board's water as it is handed to the board: the outlines of Atlas's liquids (`areas`), the saved mask of a map
+ * whose water was not moved to Atlas yet (`mask`), or both, and how it moves. `key` names this water where the
+ * giver knows it (so the board need not compare outlines).
+ */
+export interface WaterSource {
+  areas?: readonly WaterArea[];
+  mask?: unknown;
+  key?: string;
+  motion: unknown;
+}
+
+/** What tells one water from another: the key given, else the mask and the outlines themselves (never the motion). */
+export function waterKeyOf(source: WaterSource | null): string {
+  if (!source) return 'null';
+  return source.key ?? JSON.stringify([source.mask ?? null, source.areas ?? []]);
+}
+
+/** The mask a board draws for `source` on a map of this size: the saved mask and every outline together; null when nothing is wet. */
+export function maskOfSource(source: WaterSource | null, mapWidth: number, mapHeight: number, cell: number): WaterMask | null {
+  if (!source || !(mapWidth > 0) || !(mapHeight > 0)) return null;
+  const mask = WaterMask.read(source.mask, mapWidth, mapHeight, cell) ?? WaterMask.forMap(mapWidth, mapHeight, cell);
+  if (source.areas && source.areas.length > 0) rasterAreas(mask, source.areas);
+  return mask.empty ? null : mask;
+}
+
+/** Outlines as the wire carries them to players: each ring a flat list of x, y in map pixels. */
+export interface WireWaterArea { polygon: number[]; holes?: number[][] }
+
+const flat = (ring: readonly Point[]): number[] => ring.flatMap((point) => [cent(point.x), cent(point.y)]);
+const unflat = (ring: unknown): Point[] | null => {
+  if (!Array.isArray(ring) || ring.length < 6 || ring.length % 2 !== 0 || !ring.every((value) => typeof value === 'number' && Number.isFinite(value))) return null;
+  const out: Point[] = [];
+  for (let k = 0; k < ring.length; k += 2) out.push({ x: ring[k] as number, y: ring[k + 1] as number });
+  return out;
+};
+
+/** Outlines for the wire. */
+export function wireAreas(areas: readonly WaterArea[]): WireWaterArea[] {
+  return areas.map((area) => ({ polygon: flat(area.polygon), ...(area.holes.length > 0 ? { holes: area.holes.map(flat) } : {}) }));
+}
+
+/**
+ * Water as it came over the wire (`{ areas, motion }`; a saved `mask` from a GM of before) as a board is handed it;
+ * null for none. Anything that is no ring of at least three places is left out.
+ */
+export function waterFromWire(water: unknown): WaterSource | null {
+  if (!isObj(water)) return null;
+  const areas: WaterArea[] = [];
+  for (const entry of Array.isArray(water.areas) ? water.areas : []) {
+    if (!isObj(entry)) continue;
+    const polygon = unflat(entry.polygon);
+    if (!polygon) continue;
+    areas.push({ polygon, holes: (Array.isArray(entry.holes) ? entry.holes : []).map(unflat).filter((ring): ring is Point[] => ring !== null) });
+  }
+  if (areas.length === 0 && !isObj(water.mask)) return null;
+  return { ...(areas.length > 0 ? { areas } : {}), ...(isObj(water.mask) ? { mask: water.mask } : {}), motion: water.motion ?? null };
+}

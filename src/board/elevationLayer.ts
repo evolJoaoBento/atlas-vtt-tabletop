@@ -17,7 +17,8 @@ import { PropPiece, TokenPiece, type PoseContext } from './pieces';
 import { WallSet, type WallLookup } from './wallPieces';
 import { NO_FLIP, type DoorFlip } from './walls';
 import { NO_PLACEMENT, type Placement } from './layerPlacement';
-import { WaterMask, readWaterMotion, type WaterMotionKind } from './water';
+import { readWaterMotion, type WaterMotionKind } from './water';
+import { maskOfSource, waterKeyOf, type WaterSource } from './liquids';
 import { waterDistance } from '../sound/waterSound';
 import { WaterSurface } from './waterSurface';
 import { releaseTexture } from './textures';
@@ -46,7 +47,7 @@ export interface ElevationLayerData {
   wallThickness: number;
   props: readonly PropPlacement[];
   /** The water painted on it, and how it moves (as the scene keeps them); none for no water. */
-  water?: { mask: unknown; motion: unknown } | null;
+  water?: WaterSource | null;
   /** Where it stands on the plane beyond its height, seen from the scene being played; none puts it where its grid does. */
   stands?: Placement;
   /**
@@ -334,7 +335,7 @@ export class ElevationLayerView {
     const saved = this.data.water ?? null;
     const { width, height } = this.size;
     const cell = this.data.map.grid.size;
-    const key = saved?.mask && width > 0 && height > 0 ? JSON.stringify([saved.mask, width, height, cell]) : '';
+    const key = saved && width > 0 && height > 0 ? JSON.stringify([waterKeyOf(saved), width, height, cell]) : '';
     if (key === this.waterKey) {
       if (this.water && saved) this.water.setMotion(readWaterMotion(saved.motion));
       return;
@@ -343,8 +344,8 @@ export class ElevationLayerView {
     this.water?.dispose();
     this.water = null;
     if (!key || !saved) return;
-    const mask = WaterMask.read(saved.mask, width, height, cell);
-    if (!mask || mask.empty) return;
+    const mask = maskOfSource(saved, width, height, cell);
+    if (!mask) return;
     this.water = new WaterSurface(mask, width, height, cell, readWaterMotion(saved.motion));
     this.content.add(this.water.object3d);
     this.host.wake();

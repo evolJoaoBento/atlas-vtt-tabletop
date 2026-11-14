@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { brushLiquids, LIQUID_LIMITS, maskOutlines, motionOf, rasterAreas, readLiquids, withoutAreas, type WaterArea } from '../src/board/liquids';
+import { waterFromWire, wireAreas, brushLiquids, LIQUID_LIMITS, maskOfSource, maskOutlines, motionOf, rasterAreas, readLiquids, waterKeyOf, withoutAreas, type WaterArea } from '../src/board/liquids';
 import { DEFAULT_WATER_MOTION, WaterMask } from '../src/board/water';
 
 /** A mask of 10 px texels (an 80 px cell) drawn from rows of `#` (wet) and `.` (dry). */
@@ -129,4 +129,35 @@ test("what the brush may change is its own water: where a liquid made in Atlas l
   // The painted mask itself is left as it was.
   assert.deepEqual(rowsOf(painted), ['####', '####', '....']);
   assert.deepEqual(rowsOf(withoutAreas(painted, [])), ['####', '####', '....']);
+});
+
+test("a board is handed its water as outlines, as an old saved mask, or both: one mask of them all, and a key that changes only when the water does", () => {
+  const painted = maskOf(['##..', '##..', '....']);
+  const areas: WaterArea[] = [{ polygon: [{ x: 20, y: 10 }, { x: 20, y: 30 }, { x: 40, y: 30 }, { x: 40, y: 10 }], holes: [] }];
+  const both = maskOfSource({ mask: painted.save(), areas, motion: null }, 40, 30, 80);
+  assert.deepEqual(rowsOf(both!), ['##..', '####', '..##']);
+  assert.deepEqual(rowsOf(maskOfSource({ areas, motion: null }, 40, 30, 80)!), ['....', '..##', '..##']);
+  assert.equal(maskOfSource({ motion: null }, 40, 30, 80), null);
+  assert.equal(maskOfSource({ areas: [], mask: 'junk', motion: null }, 40, 30, 80), null);
+  assert.equal(maskOfSource(null, 40, 30, 80), null);
+  // The same water, the same key; a key given is the key.
+  assert.equal(waterKeyOf({ areas, motion: { kind: 'flow' } }), waterKeyOf({ areas: JSON.parse(JSON.stringify(areas)), motion: { kind: 'still' } }));
+  assert.notEqual(waterKeyOf({ areas, motion: null }), waterKeyOf({ areas: [], motion: null }));
+  assert.equal(waterKeyOf({ key: 'k1', areas, motion: null }), 'k1');
+  assert.equal(waterKeyOf(null), waterKeyOf(null));
+  assert.notEqual(waterKeyOf(null), waterKeyOf({ mask: painted.save(), motion: null }));
+});
+
+test('water goes to players as outlines, each ring a flat list of places, and is read back as it was; what is no ring is left out', () => {
+  const areas: WaterArea[] = [{ polygon: [{ x: 0, y: 0 }, { x: 0, y: 20.004 }, { x: 30, y: 20 }], holes: [[{ x: 5, y: 5 }, { x: 10, y: 5 }, { x: 5, y: 10 }]] }, { polygon: [{ x: 100, y: 0 }, { x: 100, y: 10 }, { x: 110, y: 10 }], holes: [] }];
+  const wire = wireAreas(areas);
+  assert.deepEqual(wire, [{ polygon: [0, 0, 0, 20, 30, 20], holes: [[5, 5, 10, 5, 5, 10]] }, { polygon: [100, 0, 100, 10, 110, 10] }]);
+  const back = waterFromWire(JSON.parse(JSON.stringify({ areas: wire, motion: { kind: 'flow' } })));
+  assert.deepEqual(back?.areas?.map((area) => [area.polygon.length, area.holes.length]), [[3, 1], [3, 0]]);
+  assert.deepEqual(back?.motion, { kind: 'flow' });
+  assert.deepEqual(waterFromWire({ areas: [{ polygon: [0, 0, 1] }, 'x', { polygon: [0, 0, 0, 10, 10, 10], holes: ['junk', [1, 1]] }], motion: null })?.areas, [{ polygon: [{ x: 0, y: 0 }, { x: 0, y: 10 }, { x: 10, y: 10 }], holes: [] }]);
+  assert.equal(waterFromWire({ areas: [], motion: null }), null);
+  assert.equal(waterFromWire(null), null);
+  // A GM of before sent a saved mask: still drawn.
+  assert.deepEqual(waterFromWire({ mask: { width: 1, height: 1, data: 'AQ==' }, motion: null }), { mask: { width: 1, height: 1, data: 'AQ==' }, motion: null });
 });

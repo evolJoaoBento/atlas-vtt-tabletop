@@ -62,6 +62,7 @@ import { FogVolume } from './fogVolume';
 import { LaserBeam } from './laserBeam';
 import { LaserTrail, beamWidth, smoothBeam, type LaserSettings } from './laser';
 import { WaterMask, readWaterMotion, type SavedWaterMask, type WaterMotion, type WaterMotionKind } from './water';
+import { maskOfSource, waterKeyOf, type WaterSource } from './liquids';
 import { WaterSurface } from './waterSurface';
 import { EyeView } from './eyeView';
 import { PieceOutline } from './pieceOutline';
@@ -181,8 +182,8 @@ function accent(element: HTMLElement): string {
 }
 
 export interface BoardHost {
-  /** The map's painted water as saved (mask and motion), for the board to draw. */
-  water?(): { mask: unknown; motion: unknown } | null;
+  /** The map's water (Atlas's liquids as outlines, an old saved mask, or both; and its motion), for the board to draw. */
+  water?(): WaterSource | null;
   /** Keeps the map's painted water (null: no water left). */
   saveWater?(mask: SavedWaterMask | null): void;
   /** Keeps how all of the map's water moves. */
@@ -609,6 +610,8 @@ export class Board {
   private spellLoops = new Map<string, { id: SoundId; gain: number }>();
   /** The water loops going, by motion kind (`water:flow`), with the gain each was last set to. */
   private waterLoops = new Map<string, { id: SoundId; gain: number }>();
+  /** A finished stroke is being handed to the host: the water it gives meanwhile is not drawn again. */
+  private savingWater = false;
   /** When (page clock, ms) and from which camera the water loops were last worked out. */
   private waterLoopsAt = -Infinity;
   private waterLoopsSeen = { x: NaN, z: NaN, distance: NaN, yaw: NaN, pitch: NaN };
@@ -1383,9 +1386,9 @@ export class Board {
 
   /** The map's water as saved now (an undo or redo, another board of the map): drawn again where it differs. */
   private syncWater(map: BoardMap): void {
-    if (this.press?.kind === 'water') return;
+    if (this.press?.kind === 'water' || this.savingWater) return;
     const saved = this.host.water?.() ?? null;
-    if (JSON.stringify(saved?.mask ?? null) !== this.waterKey) { this.loadWater(map); this.wake(); return; }
+    if (waterKeyOf(saved) !== this.waterKey) { this.loadWater(map); this.wake(); return; }
     if (saved?.motion && this.water) {
       const motion = readWaterMotion(saved.motion);
       if (JSON.stringify(motion) !== JSON.stringify(this.water.currentMotion)) { this.water.setMotion(motion); this.waterLoopsAt = -Infinity; this.toolbar.refresh(); this.wake(); }
@@ -3946,8 +3949,11 @@ export class Board {
     if (press.kind === 'water') {
       const mask = this.water?.mask;
       const saved = mask && !mask.empty ? mask.save() : null;
-      this.waterKey = JSON.stringify(saved);
-      this.host.saveWater?.(saved);
+      // What the host gives as this map's water once it is kept is what was just painted: nothing to draw again,
+      // neither while it is being kept (the host may refresh the board from within) nor after.
+      this.savingWater = true;
+      try { this.host.saveWater?.(saved); } finally { this.savingWater = false; }
+      this.waterKey = waterKeyOf(this.host.water?.() ?? null);
       return;
     }
     if (press.kind === 'tool') {
@@ -4798,10 +4804,10 @@ export class Board {
     this.waterLoopsAt = -Infinity;
     this.chosenWaterMotion = null;
     const saved = this.host.water?.() ?? null;
-    this.waterKey = JSON.stringify(saved?.mask ?? null);
+    this.waterKey = waterKeyOf(saved);
     if (!saved || !this.size) return;
-    const mask = WaterMask.read(saved.mask, this.size.width, this.size.height, map.grid.size);
-    if (mask && !mask.empty) this.showWater(mask, readWaterMotion(saved.motion));
+    const mask = maskOfSource(saved, this.size.width, this.size.height, map.grid.size);
+    if (mask) this.showWater(mask, readWaterMotion(saved.motion));
   }
 
   private showWater(mask: WaterMask, motion: WaterMotion): WaterSurface {
