@@ -281,6 +281,8 @@ Every gate in section 11 is checked first, in a throwaway vault on Atlas 0.15.0,
 | The dice judge of a physical throw | Atlas has no function that scores dice that already landed: its roller rolls its own | Since Phase 2 it decides critical results (`getDiceCrit`) and exploding faces (`explodingFaces`, `MAX_EXPLOSIONS`) with Atlas's own code from `atlas-shared`; only the scoring of landed dice is Tabletop's |
 | Connect's older shared bundle (`vendor/atlas`: `draw`, `dice3d`, `diceDisplay`, the API types) | They draw (pixi, three) and are no rules; the dice look is Phase 4 | Rules moved to `atlas-shared` in Phase 2; what is left only draws |
 | Tabletop's `src/atlasPort/app/{grid,levels,lighting,vision}` | Pulled in by the ported panels (palette, tracker, loot, asset manager) | Go when the panels are re-synced in Phase 4; the board's own rules read `atlas-shared` |
+| A 3D spell's own hit test (Phase 3) | A sphere over the floor or a cone tilted up has a height, and Atlas's areas have none. Atlas's `areaCellRule` applies to flat areas only | The spell is read back from its measure (`measureToSpell`), so both start from the same two points |
+| The board works a spell's walls, light and difficult ground out from the spell (Phase 3) | Players' boards have no Atlas store, and their scene carries no map features or measure lights; walls read back from Atlas would be built and painted as the map's own. The records Atlas holds for a spell are for Atlas (2D view, sight, movement rules) | One function shapes both (`spellRuleWalls` / `derivedRecords`); a reconciler keeps Atlas's records in step with the measure; the board filters them out of the map's walls |
 | The shared bundle itself | Atlas exposes no API, so its rules are vendored | Verbatim stock files at the same tag as the minimum version |
 | Connect's per-token "Players see" (audit #29) | It extends Atlas's collection-level setting rather than repeating it | Defaults to Atlas's value |
 | Party links (audit #28) | Unknown whether Atlas stores a token-player link (gate G5) | Kept until G5 answers; fused if Atlas has one |
@@ -295,6 +297,13 @@ Every gate in section 11 is checked first, in a throwaway vault on Atlas 0.15.0,
 - **Spell heights.** A sphere or cube's height has no Atlas meaning, and Atlas and 2D players see a flat area. 3D keeps the height only while G1 holds.
 - **Tabletop's dice colour list.** The die looks like Atlas's dice.
 - **Lasting spells on open boards at the moment of upgrade** are not carried over (they were never saved).
+- **Casting without Atlas on the map (Phase 3).** A cast or a template needs Atlas to hold that map. On a split party's other scene, or with Atlas on another map, it is refused and the player is told; nothing is written.
+- **Several templates per player.** A player has one template at a time; placing another takes the place of the last. Templates go when their player leaves and when a session starts or ends. The GM's own stay until removed.
+- **Fresh casts on reopening.** Kept spells are in the map: opening a board shows them standing, with no cast sound, and carries out no push, teleport or summons again.
+- **Template shapes.** A square grows from the middle of its near side and a line is one cell wide, as Atlas shapes them; templates snap as Atlas's areas do.
+- **The GM's colour on the GM's own spells and templates.** They carry no colour: Atlas draws them in its accent.
+- **A spell's light where Atlas has none.** A darkness is Atlas's on a round area only; on a cube or a cone it is the 3D board's alone. A spell's light takes the area's colour in Atlas when the area has one (a player's).
+- **Auras on the board.** Atlas 0.15's token auras are not drawn on the 3D board or Connect's page yet.
 
 ## 11. Gates: facts to verify live, each with a fallback
 
@@ -322,6 +331,15 @@ The user's approval covers both branches of each gate.
 | G6 | **PASS for one host only** | Atlas keeps a single Atlas leaf. Section 4.1 was rewritten around one host that follows the focused board. |
 | G7 | **N/A** (there can be only one host) | About 270 MB for the first load, about 20 MB per further map. Closing frees little. |
 | G8 | **PASS** | Every write has an action and saves through Atlas's autosave in 0.5 to 1 s. Some writes take two steps: |
+
+**Phase 3 probe (2026-11-13, stock Atlas 0.15.0; `harness/live/phase3-probe.cjs`, results `.superpowers/sdd/2026-11-13-atlas-fusion/phase3-probe.json`):**
+
+| Gate | Result | What follows |
+|---|---|---|
+| G9 a measure with a nested `tabletop` object of 4 KB, `by`, `hidden`, a level | **PASS** | Kept in the store, in the file after the save, and after switching map and back. A spell's 3D extras live in the measure. |
+| G10 one undo step for a cast | **PASS** | `store.temporal.getState().transaction(fn)`: every write of `fn` is one step. A cast is one step: its measure. |
+| G11 writes that are no undo step | **PASS** | `temporal.getState().untracked(fn)`: 0 steps. What a spell stands in Atlas (walls, difficult ground, light) is derived from its measure outside the history. |
+| G12 an area's `light`, and `darkness: true` | **PASS** | Kept as given. Atlas reads a darkness on a circle only (`canBeDarkness`), so only a round spell's darkness is written. |
 
 The G8 writes that take two steps:
 - **Levels:** there is no `addLevel`. Use `setLevels` with the whole array, built with Atlas's `levelEdits.ts` helpers, which go into `atlas-shared`. Alignment is `levels[].alignment`.

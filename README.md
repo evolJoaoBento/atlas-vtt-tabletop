@@ -1,6 +1,6 @@
 # Tabletop for Atlas VTT
 
-**Compatible with Atlas VTT 0.15.0.** Needs Atlas VTT 0.15 or later, and Connect for Atlas VTT 0.11.0 (the same fusion release).
+**Compatible with Atlas VTT 0.15.0.** Needs Atlas VTT 0.15 or later, and Connect for Atlas VTT 0.12.0 (the same fusion release).
 
 Tabletop for Atlas VTT is a community extension. It is not made, endorsed or supported by Atlas VTT or Atlas Online.
 
@@ -153,6 +153,18 @@ statblock's or the collection's, as Atlas reads it. Whether a drag shows its dis
 (always, only in a fight, never). What a token already moved this turn is not added yet: each drag counts from its
 start. Resources, who sees which bar, a token's side in a fight by sides, critical results and which faces of a die
 explode are Atlas's own rules too.
+
+**Spells and templates are Atlas's areas.** A spell that lasts, and a template, is one of Atlas's kept measures: it is
+saved in the map, drawn in Atlas's own 2D view as a flat area, taken back with Atlas's undo (one step for a cast), and
+reaches every player from there. The board draws a spell in 3D where its measure lies now, so one moved, turned or
+resized in Atlas moves on the board; an area or a ruler kept in Atlas shows flat on the board too. What a spell's
+rules stand is Atlas's as well: a wall spell and an obscuring area are walls of Atlas's (they stop its tokens and its
+sight), difficult ground is a map feature with difficult terrain, and a light or a magical darkness is the area's own
+light (a darkness on a round area only); they follow the spell and go with it. An instantaneous spell (Fireball) goes
+off and is kept nowhere. What changed with it: a cast or a template needs Atlas to hold that map (the bar over the
+board offers **Edit here**; without it the cast is refused and nothing is written); spells are kept, so the ones on a
+map are there when it is opened again, standing and silent; a square template grows from the middle of its near side
+and a line is one square wide, as Atlas shapes them; each player has one template at a time.
 
 The light level and the tint in the lighting menu are Atlas's scene lighting (the same values as on Atlas's own
 lighting page); the level can be set while the scene's lighting is on in Atlas. The laser's colour and size, and how
