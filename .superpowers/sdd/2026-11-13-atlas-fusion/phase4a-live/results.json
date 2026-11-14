@@ -13,11 +13,11 @@
     "name": "a wall's height set from the board is on Atlas's own wall, in the map file, one step of Atlas's undo, shown at once; Atlas's undo takes it back",
     "pass": true,
     "evidence": {
-      "onRecord": 1,
+      "onRecord": 0,
       "stepsAfter": 1,
       "shown": 0,
       "inFile": true,
-      "undone": 0,
+      "undone": 1,
       "inData": []
     }
   },
@@ -37,7 +37,7 @@
     "name": "a placed light's height is on the light's record, a carried light's on its token; both are in the file and taken off again",
     "pass": true,
     "evidence": {
-      "set": 1,
+      "set": 2,
       "read": 0,
       "inFile": true,
       "cleared": 2

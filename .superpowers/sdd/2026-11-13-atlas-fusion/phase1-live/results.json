@@ -59,7 +59,7 @@
         "button": "Edit here"
       },
       "coveBanner": null,
-      "cellarMs": 296,
+      "cellarMs": 286,
       "cellarActive": true,
       "leavesAfter": 1,
       "cellarBannerAfter": null,
@@ -75,7 +75,7 @@
     "name": "an edit on the held board saves through Atlas; on the other board it is refused and no file is written",
     "pass": true,
     "evidence": {
-      "savedMs": 572,
+      "savedMs": 554,
       "moved": true,
       "refused": {
         "name": "NotHeldError",
@@ -110,7 +110,7 @@
           "button": "Reopen"
         }
       },
-      "ms": 543,
+      "ms": 620,
       "leaves": 1,
       "banner": null,
       "boardActive": true
@@ -169,6 +169,8 @@
       "backups": [
         "Tabletop backups/2026-11-14/Fusion Rooms-10.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms-11.atlasmap",
+        "Tabletop backups/2026-11-14/Fusion Rooms-12.atlasmap",
+        "Tabletop backups/2026-11-14/Fusion Rooms-13.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms-2.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms-3.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms-4.atlasmap",
@@ -180,6 +182,8 @@
         "Tabletop backups/2026-11-14/Fusion Rooms.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-10.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-11.json",
+        "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-12.json",
+        "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-13.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-2.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-3.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-4.json",
@@ -190,8 +194,12 @@
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-9.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop.json",
         "Tabletop backups/2026-11-14/Probe Cellar-2.atlasmap",
+        "Tabletop backups/2026-11-14/Probe Cellar-3.atlasmap",
+        "Tabletop backups/2026-11-14/Probe Cellar-4.atlasmap",
         "Tabletop backups/2026-11-14/Probe Cellar.atlasmap",
         "Tabletop backups/2026-11-14/Probe Cellar.tabletop-2.json",
+        "Tabletop backups/2026-11-14/Probe Cellar.tabletop-3.json",
+        "Tabletop backups/2026-11-14/Probe Cellar.tabletop-4.json",
         "Tabletop backups/2026-11-14/Probe Cellar.tabletop.json"
       ],
       "backupHasRooms": true,
