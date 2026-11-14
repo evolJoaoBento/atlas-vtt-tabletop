@@ -28,6 +28,8 @@ export interface AtlasSceneState {
     measures?: Readonly<Record<string, Record<string, unknown>>>;
     walls?: Readonly<Record<string, Record<string, unknown>>>;
     lights?: Readonly<Record<string, Record<string, unknown>>>;
+    /** Atlas's water, lava and acid: outlines with holes. */
+    liquids?: Readonly<Record<string, Record<string, unknown>>>;
     mapFeatures?: Readonly<Record<string, Record<string, unknown>>>;
   };
   /** Atlas 0.10's levels (floors) and the one this view shows; an older Atlas has neither. */
@@ -73,6 +75,9 @@ export interface AtlasSceneState {
   addMeasure?: (data: Record<string, unknown>) => string | null;
   updateMeasure?: (id: string, changes: Record<string, unknown>) => void;
   deleteMeasure?: (id: string) => void;
+  /** Atlas's liquids: add some (their ids; a level that is full takes no more, and gives no id for those), take one off. There is no update. */
+  addLiquids?: (data: ReadonlyArray<Record<string, unknown>>) => string[];
+  deleteLiquid?: (id: string) => void;
   /** Changes a placed light's fields; a field given as undefined is removed. */
   updateLight?: (id: string, changes: Record<string, unknown>) => void;
   /** Atlas's walls and map features, as its own tools make them: add one (its id), take some off. */

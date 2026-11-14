@@ -11,6 +11,7 @@ import { hasConvertedRoomWalls, readRooms, roomWalls } from './atlasRooms/rooms'
 import { readLights, readSceneLighting, readWalls, type BoardLight, type BoardWall, type SceneLighting } from './walls';
 import { hiddenResourcesOf, isDefeated, tokenFromFile, type ResourceDefinition, type ResourceValue } from './resources';
 import { readMeasures, type BoardMeasure } from './boardMeasures';
+import { readLiquids, type BoardLiquid } from './liquids';
 import { levelBackground, onLevel, onLevelRecord, readLevels, resolveLevel, type BoardLevel } from './levels';
 import { tokenHeight } from '../../packages/atlas-shared/src/index';
 import { ownSpeed } from './tokenHeight';
@@ -202,6 +203,8 @@ export interface BoardMap {
   measures: BoardMeasure[];
   /** The ids of the measures on the scene's other levels: they stand, though this map does not show them. */
   measuresElsewhere: string[];
+  /** Atlas's liquids on the level shown (`liquids.ts`): the water the board's brush painted, and what Atlas made itself. */
+  liquids: BoardLiquid[];
 }
 
 type Raw = Record<string, unknown>;
@@ -467,5 +470,6 @@ export function readMapState(path: string, given: unknown, viewedLevel?: string 
     lighting: readSceneLighting(state.lighting),
     rawGrid: state.grid ?? null,
     ...readMapMeasures(objects.measures, level, levels),
+    liquids: readLiquids(here(objects.liquids)),
   };
 }

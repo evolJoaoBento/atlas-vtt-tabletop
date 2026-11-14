@@ -384,6 +384,50 @@ export class TokenWriter {
     if (after && after.pastStates.length + after.futureStates.length > 0) after.clear?.();
   }
 
+  /**
+   * Replaces liquids of the map (`liquids.ts`): `remove` are taken off and `add` kept, together in one step of Atlas's
+   * history (Atlas has no update for a liquid). A liquid Atlas no longer has is passed over. The ids Atlas gave.
+   */
+  async replaceLiquids(path: string, remove: readonly string[], add: ReadonlyArray<Record<string, unknown>>): Promise<string[]> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.store(path);
+    if (!state.addLiquids || !state.deleteLiquid) throw TokenWriter.missing('liquids');
+    const there = remove.filter((id) => Object.hasOwn(state.objects?.liquids ?? {}, id));
+    if (there.length === 0 && add.length === 0) return [];
+    const view = this.holder(path);
+    // Read fresh at every write: an action swaps the store's state.
+    const now = (): AtlasSceneState => view?.atlasStore.getState() ?? state;
+    return this.asOneStep(path, () => {
+      for (const id of there) now().deleteLiquid?.(id);
+      return add.length > 0 ? now().addLiquids?.(add.map((liquid) => ({ ...liquid }))) ?? [] : [];
+    });
+  }
+
+  /**
+   * Writes a map's painted water as liquids (the move off Tabletop's data), outside Atlas's history and whole or not
+   * at all: where the level takes fewer than all of them, those it took are taken off again. Atlas's older steps are
+   * let go, as for `applyExtrasMove`. The ids Atlas gave.
+   */
+  async applyWaterMove(path: string, add: ReadonlyArray<Record<string, unknown>>): Promise<string[]> {
+    if (this.holder(path) === null) await this.ready(path);
+    const view = this.holder(path);
+    if (!view) throw new NotHeldError();
+    if (add.length === 0) return [];
+    const history = view.atlasStore.temporal?.getState();
+    if (!history?.untracked) throw TokenWriter.missing('untracked writes');
+    const state = view.atlasStore.getState();
+    if (!state.addLiquids || !state.deleteLiquid) throw TokenWriter.missing('liquids');
+    const ids = history.untracked(() => {
+      const made = view.atlasStore.getState().addLiquids?.(add.map((liquid) => ({ ...liquid }))) ?? [];
+      if (made.length < add.length) for (const id of made) view.atlasStore.getState().deleteLiquid?.(id);
+      return made;
+    });
+    if (ids.length < add.length) throw new Error('this level holds no more liquids: remove some in Atlas first');
+    const after = view.atlasStore.temporal?.getState();
+    if (after && after.pastStates.length + after.futureStates.length > 0) after.clear?.();
+    return ids;
+  }
+
   /** Opens or shuts a door (a locked one stays shut). */
   async toggleDoor(path: string, id: string): Promise<void> {
     if (this.holder(path) === null) await this.ready(path);

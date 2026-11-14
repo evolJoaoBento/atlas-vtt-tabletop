@@ -82,13 +82,13 @@ function historyOf(view: AtlasView | null): AtlasHistory | null {
 }
 
 /** The writer's methods that may change a map Atlas holds. */
-const WRITES = ['move', 'moveMany', 'rotate', 'copy', 'resource', 'update', 'initiative', 'initiativeAction', 'addTokensNow', 'lootRoller', 'toggleDoor', 'lockDoor', 'setWindow', 'kill', 'remove', 'addMeasure', 'removeMeasures', 'setWallExtras', 'setLightHeight'] as const;
+const WRITES = ['move', 'moveMany', 'rotate', 'copy', 'resource', 'update', 'initiative', 'initiativeAction', 'addTokensNow', 'lootRoller', 'toggleDoor', 'lockDoor', 'setWindow', 'kill', 'remove', 'addMeasure', 'removeMeasures', 'setWallExtras', 'setLightHeight', 'replaceLiquids'] as const;
 const WRITE_LABELS: Partial<Record<(typeof WRITES)[number], string>> = {
   move: 'token move', moveMany: 'token move', rotate: 'token turn', copy: 'token copy', resource: 'resource', update: 'token',
   initiative: 'initiative', initiativeAction: 'initiative', addTokensNow: 'tokens added', lootRoller: 'loot', toggleDoor: 'door',
   lockDoor: 'door lock', setWindow: 'window', kill: 'token defeated', remove: 'token removed',
   addMeasure: 'spell or template', removeMeasures: 'spell or template removed',
-  setWallExtras: 'wall', setLightHeight: 'light height',
+  setWallExtras: 'wall', setLightHeight: 'light height', replaceLiquids: 'water',
 };
 
 /**

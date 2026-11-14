@@ -97,7 +97,7 @@ export function layersFromExtras(extras: BoardExtras | null): ElevationLayerData
       tokens: [], pins: [], icons: [], texts: [], initiative: readInitiative(null), inks: [], fog: [], walls, lights,
       lighting: { enabled: false, ambient: 1, ambientColor: null },
       rawGrid: null,
-      measures: [], measuresElsewhere: [],
+      measures: [], measuresElsewhere: [], liquids: [],
     };
     return {
       path: layer.id,
@@ -264,7 +264,7 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
       tokens, pins, icons, texts, initiative, inks, fog, darkness, walls, lights,
       lighting: extras ? { ...extras.lighting } : { enabled: false, ambient: 1, ambientColor: null },
       rawGrid: null,
-      measures: [], measuresElsewhere: [],
+      measures: [], measuresElsewhere: [], liquids: [],
     },
     // The movement steps reach the board through the measurement (`playerBoard.ts`), not the rules.
     rules: { conditions, definitions: [...definitions.values()], gridDefaults: null, initiative: DEFAULT_INITIATIVE_RULES, movement: NO_MOVEMENT_RULES },
