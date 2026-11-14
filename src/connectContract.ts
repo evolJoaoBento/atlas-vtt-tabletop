@@ -192,8 +192,6 @@ export interface BoardSession {
   /**
    * Tokens are moving from the map `from` to the stacked map `to` (each as `newId`, the same id unless `to` had one):
    * told before they move, so their players keep them and are shown `to`. Absent from an older Connect.
-   */
-  tokensMoved?(move: { from: string; to: string; tokens: ReadonlyArray<{ id: string; newId: string }> }): void;
   /**
    * The players who may control `tokenId` (every admitted one) and whether each does, for the "Controlled by" menu;
    * null while no session hands out tokens. Absent from an older Connect.

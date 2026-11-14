@@ -172,14 +172,6 @@ test('moves several tokens as one Atlas change when it offers one, else one by o
   assert.deepEqual(calls, [['t', { x: 1, y: 2 }]]);
 });
 
-test('without a host to follow, a token never changes scene: it stays where it is', async () => {
-  const calls: unknown[] = [];
-  const view = fakeView('from.atlasmap', calls, { addToken: ((data: Record<string, unknown>) => { calls.push(['add', data]); return 'id'; }) as never, deleteTokens: (ids) => { calls.push(['delete', ids]); } });
-  const writer = new TokenWriter({ views: () => [view], held: async () => null });
-  await assert.rejects(writer.transfer('from.atlasmap', 't', 'to.atlasmap', 'tok_new', { x: 5, y: 6 }), NotHeldError);
-  assert.deepEqual(calls, []);
-});
-
 // ── With a host: Atlas's one store, or nothing ─────────────────────────────
 
 /** A store whose state the test changes, as Atlas's does when it loads a map. */
@@ -236,34 +228,6 @@ test('a queued move is refused when the host moves on', async () => {
   await assert.rejects(writer.initiativeAction('m.atlasmap', { kind: 'next' }), NotHeldError);
   await assert.rejects(writer.remove('m.atlasmap', 't'), NotHeldError);
   assert.deepEqual(calls, []);
-});
-
-test('with a host, a token goes to another scene in two held steps, and stops before the delete when a map is not held', async () => {
-  const calls: unknown[] = [];
-  const live = liveView({ mapPath: 'from.atlasmap', mapLoaded: true, isMapLoading: false }, calls);
-  const reach = new Set(['from.atlasmap', 'to.atlasmap']);
-  const follow = async (path: string): Promise<boolean> => {
-    if (!reach.has(path)) return false;
-    live.set({ mapPath: path, objects: { tokens: path === 'from.atlasmap' ? { t: { id: 't', x: 0, y: 0 } } : {} } });
-    return true;
-  };
-  const writer = new TokenWriter({ views: () => [live.view], held: async () => null, follow });
-  await writer.transfer('from.atlasmap', 't', 'to.atlasmap', 'n', { x: 5, y: 6 });
-  assert.deepEqual(calls, [['add', 'to.atlasmap', 'n'], ['delete', 'from.atlasmap', ['t']]]);
-
-  // The target does not come to be held: nothing is added, nothing deleted.
-  calls.length = 0;
-  reach.delete('to.atlasmap');
-  await follow('from.atlasmap');
-  await assert.rejects(writer.transfer('from.atlasmap', 't', 'to.atlasmap', 'n', { x: 5, y: 6 }), NotHeldError);
-  assert.deepEqual(calls, []);
-
-  // The way back fails: the token was added there, and is not deleted here.
-  reach.add('to.atlasmap');
-  let trips = 0;
-  const oneWay = new TokenWriter({ views: () => [live.view], held: async () => null, follow: async (path) => (trips++ === 0 ? follow(path) : false) });
-  await assert.rejects(oneWay.transfer('from.atlasmap', 't', 'to.atlasmap', 'n', { x: 5, y: 6 }), NotHeldError);
-  assert.deepEqual(calls, [['add', 'to.atlasmap', 'n']]);
 });
 
 test('tokens added while Atlas is on its way to the map wait for it, under the ids given at once; refused when it moves on', async () => {

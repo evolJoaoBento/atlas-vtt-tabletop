@@ -532,40 +532,6 @@ export class BoardData {
   }
 
   /**
-   * Stacks a map on another, `elevation` grid squares above it. A map stacked on a layer joins that layer's stack, and
-   * a map that has layers of its own cannot become one (nor a map be its own base). Returns whether it was done.
-   */
-  setLayer(mapPath: string, base: string, elevation: number): boolean {
-    if (!Number.isFinite(elevation)) return false;
-    const root = this.data[base]?.layer ?? null;
-    // On a layer, the elevation is given from that layer: the stack is measured from its base.
-    const target = root ? root.base : base;
-    const height = Math.round((root ? root.elevation + elevation : elevation) * 100) / 100;
-    if (target === mapPath || this.layersOf(mapPath).length > 0) return false;
-    const current = this.data[mapPath]?.layer;
-    if (current && current.base === target && current.elevation === height) return true;
-    // Changing its height keeps where it stands.
-    const { x, y, turn } = current ?? {};
-    this.put(mapPath, { ...(this.data[mapPath] ?? {}), layer: { base: target, elevation: height, ...(x !== undefined && { x }), ...(y !== undefined && { y }), ...(turn !== undefined && { turn }) } });
-    return true;
-  }
-
-  /** Where a scene of a stack stands on the plane; no placement for the base scene and for one that was never moved. */
-  placementOf(mapPath: string): Placement {
-    const layer = this.data[mapPath]?.layer;
-    return layer ? readPlacement(layer) ?? NO_PLACEMENT : NO_PLACEMENT;
-  }
-
-  /** Places a layer on the plane (no placement puts it back where its grid puts it); false for a scene that is no layer. */
-  setPlacement(mapPath: string, placement: Placement): boolean {
-    const layer = this.data[mapPath]?.layer;
-    if (!layer) return false;
-    const next = readPlacement(placement);
-    this.put(mapPath, { ...this.data[mapPath], layer: { base: layer.base, elevation: layer.elevation, ...(next && { x: next.x, y: next.y, turn: next.turn }) } });
-    return true;
-  }
-
-  /**
    * The water painted on this map before it was kept as Atlas's liquids: its mask and motion, read only, as a fallback
    * while the map's water was not moved yet; null once it was, or without any.
    */
@@ -607,17 +573,6 @@ export class BoardData {
     return Object.entries(this.data)
       .filter(([, map]) => map.layer?.base === base)
       .map(([path, map]) => ({ path, elevation: map.layer!.elevation, placement: readPlacement(map.layer) ?? NO_PLACEMENT }));
-  }
-
-  /**
-   * The stack a map belongs to, lowest first, with heights measured from the base map; empty for a map on its own.
-   * Opening any of them shows them all.
-   */
-  stackOf(mapPath: string): StackMember[] {
-    const base = this.data[mapPath]?.layer?.base ?? mapPath;
-    const layers = this.layersOf(base);
-    if (layers.length === 0) return [];
-    return [{ path: base, elevation: 0, placement: NO_PLACEMENT }, ...layers].sort((a, b) => a.elevation - b.elevation || a.path.localeCompare(b.path));
   }
 
   /** The stacks kept in this data: each base scene with the scenes stacked on it, lowest first. */

@@ -59,7 +59,7 @@
         "button": "Edit here"
       },
       "coveBanner": null,
-      "cellarMs": 286,
+      "cellarMs": 353,
       "cellarActive": true,
       "leavesAfter": 1,
       "cellarBannerAfter": null,
@@ -75,7 +75,7 @@
     "name": "an edit on the held board saves through Atlas; on the other board it is refused and no file is written",
     "pass": true,
     "evidence": {
-      "savedMs": 554,
+      "savedMs": 563,
       "moved": true,
       "refused": {
         "name": "NotHeldError",
@@ -89,7 +89,7 @@
     "name": "a board in a popout: the Atlas tab stays in the main window, the popout board stays active",
     "pass": true,
     "evidence": {
-      "ms": 0,
+      "ms": 1,
       "leaves": 1,
       "atlasInMain": true,
       "boardInPopout": true,
@@ -110,7 +110,7 @@
           "button": "Reopen"
         }
       },
-      "ms": 620,
+      "ms": 512,
       "leaves": 1,
       "banner": null,
       "boardActive": true
@@ -171,6 +171,8 @@
         "Tabletop backups/2026-11-14/Fusion Rooms-11.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms-12.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms-13.atlasmap",
+        "Tabletop backups/2026-11-14/Fusion Rooms-14.atlasmap",
+        "Tabletop backups/2026-11-14/Fusion Rooms-15.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms-2.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms-3.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms-4.atlasmap",
@@ -184,6 +186,8 @@
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-11.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-12.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-13.json",
+        "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-14.json",
+        "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-15.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-2.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-3.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-4.json",
@@ -196,11 +200,25 @@
         "Tabletop backups/2026-11-14/Probe Cellar-2.atlasmap",
         "Tabletop backups/2026-11-14/Probe Cellar-3.atlasmap",
         "Tabletop backups/2026-11-14/Probe Cellar-4.atlasmap",
+        "Tabletop backups/2026-11-14/Probe Cellar-5.atlasmap",
+        "Tabletop backups/2026-11-14/Probe Cellar-6.atlasmap",
         "Tabletop backups/2026-11-14/Probe Cellar.atlasmap",
         "Tabletop backups/2026-11-14/Probe Cellar.tabletop-2.json",
         "Tabletop backups/2026-11-14/Probe Cellar.tabletop-3.json",
         "Tabletop backups/2026-11-14/Probe Cellar.tabletop-4.json",
-        "Tabletop backups/2026-11-14/Probe Cellar.tabletop.json"
+        "Tabletop backups/2026-11-14/Probe Cellar.tabletop-5.json",
+        "Tabletop backups/2026-11-14/Probe Cellar.tabletop-6.json",
+        "Tabletop backups/2026-11-14/Probe Cellar.tabletop.json",
+        "Tabletop backups/2026-11-14/Stack Base.atlasmap",
+        "Tabletop backups/2026-11-14/Stack Base.minis.json",
+        "Tabletop backups/2026-11-14/Stack Base.tabletop.json",
+        "Tabletop backups/2026-11-14/Stack Lower.atlasmap",
+        "Tabletop backups/2026-11-14/Stack Lower.minis.json",
+        "Tabletop backups/2026-11-14/Stack Lower.tabletop.json",
+        "Tabletop backups/2026-11-14/Stack Upper.atlasmap",
+        "Tabletop backups/2026-11-14/Stack Upper.minis.json",
+        "Tabletop backups/2026-11-14/Stack Upper.tabletop.json",
+        "Tabletop backups/2026-11-14/Stacks moved.md"
       ],
       "backupHasRooms": true,
       "notices": [
@@ -313,6 +331,7 @@
         "api": null,
         "notices": [
           "Tabletop needs Atlas VTT 0.15 or later (found 0.14.0)",
+          "Tabletop: 2 scene stacks from before can become Atlas levels. Until then they are not drawn stacked.\nReview and moveLater",
           "Connect needs Atlas VTT 0.15 or later (found 0.14.0)"
         ],
         "boardText": "3D board unavailable\n\nTabletop needs Atlas VTT 0.15 or later (found 0.14.0)",
@@ -332,7 +351,7 @@
     "pass": true,
     "evidence": {
       "errors": [],
-      "total": 14
+      "total": 13
     }
   }
 ]

@@ -456,10 +456,8 @@ async function main(): Promise<void> {
     // A popup window stands in for Obsidian's pop-out: same process, another document.
     switchLayer: (path) => { record.sceneTabs.push(['layer', path]); },
     layerMenu: (path) => { record.sceneTabs.push(['menu', path]); },
-    layerPlaced: (path, placement) => { record.sceneTabs.push(['placed', path, { ...placement }]); },
     tablePlaced: (table) => { record.sceneTabs.push(['table', table]); board.setArTable(table); },
     tableRemoved: () => { record.sceneTabs.push(['table-removed']); board.setArTable(null); },
-    layerReset: (path) => { record.sceneTabs.push(['reset', path]); },
     moveTokensToLayer: (ids, path, places, follow) => { record.sceneTabs.push(['toLayer', [...ids], path, ...(places ? [places, follow === true] : [])]); },
     togglePlayerView: () => {
       if (players && !players.closed) {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { BoardData } from '../src/board/boardData';
+import { BoardData, readBoardData } from '../src/board/boardData';
 import type { BoardMap } from '../src/board/mapModel';
 import { layersFor } from '../src/boardLayers';
 import type { MaterialInfo } from '../src/boardLook';
@@ -19,39 +19,17 @@ const sceneMap = (over: Record<string, unknown> = {}): BoardMap => ({
   ...over,
 } as unknown as BoardMap);
 
+/** A scene stack as older Tabletop kept one in its data. */
 function stacked(): BoardData {
-  const data = new BoardData();
-  data.setLayer('up.atlasmap', 'ground.atlasmap', 3);
-  data.addProp('up.atlasmap', { glb: 'minis/barrel.glb', x: 1, y: 2, rotation: 90, scale: 1.5 });
-  return data;
+  return new BoardData(readBoardData({ 'up.atlasmap': { layer: { base: 'ground.atlasmap', elevation: 3 }, props: [{ id: 'p', glb: 'minis/barrel.glb', x: 1, y: 2, rotation: 90, scale: 1.5 }] } }));
 }
 
-test('the other scenes of a stack come with their floor, walls, doors, lights and props, at their height from the one asked about', () => {
-  const scenes = { map: (path: string) => (path === 'up.atlasmap' ? sceneMap() : null) };
-  const [layer, ...rest] = layersFor(stacked(), materials, scenes, 'ground.atlasmap');
-  assert.equal(rest.length, 0);
-  assert.equal(layer.elevation, 3);
-  assert.equal(layer.image, 'maps/up.png');
-  assert.deepEqual(layer.grid, { size: 70, offsetX: 5, offsetY: 6 });
-  assert.deepEqual(layer.walls.map((entry) => [entry.id, entry.height, entry.material, entry.doorProp, entry.flip]), [
-    ['w1', 2, 'mat/brick', null, { hinge: false, side: false }],
-    ['d1', null, null, 'minis/door.glb', { hinge: true, side: true }],
-  ]);
-  assert.deepEqual(layer.lights.map((entry) => [entry.id, entry.height]), [['l1', 1.5]], 'a switched-off light and a token\'s light stay out');
-  assert.deepEqual(layer.props, [{ id: layer.props[0].id, path: 'minis/barrel.glb', x: 1, y: 2, scale: 1.5, turn: 90 }]);
-  assert.deepEqual(layer.materials.map((entry) => entry.id), ['mat/brick']);
-});
-
-test('asked from the upper scene, the ground is below it, and the upper scene is not its own layer', () => {
-  const scenes = { map: (path: string) => (path === 'ground.atlasmap' ? sceneMap({ background: 'maps/ground.png' }) : null) };
-  const layers = layersFor(stacked(), materials, scenes, 'up.atlasmap');
-  assert.deepEqual(layers.map((entry) => [entry.elevation, entry.image]), [[-3, 'maps/ground.png']]);
-});
-
-test('a scene not read yet, one without a floor, and a map on its own give no layer', () => {
+test('a scene stack of older Tabletop gives players no layer (floors are Atlas levels; a stack waits to be moved), and a map on its own has none', () => {
+  const scenes = { map: (path: string) => (path === 'up.atlasmap' ? sceneMap() : sceneMap({ background: 'maps/ground.png' })) };
+  assert.deepEqual(layersFor(stacked(), materials, scenes, 'ground.atlasmap'), []);
+  assert.deepEqual(layersFor(stacked(), materials, scenes, 'up.atlasmap'), []);
   assert.deepEqual(layersFor(stacked(), materials, { map: () => null }, 'ground.atlasmap'), []);
-  assert.deepEqual(layersFor(stacked(), materials, { map: () => sceneMap({ background: null }) }, 'ground.atlasmap'), []);
-  assert.deepEqual(layersFor(stacked(), materials, { map: () => sceneMap() }, 'alone.atlasmap'), []);
+  assert.deepEqual(layersFor(new BoardData(), materials, scenes, 'alone.atlasmap'), []);
 });
 
 const extras = (layers: BoardExtras['layers']): BoardExtras => ({
@@ -86,18 +64,15 @@ test('a player\'s board makes a layer of each stacked scene sent: floor, grid, h
   assert.deepEqual(layersFromExtras(null), []);
 });
 
-test('a layer can be hidden and shown again, and it stays in its stack while hidden', () => {
+test('a level can be hidden on the board and shown again; hiding one says nothing of another', () => {
   const data = new BoardData();
-  assert.equal(data.setLayer('upper.atlasmap', 'base.atlasmap', 3), true);
-  assert.equal(data.layerHidden('upper.atlasmap'), false);
-  data.setLayerHidden('upper.atlasmap', true);
-  assert.equal(data.layerHidden('upper.atlasmap'), true);
-  assert.equal(data.layerOf('upper.atlasmap')?.elevation, 3, 'hiding keeps its height');
-  assert.deepEqual(data.layersOf('base.atlasmap').map((member) => member.path), ['upper.atlasmap']);
-  data.setLayerHidden('upper.atlasmap', false);
-  assert.equal(data.layerHidden('upper.atlasmap'), false);
-  // Moving it keeps it hidden.
-  data.setLayerHidden('upper.atlasmap', true);
-  data.setPlacement('upper.atlasmap', { x: 70, y: 0, turn: 0 });
-  assert.equal(data.layerHidden('upper.atlasmap'), true);
+  const upper = 'base.atlasmap#atlas-level:upper';
+  assert.equal(data.layerHidden(upper), false);
+  data.setLayerHidden(upper, true);
+  assert.equal(data.layerHidden(upper), true);
+  assert.equal(data.layerHidden('base.atlasmap#atlas-level:cellar'), false);
+  assert.equal(new BoardData(readBoardData(JSON.parse(JSON.stringify(data.toJSON())))).layerHidden(upper), true);
+  data.setLayerHidden(upper, false);
+  assert.equal(data.layerHidden(upper), false);
+  assert.deepEqual(data.toJSON(), {});
 });

@@ -1446,7 +1446,7 @@ feature('scene tabs 0.15', async ({ page, shot }) => {
   check('scene tabs 0.15: right-click opens the layers menu; close closes, and neither switches', JSON.stringify(events) === JSON.stringify([['layers', 't3'], ['close', 't3']]), JSON.stringify(events));
 });
 
-feature('layer placement', async ({ page, shot }) => {
+feature('layer pill menu', async ({ page }) => {
   await page.evaluate(() => {
     const { board, map } = window.boardTest;
     const layer = (path, elevation) => ({
@@ -1460,80 +1460,6 @@ feature('layer placement', async ({ page, shot }) => {
   const events = () => page.evaluate(() => window.boardTest.record.sceneTabs);
   const pillMenu = await page.evaluate(() => { const pill = document.querySelector('.atlas-tabletop-layers__item'); pill.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })); return pill.textContent; });
   check('placement: right-clicking a scene\'s pill asks for its menu', JSON.stringify((await events()).filter((e) => e[0] === 'menu')) === JSON.stringify([['menu', 'up.atlasmap']]), pillMenu);
-  await page.evaluate(() => window.boardTest.board.setAdjust('up.atlasmap'));
-  await wait(400);
-  const chip = await page.evaluate(() => { const c = document.querySelector('.atlas-tabletop-adjust'); return c && !c.hidden ? c.textContent : null; });
-  check('placement: the handles appear and a chip names the scene being adjusted', chip && chip.includes('up') && chip.includes('Stop') && (await page.evaluate(() => window.boardTest.board.gizmo !== null)), String(chip));
-  await shot('layer-placement-handles');
-  // `project` takes the map's x and y and a height; the board's z is the map's y.
-  const at = (x, y, z) => page.evaluate(([x, y, z]) => window.boardTest.project(x, z, y), [x, y, z]);
-  const gizmo = () => page.evaluate(() => { const g = window.boardTest.board.gizmo.object3d; return { x: g.position.x, y: g.position.y, z: g.position.z, scale: g.scale.x }; });
-  const layerAt = () => page.evaluate(() => { const v = window.boardTest.board.layerViews.get('up.atlasmap'); return { x: v.object3d.position.x, z: v.object3d.position.z, turn: v.stands.turn, sx: v.stands.x, sy: v.stands.y }; });
-  const g0 = await gizmo();
-  const before = await layerAt();
-  // Drag the square in the middle: the scene follows.
-  const middle = await at(g0.x, g0.y, g0.z);
-  await page.mouse.move(middle.x, middle.y);
-  await page.mouse.down();
-  await page.mouse.move(middle.x + 60, middle.y + 20, { steps: 6 });
-  await page.mouse.up();
-  await wait(300);
-  const after = await layerAt();
-  const placed = (await events()).filter((e) => e[0] === 'placed');
-  check('placement: dragging the square slides the scene on the plane, and it is kept when let go', after.sx > 20 && placed.length === 1 && placed[0][1] === 'up.atlasmap' && Math.abs(placed[0][2].x - after.sx) < 1e-6, JSON.stringify({ before, after, placed }));
-  // Drag the ring: the scene turns about the middle of the handles.
-  const g1 = await gizmo();
-  const radius = 1.45 * g1.scale;
-  const start = await at(g1.x + radius, g1.y, g1.z);
-  const quarter = await at(g1.x, g1.y, g1.z + radius);
-  await page.mouse.move(start.x, start.y);
-  await page.mouse.down();
-  await page.mouse.move((start.x + quarter.x) / 2, (start.y + quarter.y) / 2, { steps: 4 });
-  await page.mouse.move(quarter.x, quarter.y, { steps: 4 });
-  await page.mouse.up();
-  await wait(300);
-  const turned = await layerAt();
-  check('placement: dragging the ring turns the scene, a quarter turn clockwise for a quarter of the way round', Math.abs(turned.turn - 90) < 8, JSON.stringify(turned));
-  check('placement: the turn snaps to a quarter turn by default (exactly 90 here)', turned.turn === 90, JSON.stringify(turned));
-  // Modifiers: Alt turns freely, Shift snaps to 45 degrees, Ctrl to 5. Each drag starts on the ring at 0 degrees and goes round by `degrees`.
-  const ringTurn = async (degrees, key) => {
-    const g = await gizmo();
-    const r = 1.45 * g.scale;
-    const rad = (degrees * Math.PI) / 180;
-    const from = await at(g.x + r, g.y, g.z);
-    const to = await at(g.x + r * Math.cos(rad), g.y, g.z + r * Math.sin(rad));
-    const half = await at(g.x + r * Math.cos(rad / 2), g.y, g.z + r * Math.sin(rad / 2));
-    if (key) await page.keyboard.down(key);
-    await page.mouse.move(from.x, from.y);
-    await page.mouse.down();
-    await page.mouse.move(half.x, half.y, { steps: 4 });
-    await page.mouse.move(to.x, to.y, { steps: 4 });
-    await page.mouse.up();
-    if (key) await page.keyboard.up(key);
-    await wait(200);
-    return (await layerAt()).turn;
-  };
-  const free = await ringTurn(17, 'Alt');
-  check('placement: with Alt the turn is free (about 107 degrees here, on no step)', Math.abs(free - 107) < 4 && Math.abs(free - Math.round(free / 5) * 5) > 0.3, String(free));
-  const fortyFive = await ringTurn(30, 'Shift');
-  check('placement: with Shift the turn snaps to 45 degrees', Math.abs(fortyFive / 45 - Math.round(fortyFive / 45)) < 1e-6, String(fortyFive));
-  const five = await ringTurn(12, 'Control');
-  check('placement: with Ctrl the turn snaps to 5 degrees', Math.abs(five / 5 - Math.round(five / 5)) < 1e-6 && Math.abs(five % 45) > 1e-6, String(five));
-  await shot('layer-placement-turned');
-  const reset = await page.evaluate(() => { [...document.querySelectorAll('.atlas-tabletop-adjust button')].find((b) => b.textContent === 'Reset').click(); return window.boardTest.record.sceneTabs.filter((e) => e[0] === 'reset'); });
-  check('placement: Reset asks for the scene to go back to its grid', JSON.stringify(reset) === JSON.stringify([['reset', 'up.atlasmap']]), JSON.stringify(reset));
-  await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-adjust button')].find((b) => b.textContent === 'Stop').click());
-  const stopped = await page.evaluate(() => ({ gizmo: window.boardTest.board.gizmo, chip: document.querySelector('.atlas-tabletop-adjust').hidden }));
-  check('placement: Stop takes the handles and the chip away', stopped.gizmo === null && stopped.chip === true, JSON.stringify(stopped));
-  // Switching to a scene that stands turned on the plane carries the camera into its frame, keeping its view of the base.
-  const carried = await page.evaluate(() => {
-    const { board } = window.boardTest;
-    for (const pose of [board.camera.pose, board.camera.goal]) { pose.target.x = 700; pose.target.z = 500; pose.yaw = 0.3; }
-    board.reorigin(0, { x: 100, y: 50, turn: 90 });
-    return { pose: [board.camera.pose.target.x, board.camera.pose.target.z, board.camera.pose.yaw], goal: [board.camera.goal.target.x, board.camera.goal.target.z, board.camera.goal.yaw] };
-  });
-  const expected = [-400, 750, 0.3 - Math.PI / 2];
-  check('placement: switching to a turned scene carries the camera into its frame, target and heading', carried.pose.every((v, i) => Math.abs(v - expected[i]) < 1e-6) && carried.goal.every((v, i) => Math.abs(v - expected[i]) < 1e-6), JSON.stringify(carried));
 });
 
 // ── Dragging tokens to another scene of a stack: drop them on its pill on the height ruler ──────────────────────

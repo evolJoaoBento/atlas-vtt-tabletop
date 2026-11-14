@@ -45,12 +45,6 @@ const kill = (definitions: readonly ResourceDefinition[]): TokenChange => (token
 /** A new token id as Atlas makes them (`addTokens` in its store). */
 export const newTokenId = (): string => `tok_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 
-/** What a token keeps when it goes to another scene: everything but its copy number (the new scene numbers it) and the floor it stood on. */
-function arrivingToken(raw: Record<string, unknown>, id: string, x: number, y: number): RawToken {
-  const { instanceNumber: _number, level: _level, levels: _levels, offLevel: _offLevel, levelId: _levelId, ...kept } = raw;
-  return { ...structuredClone(kept), id, x, y } as RawToken;
-}
-
 /** Sends a tracker change to Atlas's store, the action Atlas's own tracker calls; false when Atlas offers none. */
 function sendToAtlas(state: AtlasSceneState, action: InitiativeAction): boolean {
   switch (action.type) {
@@ -125,8 +119,6 @@ export interface TokenWriterDeps {
    * the map (edits made meanwhile wait here, in the order they were made); null when it does not come to.
    */
   held: (path: string) => Promise<AtlasSceneState | null>;
-  /** Makes Atlas hold `path` and waits for it; false when it does not come to. Without it a token never changes scene. */
-  follow?: (path: string) => Promise<boolean>;
 }
 
 export class TokenWriter {
@@ -528,29 +520,6 @@ export class TokenWriter {
   /** Kills the token, as Atlas's Kill does: every resource that defeats it spent. */
   kill(path: string, id: string, definitions: readonly ResourceDefinition[]): Promise<void> {
     return this.change(path, id, kill(definitions));
-  }
-
-  /**
-   * Takes a token to another scene: added there under `newId` at (x, y), and only then removed from this one, so a
-   * failure leaves it where it was. Atlas holds one map at a time, so this is two held steps: Atlas is brought to `to`
-   * for the add, then back to `from` for the removal; it stops before the removal when either map does not come to be
-   * held. Without `follow` the token stays where it is (`NotHeldError`).
-   */
-  async transfer(from: string, id: string, to: string, newId: string, at: { x: number; y: number }): Promise<void> {
-    const follow = this.deps.follow;
-    if (this.holder(from) === null) await this.ready(from);
-    const state = this.tokenStore(from, id);
-    if (!follow) throw new NotHeldError();
-    const raw = structuredClone(state.objects.tokens[id]) as unknown as Record<string, unknown>;
-    const target = (await follow(to)) ? this.holder(to)?.atlasStore.getState() : null;
-    if (!target) throw new NotHeldError();
-    if (!target.addToken) throw TokenWriter.missing('way to add a token');
-    target.addToken(arrivingToken(raw, newId, at.x, at.y));
-    // Back to the map it came from: only there can it be taken away. Not held again, it stays on both, and the caller says so.
-    const back = (await follow(from)) ? this.holder(from)?.atlasStore.getState() : null;
-    if (!back || !Object.hasOwn(back.objects?.tokens ?? {}, id)) throw new NotHeldError();
-    if (!back.deleteTokens) throw TokenWriter.missing('way to delete a token');
-    back.deleteTokens([id]);
   }
 
   /** Deletes the token from the map. */

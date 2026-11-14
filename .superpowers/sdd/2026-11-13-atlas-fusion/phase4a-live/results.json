@@ -13,11 +13,11 @@
     "name": "a wall's height set from the board is on Atlas's own wall, in the map file, one step of Atlas's undo, shown at once; Atlas's undo takes it back",
     "pass": true,
     "evidence": {
-      "onRecord": 0,
+      "onRecord": 1,
       "stepsAfter": 1,
       "shown": 0,
       "inFile": true,
-      "undone": 1,
+      "undone": 0,
       "inData": []
     }
   },
@@ -26,10 +26,10 @@
     "name": "a material, a width, a window's opening and a door's prop and turn each go onto the record, beside what is there; back to the default takes the key off",
     "pass": true,
     "evidence": {
-      "set": 3,
+      "set": 26,
       "stepsAfter": 5,
       "read": 0,
-      "cleared": 2
+      "cleared": 1
     }
   },
   {
@@ -40,7 +40,7 @@
       "set": 2,
       "read": 0,
       "inFile": true,
-      "cleared": 2
+      "cleared": 1
     }
   },
   {
@@ -69,6 +69,9 @@
           "wallHeights",
           "wallMaterials",
           "lightHeights"
+        ],
+        "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Upper.atlasmap": [
+          "wallHeights"
         ]
       }
     }

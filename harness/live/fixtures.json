@@ -1,5 +1,13 @@
 {
   "map": "atlas-vtt/collections/The Gilded Flagon/scenes/Fusion Rooms.atlasmap",
   "top": "room_1120_1120_5600_1120",
-  "left": "room_1120_4480_1120_1120"
+  "left": "room_1120_4480_1120_1120",
+  "stack": {
+    "base": "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Base.atlasmap",
+    "upper": "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Upper.atlasmap",
+    "lower": "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Lower.atlasmap",
+    "token": "tok_1794200000008_goblinbos",
+    "wall": "wall_1794200000021_solid2218",
+    "glb": "atlas-vtt/assets/minis/Goblin Raider.glb"
+  }
 }

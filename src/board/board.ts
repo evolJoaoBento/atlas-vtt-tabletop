@@ -295,10 +295,6 @@ export interface BoardHost {
   switchLayer?(path: string): void;
   /** A scene's pill on the height ruler was right-clicked. */
   layerMenu?(path: string, event: MouseEvent): void;
-  /** A scene of the stack was put somewhere on the plane (seen from the scene being played); it is to be kept. */
-  layerPlaced?(path: string, placement: Placement): void;
-  /** The scene being adjusted is to go back where its grid puts it. */
-  layerReset?(path: string): void;
   /** The GM placed the players' AR table on the map (or changed its square size): it is to be kept. */
   tablePlaced?(table: SavedArTable): void;
   /** The GM took the players' AR table off the map. */
@@ -686,8 +682,7 @@ export class Board {
   /** The rooms the walls cut the map into, for cinematic sight: kept while the walls stay where they are. */
   private roomCache: { key: string; rooms: Rooms | null } | null = null;
   private layerRuler: LayerRuler | null = null;
-  /** The scene of the stack being placed on the plane ("Adjust position"), its handles, and where it stands now (seen from the scene being played). */
-  private adjusting: string | null = null;
+  /** The handles the AR table is placed with, and where it stands as they are dragged. */
   private gizmo: PlacementGizmo | null = null;
   private adjustPlacement: Placement = NO_PLACEMENT;
   private readonly veilSight = new SightVeil();
@@ -1101,9 +1096,6 @@ export class Board {
     surface.stack(lowest * map.grid.size, lowest < 0 ? 'solid' : null);
     // The floor of the scene being played is never cut by the see-through window (only the floors above it, and walls, are).
     const wanted = new Map(this.stackData.map((layer) => [layer.path, layer]));
-    // The scene being placed is gone from the stack: no more handles.
-    if (this.adjusting !== null && !wanted.has(this.adjusting)) this.setAdjust(null);
-    else if (this.adjusting !== null && this.press?.kind !== 'gizmo') this.adjustPlacement = wanted.get(this.adjusting)?.stands ?? NO_PLACEMENT;
     // A layer no longer drawn is put away, not thrown out: shown again it fades straight back in, nothing read again.
     for (const [path, view] of [...this.layerViews]) {
       if (wanted.has(path)) continue;
@@ -1985,36 +1977,6 @@ export class Board {
     return this.layerViews.get(path)?.size ?? null;
   }
 
-  /** The scene being placed on the plane, or null. */
-  get adjustingPath(): string | null {
-    return this.adjusting;
-  }
-
-  /**
-   * Starts placing a scene of the stack on the plane (null stops): handles appear in the middle of the view, at the scene's
-   * height: two arrows and a square to slide it, a ring to turn it about the handles' middle. The scene moves as it is
-   * dragged and is saved when let go.
-   */
-  setAdjust(path: string | null): void {
-    if (path !== null && this.tablePlacing) this.placeTable(false);
-    const layer = path === null ? null : this.stackData.find((candidate) => candidate.path === path) ?? null;
-    const next = layer ? layer.path : null;
-    if (next === this.adjusting) return;
-    this.adjusting = next;
-    this.gizmo?.dispose();
-    this.gizmo = null;
-    if (layer) {
-      this.adjustPlacement = layer.stands ?? NO_PLACEMENT;
-      const gizmo = new PlacementGizmo();
-      const target = this.camera.goal.target;
-      gizmo.object3d.position.set(target.x, layer.elevation * (this.map?.grid.size ?? 70) + 0.5, target.z);
-      this.scene.add(gizmo.object3d);
-      this.gizmo = gizmo;
-    }
-    this.showAdjustChip();
-    this.wake(true);
-  }
-
   // ── The players' AR table ────────────────────────────────────────────────
 
   /**
@@ -2037,7 +1999,6 @@ export class Board {
   /** Starts (or stops) placing the AR table: the move and turn handles on it, and a chip to say so. */
   placeTable(on: boolean): void {
     if (on && !this.arTable) return;
-    if (on && this.adjusting !== null) this.setAdjust(null);
     this.tablePlacing = on;
     this.gizmo?.dispose();
     this.gizmo = null;
@@ -2209,37 +2170,7 @@ export class Board {
     chip.append(text, square, remove, done);
   }
 
-  /** A chip over the board says which scene is being placed, and stops it. */
-  private showAdjustChip(): void {
-    let chip = this.container.querySelector<HTMLElement>(':scope > .atlas-tabletop-adjust');
-    if (this.adjusting === null) {
-      if (chip) chip.hidden = true;
-      return;
-    }
-    const doc = this.container.ownerDocument;
-    if (!chip) {
-      chip = doc.win.createDiv();
-      chip.className = 'atlas-tabletop-adjust';
-      chip.setAttribute('role', 'status');
-      this.container.appendChild(chip);
-    }
-    chip.hidden = false;
-    chip.replaceChildren();
-    const path = this.adjusting;
-    const text = doc.win.createSpan();
-    text.textContent = `Adjusting: ${path.replace(/^.*\//, '').replace(/\.[^.]+$/, '')}`;
-    const reset = doc.win.createEl('button');
-    reset.type = 'button';
-    reset.textContent = 'Reset';
-    reset.addEventListener('click', () => this.host.layerReset?.(path));
-    const stop = doc.win.createEl('button');
-    stop.type = 'button';
-    stop.textContent = 'Stop';
-    stop.addEventListener('click', () => this.setAdjust(null));
-    chip.append(text, reset, stop);
-  }
-
-  /** The point of the placed scene's plane under the pointer (the ray from the camera meets it), as map coordinates (x, y on the map = x, z here). */
+  /** The point of the placed table's plane under the pointer (the ray from the camera meets it), as map coordinates (x, y on the map = x, z here). */
   private adjustPoint(): { x: number; z: number } | null {
     const gizmo = this.gizmo;
     if (!gizmo) return null;
@@ -2248,10 +2179,10 @@ export class Board {
     return hit ? { x: hit.x, z: hit.z } : null;
   }
 
-  /** A press on a handle: the scene follows the pointer from here. */
+  /** A press on a handle: the table follows the pointer from here. */
   private beginGizmo(x: number, y: number): boolean {
     const gizmo = this.gizmo;
-    if (!gizmo || (this.adjusting === null && !this.tablePlacing)) return false;
+    if (!gizmo || !this.tablePlacing) return false;
     this.ray(x, y);
     const part = gizmo.hit(this.raycaster);
     const at = this.adjustPoint();
@@ -2263,8 +2194,7 @@ export class Board {
 
   private dragGizmo(press: Extract<Press, { kind: 'gizmo' }>, x: number, y: number, keys: { shift?: boolean; ctrl?: boolean; alt?: boolean } = {}): void {
     const gizmo = this.gizmo;
-    const path = this.adjusting;
-    if (!gizmo || (path === null && !this.tablePlacing)) return;
+    if (!gizmo || !this.tablePlacing) return;
     this.ray(x, y);
     const at = this.adjustPoint();
     if (!at) return;
@@ -2289,14 +2219,8 @@ export class Board {
     }
     press.last = at;
     this.adjustPlacement = next;
-    if (path === null) {
-      // The AR table follows the handles.
-      this.drawTable();
-      this.wake(true);
-      return;
-    }
-    this.layerViews.get(path)?.place(next);
-    this.shadowsDirty = true;
+    // The AR table follows the handles.
+    this.drawTable();
     this.wake(true);
   }
 
@@ -3938,10 +3862,9 @@ export class Board {
     if (this.eye) { this.eyeDrag = null; return; }
     const press = this.press;
     this.press = null;
-    // A handle let go: the scene's new place is saved.
+    // A handle let go: the table's new place is saved.
     if (press?.kind === 'gizmo') {
-      if (this.adjusting !== null) this.host.layerPlaced?.(this.adjusting, this.adjustPlacement);
-      else if (this.tablePlacing) { const table = this.placedTable(); if (table) this.host.tablePlaced?.(table); }
+      if (this.tablePlacing) { const table = this.placedTable(); if (table) this.host.tablePlaced?.(table); }
       return;
     }
     const { clientX: x, clientY: y } = event;

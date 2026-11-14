@@ -11,7 +11,6 @@ import { BOARD_VIEW_TYPE, BoardView, HOVER_SOURCE } from './src/board/BoardView'
 import { PLAYER_VIEW_TYPE, PlayerView } from './src/board/PlayerWindow';
 import { BoardData, readBoardData, readVariants, type BoardDataJSON, type PropLook } from './src/board/boardData';
 import { DEFAULT_QUALITY, readEdges, readQuality, readSeeThroughSize, readLayerLook, MAX_SEE_THROUGH_SIZE, MIN_SEE_THROUGH_SIZE, type LayerLook, type Quality, type WallEdges } from './src/board/quality';
-import { LayerModal } from './src/layerModal';
 import { MAX_LAYER_TICK, MIN_LAYER_TICK, readLayerTick } from './src/board/layerRuler';
 import { readSightMode, readSightStyle, type SightMode, type SightStyle } from './src/board/lineOfSight';
 import { TABLETOP_ICON, TABLETOP_ICON_BODY } from './src/tabletopIcon';
@@ -281,10 +280,6 @@ export default class TabletopPlugin extends Plugin {
       // No map file is ever written: an edit of a map Atlas does not come to hold is refused, and the board's bar says why.
       views: () => mapViews(this.app),
       held: (path) => host.whenHeld(path).then((store) => (store ? store.getState() as unknown as AtlasSceneState : null)),
-      follow: async (path) => {
-        const front = this.app.workspace.getMostRecentLeaf();
-        return front !== null && (await host.follow(path, front)) === 'held';
-      },
     });
     recordAtlasWrites(this.history, writer);
     const stacks = new StackMigration({
@@ -398,7 +393,7 @@ export default class TabletopPlugin extends Plugin {
       floor: () => atlasFloor(this.app),
       host,
       // What the GM set in 3D on a wall, a door or a light changed in Atlas's store: players are sent the look again.
-      lookChanged: (mapPath) => this.boardChanged(this.boardData.stackOf(mapPath).length > 1 ? null : mapPath),
+      lookChanged: (mapPath) => this.boardChanged(mapPath),
       boardReady: (view) => {
         for (const player of this.playerViews()) if (player.mapPath === view.mapPath) view.showPlayer(player);
         this.refreshPlayerButtons();
@@ -462,10 +457,6 @@ export default class TabletopPlugin extends Plugin {
     this.registerEvent(this.app.workspace.on('file-menu', (menu, file) => {
       if (!(file instanceof TFile) || !isMapPath(file.path)) return;
       menu.addItem((item) => item.setTitle('Open in 3D').setIcon(TABLETOP_ICON).onClick(() => { void this.openBoard(file.path); }));
-      const layer = this.boardData.layerOf(file.path);
-      menu.addItem((item) => item.setTitle(layer ? `Elevation layer of ${layer.base.replace(/^.*\//, '').replace(/\.[^.]+$/, '')} (${layer.elevation})…` : 'Elevation layer…').setIcon('layers').onClick(() => {
-        new LayerModal(this.app, this.boardData, file.path, this.app.vault.getFiles().filter((candidate) => isMapPath(candidate.path)).map((candidate) => candidate.path)).open();
-      }));
     }));
     // An "Open in 3D" button in stock Atlas's own toolbar; Atlas redraws its toolbar now and then, so it is put back.
     this.atlasButton = new AtlasOpenButton(this.app, (path) => { void this.openBoard(path); });
@@ -507,7 +498,7 @@ export default class TabletopPlugin extends Plugin {
     });
     // A scene of a stack changed (its height, place or walls): every map it is stacked with is sent again.
     // A level hidden on the boards is kept under its scene path and level ("scene#atlas-level:id").
-    this.register(this.boardData.onChange((changed) => { const mapPath = changed?.split("#")[0] ?? null; this.boardChanged(mapPath !== null && this.boardData.stackOf(mapPath).length > 1 ? null : mapPath); }));
+    this.register(this.boardData.onChange((changed) => { const mapPath = changed?.split("#")[0] ?? null; this.boardChanged(mapPath); }));
     this.register(this.materials.onChange(() => { this.materialIndex?.forgetAll(); this.boardChanged(null); }));
     this.players = playerMiniPainter();
     const board = playerBoardFactory(() => this.settings.quality, () => ({ tiltShift: this.settings.tiltShift === true, occlusion: this.settings.occlusion === true, painted: this.settings.painted === true, sky: readSky(this.settings.sky), edges: readEdges(this.settings.wallEdges), seeThrough: this.settings.seeThrough === true, seeThroughSize: readSeeThroughSize(this.settings.seeThroughSize), layerLook: readLayerLook(this.settings.layerLook) }), { settings: () => this.settings.dice, pack: () => (this.dicePack ??= vendoredPack()) }, () => this.spells(), undefined, { settings: () => this.soundForEngine(), load: () => this.vaultSounds.custom.load, onChange: (listener) => { this.soundListeners.add(listener); return () => { this.soundListeners.delete(listener); }; } });

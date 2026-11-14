@@ -17,11 +17,9 @@ import { BoardAtlasTools } from './boardAtlasTools';
 import { tabletopCommands } from '../palette/tabletopCommands';
 import { MOSAIC_FROM_BYTES, mapPicture } from '../atlasMosaic';
 import { SceneTabBar, type SceneTabEntry } from './sceneTabBar';
-import { LayerModal } from '../layerModal';
 import type { ElevationLayerData } from './elevationLayer';
-import { compose, isNoPlacement, NO_PLACEMENT, relativeTo, type Placement } from './layerPlacement';
+import { NO_PLACEMENT, type Placement } from './layerPlacement';
 import type { SightMode, SightStyle } from './lineOfSight';
-import { spiralSpot, type Occupant } from './spiral';
 import type { Assignments } from '../assignments';
 import { MiniPicker } from '../gallery';
 import type { LoadedMini, MiniLibrary } from '../library';
@@ -310,7 +308,6 @@ export class BoardView extends ItemView {
       // Atlas saving the map it holds says nothing new: the board already drew it from Atlas's store.
       if (file.path === this.path) { if (!this.services.host?.holds(file.path)) this.reload(); }
       else if (file.path === ASSETS_METADATA_PATH) this.reload();
-      else if (this.stackPaths.has(file.path)) this.reloadStack();
     }));
     this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
       // A cutscene being made follows its map (or a shot's map) being renamed, whichever map this tab shows.
@@ -366,11 +363,9 @@ export class BoardView extends ItemView {
     if (history) this.register(history.onChange(() => this.board?.refreshToolbar()));
   }
 
-  /** The maps this board's undo reaches: its own and the scenes stacked with it. */
+  /** The maps this board's undo reaches: its own. */
   private undoPaths(): string[] {
-    const path = this.path;
-    if (!path) return [];
-    return [...new Set([path, ...this.services.boardData.stackOf(path).map((member) => member.path)])];
+    return this.path ? [this.path] : [];
   }
 
   /** Takes back (or brings back) the latest change on this board's maps; says so where there was none or it failed. */
@@ -719,68 +714,8 @@ export class BoardView extends ItemView {
   }
 
 
-  /** The stacked scenes as last read (their maps, tokens included), and the places tokens were just dropped on them: the next read has those too. */
+  /** The scene's other levels as last read (their maps, tokens included). */
   private stackLayers: ElevationLayerData[] = [];
-  private readonly arrived = new Map<string, Occupant[]>();
-
-  /**
-   * Tokens dropped on another scene's pill on the height ruler: each goes to that scene, to the middle of its board or,
-   * where that place is taken, to the next square of a spiral round it with room for it, and leaves this one. Its mini
-   * and its look go with it.
-   */
-  private async moveTokensToLayer(ids: readonly string[], target: string, places?: Readonly<Record<string, { x: number; y: number }>>): Promise<void> {
-    const board = this.board;
-    const from = this.path;
-    const map = this.map;
-    const layer = this.stackLayers.find((candidate) => candidate.path === target);
-    if (!board || !from || !map || !layer) return;
-    const { assignments, boardData, writer } = this.services;
-    const size = board.layerSize(target) ?? { width: layer.map.world?.width ?? 0, height: layer.map.world?.height ?? 0 };
-    const grid = layer.map.grid;
-    const reach = (tokenSize: number): number => ((2 * tokenSize - 1) * grid.size) / 2;
-    const occupied: Occupant[] = [
-      ...layer.map.tokens.filter((token) => !token.offMap && !token.offLevel).map((token) => ({ x: token.x, y: token.y, radius: reach(token.size) })),
-      ...(this.arrived.get(target) ?? []),
-    ];
-    let moved = 0;
-    for (const id of ids) {
-      const token = map.tokens.find((candidate) => candidate.id === id);
-      if (!token) continue;
-      const radius = reach(token.size);
-      // Where it was let go over the layer, else its middle: the nearest free square to that.
-      const wanted = places?.[id];
-      const spot = spiralSpot({ center: wanted ? { x: wanted.x, y: wanted.y } : { x: size.width / 2, y: size.height / 2 }, cell: grid.size, offsetX: grid.offsetX, offsetY: grid.offsetY, width: size.width, height: size.height, occupied, radius });
-      const newId = layer.map.tokens.some((candidate) => candidate.id === id) ? `tok_${Date.now()}_${Math.random().toString(36).slice(2, 11)}` : id;
-      // Connect hears first, so a player who controls the token keeps it there and is shown that scene.
-      try {
-        this.services.session?.()?.tokensMoved?.({ from, to: target, tokens: [{ id, newId }] });
-      } catch (error) {
-        console.warn('[Tabletop] Connect could not hear of the token moving:', error);
-      }
-      try {
-        await writer.transfer(from, id, target, newId, spot);
-      } catch (error) {
-        this.unsaved('move to another scene', error);
-        continue;
-      }
-      occupied.push({ ...spot, radius });
-      this.arrived.set(target, [...(this.arrived.get(target) ?? []), { ...spot, radius }]);
-      // Its mini and its look go with it.
-      const mini = assignments.get(from, id);
-      if (mini) {
-        assignments.set(target, newId, mini);
-        assignments.remove(from, id);
-      }
-      const style = boardData.style(from, id);
-      if (style !== 'disc') {
-        boardData.setStyle(target, newId, style);
-        boardData.setStyle(from, id, 'disc');
-      }
-      board.changeToken(id, null);
-      moved++;
-    }
-    if (moved > 0) new Notice(`Tabletop: ${moved === 1 ? 'a token' : `${moved} tokens`} moved to ${target.replace(/^.*\//, '').replace(/\.[^.]+$/, '')}.`);
-  }
 
   /** The level the board was sent to from its height ruler, while Atlas (if it shows the scene) has not followed yet; null for Atlas's. */
   private chosenLevel: string | null = null;
@@ -907,14 +842,11 @@ export class BoardView extends ItemView {
     if (moved > 0) new Notice(`Tabletop: ${moved === 1 ? 'a token' : `${moved} tokens`} moved to ${levelName(map.levels, level)}.`);
   }
 
-  /** The scenes stacked with this one that were read, whose files are followed. */
-  private stackPaths = new Set<string>();
   private stackRead = 0;
-  private readonly reloadStack = debounce(() => { void this.readStack(); }, RELOAD_MS, true);
 
   /**
-   * Reads the scenes stacked with this one (elevation layers: this scene's data says which, and how high) and gives them
-   * to the board to draw beside it. A scene on its own has none.
+   * Reads the scene's other levels (Atlas levels) and gives them to the board to draw beside the one shown. A scene
+   * without levels stands alone: a scene stack of older Tabletop is not drawn (it becomes levels: `stackMigration.ts`).
    */
   private async readStack(): Promise<void> {
     const path = this.path;
@@ -927,52 +859,16 @@ export class BoardView extends ItemView {
       const turn = ++this.stackRead;
       const layers = await this.readLevels(path, shown);
       if (this.closed || turn !== this.stackRead || path !== this.path || !layers) return;
-      this.stackPaths = new Set();
       this.stackLayers = layers.filter((layer) => !layer.current);
-      this.arrived.clear();
       board.setStack(layers);
       const unit = this.unitDistance();
       board.setLayerMenu(shown.levels.map((level) => ({ path: levelKey(level.id), name: levelName(shown.levels, level.id), elevation: levelRise(shown.levels, shown.levels[0].id, level.id, unit), active: level.id === shown.level })).sort((a, b) => b.elevation - a.elevation));
       return;
     }
-    const stack = boardData.stackOf(path);
-    const mine = stack.find((member) => member.path === path);
-    const turn = ++this.stackRead;
-    const layers: ElevationLayerData[] = [];
-    for (const member of mine ? stack : []) {
-      // The scene shown is given too, kept ready as a layer for when another is shown.
-      const current = member.path === path;
-      const file = this.app.vault.getAbstractFileByPath(member.path);
-      if (!(file instanceof TFile)) continue;
-      try {
-        const map = readMap(member.path, await this.app.vault.read(file), null);
-        layers.push({
-          path: member.path,
-          elevation: member.elevation - (mine?.elevation ?? 0),
-          map,
-          ...layerExtras(extrasOf(map, boardData.legacyExtras(member.path))),
-          fogHeight: boardData.fogHeight(member.path),
-          wallThickness: boardData.wallThickness(member.path),
-          props: boardData.props(member.path),
-          water: waterSourceOf(map.liquids, boardData.legacyWater(member.path)),
-          // Where it stands on the plane, seen from this scene: the one being played is drawn as it is.
-          stands: relativeTo(mine?.placement ?? NO_PLACEMENT, member.placement),
-          placement: (id) => assignments.get(member.path, id),
-          style: (id) => boardData.style(member.path, id),
-          ...(current ? { current: true } : {}),
-        });
-      } catch (error) {
-        this.warn(`Tabletop: cannot show the stacked scene ${member.path}: ${error instanceof Error ? error.message : String(error)}.`);
-      }
-    }
-    if (this.closed || turn !== this.stackRead || path !== this.path) return;
-    this.stackLayers = layers.filter((layer) => !layer.current);
-    this.stackPaths = new Set(this.stackLayers.map((layer) => layer.path));
-    // What arrived since the last read is in the files now.
-    this.arrived.clear();
-    board.setStack(layers);
-    const name = (member: string): string => member.replace(/^.*\//, '').replace(/\.[^.]+$/, '');
-    board.setLayerMenu(mine ? stack.map((member) => ({ path: member.path, name: name(member.path), elevation: member.elevation, active: member.path === path })).sort((a, b) => b.elevation - a.elevation) : null);
+    this.stackRead += 1;
+    this.stackLayers = [];
+    board.setStack([]);
+    board.setLayerMenu(null);
   }
 
   /** The next click on the board puts a prop of `glb` there. */
@@ -1660,19 +1556,17 @@ export class BoardView extends ItemView {
       ...(this.services.setSeeThroughSize && { setSeeThroughSize: (squares: number) => this.services.setSeeThroughSize?.(squares) }),
       ...(this.services.setLayerLook && { setLayerLook: (look: LayerLook) => this.services.setLayerLook?.(look) }),
       ...(this.services.setLineOfSight && { setLineOfSight: (mode: SightMode) => this.services.setLineOfSight?.(mode) }),
-      switchLayer: (path: string) => { const level = levelOfKey(path); if (level !== null) void this.switchLevel(level); else void this.switchMember(path); },
-      layerMenu: (path: string, event: MouseEvent) => (levelOfKey(path) !== null ? this.levelMenu(path, event) : this.rulerMenu(path, event)),
-      layerPlaced: (path: string, placement: Placement) => this.placeLayer(path, placement),
-      layerReset: (path: string) => this.resetLayer(path),
+      switchLayer: (path: string) => { const level = levelOfKey(path); if (level !== null) void this.switchLevel(level); },
+      layerMenu: (path: string, event: MouseEvent) => { if (levelOfKey(path) !== null) this.levelMenu(path, event); },
       tablePlaced: (table: SavedArTable) => { if (this.path) this.services.boardData.setArTable(this.path, table); },
       tableRemoved: () => { if (this.path) this.services.boardData.setArTable(this.path, null); },
       moveTokensToLayer: (ids, path, places, follow) => {
         const level = levelOfKey(path);
         void (async () => {
-          if (level !== null) await this.moveTokensToLevel(ids, level, places);
-          else await this.moveTokensToLayer(ids, path, places);
-          // Let go over the layer: it is the one shown now, the tokens on it.
-          if (follow && !this.closed) { if (level !== null) await this.switchLevel(level); else await this.switchMember(path); }
+          if (level === null) return;
+          await this.moveTokensToLevel(ids, level, places);
+          // Let go over the level: it is the one shown now, the tokens on it.
+          if (follow && !this.closed) await this.switchLevel(level);
         })();
       },
       ...(this.services.setSightStyle && { setSightStyle: (style: SightStyle) => this.services.setSightStyle?.(style) }),
@@ -2211,96 +2105,6 @@ export class BoardView extends ItemView {
     };
     this.menu?.close();
     this.menu = new AtlasMenu(this.contentEl.ownerDocument, entries, at, (element, name) => setIcon(element, name), () => { this.menu = null; });
-  }
-
-  /** Any scene of the vault as the base of a layer, by the modal. */
-  private pickLayerBase(path: string): void {
-    const maps = this.app.vault.getFiles().filter((file) => file.path.toLowerCase().endsWith('.atlasmap')).map((file) => file.path);
-    new LayerModal(this.app, this.services.boardData, path, maps).open();
-  }
-
-  /** The menu of a scene's pill on the height ruler: its elevation, placing it on the plane or putting it back, hiding it. */
-  private rulerMenu(path: string, event: MouseEvent): void {
-    const board = this.board;
-    const here = this.path;
-    if (!board || !here) return;
-    const { boardData } = this.services;
-    const active = path === here;
-    // The base scene is the reference every other scene is placed against: it never moves.
-    const base = boardData.layerOf(path) === null;
-    const adjusting = board.adjustingPath === path;
-    // Its elevation, a square at a time (the base scene is the ground every other one stands on).
-    const elevation = (): MenuEntry[] => {
-      const layer = boardData.layerOf(path);
-      if (!layer) return [];
-      const step = (delta: number): void => {
-        const now = boardData.layerOf(path);
-        if (!now) return;
-        boardData.setLayer(path, now.base, Math.round((now.elevation + delta) * 100) / 100);
-        this.sceneTabs?.refresh();
-        void this.readStack().then(() => this.menu?.refresh());
-      };
-      return [
-        { type: 'item', label: 'Elevation (squares)', keepOpen: true, onClick: () => {}, stepper: { value: String(layer.elevation), label: 'elevation', canDecrement: true, onDecrement: () => step(-1), onIncrement: () => step(1) } },
-        { type: 'separator' },
-      ];
-    };
-    const entries = (): MenuEntry[] => [
-      ...elevation(),
-      { type: 'item', label: adjusting ? 'Stop adjusting' : base ? 'Adjust position (the base scene never moves)' : active ? 'Adjust position (open another scene to move this one)' : 'Adjust position', disabled: base || active, onClick: () => board.setAdjust(adjusting ? null : path) },
-      { type: 'item', label: 'Reset position', disabled: base || active || isNoPlacement(boardData.placementOf(path)), onClick: () => this.resetLayer(path) },
-      { type: 'separator' },
-      { type: 'item', label: boardData.layerHidden(path) ? 'Show this layer' : active ? 'Hide this layer (open another scene to hide this one)' : 'Hide this layer', disabled: active && !boardData.layerHidden(path), onClick: () => { boardData.setLayerHidden(path, !boardData.layerHidden(path)); void this.readStack(); } },
-    ];
-    this.menu?.close();
-    this.menu = new AtlasMenu(this.contentEl.ownerDocument, entries, { x: event.clientX, y: event.clientY }, (element, name) => setIcon(element, name), () => { this.menu = null; });
-  }
-
-  /**
-   * A scene of the stack was put somewhere on the plane, as seen from the scene being played: kept as its own placement
-   * in the base scene's frame, so it lines up with the base whichever scene is played. The base scene never moves.
-   */
-  private placeLayer(path: string, placement: Placement): void {
-    const here = this.path;
-    if (!here) return;
-    const { boardData } = this.services;
-    if (!boardData.layerOf(path)) return;
-    boardData.setPlacement(path, compose(boardData.placementOf(here), placement));
-  }
-
-  /** A scene back where its grid puts it, against the base scene. */
-  private resetLayer(path: string): void {
-    this.services.boardData.setPlacement(path, NO_PLACEMENT);
-  }
-
-  /**
-   * Another scene of the stack from the layer menu: the board stays (no new graphics context, no new scene), shows the
-   * scene at once and glides the camera to its floor; Atlas follows in the background.
-   */
-  private async switchMember(path: string): Promise<void> {
-    const board = this.board;
-    const from = this.path;
-    if (!board || !from || path === from) return;
-    const { boardData } = this.services;
-    const stack = boardData.stackOf(from);
-    const before = stack.find((member) => member.path === from);
-    const after = stack.find((member) => member.path === path);
-    if (!before || !after) return;
-    const cell = this.map?.grid.size ?? 70;
-    const found = tabViewOf(this.app, from);
-    const tab = found?.view.tabMetaStore.getState().tabs.find((entry) => entry.filePath === path);
-    if (found && tab) void found.view.switchToTab(tab.id);
-    this.path = path;
-    // The player view showed the scene this tab showed: it waits for the new scene's board.
-    this.playerWindow?.waiting(true);
-    this.playerWindow = null;
-    this.retitle();
-    // The camera keeps its view of the base scene: carried by the change of frame between the two scenes' places on the plane.
-    board.switchingTo(path);
-    await this.read((before.elevation - after.elevation) * cell, relativeTo(after.placement, before.placement));
-    if (!this.closed && this.path === path) this.services.boardReady(this);
-    this.sceneTabs?.refresh();
-    this.app.workspace.requestSaveLayout();
   }
 
   /** A tab chosen over the board: Atlas switches to it, and the board shows its scene. */

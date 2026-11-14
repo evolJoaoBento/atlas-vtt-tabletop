@@ -63,16 +63,16 @@
     "name": "a finished stroke is Atlas's liquids: the brush's water in the store and the map file, one step of Atlas's undo, drawn by the board; Atlas's undo dries it",
     "pass": true,
     "evidence": {
-      "written": 2,
+      "written": 1,
       "stepsAfter": 1,
-      "drawn": 0,
+      "drawn": 1,
       "corners": 4,
       "level": "level_probe_ground",
       "shownLevel": "level_probe_ground",
-      "two": 2,
+      "two": 1,
       "stepsTwo": 2,
       "inFile": 2,
-      "undone": 1,
+      "undone": 0,
       "dry": 0,
       "inData": false
     }
@@ -82,12 +82,12 @@
     "name": "a liquid made in Atlas is drawn on the board and left as it is: by a stroke that erases over it, and by a change of the water's motion, which re-writes only the brush's water",
     "pass": true,
     "evidence": {
-      "drawn": 1,
+      "drawn": 0,
       "painted": 1,
       "still": true,
       "stillDrawn": 0,
       "notDoubled": true,
-      "retinted": 555,
+      "retinted": 549,
       "motionSteps": 1,
       "lavaSame": true,
       "flowGone": true
@@ -129,13 +129,13 @@
     "pass": true,
     "evidence": {
       "levels": 2,
-      "up": 961,
+      "up": 1008,
       "waited": {
         "legacy": true,
         "brush": 0
       },
-      "down": 542,
-      "moved": 219,
+      "down": 508,
+      "moved": 256,
       "onFirst": true,
       "stayed": {
         "known": true,

@@ -153,69 +153,31 @@ test('wall thickness: a share of a square, 0.12 by default, kept per map and rea
   assert.equal(data.toJSON()['m'], undefined, 'the default is not stored');
 });
 
-test('a map stacked on another is a layer of it, and either one opens the whole stack, lowest first', () => {
-  const data = new BoardData();
-  assert.equal(data.setLayer('upper', 'ground', 2), true);
-  assert.deepEqual(data.layerOf('upper'), { base: 'ground', elevation: 2 });
+test("a stack kept by an older Tabletop is read as it was saved (each layer's base, height and place), for its move to Atlas levels; a scene can still leave it", () => {
+  const data = new BoardData(readBoardData({ upper: { layer: { base: 'ground', elevation: 2, x: 35, y: -70, turn: 15 } }, roof: { layer: { base: 'ground', elevation: 3.5 } }, cellar: { layer: { base: 'keep', elevation: -1 } } }));
+  assert.deepEqual(data.layerOf('upper'), { base: 'ground', elevation: 2, x: 35, y: -70, turn: 15 });
   assert.equal(data.layerOf('ground'), null);
-  const none = { x: 0, y: 0, turn: 0 };
-  const stack = [{ path: 'ground', elevation: 0, placement: none }, { path: 'upper', elevation: 2, placement: none }];
-  assert.deepEqual(data.stackOf('ground'), stack);
-  assert.deepEqual(data.stackOf('upper'), stack);
-  assert.deepEqual(data.stackOf('alone'), []);
-});
-
-test('a map stacked on a layer joins that layer\'s stack, measured from the base', () => {
-  const data = new BoardData();
-  data.setLayer('upper', 'ground', 2);
-  assert.equal(data.setLayer('roof', 'upper', 1.5), true);
-  assert.deepEqual(data.layerOf('roof'), { base: 'ground', elevation: 3.5 });
-  assert.deepEqual(data.stackOf('roof').map((member) => member.path), ['ground', 'upper', 'roof']);
-});
-
-test('a map cannot be its own base, nor become a layer while it has layers of its own', () => {
-  const data = new BoardData();
-  assert.equal(data.setLayer('a', 'a', 1), false);
-  assert.equal(data.setLayer('a', 'b', Number.NaN), false);
-  data.setLayer('upper', 'ground', 2);
-  assert.equal(data.setLayer('ground', 'other', 1), false);
-  data.clearLayer('upper');
-  assert.deepEqual(data.stackOf('ground'), []);
+  assert.deepEqual(data.stacks(), [
+    { base: 'ground', members: [{ path: 'upper', elevation: 2, placement: { x: 35, y: -70, turn: 15 } }, { path: 'roof', elevation: 3.5, placement: { x: 0, y: 0, turn: 0 } }] },
+    { base: 'keep', members: [{ path: 'cellar', elevation: -1, placement: { x: 0, y: 0, turn: 0 } }] },
+  ]);
+  assert.deepEqual(data.layersOf('alone'), []);
+  for (const path of ['upper', 'roof', 'cellar']) data.clearLayer(path);
+  assert.deepEqual(data.stacks(), []);
   assert.deepEqual(data.toJSON(), {});
 });
 
 test('layers survive a save and load, and follow a renamed or deleted base', () => {
-  const data = new BoardData();
-  data.setLayer('upper', 'ground', 2);
+  const data = new BoardData(readBoardData({ upper: { layer: { base: 'ground', elevation: 2, x: 35, y: -70, turn: 15 } } }));
   const loaded = new BoardData(readBoardData(JSON.parse(JSON.stringify(data.toJSON()))));
-  assert.deepEqual(loaded.layerOf('upper'), { base: 'ground', elevation: 2 });
+  assert.deepEqual(loaded.layerOf('upper'), { base: 'ground', elevation: 2, x: 35, y: -70, turn: 15 });
   assert.equal(readBoardData({ upper: { layer: { base: 'ground', elevation: 'high' } } }).upper, undefined);
   loaded.rename('ground', 'floor/ground');
-  assert.deepEqual(loaded.layerOf('upper'), { base: 'floor/ground', elevation: 2 });
+  assert.deepEqual(loaded.layerOf('upper'), { base: 'floor/ground', elevation: 2, x: 35, y: -70, turn: 15 });
   loaded.rename('upper', 'floor/upper');
-  assert.deepEqual(loaded.layerOf('floor/upper'), { base: 'floor/ground', elevation: 2 });
+  assert.deepEqual(loaded.layerOf('floor/upper'), { base: 'floor/ground', elevation: 2, x: 35, y: -70, turn: 15 });
   loaded.deleted('floor/ground');
   assert.equal(loaded.layerOf('floor/upper'), null);
-});
-
-test('a layer can be placed on the plane beyond its height, and that survives a change of height, a save and a rename', () => {
-  const data = new BoardData();
-  assert.equal(data.setPlacement('upper', { x: 1, y: 2, turn: 3 }), false);
-  data.setLayer('upper', 'ground', 2);
-  assert.deepEqual(data.placementOf('upper'), { x: 0, y: 0, turn: 0 });
-  assert.equal(data.setPlacement('upper', { x: 35, y: -70, turn: 15 }), true);
-  assert.deepEqual(data.placementOf('upper'), { x: 35, y: -70, turn: 15 });
-  data.setLayer('upper', 'ground', 3);
-  assert.deepEqual(data.placementOf('upper'), { x: 35, y: -70, turn: 15 });
-  assert.deepEqual(data.stackOf('ground')[1]!.placement, { x: 35, y: -70, turn: 15 });
-  assert.deepEqual(data.stackOf('ground')[0]!.placement, { x: 0, y: 0, turn: 0 });
-  const loaded = new BoardData(readBoardData(JSON.parse(JSON.stringify(data.toJSON()))));
-  assert.deepEqual(loaded.placementOf('upper'), { x: 35, y: -70, turn: 15 });
-  loaded.rename('upper', 'floor/upper');
-  assert.deepEqual(loaded.placementOf('floor/upper'), { x: 35, y: -70, turn: 15 });
-  loaded.setPlacement('floor/upper', { x: 0, y: 0, turn: 0 });
-  assert.deepEqual(loaded.layerOf('floor/upper'), { base: 'ground', elevation: 3 });
-  assert.deepEqual(loaded.placementOf('ground'), { x: 0, y: 0, turn: 0 });
 });
 
 test('a door can be rotated half a turn or mirrored, which only moves its hinge; both undo themselves', () => {
