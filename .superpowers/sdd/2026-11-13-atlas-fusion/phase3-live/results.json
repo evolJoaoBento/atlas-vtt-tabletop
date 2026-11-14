@@ -2,10 +2,12 @@
   {
     "step": 0,
     "name": "Phase 1's and Phase 2's live checks again: nothing regressed",
-    "pass": true,
+    "pass": false,
     "evidence": {
-      "summary": "6/6 steps passed",
-      "failed": []
+      "summary": "5/6 steps passed",
+      "failed": [
+        "FAIL  0. Phase 1's live check again: nothing regressed  {\"summary\":\"12/16 steps passed\",\"failed\":[\"FAIL  1. versions and pairing  {\\\"atlas\\\":\\\"0.16.0\\\",\\\"tabletop\\\":\\\"1.8.0\\\",\\\"connect\\\":\\\"0.14.0\\\",\\\"loaded\\\":[true,true],\\\"fusion\\\":4,\\\"notices\\\":[]}\",\"FAIL  3. host from nothing: one hidden Atlas tab, the board in front  {\\\"before\\\":0,\\\"leaves\\\":1,\\\"hidden\\\":false,\\\"boardActive\\\":true,\\\"heldMs\\\":813,\\\"mark\\\":{\\\"openedBy\\\":\\\"tabletop-for-atlas\\\",\\\"claims\\\":[[\\\"tabletop-for-atlas\\\",1]]},\\\"banner\\\":null}\",\"FAIL  4. the host follows the focused board; the other board is view only; Edit here brings it back  {\\\"coveMs\\\":0,\\\"coveActive\\\":true,\\\"leaves\\\":1,\\\"cellarBanner\\\":{\\\"text\\\":\\\"View only. Atlas holds Probe Cove.\\\",\\\"button\\\":\\\"Edit here\\\"},\\\"coveBanner\\\":null,\\\"cellarMs\\\":343,\\\"cellarActive\\\":true,\\\"leavesAfter\\\":1,\\\"cellarBannerAfter\\\":null,\\\"co"
+      ]
     }
   },
   {
@@ -13,7 +15,7 @@
     "name": "a cast that lasts is one of Atlas's measures and one step of its undo; the board draws it from there, and it is saved in the map",
     "pass": true,
     "evidence": {
-      "id": "measure_1794680329650_dsvevrqiz",
+      "id": "measure_1794680876041_s1r3zb39e",
       "count": 1,
       "stepsAfter": 1,
       "shown": 0,
@@ -34,7 +36,7 @@
     "name": "Atlas's undo takes the spell off the board, its redo brings it back, and the board's own remove is one step more",
     "pass": true,
     "evidence": {
-      "id": "measure_1794680329650_dsvevrqiz",
+      "id": "measure_1794680876041_s1r3zb39e",
       "undone": 1,
       "redone": 0,
       "removed": 1,
@@ -46,24 +48,24 @@
     "name": "an area and a ruler kept in Atlas show flat on the board, and go when Atlas removes them; no spell is made of them",
     "pass": true,
     "evidence": {
-      "area": "measure_1794680334462_g87cz18r1",
-      "ruler": "measure_1794680334474_hlxrev1e3",
+      "area": "measure_1794680880853_r44qscgzq",
+      "ruler": "measure_1794680880868_6hyauvxu9",
       "shown": 0,
       "seen": [
         [
-          "measure_1794680334462_g87cz18r1",
+          "measure_1794680880853_r44qscgzq",
           "circle",
           "area",
           false
         ],
         [
-          "measure_1794680334474_hlxrev1e3:0",
+          "measure_1794680880868_6hyauvxu9:0",
           "line",
           "area",
           true
         ],
         [
-          "measure_1794680334474_hlxrev1e3:1",
+          "measure_1794680880868_6hyauvxu9:1",
           "line",
           "area",
           true
@@ -78,7 +80,7 @@
     "name": "a spell whose measure is moved in Atlas moves on the board: its 3D shape is read from where its measure lies",
     "pass": true,
     "evidence": {
-      "id": "measure_1794680336511_jok7q27b9",
+      "id": "measure_1794680882897_sk1v9p59x",
       "first": {
         "x": 700,
         "y": 700,
@@ -97,9 +99,9 @@
     "name": "what a spell stands is Atlas's own: a wall spell's wall, a web's difficult ground and a light's light follow the measure, outside the undo, and go with it",
     "pass": true,
     "evidence": {
-      "wallId": "measure_1794680338561_knjy4tfmt",
-      "webId": "measure_1794680338579_49fbnwgv3",
-      "stood": 309,
+      "wallId": "measure_1794680884949_fmt90m6fc",
+      "webId": "measure_1794680884963_7vm06pclx",
+      "stood": 280,
       "castSteps": 2,
       "standing": {
         "p1": {
@@ -142,8 +144,8 @@
         "wall": 1,
         "feature": 1
       },
-      "followed": 207,
-      "cleaned": 211,
+      "followed": 205,
+      "cleaned": 206,
       "removeSteps": 2
     }
   },
@@ -152,10 +154,10 @@
     "name": "an instantaneous spell goes off on the board and is kept nowhere: no measure, no undo step",
     "pass": true,
     "evidence": {
-      "flashed": 1,
+      "flashed": 0,
       "written": 0,
       "stepsAfter": 0,
-      "gone": 3018
+      "gone": 3095
     }
   },
   {
@@ -177,7 +179,7 @@
     "name": "a board opened again on a map with a kept spell shows it standing: no cast sound, nothing carried out, nothing written",
     "pass": true,
     "evidence": {
-      "id": "measure_1794680353417_zifmduk4p",
+      "id": "measure_1794680899867_mtidici95",
       "hooked": true,
       "back": 0,
       "impacts": [],

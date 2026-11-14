@@ -43,8 +43,11 @@ test('a hand edit of the generated wire contract, or of a copied package file, f
   assert.match(second.stderr, /not from the sync: packages\/atlas-host\/src\/extra\.ts/);
 });
 
-test('the Atlas floor is the tag the shared Atlas files are copied from, and the wire carries the fusion step', () => {
+test('the Atlas floor is no newer than the tag the shared Atlas files are copied from (0.16's reader reads 0.15's records), and the wire carries the fusion step', () => {
   const source = JSON.parse(readFileSync(join(ROOT, 'packages/atlas-shared/SOURCE.json'), 'utf8')) as { tag: string };
-  assert.equal(MIN_ATLAS_VERSION, source.tag);
+  assert.equal(MIN_ATLAS_VERSION, '0.15.0');
+  const parts = (version: string): number[] => version.split('.').map(Number);
+  const [floor, tag] = [parts(MIN_ATLAS_VERSION), parts(source.tag)];
+  assert.ok((tag[0]! - floor[0]! || tag[1]! - floor[1]! || tag[2]! - floor[2]!) >= 0, source.tag);
   assert.equal(FUSION_PROTOCOL, 4);
 });
