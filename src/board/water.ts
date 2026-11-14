@@ -71,6 +71,16 @@ export class WaterMask {
     return new WaterMask(Math.max(1, Math.ceil(mapWidth / texel)), Math.max(1, Math.ceil(mapHeight / texel)), texel);
   }
 
+  /** An empty mask of the same size and texel as `mask`. */
+  static like(mask: WaterMask): WaterMask {
+    return new WaterMask(mask.width, mask.height, mask.texel);
+  }
+
+  /** This mask again, to change without changing this one. */
+  copy(): WaterMask {
+    return new WaterMask(this.width, this.height, this.texel, this.data.slice());
+  }
+
   /** A saved mask for this map; null when it is missing, broken or was made for a map of another size. */
   static read(saved: unknown, mapWidth: number, mapHeight: number, cell: number): WaterMask | null {
     if (typeof saved !== 'object' || saved === null) return null;
