@@ -69,11 +69,11 @@
       "corners": 4,
       "level": "level_probe_ground",
       "shownLevel": "level_probe_ground",
-      "two": 0,
+      "two": 1,
       "stepsTwo": 2,
       "inFile": 2,
-      "undone": 1,
-      "dry": 0,
+      "undone": 0,
+      "dry": 1,
       "inData": false
     }
   },
@@ -82,12 +82,12 @@
     "name": "a liquid made in Atlas is drawn on the board and left as it is: by a stroke that erases over it, and by a change of the water's motion, which re-writes only the brush's water",
     "pass": true,
     "evidence": {
-      "drawn": 1,
-      "painted": 2,
+      "drawn": 0,
+      "painted": 1,
       "still": true,
       "stillDrawn": 0,
       "notDoubled": true,
-      "retinted": 562,
+      "retinted": 545,
       "motionSteps": 1,
       "lavaSame": true,
       "flowGone": true
@@ -129,13 +129,13 @@
     "pass": true,
     "evidence": {
       "levels": 2,
-      "up": 794,
+      "up": 1045,
       "waited": {
         "legacy": true,
         "brush": 0
       },
-      "down": 480,
-      "moved": 257,
+      "down": 533,
+      "moved": 305,
       "onFirst": true,
       "stayed": {
         "known": true,

@@ -24,7 +24,7 @@
       "leaves": 1,
       "hidden": true,
       "boardActive": true,
-      "heldMs": 0,
+      "heldMs": 358,
       "mark": {
         "openedBy": "tabletop-for-atlas",
         "claims": [
@@ -51,7 +51,7 @@
     "name": "the host follows the focused board; the other board is view only; Edit here brings it back",
     "pass": true,
     "evidence": {
-      "coveMs": 0,
+      "coveMs": 1,
       "coveActive": true,
       "leaves": 1,
       "cellarBanner": {
@@ -59,7 +59,7 @@
         "button": "Edit here"
       },
       "coveBanner": null,
-      "cellarMs": 330,
+      "cellarMs": 343,
       "cellarActive": true,
       "leavesAfter": 1,
       "cellarBannerAfter": null,
@@ -75,7 +75,7 @@
     "name": "an edit on the held board saves through Atlas; on the other board it is refused and no file is written",
     "pass": true,
     "evidence": {
-      "savedMs": 555,
+      "savedMs": 580,
       "moved": true,
       "refused": {
         "name": "NotHeldError",
@@ -89,7 +89,7 @@
     "name": "a board in a popout: the Atlas tab stays in the main window, the popout board stays active",
     "pass": true,
     "evidence": {
-      "ms": 0,
+      "ms": 112,
       "leaves": 1,
       "atlasInMain": true,
       "boardInPopout": true,
@@ -110,7 +110,7 @@
           "button": "Reopen"
         }
       },
-      "ms": 601,
+      "ms": 569,
       "leaves": 1,
       "banner": null,
       "boardActive": true
@@ -175,6 +175,8 @@
         "Tabletop backups/2026-11-14/Fusion Rooms-15.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms-16.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms-17.atlasmap",
+        "Tabletop backups/2026-11-14/Fusion Rooms-18.atlasmap",
+        "Tabletop backups/2026-11-14/Fusion Rooms-19.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms-2.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms-3.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms-4.atlasmap",
@@ -192,6 +194,8 @@
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-15.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-16.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-17.json",
+        "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-18.json",
+        "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-19.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-2.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-3.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-4.json",
@@ -201,6 +205,7 @@
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-8.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-9.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop.json",
+        "Tabletop backups/2026-11-14/Probe Cellar-10.atlasmap",
         "Tabletop backups/2026-11-14/Probe Cellar-2.atlasmap",
         "Tabletop backups/2026-11-14/Probe Cellar-3.atlasmap",
         "Tabletop backups/2026-11-14/Probe Cellar-4.atlasmap",
@@ -208,7 +213,9 @@
         "Tabletop backups/2026-11-14/Probe Cellar-6.atlasmap",
         "Tabletop backups/2026-11-14/Probe Cellar-7.atlasmap",
         "Tabletop backups/2026-11-14/Probe Cellar-8.atlasmap",
+        "Tabletop backups/2026-11-14/Probe Cellar-9.atlasmap",
         "Tabletop backups/2026-11-14/Probe Cellar.atlasmap",
+        "Tabletop backups/2026-11-14/Probe Cellar.tabletop-10.json",
         "Tabletop backups/2026-11-14/Probe Cellar.tabletop-2.json",
         "Tabletop backups/2026-11-14/Probe Cellar.tabletop-3.json",
         "Tabletop backups/2026-11-14/Probe Cellar.tabletop-4.json",
@@ -216,26 +223,47 @@
         "Tabletop backups/2026-11-14/Probe Cellar.tabletop-6.json",
         "Tabletop backups/2026-11-14/Probe Cellar.tabletop-7.json",
         "Tabletop backups/2026-11-14/Probe Cellar.tabletop-8.json",
+        "Tabletop backups/2026-11-14/Probe Cellar.tabletop-9.json",
         "Tabletop backups/2026-11-14/Probe Cellar.tabletop.json",
         "Tabletop backups/2026-11-14/Stack Base-2.atlasmap",
+        "Tabletop backups/2026-11-14/Stack Base-3.atlasmap",
+        "Tabletop backups/2026-11-14/Stack Base-4.atlasmap",
         "Tabletop backups/2026-11-14/Stack Base.atlasmap",
         "Tabletop backups/2026-11-14/Stack Base.minis-2.json",
+        "Tabletop backups/2026-11-14/Stack Base.minis-3.json",
+        "Tabletop backups/2026-11-14/Stack Base.minis-4.json",
         "Tabletop backups/2026-11-14/Stack Base.minis.json",
         "Tabletop backups/2026-11-14/Stack Base.tabletop-2.json",
+        "Tabletop backups/2026-11-14/Stack Base.tabletop-3.json",
+        "Tabletop backups/2026-11-14/Stack Base.tabletop-4.json",
         "Tabletop backups/2026-11-14/Stack Base.tabletop.json",
         "Tabletop backups/2026-11-14/Stack Lower-2.atlasmap",
+        "Tabletop backups/2026-11-14/Stack Lower-3.atlasmap",
+        "Tabletop backups/2026-11-14/Stack Lower-4.atlasmap",
         "Tabletop backups/2026-11-14/Stack Lower.atlasmap",
         "Tabletop backups/2026-11-14/Stack Lower.minis-2.json",
+        "Tabletop backups/2026-11-14/Stack Lower.minis-3.json",
+        "Tabletop backups/2026-11-14/Stack Lower.minis-4.json",
         "Tabletop backups/2026-11-14/Stack Lower.minis.json",
         "Tabletop backups/2026-11-14/Stack Lower.tabletop-2.json",
+        "Tabletop backups/2026-11-14/Stack Lower.tabletop-3.json",
+        "Tabletop backups/2026-11-14/Stack Lower.tabletop-4.json",
         "Tabletop backups/2026-11-14/Stack Lower.tabletop.json",
         "Tabletop backups/2026-11-14/Stack Upper-2.atlasmap",
+        "Tabletop backups/2026-11-14/Stack Upper-3.atlasmap",
+        "Tabletop backups/2026-11-14/Stack Upper-4.atlasmap",
         "Tabletop backups/2026-11-14/Stack Upper.atlasmap",
         "Tabletop backups/2026-11-14/Stack Upper.minis-2.json",
+        "Tabletop backups/2026-11-14/Stack Upper.minis-3.json",
+        "Tabletop backups/2026-11-14/Stack Upper.minis-4.json",
         "Tabletop backups/2026-11-14/Stack Upper.minis.json",
         "Tabletop backups/2026-11-14/Stack Upper.tabletop-2.json",
+        "Tabletop backups/2026-11-14/Stack Upper.tabletop-3.json",
+        "Tabletop backups/2026-11-14/Stack Upper.tabletop-4.json",
         "Tabletop backups/2026-11-14/Stack Upper.tabletop.json",
         "Tabletop backups/2026-11-14/Stacks moved-2.md",
+        "Tabletop backups/2026-11-14/Stacks moved-3.md",
+        "Tabletop backups/2026-11-14/Stacks moved-4.md",
         "Tabletop backups/2026-11-14/Stacks moved.md"
       ],
       "backupHasRooms": true,
@@ -369,7 +397,7 @@
     "pass": true,
     "evidence": {
       "errors": [],
-      "total": 14
+      "total": 13
     }
   }
 ]
