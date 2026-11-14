@@ -132,3 +132,15 @@ test('Bar only comes as a bar without numbers, Number only as the number alone; 
   assert.deepEqual(barParts('numbers'), { track: false, numbers: true });
   assert.deepEqual(barParts('both'), { track: true, numbers: true });
 });
+
+test("a player's board draws Atlas 0.16's fills with their holes, a line of no width as none, and a stamp turned", () => {
+  const square = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }, { x: 0, y: 0 }];
+  const hole = [{ x: 40, y: 40 }, { x: 60, y: 40 }, { x: 60, y: 60 }];
+  const { map } = boardFromScene(scene({ drawings: {
+    box: { type: 'rectangle', order: 1, points: square, color: '#000000', width: 0, opacity: 1, icon: null, fill: 'solid', holes: [hole] },
+    soft: { type: 'pen', order: 2, points: square, color: '#ff0000', width: 4, opacity: 1, icon: null, fill: 'soft' },
+    mark: { type: 'icon', order: 3, points: [{ x: 5, y: 6 }], color: '#ffffff', width: 70, opacity: 1, icon: 'pin', rotation: 90 },
+  } }), null);
+  assert.deepEqual(map.inks.map((ink) => [ink.id, ink.closed, ink.fill, ink.holes.length, ink.width]), [['box', true, 'solid', 1, 0], ['soft', true, 'soft', 0, 4]]);
+  assert.deepEqual(map.icons.map((icon) => [icon.id, icon.icon, icon.rotation]), [['mark', 'pin', 90]]);
+});

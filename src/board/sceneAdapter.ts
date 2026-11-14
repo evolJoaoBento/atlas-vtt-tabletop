@@ -48,7 +48,7 @@ export interface PlayerSceneLike {
     x: number; y: number; text: string; fontSize: number; fontFamily: string; color: string; backgroundColor: string | null; padding: number;
     borderRadius: number; opacity: number; align: 'left' | 'center' | 'right'; bold: boolean; italic: boolean; rotation: number; scale: number;
   }>;
-  drawings: Record<string, { type: string; order: number; points: Point[]; color: string; width: number; opacity: number; icon: string | null }>;
+  drawings: Record<string, { type: string; order: number; points: Point[]; color: string; width: number; opacity: number; icon: string | null; fill?: 'solid' | 'soft'; holes?: Point[][]; rotation?: number }>;
   initiative: { round: number; active: boolean; entries: Array<{ id: string; tokenId: string; initiative: number; isActive: boolean; sitsOut?: true }>; sides?: { first: string; active?: string } } | null;
   measurement: { snapToGrid: boolean; snapGrid?: { type: 'square' | 'hex-horizontal' | 'hex-vertical'; size: number; offsetX: number; offsetY: number } | null };
   pins?: Array<{ id: string; x: number; y: number; label: string | null; title: string | null; icon?: string; name?: string }>;
@@ -207,11 +207,14 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
   const drawings = Object.entries(scene.drawings).sort(([, a], [, b]) => a.order - b.order);
   const inks: BoardInk[] = drawings
     .filter(([, drawing]) => drawing.type !== 'icon' && drawing.type !== 'eraser' && drawing.points.length > 0)
-    // What players are sent is never hidden from them (Connect leaves it out).
-    .map(([id, drawing]) => ({ id, points: drawing.points.map((point) => ({ ...point })), color: drawing.color, width: drawing.width, opacity: drawing.opacity, closed: false, fill: null, holes: [], hidden: false }));
+    // What players are sent is never hidden from them (Connect leaves it out); a fill comes only on a closed drawing.
+    .map(([id, drawing]) => ({
+      id, points: drawing.points.map((point) => ({ ...point })), color: drawing.color, width: drawing.width, opacity: drawing.opacity,
+      closed: drawing.fill !== undefined, fill: drawing.fill ?? null, holes: (drawing.holes ?? []).map((ring) => ring.map((point) => ({ ...point }))), hidden: false,
+    }));
   const icons: BoardIcon[] = drawings
     .filter(([, drawing]) => drawing.type === 'icon' && drawing.icon !== null && drawing.points[0])
-    .map(([id, drawing]) => ({ id, icon: drawing.icon!, x: drawing.points[0].x, y: drawing.points[0].y, color: drawing.color, size: drawing.width, opacity: drawing.opacity, rotation: 0, hidden: false }));
+    .map(([id, drawing]) => ({ id, icon: drawing.icon!, x: drawing.points[0].x, y: drawing.points[0].y, color: drawing.color, size: drawing.width, opacity: drawing.opacity, rotation: drawing.rotation ?? 0, hidden: false }));
   const texts: BoardText[] = Object.entries(scene.texts).map(([id, text]) => ({
     id, x: text.x, y: text.y, text: text.text, fontSize: text.fontSize, fontFamily: text.fontFamily, color: text.color,
     backgroundColor: text.backgroundColor, padding: text.padding, borderRadius: text.borderRadius, opacity: text.opacity,
