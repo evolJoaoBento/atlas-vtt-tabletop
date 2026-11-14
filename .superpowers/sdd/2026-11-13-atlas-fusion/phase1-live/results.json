@@ -24,7 +24,7 @@
       "leaves": 1,
       "hidden": true,
       "boardActive": true,
-      "heldMs": 261,
+      "heldMs": 238,
       "mark": {
         "openedBy": "tabletop-for-atlas",
         "claims": [
@@ -59,7 +59,7 @@
         "button": "Edit here"
       },
       "coveBanner": null,
-      "cellarMs": 261,
+      "cellarMs": 312,
       "cellarActive": true,
       "leavesAfter": 1,
       "cellarBannerAfter": null,
@@ -75,7 +75,7 @@
     "name": "an edit on the held board saves through Atlas; on the other board it is refused and no file is written",
     "pass": true,
     "evidence": {
-      "savedMs": 569,
+      "savedMs": 561,
       "moved": true,
       "refused": {
         "name": "NotHeldError",
@@ -110,7 +110,7 @@
           "button": "Reopen"
         }
       },
-      "ms": 568,
+      "ms": 452,
       "leaves": 1,
       "banner": null,
       "boardActive": true
@@ -143,7 +143,7 @@
   },
   {
     "step": 10,
-    "name": "rooms: Atlas 0.15 converts them, the old wall settings move with a backup, no doubled outline",
+    "name": "rooms: Atlas 0.15 converts them, the old wall settings move with a backup onto Atlas's own walls, no doubled outline",
     "pass": true,
     "evidence": {
       "ms": 0,
@@ -163,19 +163,26 @@
       "materials": {
         "room__1120_1120_1120_4480": "Materials/stone"
       },
+      "left": [],
+      "extrasMoved": true,
       "moved": true,
       "backups": [
         "Tabletop backups/2026-11-14/Fusion Rooms-2.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms-3.atlasmap",
+        "Tabletop backups/2026-11-14/Fusion Rooms-4.atlasmap",
+        "Tabletop backups/2026-11-14/Fusion Rooms-5.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-2.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-3.json",
+        "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-4.json",
+        "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-5.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop.json"
       ],
       "backupHasRooms": true,
       "notices": [
         "Tabletop: cannot read the material Materials/stone: the material is missing.",
-        "Tabletop: moved 2 wall settings to Atlas 0.15's room walls on Fusion Rooms; backup in Tabletop backups/2026-11-14/"
+        "Tabletop: moved 2 wall settings to Atlas 0.15's room walls on Fusion Rooms; backup in Tabletop backups/2026-11-14/",
+        "Tabletop: moved 2 wall, door and light settings onto Atlas's own records on Fusion Rooms; backup in Tabletop backups/2026-11-14/"
       ],
       "drawn": 10,
       "unique": 10,
@@ -299,7 +306,7 @@
     "pass": true,
     "evidence": {
       "errors": [],
-      "total": 15
+      "total": 14
     }
   }
 ]
