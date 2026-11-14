@@ -72,6 +72,11 @@ export interface AtlasSceneState {
   addMeasure?: (data: Record<string, unknown>) => string | null;
   updateMeasure?: (id: string, changes: Record<string, unknown>) => void;
   deleteMeasure?: (id: string) => void;
+  /** Atlas's walls and map features, as its own tools make them: add one (its id), take some off. */
+  addWall?: (data: Record<string, unknown>) => string;
+  deleteWalls?: (ids: string[]) => void;
+  addMapFeatures?: (data: ReadonlyArray<Record<string, unknown>>) => string[];
+  deleteMapFeature?: (id: string) => void;
   /** Changes a pin's fields (Atlas's pin menu: `readable`); a field given as undefined is removed. */
   updateNotePin?: (id: string, changes: Record<string, unknown>) => void;
 }
@@ -85,6 +90,8 @@ export interface AtlasTemporal {
     redo(): void;
     transaction?<T>(fn: () => T): T;
     untracked?<T>(fn: () => T): T;
+    /** Whether an undo or a redo is being applied right now. */
+    isTravelling?(): boolean;
   };
 }
 

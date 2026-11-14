@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { readSpellNote } from '../src/board/spellNotes';
 import { readCastSpells, readSpellRequests, type Spell } from '../src/board/spells';
-import { frontmatterOf, inDifficultSpell, pushTo, readSpellRules, rulesFromNote, slide, spellFootprint, spellRuleLights, spellRuleWalls } from '../src/board/spellRules';
+import { derivedRecords, frontmatterOf, inDifficultSpell, pushTo, readSpellRules, rulesFromNote, slide, spellFootprint, spellRuleLights, spellRuleWalls } from '../src/board/spellRules';
 import type { BoardWall } from '../src/board/walls';
 
 const rulesOf = (name: string) => {
@@ -65,7 +65,7 @@ test('a spell stands its walls while it lasts: a wall its run, an obscuring area
 
 test('light and magical darkness from the middle of the area, in the scene units', () => {
   const [light] = spellRuleLights('d', ball(100, 100, 50), { light: { bright: 60, dim: 60 } }, 1.5 / 5, 70 / 1.5);
-  assert.deepEqual([Math.round(light!.x), Math.round(light!.y), light!.bright, light!.dim, light!.darkness], [100, 100, 18, 18, false]);
+  assert.deepEqual([Math.round(light!.x), Math.round(light!.y), light!.bright, light!.dim, light!.darkness], [100, 100, 18, 36, false]);
   const [dark] = spellRuleLights('k', ball(100, 100, 140), { dark: true, obscure: true }, 1, 70 / 5);
   assert.equal(dark!.darkness, true);
   assert.ok(Math.abs(dark!.bright - 10) < 0.3, String(dark!.bright));
@@ -83,4 +83,45 @@ test('a push goes straight away from where the spell comes from, a pull toward i
   assert.deepEqual(slide({ x: 70, y: 0 }, { x: 210, y: 0 }, [{ ...wall, blocks: 'sight' }], 70), { x: 210, y: 0 });
   assert.equal(inDifficultSpell({ x: 0, y: 0 }, [{ spell: ball(0, 0, 50), rules: { difficult: true } }]), true);
   assert.equal(inDifficultSpell({ x: 0, y: 0 }, [{ spell: ball(0, 0, 50), rules: { obscure: true } }]), false);
+});
+
+const SCALE = { unitsPerFoot: 1, pxPerUnit: 70 / 5 };
+const longWall: Spell = { shape: 'wall', from: 'point', at: { x: 0, y: 0, h: 0 }, to: { x: 300, y: 0 }, yaw: 0, pitch: 0, roll: 0, size: 10, length: 100, angle: 1 };
+
+test("a spell's walls as Atlas's own records: its run or its edge, chained to its measure, on the measure's level", () => {
+  const stone = derivedRecords('m1', longWall, { wall: { look: 'stone', blocks: 'both' } }, SCALE, 'upper');
+  assert.deepEqual(stone.walls, [{ type: 'solid', p1: { x: 0, y: 0 }, p2: { x: 300, y: 0 }, chainId: 'spell:m1', tabletop: { spell: 'm1' }, levels: ['upper'] }]);
+  assert.deepEqual([stone.features, stone.light], [[], null]);
+  // Force stops bodies alone: Atlas's window. No level: the first, said outright (Atlas would put it on the level shown).
+  const force = derivedRecords('m2', longWall, { wall: { look: 'force', blocks: 'move' } }, SCALE);
+  assert.deepEqual([force.walls[0]!.blocks, force.walls[0]!.levels, 'levels' in force.walls[0]!], ['movement', undefined, true]);
+  const fog = derivedRecords('m3', ball(500, 500, 140), { obscure: true }, SCALE);
+  assert.equal(fog.walls.length, 32);
+  assert.ok(fog.walls.every((wall) => wall.blocks === 'sight' && wall.chainId === 'spell:m3' && wall.type === 'solid'));
+  assert.deepEqual(derivedRecords('m4', ball(0, 0, 10), { push: 10 }, SCALE), { walls: [], features: [], light: null });
+});
+
+test("a spell's difficult ground is one map feature of Atlas's over what it covers; its light and darkness are the measure's light", () => {
+  const web = derivedRecords('m5', ball(500, 500, 140), { name: 'Web', difficult: true }, SCALE, 'upper');
+  assert.equal(web.features.length, 1);
+  const [feature] = web.features;
+  assert.deepEqual([feature!.name, feature!.terrain, feature!.tabletop, feature!.level], ['Web', { difficult: true }, { spell: 'm5' }, 'upper']);
+  assert.equal(feature!.polygon.length, 32);
+  for (const corner of feature!.polygon) assert.ok(Math.abs(Math.hypot(corner.x - 500, corner.y - 500) - 140) < 3);
+  // A wall has no ground to make difficult.
+  assert.deepEqual(derivedRecords('m6', longWall, { difficult: true }, SCALE).features, []);
+  // Bright for 60 feet and dim for 60 more: Atlas's `dim` is where the light ends.
+  const day = derivedRecords('m7', ball(0, 0, 50), { light: { bright: 60, dim: 60, color: '#ffeeaa' } }, { unitsPerFoot: 1.5 / 5, pxPerUnit: 70 / 1.5 });
+  assert.deepEqual(day.light, { bright: 18, dim: 36, color: '#ffeeaa', intensity: 1, animation: { type: 'none', speed: 1, intensity: 1 } });
+  const dark = derivedRecords('m8', ball(100, 100, 140), { dark: true, obscure: true }, SCALE);
+  assert.deepEqual([dark.light?.darkness, dark.light?.bright, dark.light?.color], [true, 0, '#000000']);
+  assert.ok(Math.abs((dark.light?.dim ?? 0) - 10) < 0.3);
+  // Atlas has a darkness on a circle only: a cube's is the board's alone.
+  const cube: Spell = { ...ball(0, 0, 140), shape: 'cube' };
+  assert.equal(derivedRecords('m9', cube, { dark: true }, SCALE).light, null);
+});
+
+test("the board's own light of a spell ends where Atlas's does: bright, then dim for as far again", () => {
+  const [light] = spellRuleLights('d', ball(100, 100, 50), { light: { bright: 60, dim: 60 } }, 1.5 / 5, 70 / 1.5);
+  assert.deepEqual([light!.bright, light!.dim], [18, 36]);
 });

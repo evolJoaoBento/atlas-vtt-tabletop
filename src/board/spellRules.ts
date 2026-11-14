@@ -13,7 +13,13 @@
  * A note says them in its properties (frontmatter), each `spell-…`; what it leaves out is read from its text where the
  * SRD's wording is plain. They travel beside a spell, never in it (an older Connect turns down a spell with fields it
  * does not know). Pure: the reading, the checking, and the walls, lights and moves they make on a map.
+ *
+ * A kept spell is one of Atlas's measures. What its rules stand is worked out from it twice over, by the same shapes:
+ * for the 3D board, which draws the spell itself (`spellRuleWalls`, `spellRuleLights`, `inDifficultSpell`), and for
+ * Atlas, as records of its own (`derivedRecords`, written by `spellReconciler.ts`), so its 2D view, its sight and its
+ * movement rules honour the spell too. The board reads none of those records back.
  */
+import { SPELL_CHAIN, spellToMeasure } from '../../packages/atlas-host/src/spellMeasure';
 import { spellUnder, type Spell } from './spells';
 import type { BoardLight, BoardWall, Point } from './walls';
 
@@ -245,7 +251,78 @@ export function spellRuleLights(id: string, spell: Spell, rules: SpellRules | nu
     return [{ ...base, bright: reach, dim: 0, color: '#000000', darkness: true }];
   }
   const light = rules.light!;
-  return [{ ...base, bright: light.bright * unitsPerFoot, dim: light.dim * unitsPerFoot, color: light.color ?? '#fff2d0', darkness: false }];
+  // As Atlas's lights: `dim` is where the light ends, the bright radius and the dim one after it.
+  return [{ ...base, bright: light.bright * unitsPerFoot, dim: (light.bright + light.dim) * unitsPerFoot, color: light.color ?? SPELL_LIGHT_COLOR, darkness: false }];
+}
+
+// ---- As Atlas's own records ----
+
+/** How a rule's feet lie on a scene: the scene's units per foot, and map pixels per unit. */
+export interface RuleScale { unitsPerFoot: number; pxPerUnit: number }
+
+/** A wall of Atlas's a spell stands (its `WallInput`): chained to the spell's measure, on the measure's level. */
+export interface DerivedWall {
+  type: 'solid';
+  p1: Point;
+  p2: Point;
+  /** The one thing it stops (Atlas's `blocks`); left out, it stops bodies, sight and light. */
+  blocks?: 'movement' | 'sight';
+  chainId: string;
+  tabletop: { spell: string };
+  /** Said outright even when unset (the first level): Atlas would put a wall that says nothing on the level shown. */
+  levels: string[] | undefined;
+}
+
+/** Difficult ground a spell makes, as a map feature of Atlas's (its `MapFeatureInput`). */
+export interface DerivedFeature {
+  polygon: Point[];
+  name: string;
+  terrain: { difficult: true };
+  tabletop: { spell: string };
+  level: string | undefined;
+}
+
+/** The light a spell's measure gives (Atlas's `LightEmission`): radii in the scene's units, `dim` where it ends. */
+export interface DerivedLight {
+  bright: number;
+  dim: number;
+  color: string;
+  intensity: 1;
+  animation: { type: 'none'; speed: 1; intensity: 1 };
+  darkness?: true;
+}
+
+const SPELL_LIGHT_COLOR = '#fff2d0';
+
+/**
+ * What a kept spell's rules stand on the map, as Atlas's own records: the walls of a wall spell and of an obscuring
+ * area (as `spellRuleWalls` stands them on the board), one map feature over difficult ground, and the light the
+ * spell's measure gives. A darkness is Atlas's on a circle alone (it has a radius and no outline): on any other shape
+ * it is the board's only. `id` is the measure's, `level` the measure's level.
+ */
+export function derivedRecords(id: string, spell: Spell, rules: SpellRules | null | undefined, scale: RuleScale, level?: string): { walls: DerivedWall[]; features: DerivedFeature[]; light: DerivedLight | null } {
+  if (!rules) return { walls: [], features: [], light: null };
+  const mark = { tabletop: { spell: id } };
+  const walls = spellRuleWalls(id, spell, rules).map((wall): DerivedWall => ({
+    type: 'solid', p1: { x: wall.p1.x, y: wall.p1.y }, p2: { x: wall.p2.x, y: wall.p2.y },
+    ...(wall.blocks === 'movement' || wall.blocks === 'sight' ? { blocks: wall.blocks } : {}),
+    chainId: SPELL_CHAIN(id), ...mark, levels: level === undefined ? undefined : [level],
+  }));
+  const { middle, ring } = spellFootprint(spell);
+  const features: DerivedFeature[] = rules.difficult && ring.length >= 3
+    ? [{ polygon: ring.map((point) => ({ x: point.x, y: point.y })), name: rules.name ?? 'Spell', terrain: { difficult: true }, ...mark, level }]
+    : [];
+  const steady = { intensity: 1 as const, animation: { type: 'none' as const, speed: 1 as const, intensity: 1 as const } };
+  let light: DerivedLight | null = null;
+  if (rules.dark) {
+    if (spellToMeasure(spell).shape === 'circle') {
+      const reach = Math.max(...ring.map((point) => Math.hypot(point.x - middle.x, point.y - middle.y))) / Math.max(1e-6, scale.pxPerUnit);
+      light = { bright: 0, dim: reach, color: '#000000', ...steady, darkness: true };
+    }
+  } else if (rules.light) {
+    light = { bright: rules.light.bright * scale.unitsPerFoot, dim: (rules.light.bright + rules.light.dim) * scale.unitsPerFoot, color: rules.light.color ?? SPELL_LIGHT_COLOR, ...steady };
+  }
+  return { walls, features, light };
 }
 
 /** Whether a point lies in difficult terrain a spell makes. */

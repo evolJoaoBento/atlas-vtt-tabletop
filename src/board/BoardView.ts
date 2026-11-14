@@ -38,7 +38,8 @@ import type { UndoHistory } from './undoHistory';
 import { ASSETS_METADATA_PATH, collectionOf, emptyRules, readCollectionRules, type CollectionRules } from './conditions';
 import { levelName, levelRise, onFirstLevel, propsOnLevel, resolveLevel } from './levels';
 import { mapStateChanged, readMap, readMapMeasures, readMapState, type BoardMap, type BoardToken } from './mapModel';
-import { readMeasurement } from './measure';
+import { feetPerSquare, readMeasurement } from './measure';
+import { reconcileSpells } from './spellReconciler';
 import { defeatedResources, isDefeated, tokenFromFile } from './resources';
 import { AtlasMenu, type MenuEntry } from './atlasMenu';
 import { tokenMenuEntries } from './tokenMenu';
@@ -95,6 +96,8 @@ export const HOVER_SOURCE = 'tabletop-for-atlas';
 const FLASH_MS = 6000;
 /** The colour of a measure that names none: Atlas's accent, as its measurements always were. */
 const MEASURE_ACCENT = '#7c5cff';
+/** How long Atlas's measures, walls and features must stay as they are before its records of the kept spells are put in step. */
+const RECONCILE_MS = 150;
 const RELOAD_MS = 300;
 /** A light hangs a square above the map until the GM sets its height; the menu steps it a quarter square. */
 const DEFAULT_LIGHT_SQUARES = 1;
@@ -396,6 +399,8 @@ export class BoardView extends ItemView {
   async onClose(): Promise<void> {
     this.closed = true;
     this.dropFlashes();
+    if (this.reconcileTimer !== null) (this.contentEl.ownerDocument.defaultView ?? window).clearTimeout(this.reconcileTimer);
+    this.reconcileTimer = null;
     this.stopTabs?.();
     this.stopTabs = null;
     this.sceneTabs?.dispose();
@@ -1043,6 +1048,36 @@ export class BoardView extends ItemView {
     board.tools.coneAngle = ((cone !== undefined && cone > 0 && cone < 180 ? cone : 90) * Math.PI) / 180;
     board.receiveTemplates(marksOfMeasures(map.measures, { cell: map.grid.size, accent: MEASURE_ACCENT }));
     board.receiveSpells(map.path, [...castsOfMeasures(map.measures), ...this.flashes.map(({ cast }) => cast)], [], map.measuresElsewhere);
+  }
+
+  private reconcileTimer: number | null = null;
+  /** A pass is writing: the store's changes it makes itself ask for no other. */
+  private reconciling = false;
+
+  /**
+   * Puts Atlas's records of the kept spells in step with their measures (`spellReconciler.ts`), once the store holding
+   * the map has been still for a moment (a measure dragged in Atlas changes at every frame).
+   */
+  private reconcileSoon(): void {
+    if (this.reconciling || this.closed) return;
+    const win = this.contentEl.ownerDocument.defaultView ?? window;
+    if (this.reconcileTimer !== null) win.clearTimeout(this.reconcileTimer);
+    this.reconcileTimer = win.setTimeout(() => {
+      this.reconcileTimer = null;
+      const view = this.watched?.view;
+      const map = this.map;
+      if (this.closed || !view || !map || map.path !== this.path || view.atlasStore.getState().mapPath !== this.path) return;
+      const measurement = readMeasurement(this.rules.gridDefaults, map.rawGrid);
+      const unitDistance = measurement.unitDistance > 0 ? measurement.unitDistance : 5;
+      this.reconciling = true;
+      try {
+        reconcileSpells(view, { unitsPerFoot: unitDistance / feetPerSquare(measurement), pxPerUnit: map.grid.size / unitDistance });
+      } catch (error) {
+        console.warn('Tabletop: what the kept spells stand in Atlas could not be put in step:', error);
+      } finally {
+        this.reconciling = false;
+      }
+    }, RECONCILE_MS);
   }
 
   /** An instantaneous spell goes off on this board; `ms` takes it off again (null: the board does, after its cast). */
@@ -1737,10 +1772,17 @@ export class BoardView extends ItemView {
       let held = view.atlasStore.getState().initiative;
       let drawn = view.atlasStore.getState() as unknown as Record<string, unknown>;
       let measures = view.atlasStore.getState().objects?.measures;
+      let derived = view.atlasStore.getState().objects;
       const stop = view.atlasStore.subscribe(() => {
         const state = view.atlasStore.getState();
         // Atlas moved to another map in that view: the file is this map's tracker again.
         if (state.mapPath !== this.path) { this.watchAtlas(); return; }
+        // What a kept spell stands in Atlas (walls, difficult ground, light) follows its measure: after a cast, a move, an undo.
+        const objects = state.objects;
+        if (objects?.measures !== derived?.measures || objects?.walls !== derived?.walls || objects?.mapFeatures !== derived?.mapFeatures) {
+          derived = objects;
+          this.reconcileSoon();
+        }
         // A measure kept, changed or taken off (a cast, a template, an area drawn in Atlas, its undo): shown at once, ahead of the map's next read.
         if (state.objects?.measures !== measures) {
           measures = state.objects?.measures;
@@ -1763,6 +1805,8 @@ export class BoardView extends ItemView {
         this.menu?.refresh();
       });
       this.watched = { view, stop };
+      // The map as Atlas holds it now: a spell kept while no board was open gets what it stands.
+      this.reconcileSoon();
     }
     this.showInitiative();
     // The dice log listens on the Atlas view holding the map.

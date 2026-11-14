@@ -81,11 +81,17 @@ function point(raw: unknown): Point | null {
   return isObj(raw) && typeof raw.x === 'number' && typeof raw.y === 'number' && Number.isFinite(raw.x) && Number.isFinite(raw.y) ? { x: raw.x, y: raw.y } : null;
 }
 
+/** What the chain of a wall Atlas holds for a kept spell begins with (`SPELL_CHAIN`, `packages/atlas-host`). */
+export const SPELL_WALL_CHAIN = 'spell:';
+
 function readWall(raw: Raw): BoardWall | null {
   const id = str(raw.id);
   const p1 = point(raw.p1);
   const p2 = point(raw.p2);
   if (!id || !p1 || !p2 || (p1.x === p2.x && p1.y === p2.y)) return null;
+  // A wall Atlas holds for a kept spell (`spellReconciler.ts`) is no wall of the map: the board stands a spell's walls
+  // from the spell itself (`spellRuleWalls`), for sight and movement alone, and builds nothing for them.
+  if (str(raw.chainId)?.startsWith(SPELL_WALL_CHAIN)) return null;
   return {
     id,
     type: raw.type === 'door' || raw.type === 'secret-door' ? raw.type : 'solid',

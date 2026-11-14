@@ -115,3 +115,12 @@ test("the GM's clear takes the GM's own spells only: a player's spell, a templat
   // What it places reads back as the GM's template, drawn flat.
   assert.deepEqual(marksOfMeasures(readMeasures({ t: { ...(placed as { add: object }).add, id: 't' } }), { cell: 70, accent: '#7c5cff' }).map((mark) => [mark.kind, mark.owner]), [['template', 'gm']]);
 });
+
+test("the walls Atlas holds for a spell are not the map's walls: the board stands a spell's walls from the spell itself, and draws none of stone for them", () => {
+  const walls = {
+    real: { id: 'real', kind: 'wall', type: 'solid', p1: { x: 0, y: 0 }, p2: { x: 70, y: 0 }, chainId: 'chain_1' },
+    fog: { id: 'fog', kind: 'wall', type: 'solid', p1: { x: 0, y: 0 }, p2: { x: 70, y: 0 }, blocks: 'sight', chainId: 'spell:measure_1', tabletop: { spell: 'measure_1' } },
+  };
+  const map = readMapState('m.atlasmap', { mapPath: 'm.atlasmap', backgroundImage: null, grid: { size: 70 }, objects: { tokens: {}, walls } });
+  assert.deepEqual(map.walls.map((wall) => wall.id), ['real']);
+});
