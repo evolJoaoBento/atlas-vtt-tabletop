@@ -20,7 +20,6 @@ import { MOSAIC_FROM_BYTES, mapPicture } from '../atlasMosaic';
 import { SceneTabBar, type SceneTabEntry } from './sceneTabBar';
 import type { ElevationLayerData } from './elevationLayer';
 import { NO_PLACEMENT, type Placement } from './layerPlacement';
-import type { SightMode, SightStyle } from './lineOfSight';
 import type { Assignments } from '../assignments';
 import { MiniPicker } from '../gallery';
 import type { LoadedMini, MiniLibrary } from '../library';
@@ -157,10 +156,6 @@ export interface BoardServices {
   setSeeThroughSize?(squares: number): void;
   layerLook?(): LayerLook;
   setLayerLook?(look: LayerLook): void;
-  lineOfSight?(): SightMode;
-  setLineOfSight?(mode: SightMode): void;
-  sightStyle?(): SightStyle;
-  setSightStyle?(style: SightStyle): void;
   layerTick?(): number;
   /** Whether the board gets contact shadows (ambient occlusion). */
   occlusion?(): boolean;
@@ -579,7 +574,7 @@ export class BoardView extends ItemView {
 
   /** The quality setting, with the miniature look if it is on. */
   private preset(): QualityPreset {
-    return withLooks(QUALITY[this.services.quality()], { tiltShift: this.services.tiltShift?.() === true, occlusion: this.services.occlusion?.() === true, painted: this.services.painted?.() === true, sky: this.services.sky?.() ?? DEFAULT_SKY, edges: this.services.wallEdges?.() ?? DEFAULT_EDGES, seeThrough: this.services.seeThrough?.() === true, seeThroughSize: this.services.seeThroughSize?.(), layerLook: this.services.layerLook?.(), lineOfSight: this.services.lineOfSight?.(), sightStyle: this.services.sightStyle?.(), layerTick: this.services.layerTick?.() });
+    return withLooks(QUALITY[this.services.quality()], { tiltShift: this.services.tiltShift?.() === true, occlusion: this.services.occlusion?.() === true, painted: this.services.painted?.() === true, sky: this.services.sky?.() ?? DEFAULT_SKY, edges: this.services.wallEdges?.() ?? DEFAULT_EDGES, seeThrough: this.services.seeThrough?.() === true, seeThroughSize: this.services.seeThroughSize?.(), layerLook: this.services.layerLook?.(), layerTick: this.services.layerTick?.() });
   }
 
   /** A board, and the GM's dice on it. */
@@ -1550,7 +1545,6 @@ export class BoardView extends ItemView {
       ...(this.services.setSeeThrough && { setSeeThrough: (on: boolean) => this.services.setSeeThrough?.(on) }),
       ...(this.services.setSeeThroughSize && { setSeeThroughSize: (squares: number) => this.services.setSeeThroughSize?.(squares) }),
       ...(this.services.setLayerLook && { setLayerLook: (look: LayerLook) => this.services.setLayerLook?.(look) }),
-      ...(this.services.setLineOfSight && { setLineOfSight: (mode: SightMode) => this.services.setLineOfSight?.(mode) }),
       switchLayer: (path: string) => { const level = levelOfKey(path); if (level !== null) void this.switchLevel(level); },
       layerMenu: (path: string, event: MouseEvent) => { if (levelOfKey(path) !== null) this.levelMenu(path, event); },
       tablePlaced: (table: SavedArTable) => { if (this.path) this.services.boardData.setArTable(this.path, table); },
@@ -1564,7 +1558,6 @@ export class BoardView extends ItemView {
           if (follow && !this.closed) await this.switchLevel(level);
         })();
       },
-      ...(this.services.setSightStyle && { setSightStyle: (style: SightStyle) => this.services.setSightStyle?.(style) }),
       ...(this.services.setWallEdges && { setWallEdges: (edges: WallEdges) => this.services.setWallEdges?.(edges) }),
       setOcclusion: (on) => this.services.setOcclusion?.(on),
       autoRoll: () => this.services.diceSettings().autoRoll,

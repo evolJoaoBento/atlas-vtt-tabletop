@@ -45,8 +45,6 @@ import { IconPiece, InkPiece, PinPiece, PropPiece, TextPiece, TokenPiece, type P
 import { numberCells, type CellNumbers } from './cellNumbers';
 import { stripGeometry } from './surface';
 import { addCutaway, newCutaway } from './cutaway';
-import { connectedTiles, inSight, seenTiles, tilesFor, visibilityPolygon, type SightMode, type SightStyle } from './lineOfSight';
-import { buildRooms, insidePolygon, roomAt, roomTolerance, seenRooms, unseenAreas, type Rooms, type SightArea } from './sightRooms';
 import { UNLIT, type BoardSight, type SightCells } from './atlasSight';
 
 /** What a viewer has in sight: by squares (rays, or a map that would not cut into rooms) or by rooms (cinematic); and a point's answer. */
@@ -294,8 +292,6 @@ export interface BoardHost {
   /** How wide the see-through window is, in grid squares, kept for every board. */
   setSeeThroughSize?(squares: number): void;
   setLayerLook?(look: LayerLook): void;
-  setLineOfSight?(mode: SightMode): void;
-  setSightStyle?(style: SightStyle): void;
   /** Shows another scene of the stack (the layer menu). */
   switchLayer?(path: string): void;
   /** A scene's pill on the height ruler was right-clicked. */
@@ -910,10 +906,6 @@ export class Board {
       seeThroughSize: () => this.quality.seeThroughSize,
       ...(this.host.setSeeThroughSize && { setSeeThroughSize: (squares: number) => this.host.setSeeThroughSize?.(squares) }),
       layerLook: () => this.quality.layerLook,
-      lineOfSight: () => this.quality.lineOfSight,
-      sightStyle: () => this.quality.sightStyle,
-      ...(this.host.setSightStyle && { setSightStyle: (style: SightStyle) => this.host.setSightStyle?.(style) }),
-      ...(this.host.setLineOfSight && { setLineOfSight: (mode: SightMode) => this.host.setLineOfSight?.(mode) }),
       ...(this.host.setLayerLook && { setLayerLook: (look: LayerLook) => this.host.setLayerLook?.(look) }),
       ...(this.host.setSeeThrough && { setSeeThrough: (on: boolean) => this.host.setSeeThrough?.(on) }),
       ...(this.host.setSnap && { snap: () => ({ tokens: this.map?.grid.snap ?? true, props: this.host.snapProps?.() ?? true }), setSnap: (kind: 'tokens' | 'props', on: boolean) => this.host.setSnap?.(kind, on) }),
@@ -4609,7 +4601,7 @@ export class Board {
     this.veilSight.object3d.visible = !revealed && this.sight !== null && !gm;
     // The GM's player window shows one scene at a time: what is stacked on it is the GM's. A Connect player's own board
     // shows the scenes stacked with theirs, which Connect sends (their form, never what stands on them).
-    // Under line of sight (the GM's board under Everyone, a point of view, or a player's board) the scenes stacked above
+    // Under sight (a point of view on the GM's board, or a player's board) the scenes stacked above
     // are blacked out as shadows, and the ones below stay.
     const ownBoard = !gm && this.audience === 'player';
     const sighted = !revealed && ((gm && this.povSight !== null) || (ownBoard && this.sight !== null));

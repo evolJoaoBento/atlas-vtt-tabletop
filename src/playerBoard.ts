@@ -11,7 +11,6 @@ import { parseMini, type LoadedMini } from './library';
 import { Board, type BoardHost } from './board/board';
 import type { AugmentedView, RoomPlace } from './board/augmented';
 import { boardFromScene, type PlayerSceneLike, type SceneBoard } from './board/sceneAdapter';
-import type { SightMode, SightStyle } from './board/lineOfSight';
 import { leaner, QUALITY, withLooks, type LayerLook, type MemoryMode, type Quality, type QualityPreset, type WallEdges } from './board/quality';
 import type { Sky } from './board/look';
 import { NO_FLIP } from './board/walls';
@@ -173,7 +172,7 @@ export interface PlayerBoardSounds {
   onChange?(listener: () => void): () => void;
 }
 
-export function playerBoardFactory(quality: () => Quality, looks: () => { tiltShift: boolean; occlusion: boolean; painted: boolean; sky: Sky; edges?: WallEdges; seeThrough?: boolean; seeThroughSize?: number; layerLook?: LayerLook; lineOfSight?: SightMode; sightStyle?: SightStyle; layerTick?: number }, dice: PlayerBoardDice, book: () => SpellBook | null = () => null, memory: () => MemoryMode = () => 'normal', sound: PlayerBoardSounds | null = null): PlayerBoardFactory {
+export function playerBoardFactory(quality: () => Quality, looks: () => { tiltShift: boolean; occlusion: boolean; painted: boolean; sky: Sky; edges?: WallEdges; seeThrough?: boolean; seeThroughSize?: number; layerLook?: LayerLook; layerTick?: number }, dice: PlayerBoardDice, book: () => SpellBook | null = () => null, memory: () => MemoryMode = () => 'normal', sound: PlayerBoardSounds | null = null): PlayerBoardFactory {
   return Object.freeze({
     version: 1 as const,
     create: (parent: HTMLElement, host: PlayerBoardHost): PlayerBoardHandle => new PlayerBoard(parent, host, leaner(withLooks(QUALITY[quality()], looks()), memory()), dice, book, sound),

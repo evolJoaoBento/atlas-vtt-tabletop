@@ -57,18 +57,6 @@ export function tabletopCommands(actions: ToolbarActions, refresh: () => void): 
       board.push(choice(`tabletop-layers-${value}`, `Upper layers: ${label}`, 'layers', look, value, actions.setLayerLook, refresh));
     }
   }
-  if (actions.setLineOfSight) {
-    const mode = actions.lineOfSight?.();
-    for (const [value, label] of [['off', 'Off'], ['players', 'Players'], ['everyone', 'Everyone']] as const) {
-      board.push(choice(`tabletop-sight-${value}`, `Line of sight: ${label}`, 'sight', mode, value, actions.setLineOfSight, refresh));
-    }
-  }
-  if (actions.setSightStyle) {
-    const style = actions.sightStyle?.();
-    for (const [value, label] of [['rays', 'Rays'], ['cinematic', 'Cinematic']] as const) {
-      board.push(choice(`tabletop-sight-style-${value}`, `Sight style: ${label}`, 'sight', style, value, actions.setSightStyle, refresh));
-    }
-  }
   board.push({ id: 'tabletop-initiative', label: 'Initiative tracker', icon: 'swords', active: actions.initiativeOpen(), run: () => { actions.toggleInitiative(); refresh(); } });
   board.push({ id: 'tabletop-auto-roll', label: t('dice.autoRoll'), icon: 'dice', active: actions.autoRoll(), run: () => { actions.setAutoRoll(!actions.autoRoll()); refresh(); } });
   const mode = actions.mode?.() ?? null;

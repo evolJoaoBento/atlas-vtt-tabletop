@@ -12,7 +12,6 @@ import { PLAYER_VIEW_TYPE, PlayerView } from './src/board/PlayerWindow';
 import { BoardData, readBoardData, readVariants, type BoardDataJSON, type PropLook } from './src/board/boardData';
 import { DEFAULT_QUALITY, readEdges, readQuality, readSeeThroughSize, readLayerLook, MAX_SEE_THROUGH_SIZE, MIN_SEE_THROUGH_SIZE, type LayerLook, type Quality, type WallEdges } from './src/board/quality';
 import { MAX_LAYER_TICK, MIN_LAYER_TICK, readLayerTick } from './src/board/layerRuler';
-import { readSightMode, readSightStyle, type SightMode, type SightStyle } from './src/board/lineOfSight';
 import { TABLETOP_ICON, TABLETOP_ICON_BODY } from './src/tabletopIcon';
 import { lookOf, readSky, type LightingChoice, type Sky } from './src/board/look';
 import { AtlasOpenButton } from './src/atlasButton';
@@ -88,8 +87,6 @@ interface TabletopSettings {
   /** How wide that window is, in grid squares. */
   seeThroughSize?: number;
   layerLook?: LayerLook;
-  lineOfSight?: SightMode;
-  sightStyle?: SightStyle;
   layerTick?: number;
   /** Whether Connect's players see a scene's other levels (their floors, walls and props, never what is on them); on unless false. */
   shareLayers?: boolean;
@@ -249,6 +246,8 @@ export default class TabletopPlugin extends Plugin {
     setLanguage((window as unknown as { moment?: { locale?: () => string } }).moment?.locale?.() ?? window.localStorage.getItem('language'));
     const saved = ((await this.loadData()) ?? {}) as SavedData;
     this.settings = { ...DEFAULT_SETTINGS, ...(saved.settings ?? {}) };
+    // Tabletop's own sight settings went with fusion 4D (sight follows Atlas's lighting): what was saved of them is dropped.
+    for (const retired of ['lineOfSight', 'sightStyle']) delete (this.settings as unknown as Record<string, unknown>)[retired];
     this.settings.quality = readQuality(this.settings.quality);
     this.settings.dice = readDiceSettings(saved.settings?.dice);
     this.settings.sound = readSoundSettings(saved.settings?.sound);
@@ -371,10 +370,6 @@ export default class TabletopPlugin extends Plugin {
       setSeeThroughSize: (squares) => { void this.setSeeThroughSize(squares); },
       layerLook: () => readLayerLook(this.settings.layerLook),
       setLayerLook: (look) => { void this.setLayerLook(look); },
-      lineOfSight: () => readSightMode(this.settings.lineOfSight),
-      setLineOfSight: (mode) => { void this.setLineOfSight(mode); },
-      sightStyle: () => readSightStyle(this.settings.sightStyle),
-      setSightStyle: (style) => { void this.setSightStyle(style); },
       layerTick: () => readLayerTick(this.settings.layerTick),
       setLighting: (choice) => { void this.setLighting(choice); },
       setTiltShift: (on) => { void this.setTiltShift(on); },
@@ -787,18 +782,6 @@ export default class TabletopPlugin extends Plugin {
     for (const view of this.boards()) await view.applyQuality();
   }
 
-  async setSightStyle(style: SightStyle): Promise<void> {
-    this.settings.sightStyle = readSightStyle(style);
-    this.save();
-    for (const view of this.boards()) await view.applyQuality();
-  }
-
-  async setLineOfSight(mode: SightMode): Promise<void> {
-    this.settings.lineOfSight = readSightMode(mode);
-    this.save();
-    for (const view of this.boards()) await view.applyQuality();
-  }
-
   async setShareLayers(on: boolean): Promise<void> {
     this.settings.shareLayers = on;
     this.save();
@@ -1159,21 +1142,9 @@ class TabletopSettingTab extends PluginSettingTab {
       this.row('See-through window size', 'How wide the window is, in grid squares. Also in the board settings on the toolbar.', (setting) => {
         setting.addSlider((slider) => slider.setLimits(MIN_SEE_THROUGH_SIZE, MAX_SEE_THROUGH_SIZE, 0.1).setValue(readSeeThroughSize(plugin.settings.seeThroughSize)).setDynamicTooltip().onChange((squares) => { void plugin.setSeeThroughSize(squares); }));
       }, ['transparent', 'cutaway', 'window', 'size']),
-      this.row('Line of sight', 'Like dynamic lighting: what stands behind a wall or a shut door, out of sight of every token that has vision on, is hidden. Players hides it from the players view only; Everyone from your board too. Open doors and glass let sight through. Nothing is hidden while no token has vision on. Also in the board settings on the toolbar.', (setting) => {
-        setting.addDropdown((dropdown) => dropdown
-          .addOptions({ off: 'Off', players: 'Players', everyone: 'Everyone' })
-          .setValue(readSightMode(plugin.settings.lineOfSight))
-          .onChange((value) => { void plugin.setLineOfSight(readSightMode(value)); }));
-      }, ['sight', 'doors', 'walls', 'hidden', 'vision']),
       this.row('Layer ruler step', 'The height ruler down the right of the board, shown on a scene with floors (Atlas levels), has a dash for every this many squares of height. The top of the ruler is the highest layer. Two by default.', (setting) => {
         setting.addSlider((slider) => slider.setLimits(MIN_LAYER_TICK, MAX_LAYER_TICK, 0.5).setValue(readLayerTick(plugin.settings.layerTick)).setDynamicTooltip().onChange((squares) => { void plugin.setLayerTick(squares); }));
       }, ['layers', 'height', 'ruler', 'elevation']),
-      this.row('Sight style', 'How line of sight is judged. Rays: what each token that sees has an unstopped line to (a doorway shows a cone of the room behind it). Cinematic: whole rooms. In a sealed building you see all of it and nothing outside; with a door open you see the whole outside, except every other sealed building, which stays black as one piece until a door of its own opens. Also in the board settings on the toolbar.', (setting) => {
-        setting.addDropdown((dropdown) => dropdown
-          .addOptions({ rays: 'Rays', cinematic: 'Cinematic' })
-          .setValue(readSightStyle(plugin.settings.sightStyle))
-          .onChange((value) => { void plugin.setSightStyle(readSightStyle(value)); }));
-      }, ['sight', 'cinematic', 'rooms', 'buildings']),
       this.row('Upper layers', 'How the floor image of a level above the one you are on (Atlas levels) is drawn in the 3D view: whole, half see-through, or hidden so only its walls, props and minis show. Transparent parts of the image always show what is below. Also in the board settings on the toolbar.', (setting) => {
         setting.addDropdown((dropdown) => dropdown
           .addOptions({ solid: 'Solid', faded: 'Faded', transparent: 'Hidden' })

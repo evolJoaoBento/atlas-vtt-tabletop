@@ -13,7 +13,6 @@ import { WATER_MOTION_KINDS, WATER_TINTS, type WaterMotionKind } from './water';
 import { DICES_SVG } from '../dice/dicePicker';
 import type { LightingChoice } from './look';
 import type { WaterMotion } from './water';
-import { DEFAULT_SIGHT_MODE, DEFAULT_SIGHT_STYLE, type SightMode, type SightStyle } from './lineOfSight';
 import { DEFAULT_EDGES, DEFAULT_SEE_THROUGH_SIZE, MAX_SEE_THROUGH_SIZE, MIN_SEE_THROUGH_SIZE, readSeeThroughSize, DEFAULT_LAYER_LOOK, type LayerLook, type WallEdges } from './quality';
 import { t } from '../i18n';
 import { LASER_COLORS, LASER_COLOR_HINT, LASER_SIZE_MAX, LASER_SIZE_MIN, type LaserSettings } from './laser';
@@ -77,12 +76,6 @@ export interface ToolbarActions {
   /** How the image of an elevation layer is drawn; absent where it is not the GM's to choose. */
   layerLook?(): LayerLook;
   setLayerLook?(look: LayerLook): void;
-  /** Whether pieces behind walls and shut doors are hidden (from the players' view, or the GM's board too); absent where it is not the GM's to choose. */
-  lineOfSight?(): SightMode;
-  setLineOfSight?(mode: SightMode): void;
-  /** How sight is judged: rays from each viewer, or cinematic (whole rooms); absent where it is not the GM's to choose. */
-  sightStyle?(): SightStyle;
-  setSightStyle?(style: SightStyle): void;
   /** Whether Connect hosts a session: the Template tool shows then. */
   hosting(): boolean;
   /** How many sheets the players' AR table of this map has; null when it has none (absent where it is not the GM's). */
@@ -298,8 +291,6 @@ export class BoardToolbar {
   private readonly seeThroughSizeValue: HTMLElement;
   private readonly edgeButtons: Array<{ value: WallEdges; button: HTMLButtonElement }> = [];
   private readonly layerButtons: Array<{ value: LayerLook; button: HTMLButtonElement }> = [];
-  private readonly sightButtons: Array<{ value: SightMode; button: HTMLButtonElement }> = [];
-  private readonly styleButtons: Array<{ value: SightStyle; button: HTMLButtonElement }> = [];
   private readonly initiativeToggle: HTMLInputElement;
   private readonly ambientInput: HTMLInputElement;
   private readonly ambientValue: HTMLElement;
@@ -708,7 +699,7 @@ export class BoardToolbar {
     this.button = tool(WALL_SVG, () => (this.panel.hidden ? this.open() : this.close()));
     this.viewButton = tool(modeIcon('view'), () => (this.viewPanel.hidden ? this.openView() : this.closeView()));
     this.viewButton.setAttribute('aria-label', 'Visibility');
-    this.viewButton.title = 'Visibility: see-through walls, upper layers, line of sight, initiative tracker';
+    this.viewButton.title = 'Visibility: see-through walls, upper layers, initiative tracker';
     this.viewButton.setAttribute('aria-expanded', 'false');
     // Atlas's end slot, where Connect puts its buttons as it does in Atlas's own toolbar; Atlas's styles apply inside it.
     this.endSlot = el('div', 'atlas-toolbar-end atlas-vtt-plugin atlas-tabletop-extensions', bar);
@@ -815,36 +806,6 @@ export class BoardToolbar {
       });
       this.layerButtons.push({ value, button });
     }
-    const sight = el('div', 'atlas-tabletop-palette__field', seen);
-    el('span', 'atlas-tabletop-palette__label', sight, 'Line of sight');
-    const sightChoices = el('span', 'atlas-tabletop-palette__choices', sight);
-    sightChoices.setAttribute('role', 'group');
-    sightChoices.setAttribute('aria-label', 'Hide what stands behind walls and shut doors from the tokens that see');
-    for (const [value, label] of [['off', 'Off'], ['players', 'Players'], ['everyone', 'Everyone']] as const) {
-      const button = el('button', 'atlas-tabletop-palette__choice', sightChoices, label);
-      button.type = 'button';
-      button.addEventListener('click', () => {
-        this.actions.setLineOfSight?.(value);
-        this.showSight(value);
-      });
-      this.sightButtons.push({ value, button });
-    }
-    sight.title = 'Like dynamic lighting: what stands behind a wall or a shut door, out of sight of every token that has vision on, is hidden. Players: from the players view only. Everyone: from your board too. Open doors and glass let sight through, a limited wall lets the first one through. Nothing is hidden while no token has vision on.';
-    const style = el('div', 'atlas-tabletop-palette__field', seen);
-    el('span', 'atlas-tabletop-palette__label', style, 'Sight style');
-    const styleChoices = el('span', 'atlas-tabletop-palette__choices', style);
-    styleChoices.setAttribute('role', 'group');
-    styleChoices.setAttribute('aria-label', 'How line of sight is judged');
-    for (const [value, label] of [['rays', 'Rays'], ['cinematic', 'Cinematic']] as const) {
-      const button = el('button', 'atlas-tabletop-palette__choice', styleChoices, label);
-      button.type = 'button';
-      button.addEventListener('click', () => {
-        this.actions.setSightStyle?.(value);
-        this.showStyle(value);
-      });
-      this.styleButtons.push({ value, button });
-    }
-    style.title = 'Rays: what each token that sees has an unstopped line to (a doorway shows a cone of the room behind it). Cinematic: whole rooms. In a sealed building you see all of it and nothing outside; with a door open you see the whole outside, except every other sealed building, which stays black as one piece until a door of its own opens.';
     layers.title = 'Maps stacked above another (set in the file menu of a map): Solid draws their image whole, Faded half see-through, Hidden draws only their walls, props and minis. Transparent parts of the image always show what is below.';
     el('div', 'atlas-tabletop-palette__hint', fog, 'Walls without a height of their own stand this many grid squares tall, and so does the fog painted in Atlas (0 lays the fog flat on the map).');
     // Atlas's command palette shows or hides its initiative tracker; so does this, and its I key.
@@ -1401,20 +1362,6 @@ export class BoardToolbar {
     for (const { value, button } of this.edgeButtons) button.setAttribute('aria-pressed', String(value === chosen));
   }
 
-  private showStyle(chosen: SightStyle): void {
-    for (const { value, button } of this.styleButtons) {
-      button.classList.toggle('is-active', value === chosen);
-      button.setAttribute('aria-pressed', String(value === chosen));
-    }
-  }
-
-  private showSight(chosen: SightMode): void {
-    for (const { value, button } of this.sightButtons) {
-      button.classList.toggle('is-active', value === chosen);
-      button.setAttribute('aria-pressed', String(value === chosen));
-    }
-  }
-
   private showLayerLook(chosen: LayerLook): void {
     for (const { value, button } of this.layerButtons) {
       button.classList.toggle('is-active', value === chosen);
@@ -1481,10 +1428,6 @@ export class BoardToolbar {
     this.seeThroughSizeInput.closest('.atlas-tabletop-palette__field')?.toggleAttribute('hidden', this.actions.setSeeThroughSize === undefined);
     this.edgeButtons[0]?.button.closest('.atlas-tabletop-palette__field')?.toggleAttribute('hidden', this.actions.setWallEdges === undefined);
     this.showLayerLook(this.actions.layerLook?.() ?? DEFAULT_LAYER_LOOK);
-    this.showSight(this.actions.lineOfSight?.() ?? DEFAULT_SIGHT_MODE);
-    this.showStyle(this.actions.sightStyle?.() ?? DEFAULT_SIGHT_STYLE);
-    this.styleButtons[0]?.button.closest('.atlas-tabletop-palette__field')?.toggleAttribute('hidden', this.actions.setSightStyle === undefined);
-    this.sightButtons[0]?.button.closest('.atlas-tabletop-palette__field')?.toggleAttribute('hidden', this.actions.setLineOfSight === undefined);
     this.layerButtons[0]?.button.closest('.atlas-tabletop-palette__field')?.toggleAttribute('hidden', this.actions.setLayerLook === undefined);
     this.initiativeToggle.checked = this.actions.initiativeOpen();
     this.autoRollToggle.checked = this.actions.autoRoll();
