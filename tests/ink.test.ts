@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { fillTriangles, inkTriangles } from '../src/board/ink';
+import { fillTriangles, inkTriangles, underBox } from '../src/board/ink';
 import { readMap } from '../src/board/mapModel';
 
 /** The triangles' covered area, overlaps counted once, by sampling a grid of points. */
@@ -48,8 +48,8 @@ test('pen strokes are read from the map\'s drawings, in its order; icon stamps a
     d: { id: 'd', kind: 'drawing', type: 'pen', points: [] },
   } } } }));
   assert.deepEqual(map.inks, [
-    { id: 'b', points: [{ x: 0, y: 0 }, { x: 5, y: 5 }], color: '#ff0000', width: 4, opacity: 1, closed: false, fill: null, holes: [], hidden: false },
-    { id: 'a', points: [{ x: 0, y: 0 }, { x: 9, y: 0 }], color: '#00ff00', width: 2, opacity: 0.5, closed: false, fill: null, holes: [], hidden: false },
+    { id: 'b', points: [{ x: 0, y: 0 }, { x: 5, y: 5 }], color: '#ff0000', width: 4, opacity: 1, closed: false, fill: null, holes: [], hidden: false, rank: 0, layer: 'above' },
+    { id: 'a', points: [{ x: 0, y: 0 }, { x: 9, y: 0 }], color: '#00ff00', width: 2, opacity: 0.5, closed: false, fill: null, holes: [], hidden: false, rank: 1, layer: 'above' },
   ]);
 });
 
@@ -62,4 +62,28 @@ test("a closed drawing's fill covers its inside and none of its holes (Atlas 0.1
   assert.ok(Math.abs(covered(fillTriangles([...square].reverse(), [hole]), -5, 45, -5, 45) - 1500) < 25);
   // Fewer than three corners: nothing.
   assert.equal(fillTriangles([{ x: 0, y: 0 }, { x: 1, y: 1 }], []).length, 0);
+});
+
+test("a fill is Atlas's: a self-crossing outline filled by the nonzero rule, a hole cut only inside the outline", () => {
+  // A bow tie: two triangles meeting at (50, 50), each filled.
+  const bow = [{ x: 0, y: 0 }, { x: 100, y: 100 }, { x: 100, y: 0 }, { x: 0, y: 100 }, { x: 0, y: 0 }];
+  const tie = covered(fillTriangles(bow, []), -5, 105, -5, 105);
+  assert.ok(Math.abs(tie - 5000) < 250, String(tie));
+  // Nothing of the empty wedges between them.
+  assert.ok(covered(fillTriangles(bow, []), 40, 60, 0, 30) < 40);
+  // A hole reaching past the outline paints nothing outside it.
+  const square = [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 40 }, { x: 0, y: 40 }, { x: 0, y: 0 }];
+  const out = [{ x: 30, y: 10 }, { x: 60, y: 10 }, { x: 60, y: 30 }, { x: 30, y: 30 }];
+  assert.ok(covered(fillTriangles(square, [out]), 40.5, 70, 0, 40) < 5);
+  assert.ok(Math.abs(covered(fillTriangles(square, [out]), -5, 45, -5, 45) - (1600 - 200)) < 60);
+});
+
+test("what an opaque box above the tokens covers is out of the players' sight: a point inside it, not in its hole, not under a soft or see-through or map-layer fill", () => {
+  const square = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }, { x: 0, y: 0 }];
+  const hole = [{ x: 40, y: 40 }, { x: 60, y: 40 }, { x: 60, y: 60 }, { x: 40, y: 60 }];
+  const box = { id: 'b', points: square, color: '#000000', width: 0, opacity: 1, closed: true, fill: 'solid' as const, holes: [hole], hidden: false, layer: 'above' as const };
+  assert.equal(underBox([box], { x: 20, y: 20 }), true);
+  assert.equal(underBox([box], { x: 50, y: 50 }), false);
+  assert.equal(underBox([box], { x: 150, y: 20 }), false);
+  for (const other of [{ fill: 'soft' as const }, { opacity: 0.6 }, { layer: 'map' as const }]) assert.equal(underBox([{ ...box, ...other }], { x: 20, y: 20 }), false, JSON.stringify(other));
 });

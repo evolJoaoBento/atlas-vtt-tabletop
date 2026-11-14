@@ -114,6 +114,7 @@ import { enterLeave } from '../cutscene/timeline';
 import { inputAllowed, type CinematicRole, type LockInput } from '../cutscene/lockRules';
 import type { CameraKeep } from './camera';
 import type { DiceObstacle, DiceTable, DiceTableHost } from '../dice/diceTable';
+import { underBox } from './ink';
 
 /** The map's image as the bucket reads it: the image, its size in its own pixels, and the affine carrying those into the world. */
 interface FillSource { image: CanvasImageSource; width: number; height: number; transform: [number, number, number, number, number, number] }
@@ -1651,7 +1652,7 @@ export class Board {
         keptInks.delete(inkKey(ink, order));
         return old;
       }
-      const piece = new InkPiece(ink, order);
+      const piece = new InkPiece(ink);
       this.scene.add(piece.object3d);
       return piece;
     });
@@ -4620,7 +4621,9 @@ export class Board {
     this.fog.object3d.visible = !revealed;
     for (const entry of this.tokens.values()) {
       const own = this.eye?.tokenId === entry.token.id;
-      entry.piece.object3d.visible = !own && (gm || (revealed ? !entry.token.hidden : playerSees(entry.token, entry.at, fog))) && !this.beyondSight(viewer, `t:${entry.token.id}`);
+      entry.piece.object3d.visible = !own && (gm || (revealed ? !entry.token.hidden : playerSees(entry.token, entry.at, fog))) && !this.beyondSight(viewer, `t:${entry.token.id}`)
+        // A box the GM covers the map with (Atlas 0.16's solid fill above the tokens) hides what stands under it from players.
+        && (gm || !underBox(this.map?.inks ?? [], entry.at));
       entry.labels.object3d.visible = gm && !own;
       entry.playerLabels.object3d.visible = !gm && !own;
     }
@@ -4630,7 +4633,7 @@ export class Board {
     for (const piece of this.icons) piece.show(gm || !piece.icon.hidden);
     const pins = pinsShown(viewer, this.audience);
     for (const pin of this.pins) pin.object3d.visible = pins && !this.pointBeyond(viewer, pin.pin.x, pin.pin.y);
-    for (const piece of this.props.values()) piece.object3d.visible = (gm || revealed || !insideFog(fog, { x: piece.object3d.position.x, y: piece.object3d.position.z })) && !this.beyondSight(viewer, `p:${piece.id}`);
+    for (const piece of this.props.values()) piece.object3d.visible = (gm || revealed || !insideFog(fog, { x: piece.object3d.position.x, y: piece.object3d.position.z })) && (gm || !underBox(this.map?.inks ?? [], { x: piece.object3d.position.x, y: piece.object3d.position.z })) && !this.beyondSight(viewer, `p:${piece.id}`);
     if (this.cellOutline) this.cellOutline.visible = gm;
     if (this.cellLabel) this.cellLabel.visible = gm;
     this.fog.show(viewer);

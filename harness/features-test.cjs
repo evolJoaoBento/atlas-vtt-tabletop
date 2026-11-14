@@ -2654,9 +2654,9 @@ feature('hidden notes', async ({ page }) => {
     const before = board.map;
     const x = board.size.width / 2;
     const y = board.size.height / 2;
-    const ink = (id, hidden) => ({ id, points: [{ x, y }, { x: x + 100, y }], color: '#ff0000', width: 6, opacity: 1, closed: false, fill: null, holes: [], hidden });
-    const label = (id, hidden) => ({ id, x, y: y + 80, text: id, fontSize: 24, fontFamily: 'serif', color: '#ffffff', backgroundColor: null, padding: 8, borderRadius: 0, opacity: 1, align: 'center', bold: false, italic: false, rotation: 0, scale: 1, hidden });
-    const stamp = (id, hidden) => ({ id, icon: 'skull', x: x + 200, y, color: '#ffffff', size: 70, opacity: 1, rotation: 0, hidden });
+    const ink = (id, hidden) => ({ id, points: [{ x, y }, { x: x + 100, y }], color: '#ff0000', width: 6, opacity: 1, closed: false, fill: null, holes: [], hidden, rank: 0, layer: 'above' });
+    const label = (id, hidden) => ({ id, x, y: y + 80, text: id, fontSize: 24, fontFamily: 'serif', color: '#ffffff', backgroundColor: null, padding: 8, borderRadius: 0, opacity: 1, align: 'center', bold: false, italic: false, rotation: 0, scale: 1, hidden, rank: 0 });
+    const stamp = (id, hidden) => ({ id, icon: 'skull', x: x + 200, y, color: '#ffffff', size: 70, opacity: 1, rotation: 0, hidden, rank: 0 });
     await board.load({ ...before, inks: [ink('open', false), ink('secret', true)], texts: [label('sign', false), label('note', true)], icons: [stamp('mark', false), stamp('trap', true)] });
     // A stamp shows once its glyph is in.
     for (let i = 0; i < 50 && !board.icons.every((piece) => piece.ready); i++) await new Promise((r) => setTimeout(r, 100));
@@ -2676,6 +2676,38 @@ feature('hidden notes', async ({ page }) => {
   check("hidden notes: the GM's picture has them all", JSON.stringify(seen.gm) === JSON.stringify({ inks: [true, true], texts: [true, true], icons: [true, true] }), JSON.stringify(seen.gm));
 });
 
+// ── Atlas 0.16's boxes: a solid, opaque fill above the tokens hides what stands under it from players ──
+feature('boxes hide tokens', async ({ page }) => {
+  const seen = await page.evaluate(async () => {
+    const { board } = window.boardTest;
+    const before = board.map;
+    const [first] = before.tokens;
+    const x = first.x - 100;
+    const y = first.y - 100;
+    const ring = (s) => [{ x, y }, { x: x + s, y }, { x: x + s, y: y + s }, { x, y: y + s }, { x, y }];
+    const box = (more) => ({ id: 'box', points: ring(200), color: '#000000', width: 0, opacity: 1, closed: true, fill: 'solid', holes: [], hidden: false, rank: 0, layer: 'above', ...more });
+    const look = async (inks) => {
+      await board.load({ ...before, tokens: [{ ...first, hidden: false }], inks });
+      board.showFor('player');
+      const player = board.tokens.get(first.id).piece.object3d.visible;
+      board.showFor('gm');
+      const gm = board.tokens.get(first.id).piece.object3d.visible;
+      return { player, gm };
+    };
+    const out = {
+      under: await look([box({})]),
+      hole: await look([box({ holes: [[{ x: x + 60, y: y + 60 }, { x: x + 140, y: y + 60 }, { x: x + 140, y: y + 140 }, { x: x + 60, y: y + 140 }]] })]),
+      soft: await look([box({ fill: 'soft' })]),
+      map: await look([box({ layer: 'map' })]),
+      hidden: await look([box({ hidden: true })]),
+    };
+    await board.load(before);
+    return out;
+  });
+  check('boxes hide tokens: a token under a solid box is out of the players\' picture, the GM still sees it', !seen.under.player && seen.under.gm, JSON.stringify(seen.under));
+  check('boxes hide tokens: one in the box\'s hole, or under a soft fill, a fill on the map\'s layer or a box the GM hid, is seen', seen.hole.player && seen.soft.player && seen.map.player && seen.hidden.player, JSON.stringify(seen));
+});
+
 // ── Atlas 0.16's fills: a closed drawing's inside is drawn, solid or soft, less its holes; a line of no width is none ──
 feature('ink fills', async ({ page, shot }) => {
   const seen = await page.evaluate(async () => {
@@ -2686,9 +2718,9 @@ feature('ink fills', async ({ page, shot }) => {
     const ring = (s) => [{ x, y }, { x: x + s, y }, { x: x + s, y: y + s }, { x, y: y + s }, { x, y }];
     const hole = [{ x: x + 60, y: y + 60 }, { x: x + 140, y: y + 60 }, { x: x + 140, y: y + 140 }, { x: x + 60, y: y + 140 }];
     await board.load({ ...before, inks: [
-      { id: 'solid', points: ring(200), color: '#000000', width: 0, opacity: 1, closed: true, fill: 'solid', holes: [hole], hidden: false },
-      { id: 'soft', points: ring(100), color: '#ff0000', width: 4, opacity: 1, closed: true, fill: 'soft', holes: [], hidden: false },
-      { id: 'line', points: ring(50), color: '#00ff00', width: 4, opacity: 1, closed: true, fill: null, holes: [], hidden: false },
+      { id: 'solid', points: ring(200), color: '#000000', width: 0, opacity: 1, closed: true, fill: 'solid', holes: [hole], hidden: false, rank: 0, layer: 'above' },
+      { id: 'soft', points: ring(100), color: '#ff0000', width: 4, opacity: 1, closed: true, fill: 'soft', holes: [], hidden: false, rank: 1, layer: 'above' },
+      { id: 'line', points: ring(50), color: '#00ff00', width: 4, opacity: 1, closed: true, fill: null, holes: [], hidden: false, rank: 2, layer: 'above' },
     ] });
     const of = (piece) => { const fill = piece.object3d.children.find((child) => child.name === 'fill'); return { line: piece.object3d.geometry.attributes.position.count, fill: fill ? fill.geometry.attributes.position.count : 0, opacity: fill ? fill.material.opacity : null }; };
     const out = board.inks.map(of);

@@ -129,6 +129,8 @@ export interface BoardIcon {
   rotation: number;
   /** Only the GM sees it (Atlas 0.16). */
   hidden: boolean;
+  /** Its place in the one order of drawings, texts and stamps (Atlas 0.16): a later one lies over an earlier one. */
+  rank: number;
 }
 
 /**
@@ -148,6 +150,10 @@ export interface BoardInk {
   holes: Array<Array<{ x: number; y: number }>>;
   /** Only the GM sees it (Atlas 0.16). */
   hidden: boolean;
+  /** Its place in the one order of drawings, texts and stamps (Atlas 0.16). */
+  rank: number;
+  /** On the map's own layer, under the tokens; else above them (Atlas 0.16). */
+  layer: 'above' | 'map';
 }
 
 /** A text label on the map, as Atlas draws it: centred on its place, turned and scaled; read-only on the board. */
@@ -173,6 +179,8 @@ export interface BoardText {
   scale: number;
   /** Only the GM sees it (Atlas 0.16). */
   hidden: boolean;
+  /** Its place in the one order of drawings, texts and stamps (Atlas 0.16). */
+  rank: number;
 }
 
 export interface TokenSettings {
@@ -340,23 +348,24 @@ const ICON_SIZE = 70;
 function readAnnotations(drawings: unknown, texts: unknown): { icons: BoardIcon[]; inks: BoardInk[]; texts: BoardText[] } {
   const out = { icons: [] as BoardIcon[], inks: [] as BoardInk[], texts: [] as BoardText[] };
   const records = { drawings: isObj(drawings) ? drawings : undefined, texts: isObj(texts) ? texts : undefined } as AnnotationRecords;
-  for (const annotation of annotationList(records)) {
+  for (const [rank, annotation] of annotationList(records).entries()) {
     if (annotation.kind === 'text') {
       if (annotation.text === '') continue;
       out.texts.push({
         id: annotation.id, x: annotation.x, y: annotation.y, text: annotation.text, fontSize: annotation.fontSize, fontFamily: annotation.fontFamily,
         color: annotation.color, backgroundColor: annotation.backgroundColor, padding: annotation.padding, borderRadius: annotation.borderRadius,
         opacity: annotation.opacity, align: annotation.align, bold: annotation.bold, italic: annotation.italic, rotation: annotation.rotation,
-        scale: annotation.scale, hidden: annotation.hidden,
+        scale: annotation.scale, hidden: annotation.hidden, rank,
       });
     } else if (annotation.shape === 'stamp') {
       const at = annotation.points[0];
       if (!at || !annotation.icon) continue;
-      out.icons.push({ id: annotation.id, icon: annotation.icon, x: at.x, y: at.y, color: annotation.color, size: annotation.width, opacity: annotation.opacity, rotation: annotation.rotation, hidden: annotation.hidden });
+      out.icons.push({ id: annotation.id, icon: annotation.icon, x: at.x, y: at.y, color: annotation.color, size: annotation.width, opacity: annotation.opacity, rotation: annotation.rotation, hidden: annotation.hidden, rank });
     } else {
       out.inks.push({
         id: annotation.id, points: annotation.points.map(({ x, y }) => ({ x, y })), color: annotation.color, width: annotation.width, opacity: annotation.opacity,
         closed: annotation.closed, fill: annotation.fill, holes: annotation.holes.map((ring) => ring.map(({ x, y }) => ({ x, y }))), hidden: annotation.hidden,
+        rank, layer: annotation.layer,
       });
     }
   }

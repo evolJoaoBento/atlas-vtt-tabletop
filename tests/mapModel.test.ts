@@ -134,8 +134,8 @@ test('icon stamps are read from the drawings; strokes are left out', () => {
     d: { id: 'd', kind: 'drawing', type: 'icon', icon: 'gem', points: [{ x: 1, y: 2 }] },
   } } }));
   assert.deepEqual(map.icons, [
-    { id: 'a', icon: 'flame', x: 100, y: 200, color: '#ff0000', size: 70, opacity: 0.8, rotation: 0, hidden: false },
-    { id: 'd', icon: 'gem', x: 1, y: 2, color: '#ffffff', size: 70, opacity: 1, rotation: 0, hidden: false },
+    { id: 'a', icon: 'flame', x: 100, y: 200, color: '#ff0000', size: 70, opacity: 0.8, rotation: 0, hidden: false, rank: 0 },
+    { id: 'd', icon: 'gem', x: 1, y: 2, color: '#ffffff', size: 70, opacity: 1, rotation: 0, hidden: false, rank: 2 },
   ]);
 });
 
@@ -166,8 +166,8 @@ test('text labels are read as Atlas reads them (its 0.16 reader: a text with no 
     c: { id: 'c', kind: 'text', x: 0, y: 0, text: '' },
   } } }));
   assert.deepEqual(map.texts, [
-    { id: 'a', x: 100, y: 50, text: 'Throne Room', fontSize: 24, fontFamily: 'Georgia', color: '#ffcc00', backgroundColor: '#000000', padding: 8, borderRadius: 4, opacity: 0.6, align: 'center', bold: true, italic: false, rotation: 30, scale: 2, hidden: false },
-    { id: 'b', x: 0, y: 0, text: 'Plain', fontSize: 31.5, fontFamily: 'Arial', color: '#ffffff', backgroundColor: null, padding: 8, borderRadius: 0, opacity: 1, align: 'center', bold: false, italic: false, rotation: 0, scale: 1, hidden: false },
+    { id: 'a', x: 100, y: 50, text: 'Throne Room', fontSize: 24, fontFamily: 'Georgia', color: '#ffcc00', backgroundColor: '#000000', padding: 8, borderRadius: 4, opacity: 0.6, align: 'center', bold: true, italic: false, rotation: 30, scale: 2, hidden: false, rank: 0 },
+    { id: 'b', x: 0, y: 0, text: 'Plain', fontSize: 31.5, fontFamily: 'Arial', color: '#ffffff', backgroundColor: null, padding: 8, borderRadius: 0, opacity: 1, align: 'center', bold: false, italic: false, rotation: 0, scale: 1, hidden: false, rank: 1 },
   ]);
 });
 

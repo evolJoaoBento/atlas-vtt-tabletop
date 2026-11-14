@@ -14,8 +14,8 @@ test("a 0.15 scene's drawings are read as Atlas reads them: an old eraser stroke
     stamp: { id: 'stamp', kind: 'drawing', type: 'icon', icon: 'skull', timestamp: 4, points: [{ x: 50, y: 60 }], color: '#ffffff', width: 70, opacity: 1 },
   } }));
   assert.deepEqual(map.inks.map((ink) => ink.id), ['pen']);
-  assert.deepEqual(map.inks[0], { id: 'pen', points: [{ x: 0, y: 0 }, { x: 5, y: 5 }], color: '#ff0000', width: 4, opacity: 1, closed: false, fill: null, holes: [], hidden: false });
-  assert.deepEqual(map.icons, [{ id: 'stamp', icon: 'skull', x: 50, y: 60, color: '#ffffff', size: 70, opacity: 1, rotation: 0, hidden: false }]);
+  assert.deepEqual(map.inks[0], { id: 'pen', points: [{ x: 0, y: 0 }, { x: 5, y: 5 }], color: '#ff0000', width: 4, opacity: 1, closed: false, fill: null, holes: [], hidden: false, rank: 0, layer: 'above' });
+  assert.deepEqual(map.icons, [{ id: 'stamp', icon: 'skull', x: 50, y: 60, color: '#ffffff', size: 70, opacity: 1, rotation: 0, hidden: false, rank: 1 }]);
 });
 
 test('a 0.16 scene: what the GM hid says so; fills and their holes, a line of no width, a turned stamp, the order Atlas stacks them in', () => {
@@ -60,4 +60,16 @@ test("a stamp is drawn by any pin symbol (Atlas 0.16) or one of the twelve stamp
   assert.equal(mapIconSvg('no-such-symbol', '#ffffff'), null);
   // A colour that is no plain value is white, in both.
   assert.match(mapIconSvg('pin', 'red" onload="x')!, /fill="#ffffff"/);
+});
+
+test('drawings, texts and stamps share one order, as Atlas stacks them: each is given its place in it, and its layer', () => {
+  const map = readMap('m', wrap({
+    drawings: {
+      box: { id: 'box', kind: 'drawing', type: 'rectangle', timestamp: 1, points: [{ x: 0, y: 0 }, { x: 9, y: 0 }, { x: 9, y: 9 }, { x: 0, y: 9 }, { x: 0, y: 0 }], color: '#000000', width: 0, opacity: 1, fill: 'solid', order: 2 },
+      floor: { id: 'floor', kind: 'drawing', type: 'rectangle', timestamp: 2, points: [{ x: 0, y: 0 }, { x: 9, y: 0 }, { x: 9, y: 9 }, { x: 0, y: 9 }, { x: 0, y: 0 }], color: '#336699', width: 0, opacity: 0.4, fill: 'solid', layer: 'map', order: 3 },
+      star: { id: 'star', kind: 'drawing', type: 'icon', icon: 'pin', timestamp: 3, points: [{ x: 1, y: 1 }], color: '#ffffff', width: 70, opacity: 1, order: 4 },
+    },
+    texts: { trap: { id: 'trap', kind: 'text', x: 1, y: 1, text: 'Trap', fontSize: 24, fontFamily: 'serif', color: '#ffffff', order: 1 } },
+  }));
+  assert.deepEqual([map.texts[0]!.rank, map.inks.map((ink) => [ink.id, ink.rank, ink.layer]), map.icons[0]!.rank], [0, [['box', 1, 'above'], ['floor', 2, 'map']], 3]);
 });

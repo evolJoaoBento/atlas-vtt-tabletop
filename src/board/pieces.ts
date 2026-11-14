@@ -679,6 +679,7 @@ export class IconPiece {
     this.object3d.position.set(icon.x, 0.5, icon.y);
     // A stamp's turn (Atlas 0.16), clockwise on screen: the map's y runs along +z, so a clockwise turn is negative about +y.
     this.object3d.rotation.y = -(icon.rotation * Math.PI) / 180;
+    this.object3d.renderOrder = 2 + icon.rank * 1e-4;
     this.object3d.visible = false;
     const svg = mapIconSvg(icon.icon, icon.color);
     if (!svg) return;
@@ -748,7 +749,8 @@ export class TextPiece {
     this.object3d = new THREE.Mesh(new THREE.PlaneGeometry(width * label.scale, height * label.scale).rotateX(-Math.PI / 2), material);
     this.object3d.position.set(label.x, 0.6, label.y);
     this.object3d.rotation.y = -THREE.MathUtils.degToRad(label.rotation);
-    this.object3d.renderOrder = 3;
+    // In Atlas 0.16's one order of drawings, texts and stamps: a box drawn over a text hides it.
+    this.object3d.renderOrder = 2 + label.rank * 1e-4;
   }
 
   dispose(): void {
@@ -770,7 +772,7 @@ const INK_LIFT = 0.55;
 export class InkPiece {
   readonly object3d: THREE.Mesh;
 
-  constructor(readonly ink: BoardInk, order: number) {
+  constructor(readonly ink: BoardInk) {
     const flat = inkTriangles(ink.points, ink.width);
     const positions = new Float32Array((flat.length / 2) * 3);
     for (let i = 0, j = 0; i < flat.length; i += 2, j += 3) {
@@ -784,8 +786,8 @@ export class InkPiece {
       color: ink.color, opacity: ink.opacity, transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3,
     });
     this.object3d = new THREE.Mesh(geometry, material);
-    // Drawn in the map's order, after the map and its icons, before its texts.
-    this.object3d.renderOrder = 2 + order * 1e-4;
+    // In Atlas 0.16's one order of drawings, texts and stamps (`rank`), after the map.
+    this.object3d.renderOrder = 2 + ink.rank * 1e-4;
     // A closed drawing's inside (Atlas 0.16): in its colour, solid, or soft (a quarter of it); under its line.
     if (ink.closed && ink.fill) {
       const inside = fillTriangles(ink.points, ink.holes);
