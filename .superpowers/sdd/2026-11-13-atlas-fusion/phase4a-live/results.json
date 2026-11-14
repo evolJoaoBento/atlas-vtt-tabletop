@@ -13,9 +13,9 @@
     "name": "a wall's height set from the board is on Atlas's own wall, in the map file, one step of Atlas's undo, shown at once; Atlas's undo takes it back",
     "pass": true,
     "evidence": {
-      "onRecord": 1,
+      "onRecord": 0,
       "stepsAfter": 1,
-      "shown": 0,
+      "shown": 1,
       "inFile": true,
       "undone": 0,
       "inData": []
@@ -26,7 +26,7 @@
     "name": "a material, a width, a window's opening and a door's prop and turn each go onto the record, beside what is there; back to the default takes the key off",
     "pass": true,
     "evidence": {
-      "set": 2,
+      "set": 3,
       "stepsAfter": 5,
       "read": 0,
       "cleared": 1
@@ -37,10 +37,10 @@
     "name": "a placed light's height is on the light's record, a carried light's on its token; both are in the file and taken off again",
     "pass": true,
     "evidence": {
-      "set": 2,
+      "set": 1,
       "read": 0,
       "inFile": true,
-      "cleared": 2
+      "cleared": 1
     }
   },
   {

@@ -1,7 +1,7 @@
 # Atlas fusion Phase 4A: live check on Atlas 0.15.0
 
 Run 2026-11-14 in the throwaway vault (`C:\Users\joaoo\fusion-gate-vault`), Obsidian role `fusion` on port 9311, with
-Tabletop 1.6.0 (d22d9d3) and Connect 0.12.0 (c85aafa) installed by `harness/live/install.cjs`, Atlas 0.15.0, fixtures
+Tabletop 1.6.0 (8f56fa8, with the final review's fixes; first run on d22d9d3) and Connect 0.12.0 (a9f2719; first run on c85aafa) installed by `harness/live/install.cjs`, Atlas 0.15.0, fixtures
 written by `harness/live/fixtures.cjs`. Script: `harness/live/phase4a.cjs`. Results: `phase4a-live/results.json`
 (and `phase3-live/`, `phase2-live/`, `phase1-live/` for the earlier phases' own steps). Gate probe before the plan:
 `harness/live/phase4a-probe.cjs`, `phase4a-probe.json` (a `tabletop` field survives on walls, placed lights and tokens).
@@ -17,6 +17,8 @@ written by `harness/live/fixtures.cjs`. Script: `harness/live/phase4a.cjs`. Resu
 | 34 | A placed light's height is on the light's record, a carried light's on its token; both in the file; taken off again | PASS | `lights[id].tabletop.height = 3`, `tokens[id].tabletop.lightHeight = 1.5`, in the file, cleared |
 | 35 | On a map Atlas does not hold a wall setting, a light's height and a move are refused | PASS | 3 × `NotHeldError`, no `.atlasmap` mtime changed, Tabletop's data unchanged |
 | 36 | No console error from Tabletop or Connect; no map Atlas held keeps a 3D setting in Tabletop's data | PASS | 0 errors; only `The Gilded Flagon.atlasmap`, which the run never brought Atlas to, still keeps its own (it moves when Atlas first holds it) |
+
+The run was made twice: before the final review (6/6) and again on the builds with its fixes (6/6).
 
 ## What went wrong on the way
 

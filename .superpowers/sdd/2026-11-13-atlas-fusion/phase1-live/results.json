@@ -24,7 +24,7 @@
       "leaves": 1,
       "hidden": true,
       "boardActive": true,
-      "heldMs": 238,
+      "heldMs": 234,
       "mark": {
         "openedBy": "tabletop-for-atlas",
         "claims": [
@@ -59,7 +59,7 @@
         "button": "Edit here"
       },
       "coveBanner": null,
-      "cellarMs": 312,
+      "cellarMs": 262,
       "cellarActive": true,
       "leavesAfter": 1,
       "cellarBannerAfter": null,
@@ -75,7 +75,7 @@
     "name": "an edit on the held board saves through Atlas; on the other board it is refused and no file is written",
     "pass": true,
     "evidence": {
-      "savedMs": 561,
+      "savedMs": 575,
       "moved": true,
       "refused": {
         "name": "NotHeldError",
@@ -110,7 +110,7 @@
           "button": "Reopen"
         }
       },
-      "ms": 452,
+      "ms": 583,
       "leaves": 1,
       "banner": null,
       "boardActive": true
@@ -146,7 +146,7 @@
     "name": "rooms: Atlas 0.15 converts them, the old wall settings move with a backup onto Atlas's own walls, no doubled outline",
     "pass": true,
     "evidence": {
-      "ms": 0,
+      "ms": 1,
       "fileHasRooms": false,
       "roomWalls": 10,
       "chains": [
@@ -171,11 +171,15 @@
         "Tabletop backups/2026-11-14/Fusion Rooms-3.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms-4.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms-5.atlasmap",
+        "Tabletop backups/2026-11-14/Fusion Rooms-6.atlasmap",
+        "Tabletop backups/2026-11-14/Fusion Rooms-7.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms.atlasmap",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-2.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-3.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-4.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-5.json",
+        "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-6.json",
+        "Tabletop backups/2026-11-14/Fusion Rooms.tabletop-7.json",
         "Tabletop backups/2026-11-14/Fusion Rooms.tabletop.json"
       ],
       "backupHasRooms": true,
@@ -306,7 +310,7 @@
     "pass": true,
     "evidence": {
       "errors": [],
-      "total": 14
+      "total": 15
     }
   }
 ]
