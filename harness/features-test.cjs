@@ -1054,12 +1054,13 @@ feature('elevation layers', async ({ page, shot }) => {
   check('layers: its token stands on it', now.tokens === 1, JSON.stringify(now));
   await page.evaluate(() => { const { camera } = window.boardTest.board; camera.goal.yaw = 0.6; camera.goal.pitch = 0.6; camera.goal.distance = 900; camera.snap(); window.boardTest.board.wake(true); });
   await shot('elevation-layer-solid');
-  // From a token's eyes the scene above is always there and solid: under line of sight and a faded look alike.
+  // From a token's eyes the scene above is always there and solid: under a previewed point of view (Atlas's sight) and a faded look alike.
   const firstPerson = await page.evaluate(async () => {
     const { board } = window.boardTest;
     const before = board.quality.layerLook;
-    const sight = board.quality.lineOfSight;
-    board.setQuality({ ...board.quality, layerLook: 'faded', lineOfSight: 'everyone' });
+    board.setQuality({ ...board.quality, layerLook: 'faded' });
+    board.setPov('hero');
+    board.setAtlasSight({ kind: 'unlit' }, { kind: 'pending' });
     await new Promise((resolve) => setTimeout(resolve, 600));
     const view = () => [...board.layerViews.values()][0];
     const outside = { blacked: view().blackedOut, look: view().look };
@@ -1071,7 +1072,9 @@ feature('elevation layers', async ({ page, shot }) => {
     board.wake(true);
     await new Promise((resolve) => setTimeout(resolve, 300));
     const back = { look: view().look };
-    board.setQuality({ ...board.quality, layerLook: before, lineOfSight: sight });
+    board.setPov(null);
+    board.setAtlasSight({ kind: 'unlit' }, null);
+    board.setQuality({ ...board.quality, layerLook: before });
     await new Promise((resolve) => setTimeout(resolve, 600));
     return { outside, inside, back };
   });
@@ -1143,222 +1146,60 @@ feature('elevation layers', async ({ page, shot }) => {
   check('layers: taking the stack away leaves a plain map', now.layers === 0 && plain.table === 0 && plain.alphaTest === 0, JSON.stringify({ now, plain }));
 });
 
-// ── Line of sight: what stands behind walls and shut doors is hidden from the tokens that see ───────────────────
+// ── Sight follows Atlas (fusion 4D): the board draws what Atlas shows players of a lit scene, and works out none of its own ──
 feature('line of sight', async ({ page, shot }) => {
-  const probe = () => page.evaluate(() => {
+  const seen = await page.evaluate(async () => {
     const { board } = window.boardTest;
-    const shown = {};
-    for (const [id, entry] of board.tokens) shown[id] = entry.piece.object3d.visible;
-    for (const [id, piece] of board.props) shown[`prop:${id}`] = piece.object3d.visible;
-    return { shown, sight: board.sight === null ? null : [...board.sight].sort() };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    // Until a frame has worked the last answer out (headless frames come slowly).
+    const settle = async () => { for (let i = 0; i < 60; i++) { if (board.sightKey.startsWith(`[${board.sightRevision},`) || (board.atlasSight.kind === 'unlit' && (board.pov === null || board.atlasPov.kind === 'unlit') && board.sight === null && board.povSight === null)) return; await sleep(100); } };
+    const W = board.size.width, H = board.size.height, cell = 25;
+    const cols = Math.ceil(W / cell), rows = Math.ceil(H / cell);
+    const hero = board.tokens.get('hero').at, gob = board.tokens.get('gob').at;
+    const barrel = board.props.get('barrel').object3d.position;
+    // Atlas shows players the part of the map nearer the hero than the goblin.
+    const nearHero = (x, y) => Math.hypot(x - hero.x, y - hero.y) < Math.hypot(x - gob.x, y - gob.y);
+    const ready = (ids, shows) => {
+      const shown = new Uint8Array(cols * rows);
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) shown[r * cols + c] = shows((c + 0.5) * cell, (r + 0.5) * cell) ? 1 : 0;
+      const seenAt = (x, y) => { const c = Math.floor(x / cell), r = Math.floor(y / cell); return x >= 0 && y >= 0 && c < cols && r < rows && shown[r * cols + c] === 1; };
+      return { kind: 'ready', seen: new Set(ids), cells: { cellSize: cell, cols, rows, shown }, seenAt };
+    };
+    const look = (viewer) => {
+      board.showFor(viewer);
+      return { hero: board.tokens.get('hero').piece.object3d.visible, gob: board.tokens.get('gob').piece.object3d.visible, barrel: board.props.get('barrel').object3d.visible, veil: board.veilSight.object3d.visible, veilBlocks: board.veilSight.object3d.geometry.getAttribute('position')?.count ?? 0, pov: board.veilPov.object3d.visible };
+    };
+    const hidden = { hero: !!board.map.tokens.find((t) => t.id === 'hero').hidden, gob: !!board.map.tokens.find((t) => t.id === 'gob').hidden };
+    const out = { hidden, barrelInSight: nearHero(barrel.x, barrel.z) };
+    board.setAtlasSight({ kind: 'unlit' }, null);
+    await settle();
+    out.unlit = { sight: board.sight, player: look('player'), gm: look('gm') };
+    board.setAtlasSight(ready(['hero'], nearHero), null);
+    await settle();
+    out.ready = { sight: board.sight && [...board.sight].sort(), player: look('player'), gm: look('gm') };
+    board.setAtlasSight({ kind: 'pending' }, null);
+    await settle();
+    out.pending = { player: look('player'), gm: look('gm') };
+    // A point of view the GM previews: Atlas's sight of the goblin alone, on the GM's board.
+    board.setPov('gob');
+    board.setAtlasSight({ kind: 'unlit' }, ready([], (x, y) => !nearHero(x, y)));
+    await settle();
+    out.pov = { gm: look('gm') };
+    board.setPov(null);
+    board.setAtlasSight({ kind: 'unlit' }, null);
+    await settle();
+    out.after = { sight: board.sight, gm: look('gm'), player: look('player') };
+    board.showFor('gm');
+    return out;
   });
-  const mode = (look) => page.evaluate((look) => { const { board } = window.boardTest; board.setQuality({ ...board.quality, lineOfSight: look }); }, look);
-  // The hero stands in the room at the bottom (door shut in its north wall) and sees; the goblin is out in the common room.
-  await page.evaluate(() => {
-    const { board } = window.boardTest;
-    const hero = board.map.tokens.find((t) => t.id === 'hero');
-    board.changeToken('hero', { ...hero, x: 560, y: 910, sees: true });
-  });
-  await wait(600);
-  let now = await probe();
-  check('sight: off, nothing is hidden even where a token sees', now.sight === null && now.shown.gob === true && now.shown.hero === true, JSON.stringify(now));
-  await mode('everyone');
-  await wait(600);
-  now = await probe();
-  check('sight: the goblin outside the shut room is hidden from the hero inside it, and the hero is not', now.shown.gob === false && now.shown.hero === true, JSON.stringify(now));
-  check('sight: the prop outside is hidden too', now.shown['prop:barrel'] === false, JSON.stringify(now));
-  const veil = await page.evaluate(() => {
-    const { board } = window.boardTest;
-    const mesh = board.veilSight.object3d;
-    return { visible: mesh.visible, vertices: mesh.geometry.getAttribute('position')?.count ?? 0 };
-  });
-  check('sight: the unseen squares are covered by dark blocks on the GM board under Everyone', veil.visible && veil.vertices > 0, JSON.stringify(veil));
-  await shot('line-of-sight-everyone');
-  // Rays: the veil follows the lines of sight, not squares. A wall at an angle, the hero in the open in front of it.
-  const keptMap = await page.evaluate(() => window.boardTest.board.map);
-  await page.evaluate(async () => {
-    const { board } = window.boardTest;
-    const d = { id: 'slant', type: 'solid', p1: { x: 500, y: 700 }, p2: { x: 700, y: 500 }, direction: null, closed: true, locked: false, blocks: null, limited: false, chain: null };
-    const tokens = board.map.tokens.map((t) => (t.id === 'hero' ? { ...t, x: 420, y: 420, sees: true } : t));
-    await board.load({ ...board.map, walls: [d], tokens });
-  });
-  await wait(700);
-  const slant = await page.evaluate(() => { const m = window.boardTest.board.sightMasks?.sight; return { exact: !!m?.unseen, before: m?.seenAt(590, 590), behind: m?.seenAt(615, 615), side: m?.seenAt(900, 200) }; });
-  // (590, 590) is just in front of the wall's line, (615, 615) just behind it.
-  check('rays: the veil goes along the lines of sight, not by squares (just in front of a slanted wall seen, just behind it not)', slant.exact && slant.before === true && slant.behind === false && slant.side === true, JSON.stringify(slant));
-  await shot('line-of-sight-rays-slant');
-  await page.evaluate(async (kept) => { await window.boardTest.board.load(kept); }, keptMap);
-  await wait(400);
-  await mode('players');
-  await wait(400);
-  now = await probe();
-  check('sight: set to players, the GM board still shows everything', now.shown.gob === true, JSON.stringify(now));
-  await mode('everyone');
-  await page.evaluate(async () => {
-    const { board, map } = window.boardTest;
-    const open = { ...board.map, walls: board.map.walls.map((w) => (w.id === 'door' ? { ...w, closed: false } : w)) };
-    await board.load(open);
-  });
-  await wait(600);
-  now = await probe();
-  check('sight: with the door open the goblin in line with it is in view again', now.shown.gob === true && now.sight.includes('t:gob'), JSON.stringify(now));
-  // Atlas 0.14: a defeated token (hp spent) gives no sight; with every seer defeated the players see nothing.
-  await page.evaluate(() => {
-    const { board } = window.boardTest;
-    const hero = board.tokens.get('hero').token;
-    board.changeToken('hero', { ...hero, resources: { ...hero.resources, hp: { current: 0, max: hero.resources?.hp?.max ?? 10 } } });
-  });
-  await wait(600);
-  now = await probe();
-  check('sight: a defeated token gives no sight (Atlas 0.14): the goblin it saw is out of view', now.shown.gob === false && !now.sight.includes('t:gob'), JSON.stringify(now));
-  await page.evaluate(() => {
-    const { board } = window.boardTest;
-    const hero = board.tokens.get('hero').token;
-    board.changeToken('hero', { ...hero, resources: { ...hero.resources, hp: { current: hero.resources.hp.max || 10, max: hero.resources.hp.max || 10 } } });
-  });
-  await wait(600);
-  now = await probe();
-  check('sight: healed, the hero sees the goblin again', now.shown.gob === true, JSON.stringify(now));
-  // Previewing a token's point of view, from its right-click menu, with the setting off.
-  await mode('off');
-  await page.evaluate(async () => {
-    const { board } = window.boardTest;
-    const closed = { ...board.map, walls: board.map.walls.map((w) => (w.id === 'door' ? { ...w, closed: true } : w)) };
-    await board.load(closed);
-  });
-  await wait(500);
-  const menu = (label) => page.evaluate((label) => {
-    window.boardTest.board.host.tokenMenu('hero', { clientX: 200, clientY: 200 });
-    const items = [...document.querySelectorAll('.atlas-ctx-item')];
-    const labels = items.map((item) => item.textContent.trim());
-    const found = items.find((item) => item.textContent.trim() === label);
-    found?.click();
-    return labels;
-  }, label);
-  const before = await menu('Preview POV');
-  check('pov: the token menu offers Preview POV', before.includes('Preview POV') && !before.includes('Stop POV'), JSON.stringify(before));
-  await wait(500);
-  now = await probe();
-  const chip = await page.evaluate(() => { const c = document.querySelector('.atlas-tabletop-pov'); return c && !c.hidden ? c.textContent : null; });
-  check('pov: from the hero inside the shut room the goblin is hidden on the GM board, with the setting off', now.shown.gob === false && now.shown.hero === true && chip && chip.includes('Stop POV'), JSON.stringify({ now, chip }));
-  await shot('pov-preview');
-  const again = await menu('Stop POV');
-  check('pov: its menu now offers Stop POV, and choosing it ends the preview', again.includes('Stop POV') && !again.includes('Preview POV'), JSON.stringify(again));
-  await wait(500);
-  now = await probe();
-  const gone = await page.evaluate(() => { const c = document.querySelector('.atlas-tabletop-pov'); return !c || c.hidden; });
-  check('pov: everything is shown again and the chip goes', now.shown.gob === true && gone, JSON.stringify({ now, gone }));
-  await mode('off');
-  await wait(400);
-  now = await probe();
-  // The cinematic style: the whole sealed room, then the whole outside once its door is open.
-  const style = (look) => page.evaluate((look) => { const { board } = window.boardTest; board.setQuality({ ...board.quality, sightStyle: look }); }, look);
-  const reload = (open) => page.evaluate(async (open) => {
-    const { board } = window.boardTest;
-    await board.load({ ...board.map, walls: board.map.walls.map((w) => (w.id === 'door' ? { ...w, closed: !open } : w)) });
-  }, open);
-  await reload(false);
-  await mode('everyone');
-  await style('cinematic');
-  await wait(600);
-  now = await probe();
-  // How much of the map is in sight, in squares: by the rooms seen (cinematic), else the squares seen.
-  const cells = () => page.evaluate(() => {
-    const m = window.boardTest.board.sightMasks?.sight;
-    if (!m) return null;
-    if (m.squares) return m.squares.reduce((a, b) => a + b, 0);
-    const g = window.boardTest.board.map.grid.size;
-    const area = (poly) => Math.abs(poly.reduce((sum, p, i) => { const q = poly[(i + 1) % poly.length]; return sum + p.x * q.y - q.x * p.y; }, 0) / 2);
-    return m.rooms.rooms.rooms.reduce((sum, room, i) => sum + (m.rooms.seen[i] ? area(room.outer) - room.holes.reduce((h, hole) => h + area(hole), 0) : 0), 0) / (g * g);
-  });
-  check('cinematic: sight goes by the rooms the walls make', await page.evaluate(() => !!window.boardTest.board.sightMasks?.sight?.rooms));
-  const sealed = await cells();
-  check('cinematic: sealed in the room the hero sees only the room (a handful of squares) and the goblin outside is hidden', sealed > 0 && sealed < 40 && now.shown.gob === false && now.shown.hero === true, JSON.stringify({ sealed, shown: now.shown }));
-  await shot('line-of-sight-cinematic-sealed');
-  await reload(true);
-  await wait(600);
-  now = await probe();
-  const opened = await cells();
-  check('cinematic: with the door open the hero sees the whole outside (most of the map), goblins included', opened > 150 && now.shown.gob === true && now.shown.gob2 === true, JSON.stringify({ opened, shown: now.shown }));
-  await shot('line-of-sight-cinematic-open');
-  // A room at an angle, off the grid: hidden and shown along its own walls, not by squares.
-  const kept = await page.evaluate(() => window.boardTest.board.map);
-  await page.evaluate(async () => {
-    const { board } = window.boardTest;
-    const d = (id, x1, y1, x2, y2) => ({ id, type: 'solid', p1: { x: x1, y: y1 }, p2: { x: x2, y: y2 }, direction: null, closed: true, locked: false, blocks: null, limited: false, chain: null });
-    // A diamond round (560, 560), its corners off the squares' lines.
-    const walls = [d('d1', 560, 383, 737, 560), d('d2', 737, 560, 560, 737), d('d3', 560, 737, 383, 560), d('d4', 383, 560, 560, 383)];
-    const tokens = board.map.tokens.map((t) => (t.id === 'hero' ? { ...t, x: 560, y: 560, sees: true } : t.id === 'gob' ? { ...t, x: 640, y: 470, sees: false } : t.id === 'gob2' ? { ...t, x: 665, y: 445, sees: false } : t));
-    await board.load({ ...board.map, walls, tokens });
-  });
-  await wait(700);
-  now = await probe();
-  const diamond = await page.evaluate(() => { const m = window.boardTest.board.sightMasks?.sight; return { rooms: !!m?.rooms, inside: m?.seenAt(640, 470), outside: m?.seenAt(665, 445), far: m?.seenAt(100, 100) }; });
-  // (640, 470) is just inside the diamond's edge and (665, 445) just outside it; both lie in squares the edge cuts through.
-  check('cinematic, a room at an angle: what is just inside its wall is seen, what is just outside is not', diamond.rooms && diamond.inside === true && diamond.outside === false && diamond.far === false && now.shown.gob === true && now.shown.gob2 === false, JSON.stringify({ diamond, gob: now.shown.gob, gob2: now.shown.gob2 }));
-  check('cinematic, a room at an angle: the veil covers what is outside it', await page.evaluate(() => { const g = window.boardTest.board.veilSight.object3d.geometry; return (g.getAttribute('position')?.count ?? 0) > 0; }));
-  await shot('line-of-sight-cinematic-diamond');
-  await page.evaluate(async (kept) => { await window.boardTest.board.load(kept); }, kept);
-  await wait(400);
-  // Scenes stacked above are blacked out under line of sight, the ones below stay.
-  await page.evaluate(() => {
-    const { board, map } = window.boardTest;
-    const layer = (path, elevation) => ({
-      path, elevation, map: { ...map, path, background: 'bg.png', fog: [], inks: [], texts: [], icons: [], pins: [], initiative: null, tokens: [], walls: [], lights: [] },
-      wallHeight: () => null, wallMaterial: () => null, doorProp: () => null, lightHeight: () => 1, fogHeight: 1, wallThickness: 0.12, props: [], placement: () => null, style: () => 'disc',
-    });
-    board.setStack([layer('up.atlasmap', 2), layer('down.atlasmap', -2)]);
-  });
-  await wait(800);
-  const levels = () => page.evaluate(() => Object.fromEntries([...window.boardTest.board.layerViews].map(([path, view]) => [path, view.object3d.visible])));
-  let seenLevels = await levels();
-  const shades = await page.evaluate(() => Object.fromEntries([...window.boardTest.board.layerViews].map(([path, view]) => [path, { shadow: view.floor.material === view.shade, content: view.content.visible, drawn: view.floor.visible }])));
-  check('sight layers: with line of sight on, the scene above is drawn as a black shadow (nothing standing on it) and the one below is shown as it is', seenLevels['up.atlasmap'] === true && seenLevels['down.atlasmap'] === true && shades['up.atlasmap'].shadow && !shades['up.atlasmap'].content && shades['up.atlasmap'].drawn && !shades['down.atlasmap'].shadow && shades['down.atlasmap'].content, JSON.stringify({ seenLevels, shades }));
-  await shot('line-of-sight-layer-shadow');
-  // Under Hidden the shadow is not drawn either, as the image is not.
-  await page.evaluate(() => { const { board } = window.boardTest; board.setQuality({ ...board.quality, layerLook: 'transparent' }); });
-  await wait(1000);
-  const hiddenShadow = await page.evaluate(() => window.boardTest.board.layerViews.get('up.atlasmap').floor.visible);
-  check('sight layers: under Hidden the shadow of the layer above is not drawn', hiddenShadow === false);
-  await page.evaluate(() => { const { board } = window.boardTest; board.setQuality({ ...board.quality, layerLook: 'solid' }); });
-  // The layer menu down the right: highest first, the shown scene marked, one click on another switches.
-  await page.evaluate(() => window.boardTest.board.setLayerMenu([{ path: 'up.atlasmap', name: 'up', elevation: 2, active: false }, { path: 'maps/tavern.atlasmap', name: 'tavern', elevation: 0, active: true }, { path: 'down.atlasmap', name: 'down', elevation: -2, active: false }]));
-  const items = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-layers__item')].map((el) => [el.textContent, el.classList.contains('is-active'), Math.round(parseFloat(el.style.bottom))]));
-  const dashes = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-layers__tick')].map((el) => el.title));
-  check('layers ruler: a marker per scene on the rail, the lowest at the bottom and the highest at the top, the shown one marked', items.length === 3 && items[0][0] === '+2up' && items[1][1] === true && items[2][0] === '-2down' && items[2][2] === 0 && items[0][2] > items[1][2] && items[1][2] > items[2][2], JSON.stringify(items));
-  check('layers ruler: a dash every two squares between the lowest and the highest by default', JSON.stringify(dashes) === JSON.stringify(['-2', '0', '2']), JSON.stringify(dashes));
-  await page.evaluate(() => { const { board } = window.boardTest; board.setQuality({ ...board.quality, layerTick: 1 }); });
-  const finer = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-layers__tick')].map((el) => el.title));
-  check('layers ruler: the step is a setting: a dash every square when set to one', JSON.stringify(finer) === JSON.stringify(['-2', '-1', '0', '1', '2']), JSON.stringify(finer));
-  await page.evaluate(() => { const { board } = window.boardTest; board.setQuality({ ...board.quality, layerTick: 2 }); });
-  await shot('layer-menu');
-  await page.locator('.atlas-tabletop-layers__item').first().click();
-  await page.locator('.atlas-tabletop-layers__item.is-active').click({ force: true }).catch(() => {});
-  const switched = (await page.evaluate(() => window.boardTest.record.sceneTabs)).filter((entry) => entry[0] === 'layer');
-  check('layers menu: clicking another scene switches to it, clicking the shown one does nothing', JSON.stringify(switched) === JSON.stringify([['layer', 'up.atlasmap']]), JSON.stringify(switched));
-  // The camera glides: after a switch it stays on the old floor, then eases to the new one.
-  const glide = await page.evaluate(async () => {
-    const { board } = window.boardTest;
-    board.camera.pose.target.y = 0; board.camera.goal.target.y = 0;
-    board.reorigin(-140);
-    const start = board.camera.pose.target.y;
-    await new Promise((resolve) => setTimeout(resolve, 900));
-    return { start, end: board.camera.pose.target.y };
-  });
-  check('layers menu: the camera starts on the old floor and glides to the new one', glide.start === -140 && Math.abs(glide.end) < 20, JSON.stringify(glide));
-  await page.evaluate(() => window.boardTest.board.setLayerMenu(null));
-  const menuHidden = await page.evaluate(() => document.querySelector('.atlas-tabletop-layers').hidden);
-  check('layers menu: it hides when there is no stack', menuHidden === true);
-  await mode('off');
-  await wait(500);
-  seenLevels = await levels();
-  check('sight layers: with it off both are shown again', seenLevels['up.atlasmap'] === true && seenLevels['down.atlasmap'] === true, JSON.stringify(seenLevels));
-  await page.evaluate(() => window.boardTest.board.setStack([]));
-  await style('rays');
-  await reload(false);
-  await wait(500);
-  now = await probe();
-  check('sight: off again, everything is shown', now.sight === null && Object.values(now.shown).every((v) => v === true || v === false) && now.shown.gob === true, JSON.stringify(now));
+  check('sight: an unlit scene hides nothing, on the GM board or the players\'', seen.unlit.sight === null && seen.unlit.gm.gob && seen.unlit.gm.hero && !seen.unlit.player.veil && seen.unlit.player.hero === !seen.hidden.hero, JSON.stringify(seen.unlit));
+  check('sight: players see the token Atlas shows them, and not the one it does not; the dark of its raster is veiled', seen.ready.player.hero === !seen.hidden.hero && seen.ready.player.gob === false && seen.ready.player.veil && seen.ready.player.veilBlocks > 0, JSON.stringify(seen.ready));
+  check('sight: a prop is in the players\' picture only where Atlas shows them the map', seen.ready.player.barrel === seen.barrelInSight, JSON.stringify({ barrel: seen.ready.player.barrel, inSight: seen.barrelInSight }));
+  check('sight: the GM\'s own board shows everything, unveiled, as Atlas\'s GM view', seen.ready.gm.gob && seen.ready.gm.hero && !seen.ready.gm.veil, JSON.stringify(seen.ready.gm));
+  check('sight: not known yet (pending), players are shown nothing and the map is veiled whole', !seen.pending.player.hero && !seen.pending.player.gob && seen.pending.player.veil && seen.pending.player.veilBlocks > 0 && seen.pending.gm.gob, JSON.stringify(seen.pending));
+  check('sight: a previewed point of view is Atlas\'s sight of that token: itself seen, what it does not see hidden, its veil on the GM board', seen.pov.gm.gob && !seen.pov.gm.hero && seen.pov.gm.pov, JSON.stringify(seen.pov));
+  check('sight: after it, the board shows everything again', seen.after.sight === null && seen.after.gm.gob && seen.after.gm.hero && !seen.after.gm.pov, JSON.stringify(seen.after));
+  await shot('line-of-sight-atlas');
 });
 
 // ── Placing a scene of a stack on the plane beyond its height: handles in the middle of the view ───────────────

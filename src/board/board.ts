@@ -47,9 +47,11 @@ import { stripGeometry } from './surface';
 import { addCutaway, newCutaway } from './cutaway';
 import { connectedTiles, inSight, seenTiles, tilesFor, visibilityPolygon, type SightMode, type SightStyle } from './lineOfSight';
 import { buildRooms, insidePolygon, roomAt, roomTolerance, seenRooms, unseenAreas, type Rooms, type SightArea } from './sightRooms';
+import { UNLIT, type BoardSight, type SightCells } from './atlasSight';
 
 /** What a viewer has in sight: by squares (rays, or a map that would not cut into rooms) or by rooms (cinematic); and a point's answer. */
-type SeenMask = { readonly seenAt: (x: number, y: number) => boolean; readonly squares?: Uint8Array; readonly rooms?: { readonly rooms: Rooms; readonly seen: Uint8Array }; readonly unseen?: readonly SightArea[] };
+/** Where the map is seen, by Atlas's raster. */
+type SeenMask = { readonly seenAt: (x: number, y: number) => boolean; readonly cells: SightCells };
 import { SightVeil } from './sightVeil';
 import { LayerRuler } from './layerRuler';
 import { PlacementGizmo, type GizmoPart } from './placementGizmo';
@@ -183,6 +185,8 @@ function accent(element: HTMLElement): string {
 }
 
 export interface BoardHost {
+  /** The GM previews another token's point of view (null: none): the host asks Atlas for its sight (fusion 4D). */
+  povChanged?(id: string | null): void;
   /** The map's water (Atlas's liquids as outlines, an old saved mask, or both; and its motion), for the board to draw. */
   water?(): WaterSource | null;
   /**
@@ -669,27 +673,28 @@ export class Board {
   private nextKey: string | null = null;
   private readonly layerViews = new Map<string, ElevationLayerView>();
   /**
-   * What the tokens that see have in sight (line of sight, lineOfSight.ts): the keys `t:<token id>` and `p:<prop id>` of
-   * what stands in view, or null while the setting is off or no token sees (nothing is hidden then). `sightKey` is what
-   * it was worked out from, so it is worked out again only when a viewer, a piece or a shut door changed.
+   * What players are shown of the lit scene, as Atlas works it out (`setAtlasSight`, fusion 4D): the keys
+   * `t:<token id>` and `p:<prop id>` of what stands in their sight, or null while the scene is unlit (nothing is
+   * hidden then). `sightKey` is what it was worked out from.
    */
   private sight: Set<string> | null = null;
   private sightKey = '';
-  /** The token whose point of view the GM is previewing ("Preview POV"): its line of sight alone hides what is behind walls, on the GM's board only. */
+  /** Atlas's answer for players, and for the point of view being previewed; both unlit until the host answers. */
+  private atlasSight: BoardSight = UNLIT;
+  private atlasPov: BoardSight = UNLIT;
+  /** Counts the answers handed in, so sight is worked out again only when one came. */
+  private sightRevision = 0;
+  /** The token whose point of view the GM is previewing ("Preview POV"): Atlas's sight of it alone, on the GM's board only. */
   private pov: string | null = null;
   private povSight: Set<string> | null = null;
-  /** The unseen squares of the board as dark blocks: of the tokens that see, and of the point of view being previewed. */
+  /** Where the map is seen: by players, and from the point of view being previewed. */
   private sightMasks: { sight: SeenMask | null; pov: SeenMask | null } | null = null;
-  /** The rooms the walls cut the map into, for cinematic sight: kept while the walls stay where they are. */
-  private roomCache: { key: string; rooms: Rooms | null } | null = null;
   private layerRuler: LayerRuler | null = null;
   /** The handles the AR table is placed with, and where it stands as they are dragged. */
   private gizmo: PlacementGizmo | null = null;
   private adjustPlacement: Placement = NO_PLACEMENT;
   private readonly veilSight = new SightVeil();
   private readonly veilPov = new SightVeil();
-  /** The shut or open state and the shape of the map's walls as a string, kept while the map is the same one. */
-  private sightWalls: { map: BoardMap; rules: string; signature: string } | null = null;
   /** What the cast spells' rules stand on the map while they last (`spellRules.ts`): walls, and lights or darkness. */
   private ruleWalls: BoardWall[] = [];
   private ruleLights: BoardLight[] = [];
@@ -697,7 +702,7 @@ export class Board {
   /** The rules the aimed spell's drawing shows. */
   private spellPreviewRules = '';
   private ruleDecals: THREE.Mesh[] = [];
-  /** Whether the pieces were last drawn under the GM's sight setting: they are shown again when it goes. */
+  /** Whether the pieces were last drawn under a previewed point of view: they are shown again when it ends. */
   private sightApplied = false;
   private map: BoardMap | null = null;
   private size = { width: 0, height: 0 };
@@ -1160,96 +1165,61 @@ export class Board {
     this.wake(true);
   }
 
-  /** Works out what the tokens that see have in sight now, when anything that decides it changed; true when the answer changed. */
+  /**
+   * Hands the board what Atlas shows players of the lit scene (`players`), and what the previewed point of view sees
+   * (`pov`, null without one): the shared player visibility reader's answers for the Atlas tab that holds the map.
+   */
+  setAtlasSight(players: BoardSight, pov: BoardSight | null): void {
+    this.atlasSight = players;
+    this.atlasPov = pov ?? UNLIT;
+    this.sightRevision++;
+    this.wake(true);
+  }
+
+  /** Works out what stands in sight from Atlas's answers, when anything that decides it changed; true when the answer changed. */
   private refreshSight(): boolean {
     const map = this.map;
-    if (this.pov !== null && !this.tokens.has(this.pov)) { this.pov = null; this.showPovChip(); }
-    if (!map || (this.quality.lineOfSight === 'off' && this.pov === null)) {
+    if (this.pov !== null && !this.tokens.has(this.pov)) { this.pov = null; this.showPovChip(); this.host.povChanged?.(null); }
+    const players = this.atlasSight;
+    const pov = this.pov !== null ? this.atlasPov : UNLIT;
+    if (!map || (players.kind === 'unlit' && pov.kind === 'unlit')) {
       const had = this.sight !== null || this.povSight !== null;
       this.sight = null;
       this.povSight = null;
       this.sightKey = '';
+      this.sightMasks = null;
       this.veilSight.clear();
       this.veilPov.clear();
       return had;
     }
-    // A hidden token gives players no sight (Atlas 0.7); a token that sees is always in sight of itself. A point of view
-    // being previewed is that one token's, whatever it has vision on or not.
-    // A defeated token (a defeating resource spent) gives no sight either (Atlas 0.14); when every token that sees is
-    // defeated, the players see nothing rather than everything.
-    const seers = [...this.tokens.values()].filter((entry) => entry.token.sees && !entry.token.hidden);
-    const viewers = seers.filter((entry) => !entry.piece.downed);
-    const blind = seers.length > 0 && viewers.length === 0;
-    const lookingFrom = this.pov !== null ? this.tokens.get(this.pov) ?? null : null;
     const pieces = [
-      ...[...this.tokens.values()].map((entry) => ({ key: `t:${entry.token.id}`, at: { x: entry.at.x, y: entry.at.y } })),
-      ...[...this.props.values()].map((piece) => ({ key: `p:${piece.id}`, at: { x: piece.object3d.position.x, y: piece.object3d.position.z } })),
+      ...[...this.tokens.values()].map((entry) => ({ key: `t:${entry.token.id}`, token: entry.token.id, at: { x: entry.at.x, y: entry.at.y } })),
+      ...[...this.props.values()].map((piece) => ({ key: `p:${piece.id}`, token: null, at: { x: piece.object3d.position.x, y: piece.object3d.position.z } })),
     ];
     // Positions are judged to an eighth of a square, so a token gliding along does not ask again at every frame.
     const quantum = Math.max(2, map.grid.size / 8);
     const round = (value: number): number => Math.round(value / quantum) * quantum;
-    const viewerPoints = viewers.map((entry) => ({ x: round(entry.at.x), y: round(entry.at.y) }));
-    const piecePoints = pieces.map((piece) => ({ key: piece.key, at: { x: round(piece.at.x), y: round(piece.at.y) } }));
-    // The map's walls and those the spells cast stand (a wall of stone, a fog's edge).
-    const walls = this.ruleWalls.length > 0 ? [...map.walls, ...this.ruleWalls] : map.walls;
-    if (this.sightWalls?.map !== map || this.sightWalls.rules !== this.ruleKey) {
-      this.sightWalls = { map, rules: this.ruleKey, signature: JSON.stringify(walls.map((wall) => [wall.id, wall.closed ? 1 : 0, wall.p1, wall.p2, wall.type, wall.blocks, wall.direction, wall.limited])) };
-    }
-    const povPoint = lookingFrom ? { x: round(lookingFrom.at.x), y: round(lookingFrom.at.y) } : null;
     // The blocks stand as tall as the tallest wall, so nothing of an unseen square shows over them.
     const wallHeights = map.walls.map((wall) => this.host.wallHeight(wall.id) ?? 0);
     const veilHeight = Math.max(MIN_WALL_SQUARES, this.host.fogHeight(), ...wallHeights) * map.grid.size * 1.02;
-    const key = JSON.stringify([viewerPoints, blind, povPoint, this.pov, this.quality.sightStyle, veilHeight, this.size, map.grid.size, map.grid.offsetX, map.grid.offsetY, piecePoints.map((piece) => [piece.key, piece.at.x, piece.at.y])]) + this.sightWalls.signature;
+    const key = JSON.stringify([this.sightRevision, this.pov, veilHeight, this.size, pieces.map((piece) => [piece.key, round(piece.at.x), round(piece.at.y)])]);
     if (key === this.sightKey) return false;
     this.sightKey = key;
-    // The squares no viewer has in sight, as blocks over the board; the pieces on them are hidden with them.
-    const tiles = tilesFor(this.size.width, this.size.height, map.grid.size, map.grid.offsetX, map.grid.offsetY);
-    const bounds = { x0: 0, y0: 0, x1: this.size.width, y1: this.size.height };
-    const cinematic = this.quality.sightStyle === 'cinematic';
-    const bySquares = (squares: Uint8Array): SeenMask => ({
-      squares,
-      seenAt: (x, y) => {
-        const col = Math.floor((x - tiles.startX) / tiles.size);
-        const row = Math.floor((y - tiles.startY) / tiles.size);
-        return col >= 0 && col < tiles.cols && row >= 0 && row < tiles.rows && squares[row * tiles.cols + col] === 1;
-      },
-    });
-    // Cinematically by the rooms the walls make (any angle, off the grid); by the grid's squares when the map does not cut into rooms.
-    const rooms = cinematic ? this.roomsOf(map) : null;
-    const mask = (points: Array<{ x: number; y: number }>): SeenMask => {
-      if (cinematic) {
-        const seen = rooms ? seenRooms(rooms, points, walls) : null;
-        if (rooms && seen) return { rooms: { rooms, seen }, seenAt: (x, y) => { const room = roomAt(rooms, { x, y }); return room !== -1 && seen[room] === 1; } };
-        return bySquares(connectedTiles(points, walls, tiles));
-      }
-      // By rays: each viewer's sight polygon; the veil is the map less all of them, along the lines of sight themselves.
-      const polygons = points.map((point) => visibilityPolygon(point, walls, bounds));
-      try {
-        const unseen = unseenAreas(polygons, this.size.width, this.size.height);
-        const boxes = polygons.map((polygon) => ({ x0: Math.min(...polygon.map((p) => p.x)), y0: Math.min(...polygon.map((p) => p.y)), x1: Math.max(...polygon.map((p) => p.x)), y1: Math.max(...polygon.map((p) => p.y)) }));
-        return {
-          unseen,
-          seenAt: (x, y) => points.some((point) => Math.abs(point.x - x) < 1 && Math.abs(point.y - y) < 1)
-            || polygons.some((polygon, index) => { const box = boxes[index]!; return x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1 && insidePolygon({ x, y }, polygon); }),
-        };
-      } catch (error) {
-        console.warn('Tabletop: the sight polygons would not combine; the veil goes by squares.', error);
-        return bySquares(seenTiles(polygons, points, tiles));
-      }
-    };
-    // Cinematically a piece is seen when the place it stands is; by rays, when a line from a viewer reaches it.
-    const onSeen = (seen: SeenMask): Set<string> => new Set(piecePoints.filter((piece) => seen.seenAt(piece.at.x, piece.at.y)).map((piece) => piece.key));
-    const sightMask = seers.length === 0 || this.quality.lineOfSight === 'off' ? null : mask(viewerPoints);
-    const seen = sightMask === null ? null : blind ? new Set<string>() : cinematic ? onSeen(sightMask) : inSight(viewerPoints, piecePoints, walls);
-    for (const entry of viewers) seen?.add(`t:${entry.token.id}`);
-    const povMask = povPoint ? mask([povPoint]) : null;
-    const from = povMask === null ? null : cinematic ? onSeen(povMask) : inSight([povPoint!], piecePoints, walls);
-    from?.add(`t:${this.pov}`);
+    // Not known yet: nothing is seen, and the whole map is veiled.
+    const whole: SightCells = { cellSize: Math.max(this.size.width, this.size.height, 1), cols: 1, rows: 1, shown: new Uint8Array(1) };
+    const maskOf = (sight: BoardSight): SeenMask | null => sight.kind === 'unlit' ? null
+      : sight.kind === 'pending' ? { cells: whole, seenAt: () => false } : { cells: sight.cells, seenAt: sight.seenAt };
+    const sightMask = maskOf(players);
+    const povMask = maskOf(pov);
+    // Players: the tokens Atlas shows them, and the props where they see the map.
+    const seen = sightMask === null ? null : new Set(pieces.filter((piece) => (piece.token !== null ? players.kind === 'ready' && players.seen.has(piece.token) : sightMask.seenAt(piece.at.x, piece.at.y))).map((piece) => piece.key));
+    // A point of view: what stands where that token sees the map, and the token itself.
+    const from = povMask === null ? null : new Set(pieces.filter((piece) => piece.token === this.pov || povMask.seenAt(piece.at.x, piece.at.y)).map((piece) => piece.key));
     this.sightMasks = { sight: sightMask, pov: povMask };
-    const veil = (target: SightVeil, seen: SeenMask | null): void => {
-      if (seen?.rooms) target.updateRooms(seen.rooms.rooms, seen.rooms.seen, veilHeight);
-      else if (seen?.unseen) target.updateAreas(seen.unseen, veilHeight);
-      else target.update(seen?.squares ?? null, tiles, this.size, veilHeight);
+    const veil = (target: SightVeil, mask: SeenMask | null): void => {
+      if (!mask) { target.clear(); return; }
+      const { cellSize, cols, rows, shown } = mask.cells;
+      target.update(shown, { cols, rows, size: cellSize, startX: 0, startY: 0 }, this.size, veilHeight);
     };
     veil(this.veilSight, sightMask);
     veil(this.veilPov, povMask);
@@ -1270,6 +1240,7 @@ export class Board {
     const next = id !== null && this.tokens.has(id) ? id : null;
     if (next === this.pov) return;
     this.pov = next;
+    this.host.povChanged?.(next);
     this.sightKey = '';
     this.shadowsDirty = true;
     this.showPovChip();
@@ -1308,23 +1279,9 @@ export class Board {
     if (!masks || (this.reveal && viewer === 'player')) return false;
     let mask: SeenMask | null = null;
     if (viewer === 'gm' && masks.pov) mask = masks.pov;
-    else if (masks.sight && (viewer === 'player' || this.quality.lineOfSight === 'everyone')) mask = masks.sight;
+    else if (masks.sight && viewer === 'player') mask = masks.sight;
     if (!mask) return false;
     return !mask.seenAt(x, y);
-  }
-
-  /** The rooms the map's walls cut it into (null: they make none), worked out again only when a wall moves. */
-  private roomsOf(map: BoardMap): Rooms | null {
-    const key = JSON.stringify([this.size.width, this.size.height, map.grid.size, map.walls.map((wall) => [wall.id, wall.p1.x, wall.p1.y, wall.p2.x, wall.p2.y])]);
-    if (this.roomCache?.key === key) return this.roomCache.rooms;
-    let rooms: Rooms | null = null;
-    try {
-      rooms = buildRooms(map.walls, this.size.width, this.size.height, roomTolerance(map.grid.size));
-    } catch (error) {
-      console.warn('Tabletop: the walls would not cut into rooms; cinematic sight goes by squares.', error);
-    }
-    this.roomCache = { key, rooms };
-    return rooms;
   }
 
   /** Whether a piece is beyond what the tokens that see have in sight, as `viewer` sees the board. */
@@ -1333,7 +1290,8 @@ export class Board {
     // A point of view being previewed is the GM's board alone: players are shown what the tokens that see have in sight.
     if (viewer === 'gm' && this.povSight !== null) return !this.povSight.has(key);
     if (this.sight === null) return false;
-    if (viewer === 'gm' && this.quality.lineOfSight !== 'everyone') return false;
+    // The GM's own board shows everything, as Atlas's GM view does.
+    if (viewer === 'gm') return false;
     return !this.sight.has(key);
   }
 
@@ -1352,7 +1310,6 @@ export class Board {
     const rounder = preset.edges !== this.quality.edges || preset.displaceCuts !== this.quality.displaceCuts;
     const seeing = preset.seeThrough !== this.quality.seeThrough || preset.seeThroughSize !== this.quality.seeThroughSize;
     if (preset.layerTick !== this.quality.layerTick) this.layerRuler?.setTick(preset.layerTick);
-    if (preset.lineOfSight !== this.quality.lineOfSight || preset.sightStyle !== this.quality.sightStyle) { this.sightKey = ''; this.wake(true); }
     const restack = (this.layerViews.size > 0 || this.stackData.length > 0)
       && (preset.layerLook !== this.quality.layerLook || rounder || preset.miniShadows !== this.quality.miniShadows);
     this.quality = preset;
@@ -1866,8 +1823,8 @@ export class Board {
         return;
       }
     }
-    // The GM's board follows the line of sight when the setting says Everyone, and goes back to showing everything when it does not.
-    else if (this.povSight !== null || (this.sight !== null && this.quality.lineOfSight === 'everyone')) {
+    // The GM's board follows a previewed point of view, and goes back to showing everything after it.
+    else if (this.povSight !== null) {
       this.showFor('gm');
       this.sightApplied = true;
     } else if (this.sightApplied) {
@@ -4647,15 +4604,15 @@ export class Board {
     } else if (this.secretSpells) for (const kept of this.spellViews.values()) kept.view.object3d.visible = true;
     this.secretSpells = this.castSpells.some((cast) => cast.gmOnly);
     if (this.gizmo) this.gizmo.object3d.visible = gm;
-    // The unseen squares: the players' view always, the GM's board under Everyone, or the point of view being previewed.
+    // The unseen squares: the players' view always, or the point of view being previewed on the GM's board.
     this.veilPov.object3d.visible = gm && this.povSight !== null;
-    this.veilSight.object3d.visible = !revealed && this.sight !== null && (!gm || (this.quality.lineOfSight === 'everyone' && this.povSight === null));
+    this.veilSight.object3d.visible = !revealed && this.sight !== null && !gm;
     // The GM's player window shows one scene at a time: what is stacked on it is the GM's. A Connect player's own board
     // shows the scenes stacked with theirs, which Connect sends (their form, never what stands on them).
     // Under line of sight (the GM's board under Everyone, a point of view, or a player's board) the scenes stacked above
     // are blacked out as shadows, and the ones below stay.
     const ownBoard = !gm && this.audience === 'player';
-    const sighted = !revealed && ((gm && (this.povSight !== null || (this.sight !== null && this.quality.lineOfSight === 'everyone'))) || (ownBoard && this.sight !== null));
+    const sighted = !revealed && ((gm && this.povSight !== null) || (ownBoard && this.sight !== null));
     for (const view of this.layerViews.values()) {
       view.setVisible(gm || ownBoard);
       view.setBlackout(sighted && view.elevation > 0);

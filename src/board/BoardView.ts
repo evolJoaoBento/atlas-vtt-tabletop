@@ -83,6 +83,7 @@ import type { SoundSettings } from '../sound/soundSettings';
 import type { SoundLoader } from '../sound/customSounds';
 import { documentHasWebgl, NO_WEBGL_HELP, NO_WEBGL_TITLE } from '../webgl';
 import type { AtlasFloor, AtlasHost } from '../../packages/atlas-host/src/index';
+import { SightWatch } from './sightWatch';
 import { floorState } from '../atlasFloorGate';
 import { TABLETOP_ICON } from '../tabletopIcon';
 
@@ -262,6 +263,10 @@ export class BoardView extends ItemView {
   private initiative: InitiativePanel | null = null;
   /** The Atlas view holding this map, whose store is followed so its tracker shows each change at once. */
   private watched: { view: AtlasView; stop: () => void } | null = null;
+  /** What Atlas shows players of the lit scene, followed in the tab that holds the map (fusion 4D). */
+  private sightWatch: SightWatch | null = null;
+  /** The token whose point of view the GM previews on the board. */
+  private povId: string | null = null;
 
   constructor(leaf: WorkspaceLeaf, private readonly services: BoardServices) {
     super(leaf);
@@ -425,6 +430,8 @@ export class BoardView extends ItemView {
     this.menu?.close();
     this.watched?.stop();
     this.watched = null;
+    this.sightWatch?.dispose();
+    this.sightWatch = null;
     this.releaseHost?.();
     this.releaseHost = null;
     this.initiative?.dispose();
@@ -1384,6 +1391,7 @@ export class BoardView extends ItemView {
       spellBook: () => this.services.spellBook?.() ?? null,
       layerHidden: (path) => path !== this.path && boardData.layerHidden(levelOfKey(path) !== null ? `${this.path ?? ''}#${path}` : path),
       water: () => this.water(),
+      povChanged: (id) => { this.povId = id; this.followSight(); },
       saveWater: (mask) => this.saveWater(mapPath(), mask),
       saveWaterMotion: (motion) => this.saveWaterMotion(mapPath(), motion),
       undo: () => this.travel('undo'),
@@ -1948,8 +1956,19 @@ export class BoardView extends ItemView {
   // ── Initiative ────────────────────────────────────────────────────────────
 
   /** Follows the store of the Atlas view holding this map, if one does; the tracker shows what it holds. */
+  /** Hands the board Atlas's sight of its map, followed in the tab that holds it (none: pending or unlit, by the scene). */
+  private followSight(): void {
+    const board = this.board;
+    if (!board || this.closed) return;
+    this.sightWatch ??= new SightWatch((players, pov) => this.board?.setAtlasSight(players, pov));
+    const view = this.path ? this.services.writer.holder(this.path) : null;
+    const map = this.map && this.map.path === this.path ? { path: this.map.path, lighting: this.map.lighting, level: this.map.level } : null;
+    this.sightWatch.follow(view, map, this.povId);
+  }
+
   private watchAtlas(): void {
     const view = this.path && !this.closed ? this.services.writer.holder(this.path) : null;
+    this.followSight();
     // The host's own changes say when Atlas comes to hold the map, or lets go of it (`host.onChange`, in `onOpen`).
     if (this.watched?.view === view) return;
     this.watched?.stop();

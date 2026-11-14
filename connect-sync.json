@@ -1,6 +1,6 @@
 {
   "connect": {
-    "commit": "5304910c8a35305c10549b34edfa898ca4efeecb"
+    "commit": "0da006ea07abf5225096cee62364b19ff4f8194c"
   },
   "files": {
     "packages/atlas-shared/README.md": "4fde8a0601b6ef91d03051dbbda39e0faecf5ada86f9c7ccbad71308c6b70c5e",
@@ -85,10 +85,16 @@
     "packages/atlas-host/src/atlasFloor.ts": "405449d94ce817cec153c2e3b33e9d242bd096b518bfbf2940b2be5224aa911b",
     "packages/atlas-host/src/atlasHost.ts": "ea9e9e57b63f76411c7ff52297674a13115669c41ab05a96ec0a759a7f855488",
     "packages/atlas-host/src/hostLeaf.ts": "2aee06b918ec52d289f257b5d96f7df344c1f3d45b448dbd3350de447f19de8d",
-    "packages/atlas-host/src/index.ts": "a8ee07a4480dde384ca639fa346b6c947a3a27ae71849f5b566ce93e546a60ce",
+    "packages/atlas-host/src/index.ts": "e046d96eb86f7090c13fbe96d0729c1e10a25b1ba248821f270f2212bf8f5ad5",
+    "packages/atlas-host/src/lighting/darknessRaster.ts": "36a9bc33cc40129c64d0ff54ea751a58393adea323daf5bddfb7337ef4b875ad",
+    "packages/atlas-host/src/lighting/exploredMemory.ts": "1a8d41eedb15b63f2c35c6dc3c9ad8d9384f7ad399b8b73264b124c4cb32b656",
+    "packages/atlas-host/src/lighting/mapSize.ts": "1c447958e0e8e323d487ec0e2345598d8026d8864ff78237ca2a820199db4b66",
+    "packages/atlas-host/src/lighting/playerVisibility.ts": "e3117ac26134430b74b51099b18e2674ad206e8c626a41f132268da09c4aac92",
+    "packages/atlas-host/src/lighting/types.ts": "aae11da6bc036fc98bf45e47f37c332627a250a266fb120e09b28c9767411e66",
+    "packages/atlas-host/src/lighting/visionRules.ts": "b6f5ac99d924a6387ce50dfd150ad027ae802342f710399575c0d44e3daed490",
     "packages/atlas-host/src/pairing.ts": "fd2ea7bd297a48cf90b8b96926944ae33f6a766f7d80112ecd5c5cf201b04876",
     "packages/atlas-host/src/spellMeasure.ts": "38e26a2689d5712ac4232389499730a6faff6efb4fcc940cdd3490c3437bb687",
     "packages/atlas-host/src/wake.ts": "28986ec0911ac5e18b9cab496d71f8ad56f2f22c2a05edc2e4b70b8c77798cb2",
-    "src/connectWire.ts": "f1b83c706bf537226fa35c0aec4aba4117fb42f81030b4acd55e01fcd70c2bd6"
+    "src/connectWire.ts": "c2b4023a9a28f00a72fe6b11aed8f0895395523fc8d357212ccf120944dbf5cd"
   }
 }
