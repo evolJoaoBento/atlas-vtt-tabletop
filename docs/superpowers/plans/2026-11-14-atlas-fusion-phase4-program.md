@@ -29,7 +29,8 @@ at the end of each sub-plan.
 - **Triggers of the moves the spec gives no trigger for (section 6 names only migrations 1 and 3).** A move that loses
   nothing runs on its own, once per map, when Atlas comes to hold the map, with a backup first and one notice (as
   migration 1): the 3D extras (4A). A move that loses something asks first and asks again at each start until the GM
-  says Move (as migration 3): painted water, whose brush edges become polygons (4B), and the stacks (4C). Cost if
+  says Move (as migration 3): the stacks (4C). Painted water was first put here too; 4B's plan (D5) moved it to the
+  moves that run on their own, since its outlines lie within a sixteenth of a square of the brush's edge. Cost if
   wrong: a GM finds their wall settings moved without having been asked (the backup holds the old data.json and map).
 - **A backup is always written first**, to `Tabletop backups/<date>/` in the vault (`src/backups.ts`): the `.atlasmap`
   and Tabletop's data for it. A migration never deletes a backup and never writes a map file itself: every write goes

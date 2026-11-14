@@ -117,7 +117,7 @@ Stock Atlas has no API (audit, "Root finding"). Its rules and saving live in the
 | Wall overrides keyed by old room ids | re-keyed by endpoints (section 6) | 1 |
 | Tabletop spells, Connect templates and spells | `objects.measures` (+ Atlas walls, lights, map features) | 3 |
 | Map stacks (`MapData.layer` / `hidden`) | Atlas `state.levels` of the base scene | 4 |
-| Tabletop water mask | `objects.liquids` | 4 |
+| Tabletop water mask | `objects.liquids` (done in 4B: the brush's water carries its motion in a `tabletop` field; players get outlines) | 4 |
 | `lineOfSight` / `sightStyle` settings | Atlas `state.lighting.enabled` + `playerSight()` | 4 |
 | Dice colour list, die look | Atlas `getDiceLook()` + dice set colours | 4 |
 | 3D wall, door and light extras in data.json | a `tabletop` field on Atlas's wall, light and token records (done in 4A: G1w, G1l and a probe of tokens passed) | 4 |
@@ -155,6 +155,7 @@ All migrations follow the same rules:
    - Then delete Connect's rooms port. Tabletop keeps a read of `objects.rooms` only for 0.14 files that Atlas 0.15 has not saved yet.
 2. **Spells to measures (Phase 3).** Spells live in the board session, not in files, so none are saved to migrate. Lasting spells on boards that are open at upgrade are not carried over. Nothing is lost on disk.
    **3D extras onto records (Phase 4A).** What data.json kept by Atlas's ids (wall and door heights, widths, materials, window openings, door props and flips, light heights) goes onto the record of that id, in its `tabletop` field. It loses nothing Atlas still has a record for, so it runs on its own like migration 1, once per map, when Atlas holds the map, after the backup; a value whose record is gone stays in the backup only.
+   **Water to liquids (Phase 4B).** The brush mask data.json kept becomes brush-made liquids on the scene's first level (its outlines, its motion). It runs on its own like the extras' move, once per map, when Atlas holds the map and the board has drawn it (the mask is read against the image's size), after the backup. A mask painted on an image of another size cannot be read and stays in the backup only.
 3. **Stacks to levels (Phase 4).** Each stack member becomes a level of the base scene:
    - `elevation.bottom = layer.elevation × unitDistance`
    - the member's background, its tokens, walls, lights, pins, drawings, texts and fog, tagged with the new level id
@@ -293,7 +294,8 @@ Every gate in section 11 is checked first, in a throwaway vault on Atlas 0.15.0,
 - **Editing without Atlas.** The board edits only while an Atlas host holds the map. Without one it is read-only.
 - **Tabletop's own sight setting.** Sight follows the scene's dynamic lighting. With lighting off, no sight is drawn on the GM's board.
 - **Per-map 3D ambient and tint different from Atlas's.** One light level everywhere.
-- **Water detail.** Painted water becomes polygons, so brush-level edges are lost.
+- **Water detail.** Painted water becomes polygons, so brush-level edges are lost (Phase 4B: the outlines lie within a sixteenth of a square of the brush's edge, and give the same brush mask back).
+- **Painting water without Atlas on the map, and over Atlas's own liquids (Phase 4B).** A stroke is written to Atlas's liquids, so it needs Atlas to hold the map. The brush changes only the water it made: a liquid made in Atlas (a generated dungeon's) is drawn, and erasing over it does nothing. Lava and acid are drawn as water of their colour. Each change of the water's motion, once the sliders rest, is one step of Atlas's undo (it re-writes the brush's liquids).
 - **Stack placement.** `x/y/turn` becomes Atlas's level alignment; a rotated stack member may sit slightly differently.
 - **Spell heights.** A sphere or cube's height has no Atlas meaning, and Atlas and 2D players see a flat area. 3D keeps the height only while G1 holds.
 - **Tabletop's dice colour list.** The die looks like Atlas's dice.

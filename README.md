@@ -1,6 +1,6 @@
 # Tabletop for Atlas VTT
 
-**Compatible with Atlas VTT 0.15.0.** Needs Atlas VTT 0.15 or later, and Connect for Atlas VTT 0.12.0 (the same fusion release).
+**Compatible with Atlas VTT 0.15.0.** Needs Atlas VTT 0.15 or later, and Connect for Atlas VTT 0.13.0 (the same fusion release).
 
 Tabletop for Atlas VTT is a community extension. It is not made, endorsed or supported by Atlas VTT or Atlas Online.
 
@@ -136,7 +136,8 @@ never writes a map file on its own.
   "View only. Atlas holds <map>." with an **Edit here** button, which brings Atlas to this board's map. With two boards
   on two maps open, the one you are working on is the one you can edit.
 - **What still works on a view-only board:** everything that is Tabletop's own, since Atlas keeps none of it: minis,
-  props, wall heights, widths and materials, windows' openings, door props, light heights, water and cutscenes.
+  props and cutscenes. What you set on walls, doors and lights, and the water you paint, are Atlas's records now: they
+  show on a view-only board, and changing them needs Atlas on that map.
 - **If you close Atlas's tab** the bar says "Atlas closed this map. Editing is paused." with **Reopen**.
 - **An edit Atlas cannot take** (Atlas does not come to the map) is not saved anywhere else: the board tells you and shows
   the map as Atlas has it.
@@ -174,6 +175,14 @@ before this are moved the first time Atlas holds them: a backup of the map and o
 to `Tabletop backups/<date>/` first, and a notice says what moved (Atlas's undo steps for that map from before the
 move are let go then, once). Setting them needs Atlas to hold the map, as every other edit does; a board on another
 map shows them and refuses the change. A material folder or a door's prop renamed in the vault is still found.
+
+**Painted water is Atlas's liquids.** The water brush and bucket paint as before; when you let go, what you painted is
+kept in the map as Atlas's own water (outlines that follow your stroke to within a sixteenth of a square), so Atlas's
+2D view shows it in the same colour, flowing the same way, and Atlas's undo takes a stroke back. The board draws every
+liquid Atlas has on the level you are on: water, lava and acid of a generated dungeon too (lava and acid as water of
+their colour, for now). The brush changes only the water it painted: a liquid made in Atlas is Atlas's to change, and
+erasing over it does nothing. The water's motion and colour are one for all the brush's water of a level. Water painted
+before this is moved the first time Atlas holds its map, after a backup, with a notice.
 
 The light level and the tint in the lighting menu are Atlas's scene lighting (the same values as on Atlas's own
 lighting page); the level can be set while the scene's lighting is on in Atlas. The laser's colour and size, and how
