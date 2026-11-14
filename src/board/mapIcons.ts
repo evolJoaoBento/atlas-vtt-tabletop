@@ -3,6 +3,8 @@
  * the same glyphs Atlas stamps on its maps, stroked in the stamp's colour with no background.
  */
 
+import { pinIcons } from '../../packages/atlas-shared/src/index';
+
 const MAP_ICON_SVG: Record<string, string> = {
   'door-open': '<path d="M13 4h3a2 2 0 0 1 2 2v14"/><path d="M2 20h3"/><path d="M13 20h9"/><path d="M10 12v.01"/><path d="M13 4.562v16.157a1 1 0 0 1-1.242.97L5 20V5.562a2 2 0 0 1 1.515-1.94l4-1A2 2 0 0 1 13 4.561Z"/>',
   'door-closed': '<path d="M18 20V6a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v14"/><path d="M2 20h20"/><path d="M14 12v.01"/>',
@@ -18,11 +20,16 @@ const MAP_ICON_SVG: Record<string, string> = {
   'circle-x': '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
 };
 
-/** The icon as an SVG document in `color`, or null for an icon Atlas does not have. */
+/**
+ * A stamp as an SVG document in `color`: one of the twelve stamp symbols of before (Lucide, stroked), or, from Atlas
+ * 0.16, any pin symbol (a silhouette on a 512 square, filled), as Atlas's `stampGlyph`; null for one Atlas does not have.
+ */
 export function mapIconSvg(icon: string, color: string): string | null {
   const inner = MAP_ICON_SVG[icon];
-  if (!inner) return null;
+  const pin = inner ? undefined : (pinIcons.PIN_ICON_PATHS as Readonly<Record<string, string>>)[icon];
+  if (!inner && !pin) return null;
   // A colour from the file goes into an attribute: anything but a plain colour value falls back to white.
   if (!/^[#\w(),.%\s-]+$/.test(color)) color = '#ffffff';
+  if (pin) return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="96" height="96" fill="${color}"><path d="${pin}"/></svg>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="96" height="96" fill="none" color="${color}" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
 }

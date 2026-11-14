@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { inkTriangles } from '../src/board/ink';
+import { fillTriangles, inkTriangles } from '../src/board/ink';
 import { readMap } from '../src/board/mapModel';
 
 /** The triangles' covered area, overlaps counted once, by sampling a grid of points. */
@@ -51,4 +51,15 @@ test('pen strokes are read from the map\'s drawings, in its order; icon stamps a
     { id: 'b', points: [{ x: 0, y: 0 }, { x: 5, y: 5 }], color: '#ff0000', width: 4, opacity: 1, closed: false, fill: null, holes: [], hidden: false },
     { id: 'a', points: [{ x: 0, y: 0 }, { x: 9, y: 0 }], color: '#00ff00', width: 2, opacity: 0.5, closed: false, fill: null, holes: [], hidden: false },
   ]);
+});
+
+test("a closed drawing's fill covers its inside and none of its holes (Atlas 0.16)", () => {
+  const square = [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 40 }, { x: 0, y: 40 }, { x: 0, y: 0 }];
+  const hole = [{ x: 10, y: 10 }, { x: 20, y: 10 }, { x: 20, y: 20 }, { x: 10, y: 20 }];
+  assert.ok(Math.abs(covered(fillTriangles(square, []), -5, 45, -5, 45) - 1600) < 25);
+  assert.ok(Math.abs(covered(fillTriangles(square, [hole]), -5, 45, -5, 45) - 1500) < 25);
+  // Wound the other way, the same.
+  assert.ok(Math.abs(covered(fillTriangles([...square].reverse(), [hole]), -5, 45, -5, 45) - 1500) < 25);
+  // Fewer than three corners: nothing.
+  assert.equal(fillTriangles([{ x: 0, y: 0 }, { x: 1, y: 1 }], []).length, 0);
 });

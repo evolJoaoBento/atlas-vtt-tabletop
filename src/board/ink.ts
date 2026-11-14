@@ -4,6 +4,8 @@
  * disc at every point, so the ends and corners come out round. Pure, so it is tested without a browser.
  */
 
+import * as THREE from 'three';
+
 interface Point {
   x: number;
   y: number;
@@ -36,4 +38,26 @@ export function inkTriangles(points: readonly Point[], width: number): Float32Ar
     }
   }
   return Float32Array.from(out);
+}
+
+/**
+ * The triangles covering a closed drawing's inside (Atlas 0.16's fill), less its holes, as x, y pairs, three per
+ * triangle. The outline may end on its first point again. Nothing for fewer than three corners.
+ */
+export function fillTriangles(outline: readonly Point[], holes: ReadonlyArray<readonly Point[]>): Float32Array {
+  const ring = (points: readonly Point[]): THREE.Vector2[] => {
+    const open = points.length > 1 && points[0]!.x === points[points.length - 1]!.x && points[0]!.y === points[points.length - 1]!.y ? points.slice(0, -1) : points;
+    return open.map((point) => new THREE.Vector2(point.x, point.y));
+  };
+  const contour = ring(outline);
+  if (contour.length < 3) return new Float32Array(0);
+  const cut = holes.map(ring).filter((hole) => hole.length >= 3);
+  // The outline counter-clockwise and every hole clockwise, as the triangulation takes them.
+  if (THREE.ShapeUtils.isClockWise(contour)) contour.reverse();
+  for (const hole of cut) if (!THREE.ShapeUtils.isClockWise(hole)) hole.reverse();
+  const corners = [...contour, ...cut.flat()];
+  const faces = THREE.ShapeUtils.triangulateShape(contour, cut);
+  const out = new Float32Array(faces.length * 6);
+  faces.forEach((face, i) => face.forEach((corner, k) => { out[i * 6 + k * 2] = corners[corner]!.x; out[i * 6 + k * 2 + 1] = corners[corner]!.y; }));
+  return out;
 }

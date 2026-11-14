@@ -18,7 +18,7 @@ import type { LoadedMini } from '../library';
 import type { TokenStyle, PropPlacement } from './boardData';
 import { hexCenter, ringDiameter, tokenDiameter } from './geometry';
 import { isDowned, type BoardGrid, type BoardIcon, type BoardInk, type BoardPin, type BoardText, type BoardToken } from './mapModel';
-import { inkTriangles } from './ink';
+import { fillTriangles, inkTriangles } from './ink';
 import type { ResourceDefinition } from './resources';
 import { mapIconSvg } from './mapIcons';
 import { pinShownName } from './pinIcons';
@@ -677,6 +677,8 @@ export class IconPiece {
     const material = new THREE.MeshBasicMaterial({ transparent: true, opacity: icon.opacity, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3 });
     this.object3d = new THREE.Mesh(new THREE.PlaneGeometry(icon.size, icon.size).rotateX(-Math.PI / 2), material);
     this.object3d.position.set(icon.x, 0.5, icon.y);
+    // A stamp's turn (Atlas 0.16), clockwise on screen: the map's y runs along +z, so a clockwise turn is negative about +y.
+    this.object3d.rotation.y = -(icon.rotation * Math.PI) / 180;
     this.object3d.visible = false;
     const svg = mapIconSvg(icon.icon, icon.color);
     if (!svg) return;
@@ -784,9 +786,25 @@ export class InkPiece {
     this.object3d = new THREE.Mesh(geometry, material);
     // Drawn in the map's order, after the map and its icons, before its texts.
     this.object3d.renderOrder = 2 + order * 1e-4;
+    // A closed drawing's inside (Atlas 0.16): in its colour, solid, or soft (a quarter of it); under its line.
+    if (ink.closed && ink.fill) {
+      const inside = fillTriangles(ink.points, ink.holes);
+      const filled = new Float32Array((inside.length / 2) * 3);
+      for (let i = 0, j = 0; i < inside.length; i += 2, j += 3) { filled[j] = inside[i]!; filled[j + 1] = INK_LIFT; filled[j + 2] = inside[i + 1]!; }
+      const shape = new THREE.BufferGeometry();
+      shape.setAttribute('position', new THREE.Float32BufferAttribute(filled, 3));
+      const paint = new THREE.MeshBasicMaterial({
+        color: ink.color, opacity: ink.opacity * (ink.fill === 'soft' ? 0.25 : 1), transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3,
+      });
+      const fill = new THREE.Mesh(shape, paint);
+      fill.name = 'fill';
+      fill.renderOrder = this.object3d.renderOrder - 0.5e-4;
+      this.object3d.add(fill);
+    }
   }
 
   dispose(): void {
+    for (const child of this.object3d.children) if (child instanceof THREE.Mesh) { (child.material as THREE.Material).dispose(); child.geometry.dispose(); }
     (this.object3d.material as THREE.Material).dispose();
     this.object3d.geometry.dispose();
     this.object3d.removeFromParent();

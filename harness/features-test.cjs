@@ -2676,6 +2676,31 @@ feature('hidden notes', async ({ page }) => {
   check("hidden notes: the GM's picture has them all", JSON.stringify(seen.gm) === JSON.stringify({ inks: [true, true], texts: [true, true], icons: [true, true] }), JSON.stringify(seen.gm));
 });
 
+// ── Atlas 0.16's fills: a closed drawing's inside is drawn, solid or soft, less its holes; a line of no width is none ──
+feature('ink fills', async ({ page, shot }) => {
+  const seen = await page.evaluate(async () => {
+    const { board } = window.boardTest;
+    const before = board.map;
+    const x = board.size.width / 2 - 100;
+    const y = board.size.height / 2 - 100;
+    const ring = (s) => [{ x, y }, { x: x + s, y }, { x: x + s, y: y + s }, { x, y: y + s }, { x, y }];
+    const hole = [{ x: x + 60, y: y + 60 }, { x: x + 140, y: y + 60 }, { x: x + 140, y: y + 140 }, { x: x + 60, y: y + 140 }];
+    await board.load({ ...before, inks: [
+      { id: 'solid', points: ring(200), color: '#000000', width: 0, opacity: 1, closed: true, fill: 'solid', holes: [hole], hidden: false },
+      { id: 'soft', points: ring(100), color: '#ff0000', width: 4, opacity: 1, closed: true, fill: 'soft', holes: [], hidden: false },
+      { id: 'line', points: ring(50), color: '#00ff00', width: 4, opacity: 1, closed: true, fill: null, holes: [], hidden: false },
+    ] });
+    const of = (piece) => { const fill = piece.object3d.children.find((child) => child.name === 'fill'); return { line: piece.object3d.geometry.attributes.position.count, fill: fill ? fill.geometry.attributes.position.count : 0, opacity: fill ? fill.material.opacity : null }; };
+    const out = board.inks.map(of);
+    board.wake(true);
+    await new Promise((r) => setTimeout(r, 300));
+    return out;
+  });
+  check('ink fills: a solid fill with a hole and no line, a soft fill at a quarter, a plain closed line with no fill', seen.length === 3 && seen[0].line === 0 && seen[0].fill >= 24 && seen[0].opacity === 1 && seen[1].fill > 0 && seen[1].opacity === 0.25 && seen[1].line > 0 && seen[2].fill === 0, JSON.stringify(seen));
+  await shot('ink-fills');
+  await page.evaluate(async () => { const { board } = window.boardTest; await board.load({ ...board.map, inks: [] }); });
+});
+
 feature('gm clears spells', async ({ page, shot }) => {
   // A player's sphere on the map, the GM hosting in Play mode: Ctrl over it lights it, a click clears it.
   const at = await page.evaluate(() => {

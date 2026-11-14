@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readMap } from '../src/board/mapModel';
+import { mapIconSvg } from '../src/board/mapIcons';
 
 const wrap = (objects: Record<string, unknown>): string => JSON.stringify({ state: { objects: { tokens: {}, pins: {}, ...objects } } });
 const square = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }, { x: 0, y: 0 }];
@@ -49,4 +50,14 @@ test("a drawing or text of another level is not this level's", () => {
   } } });
   assert.deepEqual([readMap('m', text, 'ground').inks.length, readMap('m', text, 'ground').texts.length], [0, 0]);
   assert.deepEqual([readMap('m', text, 'upper').inks.length, readMap('m', text, 'upper').texts.length], [1, 1]);
+});
+
+test("a stamp is drawn by any pin symbol (Atlas 0.16) or one of the twelve stamp symbols of before; nothing for an unknown one", () => {
+  const pin = mapIconSvg('pin', '#ff0000');
+  assert.ok(pin && /viewBox="0 0 512 512"/.test(pin) && /fill="#ff0000"/.test(pin), String(pin));
+  const old = mapIconSvg('skull', '#ffffff');
+  assert.ok(old && /viewBox="0 0 24 24"/.test(old));
+  assert.equal(mapIconSvg('no-such-symbol', '#ffffff'), null);
+  // A colour that is no plain value is white, in both.
+  assert.match(mapIconSvg('pin', 'red" onload="x')!, /fill="#ffffff"/);
 });
