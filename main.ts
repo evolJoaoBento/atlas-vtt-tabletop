@@ -22,6 +22,9 @@ import { BOARD_PROTOCOL_ACTION, boardLink, DEFAULT_SNAPSHOT_FOLDER, latestSnapsh
 import { renderBoardCard } from './src/boardCard';
 import { resolveLaser, type LaserSettings } from './src/board/laser';
 import { writeBackup } from './src/backups';
+import { StackMigration } from './src/stackMigration';
+import { StackMoveModal } from './src/stackMoveModal';
+import { sceneWorldSize } from './src/sceneSize';
 import { carryOver } from './src/fusionCarryOver';
 import { AtlasBridge } from './src/atlasBridge';
 import { TokenWriter } from './src/board/tokenWriter';
@@ -208,9 +211,36 @@ export default class TabletopPlugin extends Plugin {
   private spells(): SpellLibrary {
     return (this.spellLibrary ??= new SpellLibrary(this.app));
   }
+  /** Tabletop's data as it is saved. */
+  private saved(): SavedData {
+    return { settings: this.settings, assignments: this.assignments.toJSON(), board: this.boardData.toJSON(), movedPaths: this.movedPaths.toJSON() };
+  }
   private readonly save = debounce(() => {
-    void this.saveData({ settings: this.settings, assignments: this.assignments.toJSON(), board: this.boardData.toJSON(), movedPaths: this.movedPaths.toJSON() } satisfies SavedData);
+    void this.saveData(this.saved());
   }, 500, true);
+
+  /** Older Tabletop's scene stacks, to become Atlas levels when the GM says so (`stackMigration.ts`). */
+  stackMigration: StackMigration | null = null;
+  private stackNotice: Notice | null = null;
+
+  /** While stacks are left in Tabletop's data: one notice that asks, at each start, until they are moved. */
+  private askStacks(): void {
+    const count = this.stackMigration?.pending().length ?? 0;
+    if (count === 0 || this.stackNotice) return;
+    const notice = new Notice(createFragment((body) => {
+      body.createDiv({ text: `Tabletop: ${count} scene ${count === 1 ? 'stack' : 'stacks'} from before can become Atlas levels. Until then ${count === 1 ? 'it is' : 'they are'} not drawn stacked.` });
+      const row = body.createDiv({ cls: 'atlas-tabletop-notice-buttons' });
+      row.createEl('button', { text: 'Review and move', cls: 'mod-cta' }).addEventListener('click', () => { notice.hide(); this.stackNotice = null; this.reviewStacks(); });
+      row.createEl('button', { text: 'Later' }).addEventListener('click', () => { notice.hide(); this.stackNotice = null; });
+    }), 0);
+    this.stackNotice = notice;
+  }
+
+  /** The ask itself: what each stack would become, then Move or Later. */
+  private reviewStacks(): void {
+    if (!this.stackMigration) return;
+    new StackMoveModal(this.app, this.stackMigration, () => { this.refreshBoards(); this.boardChanged(null); }).open();
+  }
 
   async onload(): Promise<void> {
     addIcon(TABLETOP_ICON, TABLETOP_ICON_BODY);
@@ -257,6 +287,34 @@ export default class TabletopPlugin extends Plugin {
       },
     });
     recordAtlasWrites(this.history, writer);
+    const stacks = new StackMigration({
+      boardData: this.boardData, assignments: this.assignments, writer,
+      follow: async (path) => {
+        const front = this.app.workspace.getMostRecentLeaf();
+        if (front === null || (await host.follow(path, front)) !== 'held') return false;
+        return (await host.whenHeld(path)) !== null;
+      },
+      heldState: (path) => (host.store(path)?.getState() as unknown as AtlasSceneState | undefined) ?? null,
+      shownMap: () => mapViews(this.app)[0]?.atlasStore.getState().mapPath ?? null,
+      read: async (path) => ((await this.app.vault.adapter.exists(path)) ? this.app.vault.adapter.read(path) : null),
+      backup: (files) => writeBackup(this.app, new Date(), files),
+      worldSize: (background, grid) => sceneWorldSize(this.app, background, grid),
+      save: () => this.saveData(this.saved()),
+      // Atlas's one tab goes through the scenes while they are read: not under a session's players, nor under a cutscene.
+      busy: () => (this.session?.hosting() ? 'a session is hosted in Connect (end it first)' : this.cutscenes.current() ? 'a cutscene is running' : null),
+      newLevelId: () => `level_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      wait: (ms) => new Promise((resolve) => { window.setTimeout(resolve, ms); }),
+    });
+    this.stackMigration = stacks;
+    this.register(() => { this.stackNotice?.hide(); this.stackNotice = null; this.stackMigration = null; });
+    this.addCommand({
+      id: 'move-stacks', name: 'Move scene stacks to Atlas levels',
+      callback: () => { if (stacks.pending().length > 0) this.reviewStacks(); else new Notice('Tabletop: there are no scene stacks to move.'); },
+    });
+    // A move that stopped half way is finished (or dropped) first; then the ask, while stacks are left.
+    this.app.workspace.onLayoutReady(() => {
+      void stacks.finishJournals().catch((error: unknown) => { console.warn('Tabletop: a stack\'s move could not be finished:', error); }).then(() => this.askStacks());
+    });
     // What Atlas holds for a kept spell goes with the spell on every map Atlas has open, board or no board.
     const upkeep = new SpellUpkeep(() => mapViews(this.app));
     this.register(() => upkeep.dispose());
