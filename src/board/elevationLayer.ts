@@ -22,6 +22,7 @@ import { maskOfSource, waterKeyOf, type WaterSource } from './liquids';
 import { waterDistance } from '../sound/waterSound';
 import { WaterSurface } from './waterSurface';
 import { releaseTexture } from './textures';
+import { stretchPlacement } from './mapStretch';
 
 /** What a layer is drawn from: its scene, and what Tabletop keeps for it (the same data the shown scene's own comes from). */
 /** How long a layer takes to fade in or out, or to another look. */
@@ -100,6 +101,8 @@ interface Standing {
 export class ElevationLayerView {
   readonly object3d = new THREE.Group();
   private readonly floor: THREE.Mesh;
+  /** What lays the floor as the layer's grid alignment says (a level Atlas fitted: scaled, set aside, turned a little), as `BoardSurface` lays the shown one. */
+  private readonly laying = new THREE.Group();
   private readonly image: THREE.MeshStandardMaterial;
   /** The floor as a shadow: black wherever the image is drawn, with the same look (solid, faded) and cut-outs. */
   private readonly shade = new THREE.MeshBasicMaterial({ color: 0x000000 });
@@ -153,7 +156,8 @@ export class ElevationLayerView {
     });
     this.object3d.name = `layer:${data.path}`;
     this.content.add(this.walls.object3d, this.rig.object3d);
-    this.object3d.add(this.floor, this.content);
+    this.laying.add(this.floor);
+    this.object3d.add(this.laying, this.content);
   }
 
   get path(): string {
@@ -223,6 +227,8 @@ export class ElevationLayerView {
     this.lay();
 
     this.setImage(map.background);
+    // A level fitted anew (Atlas aligned it) lies by its new fit, its image already read.
+    this.layFloor();
     this.shapeFloor(shape.look);
 
     this.walls.update(map.walls, {
@@ -351,6 +357,24 @@ export class ElevationLayerView {
     this.host.wake();
   }
 
+  /** Lays the floor by the layer's grid alignment (`stretchPlacement`), or, without one, at its corner at the image's own size. */
+  private layFloor(): void {
+    const size = this.imageSize;
+    if (!size) return;
+    const stretch = this.data.map.grid.mapStretch;
+    this.floor.scale.set(size.width, 1, size.height);
+    if (stretch) {
+      const placement = stretchPlacement(size, stretch);
+      this.floor.position.set(placement.centre.x, 0, placement.centre.y);
+      this.floor.rotation.y = placement.rotation;
+      this.laying.scale.set(placement.scale.x, 1, placement.scale.y);
+    } else {
+      this.floor.position.set(size.width / 2, 0, size.height / 2);
+      this.floor.rotation.y = 0;
+      this.laying.scale.set(1, 1, 1);
+    }
+  }
+
   /** Loads the layer's map image the first time, or when it changed. */
   private setImage(path: string | null): void {
     if (this.picture === path) return;
@@ -371,8 +395,7 @@ export class ElevationLayerView {
       this.image.needsUpdate = true;
       this.shade.needsUpdate = true;
       this.imageSize = { width, height };
-      this.floor.scale.set(width, 1, height);
-      this.floor.position.set(width / 2, 0, height / 2);
+      this.layFloor();
       this.applyShown();
       // The water is laid on the image's own size.
       this.syncWater();

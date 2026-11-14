@@ -2023,6 +2023,39 @@ feature('edit-props', async ({ page, shot }) => {
 });
 
 // ── Water painted on a stacked scene shows while another one is played ─────────────────────────
+// ── A level fitted to the scene's grid by Atlas (its own alignment) is drawn as a layer by that fit ─────────────
+feature('layer fit', async ({ page }) => {
+  const floorBox = (path) => page.evaluate((path) => {
+    const { board, Box3 } = window.boardTest;
+    const view = board.layerViews.get(path);
+    if (!view || !view.floor.visible) return null;
+    view.object3d.updateMatrixWorld(true);
+    const box = new Box3().setFromObject(view.floor);
+    const round = (v) => Math.round(v * 10) / 10;
+    return { minX: round(box.min.x), maxX: round(box.max.x), minZ: round(box.min.z), maxZ: round(box.max.z) };
+  }, path);
+  const lay = (stretch) => page.evaluate((stretch) => {
+    const { board, map } = window.boardTest;
+    const grid = stretch ? { ...map.grid, mapStretch: stretch } : { ...map.grid };
+    const layer = { path: 'atlas-level:up', elevation: 2, map: { ...map, path: 'atlas-level:up', grid, background: 'bg.png', fog: [], inks: [], texts: [], icons: [], pins: [], initiative: null, tokens: [], walls: [], lights: [] },
+      wallHeight: () => null, wallMaterial: () => null, doorProp: () => null, lightHeight: () => 1, fogHeight: 1, wallThickness: 0.12, props: [], placement: () => null, style: () => 'disc' };
+    board.setStack([layer]);
+  }, stretch);
+  await lay(null);
+  await page.waitForFunction(() => window.boardTest.board.layerViews.get('atlas-level:up')?.floor.visible === true, null, { timeout: 10000 }).catch(() => {});
+  const plain = await floorBox('atlas-level:up');
+  check('a level with no fit of its own lies at the scene\'s corner, its image\'s size', !!plain && plain.minX === 0 && plain.minZ === 0, JSON.stringify(plain));
+  // Scaled twice over, set 100 right and 50 down (Atlas keeps the scale in the stretch's factors and the offset beside).
+  await page.evaluate(() => window.boardTest.board.setStack([]));
+  await lay({ x: 2, y: 2, offset: { x: 100, y: 50 } });
+  await page.waitForFunction(() => window.boardTest.board.layerViews.get('atlas-level:up')?.floor.visible === true, null, { timeout: 10000 }).catch(() => {});
+  const fitted = await floorBox('atlas-level:up');
+  const ok = !!plain && !!fitted && fitted.minX === 100 && fitted.minZ === 50
+    && Math.abs((fitted.maxX - fitted.minX) - 2 * (plain.maxX - plain.minX)) < 0.5 && Math.abs((fitted.maxZ - fitted.minZ) - 2 * (plain.maxZ - plain.minZ)) < 0.5;
+  check('a level fitted by Atlas is drawn by its fit: scaled and set where its alignment puts it, under the records that moved with it', ok, JSON.stringify({ plain, fitted }));
+  await page.evaluate(() => { const { board } = window.boardTest; board.setStack([]); board.refresh(); });
+});
+
 feature('layer-water', async ({ page, shot }) => {
   // Paint some water on this scene, to have a saved mask to give a layer.
   const box = await page.evaluate(() => { const r = window.boardTest.board.canvas.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });

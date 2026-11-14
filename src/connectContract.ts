@@ -113,7 +113,8 @@ export interface BoardLayerLook {
   stands: { x: number; y: number; turn: number };
   /** The vault path of its floor image. */
   image: string;
-  grid: { size: number; offsetX: number; offsetY: number };
+  /** Where its grid lies; `mapStretch`: how Atlas fitted the level's image to the scene's grid (its stretch's factors times its scale, a turn of a few degrees, an offset), absent for an image that fills the scene's frame. */
+  grid: { size: number; offsetX: number; offsetY: number; mapStretch?: { x: number; y: number; rotation?: number; offset?: { x: number; y: number } } };
   walls: ReadonlyArray<{
     id: string; type: 'solid' | 'door' | 'secret-door'; p1: BoardPoint; p2: BoardPoint; closed: boolean;
     direction: 'left' | 'right' | null; blocks: 'sight' | 'light' | 'movement' | null; limited: boolean; chain: string | null;

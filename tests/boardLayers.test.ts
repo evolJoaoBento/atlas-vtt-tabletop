@@ -61,6 +61,9 @@ test('a player\'s board makes a layer of each stacked scene sent: floor, grid, h
   assert.equal(layer.lightHeight('l1'), 1.5);
   assert.deepEqual(layer.props, [{ id: 'p', glb: 'GLB', x: 1, y: 2, rotation: 0, scale: 1 }]);
   assert.deepEqual(layersFromExtras(extras(undefined)), []);
+  // A level Atlas fitted to the scene's grid is laid by its fit.
+  const [fitted] = layersFromExtras(extras([{ id: 'layer-2', elevation: 3, stands: { x: 0, y: 0, turn: 0 }, image: 'IMG', grid: { size: 70, offsetX: 0, offsetY: 0, mapStretch: { x: 0.7, y: 0.7, offset: { x: 200, y: 100 } } }, walls: [], lights: [], props: [], fogHeight: null, wallThickness: null }]));
+  assert.deepEqual(fitted!.map.grid.mapStretch, { x: 0.7, y: 0.7, offset: { x: 200, y: 100 } });
   assert.deepEqual(layersFromExtras(null), []);
 });
 

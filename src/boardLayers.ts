@@ -142,7 +142,8 @@ function levelLayersFor(data: BoardData, materials: MaterialView, scenes: Pick<L
       elevation: levelRise(own.levels, shown, level.id, units),
       stands: { x: 0, y: 0, turn: 0 },
       image: map.background,
-      grid: { size: map.grid.size, offsetX: map.grid.offsetX, offsetY: map.grid.offsetY },
+      // A level Atlas fitted to the scene's grid: its fit goes too, so players lay its image under the records that moved with it.
+      grid: { size: map.grid.size, offsetX: map.grid.offsetX, offsetY: map.grid.offsetY, ...(map.grid.mapStretch ? { mapStretch: { ...map.grid.mapStretch } } : {}) },
       walls: map.walls.map((wall) => ({
         id: wall.id, type: wall.type, p1: { ...wall.p1 }, p2: { ...wall.p2 }, closed: wall.closed, direction: wall.direction, blocks: wall.blocks, limited: wall.limited, chain: wall.chain,
         height: extras.wallHeight(wall.id), window: extras.windowOf(wall.id), width: extras.wallWidth(wall.id), material: materialWith(extras.wallMaterial(wall.id), wall, defaults), doorProp: extras.doorProp(wall.id), flip: extras.doorFlip(wall.id),

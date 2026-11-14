@@ -93,7 +93,7 @@ export function layersFromExtras(extras: BoardExtras | null): ElevationLayerData
       background: layer.image,
       levels: [],
       level: null,
-      grid: { enabled: true, visible: false, snap: false, type: 'square', size: layer.grid.size, offsetX: layer.grid.offsetX, offsetY: layer.grid.offsetY, opacity: 0, lineWidth: 1, color: null, lineType: 'solid', numbers: null, numberOpacity: 0 },
+      grid: { enabled: true, visible: false, snap: false, type: 'square', size: layer.grid.size, offsetX: layer.grid.offsetX, offsetY: layer.grid.offsetY, ...(layer.grid.mapStretch ? { mapStretch: { ...layer.grid.mapStretch } } : {}), opacity: 0, lineWidth: 1, color: null, lineType: 'solid', numbers: null, numberOpacity: 0 },
       tokenSettings: { showNameplates: true, showInstanceBadges: true, hiddenResources: [] },
       tokens: [], pins: [], icons: [], texts: [], initiative: readInitiative(null), inks: [], fog: [], walls, lights,
       lighting: { enabled: false, ambient: 1, ambientColor: null },
