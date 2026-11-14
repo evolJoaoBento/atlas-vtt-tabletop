@@ -134,8 +134,8 @@ test('icon stamps are read from the drawings; strokes are left out', () => {
     d: { id: 'd', kind: 'drawing', type: 'icon', icon: 'gem', points: [{ x: 1, y: 2 }] },
   } } }));
   assert.deepEqual(map.icons, [
-    { id: 'a', icon: 'flame', x: 100, y: 200, color: '#ff0000', size: 70, opacity: 0.8 },
-    { id: 'd', icon: 'gem', x: 1, y: 2, color: '#ffffff', size: 70, opacity: 1 },
+    { id: 'a', icon: 'flame', x: 100, y: 200, color: '#ff0000', size: 70, opacity: 0.8, rotation: 0, hidden: false },
+    { id: 'd', icon: 'gem', x: 1, y: 2, color: '#ffffff', size: 70, opacity: 1, rotation: 0, hidden: false },
   ]);
 });
 
@@ -159,15 +159,15 @@ test('older hex numbers only number hex grids; a stress max of 0 reads as 10 lik
   assert.deepEqual(map.tokens[0]!.resources.stress, { current: 2, max: 10 });
 });
 
-test('text labels are read as Atlas draws them, with its defaults; empty ones left out', () => {
+test('text labels are read as Atlas reads them (its 0.16 reader: a text with no size is 31.5 px), with its defaults; empty ones left out', () => {
   const map = readMap('m', wrap({ objects: { tokens: {}, pins: {}, texts: {
-    a: { id: 'a', kind: 'text', x: 100, y: 50, text: 'Throne Room', fontSize: 24, fontFamily: 'Georgia', color: '#ffcc00', backgroundColor: '#000000', opacity: 0.6, borderRadius: 4, bold: true, rotation: 30, scale: 2 },
+    a: { id: 'a', kind: 'text', x: 100, y: 50, text: 'Throne Room', fontSize: 24, fontFamily: 'Georgia', color: '#ffcc00', backgroundColor: '#000000', opacity: 0.6, borderRadius: 4, bold: true, rotation: 30, scale: 2, hidden: false },
     b: { id: 'b', kind: 'text', x: 0, y: 0, text: 'Plain' },
     c: { id: 'c', kind: 'text', x: 0, y: 0, text: '' },
   } } }));
   assert.deepEqual(map.texts, [
-    { id: 'a', x: 100, y: 50, text: 'Throne Room', fontSize: 24, fontFamily: 'Georgia', color: '#ffcc00', backgroundColor: '#000000', padding: 8, borderRadius: 4, opacity: 0.6, align: 'center', bold: true, italic: false, rotation: 30, scale: 2 },
-    { id: 'b', x: 0, y: 0, text: 'Plain', fontSize: 24, fontFamily: 'Arial', color: '#ffffff', backgroundColor: null, padding: 8, borderRadius: 0, opacity: 1, align: 'center', bold: false, italic: false, rotation: 0, scale: 1 },
+    { id: 'a', x: 100, y: 50, text: 'Throne Room', fontSize: 24, fontFamily: 'Georgia', color: '#ffcc00', backgroundColor: '#000000', padding: 8, borderRadius: 4, opacity: 0.6, align: 'center', bold: true, italic: false, rotation: 30, scale: 2, hidden: false },
+    { id: 'b', x: 0, y: 0, text: 'Plain', fontSize: 31.5, fontFamily: 'Arial', color: '#ffffff', backgroundColor: null, padding: 8, borderRadius: 0, opacity: 1, align: 'center', bold: false, italic: false, rotation: 0, scale: 1, hidden: false },
   ]);
 });
 

@@ -4624,6 +4624,10 @@ export class Board {
       entry.labels.object3d.visible = gm && !own;
       entry.playerLabels.object3d.visible = !gm && !own;
     }
+    // What the GM hid in Atlas 0.16 (a drawing, a text, a stamp) is the GM's alone.
+    for (const piece of this.inks) piece.object3d.visible = gm || !piece.ink.hidden;
+    for (const piece of this.texts) piece.object3d.visible = gm || !piece.label.hidden;
+    for (const piece of this.icons) piece.show(gm || !piece.icon.hidden);
     const pins = pinsShown(viewer, this.audience);
     for (const pin of this.pins) pin.object3d.visible = pins && !this.pointBeyond(viewer, pin.pin.x, pin.pin.y);
     for (const piece of this.props.values()) piece.object3d.visible = (gm || revealed || !insideFog(fog, { x: piece.object3d.position.x, y: piece.object3d.position.z })) && !this.beyondSight(viewer, `p:${piece.id}`);

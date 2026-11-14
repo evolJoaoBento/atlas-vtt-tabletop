@@ -2647,6 +2647,35 @@ feature('hidden measures', async ({ page }) => {
   check('hidden measures: a spell no longer hidden is back in the players\' picture', JSON.stringify(seen.after.spells) === JSON.stringify([true, true]), JSON.stringify(seen.after));
 });
 
+// ── Drawings and texts the GM hid in Atlas 0.16: drawn for the GM, never in the players' picture ─────────────────
+feature('hidden notes', async ({ page }) => {
+  const seen = await page.evaluate(async () => {
+    const { board } = window.boardTest;
+    const before = board.map;
+    const x = board.size.width / 2;
+    const y = board.size.height / 2;
+    const ink = (id, hidden) => ({ id, points: [{ x, y }, { x: x + 100, y }], color: '#ff0000', width: 6, opacity: 1, closed: false, fill: null, holes: [], hidden });
+    const label = (id, hidden) => ({ id, x, y: y + 80, text: id, fontSize: 24, fontFamily: 'serif', color: '#ffffff', backgroundColor: null, padding: 8, borderRadius: 0, opacity: 1, align: 'center', bold: false, italic: false, rotation: 0, scale: 1, hidden });
+    const stamp = (id, hidden) => ({ id, icon: 'skull', x: x + 200, y, color: '#ffffff', size: 70, opacity: 1, rotation: 0, hidden });
+    await board.load({ ...before, inks: [ink('open', false), ink('secret', true)], texts: [label('sign', false), label('note', true)], icons: [stamp('mark', false), stamp('trap', true)] });
+    // A stamp shows once its glyph is in.
+    for (let i = 0; i < 50 && !board.icons.every((piece) => piece.ready); i++) await new Promise((r) => setTimeout(r, 100));
+    const look = () => ({
+      inks: board.inks.map((piece) => piece.object3d.visible),
+      texts: board.texts.map((piece) => piece.object3d.visible),
+      icons: board.icons.map((piece) => piece.object3d.visible),
+    });
+    board.showFor('player');
+    const player = look();
+    board.showFor('gm');
+    const gm = look();
+    await board.load(before);
+    return { player, gm };
+  });
+  check("hidden notes: the players' picture leaves out the drawing, text and stamp the GM hid, and keeps the rest", JSON.stringify(seen.player) === JSON.stringify({ inks: [true, false], texts: [true, false], icons: [true, false] }), JSON.stringify(seen.player));
+  check("hidden notes: the GM's picture has them all", JSON.stringify(seen.gm) === JSON.stringify({ inks: [true, true], texts: [true, true], icons: [true, true] }), JSON.stringify(seen.gm));
+});
+
 feature('gm clears spells', async ({ page, shot }) => {
   // A player's sphere on the map, the GM hosting in Play mode: Ctrl over it lights it, a click clears it.
   const at = await page.evaluate(() => {

@@ -42,13 +42,13 @@ test('a single point is a dot as wide as the pen; no points draw nothing', () =>
 
 test('pen strokes are read from the map\'s drawings, in its order; icon stamps are not ink', () => {
   const map = readMap('m', JSON.stringify({ state: { objects: { tokens: {}, pins: {}, drawings: {
-    b: { id: 'b', kind: 'drawing', type: 'pen', timestamp: 2, points: [{ x: 0, y: 0 }, { x: 5, y: 5 }], color: '#ff0000', width: 4, opacity: 1 },
-    a: { id: 'a', kind: 'drawing', type: 'rectangle', timestamp: 1, points: [{ x: 0, y: 0 }, { x: 9, y: 0 }], color: '#00ff00', width: 2, opacity: 0.5 },
+    b: { id: 'b', kind: 'drawing', type: 'pen', timestamp: 2, points: [{ x: 0, y: 0 }, { x: 5, y: 5 }], color: '#ff0000', width: 4, opacity: 1, closed: false, fill: null, holes: [], hidden: false },
+    a: { id: 'a', kind: 'drawing', type: 'rectangle', timestamp: 1, points: [{ x: 0, y: 0 }, { x: 9, y: 0 }], color: '#00ff00', width: 2, opacity: 0.5, closed: false, fill: null, holes: [], hidden: false },
     c: { id: 'c', kind: 'drawing', type: 'icon', icon: 'gem', points: [{ x: 1, y: 1 }] },
     d: { id: 'd', kind: 'drawing', type: 'pen', points: [] },
   } } } }));
   assert.deepEqual(map.inks, [
-    { id: 'b', points: [{ x: 0, y: 0 }, { x: 5, y: 5 }], color: '#ff0000', width: 4, opacity: 1 },
-    { id: 'a', points: [{ x: 0, y: 0 }, { x: 9, y: 0 }], color: '#00ff00', width: 2, opacity: 0.5 },
+    { id: 'b', points: [{ x: 0, y: 0 }, { x: 5, y: 5 }], color: '#ff0000', width: 4, opacity: 1, closed: false, fill: null, holes: [], hidden: false },
+    { id: 'a', points: [{ x: 0, y: 0 }, { x: 9, y: 0 }], color: '#00ff00', width: 2, opacity: 0.5, closed: false, fill: null, holes: [], hidden: false },
   ]);
 });

@@ -207,14 +207,15 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
   const drawings = Object.entries(scene.drawings).sort(([, a], [, b]) => a.order - b.order);
   const inks: BoardInk[] = drawings
     .filter(([, drawing]) => drawing.type !== 'icon' && drawing.type !== 'eraser' && drawing.points.length > 0)
-    .map(([id, drawing]) => ({ id, points: drawing.points.map((point) => ({ ...point })), color: drawing.color, width: drawing.width, opacity: drawing.opacity }));
+    // What players are sent is never hidden from them (Connect leaves it out).
+    .map(([id, drawing]) => ({ id, points: drawing.points.map((point) => ({ ...point })), color: drawing.color, width: drawing.width, opacity: drawing.opacity, closed: false, fill: null, holes: [], hidden: false }));
   const icons: BoardIcon[] = drawings
     .filter(([, drawing]) => drawing.type === 'icon' && drawing.icon !== null && drawing.points[0])
-    .map(([id, drawing]) => ({ id, icon: drawing.icon!, x: drawing.points[0].x, y: drawing.points[0].y, color: drawing.color, size: drawing.width, opacity: drawing.opacity }));
+    .map(([id, drawing]) => ({ id, icon: drawing.icon!, x: drawing.points[0].x, y: drawing.points[0].y, color: drawing.color, size: drawing.width, opacity: drawing.opacity, rotation: 0, hidden: false }));
   const texts: BoardText[] = Object.entries(scene.texts).map(([id, text]) => ({
     id, x: text.x, y: text.y, text: text.text, fontSize: text.fontSize, fontFamily: text.fontFamily, color: text.color,
     backgroundColor: text.backgroundColor, padding: text.padding, borderRadius: text.borderRadius, opacity: text.opacity,
-    align: text.align, bold: text.bold, italic: text.italic, rotation: text.rotation, scale: text.scale,
+    align: text.align, bold: text.bold, italic: text.italic, rotation: text.rotation, scale: text.scale, hidden: false,
   }));
   const pins: BoardPin[] = (scene.pins ?? []).map((pin) => ({ id: pin.id, x: pin.x, y: pin.y, notePath: pin.id, icon: pin.icon ?? 'number', label: pin.label, hex: false, name: pin.name ?? pin.title, ...(pin.name ? { showName: true } : {}) }));
   const initiative = readInitiative(scene.initiative

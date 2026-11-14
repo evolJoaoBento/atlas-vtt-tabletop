@@ -664,6 +664,14 @@ export class IconPiece {
   /** The glyph is drawn (it loads from an SVG). */
   ready = false;
   private disposed = false;
+  /** Whether the picture being drawn shows it (the players' leaves out what the GM hid): it shows once its glyph is in. */
+  private wanted = true;
+
+  /** Shows it in the picture being drawn, or leaves it out; a glyph still loading follows when it is in. */
+  show(on: boolean): void {
+    this.wanted = on;
+    this.object3d.visible = this.ready && on;
+  }
 
   constructor(readonly icon: BoardIcon, onReady: () => void) {
     const material = new THREE.MeshBasicMaterial({ transparent: true, opacity: icon.opacity, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3 });
@@ -676,8 +684,8 @@ export class IconPiece {
       if (this.disposed) { texture.dispose(); return; }
       material.map = texture;
       material.needsUpdate = true;
-      this.object3d.visible = true;
       this.ready = true;
+      this.object3d.visible = this.wanted;
       onReady();
     }, () => undefined);
   }

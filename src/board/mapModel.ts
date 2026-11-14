@@ -13,7 +13,7 @@ import { hiddenResourcesOf, isDefeated, tokenFromFile, type ResourceDefinition, 
 import { readMeasures, type BoardMeasure } from './boardMeasures';
 import { readLiquids, type BoardLiquid } from './liquids';
 import { levelBackground, onLevel, onLevelRecord, readLevels, resolveLevel, type BoardLevel } from './levels';
-import { tokenHeight } from '../../packages/atlas-shared/src/index';
+import { annotationList, tokenHeight, type AnnotationRecords } from '../../packages/atlas-shared/src/index';
 import { ownSpeed } from './tokenHeight';
 
 export type GridType = 'square' | 'hex-vertical' | 'hex-horizontal';
@@ -125,15 +125,29 @@ export interface BoardIcon {
   color: string;
   size: number;
   opacity: number;
+  /** Degrees, clockwise on screen (Atlas 0.16). */
+  rotation: number;
+  /** Only the GM sees it (Atlas 0.16). */
+  hidden: boolean;
 }
 
-/** A pen stroke (or line, rectangle, circle) of Atlas's draw tool: a line through its points, round at ends and corners. */
+/**
+ * A drawing of Atlas's draw tool that is no stamp, as Atlas's own reader reads it (`annotationList`): a line through
+ * its points, round at its ends and corners, `width` 0 for none; a closed one may be filled (Atlas 0.16), with holes.
+ */
 export interface BoardInk {
   id: string;
   points: Array<{ x: number; y: number }>;
   color: string;
   width: number;
   opacity: number;
+  /** It ends where it began: it has an inside. */
+  closed: boolean;
+  /** Its inside, in its colour: solid, soft (a quarter of it), or none. */
+  fill: 'solid' | 'soft' | null;
+  holes: Array<Array<{ x: number; y: number }>>;
+  /** Only the GM sees it (Atlas 0.16). */
+  hidden: boolean;
 }
 
 /** A text label on the map, as Atlas draws it: centred on its place, turned and scaled; read-only on the board. */
@@ -157,6 +171,8 @@ export interface BoardText {
   /** Degrees, clockwise on screen. */
   rotation: number;
   scale: number;
+  /** Only the GM sees it (Atlas 0.16). */
+  hidden: boolean;
 }
 
 export interface TokenSettings {
@@ -316,47 +332,35 @@ function readPin(pin: Raw): BoardPin | null {
 /** Atlas's icon stamps are one cell (70 px) across unless the drawing says otherwise. */
 const ICON_SIZE = 70;
 
-function readIcon(drawing: Raw): BoardIcon | null {
-  const id = str(drawing.id);
-  const icon = str(drawing.icon);
-  const point = Array.isArray(drawing.points) && isObj(drawing.points[0]) ? drawing.points[0] : null;
-  if (drawing.type !== 'icon' || !id || !icon || !point) return null;
-  return {
-    id, icon, x: num(point.x, 0), y: num(point.y, 0),
-    color: str(drawing.color) ?? '#ffffff', size: num(drawing.width, ICON_SIZE), opacity: num(drawing.opacity, 1),
-  };
-}
-
-function readInk(drawing: Raw): BoardInk | null {
-  const id = str(drawing.id);
-  if (!id || drawing.type === 'icon' || !Array.isArray(drawing.points)) return null;
-  const points = drawing.points.filter(isObj).map((point) => ({ x: num(point.x, NaN), y: num(point.y, NaN) }))
-    .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
-  if (points.length === 0) return null;
-  return { id, points, color: str(drawing.color) ?? '#ffffff', width: num(drawing.width, 4) > 0 ? num(drawing.width, 4) : 4, opacity: num(drawing.opacity, 1) };
-}
-
-/** Atlas's defaults for a text: 24 px, centred, a box padded by 8 when it has one. */
-function readText(raw: Raw): BoardText | null {
-  const id = str(raw.id);
-  const text = str(raw.text);
-  if (!id || !text) return null;
-  return {
-    id, x: num(raw.x, 0), y: num(raw.y, 0), text,
-    fontSize: num(raw.fontSize, 24) > 0 ? num(raw.fontSize, 24) : 24,
-    fontFamily: str(raw.fontFamily) ?? 'Arial',
-    color: str(raw.color) ?? '#ffffff',
-    backgroundColor: str(raw.backgroundColor),
-    // Atlas reads 0 as unset for these two (`padding || 8`, `opacity || 1`).
-    padding: num(raw.padding, 0) || 8,
-    borderRadius: num(raw.borderRadius, 0),
-    opacity: num(raw.opacity, 0) || 1,
-    align: raw.align === 'left' || raw.align === 'right' ? raw.align : 'center',
-    bold: raw.bold === true,
-    italic: raw.italic === true,
-    rotation: num(raw.rotation, 0),
-    scale: num(raw.scale, 0) || 1,
-  };
+/**
+ * The drawings and texts of a level as Atlas's own reader reads them (`annotationList`, Atlas 0.16's, which reads 0.15's
+ * records too): in the order Atlas draws them; an old eraser stroke, a drawing of a type it does not know, an empty text
+ * passed over; stamps apart from the other drawings.
+ */
+function readAnnotations(drawings: unknown, texts: unknown): { icons: BoardIcon[]; inks: BoardInk[]; texts: BoardText[] } {
+  const out = { icons: [] as BoardIcon[], inks: [] as BoardInk[], texts: [] as BoardText[] };
+  const records = { drawings: isObj(drawings) ? drawings : undefined, texts: isObj(texts) ? texts : undefined } as AnnotationRecords;
+  for (const annotation of annotationList(records)) {
+    if (annotation.kind === 'text') {
+      if (annotation.text === '') continue;
+      out.texts.push({
+        id: annotation.id, x: annotation.x, y: annotation.y, text: annotation.text, fontSize: annotation.fontSize, fontFamily: annotation.fontFamily,
+        color: annotation.color, backgroundColor: annotation.backgroundColor, padding: annotation.padding, borderRadius: annotation.borderRadius,
+        opacity: annotation.opacity, align: annotation.align, bold: annotation.bold, italic: annotation.italic, rotation: annotation.rotation,
+        scale: annotation.scale, hidden: annotation.hidden,
+      });
+    } else if (annotation.shape === 'stamp') {
+      const at = annotation.points[0];
+      if (!at || !annotation.icon) continue;
+      out.icons.push({ id: annotation.id, icon: annotation.icon, x: at.x, y: at.y, color: annotation.color, size: annotation.width, opacity: annotation.opacity, rotation: annotation.rotation, hidden: annotation.hidden });
+    } else {
+      out.inks.push({
+        id: annotation.id, points: annotation.points.map(({ x, y }) => ({ x, y })), color: annotation.color, width: annotation.width, opacity: annotation.opacity,
+        closed: annotation.closed, fill: annotation.fill, holes: annotation.holes.map((ring) => ring.map(({ x, y }) => ({ x, y }))), hidden: annotation.hidden,
+      });
+    }
+  }
+  return out;
 }
 
 function readTokenSettings(raw: unknown): TokenSettings {
@@ -449,6 +453,7 @@ export function readMapState(path: string, given: unknown, viewedLevel?: string 
     const on = onLevel(raw, level, levels);
     return { ...token, levelId: resolveLevel(levels, raw.level), offLevel: !on };
   }).filter((token): token is BoardToken => token !== null);
+  const annotations = readAnnotations(here(objects.drawings), here(objects.texts));
   return {
     path,
     background: levelBackground(str(state.background), levels, level),
@@ -458,10 +463,10 @@ export function readMapState(path: string, given: unknown, viewedLevel?: string 
     tokenSettings: readTokenSettings(state.tokenSettings),
     tokens,
     pins: items(here(objects.pins)).map(readPin).filter((pin): pin is BoardPin => pin !== null),
-    icons: items(here(objects.drawings)).map(readIcon).filter((icon): icon is BoardIcon => icon !== null),
-    texts: items(here(objects.texts)).map(readText).filter((text): text is BoardText => text !== null),
+    icons: annotations.icons,
+    texts: annotations.texts,
     initiative: readInitiative(state.initiative),
-    inks: items(here(objects.drawings)).map(readInk).filter((ink): ink is BoardInk => ink !== null),
+    inks: annotations.inks,
     fog: readFog(here(objects.fog)),
     // A 0.14 file Atlas 0.15 has not saved yet: the outline of the shown rooms on this level stands as solid walls (all
     // outside is rock). Once the walls hold 0.15's room walls the rooms are those walls, and no outline is added.
