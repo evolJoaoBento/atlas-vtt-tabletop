@@ -24,7 +24,7 @@
       "leaves": 1,
       "hidden": true,
       "boardActive": true,
-      "heldMs": 483,
+      "heldMs": 1,
       "mark": {
         "openedBy": "tabletop-for-atlas",
         "claims": [
@@ -59,7 +59,7 @@
         "button": "Edit here"
       },
       "coveBanner": null,
-      "cellarMs": 258,
+      "cellarMs": 288,
       "cellarActive": true,
       "leavesAfter": 1,
       "cellarBannerAfter": null,
@@ -75,7 +75,7 @@
     "name": "an edit on the held board saves through Atlas; on the other board it is refused and no file is written",
     "pass": true,
     "evidence": {
-      "savedMs": 552,
+      "savedMs": 565,
       "moved": true,
       "refused": {
         "name": "NotHeldError",
@@ -110,7 +110,7 @@
           "button": "Reopen"
         }
       },
-      "ms": 625,
+      "ms": 661,
       "leaves": 1,
       "banner": null,
       "boardActive": true
@@ -144,7 +144,7 @@
   {
     "step": 10,
     "name": "rooms: Atlas 0.15 converts them, the old wall settings move with a backup onto Atlas's own walls, no doubled outline",
-    "pass": true,
+    "pass": false,
     "evidence": {
       "ms": 0,
       "fileHasRooms": false,
@@ -286,9 +286,7 @@
       ],
       "backupHasRooms": true,
       "notices": [
-        "Tabletop: cannot read the material Materials/stone: the material is missing.",
-        "Tabletop: moved 2 wall settings to Atlas 0.15's room walls on Fusion Rooms; backup in Tabletop backups/2026-11-14/",
-        "Tabletop: moved 2 wall, door and light settings onto Atlas's own records on Fusion Rooms; backup in Tabletop backups/2026-11-14/"
+        "Tabletop: cannot read the material Materials/stone: the material is missing."
       ],
       "drawn": 10,
       "unique": 10,
@@ -415,7 +413,7 @@
     "pass": true,
     "evidence": {
       "errors": [],
-      "total": 14
+      "total": 12
     }
   }
 ]

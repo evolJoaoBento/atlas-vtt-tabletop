@@ -83,11 +83,11 @@
     "pass": true,
     "evidence": {
       "drawn": 0,
-      "painted": 1,
+      "painted": 2,
       "still": true,
       "stillDrawn": 0,
       "notDoubled": true,
-      "retinted": 510,
+      "retinted": 545,
       "motionSteps": 1,
       "lavaSame": true,
       "flowGone": true
@@ -129,13 +129,13 @@
     "pass": true,
     "evidence": {
       "levels": 2,
-      "up": 793,
+      "up": 992,
       "waited": {
         "legacy": true,
         "brush": 0
       },
-      "down": 528,
-      "moved": 447,
+      "down": 553,
+      "moved": 493,
       "onFirst": true,
       "stayed": {
         "known": true,

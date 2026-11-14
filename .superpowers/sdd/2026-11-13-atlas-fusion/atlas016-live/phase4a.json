@@ -26,10 +26,10 @@
     "name": "a material, a width, a window's opening and a door's prop and turn each go onto the record, beside what is there; back to the default takes the key off",
     "pass": true,
     "evidence": {
-      "set": 40,
+      "set": 34,
       "stepsAfter": 5,
-      "read": 0,
-      "cleared": 0
+      "read": 1,
+      "cleared": 1
     }
   },
   {

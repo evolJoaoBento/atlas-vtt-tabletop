@@ -17,6 +17,26 @@ Phase 1 expects and puts back. Results: `atlas016-live/` (0.16.0), `phase*-live/
 | 4C, with 51 (a floor left of the base's corner) | 9/9 | 10/10 (with 52) |
 | 52 (hidden notes and fills on Atlas itself) | 1/1, run alone after the chain | in the chain |
 
+## Rerun after the review's fix pass
+
+Tabletop f0f7d89 + sync 8a87a17, Connect e260613 + vendor 5304910, the vault's 0.15 copy put back before each build.
+
+| Phase | Atlas 0.16.0 (one chain from the copy) | Atlas 0.15.0 |
+|---|---|---|
+| 1 | 16/16 | 16/16 alone from the copy; in the chain run after it 15/16 (step 10: the rooms were converted already by that first run) |
+| 2 | 6/6 | 6/6 (own steps) |
+| 3 | 10/10 | 10/10 (own steps) |
+| 4A | 6/6 | 6/6 (own steps) |
+| 4B | 8/8 | 8/8 (own steps) |
+| 4C with 51, 52 | 10/10 | 10/10 (own steps) |
+
+`atlas016-live/` holds the 0.16 chain; `phase*-live/` the 0.15 chain. On 0.15 a chain started straight from the copy
+failed Phase 1 steps 3, 4 and 10 (twice; the second time, in a vault the first chain had moved, 4C's 44, 45 and 51
+too: their stacks were levels already), and the first time 4B's 37 on its notice alone (the move itself was right).
+Phase 1 alone from the copy then passed 16/16, steps 3, 4 and 10 among them, and the chain after it passed every step
+of its own except Phase 1's 10, which needs rooms not yet converted. The 0.16 chain from the copy passed whole. The
+known run-order artifact, not this pass's code (which touches no hosting, rooms, water or stacks).
+
 ## New steps
 
 | Step | What | Evidence |
