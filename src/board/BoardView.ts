@@ -581,6 +581,10 @@ export class BoardView extends ItemView {
   private makeBoard(preset: QualityPreset): Board {
     const board = new Board(this.contentEl, this.host(), preset);
     this.board = board;
+    // A board made anew (a change of quality, a reload) starts with no sight: it is given Atlas's last answer at once, and
+    // previews no point of view.
+    this.povId = null;
+    this.sightWatch?.replay();
     this.atlasTools ??= this.makeAtlasTools();
     this.atlasTools.attach(board);
     this.dice = new BoardDice({
@@ -1955,7 +1959,7 @@ export class BoardView extends ItemView {
     if (!board || this.closed) return;
     this.sightWatch ??= new SightWatch((players, pov) => this.board?.setAtlasSight(players, pov));
     const view = this.path ? this.services.writer.holder(this.path) : null;
-    const map = this.map && this.map.path === this.path ? { path: this.map.path, lighting: this.map.lighting, level: this.map.level } : null;
+    const map = this.map && this.map.path === this.path ? { path: this.map.path, lighting: this.map.lighting, level: this.map.level, levels: this.map.levels } : null;
     this.sightWatch.follow(view, map, this.povId);
   }
 

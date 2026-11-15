@@ -1168,6 +1168,13 @@ export class Board {
     this.wake(true);
   }
 
+  /** Whether token `id` is being dragged on the board, or glides to where it was put. */
+  private tokenMoving(id: string): boolean {
+    const press = this.press;
+    if (press?.kind === 'token' && press.moved && (press.id === id || press.members?.has(id) === true)) return true;
+    return this.tokens.get(id)?.piece.animating === true;
+  }
+
   /** Works out what stands in sight from Atlas's answers, when anything that decides it changed; true when the answer changed. */
   private refreshSight(): boolean {
     const map = this.map;
@@ -1204,7 +1211,11 @@ export class Board {
     const sightMask = maskOf(players);
     const povMask = maskOf(pov);
     // Players: the tokens Atlas shows them, and the props where they see the map.
-    const seen = sightMask === null ? null : new Set(pieces.filter((piece) => (piece.token !== null ? players.kind === 'ready' && players.seen.has(piece.token) : sightMask.seenAt(piece.at.x, piece.at.y))).map((piece) => piece.key));
+    // A token is the one Atlas shows them; while the GM drags it or it glides, also where the board draws it, since Atlas
+    // judges it where it stands in the store (the drop, the end of the glide).
+    const seen = sightMask === null ? null : new Set(pieces.filter((piece) => (piece.token !== null
+      ? players.kind === 'ready' && players.seen.has(piece.token) && (!this.tokenMoving(piece.token) || sightMask.seenAt(piece.at.x, piece.at.y))
+      : sightMask.seenAt(piece.at.x, piece.at.y))).map((piece) => piece.key));
     // A point of view: what stands where that token sees the map, and the token itself.
     const from = povMask === null ? null : new Set(pieces.filter((piece) => piece.token === this.pov || povMask.seenAt(piece.at.x, piece.at.y)).map((piece) => piece.key));
     this.sightMasks = { sight: sightMask, pov: povMask };

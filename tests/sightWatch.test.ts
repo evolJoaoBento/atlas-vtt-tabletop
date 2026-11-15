@@ -7,7 +7,8 @@ import { hostShows, SightWatch, withoutHost } from '../src/board/sightWatch';
 
 const store = (state: Record<string, unknown>) => ({ getState: () => state, subscribe: () => () => undefined });
 const view = (state: Record<string, unknown>, renderer: unknown = {}) => ({ viewId: 'v1', atlasStore: store(state) as never, renderer });
-const MAP = { path: 'a.atlasmap', lighting: { enabled: true }, level: 'ground' };
+const LEVELS = [{ id: 'ground' }, { id: 'upper' }] as never;
+const MAP = { path: 'a.atlasmap', lighting: { enabled: true }, level: 'ground', levels: LEVELS };
 
 test("Atlas's tab answers for the board only while it holds the board's map, loaded, on the level the board shows", () => {
   assert.equal(hostShows(view({ mapPath: 'a.atlasmap', mapLoaded: true, viewedLevel: 'ground' }), MAP), true);
@@ -16,6 +17,14 @@ test("Atlas's tab answers for the board only while it holds the board's map, loa
   assert.equal(hostShows(view({ mapPath: 'a.atlasmap', isMapLoading: true }), MAP), false);
   assert.equal(hostShows(view({ mapPath: 'a.atlasmap', viewedLevel: 'upper' }), MAP), false);
   assert.equal(hostShows(null, MAP), false);
+});
+
+test("an Atlas tab that names no level shows the scene's first (Atlas's rule): it answers for a board on the ground, not one upstairs", () => {
+  const host = view({ mapPath: 'a.atlasmap', mapLoaded: true });
+  assert.equal(hostShows(host, MAP), true);
+  assert.equal(hostShows(host, { ...MAP, level: 'upper' }), false);
+  assert.equal(hostShows(view({ mapPath: 'a.atlasmap', mapLoaded: true, viewedLevel: 'gone' }), { ...MAP, level: 'upper' }), false);
+  assert.equal(hostShows(host, { ...MAP, level: null, levels: [] as never }), true);
 });
 
 test('without it a scene saved lit shows players nothing, one saved unlit no sight', () => {
@@ -33,4 +42,15 @@ test('a lit scene whose Atlas tab has no lighting to read is pending, for player
   watch.follow(null, MAP, 'tok');
   watch.dispose();
   assert.deepEqual(answers, [['pending', null], ['pending', 'pending'], ['pending', 'pending']]);
+});
+
+test('its last answer is handed again on asking (a board made anew, as a change of quality makes one, gets it at once)', () => {
+  const answers: string[] = [];
+  const watch = new SightWatch((players) => answers.push(players.kind));
+  watch.replay();
+  assert.deepEqual(answers, []);
+  watch.follow(null, MAP, null);
+  watch.replay();
+  assert.deepEqual(answers, ['pending', 'pending']);
+  watch.dispose();
 });

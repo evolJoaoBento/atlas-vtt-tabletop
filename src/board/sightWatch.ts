@@ -9,6 +9,8 @@
 import { atlasMapSize, playerVisibilityApi, type LightingApi, type LightingView } from '../../packages/atlas-host/src/index';
 import type { AtlasView } from '../atlas';
 import { boardSightOf, PENDING, UNLIT, type BoardSight } from './atlasSight';
+import { resolveLevel } from './levels';
+import type { BoardLevel } from './levels';
 
 /** What the watch reads of the board's map. */
 export interface SightMap {
@@ -16,6 +18,8 @@ export interface SightMap {
   readonly lighting: { readonly enabled?: boolean } | null | undefined;
   /** The level the board shows (null: the scene's only one). */
   readonly level: string | null;
+  /** The scene's levels, in Atlas's order. */
+  readonly levels: readonly BoardLevel[];
 }
 
 type HostView = AtlasView & { readonly renderer?: unknown };
@@ -25,8 +29,8 @@ export function hostShows(view: HostView | null, map: SightMap): boolean {
   if (!view) return false;
   const state = view.atlasStore.getState() as unknown as { mapPath?: string | null; mapLoaded?: boolean; isMapLoading?: boolean; viewedLevel?: string | null };
   if (state.mapPath !== map.path || state.mapLoaded === false || state.isMapLoading === true) return false;
-  const viewed = typeof state.viewedLevel === 'string' ? state.viewedLevel : null;
-  return map.level === null || viewed === null || viewed === map.level;
+  // Atlas reads an unset or unknown level as the scene's first.
+  return map.level === null || resolveLevel(map.levels, state.viewedLevel) === resolveLevel(map.levels, map.level);
 }
 
 /** The answer where Atlas cannot give one: nothing for a scene saved lit, no sight for one saved unlit. */
@@ -39,10 +43,15 @@ export class SightWatch {
   private map: SightMap | null = null;
   private pov: string | null = null;
   private stop: (() => void) | null = null;
+  /** The last answer handed out, for a board made anew (`replay`). */
+  private last: [BoardSight, BoardSight | null] | null = null;
   private readonly disposers = new Set<() => void>();
   private readonly api: LightingApi;
 
-  constructor(private readonly answer: (players: BoardSight, pov: BoardSight | null) => void) {
+  private readonly answer: (players: BoardSight, pov: BoardSight | null) => void;
+
+  constructor(answer: (players: BoardSight, pov: BoardSight | null) => void) {
+    this.answer = (players, pov) => { this.last = [players, pov]; answer(players, pov); };
     this.api = playerVisibilityApi({
       label: 'Tabletop',
       view: (viewId) => (this.view && this.view.viewId === viewId ? this.view as unknown as LightingView : null),
@@ -81,6 +90,11 @@ export class SightWatch {
     const players = boardSightOf(this.api.playerVisibility(id));
     const pov = this.pov === null ? null : boardSightOf(this.api.playerVisibility(id, { onlyToken: this.pov }));
     this.answer(players, pov);
+  }
+
+  /** Hands the last answer out again (none before the first). */
+  replay(): void {
+    if (this.last) this.answer(...this.last);
   }
 
   dispose(): void {

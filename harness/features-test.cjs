@@ -1177,6 +1177,19 @@ feature('line of sight', async ({ page, shot }) => {
     board.setAtlasSight(ready(['hero'], nearHero), null);
     await settle();
     out.ready = { sight: board.sight && [...board.sight].sort(), player: look('player'), gm: look('gm') };
+    // The goblin Atlas shows players though its place is dark (as it shows a party token in the dark): shown while it
+    // stands, but not while the GM's pointer holds it or it glides across the dark.
+    board.setAtlasSight(ready(['hero', 'gob'], nearHero), null);
+    await settle();
+    out.still = look('player').gob;
+    const gobPiece = board.tokens.get('gob').piece;
+    Object.defineProperty(gobPiece, 'animating', { get: () => true, configurable: true });
+    board.setAtlasSight(ready(['hero', 'gob'], nearHero), null);
+    await settle();
+    out.held = look('player').gob;
+    delete gobPiece.animating;
+    board.setAtlasSight(ready(['hero', 'gob'], nearHero), null);
+    await settle();
     board.setAtlasSight({ kind: 'pending' }, null);
     await settle();
     out.pending = { player: look('player'), gm: look('gm') };
@@ -1196,6 +1209,7 @@ feature('line of sight', async ({ page, shot }) => {
   check('sight: players see the token Atlas shows them, and not the one it does not; the dark of its raster is veiled', seen.ready.player.hero === !seen.hidden.hero && seen.ready.player.gob === false && seen.ready.player.veil && seen.ready.player.veilBlocks > 0, JSON.stringify(seen.ready));
   check('sight: a prop is in the players\' picture only where Atlas shows them the map', seen.ready.player.barrel === seen.barrelInSight, JSON.stringify({ barrel: seen.ready.player.barrel, inSight: seen.barrelInSight }));
   check('sight: the GM\'s own board shows everything, unveiled, as Atlas\'s GM view', seen.ready.gm.gob && seen.ready.gm.hero && !seen.ready.gm.veil, JSON.stringify(seen.ready.gm));
+  check('sight: a token Atlas shows players in the dark is shown while it stands, not while it glides over the dark (the board judges a moving token by where it is drawn)', seen.still === !seen.hidden.gob && seen.held === false, JSON.stringify({ still: seen.still, held: seen.held }));
   check('sight: not known yet (pending), players are shown nothing and the map is veiled whole', !seen.pending.player.hero && !seen.pending.player.gob && seen.pending.player.veil && seen.pending.player.veilBlocks > 0 && seen.pending.gm.gob, JSON.stringify(seen.pending));
   check('sight: a previewed point of view is Atlas\'s sight of that token: itself seen, what it does not see hidden, its veil on the GM board', seen.pov.gm.gob && !seen.pov.gm.hero && seen.pov.gm.pov, JSON.stringify(seen.pov));
   check('sight: after it, the board shows everything again', seen.after.sight === null && seen.after.gm.gob && seen.after.gm.hero && !seen.after.gm.pov, JSON.stringify(seen.after));

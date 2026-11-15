@@ -70,7 +70,7 @@ async function step(n, name, run) {
   }
   const o = await open();
 
-  await step(53, "sight follows Atlas: on a lit scene the board's players' picture is Atlas's own sight from the tab that hosts the map; the GM's board shows everything; a token moved into sight shows", async () => {
+  await step(53, "sight follows Atlas: on a lit scene the board's players' picture is Atlas's own sight from the tab that hosts the map; the GM's board shows everything, also on a board made anew by a change of quality; a token moved into sight shows", async () => {
     const out = await o.ev(`
       const D = window.__D;
       const leaf = await D.hold(D.CELLAR);
@@ -94,6 +94,15 @@ async function step(n, name, run) {
         return { seer: piece(seer.id), other: piece(otherId), veil: board().veilSight.object3d.visible, blocks: board().veilSight.object3d.geometry.getAttribute('position')?.count ?? 0 };
       };
       const lit = { kind: board().atlasSight.kind, sight: board().sight && [...board().sight].filter((k) => k.startsWith('t:')), player: look('player'), gm: look('gm') };
+      // A change of quality that makes the board anew (antialiasing differs from Low to High): the new board keeps Atlas's sight.
+      const qualityBefore = D.tt().settings.quality;
+      const oldBoard = board();
+      await D.tt().setQuality(qualityBefore === 'low' ? 'high' : 'low');
+      await D.until(() => board() !== oldBoard && board().map && board().sight !== null, 10000);
+      await D.sleep(600);
+      const rebuilt = { fresh: board() !== oldBoard, kind: board().atlasSight.kind, player: look('player') };
+      await D.tt().setQuality(qualityBefore);
+      await D.sleep(1500);
       // Moved next to the seer through Atlas's store: Atlas's sight takes it in, and so does the board's.
       D.s().updateToken(otherId, { x: seer.x + cell, y: seer.y });
       const movedMs = await D.until(() => board().sight && board().sight.has('t:' + otherId), 10000);
@@ -107,11 +116,12 @@ async function step(n, name, run) {
       D.s().updateToken(seer.id, seerBefore);
       D.s().setSceneLighting(lightingBefore);
       await D.sleep(1200);
-      return { readyMs: ready, lit, movedMs, moved, offMs, off, restored: D.s().lighting.enabled === lightingBefore.enabled && !D.s().objects.tokens[otherId] };
+      return { readyMs: ready, lit, rebuilt, movedMs, moved, offMs, off, restored: D.s().lighting.enabled === lightingBefore.enabled && !D.s().objects.tokens[otherId] };
     `);
     const ok = out.readyMs !== null && out.lit.kind === 'ready'
       && out.lit.player.seer === true && out.lit.player.other === false && out.lit.player.veil === true && out.lit.player.blocks > 0
       && out.lit.gm.seer === true && out.lit.gm.other === true && out.lit.gm.veil === false
+      && out.rebuilt.fresh && out.rebuilt.kind === 'ready' && out.rebuilt.player.other === false && out.rebuilt.player.veil === true
       && out.movedMs !== null && out.moved.player.other === true
       && out.offMs !== null && out.off.player.veil === false && out.off.player.other === true && out.restored;
     return { pass: ok, evidence: out };
