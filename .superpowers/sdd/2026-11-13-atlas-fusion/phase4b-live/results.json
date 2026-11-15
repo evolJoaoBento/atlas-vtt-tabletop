@@ -14,7 +14,7 @@
     "pass": true,
     "evidence": {
       "hadLegacy": true,
-      "moved": 0,
+      "moved": 1,
       "shown": 0,
       "stepsAfter": -47,
       "liquids": [
@@ -83,11 +83,11 @@
     "pass": true,
     "evidence": {
       "drawn": 0,
-      "painted": 2,
+      "painted": 1,
       "still": true,
       "stillDrawn": 0,
       "notDoubled": true,
-      "retinted": 553,
+      "retinted": 515,
       "motionSteps": 1,
       "lavaSame": true,
       "flowGone": true
@@ -129,13 +129,13 @@
     "pass": true,
     "evidence": {
       "levels": 2,
-      "up": 1079,
+      "up": 1084,
       "waited": {
         "legacy": true,
         "brush": 0
       },
-      "down": 542,
-      "moved": 228,
+      "down": 509,
+      "moved": 205,
       "onFirst": true,
       "stayed": {
         "known": true,

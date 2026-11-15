@@ -1,0 +1,205 @@
+{
+  "build": "0.15.0",
+  "heldMs": 955,
+  "hidden": true,
+  "tokens": [
+    {
+      "id": "tok_1794200000008_goblinbos",
+      "hidden": true,
+      "vision": null,
+      "level": null,
+      "x": 2310,
+      "y": 1050
+    },
+    {
+      "id": "tok_1794566615152_gmn2nhci6",
+      "hidden": false,
+      "vision": null,
+      "level": "level_probe_upper",
+      "x": 700,
+      "y": 700
+    }
+  ],
+  "viewedLevel": "level_probe_ground",
+  "seer": "tok_1794200000008_goblinbos",
+  "settleMs": 2,
+  "first": {
+    "controller": true,
+    "viaOwn": true,
+    "enabled": true,
+    "current": true,
+    "sight": {
+      "all": false,
+      "regions": [
+        {
+          "tokenId": "tok_1794200000008_goblinbos",
+          "sense": "Sight",
+          "corners": 178,
+          "radius": 3265.333061113368
+        },
+        {
+          "tokenId": "tok_1794200000008_goblinbos",
+          "sense": "Darkvision",
+          "corners": 160,
+          "radius": 1680
+        }
+      ]
+    },
+    "reaches": 3,
+    "reachKeys": [
+      "origin",
+      "bright",
+      "dim",
+      "polygon",
+      "reflection"
+    ],
+    "perception": {
+      "tok_1794200000008_goblinbos": "seen",
+      "tok_1794566615152_gmn2nhci6": "unseen"
+    }
+  },
+  "later": {
+    "controller": true,
+    "viaOwn": true,
+    "enabled": true,
+    "current": true,
+    "sight": {
+      "all": false,
+      "regions": [
+        {
+          "tokenId": "tok_1794200000008_goblinbos",
+          "sense": "Sight",
+          "corners": 178,
+          "radius": 3265.333061113368
+        },
+        {
+          "tokenId": "tok_1794200000008_goblinbos",
+          "sense": "Darkvision",
+          "corners": 160,
+          "radius": 1680
+        }
+      ]
+    },
+    "reaches": 3,
+    "reachKeys": [
+      "origin",
+      "bright",
+      "dim",
+      "polygon",
+      "reflection"
+    ],
+    "perception": {
+      "tok_1794200000008_goblinbos": "seen",
+      "tok_1794566615152_gmn2nhci6": "unseen"
+    }
+  },
+  "visible": {
+    "controller": true,
+    "viaOwn": true,
+    "enabled": true,
+    "current": true,
+    "sight": {
+      "all": false,
+      "regions": [
+        {
+          "tokenId": "tok_1794200000008_goblinbos",
+          "sense": "Sight",
+          "corners": 178,
+          "radius": 3265.333061113368
+        },
+        {
+          "tokenId": "tok_1794200000008_goblinbos",
+          "sense": "Darkvision",
+          "corners": 160,
+          "radius": 1680
+        }
+      ]
+    },
+    "reaches": 3,
+    "reachKeys": [
+      "origin",
+      "bright",
+      "dim",
+      "polygon",
+      "reflection"
+    ],
+    "perception": {
+      "tok_1794200000008_goblinbos": "seen",
+      "tok_1794566615152_gmn2nhci6": "unseen"
+    },
+    "hidden": false
+  },
+  "hiddenAgain": {
+    "controller": true,
+    "viaOwn": true,
+    "enabled": true,
+    "current": true,
+    "sight": {
+      "all": false,
+      "regions": [
+        {
+          "tokenId": "tok_1794200000008_goblinbos",
+          "sense": "Sight",
+          "corners": 178,
+          "radius": 3265.333061113368
+        },
+        {
+          "tokenId": "tok_1794200000008_goblinbos",
+          "sense": "Darkvision",
+          "corners": 160,
+          "radius": 1680
+        }
+      ]
+    },
+    "reaches": 3,
+    "reachKeys": [
+      "origin",
+      "bright",
+      "dim",
+      "polygon",
+      "reflection"
+    ],
+    "perception": {
+      "tok_1794200000008_goblinbos": "seen",
+      "tok_1794566615152_gmn2nhci6": "unseen"
+    },
+    "hidden": true
+  },
+  "movedMs": 1,
+  "second": {
+    "controller": true,
+    "viaOwn": true,
+    "enabled": true,
+    "current": true,
+    "sight": {
+      "all": false,
+      "regions": [
+        {
+          "tokenId": "tok_1794200000008_goblinbos",
+          "sense": "Sight",
+          "corners": 178,
+          "radius": 3265.333061113368
+        },
+        {
+          "tokenId": "tok_1794200000008_goblinbos",
+          "sense": "Darkvision",
+          "corners": 160,
+          "radius": 1680
+        }
+      ]
+    },
+    "reaches": 3,
+    "reachKeys": [
+      "origin",
+      "bright",
+      "dim",
+      "polygon",
+      "reflection"
+    ],
+    "perception": {
+      "tok_1794200000008_goblinbos": "seen",
+      "tok_1794566615152_gmn2nhci6": "unseen"
+    }
+  },
+  "restored": true
+}

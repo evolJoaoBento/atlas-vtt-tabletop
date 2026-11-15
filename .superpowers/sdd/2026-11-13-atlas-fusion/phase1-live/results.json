@@ -24,7 +24,7 @@
       "leaves": 1,
       "hidden": true,
       "boardActive": true,
-      "heldMs": 502,
+      "heldMs": 511,
       "mark": {
         "openedBy": "tabletop-for-atlas",
         "claims": [
@@ -59,7 +59,7 @@
         "button": "Edit here"
       },
       "coveBanner": null,
-      "cellarMs": 320,
+      "cellarMs": 266,
       "cellarActive": true,
       "leavesAfter": 1,
       "cellarBannerAfter": null,
@@ -75,7 +75,7 @@
     "name": "an edit on the held board saves through Atlas; on the other board it is refused and no file is written",
     "pass": true,
     "evidence": {
-      "savedMs": 568,
+      "savedMs": 571,
       "moved": true,
       "refused": {
         "name": "NotHeldError",
@@ -89,7 +89,7 @@
     "name": "a board in a popout: the Atlas tab stays in the main window, the popout board stays active",
     "pass": true,
     "evidence": {
-      "ms": 107,
+      "ms": 0,
       "leaves": 1,
       "atlasInMain": true,
       "boardInPopout": true,
@@ -110,7 +110,7 @@
           "button": "Reopen"
         }
       },
-      "ms": 680,
+      "ms": 577,
       "leaves": 1,
       "banner": null,
       "boardActive": true
@@ -146,7 +146,7 @@
     "name": "rooms: Atlas 0.15 converts them, the old wall settings move with a backup onto Atlas's own walls, no doubled outline",
     "pass": true,
     "evidence": {
-      "ms": 0,
+      "ms": 1,
       "fileHasRooms": false,
       "roomWalls": 10,
       "chains": [
@@ -304,7 +304,7 @@
     "pass": true,
     "evidence": {
       "errors": [],
-      "total": 17
+      "total": 18
     }
   }
 ]
