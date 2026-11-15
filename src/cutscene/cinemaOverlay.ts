@@ -54,6 +54,33 @@ export class CinemaOverlay {
     return this.level;
   }
 
+  /**
+   * Fades to black over `ms`, calls `atBlack` there (the bars come or go out of sight), and fades back in over `ms`:
+   * how a run starts for players. A fade under way is cut short by a new one.
+   */
+  fadeThrough(ms: number, atBlack: () => void): void {
+    const win = this.container.ownerDocument.defaultView;
+    const run = ++this.fadeRun;
+    if (!win || !(ms > 0)) { atBlack(); this.setBlack(0); return; }
+    const start = win.performance.now();
+    let swapped = false;
+    const step = (now: number): void => {
+      if (run !== this.fadeRun) return;
+      const e = now - start;
+      if (e < ms) this.setBlack(e / ms);
+      else {
+        if (!swapped) { swapped = true; atBlack(); }
+        if (e < 2 * ms) this.setBlack(1 - (e - ms) / ms);
+        else { this.setBlack(0); return; }
+      }
+      win.requestAnimationFrame(step);
+    };
+    win.requestAnimationFrame(step);
+  }
+
+  /** Whether a fade of `fadeThrough` is under way. */
+  private fadeRun = 0;
+
   /** The height of each bar in pixels: what the container has above and below a picture of the aspect, shared between them. */
   get barHeight(): number {
     if (this.ratio === null) return 0;

@@ -4061,6 +4061,14 @@ feature('cutscene authoring', async ({ page, shot }) => {
   });
   check('authoring: the camera looks up at 1.5 rad and the board draws it so', Math.abs(look.up.pitch - 1.5) < 0.01 && Math.abs(look.up.y - Math.sin(1.5)) < 0.02, JSON.stringify(look));
   check('authoring: look(0, -3) turns it to 1.5 rad down; no limit clamps the pose', Math.abs(look.down.pitch + 1.5) < 0.01 && Math.abs(look.down.y + Math.sin(1.5)) < 0.02, JSON.stringify(look));
+  const thumbs = await page.evaluate(() => {
+    const studio = window.boardTest.studio.studio;
+    const shots = studio.editing.cutscene.shots;
+    const here = shots.filter((s) => window.boardTest.studio.host.at(s.level ? s.mapPath + '#' + s.level : s.mapPath)).length;
+    const cells = [...document.querySelectorAll('.tabletop-timeline:not(.tabletop-timeline--run) .tabletop-timeline__thumb')];
+    return { shots: shots.length, here, cells: cells.length, pictures: cells.filter((c) => c.querySelector('img')?.src.startsWith('data:image/png')).length };
+  });
+  check('timeline: every shot has a thumbnail cell, a picture of what it sees where its map is the one shown', thumbs.cells === thumbs.shots && thumbs.pictures >= 1 && thumbs.pictures >= thumbs.here - 0, JSON.stringify(thumbs));
   await shot('cutscene-timeline');
   // Done: everything is back as it was.
   await page.locator('.tabletop-timeline__done').click();
@@ -4073,6 +4081,19 @@ feature('cutscene authoring', async ({ page, shot }) => {
   // The gallery lists it; Preview is on for a cutscene with shots and off for one without; Delete asks first.
   await enterCinematic(page);
   const row = await page.evaluate(() => [...document.querySelectorAll('.tabletop-gallery__row')].map((r) => ({ name: r.querySelector('.tabletop-gallery__name').textContent, count: r.querySelector('.tabletop-gallery__count').textContent, preview: r.querySelector('.tabletop-gallery__preview').disabled })));
+  const galleryLook = await page.evaluate(() => {
+    const head = document.querySelector('.tabletop-gallery__head');
+    const r = document.querySelector('.tabletop-gallery__row');
+    const buttons = [...r.querySelectorAll('.tabletop-gallery__actions button')];
+    return {
+      head: [...head.querySelectorAll('button')].map((b) => [b.dataset.icon, b.getAttribute('aria-label')]),
+      row: buttons.map((b) => [b.dataset.icon, b.getAttribute('aria-label'), b.textContent]),
+      lines: new Set([r.querySelector('.tabletop-gallery__name'), ...buttons].map((e) => Math.round(e.getBoundingClientRect().top + e.getBoundingClientRect().height / 2))).size,
+    };
+  });
+  check('gallery: + and the settings are Atlas\'s icons (plus, settings), and there is no close button', JSON.stringify(galleryLook.head) === JSON.stringify([['plus', 'New cutscene'], ['settings', 'Cinematic settings']]), JSON.stringify(galleryLook.head));
+  check('gallery: a cutscene\'s buttons are icons (play, pencil, eye, trash), named for their tooltip, with no text', JSON.stringify(galleryLook.row.map((b) => b[0])) === JSON.stringify(['play', 'pencil', 'eye', 'trash-2']) && galleryLook.row.every((b) => b[1] && b[2] === ''), JSON.stringify(galleryLook.row));
+  check('gallery: the name and the buttons sit on one line', galleryLook.lines === 1, JSON.stringify(galleryLook));
   check('authoring: the gallery lists the cutscene with its shots and an enabled Preview', row.length === 1 && row[0].name === 'Docks' && row[0].count === '3 shots' && row[0].preview === false, JSON.stringify(row));
   await page.evaluate(() => window.boardTest.studio.log.names.push('Empty'));
   await page.locator('.tabletop-gallery__add').click();
@@ -4083,7 +4104,8 @@ feature('cutscene authoring', async ({ page, shot }) => {
   const rows = await page.evaluate(() => [...document.querySelectorAll('.tabletop-gallery__row')].map((r) => ({ name: r.querySelector('.tabletop-gallery__name').textContent, count: r.querySelector('.tabletop-gallery__count').textContent, preview: r.querySelector('.tabletop-gallery__preview').disabled, title: r.querySelector('.tabletop-gallery__preview').title })));
   check('authoring: a cutscene with no shots has Preview disabled, with the reason shown', rows.length === 2 && rows[1].preview === true && rows[1].count === 'No shots yet' && /shot/i.test(rows[1].title), JSON.stringify(rows));
   await page.evaluate(() => window.boardTest.studio.log.names.push('Empty cut'));
-  await page.locator('.tabletop-gallery__row').nth(1).locator('.tabletop-gallery__rename').click();
+  check('authoring: the gallery has no Rename button: the name renames on a double click', await page.locator('.tabletop-gallery__rename').count() === 0);
+  await page.locator('.tabletop-gallery__row').nth(1).locator('.tabletop-gallery__name').dblclick();
   await sleepFrame();
   check('authoring: Rename asks with the current name and saves the new one', await page.evaluate(() => window.boardTest.studio.log.asked.at(-1) === 'Empty' && window.boardTest.studio.store.get(window.boardTest.studio.first)[1].name === 'Empty cut'));
   await page.locator('.tabletop-gallery__row').nth(1).locator('.tabletop-gallery__delete').click();
@@ -4135,7 +4157,7 @@ feature('cutscene preview', async ({ page }) => {
   await rests(0, ids.first);
   check('preview: Previous cuts back to shot 1 on the first map', await label() === 'Shot 1 of 4' && near(await eyeNow(), eyes[0]));
   await page.locator('.tabletop-preview__back').click();
-  check('preview: Back to editing returns to the editor with the authoring role', await state() === 'editing' && await page.evaluate(() => window.boardTest.board.cinematicRole) === 'authoring' && await page.locator('.tabletop-timeline').isVisible());
+  check('preview: Back to editing returns to the editor with the authoring role', await state() === 'editing' && await page.evaluate(() => window.boardTest.board.cinematicRole) === 'authoring' && await page.locator('.tabletop-timeline:not(.tabletop-timeline--run)').isVisible());
   // Preview from a shot, by its menu.
   const at = await timelineAt(page, 0.8, 40);
   await page.mouse.click(at.x, at.y, { button: 'right' });
@@ -4199,6 +4221,10 @@ feature('cutscene run', async ({ page }) => {
   check('cutscene run: before Play a token under the fog is hidden from the players\' window', plain === false);
 
   await enterCinematic(page);
+  // Cinematic mode puts the players on the GM's camera first (Connect hosts here); the run's counts start after it.
+  await page.waitForFunction(() => window.boardTest.studio.studio.live, null, { timeout: 5000 }).catch(() => undefined);
+  check('cutscene run: entering Cinematic mode has the players follow the GM camera', await page.evaluate(() => window.boardTest.studio.studio.live && window.boardTest.studio.studio.state === 'gallery'));
+  await page.evaluate(() => { window.runLog.changes = 0; window.boardTest.studio.log.lent.length = 0; });
   check('cutscene run: a cutscene with shots has Play for players enabled', await page.locator('.tabletop-gallery__play').isEnabled());
   await page.locator('.tabletop-gallery__play').click();
   await page.waitForFunction(() => window.boardTest.api.cutscene.current() !== null, null, { timeout: 5000 });
@@ -4236,6 +4262,16 @@ feature('cutscene run', async ({ page }) => {
   await page.locator('.tabletop-run__previous').click();
   const previous = await current();
   check('cutscene run: Previous steps back to shot index 0 on key k1 (seq 3)', previous.cutscene.step.shot === 0 && previous.cutscene.step.seq === 3 && previous.cutscene.key === 'k1', JSON.stringify(previous.cutscene.step));
+  // The GM's strip of the run: every shot, the current one marked; a click on a shot cuts to it.
+  const strip = await page.evaluate(() => {
+    const el = document.querySelector('.tabletop-timeline--run');
+    return { shown: !!el && !el.hidden, cells: el ? el.querySelectorAll('.tabletop-timeline__thumb').length : 0, current: el ? [...el.querySelectorAll('.tabletop-timeline__thumb')].findIndex((c) => c.classList.contains('is-current')) : -2 };
+  });
+  check('cutscene run: the GM sees the run\'s timeline, a thumbnail per shot, shot 1 marked', strip.shown && strip.cells === 4 && strip.current === 0, JSON.stringify(strip));
+  await page.locator('.tabletop-timeline--run .tabletop-timeline__thumb').nth(2).click();
+  await page.waitForFunction(() => window.boardTest.api.cutscene.current()?.cutscene.step.shot === 2, null, { timeout: 5000 }).catch(() => undefined);
+  const jumped = { step: (await current())?.cutscene.step, label: await page.locator('.tabletop-run__label').textContent(), marked: await page.evaluate(() => [...document.querySelectorAll('.tabletop-timeline--run .tabletop-timeline__thumb')].findIndex((c) => c.classList.contains('is-current'))) };
+  check('cutscene run: a click on shot 3 in the GM\'s timeline cuts the run to it, and players are told', jumped.step?.shot === 2 && jumped.label === 'Shot 3 of 4' && jumped.marked === 2, JSON.stringify(jumped));
   await onMap(ids.first);
   await wait(300);
 
@@ -4299,27 +4335,46 @@ feature('cinematic board mode', async ({ page, shot }) => {
   await page.click('[aria-label="Cinematic mode"]');
   await wait(200);
   check('cinematic mode: Cinematic opens the cutscene gallery', await state() === 'gallery' && await page.locator('.tabletop-gallery').count() === 1 && await active() === 'Cinematic mode');
+  // At once in the cinema: the board fades to black, comes back with the bars, and (Connect hosting) the players follow the GM's camera.
+  const entered = await page.evaluate(async () => {
+    const { board, studio } = window.boardTest;
+    let peak = 0;
+    const t = performance.now();
+    while (performance.now() - t < 4000) {
+      peak = Math.max(peak, board.cinema.black);
+      if (peak > 0.5 && board.cinema.black === 0) break;
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+    const session = studio.host.session();
+    return { peak, black: board.cinema.black, bars: board.cinema.aspect, settingsBars: studio.host.settings().bars, hosting: session ? session.hosting() : false, live: studio.studio.live, state: studio.studio.state };
+  });
+  check('cinematic mode: entering fades the board to black and back in with the cinematic settings\' bars', entered.peak > 0.5 && entered.black === 0 && (entered.settingsBars ? entered.bars !== null : entered.bars === null), JSON.stringify(entered));
+  check('cinematic mode: with Connect hosting, the players follow the GM\'s camera at once, and the gallery stays open', entered.live === entered.hosting && entered.state === 'gallery', JSON.stringify(entered));
   check('cinematic mode: entering puts painting away', await page.evaluate(() => window.boardTest.board.isPainting) === false);
   let now = await seen();
   check('cinematic mode: only the mode switch and the live toggle show', now.modes && now.live && !now.water && !now.paint && !now.settings && !now.measure && !now.view && !now.move && !now.undo, JSON.stringify(now));
   check('cinematic mode: Cinematic does not count as editing (the board reports it, the remembered mode stays Edit)', await mode() === 'cinematic' && await page.evaluate(() => window.boardTest.modes.mode) === 'edit');
   await shot('mode-cinematic');
 
-  // Play closes the gallery and brings the play tools back.
+  // Play closes the gallery and brings the play tools back (once the cinema has faded out).
   await page.click('[aria-label="Play mode"]');
+  await page.waitForFunction(() => window.boardTest.studio.studio.state === 'idle', null, { timeout: 8000 });
   await wait(200);
   now = await seen();
   check('cinematic mode: Play closes the gallery and shows the play tools', await state() === 'idle' && await page.locator('.tabletop-gallery').count() === 0 && await active() === 'Play mode' && now.measure && now.move && now.undo && !now.paint, JSON.stringify(now));
 
-  // Closing the gallery (its ×, Escape) goes back to the mode before.
+  // The gallery has no close button; Escape goes back to the mode before.
   await page.click('[aria-label="Edit mode"]');
   await page.click('[aria-label="Cinematic mode"]');
-  await page.locator('.tabletop-gallery__close').click();
+  check('cinematic mode: the gallery has no close button', await page.locator('.tabletop-gallery__close').count() === 0);
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => window.boardTest.studio.studio.state === 'idle', null, { timeout: 8000 });
   await wait(200);
-  check('cinematic mode: the gallery\'s close button goes back to Edit', await state() === 'idle' && await active() === 'Edit mode' && (await seen()).paint === true);
+  check('cinematic mode: Escape goes back to Edit', await state() === 'idle' && await active() === 'Edit mode' && (await seen()).paint === true);
   await page.click('[aria-label="Play mode"]');
   await page.click('[aria-label="Cinematic mode"]');
   await page.keyboard.press('Escape');
+  await page.waitForFunction(() => window.boardTest.studio.studio.state === 'idle', null, { timeout: 8000 });
   await wait(200);
   check('cinematic mode: Escape closes the gallery and goes back to Play', await state() === 'idle' && await active() === 'Play mode' && (await seen()).measure === true);
 

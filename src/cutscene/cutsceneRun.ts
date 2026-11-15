@@ -290,6 +290,24 @@ export class CutsceneRun {
     this.changed();
   }
 
+  /** A cut to shot `index` (the GM clicked it on the run's timeline): the players are told and follow. */
+  goTo(index: number): void {
+    const a = this.active;
+    if (!a?.playback || a.phase === 'leaving' || a.switching) return;
+    const shots = a.playback.cutscene.shots.length;
+    if (!Number.isInteger(index) || index < 0 || index >= shots || (index === a.playback.shot && !a.playback.playing)) return;
+    a.seq++;
+    a.playback.seek(index, a.playback.seq + 1);
+    this.announce(a);
+    this.changed();
+  }
+
+  /** The cutscene a prepared run plays, and the shot it is at; null otherwise. */
+  get playing(): { cutscene: Cutscene; shot: number } | null {
+    const a = this.active;
+    return a?.mode === 'prepared' && a.playback ? { cutscene: a.playback.cutscene, shot: a.playback.shot } : null;
+  }
+
   /** A cut back to the previous ordinary shot. */
   previous(): void {
     const a = this.active;
@@ -317,6 +335,16 @@ export class CutsceneRun {
     this.changed();
   }
 
+  /**
+   * Ends a live follow for a cutscene to take over (Play for players in Cinematic mode): players are not told it ended,
+   * the cutscene that is published next replaces it on their boards.
+   */
+  handOver(): void {
+    const a = this.active;
+    if (a?.mode !== 'live') return;
+    this.teardown(a, false, true);
+  }
+
   /** Ends the run with no fade: the board, the tab or Tabletop is going. Players are told. */
   dispose(): void {
     const a = this.active;
@@ -330,7 +358,7 @@ export class CutsceneRun {
    * by the GM (`fade`) fades the local players' window out as a player's board does: the GM's board is theirs at once,
    * and the window's reveal and bars go at its black.
    */
-  private teardown(a: Active, fade = false): void {
+  private teardown(a: Active, fade = false, keepLent = false): void {
     if (this.active !== a) return;
     this.active = null;
     const board = this.board;
@@ -347,7 +375,8 @@ export class CutsceneRun {
       if (a.mode === 'prepared' && this.host.at(a.home)) board.restoreCamera(a.keep);
       board.refreshToolbar();
     }
-    this.host.lendPlayers(false);
+    // Handed over to a cutscene, the players' window stays lent: the cutscene lends it again at once.
+    if (!keepLent) this.host.lendPlayers(false);
     this.changed();
   }
 

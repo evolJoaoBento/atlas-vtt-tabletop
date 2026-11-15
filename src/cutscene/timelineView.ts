@@ -139,6 +139,10 @@ export interface TimelineCallbacks {
 export interface TimelineLook {
   home: string;
   mapName(path: string): string;
+  /** A picture of what the shot sees (a data URL), drawn under its marker; null where there is none (another map). */
+  thumbnail?(shot: Shot, index: number): string | null;
+  /** The shot a run is at, marked. */
+  current?: number;
 }
 
 export class TimelineView {
@@ -150,7 +154,8 @@ export class TimelineView {
   private cutscene: Cutscene | null = null;
   private pxPerSecond = DEFAULT_PX_PER_SECOND;
 
-  constructor(parent: HTMLElement, private readonly callbacks: TimelineCallbacks) {
+  /** `readOnly`: a run's strip: a click on a shot selects it, nothing is added, dragged or offered. */
+  constructor(parent: HTMLElement, private readonly callbacks: TimelineCallbacks, private readonly readOnly = false) {
     const doc = parent.ownerDocument;
     const make = (className: string, into: HTMLElement): HTMLElement => {
       const element = doc.createElement('div');
@@ -159,6 +164,7 @@ export class TimelineView {
       return element;
     };
     this.el = make('tabletop-timeline', parent);
+    if (readOnly) this.el.classList.add('tabletop-timeline--run');
     this.head = make('tabletop-timeline__head', this.el);
     this.scroll = make('tabletop-timeline__scroll', this.el);
     this.track = make('tabletop-timeline__track', this.scroll);
@@ -170,12 +176,13 @@ export class TimelineView {
       this.scroll.scrollLeft += event.deltaX + event.deltaY;
     }, { passive: false });
     this.scroll.addEventListener('click', (event) => {
-      if ((event.target as HTMLElement).closest('.tabletop-timeline__shot')) return;
+      if (this.readOnly || (event.target as HTMLElement).closest('.tabletop-timeline__shot, .tabletop-timeline__thumb')) return;
       this.callbacks.add(this.momentAt(event.clientX));
     });
     this.scroll.addEventListener('contextmenu', (event) => {
       event.preventDefault();
       event.stopPropagation();
+      if (this.readOnly) return;
       const shots = this.cutscene?.shots ?? [];
       const hit = (event.target as HTMLElement).closest<HTMLElement>('.tabletop-timeline__shot');
       if (hit?.dataset.shotId) {
@@ -239,7 +246,30 @@ export class TimelineView {
       marker.dataset.index = String(i);
       marker.title = `Shot ${i + 1}${shot.keyframe ? ' (keyframe)' : ''} at ${seconds(shot.at)}: ${look.mapName(shot.mapPath)}`;
       marker.textContent = String(i + 1);
+      if (look.current === i) marker.classList.add('is-current');
       marker.addEventListener('pointerdown', (event) => this.press(event, marker, shot.id));
+      // What the shot sees, under its marker; a click on it is a click on the shot.
+      const picture = look.thumbnail?.(shot, i) ?? null;
+      const thumb = add('tabletop-timeline__thumb', this.left(shot.at));
+      thumb.dataset.shotId = shot.id;
+      thumb.dataset.index = String(i);
+      thumb.title = marker.title;
+      if (look.current === i) thumb.classList.add('is-current');
+      if (picture) {
+        const image = doc.createElement('img');
+        image.src = picture;
+        image.alt = `Shot ${i + 1}`;
+        image.draggable = false;
+        thumb.appendChild(image);
+      } else {
+        thumb.classList.add('tabletop-timeline__thumb--none');
+        thumb.textContent = look.mapName(shot.mapPath);
+      }
+      thumb.addEventListener('pointerdown', (event) => {
+        if (event.button !== 0) return;
+        event.stopPropagation();
+        this.callbacks.select(shot.id);
+      });
     });
   }
 
@@ -247,6 +277,10 @@ export class TimelineView {
   private press(event: PointerEvent, marker: HTMLElement, shotId: string): void {
     if (event.button !== 0 || !this.cutscene) return;
     event.stopPropagation();
+    if (this.readOnly) {
+      this.callbacks.select(shotId);
+      return;
+    }
     const c = this.cutscene;
     const start = c.shots.find((shot) => shot.id === shotId);
     if (!start) return;

@@ -4445,6 +4445,47 @@ export class Board {
     this.toolbar.refresh();
   }
 
+  /**
+   * A small picture of the board as a camera at `pose` sees it (a cutscene shot's thumbnail), as a PNG data URL of
+   * `width` x `height` pixels; null when it cannot be drawn. The GM's own picture: what the board shows now, from there.
+   */
+  shotThumbnail(pose: { eye: { x: number; y: number; z: number }; target: { x: number; y: number; z: number } }, width: number, height: number): string | null {
+    if (this.disposed || !(width > 0) || !(height > 0)) return null;
+    const camera = this.view.clone();
+    camera.aspect = width / height;
+    camera.position.set(pose.eye.x, pose.eye.y, pose.eye.z);
+    camera.lookAt(pose.target.x, pose.target.y, pose.target.z);
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld();
+    const target = new THREE.WebGLRenderTarget(width, height, { colorSpace: THREE.SRGBColorSpace });
+    const pixels = new Uint8Array(width * height * 4);
+    const before = this.renderer.getRenderTarget();
+    try {
+      this.renderer.setRenderTarget(target);
+      this.renderer.setClearColor(0x000000, 1);
+      this.renderer.clear();
+      this.renderer.render(this.scene, camera);
+      this.renderer.readRenderTargetPixels(target, 0, 0, width, height, pixels);
+    } catch (error) {
+      console.warn('[Tabletop] A shot thumbnail could not be drawn:', error);
+      return null;
+    } finally {
+      this.renderer.setRenderTarget(before);
+      target.dispose();
+    }
+    const canvas = this.container.ownerDocument.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) return null;
+    // WebGL reads rows bottom up.
+    const image = context.createImageData(width, height);
+    for (let row = 0; row < height; row++) image.data.set(pixels.subarray((height - 1 - row) * width * 4, (height - row) * width * 4), row * width * 4);
+    context.putImageData(image, 0, 0);
+    this.wake(true);
+    return canvas.toDataURL('image/png');
+  }
+
   /** The GM's camera in the board's world (x and z the map's pixels, y up). */
   cameraPose(): { eye: { x: number; y: number; z: number }; target: { x: number; y: number; z: number } } {
     const eye = this.camera.position();
