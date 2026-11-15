@@ -7,7 +7,7 @@
  *
  * Nothing here imports Obsidian: the host that renders the markdown is given (`atlasCardHost.ts`).
  */
-import { advantageSide, type AdvantageSide } from './sheet';
+import { advantageSide, type AdvantageSide } from '../../packages/atlas-host/src/sheets/sheets';
 
 /** What draws Atlas's card for one note. */
 export interface CardHost {

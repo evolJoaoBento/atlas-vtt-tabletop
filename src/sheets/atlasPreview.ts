@@ -8,7 +8,7 @@
 import type { MapViewLike } from '../dice/atlasDice';
 import type { ResourceValue } from '../board/resources';
 import { routeCardRolls } from './atlasCard';
-import type { AdvantageSide } from './sheet';
+import type { AdvantageSide } from '../../packages/atlas-host/src/sheets/sheets';
 
 type Rec = Record<string, unknown>;
 const isObject = (value: unknown): value is Rec => typeof value === 'object' && value !== null;

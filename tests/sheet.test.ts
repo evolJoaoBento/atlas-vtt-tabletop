@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { advantageSide, buildSheet, mayHaveAdvantage, sheetRollFormula, sheetRollLabel, textParts, toRollFormula, type PlayerSheet } from '../src/sheets/sheet';
+import { advantageSide, buildSheet, mayHaveAdvantage, sheetRollFormula, sheetRollLabel, textParts, toRollFormula, type PlayerSheet } from '../packages/atlas-host/src/sheets/sheets';
 import { SheetDrawer } from '../src/sheets/sheetDrawer';
 import { parseFormula } from '../src/dice/rollRules';
 import { stockRoll } from '../src/dice/atlasDice';
@@ -195,6 +195,14 @@ test('a click rolls what it shows, labelled; Shift-click with advantage where a 
   // Enter rolls with the side its modifiers ask for.
   t.button('Attack: +6').fire('keydown', { key: 'Enter', shiftKey: true });
   assert.deepEqual(t.rolls.at(-1), ['+6', 'Dagger', 'advantage']);
+});
+
+test("a template's rollable value rolls its plain numbers, named as Atlas names a rolled cell", () => {
+  const t = drawer();
+  t.drawer.show({ ...buildSheet({ name: 'Brute' })!, sections: [{ title: '', items: [{ name: 'Thresholds', desc: 'Major 7 | Severe 14', rollable: true }, { name: 'Notes', desc: 'Hits 7 times' }] }] });
+  assert.deepEqual(t.rollButtons().map((button) => button.textContent), ['7', '14']);
+  t.button('14').fire('click');
+  assert.deepEqual(t.rolls, [['+14', 'Severe', undefined]]);
 });
 
 test("a roll physical dice cannot throw rolls nothing: the drawer says so", () => {

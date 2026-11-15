@@ -11,7 +11,7 @@ import { drawCard, routeCardRolls, type CardHost } from './atlasCard';
 import {
   ABILITY_NAMES, advantageSide, mayHaveAdvantage, modifierOf, sheetRollFormula, sheetRollLabel, signed, textParts,
   type AdvantageSide, type PlayerSheet, type SheetBonus, type SheetRollRef,
-} from './sheet';
+} from '../../packages/atlas-host/src/sheets/sheets';
 
 export interface SheetDrawerOptions {
   /** A roll on the sheet: its formula, what the log calls it and the side it is rolled with, if any. */
@@ -277,7 +277,7 @@ export class SheetDrawer {
       section.items.forEach((item, itemIndex) => {
         const paragraph = this.el('p', 'atlas-tabletop-sheet__item', null);
         if (item.name) this.el('strong', '', paragraph, `${item.name}. `);
-        for (const part of textParts(item.desc)) {
+        for (const part of textParts(item.desc, item.rollable)) {
           if ('roll' in part) {
             const ref: SheetRollRef = { kind: 'text', section: sectionIndex, item: itemIndex, index: part.roll, text: part.text };
             paragraph.append(this.rollButton(ref, part.text, `${item.name || section.title}: ${part.formula}`));

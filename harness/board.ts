@@ -62,7 +62,7 @@ import { FreeCamera } from '../src/cutscene/freeCamera';
 import { CustomSounds } from '../src/sound/customSounds';
 import { CATALOG, loadSound } from '../src/sound/catalog';
 import { DEFAULT_SOUND_SETTINGS } from '../src/sound/soundSettings';
-import { buildSheet } from '../src/sheets/sheet';
+import { buildSheet } from '../packages/atlas-host/src/sheets/sheets';
 import { routeAtlasWindowRolls } from '../src/sheets/atlasPreview';
 
 function exportGlb(root: THREE.Object3D, animations: THREE.AnimationClip[] = []): Promise<ArrayBuffer> {

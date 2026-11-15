@@ -13,7 +13,7 @@ import { DiceLogPanel, logEntryOf } from '../board/diceLog';
 import { diceRulesOf, onRolled, publishRoll, stockRoll, type MapViewLike, type RollResult } from './atlasDice';
 import { DiceController } from './diceController';
 import { SheetDrawer } from '../sheets/sheetDrawer';
-import type { AdvantageSide, PlayerSheet } from '../sheets/sheet';
+import type { AdvantageSide, PlayerSheet } from '../../packages/atlas-host/src/sheets/sheets';
 import type { CardHost } from '../sheets/atlasCard';
 import type { ChosenPack } from './dicePack';
 import { DicePicker } from './dicePicker';

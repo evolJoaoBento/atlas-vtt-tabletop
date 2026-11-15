@@ -3,7 +3,7 @@
  * card in a floating box by the pointer, closing when Ctrl/Cmd is let go. Where this Atlas draws no card, the page
  * preview of the note stands in (`fallback`). Its dice links throw the board's dice.
  */
-import type { AdvantageSide } from './sheet';
+import type { AdvantageSide } from '../../packages/atlas-host/src/sheets/sheets';
 import { drawCard, routeCardRolls, type CardHost } from './atlasCard';
 
 /** Atlas's closing animation. */

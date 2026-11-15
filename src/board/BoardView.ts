@@ -66,13 +66,11 @@ import { DEFAULT_CINEMATIC_SETTINGS, type CinematicSettings } from '../cutscene/
 import { levelOfPlace, mapOfPlace, placeAt } from '../cutscene/cutsceneData';
 import { askName } from '../cutscene/nameModal';
 import { CutsceneStudio, type StudioHost } from '../cutscene/studio';
-import { buildAtlasSheet } from '../sheets/nativeSheet';
-import type { PlayerSheet } from '../sheets/sheet';
 import type { CardHost } from '../sheets/atlasCard';
 import { atlasCardHost } from '../sheets/atlasCardHost';
 import { atlasPreviews, previewAnchor, routeAtlasWindowRolls } from '../sheets/atlasPreview';
 import { StatblockHoverCard } from '../sheets/hoverCard';
-import { statblockFields, statblockOf } from '../sheets/statblock';
+import { builtInTemplate } from '../atlasPort/app/statblocks/library/builtInTemplates';
 import { rollViewFor, type MapViewLike } from '../dice/atlasDice';
 import type { ChosenPack } from '../dice/dicePack';
 import type { TabletopDiceSettings } from '../dice/diceSettings';
@@ -81,7 +79,7 @@ import { SoundEngine } from '../sound/soundEngine';
 import type { SoundSettings } from '../sound/soundSettings';
 import type { SoundLoader } from '../sound/customSounds';
 import { documentHasWebgl, NO_WEBGL_HELP, NO_WEBGL_TITLE } from '../webgl';
-import type { AtlasFloor, AtlasHost } from '../../packages/atlas-host/src/index';
+import { buildPlayerSheet, linkedCreatures, type AtlasFloor, type AtlasHost, type LinkedCreatures, type PlayerSheet } from '../../packages/atlas-host/src/index';
 import { SightWatch } from './sightWatch';
 import { floorState } from '../atlasFloorGate';
 import { TABLETOP_ICON } from '../tabletopIcon';
@@ -243,6 +241,8 @@ export class BoardView extends ItemView {
   private readonly warned = new Set<string>();
   /** Closed: a read still on its way must not build a board on a tab that is gone. */
   private closed = false;
+  /** Reads the stat block a token links, as Atlas does (`packages/atlas-host` `linkedCreatures`, shared with Connect). */
+  private linked: LinkedCreatures | null = null;
   private readonly reload = debounce(() => { void this.read(); }, RELOAD_MS, true);
   /** The local player view this board draws into. */
   private playerWindow: PlayerView | null = null;
@@ -307,6 +307,8 @@ export class BoardView extends ItemView {
   async onOpen(): Promise<void> {
     this.contentEl.empty();
     this.contentEl.addClass('atlas-tabletop-board-view');
+    // A template file changing is read again, so a templated stat block's sheet follows it.
+    this.register(this.statblocks().watchTemplates());
     this.registerEvent(this.app.vault.on('modify', (file) => {
       // Atlas saving the map it holds says nothing new: the board already drew it from Atlas's store.
       if (file.path === this.path) { if (!this.services.host?.holds(file.path)) this.reload(); }
@@ -613,7 +615,13 @@ export class BoardView extends ItemView {
   private async sheetOf(tokenId: string): Promise<PlayerSheet | null> {
     const token = this.map?.tokens.find((candidate) => candidate.id === tokenId);
     if (!token?.statblockPath) return null;
-    return buildAtlasSheet(await statblockOf(this.app, token), token.name);
+    // A note of one of Atlas's built-in templates is laid out by Atlas's own template (its 5e ones read as 5e stat blocks).
+    return buildPlayerSheet(await this.statblocks().readNote(token), token.name, (id) => builtInTemplate(id)?.template ?? null);
+  }
+
+  private statblocks(): LinkedCreatures {
+    this.linked ??= linkedCreatures(this.app, { label: 'Tabletop' });
+    return this.linked;
   }
 
   /** What draws Atlas's own card of a token's stat block; null when the token links none. */
@@ -2195,7 +2203,7 @@ export class BoardView extends ItemView {
     for (const entry of this.liveInitiative().entries) {
       if ((entryId !== undefined && entry.id !== entryId) || ownModifier(entry) !== undefined) continue;
       const path = this.map?.tokens.find((token) => token.id === entry.tokenId)?.statblockPath ?? entry.statblockPath;
-      const fields = path ? await statblockFields(this.app, path) : null;
+      const fields = path ? await this.statblocks().noteFields(path) : null;
       const modifier = fields ? statblockModifier(fields, rules) : null;
       if (modifier !== null) statblockModifiers[entry.id] = modifier;
     }
