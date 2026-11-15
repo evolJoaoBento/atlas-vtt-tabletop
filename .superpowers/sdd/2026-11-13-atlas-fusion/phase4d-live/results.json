@@ -1,0 +1,57 @@
+[
+  {
+    "step": 53,
+    "name": "sight follows Atlas: on a lit scene the board's players' picture is Atlas's own sight from the tab that hosts the map; the GM's board shows everything, also on a board made anew by a change of quality; a token moved into sight shows",
+    "pass": false,
+    "evidence": {
+      "readyMs": 360,
+      "lit": {
+        "kind": "ready",
+        "sight": [
+          "t:tok_1794200000008_goblinbos"
+        ],
+        "player": {
+          "seer": true,
+          "other": false,
+          "veil": true,
+          "blocks": 8400
+        },
+        "gm": {
+          "seer": true,
+          "other": true,
+          "veil": false,
+          "blocks": 8400
+        }
+      },
+      "rebuilt": {
+        "fresh": true,
+        "kind": "unlit",
+        "player": {
+          "seer": true,
+          "other": true,
+          "veil": false,
+          "blocks": 0
+        }
+      },
+      "movedMs": 108,
+      "moved": {
+        "player": {
+          "seer": true,
+          "other": true,
+          "veil": true,
+          "blocks": 8400
+        }
+      },
+      "offMs": 105,
+      "off": {
+        "player": {
+          "seer": true,
+          "other": true,
+          "veil": false,
+          "blocks": 0
+        }
+      },
+      "restored": true
+    }
+  }
+]
