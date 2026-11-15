@@ -47,6 +47,14 @@ test('Draw Steel characteristics, fate stress and percentile skills read as thei
   assert.ok(items(percentile).includes('Skills: Stealth 40'));
 });
 
+test("a d20 creature is laid out by Atlas's d20 template: its abilities a line, not the 5e row; its initiative and attacks roll from their text", () => {
+  const sheet = buildPlayerSheet(note('builtin:d20-creature', { name: 'Ogre', ac: 14, hp: 20, stats: [16, 12, 14, 10, 13, 8], initiative: 2, attacks: [{ name: 'Club', desc: '+4, 1d8+2' }] }), null, builtIns)!;
+  assert.equal(sheet.stats, null);
+  assert.ok(items(sheet).includes('Abilities: STR 16, DEX 12, CON 14, INT 10, WIS 13, CHA 8'));
+  assert.ok(items(sheet).includes('Initiative: +2'));
+  assert.deepEqual(sheet.sections.find((section) => section.title === 'Attacks')?.items, [{ name: 'Club', desc: '+4, 1d8+2' }]);
+});
+
 test("a custom template's note: laid out by its template file, else every field as Atlas's stand-in shows it, never its private keys", () => {
   const fields = { name: 'Warden', image: 'a.png', token: 'b.png', 'atlas-template': 'custom:ward', rank: 'Captain', moves: [{ name: 'Parry', desc: 'Blocks a hit.' }] };
   const missing = buildPlayerSheet(note('custom:ward', fields), null, builtIns)!;
