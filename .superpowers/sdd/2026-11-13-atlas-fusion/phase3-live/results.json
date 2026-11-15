@@ -13,7 +13,7 @@
     "name": "a cast that lasts is one of Atlas's measures and one step of its undo; the board draws it from there, and it is saved in the map",
     "pass": true,
     "evidence": {
-      "id": "measure_1794714550323_4ic4mi56h",
+      "id": "measure_1794725426459_6d2vzww1y",
       "count": 1,
       "stepsAfter": 1,
       "shown": 0,
@@ -34,10 +34,10 @@
     "name": "Atlas's undo takes the spell off the board, its redo brings it back, and the board's own remove is one step more",
     "pass": true,
     "evidence": {
-      "id": "measure_1794714550323_4ic4mi56h",
-      "undone": 1,
+      "id": "measure_1794725426459_6d2vzww1y",
+      "undone": 0,
       "redone": 0,
-      "removed": 1,
+      "removed": 3,
       "removeSteps": 1
     }
   },
@@ -46,24 +46,24 @@
     "name": "an area and a ruler kept in Atlas show flat on the board, and go when Atlas removes them; no spell is made of them",
     "pass": true,
     "evidence": {
-      "area": "measure_1794714555145_g2ullppev",
-      "ruler": "measure_1794714555161_78fjkugus",
+      "area": "measure_1794725431279_26n569nk1",
+      "ruler": "measure_1794725431301_723tbav5p",
       "shown": 0,
       "seen": [
         [
-          "measure_1794714555145_g2ullppev",
+          "measure_1794725431279_26n569nk1",
           "circle",
           "area",
           false
         ],
         [
-          "measure_1794714555161_78fjkugus:0",
+          "measure_1794725431301_723tbav5p:0",
           "line",
           "area",
           true
         ],
         [
-          "measure_1794714555161_78fjkugus:1",
+          "measure_1794725431301_723tbav5p:1",
           "line",
           "area",
           true
@@ -78,7 +78,7 @@
     "name": "a spell whose measure is moved in Atlas moves on the board: its 3D shape is read from where its measure lies",
     "pass": true,
     "evidence": {
-      "id": "measure_1794714557181_fpgqkn1or",
+      "id": "measure_1794725433330_5cdop9nl4",
       "first": {
         "x": 700,
         "y": 700,
@@ -97,9 +97,9 @@
     "name": "what a spell stands is Atlas's own: a wall spell's wall, a web's difficult ground and a light's light follow the measure, outside the undo, and go with it",
     "pass": true,
     "evidence": {
-      "wallId": "measure_1794714559212_w1hfn4015",
-      "webId": "measure_1794714559225_4o295hyxm",
-      "stood": 297,
+      "wallId": "measure_1794725435364_nlcgv8g5o",
+      "webId": "measure_1794725435378_b439jfg9s",
+      "stood": 283,
       "castSteps": 2,
       "standing": {
         "p1": {
@@ -142,8 +142,8 @@
         "wall": 1,
         "feature": 1
       },
-      "followed": 219,
-      "cleaned": 210,
+      "followed": 206,
+      "cleaned": 202,
       "removeSteps": 2
     }
   },
@@ -152,10 +152,10 @@
     "name": "an instantaneous spell goes off on the board and is kept nowhere: no measure, no undo step",
     "pass": true,
     "evidence": {
-      "flashed": 1,
+      "flashed": 0,
       "written": 0,
       "stepsAfter": 0,
-      "gone": 3019
+      "gone": 3045
     }
   },
   {
@@ -177,7 +177,7 @@
     "name": "a board opened again on a map with a kept spell shows it standing: no cast sound, nothing carried out, nothing written",
     "pass": true,
     "evidence": {
-      "id": "measure_1794714574073_70eintonw",
+      "id": "measure_1794725450236_dmwss44wi",
       "hooked": true,
       "back": 0,
       "impacts": [],

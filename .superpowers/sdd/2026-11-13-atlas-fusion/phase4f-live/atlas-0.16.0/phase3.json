@@ -1,0 +1,205 @@
+[
+  {
+    "step": 0,
+    "name": "Phase 1's and Phase 2's live checks again: nothing regressed",
+    "pass": true,
+    "evidence": {
+      "summary": "6/6 steps passed",
+      "failed": []
+    }
+  },
+  {
+    "step": 23,
+    "name": "a cast that lasts is one of Atlas's measures and one step of its undo; the board draws it from there, and it is saved in the map",
+    "pass": true,
+    "evidence": {
+      "id": "measure_1794725089305_24b76tw28",
+      "count": 1,
+      "stepsAfter": 1,
+      "shown": 0,
+      "shape": "circle",
+      "kind": "spell",
+      "name": "Fog Cloud",
+      "inFile": true,
+      "local": false,
+      "before": [
+        "measure_1794566615240_3012ctw23",
+        "measure_1794566615265_esssuz5o7",
+        "measure_1794566615293_9d5456czr"
+      ]
+    }
+  },
+  {
+    "step": 24,
+    "name": "Atlas's undo takes the spell off the board, its redo brings it back, and the board's own remove is one step more",
+    "pass": true,
+    "evidence": {
+      "id": "measure_1794725089305_24b76tw28",
+      "undone": 1,
+      "redone": 0,
+      "removed": 1,
+      "removeSteps": 1
+    }
+  },
+  {
+    "step": 25,
+    "name": "an area and a ruler kept in Atlas show flat on the board, and go when Atlas removes them; no spell is made of them",
+    "pass": true,
+    "evidence": {
+      "area": "measure_1794725094119_23wcwguc4",
+      "ruler": "measure_1794725094132_5frkf9ekh",
+      "shown": 0,
+      "seen": [
+        [
+          "measure_1794725094119_23wcwguc4",
+          "circle",
+          "area",
+          false
+        ],
+        [
+          "measure_1794725094132_5frkf9ekh:0",
+          "line",
+          "area",
+          true
+        ],
+        [
+          "measure_1794725094132_5frkf9ekh:1",
+          "line",
+          "area",
+          true
+        ]
+      ],
+      "noCast": true,
+      "gone": 0
+    }
+  },
+  {
+    "step": 26,
+    "name": "a spell whose measure is moved in Atlas moves on the board: its 3D shape is read from where its measure lies",
+    "pass": true,
+    "evidence": {
+      "id": "measure_1794725096149_i27m6t646",
+      "first": {
+        "x": 700,
+        "y": 700,
+        "size": 140
+      },
+      "after": {
+        "x": 910,
+        "y": 630,
+        "size": 140
+      },
+      "moved": 0
+    }
+  },
+  {
+    "step": 27,
+    "name": "what a spell stands is Atlas's own: a wall spell's wall, a web's difficult ground and a light's light follow the measure, outside the undo, and go with it",
+    "pass": true,
+    "evidence": {
+      "wallId": "measure_1794725098185_mguebvzmm",
+      "webId": "measure_1794725098205_pahgl0c06",
+      "stood": 283,
+      "castSteps": 2,
+      "standing": {
+        "p1": {
+          "x": 300,
+          "y": 980
+        },
+        "p2": {
+          "x": 580,
+          "y": 980
+        },
+        "blocks": null
+      },
+      "feature": {
+        "corners": 32,
+        "terrain": {
+          "difficult": true
+        },
+        "name": "Web"
+      },
+      "light": {
+        "bright": 20,
+        "dim": 40,
+        "color": "#fff2d0",
+        "intensity": 1,
+        "animation": "none"
+      },
+      "boardWalls": 0,
+      "ruled": {
+        "walls": 1,
+        "sightOnly": 0,
+        "lights": [
+          {
+            "bright": 20,
+            "dim": 40,
+            "darkness": false
+          }
+        ]
+      },
+      "inFile": {
+        "wall": 1,
+        "feature": 1
+      },
+      "followed": 211,
+      "cleaned": 203,
+      "removeSteps": 2
+    }
+  },
+  {
+    "step": 28,
+    "name": "an instantaneous spell goes off on the board and is kept nowhere: no measure, no undo step",
+    "pass": true,
+    "evidence": {
+      "flashed": 0,
+      "written": 0,
+      "stepsAfter": 0,
+      "gone": 3076
+    }
+  },
+  {
+    "step": 29,
+    "name": "a cast and a template on a map Atlas does not hold are refused: nothing is written, no map file changes",
+    "pass": true,
+    "evidence": {
+      "refused": [
+        "NotHeldError",
+        "NotHeldError"
+      ],
+      "changed": [],
+      "measures": 0,
+      "held": true
+    }
+  },
+  {
+    "step": 30,
+    "name": "a board opened again on a map with a kept spell shows it standing: no cast sound, nothing carried out, nothing written",
+    "pass": true,
+    "evidence": {
+      "id": "measure_1794725113101_ootoxqkba",
+      "hooked": true,
+      "back": 0,
+      "impacts": [],
+      "fresh": [],
+      "growing": 0,
+      "review": false,
+      "stepsAfter": 0,
+      "stillOne": 1
+    }
+  },
+  {
+    "step": 31,
+    "name": "no console error from Tabletop or Connect across the run, and the map is left with no measure, wall or ground of a spell",
+    "pass": true,
+    "evidence": {
+      "errors": [],
+      "left": {
+        "spells": 0,
+        "probes": 2,
+        "walls": 0,
+        "features": 0
+      }
+    }
+  }
+]

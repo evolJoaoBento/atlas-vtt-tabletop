@@ -1,0 +1,51 @@
+[
+  {
+    "step": 0,
+    "name": "Phases 1 to 4E's live checks again: nothing regressed",
+    "pass": true,
+    "evidence": {
+      "summary": "3/3 steps passed",
+      "failed": []
+    }
+  },
+  {
+    "step": 55,
+    "name": "the Atlas panels Tabletop copies from Atlas 0.15.0 open on the board, draw their content, and close: the command palette (with Tabletop's commands), the loot roller with its random tables, the asset manager",
+    "pass": true,
+    "evidence": {
+      "atlas": "0.15.0",
+      "palette": {
+        "openMs": 186,
+        "open": true,
+        "text": 628,
+        "nodes": 366,
+        "sample": "All\nTools\nMode\nSettings\nTools\nMove Tool\nV\nFog Tool\nF\nMeasure Tool\nM\nNote Pin Tool\nP\nOpen scene browser\nScene snapshots\nScene levels\nReplace map image\nOpen dice ",
+        "closed": true
+      },
+      "loot": {
+        "openMs": 133,
+        "open": true,
+        "text": 70,
+        "nodes": 37,
+        "sample": "Random tables\n\nNo random tables yet\n\nNew table\nUse a table from a note",
+        "closed": true
+      },
+      "assets": {
+        "openMs": 241,
+        "open": true,
+        "text": 147,
+        "nodes": 290,
+        "sample": "Collection\nThe Gilded Flagon\nTags\nNo tags yet\nManage\nScenes\n14\nMaps\n4\nEncounters\n1\nTokens\n5\nPlayers\n0\nName\nTokens\n5\nBran\nGoblin\nKestrel\nMara\nYsolde",
+        "closed": true
+      }
+    }
+  },
+  {
+    "step": 50,
+    "name": "no console error from Tabletop or Connect across the run",
+    "pass": true,
+    "evidence": {
+      "errors": []
+    }
+  }
+]

@@ -17,7 +17,7 @@
       "stepsAfter": 1,
       "shown": 0,
       "inFile": true,
-      "undone": 0,
+      "undone": 1,
       "inData": []
     }
   },
@@ -26,7 +26,7 @@
     "name": "a material, a width, a window's opening and a door's prop and turn each go onto the record, beside what is there; back to the default takes the key off",
     "pass": true,
     "evidence": {
-      "set": 30,
+      "set": 7,
       "stepsAfter": 5,
       "read": 0,
       "cleared": 2
@@ -38,7 +38,7 @@
     "pass": true,
     "evidence": {
       "set": 2,
-      "read": 0,
+      "read": 1,
       "inFile": true,
       "cleared": 2
     }

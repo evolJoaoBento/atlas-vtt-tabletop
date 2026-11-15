@@ -1,0 +1,79 @@
+[
+  {
+    "step": 0,
+    "name": "Phases 1 to 3's live checks again: nothing regressed, and the rooms map's old wall settings ended on Atlas's walls",
+    "pass": true,
+    "evidence": {
+      "summary": "10/10 steps passed",
+      "failed": []
+    }
+  },
+  {
+    "step": 32,
+    "name": "a wall's height set from the board is on Atlas's own wall, in the map file, one step of Atlas's undo, shown at once; Atlas's undo takes it back",
+    "pass": true,
+    "evidence": {
+      "onRecord": 1,
+      "stepsAfter": 1,
+      "shown": 0,
+      "inFile": true,
+      "undone": 1,
+      "inData": []
+    }
+  },
+  {
+    "step": 33,
+    "name": "a material, a width, a window's opening and a door's prop and turn each go onto the record, beside what is there; back to the default takes the key off",
+    "pass": true,
+    "evidence": {
+      "set": 7,
+      "stepsAfter": 5,
+      "read": 0,
+      "cleared": 2
+    }
+  },
+  {
+    "step": 34,
+    "name": "a placed light's height is on the light's record, a carried light's on its token; both are in the file and taken off again",
+    "pass": true,
+    "evidence": {
+      "set": 2,
+      "read": 1,
+      "inFile": true,
+      "cleared": 2
+    }
+  },
+  {
+    "step": 35,
+    "name": "on a map Atlas does not hold a wall or a light setting is refused: nothing is written, no map file changes",
+    "pass": true,
+    "evidence": {
+      "refused": [
+        "NotHeldError",
+        "NotHeldError",
+        "NotHeldError"
+      ],
+      "changed": [],
+      "dataSame": true,
+      "held": true
+    }
+  },
+  {
+    "step": 36,
+    "name": "no console error from Tabletop or Connect across the run; no map of Tabletop's data keeps a wall's or a light's setting of a map Atlas has held",
+    "pass": true,
+    "evidence": {
+      "errors": [],
+      "left": {
+        "atlas-vtt/collections/The Gilded Flagon/scenes/The Gilded Flagon.atlasmap": [
+          "wallHeights",
+          "wallMaterials",
+          "lightHeights"
+        ],
+        "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Upper.atlasmap": [
+          "wallHeights"
+        ]
+      }
+    }
+  }
+]

@@ -24,7 +24,7 @@
       "leaves": 1,
       "hidden": true,
       "boardActive": true,
-      "heldMs": 509,
+      "heldMs": 302,
       "mark": {
         "openedBy": "tabletop-for-atlas",
         "claims": [
@@ -51,7 +51,7 @@
     "name": "the host follows the focused board; the other board is view only; Edit here brings it back",
     "pass": true,
     "evidence": {
-      "coveMs": 1,
+      "coveMs": 0,
       "coveActive": true,
       "leaves": 1,
       "cellarBanner": {
@@ -59,7 +59,7 @@
         "button": "Edit here"
       },
       "coveBanner": null,
-      "cellarMs": 278,
+      "cellarMs": 283,
       "cellarActive": true,
       "leavesAfter": 1,
       "cellarBannerAfter": null,
@@ -75,7 +75,7 @@
     "name": "an edit on the held board saves through Atlas; on the other board it is refused and no file is written",
     "pass": true,
     "evidence": {
-      "savedMs": 575,
+      "savedMs": 571,
       "moved": true,
       "refused": {
         "name": "NotHeldError",
@@ -89,7 +89,7 @@
     "name": "a board in a popout: the Atlas tab stays in the main window, the popout board stays active",
     "pass": true,
     "evidence": {
-      "ms": 151,
+      "ms": 135,
       "leaves": 1,
       "atlasInMain": true,
       "boardInPopout": true,
@@ -110,7 +110,7 @@
           "button": "Reopen"
         }
       },
-      "ms": 547,
+      "ms": 428,
       "leaves": 1,
       "banner": null,
       "boardActive": true
@@ -175,7 +175,6 @@
       "backupHasRooms": true,
       "notices": [
         "Tabletop: cannot read the material Materials/stone: the material is missing.",
-        "Dynamic lighting could not run on this graphics device. Atlas shows line of sight without light and shadow. Switch dynamic lighting off and on to try again.",
         "Tabletop: moved 2 wall settings to Atlas 0.15's room walls on Fusion Rooms; backup in Tabletop backups/2026-11-15/",
         "Tabletop: moved 2 wall, door and light settings onto Atlas's own records on Fusion Rooms; backup in Tabletop backups/2026-11-15/"
       ],
@@ -304,7 +303,7 @@
     "pass": true,
     "evidence": {
       "errors": [],
-      "total": 18
+      "total": 13
     }
   }
 ]

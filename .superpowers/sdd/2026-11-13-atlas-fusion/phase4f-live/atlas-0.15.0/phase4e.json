@@ -1,0 +1,41 @@
+[
+  {
+    "step": 0,
+    "name": "Phases 1 to 4D's live checks again: nothing regressed",
+    "pass": true,
+    "evidence": {
+      "summary": "3/3 steps passed",
+      "failed": []
+    }
+  },
+  {
+    "step": 54,
+    "name": "the dice's body is Atlas's dice look, set in Atlas's own settings: dark gives Atlas's dark body, accent the theme's accent, light the pack's own",
+    "pass": true,
+    "evidence": {
+      "seen": {
+        "dark": {
+          "look": "dark",
+          "body": "#1f1e21"
+        },
+        "accent": {
+          "look": "accent",
+          "body": "#8a5cf5"
+        },
+        "light": {
+          "look": "light",
+          "body": null
+        }
+      },
+      "restored": true
+    }
+  },
+  {
+    "step": 50,
+    "name": "no console error from Tabletop or Connect across the run",
+    "pass": true,
+    "evidence": {
+      "errors": []
+    }
+  }
+]
