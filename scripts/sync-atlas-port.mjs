@@ -99,6 +99,9 @@ rmSync('src/atlasPort/utils', { recursive: true, force: true }); // Atlas's src/
 const textKeys = new Set();
 // Namespaces of keys the copies build at run time (t(`tables.unit.${unit}`)): every key of them is copied.
 const textSpaces = new Set();
+// Every dotted string a copy holds (`'am.spawned'` in a table or a ternary, handed to `t` later): those that are Atlas's
+// keys are copied too.
+const textLiterals = new Set();
 const looseTypes = new Set();
 for (const [key, source] of files) {
   const from = join(app, key);
@@ -126,6 +129,7 @@ for (const [key, source] of files) {
   rewritten = patched;
   for (const match of rewritten.matchAll(/\bt\(\s*'([\w.-]+)'/g)) textKeys.add(match[1]);
   for (const match of rewritten.matchAll(/\bt\(\s*`([\w-]+)\./g)) textSpaces.add(match[1]);
+  for (const match of rewritten.matchAll(/['"`]([a-zA-Z][\w-]*(?:\.[\w-]+)+)['"`]/g)) textLiterals.add(match[1]);
   const out = join(OUT, key);
   mkdirSync(dirname(out), { recursive: true });
   // Atlas type-checks its own code; the copies name some of its types loosely (shims/atlasTypes.ts), so they are not checked again.
@@ -148,7 +152,7 @@ async function load(entry) {
 const { TRANSLATIONS } = await load(join(app, 'i18n/languages.ts'));
 const { ATLAS_TEXT_KEYS } = await load('src/atlasPort/atlasTextKeys.ts');
 for (const key of ATLAS_TEXT_KEYS) textKeys.add(key);
-for (const key of Object.keys(TRANSLATIONS.en)) if (textSpaces.has(key.split('.')[0])) textKeys.add(key);
+for (const key of Object.keys(TRANSLATIONS.en)) if (textSpaces.has(key.split('.')[0]) || textLiterals.has(key)) textKeys.add(key);
 const missing = [...textKeys].filter((key) => TRANSLATIONS.en[key] === undefined);
 if (missing.length > 0) throw new Error(`Atlas ${version} has no English text for: ${missing.join(', ')}`);
 const keys = [...textKeys].sort();

@@ -1,7 +1,7 @@
 // Stand-ins for Atlas's authoring windows the copies open (react/components/CollectionSettingsModal.tsx and
 // statblocks/editor/openTemplateEditor.ts @ 0.15.0, AGPL-3.0). They need nothing from the board, so they are Atlas's:
 // the board says where to find them instead of carrying a second copy of Atlas's settings and editors.
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { Notice, type App } from 'obsidian';
 
 export function CollectionSettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void; [prop: string]: unknown }): null {
@@ -41,4 +41,12 @@ export function openStatblockNote(app: App, path: string, _context: unknown): 'n
 export async function showDungeonGenerator(app: App, _collectionId?: string): Promise<void> {
   const commands = (app as unknown as { commands?: { executeCommandById?(id: string): boolean } }).commands;
   if (commands?.executeCommandById?.('atlas-vtt:generate-dungeon') !== true) new Notice('Tabletop: the dungeon generator needs Atlas.');
+}
+
+/**
+ * Atlas 0.15's pressable Counters pips (statblocks/render/shared/noteCounters.tsx): a press in a statblock preview writes
+ * the note through Atlas's note writer. On the board the preview stays read only; the pips are pressed in Atlas.
+ */
+export function PressableCounters({ children }: { children: ReactNode; [prop: string]: unknown }): ReactNode {
+  return children;
 }

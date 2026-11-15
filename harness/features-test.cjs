@@ -1535,6 +1535,35 @@ feature('asset manager', async ({ page, shot }) => {
   check('the asset manager closes after spawning', (await win.count()) === 0);
 });
 
+// Atlas 0.15's scene and map main actions (src/atlasPort/shims/boardOpen.ts): both open on the board.
+feature('asset manager scenes', async ({ page, shot }) => {
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(String(error)));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  const win = page.locator('.atlas-tabletop-atlas-ui .atlas-asset-manager-window');
+  const openOn = async (tab, name) => {
+    await page.evaluate((t) => window.boardTest.assets.open(t), tab);
+    await win.waitFor({ timeout: 5000 }).catch(() => {});
+    await page.waitForFunction((n) => [...document.querySelectorAll('.atlas-asset-manager-window .atlas-asset-card')].some((c) => c.textContent.includes(n)), name, { timeout: 5000 }).catch(() => {});
+    await wait(1200);
+    return page.locator('.atlas-asset-manager-window .atlas-asset-card', { hasText: name }).first();
+  };
+  const scene = await openOn('scenes', 'Cove');
+  check('asset manager scenes: the Scenes tab lists the scene', (await scene.count()) === 1);
+  await shot('asset-manager-scenes');
+  await scene.dblclick();
+  await page.waitForFunction(() => window.boardTest.openedMaps.length > 0, null, { timeout: 5000 }).catch(() => {});
+  check('asset manager scenes: a double-click opens the scene on the board', (await page.evaluate(() => window.boardTest.openedMaps.join())) === 'maps/cove.atlasmap', await page.evaluate(() => JSON.stringify(window.boardTest.openedMaps)));
+  await wait(800);
+  check('asset manager scenes: the asset manager closes as the scene opens', (await win.count()) === 0);
+  const map = await openOn('maps', 'Cove map');
+  check('asset manager scenes: the Maps tab lists the map', (await map.count()) === 1);
+  await map.dblclick();
+  await page.waitForFunction(() => window.boardTest.openedMaps.length > 1, null, { timeout: 5000 }).catch(() => {});
+  check("asset manager scenes: a map's double-click opens its latest scene on the board", (await page.evaluate(() => window.boardTest.openedMaps.join())) === 'maps/cove.atlasmap,maps/cove.atlasmap', await page.evaluate(() => JSON.stringify(window.boardTest.openedMaps)));
+  check('asset manager scenes: nothing thrown or logged as an error', errors.length === 0, JSON.stringify(errors));
+});
+
 // Atlas 0.14 dropped a few rules the ported UI still uses; Tabletop restates them. Run with ATLAS_CSS of 0.13.1 and of 0.14.
 feature('atlas css restated', async ({ page, shot }) => {
   const got = await page.evaluate(() => {

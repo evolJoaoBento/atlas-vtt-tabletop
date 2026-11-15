@@ -14,7 +14,7 @@ import { AUTO_TEMPLATE_ID } from '../model/autoTemplate';
 import type { ResolvedStatblock } from '../model/resolvedTypes';
 import type { StatblockTemplate } from '../model/templateTypes';
 import { withoutFormerKeys } from '../resolve/fieldMeanings';
-import { PressableCounters } from './shared/noteCounters';
+import { PressableCounters } from '../../../shims/handOffs';
 import { useTokenPortrait } from './shared/tokenPortrait';
 import type { SheetVariant, StatblockTokenContext } from '../../../shims/atlasTypes';
 import { StatblockSheet } from './StatblockSheet';

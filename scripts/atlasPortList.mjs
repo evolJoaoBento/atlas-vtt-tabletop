@@ -50,6 +50,8 @@ export const BOUNDARIES = {
   'randomTables/import/importFile.ts': 'importFile.ts',
   'packages/components/dungeon-generator/openDungeonGenerator.ts': 'handOffs.tsx',
   'statblocks/editor/create/entryPoints.ts': 'handOffs.tsx',
+  // Atlas 0.15's pressable Counters pips in a statblock preview write the note (Atlas's note writer): read only here.
+  'statblocks/render/shared/noteCounters.tsx': 'handOffs.tsx',
   'services/TokenStatblockLinkService.ts': 'assetHandOffs.tsx',
   'packages/components/asset-manager/TokenCreator.tsx': 'assetHandOffs.tsx',
   'packages/components/asset-manager/encounter-builder/EncounterBuilder.tsx': 'assetHandOffs.tsx',

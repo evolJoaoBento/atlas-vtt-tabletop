@@ -5,6 +5,11 @@ export const ATLAS_TEXT_VERSION = '0.15.0';
 
 export const ATLAS_TEXT_DATA: Readonly<Record<string, Readonly<Record<string, AtlasMessage>>>> = {
   "en": {
+    "am.beside": {
+      "one": "Added {count} combatant from \"{name}\" to initiative",
+      "other": "Added {count} combatants from \"{name}\" to initiative"
+    },
+    "am.besidePartial": "Added {count} of {expected} combatants from \"{name}\" to initiative (some had missing images)",
     "am.breadcrumb": "Folder path",
     "am.card.animated": "Animated map",
     "am.card.decrease": "Decrease spawn count",
@@ -224,6 +229,11 @@ export const ATLAS_TEXT_DATA: Readonly<Record<string, Readonly<Record<string, At
     "am.sidebar.searchTagsPlaceholder": "Search tags…",
     "am.sidebar.settings": "Collection settings",
     "am.sidebar.tags": "Tags",
+    "am.spawned": {
+      "one": "Spawned {count} token from \"{name}\"",
+      "other": "Spawned {count} tokens from \"{name}\""
+    },
+    "am.spawnedPartial": "Spawned {count} of {expected} tokens from \"{name}\" (some had missing images)",
     "am.tab.encounters": "Encounters",
     "am.tab.maps": "Maps",
     "am.tab.party": "Players",
@@ -260,7 +270,32 @@ export const ATLAS_TEXT_DATA: Readonly<Record<string, Readonly<Record<string, At
       "other": "Filters, {count} active"
     },
     "assetGrid.menuOf": "Options of {name}",
+    "assetGrid.noResults.encounters": "No encounters match",
+    "assetGrid.noResults.maps": "No maps match",
+    "assetGrid.noResults.party": "No player characters match",
+    "assetGrid.noResults.scenes": "No scenes match",
+    "assetGrid.noResults.tokens": "No tokens match",
     "assetGrid.openStatblock": "Open statblock",
+    "assetGrid.results.encounters": {
+      "one": "{count} encounter",
+      "other": "{count} encounters"
+    },
+    "assetGrid.results.maps": {
+      "one": "{count} map",
+      "other": "{count} maps"
+    },
+    "assetGrid.results.party": {
+      "one": "{count} player character",
+      "other": "{count} player characters"
+    },
+    "assetGrid.results.scenes": {
+      "one": "{count} scene",
+      "other": "{count} scenes"
+    },
+    "assetGrid.results.tokens": {
+      "one": "{count} token",
+      "other": "{count} tokens"
+    },
     "assetGrid.selected": {
       "one": "{count} item selected",
       "other": "{count} items selected"
@@ -290,9 +325,25 @@ export const ATLAS_TEXT_DATA: Readonly<Record<string, Readonly<Record<string, At
     "common.quoted": "“{name}”",
     "common.save": "Save",
     "common.valueEmpty": "Value cannot be empty",
+    "count.encounters": {
+      "one": "{count} encounter",
+      "other": "{count} encounters"
+    },
     "count.items": {
       "one": "{count} item",
       "other": "{count} items"
+    },
+    "count.maps": {
+      "one": "{count} map",
+      "other": "{count} maps"
+    },
+    "count.scenes": {
+      "one": "{count} scene",
+      "other": "{count} scenes"
+    },
+    "count.tokens": {
+      "one": "{count} token",
+      "other": "{count} tokens"
     },
     "creator.noCollections": "No collections found",
     "creator.searchCollections": "Search collections…",
@@ -471,6 +522,10 @@ export const ATLAS_TEXT_DATA: Readonly<Record<string, Readonly<Record<string, At
       "one": "Draws {items} from {count} item, each with the same chance.",
       "other": "Draws {items} from {count} items, each with the same chance."
     },
+    "loot.empty.basesOff": "Bases are turned off",
+    "loot.empty.basesOffBody": "The collection’s loot bases are read through Obsidian Bases. Turn on the Bases core plugin in Obsidian’s settings, then reload Obsidian.",
+    "loot.empty.noCollection": "This map is not in a collection",
+    "loot.empty.noCollectionBody": "Random tables belong to a collection. Move the map into one to roll on its tables.",
     "loot.fewer": "Roll fewer",
     "loot.give.all": "All players",
     "loot.give.copies": "{count} × {item}",
@@ -631,12 +686,12 @@ export const ATLAS_TEXT_DATA: Readonly<Record<string, Readonly<Record<string, At
     "statblock.increase": "Increase {label}",
     "statblock.locate": "Locate {label} on map",
     "statblock.pip": "{label} {n} of {max}",
+    "statblock.pipDamage": "{label} damage {n} of {max}",
     "statblock.pluginMissing": "Install and enable the Fantasy Statblocks plugin to preview statblocks.",
     "statblock.spellcasting": "Spellcasting",
     "statblock.valueN": "value {n}",
     "statblockEditor.addValuePrompt": "Add {name}",
     "statblockEditor.autoLayout": "Shown with Atlas' field layout",
-    "statblockEditor.changeUnprepared": "The change could not be prepared.",
     "statblockEditor.chooseTemplate": "Choose a template",
     "statblockEditor.emptyTab": "Empty tab: select it and add a block",
     "statblockEditor.expr.deep": "The formula is nested too deeply.",
@@ -680,12 +735,6 @@ export const ATLAS_TEXT_DATA: Readonly<Record<string, Readonly<Record<string, At
       "one": "{list} names no number of this statblock.",
       "other": "{list} name no number of this statblock."
     },
-    "statblockEditor.fm.oneKey": "The note's properties are not written as one key per line.",
-    "statblockEditor.fm.tooLong": "The note's properties are too long, or repeat too much through YAML aliases, for Atlas to read.",
-    "statblockEditor.fm.twoEnds": "Obsidian reads the end of this note's properties in two ways. Make the line that closes them exactly ---.",
-    "statblockEditor.fm.unsafe": "Atlas can't change these properties safely.",
-    "statblockEditor.fm.yaml": "The note's properties have a YAML error.",
-    "statblockEditor.fm.yamlLine": "The note's properties have a YAML error on line {line}.",
     "statblockEditor.fromField": "From {name}",
     "statblockEditor.groupName": "Group name",
     "statblockEditor.key.code": "Fantasy Statblocks reads “{key}” as code. Choose another key.",
@@ -968,6 +1017,13 @@ export const ATLAS_TEXT_DATA: Readonly<Record<string, Readonly<Record<string, At
     "widgets.showToPlayers": "Show to players"
   },
   "ru": {
+    "am.beside": {
+      "one": "В инициативу добавлен {count} участник стычки «{name}»",
+      "few": "В инициативу добавлено {count} участника стычки «{name}»",
+      "many": "В инициативу добавлено {count} участников стычки «{name}»",
+      "other": "В инициативу добавлено {count} участника стычки «{name}»"
+    },
+    "am.besidePartial": "В инициативу добавлено {count} из {expected} участников стычки «{name}» (у некоторых нет изображения)",
     "am.breadcrumb": "Путь к папке",
     "am.card.animated": "Анимированная карта",
     "am.card.decrease": "Меньше копий",
@@ -1219,6 +1275,13 @@ export const ATLAS_TEXT_DATA: Readonly<Record<string, Readonly<Record<string, At
     "am.sidebar.searchTagsPlaceholder": "Поиск тегов…",
     "am.sidebar.settings": "Настройки коллекции",
     "am.sidebar.tags": "Теги",
+    "am.spawned": {
+      "one": "Размещён {count} токен из «{name}»",
+      "few": "Размещено {count} токена из «{name}»",
+      "many": "Размещено {count} токенов из «{name}»",
+      "other": "Размещено {count} токена из «{name}»"
+    },
+    "am.spawnedPartial": "Размещено {count} из {expected} токенов из «{name}» (у некоторых нет изображений)",
     "am.tab.encounters": "Стычки",
     "am.tab.maps": "Карты",
     "am.tab.party": "Игроки",
@@ -1259,7 +1322,42 @@ export const ATLAS_TEXT_DATA: Readonly<Record<string, Readonly<Record<string, At
       "other": "Фильтры: {count} активны"
     },
     "assetGrid.menuOf": "Действия: {name}",
+    "assetGrid.noResults.encounters": "Нет подходящих стычек",
+    "assetGrid.noResults.maps": "Нет подходящих карт",
+    "assetGrid.noResults.party": "Нет подходящих персонажей игроков",
+    "assetGrid.noResults.scenes": "Нет подходящих сцен",
+    "assetGrid.noResults.tokens": "Нет подходящих токенов",
     "assetGrid.openStatblock": "Открыть статблок",
+    "assetGrid.results.encounters": {
+      "one": "{count} стычка",
+      "few": "{count} стычки",
+      "many": "{count} стычек",
+      "other": "{count} стычки"
+    },
+    "assetGrid.results.maps": {
+      "one": "{count} карта",
+      "few": "{count} карты",
+      "many": "{count} карт",
+      "other": "{count} карты"
+    },
+    "assetGrid.results.party": {
+      "one": "{count} персонаж игроков",
+      "few": "{count} персонажа игроков",
+      "many": "{count} персонажей игроков",
+      "other": "{count} персонажа игроков"
+    },
+    "assetGrid.results.scenes": {
+      "one": "{count} сцена",
+      "few": "{count} сцены",
+      "many": "{count} сцен",
+      "other": "{count} сцены"
+    },
+    "assetGrid.results.tokens": {
+      "one": "{count} токен",
+      "few": "{count} токена",
+      "many": "{count} токенов",
+      "other": "{count} токена"
+    },
     "assetGrid.selected": {
       "one": "Выбран {count} элемент",
       "few": "Выбрано {count} элемента",
@@ -1293,11 +1391,35 @@ export const ATLAS_TEXT_DATA: Readonly<Record<string, Readonly<Record<string, At
     "common.quoted": "«{name}»",
     "common.save": "Сохранить",
     "common.valueEmpty": "Значение не может быть пустым",
+    "count.encounters": {
+      "one": "{count} стычка",
+      "few": "{count} стычки",
+      "many": "{count} стычек",
+      "other": "{count} стычки"
+    },
     "count.items": {
       "one": "{count} элемент",
       "few": "{count} элемента",
       "many": "{count} элементов",
       "other": "{count} элемента"
+    },
+    "count.maps": {
+      "one": "{count} карта",
+      "few": "{count} карты",
+      "many": "{count} карт",
+      "other": "{count} карты"
+    },
+    "count.scenes": {
+      "one": "{count} сцена",
+      "few": "{count} сцены",
+      "many": "{count} сцен",
+      "other": "{count} сцены"
+    },
+    "count.tokens": {
+      "one": "{count} токен",
+      "few": "{count} токена",
+      "many": "{count} токенов",
+      "other": "{count} токена"
     },
     "creator.noCollections": "Коллекции не найдены",
     "creator.searchCollections": "Поиск коллекций…",
@@ -1478,6 +1600,10 @@ export const ATLAS_TEXT_DATA: Readonly<Record<string, Readonly<Record<string, At
       "many": "Выбирает {items} из {count} предметов с равными шансами.",
       "other": "Выбирает {items} из {count} предмета с равными шансами."
     },
+    "loot.empty.basesOff": "Bases выключен",
+    "loot.empty.basesOffBody": "Генератор добычи читает предметы из Obsidian Bases. Включите основной плагин Bases в настройках Obsidian и перезапустите Obsidian.",
+    "loot.empty.noCollection": "Карта не входит в коллекцию",
+    "loot.empty.noCollectionBody": "Добыча берётся из баз коллекции. Переместите карту в коллекцию, чтобы бросать добычу.",
     "loot.fewer": "Меньше предметов",
     "loot.give.all": "Все игроки",
     "loot.give.copies": "{count} × {item}",
@@ -1646,12 +1772,12 @@ export const ATLAS_TEXT_DATA: Readonly<Record<string, Readonly<Record<string, At
     "statblock.increase": "Увеличить: {label}",
     "statblock.locate": "Найти {label} на карте",
     "statblock.pip": "{label}: {n} из {max}",
+    "statblock.pipDamage": "{label}, урон: {n} из {max}",
     "statblock.pluginMissing": "Установите и включите плагин Fantasy Statblocks, чтобы видеть статблоки.",
     "statblock.spellcasting": "Использование заклинаний",
     "statblock.valueN": "значение {n}",
     "statblockEditor.addValuePrompt": "Добавить: {name}",
     "statblockEditor.autoLayout": "Показано полями Atlas",
-    "statblockEditor.changeUnprepared": "Не удалось подготовить изменение.",
     "statblockEditor.chooseTemplate": "Выбрать шаблон",
     "statblockEditor.emptyTab": "Пустая вкладка: выберите её и добавьте блок",
     "statblockEditor.expr.deep": "В формуле слишком глубокая вложенность.",
@@ -1697,12 +1823,6 @@ export const ATLAS_TEXT_DATA: Readonly<Record<string, Readonly<Record<string, At
       "many": "{list} не указывают ни на одно число этого статблока.",
       "other": "{list} не указывают ни на одно число этого статблока."
     },
-    "statblockEditor.fm.oneKey": "Свойства заметки записаны не по одному ключу в строке.",
-    "statblockEditor.fm.tooLong": "Свойства заметки слишком длинные или слишком многое повторяют через YAML-алиасы, и Atlas не может их прочитать.",
-    "statblockEditor.fm.twoEnds": "Obsidian понимает конец свойств этой заметки двояко. Сделайте закрывающую строку ровно ---.",
-    "statblockEditor.fm.unsafe": "Atlas не может безопасно изменить эти свойства.",
-    "statblockEditor.fm.yaml": "В свойствах заметки ошибка YAML.",
-    "statblockEditor.fm.yamlLine": "В свойствах заметки ошибка YAML в строке {line}.",
     "statblockEditor.fromField": "Из {name}",
     "statblockEditor.groupName": "Название группы",
     "statblockEditor.key.code": "Fantasy Statblocks читает «{key}» как код. Выберите другой ключ.",
@@ -2214,6 +2334,10 @@ export const ATLAS_TEXT_DATA: Readonly<Record<string, Readonly<Record<string, At
     "am.sidebar.searchTagsPlaceholder": "搜索标签…",
     "am.sidebar.settings": "合集设置",
     "am.sidebar.tags": "标签",
+    "am.spawned": {
+      "other": "从「{name}」放置了 {count} 个棋子"
+    },
+    "am.spawnedPartial": "从「{name}」放置了 {expected} 个中的 {count} 个棋子（部分图片缺失）",
     "am.tab.encounters": "遭遇",
     "am.tab.maps": "地图",
     "am.tab.scenes": "场景",
@@ -2247,7 +2371,27 @@ export const ATLAS_TEXT_DATA: Readonly<Record<string, Readonly<Record<string, At
       "other": "筛选：{count} 个已启用"
     },
     "assetGrid.menuOf": "{name} 的选项",
+    "assetGrid.noResults.encounters": "没有匹配的遭遇",
+    "assetGrid.noResults.maps": "没有匹配的地图",
+    "assetGrid.noResults.party": "没有匹配的玩家角色",
+    "assetGrid.noResults.scenes": "没有匹配的场景",
+    "assetGrid.noResults.tokens": "没有匹配的棋子",
     "assetGrid.openStatblock": "打开属性块",
+    "assetGrid.results.encounters": {
+      "other": "{count} 个遭遇"
+    },
+    "assetGrid.results.maps": {
+      "other": "{count} 张地图"
+    },
+    "assetGrid.results.party": {
+      "other": "{count} 个玩家角色"
+    },
+    "assetGrid.results.scenes": {
+      "other": "{count} 个场景"
+    },
+    "assetGrid.results.tokens": {
+      "other": "{count} 个棋子"
+    },
     "assetGrid.selected": {
       "other": "已选择 {count} 项"
     },
@@ -2272,8 +2416,20 @@ export const ATLAS_TEXT_DATA: Readonly<Record<string, Readonly<Record<string, At
     "common.quoted": "“{name}”",
     "common.save": "保存",
     "common.valueEmpty": "值不能为空",
+    "count.encounters": {
+      "other": "{count} 个遭遇"
+    },
     "count.items": {
       "other": "{count} 项"
+    },
+    "count.maps": {
+      "other": "{count} 张地图"
+    },
+    "count.scenes": {
+      "other": "{count} 个场景"
+    },
+    "count.tokens": {
+      "other": "{count} 个棋子"
     },
     "creator.noCollections": "没有找到合集",
     "creator.searchCollections": "搜索合集…",
@@ -2406,6 +2562,10 @@ export const ATLAS_TEXT_DATA: Readonly<Record<string, Readonly<Record<string, At
     "loot.draws": {
       "other": "从 {count} 件物品中抽取 {items} 件，每件概率相同。"
     },
+    "loot.empty.basesOff": "Bases 已关闭",
+    "loot.empty.basesOffBody": "合集的战利品 Base 通过 Obsidian Bases 读取。请在 Obsidian 设置中打开 Bases 核心插件，然后重新加载 Obsidian。",
+    "loot.empty.noCollection": "这张地图不在任何合集中",
+    "loot.empty.noCollectionBody": "随机表属于合集。把地图移进一个合集后才能用它的表抽取。",
     "loot.fewer": "少抽一些",
     "loot.history.empty": "此合集每张地图的抽取结果都会留在这里",
     "loot.history.remove": "移除这次抽取",
@@ -2544,6 +2704,7 @@ export const ATLAS_TEXT_DATA: Readonly<Record<string, Readonly<Record<string, At
     "statblock.increase": "增加{label}",
     "statblock.locate": "在地图上定位{label}",
     "statblock.pip": "{label} {n} / {max}",
+    "statblock.pipDamage": "{label}伤害 {n} / {max}",
     "statblock.pluginMissing": "请安装并启用 Fantasy Statblocks 插件以预览属性块。",
     "statblock.spellcasting": "施法",
     "statblock.valueN": "数值 {n}",

@@ -74,6 +74,7 @@ for (const [name, tag] of [['createDiv', 'div'], ['createSpan', 'span'], ['creat
   };
 }
 elementProto.addClass ??= function (this: HTMLElement, ...names: string[]): void { this.classList.add(...names); };
+elementProto.removeClass ??= function (this: HTMLElement, ...names: string[]): void { this.classList.remove(...names); };
 
 // Obsidian's globals for the window that has the focus.
 (globalThis as unknown as { activeDocument: Document; activeWindow: Window }).activeDocument = document;

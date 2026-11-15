@@ -673,13 +673,21 @@ async function main(): Promise<void> {
   const lootSaves: unknown[] = [];
   const lootFiles: Record<string, string> = {};
   const lootCollection = { randomTables: [{ path: 'Tables.md', index: 0, kind: 'text' }] };
-  // Atlas's asset service as the asset manager reads it: one collection holding one goblin token.
+  // Atlas's asset service as the asset manager reads it: one collection holding one goblin token, and a map with a scene on it.
   const goblinAsset = { id: 'tok-goblin', type: 'token', name: 'Goblin', imagePath: 'art/goblin.png', size: 1, collection: 'col1', tags: [], createdAt: 1, modifiedAt: 1 };
+  const coveScene = { id: 'scene-cove', type: 'scene', name: 'Cove', collection: 'col1', tags: [], createdAt: 1, modifiedAt: 1, data: { mapPath: 'maps/cove.atlasmap' } };
+  const coveMap = { id: 'map-cove', type: 'map', name: 'Cove map', mapFilePath: 'art/cove.png', collection: 'col1', tags: [], createdAt: 1, modifiedAt: 1 };
+  const libraryAssets = [goblinAsset, coveScene, coveMap];
+  // The scene's map file, as Atlas saves it: its background is the map's image (how Atlas finds a map's scenes).
+  const sceneFiles: Record<string, string> = { 'maps/cove.atlasmap': JSON.stringify({ version: 1, state: { background: 'art/cove.png' } }) };
+  const sceneFile = (path: string): TFile => Object.assign(new TFile(path), { stat: { mtime: 1, ctime: 1, size: sceneFiles[path]!.length } });
+  const openedMaps: string[] = [];
   const lootAssets = {
     initialize: async () => {},
     getCollectionForMap: () => 'col1', getCollectionSettings: () => lootCollection, updateCollectionSettings: async () => {},
     getCollections: async () => [{ id: 'col1', name: 'col1' }], getDefaultCollectionId: () => 'col1',
-    getAssets: async () => [goblinAsset], getAssetById: async (id: string) => (id === goblinAsset.id ? goblinAsset : null),
+    getAssets: async (_collection?: string, type?: string) => libraryAssets.filter((asset) => !type || asset.type === type),
+    getAssetById: async (id: string) => libraryAssets.find((asset) => asset.id === id) ?? null,
     getCollectionTags: async () => [], refreshMetadata: async () => {},
   };
   const lootAtlasView = {
@@ -690,9 +698,9 @@ async function main(): Promise<void> {
   const lootApp = {
     vault: {
       getFileByPath: (path: string) => (path in lootNotes ? new TFile(path) : null),
-      getAbstractFileByPath: (path: string) => (path in lootNotes ? new TFile(path) : null),
+      getAbstractFileByPath: (path: string) => (path in lootNotes ? new TFile(path) : path in sceneFiles ? sceneFile(path) : null),
       getFolderByPath: (path: string) => new TFolder(path),
-      cachedRead: async (file: TFile) => lootNotes[file.path] ?? '',
+      cachedRead: async (file: TFile) => lootNotes[file.path] ?? sceneFiles[file.path] ?? '',
       read: async (file: TFile) => lootNotes[file.path] ?? '',
       on: () => noRef, offref: () => {},
       createFolder: async () => {},
@@ -722,7 +730,7 @@ async function main(): Promise<void> {
   const spawnWriter = new TokenWriter({ views: () => [spawnView as never], held: async () => spawnState as never });
   const spawnHost: BoardSpawnHost = {
     leaf: {} as never, writer: spawnWriter, mapPath: () => 'maps/tavern.atlasmap', centre: () => board.viewCentre(),
-    grid: () => map.grid, tokens: () => spawnTokens as never, select: () => {}, joinInitiative: async () => {}, openMap: async () => {},
+    grid: () => map.grid, tokens: () => spawnTokens as never, select: () => {}, joinInitiative: async () => {}, openMap: async (path) => { openedMaps.push(path); },
   };
   const assets = new AssetWindow(container, lootApp as never, spawnHost);
   // A second asset window whose app has no Atlas view yet (Atlas's tab deferred, or the board opened first): what it logs
@@ -808,7 +816,7 @@ async function main(): Promise<void> {
   cinematicStudio = studio;
   board.cinemaButton({ live: () => studio.live, toggleLive: () => studio.toggleLive() });
   const cutsceneHarness = { studio, host: studioHost, store: cutsceneStore, log: cutsceneLog, first: map.path, second: crypt.path, session: fakeSession, channel, owner };
-  Object.assign(window, { boardTest: { studio: cutsceneHarness, api: { cutscene: channel }, Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, palette, paletteCalls, chooseAction, ready: true } });
+  Object.assign(window, { boardTest: { studio: cutsceneHarness, api: { cutscene: channel }, Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });
