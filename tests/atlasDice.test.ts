@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { diceRulesOf, onRolled, publishRoll, rollViewFor, stockRoll, type MapViewLike } from '../src/dice/atlasDice';
+import { diceRulesOf, onRolled, publishRoll, rollViewFor, setDieNames, stockRoll, type MapViewLike } from '../src/dice/atlasDice';
 import { DEFAULT_RULES } from '../src/dice/rollRules';
 
 type Listener = (...args: unknown[]) => void;
@@ -209,11 +209,21 @@ test("a dice set's dice keep their colours, and its advantage and disadvantage t
     groups: [{ die: 'd12', count: 1, color: '#7e22ce' }, { die: 'd12', count: 1, color: '#4d7c0f' }],
   });
   const edges = rulesOfSet({ dice: [{ count: 1, sides: 20 }], crit: 'natural', advantage: { kind: 'keep' }, disadvantage: { kind: 'die', sides: 6, colour: '#ff0000', name: 'Fear' } });
-  assert.deepEqual([edges.advantage, edges.disadvantage], [{ kind: 'keep' }, { kind: 'die', die: 'd6', color: '#ff0000' }]);
+  assert.deepEqual([edges.advantage, edges.disadvantage], [{ kind: 'keep' }, { kind: 'die', die: 'd6', color: '#ff0000', name: 'Fear' }]);
   // What Tabletop cannot throw, or Atlas would not keep, is no edge.
   const odd = rulesOfSet({ dice: [{ count: 1, sides: 20 }], crit: 'natural', advantage: { kind: 'die', sides: 7 }, disadvantage: { kind: 'number', value: 0 } });
   assert.deepEqual([odd.advantage, odd.disadvantage], [null, null]);
   // A collection that stores only `defaultRoll` has no edge fields: advantage keeps the best, as it always did.
   const collection = diceRulesOf(fakeView({ path: MAP, settings: { conditions: [], dice: { defaultRoll: '1d20', crit: 'natural' } } }).view);
   assert.equal(collection.advantage, undefined);
+});
+
+test("a set's dice keep the names Atlas's set gives them, and Atlas's roll log is told those names (never a colour's)", () => {
+  const rules = rulesOfSet({ dice: [{ count: 1, sides: 12, colour: '#ca8a04', name: 'Sun' }, { count: 1, sides: 6, colour: '#b91c1c' }], crit: 'natural', advantage: { kind: 'die', sides: 6, name: 'Edge', colour: '#1d4ed8' } });
+  assert.deepEqual(rules.groups, [{ die: 'd12', count: 1, color: '#ca8a04', name: 'Sun' }, { die: 'd6', count: 1, color: '#b91c1c' }]);
+  const names = setDieNames(rules);
+  assert.equal(names.get('#ca8a04'), 'Sun');
+  assert.equal(names.get('#1d4ed8'), 'Edge');
+  // A die coloured by the set but unnamed is unnamed in Atlas's log too.
+  assert.equal(names.has('#b91c1c'), false);
 });

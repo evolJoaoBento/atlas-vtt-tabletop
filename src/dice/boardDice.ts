@@ -10,7 +10,7 @@
 import { DIE_COLOURS } from './diceLook';
 import type { Board } from '../board/board';
 import { DiceLogPanel, logEntryOf } from '../board/diceLog';
-import { diceRulesOf, onRolled, publishRoll, stockRoll, type MapViewLike, type RollResult } from './atlasDice';
+import { diceRulesOf, onRolled, publishRoll, setDieNames, stockRoll, type MapViewLike, type RollResult } from './atlasDice';
 import { DiceController } from './diceController';
 import { SheetDrawer } from '../sheets/sheetDrawer';
 import type { AdvantageSide, PlayerSheet } from '../../packages/atlas-host/src/sheets/sheets';
@@ -318,7 +318,8 @@ export class BoardDice {
 
   /** The finished roll to Atlas's roll log, each die's colour named as the picker names it. */
   private publish(result: RollResult): void {
-    const names = new Map(DIE_COLOURS.map((entry) => [entry.color.toLowerCase(), entry.name]));
+    // Atlas names a die by the name its dice set gives it, never by its colour.
+    const names = setDieNames(this.rules());
     const rolls = result.rolls.map((roll) => {
       const name = roll.color ? names.get(roll.color.toLowerCase()) : undefined;
       return name ? { ...roll, colorName: name } : roll;

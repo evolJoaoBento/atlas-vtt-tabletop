@@ -30,6 +30,8 @@ export interface DieGroup {
   die: DieType;
   count: number;
   color?: string;
+  /** The name Atlas's dice set gives the die (shown beside its value in Atlas's roll log). */
+  name?: string;
 }
 
 /**
@@ -37,7 +39,7 @@ export interface DieGroup {
  * worst for disadvantage; the other way round on a roll-under set), `number` adds the number (takes it off for
  * disadvantage) and `die` adds a die of its own (subtracts it for disadvantage).
  */
-export type EdgeRule = { kind: 'keep' } | { kind: 'number'; value: number } | { kind: 'die'; die: DieType; color?: string };
+export type EdgeRule = { kind: 'keep' } | { kind: 'number'; value: number } | { kind: 'die'; die: DieType; color?: string; name?: string };
 
 /** The edge `side` has on these rules; null for none. */
 export function edgeOf(rules: DiceRules, side: 'advantage' | 'disadvantage'): EdgeRule | null {

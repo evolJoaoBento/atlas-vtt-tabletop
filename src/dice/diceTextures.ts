@@ -8,6 +8,29 @@ import * as THREE from 'three';
 import { dieColor, packDie, PACK_FALLBACK } from './kit/dieShapes';
 import type { DieType } from './kit/faces';
 import type { ChosenPack } from './dicePack';
+import { parseHex, readableInk } from '../../packages/atlas-shared/src/index';
+
+/** Atlas's light ink (`LIGHT_INK`): what it writes on the darkest body. */
+const LIGHT_INK = readableInk([0, 0, 0]);
+
+/**
+ * The ink a die's digits take on a body of `color`, as Atlas's dice do (`readableInk`): Atlas's light ink on a dark body
+ * (its dark look, a dark dice set colour), else null (the pack's own digits).
+ */
+export function digitInk(color: string): string | null {
+  const rgb = parseHex(color);
+  return rgb !== null && readableInk(rgb) === LIGHT_INK ? LIGHT_INK : null;
+}
+
+/** Writes the opaque dark digits of a pack's sheet (RGBA pixels) in `ink`; the faint washes and light digits stay. */
+export function inkDigits(pixels: Uint8ClampedArray, ink: string): void {
+  const rgb = parseHex(ink);
+  if (!rgb) return;
+  for (let i = 0; i < pixels.length; i += 4) {
+    if (pixels[i + 3]! < 128 || pixels[i]! + pixels[i + 1]! + pixels[i + 2]! >= 384) continue;
+    pixels[i] = rgb[0]; pixels[i + 1] = rgb[1]; pixels[i + 2] = rgb[2];
+  }
+}
 
 export class DiceTextures {
   private readonly cache = new Map<string, THREE.Texture>();
@@ -57,7 +80,7 @@ export class DiceTextures {
       canvas.height = image.height;
       context.fillStyle = color;
       context.fillRect(0, 0, canvas.width, canvas.height);
-      context.drawImage(image, 0, 0);
+      context.drawImage(inked(this.doc, image, digitInk(color)), 0, 0);
       paintRim(this.doc, context, canvas, image, color, rimUV);
       // The one-pixel placeholder's GPU copy does not grow: dropped, the next frame uploads the sheet at its size.
       texture.dispose();
@@ -117,4 +140,19 @@ function paintRim(doc: Document, context: CanvasRenderingContext2D, canvas: HTML
   context.fillRect(x, y, size, size);
   context.fillStyle = `rgba(${(wash >>> 24) & 255}, ${(wash >>> 16) & 255}, ${(wash >>> 8) & 255}, ${(wash & 255) / 255})`;
   context.fillRect(x, y, size, size);
+}
+
+/** The sheet with its dark digits in `ink` (null: the sheet as it is), on a canvas of its own. */
+function inked(doc: Document, image: HTMLImageElement, ink: string | null): CanvasImageSource {
+  if (ink === null) return image;
+  const canvas = doc.win.createEl('canvas');
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const context = canvas.getContext('2d');
+  if (!context) return image;
+  context.drawImage(image, 0, 0);
+  const data = context.getImageData(0, 0, canvas.width, canvas.height);
+  inkDigits(data.data, ink);
+  context.putImageData(data, 0, 0);
+  return canvas;
 }

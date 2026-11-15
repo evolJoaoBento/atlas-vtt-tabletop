@@ -90,6 +90,8 @@ const isFaceCount = (value: unknown): value is number => typeof value === 'numbe
 
 /** A colour Atlas keeps for a die (`isDieColour`: `#rrggbb`). */
 const dieColour = (color: unknown): string | undefined => (isDieColour(color) ? color : undefined);
+/** The name a dice set gives a die: a non-empty text, trimmed. */
+const dieName = (name: unknown): string | undefined => (typeof name === 'string' && name.trim() !== '' ? name.trim() : undefined);
 
 /** The die of `sides` faces Tabletop has; null for any other. */
 const dieOf = (sides: unknown): DieType | null => {
@@ -107,7 +109,8 @@ function setGroups(raw: unknown[]): DieGroup[] | null {
     const die = isObject(group) ? dieOf(group.sides) : null;
     if (!isObject(group) || !die || !isFaceCount(group.count) || group.count < 1) return null;
     const color = dieColour(group.colour);
-    groups.push({ die, count: group.count, ...(color ? { color } : {}) });
+    const name = dieName(group.name);
+    groups.push({ die, count: group.count, ...(color ? { color } : {}), ...(name ? { name } : {}) });
   }
   return groups.length > 0 ? groups : null;
 }
@@ -123,7 +126,8 @@ function edgeRule(raw: unknown): EdgeRule | null {
     case 'die': {
       const die = dieOf(raw.sides);
       const color = dieColour(raw.colour);
-      return die ? { kind: 'die', die, ...(color ? { color } : {}) } : null;
+      const name = dieName(raw.name);
+      return die ? { kind: 'die', die, ...(color ? { color } : {}), ...(name ? { name } : {}) } : null;
     }
     default:
       return null;
@@ -167,6 +171,18 @@ function readRules(raw: Rec): DiceRules {
  * `mapPath`: the map the roll is for, when the view may show another (`rollViewFor` fell back to it); the dice tool
  * rolls the view's own map, so then only that map's collection settings are read.
  */
+/**
+ * The names a dice set gives its coloured dice, by colour, for Atlas's roll log: Atlas names a die only by its set (a die
+ * the GM coloured in the picker, or a set's die with no name, is logged unnamed).
+ */
+export function setDieNames(rules: DiceRules): Map<string, string> {
+  const names = new Map<string, string>();
+  const add = (color: string | undefined, name: string | undefined): void => { if (color && name && !names.has(color.toLowerCase())) names.set(color.toLowerCase(), name); };
+  for (const group of rules.groups ?? []) add(group.color, group.name);
+  for (const edge of [rules.advantage, rules.disadvantage]) if (edge && edge.kind === 'die') add(edge.color, edge.name);
+  return names;
+}
+
 export function diceRulesOf(view: MapViewLike | null, forMap?: string): DiceRules {
   if (!view) return { ...DEFAULT_RULES };
   const shown = mapPathOf(view);
