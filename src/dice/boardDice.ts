@@ -7,6 +7,7 @@
  * rolls are thrown with the same dice and logged as that token's. The board's tab (and the browser harness) make one
  * per board.
  */
+import { DIE_COLOURS } from './diceLook';
 import type { Board } from '../board/board';
 import { DiceLogPanel, logEntryOf } from '../board/diceLog';
 import { diceRulesOf, onRolled, publishRoll, stockRoll, type MapViewLike, type RollResult } from './atlasDice';
@@ -36,6 +37,8 @@ export interface BoardDiceDeps {
   atlasView(): MapViewLike | null;
   settings(): TabletopDiceSettings;
   pack(): ChosenPack;
+  /** The body colour Atlas's dice look gives a die no dice set colours (null: the pack's own). */
+  dieBody?(): string | null;
   /** Keeps whether the stat sheet drawer is pinned (read from `settings().sheetPinned`). */
   setSheetPinned?(pinned: boolean): void;
   /** Shown once per message. */
@@ -83,7 +86,7 @@ export class BoardDice {
     this.previews = new DicePreviews(doc, () => this.picker?.refreshPictures());
     this.picker = new DicePicker(anchor ?? container, {
       onRoll: (request) => this.roll(request),
-      colors: () => deps.settings().colors,
+      colors: () => [...DIE_COLOURS],
       rules: () => this.rules(),
       picture: (die) => this.previews.url(die),
       onOpenChange: (open) => {
@@ -300,7 +303,7 @@ export class BoardDice {
     }
     const pack = this.deps.pack();
     const textures = new DiceTextures(pack, this.deps.container.ownerDocument, () => board.wake(true));
-    const table = new DiceTable({ ...board.diceHost(), pack: () => pack.config, textures: (type, color) => textures.textures(type, color) }, this.deps.settings());
+    const table = new DiceTable({ ...board.diceHost(), pack: () => pack.config, textures: (type, color) => textures.textures(type, color), lookBody: () => this.deps.dieBody?.() ?? null }, this.deps.settings());
     board.attachDice(table);
     this.textures = textures;
     this.table = table;
@@ -315,7 +318,7 @@ export class BoardDice {
 
   /** The finished roll to Atlas's roll log, each die's colour named as the picker names it. */
   private publish(result: RollResult): void {
-    const names = new Map(this.deps.settings().colors.map((entry) => [entry.color.toLowerCase(), entry.name]));
+    const names = new Map(DIE_COLOURS.map((entry) => [entry.color.toLowerCase(), entry.name]));
     const rolls = result.rolls.map((roll) => {
       const name = roll.color ? names.get(roll.color.toLowerCase()) : undefined;
       return name ? { ...roll, colorName: name } : roll;

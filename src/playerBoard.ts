@@ -7,6 +7,7 @@
  * dice on it (`throwDice`): their own pack and Tabletop's dice settings, seen on this board only, the landed values
  * handed back to Connect for the GM.
  */
+import { DIE_COLOURS } from './dice/diceLook';
 import { parseMini, type LoadedMini } from './library';
 import { Board, type BoardHost } from './board/board';
 import type { AugmentedView, RoomPlace } from './board/augmented';
@@ -880,7 +881,7 @@ class PlayerBoard implements PlayerBoardHandle {
     this.parent.appendChild(root);
     const picker = new DicePicker(root, {
       onRoll: (request) => { this.dice.throw(request); },
-      colors: () => this.diceDeps.settings().colors,
+      colors: () => [...DIE_COLOURS],
       rules: () => this.host.diceRules?.() ?? DEFAULT_RULES,
       onOpenChange: (open) => this.prompt.setCovered(open),
     });

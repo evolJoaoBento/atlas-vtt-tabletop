@@ -180,6 +180,12 @@ export class AtlasBridge {
   }
 
   /** How loud Atlas plays dice (0 to 1, its "Dice volume"); 1 without Atlas. */
+  /** Atlas's dice look (`getDiceLook`: its global dice colour and font), as Atlas hands it; null without it. */
+  diceLook(): unknown {
+    const settings = this.settings();
+    try { return typeof settings?.getDiceLook === 'function' ? settings.getDiceLook() : null; } catch { return null; }
+  }
+
   diceVolume(): number {
     const settings = this.settings();
     let volume: unknown = 1;

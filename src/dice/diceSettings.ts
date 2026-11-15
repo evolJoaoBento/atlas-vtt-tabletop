@@ -10,22 +10,11 @@ export interface TabletopDiceSettings extends DiceSettings {
   /** The pack's folder name under the shared packs folder. */
   pack: string;
   /** The colours a die can be thrown in (right-click a die in the picker); the name goes to Atlas's roll log. */
-  colors: { name: string; color: string }[];
   /** A roll from a stat sheet is thrown at once (true), or (the default) its dice are laid on the table to be thrown by hand. */
   autoRoll: boolean;
   /** The stat sheet drawer is pinned: it stays open under other panels. Kept across reloads. */
   sheetPinned: boolean;
 }
-
-/** The colours Atlas suggests for a collection's dice, named. */
-const DEFAULT_COLORS: TabletopDiceSettings['colors'] = [
-  { name: 'Red', color: '#d64545' },
-  { name: 'Blue', color: '#3b82f6' },
-  { name: 'Green', color: '#22a06b' },
-  { name: 'Gold', color: '#e0a526' },
-  { name: 'Purple', color: '#8b5cf6' },
-  { name: 'Black', color: '#1f2937' },
-];
 
 export const DEFAULT_DICE_SETTINGS: TabletopDiceSettings = {
   dieSquares: 0.6,
@@ -35,7 +24,6 @@ export const DEFAULT_DICE_SETTINGS: TabletopDiceSettings = {
   highlight: true,
   highlightColor: '#ffd54a',
   pack: DEFAULT_PACK,
-  colors: DEFAULT_COLORS,
   autoRoll: false,
   sheetPinned: false,
 };
@@ -52,17 +40,6 @@ function within(value: unknown, bounds: { min: number; max: number }, fallback: 
 }
 
 /** The colours as saved: each a `#rrggbb` colour and a name (its code when it has none). */
-function readColors(value: unknown): TabletopDiceSettings['colors'] {
-  if (!Array.isArray(value)) return DEFAULT_COLORS.map((entry) => ({ ...entry }));
-  const colors: TabletopDiceSettings['colors'] = [];
-  for (const entry of value) {
-    const { name, color } = (entry ?? {}) as { name?: unknown; color?: unknown };
-    if (!isColor(color)) continue;
-    colors.push({ name: typeof name === 'string' && name.trim() !== '' ? name.trim() : color, color });
-  }
-  return colors;
-}
-
 /** Saved dice settings, field by field over the defaults. */
 export function readDiceSettings(saved: unknown): TabletopDiceSettings {
   const raw = (typeof saved === 'object' && saved !== null ? saved : {}) as Partial<Record<keyof TabletopDiceSettings, unknown>>;
@@ -75,22 +52,9 @@ export function readDiceSettings(saved: unknown): TabletopDiceSettings {
     highlight: typeof raw.highlight === 'boolean' ? raw.highlight : d.highlight,
     highlightColor: isColor(raw.highlightColor) ? raw.highlightColor : d.highlightColor,
     pack: typeof raw.pack === 'string' && raw.pack.trim() !== '' ? raw.pack : d.pack,
-    colors: readColors(raw.colors),
     autoRoll: typeof raw.autoRoll === 'boolean' ? raw.autoRoll : d.autoRoll,
     sheetPinned: typeof raw.sheetPinned === 'boolean' ? raw.sheetPinned : d.sheetPinned,
   };
 }
 
 /** The colours as the settings tab lists them, one `Name #rrggbb` a line; and read back (lines without a colour skipped). */
-export function colorsText(colors: TabletopDiceSettings['colors']): string {
-  return colors.map((entry) => (entry.name === entry.color ? entry.color : `${entry.name} ${entry.color}`)).join('\n');
-}
-
-export function readColorsText(text: string): TabletopDiceSettings['colors'] {
-  const colors: TabletopDiceSettings['colors'] = [];
-  for (const line of text.split('\n')) {
-    const match = /^(.*?)\s*(#[0-9a-fA-F]{6})\s*$/.exec(line.trim());
-    if (match) colors.push({ name: match[1].trim() || match[2], color: match[2] });
-  }
-  return colors;
-}

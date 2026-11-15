@@ -198,6 +198,8 @@ export interface BoardServices {
   /** The dice settings, and the pack the dice are made from (the default pack Tabletop carries until it is read). */
   diceSettings(): TabletopDiceSettings;
   dicePack(): ChosenPack;
+  /** The body colour Atlas's dice look gives a die no dice set colours (null: the pack's own). */
+  diceBody?(): string | null;
   /** What the player chose for board sounds (per device). */
   soundSettings(): SoundSettings;
   /** Where the sound files come from: the vault's custom sounds folder first, the bundled sounds otherwise. */
@@ -593,6 +595,7 @@ export class BoardView extends ItemView {
       mapPath: () => this.path ?? '',
       atlasView: () => this.rollView(),
       settings: () => this.services.diceSettings(),
+      dieBody: () => this.services.diceBody?.() ?? null,
       pack: () => this.services.dicePack(),
       warn: (message) => this.warn(message),
       setSheetPinned: (pinned) => this.services.setSheetPinned?.(pinned),

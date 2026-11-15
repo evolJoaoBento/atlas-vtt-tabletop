@@ -4,6 +4,7 @@
  * goes through a map view's private objects; every member is checked before use and a failed check reads as "nothing
  * there" (Atlas's default rules, no route) rather than throwing.
  */
+import { isDieColour } from '../../packages/atlas-shared/src/index';
 import { DIE_TYPES, type DieType } from './kit/faces';
 import { DEFAULT_RULES, defaultDie, type DiceRules, type DieGroup, type EdgeRule, type RolledDie } from './rollRules';
 
@@ -87,8 +88,8 @@ export function rollViewFor(views: readonly MapViewLike[], recent: MapViewLike |
 const CRITS: ReadonlySet<string> = new Set(['natural', 'roll-under', 'doubles', 'high-total', 'none']);
 const isFaceCount = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0;
 
-/** A colour Atlas keeps for a die: `#rrggbb`. */
-const dieColour = (color: unknown): string | undefined => (typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color) ? color : undefined);
+/** A colour Atlas keeps for a die (`isDieColour`: `#rrggbb`). */
+const dieColour = (color: unknown): string | undefined => (isDieColour(color) ? color : undefined);
 
 /** The die of `sides` faces Tabletop has; null for any other. */
 const dieOf = (sides: unknown): DieType | null => {

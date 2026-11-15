@@ -1,16 +1,17 @@
 {
   "connect": {
-    "commit": "b75ddc0811cfae46fabb61494e7d249250e9ebe6"
+    "commit": "0e0698bb499f6d3f58a374680fb905274aef01e5"
   },
   "files": {
     "packages/atlas-shared/README.md": "4fde8a0601b6ef91d03051dbbda39e0faecf5ada86f9c7ccbad71308c6b70c5e",
-    "packages/atlas-shared/SOURCE.json": "bc28fd95d3c3e57e2d0f41fddd9622795704a46c86c9402abee3a3c1289a7d0b",
-    "packages/atlas-shared/files.mjs": "56d472dac3fbb8cb73cfc8810285e85821a5ceee3727dc22adb5572761e058bb",
+    "packages/atlas-shared/SOURCE.json": "b18614f1a0b03b78c4158fccbe3746bc3d28cbb315aed7db97185bd19ac0df6a",
+    "packages/atlas-shared/files.mjs": "52da754faee253bce23d9ee792d104d528f87e25772cc558199a7e75a0a4a8e0",
     "packages/atlas-shared/src/app/annotations/annotationFit.ts": "8ea3b5221956f77a60d4d5a99f795a02ba6c8f9c7474e7767198d36b6fdc8774",
     "packages/atlas-shared/src/app/annotations/annotationList.ts": "b4157a569ba0d8fe4c98802bf34157be1b6628b811db76679d81d53c24d5cac7",
     "packages/atlas-shared/src/app/annotations/annotationTypes.ts": "12c331b49fc802011c4f9b5ecd833a87e99bb956335caf915165c4a782355666",
     "packages/atlas-shared/src/app/annotations/drawSizes.ts": "412fdc2f406daf3acec9086788c7daebc38cd32d31bc4e411cb0469e8b07d28c",
     "packages/atlas-shared/src/app/characters/playerTokens.ts": "1af1951ad099d7c86b19713214b89cfd5c24bb1242acaedf5ca3eab8713d0ffc",
+    "packages/atlas-shared/src/app/dice3d/diceLook.ts": "161a3eb48973cf9820c4019819949556ca1991b8d0de75560b3887c16547258a",
     "packages/atlas-shared/src/app/gameSystems/diceRules.ts": "142ea29388b77c7c6b87d72871b5f80445da92ca14362d7089b9c426c8914aa3",
     "packages/atlas-shared/src/app/gameSystems/diceSets.ts": "bfa24c360007952824658a5b082632e8cc4ecd128eca934475f8564fe59df01f",
     "packages/atlas-shared/src/app/gameSystems/initiativeSideRules.ts": "13deaa1705c9dee9e1d2b49432fc7eed7c3749b47b003332b306971a3c7f0c51",
@@ -81,7 +82,7 @@
     "packages/atlas-shared/src/app/utils/hexColor.ts": "dba01c8dbf894a30193ec6e34908dfca2909e64189264e5dc40d97fdf52d5b4f",
     "packages/atlas-shared/src/app/vision/polygonBounds.ts": "55da528b77eee1424b754f78e632bf934a24228f58d10297e6905e325e496a93",
     "packages/atlas-shared/src/app/vision/visibility.ts": "39641f0ed0b48a285514552ac66c2d90d7513ae2cb305da29dd1ef50c5d11ca2",
-    "packages/atlas-shared/src/index.ts": "e8c9de103c3f13a9eccfb68234862d7ac24a17b094fce2ff5b49a1fb121d35e2",
+    "packages/atlas-shared/src/index.ts": "b6a818b2b24fb59ed2f1885913bdf56890141776e58fe8aff05390eab1333471",
     "packages/atlas-host/src/atlasFloor.ts": "405449d94ce817cec153c2e3b33e9d242bd096b518bfbf2940b2be5224aa911b",
     "packages/atlas-host/src/atlasHost.ts": "ea9e9e57b63f76411c7ff52297674a13115669c41ab05a96ec0a759a7f855488",
     "packages/atlas-host/src/hostLeaf.ts": "2aee06b918ec52d289f257b5d96f7df344c1f3d45b448dbd3350de447f19de8d",
@@ -95,6 +96,6 @@
     "packages/atlas-host/src/pairing.ts": "fd2ea7bd297a48cf90b8b96926944ae33f6a766f7d80112ecd5c5cf201b04876",
     "packages/atlas-host/src/spellMeasure.ts": "38e26a2689d5712ac4232389499730a6faff6efb4fcc940cdd3490c3437bb687",
     "packages/atlas-host/src/wake.ts": "28986ec0911ac5e18b9cab496d71f8ad56f2f22c2a05edc2e4b70b8c77798cb2",
-    "src/connectWire.ts": "9853457c700addb7b57152bb2516cbd192c7d9e6f6015cd9705c86cf2666bd16"
+    "src/connectWire.ts": "d2129d54adafc5a8bf1695af7d820e8c3ec9a9463cf0c44b266ab705643c52ab"
   }
 }

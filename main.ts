@@ -27,6 +27,7 @@ import { collectionRulesOf } from './src/collectionRulesOf';
 import { readMeasurement } from './src/board/measure';
 import { carryOver } from './src/fusionCarryOver';
 import { AtlasBridge } from './src/atlasBridge';
+import { lookBody, readDiceLook, themeAccent } from './src/dice/diceLook';
 import { TokenWriter } from './src/board/tokenWriter';
 import type { AtlasSceneState } from './src/atlas';
 import { UndoHistory } from './src/board/undoHistory';
@@ -55,7 +56,7 @@ import { SOUND_INFO } from './src/sound/soundInfo';
 import { drawSoundControls } from './src/sound/soundRow';
 import { SoundEngine } from './src/sound/soundEngine';
 import { VaultSounds } from './src/sound/vaultSounds';
-import { colorsText, DEFAULT_DICE_SETTINGS, DIE_SQUARES, MOTION_THRESHOLD, readColorsText, readDiceSettings, TOLERANCE, type TabletopDiceSettings } from './src/dice/diceSettings';
+import { DEFAULT_DICE_SETTINGS, DIE_SQUARES, MOTION_THRESHOLD, readDiceSettings, TOLERANCE, type TabletopDiceSettings } from './src/dice/diceSettings';
 import { ensureDefaultPack, listPacks, packsFolder, type PackFs } from './src/dice/kit/packs';
 
 export const API_READY_EVENT = 'tabletop-for-atlas:api-ready';
@@ -398,6 +399,8 @@ export default class TabletopPlugin extends Plugin {
       setCinematicSettings: (changes) => this.setCinematic(changes),
       soundLoader: () => this.vaultSounds.custom.load,
       dicePack: () => (this.dicePack ??= vendoredPack()),
+      // Atlas's dice look, read at each throw: a change of it, or of the theme's accent, reaches the next die.
+      diceBody: () => lookBody(readDiceLook(new AtlasBridge(this.app).diceLook()), themeAccent(document)),
       levelShown: (mapPath) => this.levelShown(mapPath),
       floor: () => atlasFloor(this.app),
       host,
@@ -1325,12 +1328,6 @@ class TabletopSettingTab extends PluginSettingTab {
       }),
       number('Face detection tolerance', 'How far from flat a die may rest and still be read; a die tilted more is caught', 'tolerance', TOLERANCE),
       number('Motion threshold', 'Higher waits for stiller dice before reading them', 'motionThreshold', MOTION_THRESHOLD),
-      this.row('Dice colours', "The colours a die can be thrown in (right-click a die in the board's dice picker), one a line: a name, then the colour as #rrggbb. The name shows in Atlas's roll log.", (setting) => {
-        setting.addTextArea((area) => {
-          area.setValue(colorsText(plugin.settings.dice.colors)).onChange((value) => plugin.setDice({ colors: readColorsText(value) }));
-          area.inputEl.rows = 6;
-        });
-      }),
     ];
   }
 

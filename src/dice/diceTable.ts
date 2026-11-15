@@ -38,6 +38,8 @@ export interface DiceTableHost {
   /** A die's face sheet, painted over its colour (the pack's for the die when null), and its normal map. */
   textures(type: DieType, color: string | null): { map?: THREE.Texture; normalMap?: THREE.Texture };
   pack(): DicePack;
+  /** The body of a die thrown without a colour of its own: Atlas's dice look (null: the pack's own). */
+  lookBody?(): string | null;
   /** What stands on the board for dice to bounce off (none without it). */
   obstacles?(): DiceObstacle[];
 }
@@ -553,7 +555,9 @@ export class DiceTable {
     if (existing) return existing;
     const pack = this.host.pack();
     const { geometry, normals, numbers } = buildDie(type, DIE_SIZE, pack);
-    const mesh = new THREE.Mesh(geometry, dieMaterial(type, pack, this.host.textures(type, color ?? null), color ?? null));
+    // A die of a dice set group with a colour takes it; any other the body Atlas's dice look gives it, or the pack's own.
+    const tint = color ?? this.host.lookBody?.() ?? null;
+    const mesh = new THREE.Mesh(geometry, dieMaterial(type, pack, this.host.textures(type, tint), tint));
     mesh.castShadow = this.settings.shadows;
     mesh.receiveShadow = this.settings.shadows;
     mesh.userData.dieId = id;
