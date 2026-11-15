@@ -832,7 +832,12 @@ export class CutsceneStudio {
         this.backToEditing();
         return;
       }
-    } else if (!preview.run.previous(preview.clock)) return;
+    } else {
+      const to = preview.run.previousStop();
+      if (to === undefined) return;
+      const settings = this.host.settings();
+      preview.run.jump(to, settings.transition, preview.clock, settings.fadeMs);
+    }
     this.updatePreviewBar();
   }
 
@@ -855,7 +860,8 @@ export class CutsceneStudio {
     if (!preview || preview.switching) return;
     const index = preview.run.cutscene.shots.findIndex((shot) => shot.id === shotId);
     if (index < 0) return;
-    preview.run.seek(index, preview.run.seq + 1);
+    const settings = this.host.settings();
+    preview.run.jump(index, settings.transition, preview.clock, settings.fadeMs);
     this.updatePreviewBar();
   }
 

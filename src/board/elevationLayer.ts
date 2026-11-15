@@ -106,8 +106,15 @@ export class ElevationLayerView {
   private readonly image: THREE.MeshStandardMaterial;
   /** The floor as a shadow: black wherever the image is drawn, with the same look (solid, faded) and cut-outs. */
   private readonly shade = new THREE.MeshBasicMaterial({ color: 0x000000 });
-  /** Everything that stands on the layer; hidden while the layer is only a shadow. */
+  /** Everything that stands on the layer; hidden while the layer is only a shadow, and drawn in its look (faded, hidden) as its floor is. */
   private readonly content = new THREE.Group();
+  /** The see-through copies of what stands on it, by the material they copy: the layer's own, so nothing shared with another layer or the shown scene fades. */
+  private readonly fadedCopies = new Map<THREE.Material, THREE.Material>();
+  private readonly copies = new WeakSet<THREE.Material>();
+  /** How see-through what stands on it was last drawn (1: as it is). */
+  private contentShown = 1;
+  /** Something was added to what stands on it since it was last drawn in its look. */
+  private contentDirty = false;
   private blackedOut = false;
   private look: LayerLook = 'solid';
   /** What the layer was last laid out by, so it can be moved on the plane without drawing it all again. */
@@ -230,6 +237,8 @@ export class ElevationLayerView {
     // A level fitted anew (Atlas aligned it) lies by its new fit, its image already read.
     this.layFloor();
     this.shapeFloor(shape.look);
+    // What is built below (and what loads later: art, minis, props) is drawn in the look on the next frame.
+    this.contentDirty = true;
 
     this.walls.update(map.walls, {
       height: Math.max(shape.minWall, data.fogHeight) * map.grid.size,
@@ -278,6 +287,7 @@ export class ElevationLayerView {
       void this.host.model(prop.glb).then((model) => {
         if (this.disposed || this.props.get(prop.id) !== piece || !model) return;
         piece.setModel(model);
+        this.contentDirty = true;
         this.host.wake();
       });
     }
@@ -317,6 +327,7 @@ export class ElevationLayerView {
       void this.host.art(artPath).then((texture) => {
         if (this.disposed || this.tokens.get(id) !== entry) return;
         entry.piece.setArt(texture);
+        this.contentDirty = true;
         this.host.wake();
       });
     } else {
@@ -332,6 +343,7 @@ export class ElevationLayerView {
     void this.host.model(placement.mini).then((model) => {
       if (this.disposed || this.tokens.get(id) !== entry || entry.mini !== placement.mini) return;
       entry.piece.setMini(model, model ? placement : null);
+      this.contentDirty = true;
       this.host.wake();
     });
   }
@@ -453,7 +465,51 @@ export class ElevationLayerView {
     this.floor.castShadow = whole && !this.blackedOut;
     this.floor.renderOrder = whole ? 0 : 1;
     this.floor.visible = this.image.map !== null && shown > 0.003;
-    this.content.visible = !this.blackedOut && this.presence > 0.4;
+    // What stands on it takes its look: faded with a faded floor, gone with a hidden one.
+    this.content.visible = !this.blackedOut && this.presence > 0.4 && this.lookLevel > 0.02;
+    this.fadeContent(this.lookLevel);
+  }
+
+  /**
+   * Draws what stands on the layer `level` see-through (1: as it is): every mesh on it wears a faded copy of its
+   * material, kept per layer, and its own again once the layer is solid. A material changed under it (a door's state, a
+   * token's look) is taken as the new one to copy.
+   */
+  private fadeContent(level: number): void {
+    const shown = Math.min(1, Math.max(0, level));
+    if (shown >= 0.999 && this.contentShown >= 0.999) return;
+    this.contentShown = shown;
+    const copyOf = (material: THREE.Material): THREE.Material => {
+      let copy = this.fadedCopies.get(material);
+      if (!copy) {
+        copy = material.clone();
+        // A clone leaves the shader hooks behind (the see-through cut): the copy keeps them.
+        copy.onBeforeCompile = material.onBeforeCompile;
+        copy.customProgramCacheKey = material.customProgramCacheKey;
+        copy.transparent = true;
+        copy.depthWrite = false;
+        this.fadedCopies.set(material, copy);
+        this.copies.add(copy);
+      }
+      copy.opacity = (material.opacity ?? 1) * shown;
+      return copy;
+    };
+    this.content.traverse((node) => {
+      const mesh = node as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const current = mesh.material;
+      const list = Array.isArray(current) ? current : [current];
+      // The mesh's own material: what it wore before it was faded, unless something has put another on it since.
+      const kept = mesh.userData.layerOwn as THREE.Material | THREE.Material[] | undefined;
+      const own = kept !== undefined && list.every((m) => this.copies.has(m)) ? kept : current;
+      if (shown >= 0.999) {
+        mesh.material = own;
+        delete mesh.userData.layerOwn;
+        return;
+      }
+      mesh.userData.layerOwn = own;
+      mesh.material = Array.isArray(own) ? own.map(copyOf) : copyOf(own);
+    });
   }
 
   /** Eases presence and look toward what is wanted, by the clock, in and out; whether anything moved. */
@@ -501,6 +557,11 @@ export class ElevationLayerView {
   /** Called each frame: tokens stand where they are, the walls' doors swing, the lights flicker. Returns whether it is still moving. */
   step(dt: number, now: number, context: PoseContext): boolean {
     const eased = this.ease(dt);
+    if (this.contentDirty) {
+      this.contentDirty = false;
+      // Freshly built or loaded meshes wear their own materials: faded again if the layer is.
+      if (this.lookLevel < 0.999) { this.contentShown = 0; this.fadeContent(this.lookLevel); }
+    }
     const moving = this.walls.step(dt) || eased;
     this.rig.step(now);
     this.water?.tick(now);
@@ -555,6 +616,9 @@ export class ElevationLayerView {
     this.water = null;
     this.walls.dispose();
     this.rig.dispose();
+    // The faded copies are the layer's own (their textures are not: those belong to what they copy).
+    for (const copy of this.fadedCopies.values()) copy.dispose();
+    this.fadedCopies.clear();
     for (const piece of this.props.values()) piece.dispose();
     for (const entry of this.tokens.values()) entry.piece.dispose();
     releaseTexture(this.image.map);

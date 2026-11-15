@@ -1151,7 +1151,7 @@ class TabletopSettingTab extends PluginSettingTab {
       this.row('Layer ruler step', 'The height ruler down the right of the board, shown on a scene with floors (Atlas levels), has a dash for every this many squares of height. The top of the ruler is the highest layer. Two by default.', (setting) => {
         setting.addSlider((slider) => slider.setLimits(MIN_LAYER_TICK, MAX_LAYER_TICK, 0.5).setValue(readLayerTick(plugin.settings.layerTick)).setDynamicTooltip().onChange((squares) => { void plugin.setLayerTick(squares); }));
       }, ['layers', 'height', 'ruler', 'elevation']),
-      this.row('Upper layers', 'How the floor image of a level above the one you are on (Atlas levels) is drawn in the 3D view: whole, half see-through, or hidden so only its walls, props and minis show. Transparent parts of the image always show what is below. Also in the board settings on the toolbar.', (setting) => {
+      this.row('Upper layers', 'How the floor image of a level above the one you are on (Atlas levels) is drawn in the 3D view: whole, half see-through, or hidden; its walls, doors, props, lights and minis take the same look. Transparent parts of the image always show what is below. Also in the board settings on the toolbar.', (setting) => {
         setting.addDropdown((dropdown) => dropdown
           .addOptions({ solid: 'Solid', faded: 'Faded', transparent: 'Hidden' })
           .setValue(readLayerLook(plugin.settings.layerLook))

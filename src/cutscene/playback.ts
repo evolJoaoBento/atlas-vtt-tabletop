@@ -3,7 +3,7 @@
  * copy follow the GM's. Time comes in as arguments, so it is tested without a clock.
  */
 
-import type { Cutscene } from './cutsceneData';
+import type { Cutscene, Transition } from './cutsceneData';
 import { legsBetween, sampleLegs, stopsOf, type CameraAt, type Leg } from './timeline';
 
 export class CutscenePlayback {
@@ -77,12 +77,44 @@ export class CutscenePlayback {
   }
 
   /** The player's copy following the GM's: the next stop plays like `next`, anything else seeks; stale news is ignored. */
-  follow(shot: number, seq: number, nowMs: number): void {
+  /**
+   * Follows the GM's run: the next stop plays its own transition; any other shot (a skip on the GM's timeline,
+   * Previous) arrives through `skip`, the run's default transition, or with a cut where the GM's board sends none.
+   */
+  follow(shot: number, seq: number, nowMs: number, skip?: { transition: Transition; fadeMs: number }): void {
     if (seq <= this.counter) return;
     if (this.nextStop() === shot) {
       this.next(nowMs);
       this.counter = seq;
+    } else if (skip) {
+      this.jump(shot, skip.transition, nowMs, skip.fadeMs);
+      this.counter = seq;
     } else this.seek(shot, seq);
+  }
+
+  /** The stop before the shot it is at (or heads to); undefined on the first. */
+  previousStop(): number | undefined {
+    const here = this.shot;
+    return [...this.stops].reverse().find((stop) => stop < here);
+  }
+
+  /**
+   * Skips to shot `index` through `transition` (the cinematic settings' default): a fade goes black over `fadeMs` and
+   * back, a move travels for as long as the shots lie apart in time (0.6 to 2.5 seconds), a cut lands at once.
+   */
+  jump(index: number, transition: Transition, nowMs: number, fadeMs: number): void {
+    const to = Math.min(this.cutscene.shots.length - 1, Math.max(0, index));
+    this.settle();
+    const from = this.rest;
+    if (to === from) return;
+    this.counter++;
+    if (transition === 'cut') {
+      this.rest = to;
+      return;
+    }
+    const apart = Math.abs(this.cutscene.shots[to].at - this.cutscene.shots[from].at);
+    const ms = transition === 'fade' ? 2 * fadeMs : Math.min(2500, Math.max(600, apart));
+    this.active = { legs: [{ from, to, transition, ms }], startMs: nowMs, to };
   }
 
   /** The camera at `nowMs`, and whether it rests (no transition under way). */

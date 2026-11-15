@@ -57,7 +57,8 @@ export function broadcastOf(input: BroadcastInput): GmCutscene {
   const cutscene: BoardCutscene = {
     runId: input.runId,
     mode: input.mode,
-    look: { bars: input.settings.bars ? input.settings.aspect : null, fadeMs: input.settings.fadeMs },
+    // `transition`: how players reach a shot the GM skips to (the timeline, Previous): the GM's default.
+    look: { bars: input.settings.bars ? input.settings.aspect : null, fadeMs: input.settings.fadeMs, transition: input.settings.transition },
     shots,
     step: { shot: input.step.shot, seq: input.step.seq },
     key,
@@ -95,6 +96,7 @@ export function readBoardCutscene(raw: unknown): BoardCutscene | null {
   const look = raw.look;
   if (!isObject(look) || !inside(look.fadeMs, 100, 3000)) return null;
   if (look.bars !== null && !(typeof look.bars === 'number' && BARS.includes(look.bars))) return null;
+  if (look.transition !== undefined && look.transition !== 'fade' && look.transition !== 'cut' && look.transition !== 'move') return null;
   const step = raw.step;
   if (!isObject(step) || typeof step.shot !== 'number' || !Number.isInteger(step.shot) || step.shot < 0) return null;
   if (typeof step.seq !== 'number' || !Number.isInteger(step.seq) || step.seq < 0 || step.seq > Number.MAX_SAFE_INTEGER) return null;
@@ -114,6 +116,6 @@ export function readBoardCutscene(raw: unknown): BoardCutscene | null {
     if (shots.length === 0 || step.shot > last || !(step.shot === 0 || step.shot === last || !shots[step.shot].keyframe)) return null;
   } else if (shots.length !== 0 || step.shot !== 0) return null;
   return {
-    runId: raw.runId, mode: raw.mode, look: { bars: look.bars as number | null, fadeMs: look.fadeMs }, shots, step: { shot: step.shot, seq: step.seq }, key: raw.key,
+    runId: raw.runId, mode: raw.mode, look: { bars: look.bars as number | null, fadeMs: look.fadeMs, ...(look.transition ? { transition: look.transition as 'fade' | 'cut' | 'move' } : {}) }, shots, step: { shot: step.shot, seq: step.seq }, key: raw.key,
   };
 }

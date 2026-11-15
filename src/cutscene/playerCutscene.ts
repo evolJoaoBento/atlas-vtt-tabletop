@@ -81,7 +81,8 @@ export class PlayerCutsceneState {
       return;
     }
     this.c = c;
-    this.playback?.follow(c.step.shot, c.step.seq, nowMs - this.lag);
+    // A shot the GM skipped to arrives through the run's default transition (a cut from an older Tabletop, which sends none).
+    this.playback?.follow(c.step.shot, c.step.seq, nowMs - this.lag, c.look.transition ? { transition: c.look.transition, fadeMs: c.look.fadeMs } : undefined);
   }
 
   /** The board has drawn the scene of `key` (its map image in place). */

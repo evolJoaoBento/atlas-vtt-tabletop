@@ -806,7 +806,7 @@ export class BoardToolbar {
       });
       this.layerButtons.push({ value, button });
     }
-    layers.title = 'Maps stacked above another (set in the file menu of a map): Solid draws their image whole, Faded half see-through, Hidden draws only their walls, props and minis. Transparent parts of the image always show what is below.';
+    layers.title = 'Maps stacked above another (set in the file menu of a map): Solid draws them whole, Faded half see-through (their walls, props and minis too), Hidden not at all. Transparent parts of the image always show what is below.';
     el('div', 'atlas-tabletop-palette__hint', fog, 'Walls without a height of their own stand this many grid squares tall, and so does the fog painted in Atlas (0 lays the fog flat on the map).');
     // Atlas's command palette shows or hides its initiative tracker; so does this, and its I key.
     const initiative = el('div', 'atlas-tabletop-palette__section', this.viewPanel);

@@ -40,7 +40,7 @@ test('the shots are copied, not shared', () => {
 test('bars off give null, on give the aspect; the fade length is carried', () => {
   assert.equal(broadcastOf({ ...input, settings: { ...input.settings, bars: false } }).cutscene.look.bars, null);
   const on = broadcastOf({ ...input, settings: { ...input.settings, bars: true, aspect: 1.85, fadeMs: 900 } }).cutscene.look;
-  assert.deepEqual(on, { bars: 1.85, fadeMs: 900 });
+  assert.deepEqual(on, { bars: 1.85, fadeMs: 900, transition: 'fade' });
 });
 
 test('the key is the map shown now, which may be a map no shot is on', () => {
@@ -260,4 +260,13 @@ test("the places a run has keyed are named back in key order, each a map with it
   // Keys beyond nine sort as numbers.
   const many = { cutscene: first.cutscene, maps: Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`k${i + 1}`, `m${i + 1}`])) };
   assert.deepEqual(keyedPlaces(many as never).slice(8), ['m9', 'm10', 'm11']);
+});
+
+test("the run's default transition is carried (how players reach a shot the GM skips to), and read back; a bad one is refused", () => {
+  const sent = broadcastOf({ ...input, settings: { ...input.settings, transition: 'move' } });
+  assert.equal(sent.cutscene.look.transition, 'move');
+  assert.equal(readBoardCutscene(sent.cutscene)?.look.transition, 'move');
+  assert.equal(readBoardCutscene({ ...sent.cutscene, look: { ...sent.cutscene.look, transition: 'spin' } }), null);
+  const old = { ...sent.cutscene, look: { bars: sent.cutscene.look.bars, fadeMs: sent.cutscene.look.fadeMs } };
+  assert.equal(readBoardCutscene(old)?.look.transition, undefined);
 });

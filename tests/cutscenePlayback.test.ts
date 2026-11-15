@@ -140,3 +140,39 @@ test('previous then next lands on the stop after the previous one, not the keyfr
   play.next(5000);
   assert.equal(play.shot, 2);
 });
+
+test('a skip to any shot arrives through the transition given: a fade goes black and back, a move travels, a cut lands at once', () => {
+  const fade = new CutscenePlayback(fixture());
+  fade.jump(4, 'fade', 0, 300);
+  assert.equal(fade.shot, 4);
+  assert.equal(fade.playing, true);
+  const half = fade.frame(300);
+  assert.ok(half.black > 0.9 && !half.resting, JSON.stringify(half));
+  assert.equal(fade.frame(150).mapPath, 'a');
+  assert.equal(fade.frame(450).mapPath, 'b');
+  assert.equal(fade.frame(700).resting, true);
+  const move = new CutscenePlayback(fixture());
+  move.jump(2, 'move', 0, 300);
+  const mid = move.frame(500);
+  assert.ok(mid.black === 0 && mid.eye.x > 0 && mid.eye.x < 6 && !mid.resting, JSON.stringify(mid));
+  const cut = new CutscenePlayback(fixture());
+  cut.jump(3, 'cut', 0, 300);
+  assert.equal(cut.shot, 3);
+  assert.equal(cut.frame(0).resting, true);
+  // A skip to where it rests changes nothing.
+  const seq = cut.seq;
+  cut.jump(3, 'fade', 10, 300);
+  assert.equal(cut.seq, seq);
+  assert.equal(new CutscenePlayback(fixture(), 3).previousStop(), 2);
+});
+
+test('follow: a skip told with the run\'s transition plays it; without one it seeks', () => {
+  const play = new CutscenePlayback(fixture());
+  play.follow(4, 1, 0, { transition: 'fade', fadeMs: 300 });
+  assert.equal(play.shot, 4);
+  assert.equal(play.playing, true);
+  assert.ok(play.frame(300).black > 0.9);
+  const old = new CutscenePlayback(fixture());
+  old.follow(4, 1, 0);
+  assert.equal(old.playing, false);
+});

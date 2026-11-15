@@ -1133,6 +1133,27 @@ feature('elevation layers', async ({ page, shot }) => {
   let fadedAbove = await probe();
   for (let tries = 0; tries < 20 && fadedAbove.opacity !== 0.5; tries++) { await wait(250); fadedAbove = await probe(); }
   check('layers: with Faded set, the scene above is faded', fadedAbove.transparent === true && fadedAbove.opacity === 0.5, JSON.stringify(fadedAbove));
+  // What stands on a level takes its look: its walls and minis faded with a faded floor, gone with a hidden one, and as they are when solid.
+  const standing = () => page.evaluate(() => {
+    const view = [...window.boardTest.board.layerViews.values()].find((v) => v.object3d.position.y > 0);
+    if (!view) return null;
+    const meshes = [];
+    view.content.traverse((node) => { if (node.isMesh) meshes.push(node); });
+    const mats = meshes.flatMap((m) => (Array.isArray(m.material) ? m.material : [m.material]));
+    return { visible: view.content.visible, meshes: meshes.length, faded: mats.filter((m) => m.transparent && m.opacity <= 0.51).length, mats: mats.length, maxOpacity: Math.max(...mats.map((m) => m.opacity)) };
+  });
+  let onFaded = await standing();
+  for (let tries = 0; tries < 20 && onFaded && onFaded.faded < onFaded.mats; tries++) { await wait(250); onFaded = await standing(); }
+  check('layers: with Faded set, the walls and minis on the scene above are faded with it', !!onFaded && onFaded.meshes > 0 && onFaded.visible && onFaded.faded === onFaded.mats, JSON.stringify(onFaded));
+  await quality('transparent');
+  let onHidden = await standing();
+  for (let tries = 0; tries < 20 && onHidden && onHidden.visible; tries++) { await wait(250); onHidden = await standing(); }
+  check('layers: with Hidden set, nothing on the scene above shows: not its walls or minis either', !!onHidden && onHidden.visible === false, JSON.stringify(onHidden));
+  await quality('solid');
+  let onSolid = await standing();
+  for (let tries = 0; tries < 20 && onSolid && (!onSolid.visible || onSolid.faded > 0); tries++) { await wait(250); onSolid = await standing(); }
+  check('layers: with Solid set, they are drawn as they are again', !!onSolid && onSolid.visible && onSolid.faded === 0 && onSolid.maxOpacity === 1, JSON.stringify(onSolid));
+  await quality('faded');
   await quality('solid');
   await stack(-2);
   await wait(500);

@@ -297,7 +297,8 @@ export class CutsceneRun {
     const shots = a.playback.cutscene.shots.length;
     if (!Number.isInteger(index) || index < 0 || index >= shots || (index === a.playback.shot && !a.playback.playing)) return;
     a.seq++;
-    a.playback.seek(index, a.playback.seq + 1);
+    // Through the default transition (players are told the shot, and reach it the same way).
+    a.playback.jump(index, a.settings.transition, a.clock, a.settings.fadeMs);
     this.announce(a);
     this.changed();
   }
@@ -312,7 +313,9 @@ export class CutsceneRun {
   previous(): void {
     const a = this.active;
     if (!a?.playback || a.phase === 'leaving' || a.switching) return;
-    if (!a.playback.previous(a.clock)) return;
+    const to = a.playback.previousStop();
+    if (to === undefined) return;
+    a.playback.jump(to, a.settings.transition, a.clock, a.settings.fadeMs);
     a.seq++;
     this.announce(a);
     this.changed();
