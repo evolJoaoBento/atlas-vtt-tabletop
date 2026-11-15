@@ -70,8 +70,6 @@ export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: 
     lightHeight: extras.lightHeight,
     fogHeight: fog,
     wallThickness: data.wallThickness(mapPath),
-    // The board's light is Atlas's scene lighting, which players are sent with the scene: nothing of its own here.
-    ambient: null,
     ...(layers.length > 0 ? { layers } : {}),
     // The water of the level shown (Atlas's liquids, as the caller read them); props stand on their own level.
     ...water,

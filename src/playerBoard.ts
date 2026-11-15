@@ -995,9 +995,9 @@ class PlayerBoard implements PlayerBoardHandle {
       windowOf: (id) => look()?.windowOf(id) ?? null,
       wallWidth: (id) => look()?.wallWidth(id) ?? null,
       lightHeight: (light) => look()?.lightHeight(light.id) ?? DEFAULT_LIGHT_SQUARES,
-      // Atlas's scene lighting, as the GM's board has it (a look from an older Tabletop may still carry its own).
-      tint: () => look()?.tint ?? this.shown?.map.lighting.ambientColor ?? null,
-      ambient: () => look()?.ambient ?? (this.shown?.map.lighting.enabled ? this.shown.map.lighting.ambient : 1),
+      // Atlas's scene lighting, as the GM's board has it: the board's one light level.
+      tint: () => this.shown?.map.lighting.ambientColor ?? null,
+      ambient: () => (this.shown?.map.lighting.enabled ? this.shown.map.lighting.ambient : 1),
       laser: () => ({ color: this.board.tools.laserColor || this.ownColor(), size: 16 }),
       // What a player's board never does: the GM's tools and settings.
       warn: none, moveProp: none, addProp: none, tokenMenu: none, propMenu: none, statblockPreview: none, copyToken: none, editResource: none,

@@ -38,8 +38,8 @@ test('a map\'s look: wall heights, materials and door props by wall id, light he
   assert.equal(look.lightHeight('l2'), null);
   assert.equal(look.fogHeight, 2);
   // The board keeps no light level or tint of its own: players read Atlas's scene lighting.
-  assert.equal(look.ambient, null);
-  assert.equal(look.tint ?? null, null);
+  assert.equal('ambient' in look, false);
+  assert.equal('tint' in look, false);
   assert.equal(look.wallThickness, 0.12);
 });
 

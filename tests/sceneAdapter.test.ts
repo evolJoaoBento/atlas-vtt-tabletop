@@ -38,7 +38,7 @@ const extras: BoardExtras = {
     { id: 'l1', x: 30, y: 40, height: 1.5, color: '#ffaa00', bright: 10, dim: 20, intensity: 1, animation: 'torch', angle: null, rotation: 0, darkness: false, activeBelowAmbient: null },
     { id: 't1', x: 105, y: 105, height: null, color: '#ffffff', bright: 5, dim: 10, intensity: 1, animation: null, angle: 60, rotation: 90, darkness: false, activeBelowAmbient: 0.5 },
   ],
-  props: [], materials: [], ambient: 0.3, fogHeight: 2, wallThickness: 0.2,
+  props: [], materials: [], fogHeight: 2, wallThickness: 0.2,
   lighting: { enabled: true, ambient: 0.2, ambientColor: '#223344' },
 };
 
@@ -86,7 +86,10 @@ test('the board extras become walls, doors and lights; a token\'s light follows 
   assert.deepEqual(map.walls.map((wall) => [wall.id, wall.type, wall.closed, wall.blocks, wall.chain]), [['w1', 'solid', true, 'light', null], ['d1', 'door', false, null, 'c1']]);
   assert.deepEqual(map.lights.map((light) => [light.id, light.tokenId, light.animation, light.angle, light.activeBelowAmbient]), [['l1', null, 'torch', null, null], ['t1', 't1', 'none', 60, 0.5]]);
   assert.deepEqual(map.lighting, { enabled: true, ambient: 0.2, ambientColor: '#223344' });
-  assert.deepEqual([look.wallHeight('w1'), look.wallMaterial('w1'), look.doorProp('d1'), look.lightHeight('l1'), look.fogHeight, look.ambient, look.wallThickness], [2, 'MAT', 'DOORGLB', 1.5, 2, 0.3, 0.2]);
+  assert.deepEqual([look.wallHeight('w1'), look.wallMaterial('w1'), look.doorProp('d1'), look.lightHeight('l1'), look.fogHeight, look.wallThickness], [2, 'MAT', 'DOORGLB', 1.5, 2, 0.2]);
+  // Atlas's scene lighting is the board's one light level: the look carries none of its own (fusion 4E).
+  assert.equal('ambient' in look, false);
+  assert.equal('tint' in look, false);
   const bare = boardFromScene(scene(), null);
   assert.deepEqual([bare.map.walls, bare.map.lights], [[], []]);
 });

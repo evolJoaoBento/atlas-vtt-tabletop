@@ -65,9 +65,6 @@ export interface PlayerLook {
   lightHeight(id: string): number | null;
   fogHeight: number | null;
   wallThickness: number | null;
-  ambient: number | null;
-  /** The colour the GM tinted the daylight, or null. */
-  tint: string | null;
   /** The scene's painted water, or null. */
   water: WaterSource | null;
   materials: readonly BoardMaterialRecord[];
@@ -255,8 +252,6 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
     lightHeight: (id) => byLight.get(id)?.height ?? null,
     fogHeight: extras?.fogHeight ?? null,
     wallThickness: extras?.wallThickness ?? null,
-    ambient: extras?.ambient ?? null,
-    tint: extras?.tint ?? null,
     water: waterFromWire(extras?.water),
     materials: extras?.materials ?? [],
     props: extras?.props ?? [],

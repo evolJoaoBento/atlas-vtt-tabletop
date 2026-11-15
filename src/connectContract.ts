@@ -92,8 +92,6 @@ export interface BoardLook {
   lightHeight(id: string): number | null;
   readonly fogHeight: number | null;
   readonly wallThickness: number | null;
-  readonly ambient: number | null;
-  readonly tint?: string | null;
   /** The scenes stacked with this map, for players' boards; absent when sharing them is off. */
   readonly layers?: ReadonlyArray<BoardLayerLook>;
   readonly props: ReadonlyArray<{ id: string; path: string; x: number; y: number; scale: number; turn: number; solid?: boolean; lift?: number }>;
