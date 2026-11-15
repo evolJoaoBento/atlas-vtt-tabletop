@@ -83,8 +83,12 @@ let counter = 0;
 const newId = (prefix: string): string => `${prefix}-${Date.now().toString(36)}-${(counter++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 const NO_SHOTS = 'Add a shot first: edit the cutscene and click its timeline.';
+const NO_SESSION = 'Start a session in Connect to play a cutscene for players.';
+const OLD_CONNECT = 'This Connect cannot show cutscenes: update it.';
 /** Put on the board's root while a cutscene is being made: the bars cover the toolbar, so it is hidden (styles.css). */
 const AUTHORING = 'tabletop-authoring';
+/** Put on the board's root while Cinematic mode (the gallery) is open: the toolbar stays above the bars (styles.css). */
+const CINEMATIC_MODE = 'tabletop-cinematic-mode';
 
 export class CutsceneStudio {
   private mode: 'idle' | 'gallery' = 'idle';
@@ -123,11 +127,12 @@ export class CutsceneStudio {
     this.run = new CutsceneRun(host, (told) => host.publishRun(told), () => this.showRun());
     this.menu = new PopupMenu(root);
     this.timeline = new TimelineView(root, {
-      add: (at) => this.addAt(at),
-      retime: (id, at) => this.amend((c) => retime(c, id, at)),
-      select: (id) => { void this.goTo(id); },
-      shotMenu: (id, x, y) => this.shotMenu(id, x, y),
-      gapMenu: (id, x, y) => this.gapMenu(id, x, y),
+      add: (at) => { if (!this.session?.preview) this.addAt(at); },
+      retime: (id, at) => { if (!this.session?.preview) this.amend((c) => retime(c, id, at)); },
+      // In a preview a click on a shot cuts the preview to it; in the editor it frames the shot.
+      select: (id) => { if (this.session?.preview) this.previewTo(id); else void this.goTo(id); },
+      shotMenu: (id, x, y) => { if (!this.session?.preview) this.shotMenu(id, x, y); },
+      gapMenu: (id, x, y) => { if (!this.session?.preview) this.gapMenu(id, x, y); },
     });
     this.timeline.hidden = true;
     // The strip's heading: the cutscene, what to do, Preview and Done.
@@ -204,6 +209,11 @@ export class CutsceneStudio {
   /** Whether the players follow the GM's camera now. */
   get live(): boolean {
     return this.run.live;
+  }
+
+  /** Connect's session started or stopped: the gallery's Play buttons follow. */
+  sessionChanged(): void {
+    if (this.mode === 'gallery') this.renderGallery();
   }
 
   /** Ends the run for players (the session went); no-op without one. */
@@ -316,6 +326,9 @@ export class CutsceneStudio {
   private enterCinema(): void {
     const board = this.board;
     if (!board) return;
+    this.root.classList.add(CINEMATIC_MODE);
+    // The GM frames freely: no angle or distance limits on the camera while Cinematic mode is open.
+    board.setCameraUnbound(true);
     const session = this.host.session();
     const live = session?.hosting() === true && session.cutscenes === true;
     board.cinema.fadeThrough(this.host.settings().fadeMs, () => {
@@ -334,6 +347,8 @@ export class CutsceneStudio {
   private leaveCinema(): void {
     const board = this.board;
     if (!board) return;
+    this.root.classList.remove(CINEMATIC_MODE);
+    board.setCameraUnbound(false);
     const live = this.galleryLive;
     this.galleryLive = false;
     board.cinema.fadeThrough(this.host.settings().fadeMs, () => {
@@ -347,6 +362,8 @@ export class CutsceneStudio {
   closeGallery(handOver = false): void {
     if (this.mode !== 'gallery') return;
     if (handOver) {
+      this.root.classList.remove(CINEMATIC_MODE);
+      this.board?.setCameraUnbound(false);
       if (this.galleryLive && this.run.live) this.run.end();
       this.galleryLive = false;
     } else this.leaveCinema();
@@ -421,9 +438,14 @@ export class CutsceneStudio {
     }
     // A cutscene with no shots cannot be played: Play for players and Preview say why they are off.
     const empty = c.shots.length === 0;
-    const play = this.iconButton(actions, 'play', empty ? NO_SHOTS : 'Play for players', () => { void this.play(c.id); }, 'tabletop-gallery__play mod-cta');
-    play.disabled = empty;
-    if (empty) play.title = NO_SHOTS;
+    // Played for players through Connect: off (and saying why on hover) without a session, or without shots.
+    const session = this.host.session();
+    const why = session?.hosting() !== true ? NO_SESSION : session.cutscenes !== true ? OLD_CONNECT : empty ? NO_SHOTS : null;
+    const play = this.iconButton(actions, 'play', why ?? 'Play for players', () => { if (!why) void this.play(c.id); }, 'tabletop-gallery__play mod-cta');
+    if (why) {
+      play.setAttribute('aria-disabled', 'true');
+      play.classList.add('is-disabled');
+    }
     this.iconButton(actions, 'pencil', 'Edit', () => this.edit(c.id), 'tabletop-gallery__edit');
     const preview = this.iconButton(actions, 'eye', empty ? NO_SHOTS : 'Preview from the start', () => { this.edit(c.id); this.preview(0); }, 'tabletop-gallery__preview');
     preview.disabled = empty;
@@ -576,8 +598,10 @@ export class CutsceneStudio {
     const session = this.session;
     if (!session) return;
     const preview = session.preview !== null;
-    this.timeline.hidden = preview;
+    this.timeline.hidden = false;
+    this.timeline.el.classList.toggle('tabletop-timeline--previewing', preview);
     this.preBar.hidden = !preview;
+    this.preBar.classList.toggle('tabletop-preview--with-timeline', preview);
     if (preview) {
       this.updatePreviewBar();
       return;
@@ -813,10 +837,26 @@ export class CutsceneStudio {
   }
 
   private updatePreviewBar(): void {
-    const run = this.session?.preview?.run;
-    if (!run) return;
+    const session = this.session;
+    const run = session?.preview?.run;
+    if (!session || !run) return;
     this.preLabel.textContent = `Shot ${run.shot + 1} of ${run.cutscene.shots.length}`;
     this.prePrevious.disabled = run.shot === 0;
+    // The strip under the preview: every shot, the one the preview is at marked; a click cuts to a shot.
+    this.title.textContent = session.cutscene.name;
+    this.hint.textContent = 'Previewing: click a shot to cut to it.';
+    this.previewButton.disabled = true;
+    this.timeline.render(run.cutscene, { home: session.home, mapName: mapLabel, thumbnail: (shot) => this.thumbnail(shot), current: run.shot });
+  }
+
+  /** Cuts the preview to a shot clicked on its strip. */
+  private previewTo(shotId: string): void {
+    const preview = this.session?.preview;
+    if (!preview || preview.switching) return;
+    const index = preview.run.cutscene.shots.findIndex((shot) => shot.id === shotId);
+    if (index < 0) return;
+    preview.run.seek(index, preview.run.seq + 1);
+    this.updatePreviewBar();
   }
 
   /** Ends the preview: the free camera is back, on the map the editor was on. */
@@ -897,7 +937,8 @@ export class CutsceneStudio {
       this.host.holdPlayers(false);
       this.session = null;
     }
-    this.root.classList.remove(AUTHORING);
+    this.root.classList.remove(AUTHORING, CINEMATIC_MODE);
+    this.board?.setCameraUnbound(false);
     this.gallery?.remove();
     this.gallery = null;
     this.timeline.dispose();

@@ -1072,6 +1072,7 @@ export class BoardView extends ItemView {
   sessionChanged(): void {
     // A cutscene run for players needs the session: when it stops hosting, the run ends.
     if (this.services.session?.()?.hosting() !== true) this.studio?.endRun();
+    this.studio?.sessionChanged();
     const board = this.board;
     const path = this.path;
     if (!board || !path) return;

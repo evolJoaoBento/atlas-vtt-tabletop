@@ -165,8 +165,10 @@ export class OrbitCamera {
   }
 
   /** Takes the limits of another map (another scene shown): the goal is held inside them at once. */
-  setLimits(limits: CameraLimits): void {
+  /** `keepPose`: the camera stays where it is (Cinematic mode's limits come and go under it), its angle now the one wanted. */
+  setLimits(limits: CameraLimits, keepPose = false): void {
     Object.assign(this.limits, limits);
+    if (keepPose) this.wanted = this.goal.pitch;
     this.wanted = clamp(this.wanted, limits.minPitch, limits.maxPitch);
     this.goal.distance = clamp(this.goal.distance, limits.minDistance, limits.maxDistance);
     this.seat();

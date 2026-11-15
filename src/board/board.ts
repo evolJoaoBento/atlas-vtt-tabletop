@@ -26,7 +26,7 @@ import { choiceOf, horizonColor, LIGHTING, lightingFor, room, setLook, tinted, t
 import type { MiniPlacement } from '../assignments';
 import type { LoadedMini } from '../library';
 import type { PropLook, PropPlacement, TokenStyle } from './boardData';
-import { OrbitCamera, limitsFor } from './camera';
+import { OrbitCamera, limitsFor, type CameraLimits } from './camera';
 import type { CollectionRules } from './conditions';
 import { feetPerSquare, formatDistance, pathLengthInCells, type Measurement } from './measure';
 import { BEYOND_SPEED, riseBetweenEnds, showsDragDistance, type DragDistance, type MovementRules } from '../../packages/atlas-shared/src/index';
@@ -1053,7 +1053,7 @@ export class Board {
     // Another scene of the stack: the camera stays where it was in the world, then glides to the new floor.
     if (!first) this.reorigin(shiftY, carry);
     if (first) {
-      this.camera = new OrbitCamera({ target: { x: this.size.width / 2, y: 0, z: this.size.height / 2 }, pitch: 0.95 }, limitsFor(this.size.width, this.size.height, this.quality.painted));
+      this.camera = new OrbitCamera({ target: { x: this.size.width / 2, y: 0, z: this.size.height / 2 }, pitch: 0.95 }, this.cameraLimits());
       this.frameWhole();
       this.camera.snap();
     }
@@ -1394,7 +1394,7 @@ export class Board {
    */
   frameNewMap(): void {
     if (!this.map) return;
-    this.camera.setLimits(limitsFor(this.size.width, this.size.height, this.quality.painted));
+    this.camera.setLimits(this.cameraLimits());
     this.frameWhole();
     this.camera.snap();
   }
@@ -1739,7 +1739,7 @@ export class Board {
     const painted = this.quality.painted;
     this.surface?.widenFloor(painted ? 3 : 1);
     this.surface?.showFloor(!this.seeThrough);
-    this.camera.limits.minPitch = limitsFor(this.size.width, this.size.height, painted).minPitch;
+    if (!this.cameraUnbound) this.camera.limits.minPitch = limitsFor(this.size.width, this.size.height, painted).minPitch;
     this.scene.fog = painted && !this.seeThrough ? new THREE.Fog(tinted(horizonColor(this.quality.sky), this.tintShown ?? this.host.tint()), this.span * 4, this.span * 16) : null;
   }
 
@@ -4484,6 +4484,23 @@ export class Board {
     context.putImageData(image, 0, 0);
     this.wake(true);
     return canvas.toDataURL('image/png');
+  }
+
+  /** Cinematic mode: the camera may go anywhere a cinematic shot needs (down to the board's edge, close in, far out). */
+  private cameraUnbound = false;
+
+  /** The camera's limits for this map: the board's own, or loosened for Cinematic mode. */
+  private cameraLimits(): CameraLimits {
+    const base = limitsFor(this.size.width, this.size.height, this.quality.painted);
+    return this.cameraUnbound ? { minPitch: 0.02, maxPitch: 1.55, farPitch: 0.02, minDistance: base.minDistance * 0.05, maxDistance: base.maxDistance * 2 } : base;
+  }
+
+  /** Lifts the camera's angle and distance limits (Cinematic mode), or puts them back. */
+  setCameraUnbound(on: boolean): void {
+    if (this.cameraUnbound === on) return;
+    this.cameraUnbound = on;
+    this.camera.setLimits(this.cameraLimits(), true);
+    this.wake(true);
   }
 
   /** The GM's camera in the board's world (x and z the map's pixels, y up). */

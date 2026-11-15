@@ -4148,6 +4148,13 @@ feature('cutscene preview', async ({ page }) => {
   check('preview: from the start it rests on shot 1 of 4, role previewing', await state() === 'previewing' && await label() === 'Shot 1 of 4' && await page.evaluate(() => window.boardTest.board.cinematicRole) === 'previewing');
   check('preview: the board draws shot 1\'s camera', near(await eyeNow(), eyes[0]), JSON.stringify(await eyeNow()));
   check('preview: the players\' window stays held', await page.evaluate(() => window.boardTest.studio.log.holds.at(-1)) === true);
+  // The strip stays under the preview: every shot, the one the preview is at marked; a click cuts the preview to a shot.
+  const strip = await page.evaluate(() => {
+    const el = document.querySelector('.tabletop-timeline:not(.tabletop-timeline--run)');
+    const cells = el ? [...el.querySelectorAll('.tabletop-timeline__thumb')] : [];
+    return { shown: !!el && !el.hidden && getComputedStyle(el).display !== 'none', cells: cells.length, current: cells.findIndex((c) => c.classList.contains('is-current')) };
+  });
+  check('preview: the timeline shows under the preview, a thumbnail per shot, the current one marked', strip.shown && strip.cells === 4 && strip.current === 0, JSON.stringify(strip));
   check('preview: the control bar offers Previous, Next and Back to editing', await page.evaluate(() => [...document.querySelectorAll('.tabletop-preview button')].map((b) => b.textContent).join()) === 'Previous,Next,Back to editing');
   await page.locator('.tabletop-preview__next').click();
   await rests(2, ids.second);
@@ -4156,6 +4163,9 @@ feature('cutscene preview', async ({ page }) => {
   await page.locator('.tabletop-preview__previous').click();
   await rests(0, ids.first);
   check('preview: Previous cuts back to shot 1 on the first map', await label() === 'Shot 1 of 4' && near(await eyeNow(), eyes[0]));
+  await page.locator('.tabletop-timeline:not(.tabletop-timeline--run) .tabletop-timeline__thumb').nth(2).click();
+  await wait(200);
+  check('preview: a click on shot 3 in the timeline cuts the preview to it', await label() === 'Shot 3 of 4' && await page.evaluate(() => [...document.querySelectorAll('.tabletop-timeline:not(.tabletop-timeline--run) .tabletop-timeline__thumb')].findIndex((c) => c.classList.contains('is-current'))) === 2, await label());
   await page.locator('.tabletop-preview__back').click();
   check('preview: Back to editing returns to the editor with the authoring role', await state() === 'editing' && await page.evaluate(() => window.boardTest.board.cinematicRole) === 'authoring' && await page.locator('.tabletop-timeline:not(.tabletop-timeline--run)').isVisible());
   // Preview from a shot, by its menu.
@@ -4225,7 +4235,7 @@ feature('cutscene run', async ({ page }) => {
   await page.waitForFunction(() => window.boardTest.studio.studio.live, null, { timeout: 5000 }).catch(() => undefined);
   check('cutscene run: entering Cinematic mode has the players follow the GM camera', await page.evaluate(() => window.boardTest.studio.studio.live && window.boardTest.studio.studio.state === 'gallery'));
   await page.evaluate(() => { window.runLog.changes = 0; window.boardTest.studio.log.lent.length = 0; });
-  check('cutscene run: a cutscene with shots has Play for players enabled', await page.locator('.tabletop-gallery__play').isEnabled());
+  check('cutscene run: a cutscene with shots has Play for players on (Connect hosts)', await page.locator('.tabletop-gallery__play').getAttribute('aria-disabled') === null);
   await page.locator('.tabletop-gallery__play').click();
   await page.waitForFunction(() => window.boardTest.api.cutscene.current() !== null, null, { timeout: 5000 });
   const started = await current();
@@ -4350,6 +4360,14 @@ feature('cinematic board mode', async ({ page, shot }) => {
   });
   check('cinematic mode: entering fades the board to black and back in with the cinematic settings\' bars', entered.peak > 0.5 && entered.black === 0 && (entered.settingsBars ? entered.bars !== null : entered.bars === null), JSON.stringify(entered));
   check('cinematic mode: with Connect hosting, the players follow the GM\'s camera at once, and the gallery stays open', entered.live === entered.hosting && entered.state === 'gallery', JSON.stringify(entered));
+  const above = await page.evaluate(() => {
+    const button = document.querySelector('button[aria-label="Cinematic mode"]');
+    const r = button.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return { onTop: !!hit && (hit === button || button.contains(hit)), minPitch: window.boardTest.board.camera.limits.minPitch, maxDistance: window.boardTest.board.camera.limits.maxDistance };
+  });
+  check('cinematic mode: the toolbar stays above the bars and can be pressed', above.onTop, JSON.stringify(above));
+  check('cinematic mode: the camera\'s angle limits are lifted (down to the board\'s edge)', above.minPitch < 0.05, JSON.stringify(above));
   check('cinematic mode: entering puts painting away', await page.evaluate(() => window.boardTest.board.isPainting) === false);
   let now = await seen();
   check('cinematic mode: only the mode switch and the live toggle show', now.modes && now.live && !now.water && !now.paint && !now.settings && !now.measure && !now.view && !now.move && !now.undo, JSON.stringify(now));
@@ -4362,6 +4380,7 @@ feature('cinematic board mode', async ({ page, shot }) => {
   await wait(200);
   now = await seen();
   check('cinematic mode: Play closes the gallery and shows the play tools', await state() === 'idle' && await page.locator('.tabletop-gallery').count() === 0 && await active() === 'Play mode' && now.measure && now.move && now.undo && !now.paint, JSON.stringify(now));
+  check('cinematic mode: leaving it puts the camera limits back', await page.evaluate(() => window.boardTest.board.camera.limits.minPitch) > 0.05);
 
   // The gallery has no close button; Escape goes back to the mode before.
   await page.click('[aria-label="Edit mode"]');
@@ -4439,7 +4458,12 @@ feature('cutscene run refused', async ({ page }) => {
   // The gallery shows Play off with the reason, and the editor's Preview refuses with the same notice.
   await enterCinematic(page);
   const row = page.locator('.tabletop-gallery__row[data-cutscene-id="none"]');
-  check('cutscene run: Play for players is disabled on the empty cutscene, with the reason', await row.locator('.tabletop-gallery__play').isDisabled() && /Add a shot first/.test(await row.locator('.tabletop-gallery__play').getAttribute('title')));
+  check('cutscene run: Play for players is off on the empty cutscene, with the reason on hover', await row.locator('.tabletop-gallery__play').getAttribute('aria-disabled') === 'true' && /Add a shot first/.test(await row.locator('.tabletop-gallery__play').getAttribute('aria-label')));
+  // Without a Connect session Play is off on every cutscene, and says to start one.
+  await page.evaluate(() => { window.boardTest.setHosting(false); window.boardTest.studio.studio.sessionChanged(); });
+  const offline = await page.evaluate(() => [...document.querySelectorAll('.tabletop-gallery__play')].map((b) => [b.getAttribute('aria-disabled'), b.getAttribute('aria-label')]));
+  check('cinematic mode: without a Connect session every Play is off and says to start a session in Connect', offline.length > 0 && offline.every(([off, why]) => off === 'true' && /Start a session in Connect/.test(why)), JSON.stringify(offline));
+  await page.evaluate(() => { window.boardTest.setHosting(true); window.boardTest.studio.studio.sessionChanged(); });
   await page.evaluate(() => { window.boardTest.studio.log.notices.length = 0; window.boardTest.studio.studio.edit('none'); window.boardTest.studio.studio.preview(0); });
   check('cutscene run: Preview on the empty cutscene gives the same notice', /add a shot first/.test(await lastNotice()) && await none());
   await page.keyboard.press('Escape');
