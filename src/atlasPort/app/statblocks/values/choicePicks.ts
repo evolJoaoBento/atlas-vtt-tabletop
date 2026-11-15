@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/values/choicePicks.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/values/choicePicks.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * The picks of a choice field that takes several options or a number with

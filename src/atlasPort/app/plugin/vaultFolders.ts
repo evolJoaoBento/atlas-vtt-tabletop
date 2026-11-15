@@ -1,4 +1,4 @@
-// Atlas source: src/app/plugin/vaultFolders.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/plugin/vaultFolders.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { App, TFolder, normalizePath } from 'obsidian';
 
@@ -29,6 +29,28 @@ export async function ensureFolder(app: App, path: string): Promise<TFolder> {
     throw new Error(`Failed to get folder reference after creation: ${normalizedPath}`);
   }
   return folder;
+}
+
+/**
+ * Renames a folder through Obsidian, so links to the files in it follow. Obsidian
+ * may first ask whether to update those links and only then settle its
+ * promise; the rename itself is done once the vault reports it, so Atlas
+ * never waits for that answer.
+ */
+export function renameFolderInVault(app: App, folder: TFolder, newPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const renamed = app.vault.on('rename', (file) => {
+      if (file.path === newPath) settle(resolve);
+    });
+    const settle = (done: () => void): void => {
+      app.vault.offref(renamed);
+      done();
+    };
+    app.fileManager.renameFile(folder, newPath).then(
+      () => settle(resolve),
+      (error: unknown) => settle(() => reject(error instanceof Error ? error : new Error(String(error)))),
+    );
+  });
 }
 
 /**

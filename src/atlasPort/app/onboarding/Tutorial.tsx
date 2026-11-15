@@ -1,4 +1,4 @@
-// Atlas source: src/app/onboarding/Tutorial.tsx @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/onboarding/Tutorial.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -8,6 +8,7 @@ import type { SettingsService, TutorialId } from '../../shims/settingsService';
 import { useDialogFocus } from './useDialogFocus';
 import { placeTutorialCard } from './tutorialPlacement';
 import { t } from '../../shims/i18n';
+import { portalHost } from '../../shims/portalHost';
 
 /** A screenshot shown above a step's text, for what the user cannot see yet. */
 export interface TutorialImage { src: string; alt: string }
@@ -72,6 +73,6 @@ function TutorialCard({ settings, id, steps, label = t('tour.label'), action }: 
           </div>
         </div>
       </div>
-    </div>, document.body,
+    </div>, portalHost(),
   );
 }

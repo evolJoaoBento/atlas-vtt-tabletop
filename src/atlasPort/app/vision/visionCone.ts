@@ -1,7 +1,7 @@
-// Atlas source: src/app/vision/visionCone.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/vision/visionCone.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import type { Point } from '../../shims/atlasTypes';
-import type { Polygon } from '../../shims/atlasTypes';
+import type { Polygon } from './visibility';
 import { positiveNumber } from '../utils/numberInput';
 import { angleTo } from './visionGeometry';
 import { indexOutline, outlineAt, type OutlineIndex } from './outlineIndex';

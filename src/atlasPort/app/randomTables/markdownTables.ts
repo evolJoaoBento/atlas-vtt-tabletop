@@ -1,4 +1,4 @@
-// Atlas source: src/app/randomTables/markdownTables.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/randomTables/markdownTables.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Finding the tables of a Markdown note: a header row, a delimiter row and the

@@ -1,4 +1,4 @@
-// Atlas source: src/app/services/recordFiles/recordNames.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/services/recordFiles/recordNames.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { normalizePath } from 'obsidian';
 import { INVALID_NAME_CHARACTERS } from '../assetPaths';

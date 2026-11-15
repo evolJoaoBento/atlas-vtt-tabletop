@@ -1,4 +1,4 @@
-// Atlas source: src/app/gameSystems/mapRules.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/gameSystems/mapRules.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Where the game system rules of a map come from: the campaign being played when it has a system

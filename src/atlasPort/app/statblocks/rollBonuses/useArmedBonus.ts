@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/rollBonuses/useArmedBonus.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/rollBonuses/useArmedBonus.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { useCallback, useSyncExternalStore } from 'react';
 import type { RollBonusTarget } from './rollBonusContext';

@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/model/templateHeader.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/model/templateHeader.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * The header every statblock has: its name, its token art, its level, its

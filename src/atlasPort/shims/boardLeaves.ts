@@ -1,4 +1,4 @@
-// Stand-in for Atlas's plugin/atlasLeaves.ts @ 0.12.0 (AGPL-3.0) in the copies: "the map view" the asset manager acts on
+// Stand-in for Atlas's plugin/atlasLeaves.ts @ 0.15.0 (AGPL-3.0) in the copies: "the map view" the asset manager acts on
 // is the 3D board it was opened over (src/assets/boardTarget.ts), never Atlas's own view.
 import type { App } from 'obsidian';
 import { boardAtlasView } from '../../assets/boardTarget';

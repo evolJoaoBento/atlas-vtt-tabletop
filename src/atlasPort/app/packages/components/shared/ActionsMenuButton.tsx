@@ -1,4 +1,4 @@
-// Atlas source: src/app/packages/components/shared/ActionsMenuButton.tsx @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/packages/components/shared/ActionsMenuButton.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import React, { useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
@@ -7,6 +7,7 @@ import { renderEntries, type ContextMenuEntry } from '../../../react/components/
 import { Button } from '../primitives/button';
 import { LabelTooltip } from '../primitives/tooltip';
 import { useExclusiveDropdown } from '../primitives/useExclusiveDropdown';
+import { portalHost } from '../../../../shims/portalHost';
 
 interface ActionsMenuButtonProps {
   /** Tooltip and accessible name of the trigger. */
@@ -31,7 +32,7 @@ export function ActionsMenuButton({ label, entries, className, icon: Icon = More
           </Button>
         </DropdownMenu.Trigger>
       </LabelTooltip>
-      <DropdownMenu.Portal container={trigger?.closest<HTMLElement>('[role="dialog"], .modal') ?? trigger?.ownerDocument.body}>
+      <DropdownMenu.Portal container={trigger?.closest<HTMLElement>('[role="dialog"], .modal') ?? portalHost(trigger?.ownerDocument)}>
         <DropdownMenu.Content
           className="atlas-ctx-menu atlas-ctx-menu--dropdown"
           side="bottom"

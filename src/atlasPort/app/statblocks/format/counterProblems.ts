@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/format/counterProblems.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/format/counterProblems.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Notes every row a template's Counters fields start with that regains a count which is no formula

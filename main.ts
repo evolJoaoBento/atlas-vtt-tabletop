@@ -27,6 +27,7 @@ import { collectionRulesOf } from './src/collectionRulesOf';
 import { readMeasurement } from './src/board/measure';
 import { carryOver } from './src/fusionCarryOver';
 import { AtlasBridge } from './src/atlasBridge';
+import { releasePortalHosts } from './src/atlasPort/shims/portalHost';
 import { lookBody, readDiceLook, themeAccent } from './src/dice/diceLook';
 import { TokenWriter } from './src/board/tokenWriter';
 import type { AtlasSceneState } from './src/atlas';
@@ -617,6 +618,8 @@ export default class TabletopPlugin extends Plugin {
     this.players = null;
     // The boards closed with the plugin; the default sheets' URLs go with them.
     releaseDefaultPackSheets();
+    // The hosts the copied Atlas panels made for their floating UI, if no Atlas host was there to join.
+    releasePortalHosts();
     this.save.run();
   }
 

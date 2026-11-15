@@ -1,4 +1,4 @@
-// Stand-in for Atlas's initiative/offMapCombatants.ts @ 0.12.0 (AGPL-3.0) in the copies: the spawn code's "fight" and
+// Stand-in for Atlas's initiative/offMapCombatants.ts @ 0.15.0 (AGPL-3.0) in the copies: the spawn code's "fight" and
 // "beside the map" go into the board's initiative tracker (src/assets/boardTarget.ts), through Atlas's store when it holds
 // the map, else the file. Combatants beside the map stand in a column left of it, as Atlas lays them out.
 import { spawnBoard } from '../../assets/boardTarget';

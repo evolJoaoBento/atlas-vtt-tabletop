@@ -1,4 +1,4 @@
-// Atlas source: src/app/packages/components/asset-manager/components/UvttFloorsDialog.tsx @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/packages/components/asset-manager/components/UvttFloorsDialog.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import React, { useRef, useState } from 'react';
 import { motion } from 'framer-motion';
@@ -11,6 +11,7 @@ import { Button } from '../../primitives/button';
 import { dialogOverlayMotion, useDialogWindowVariants } from '../../primitives/dialogMotion';
 import { LabelTooltip } from '../../primitives/tooltip';
 import { useDialogEscape } from '../../primitives/useDialogEscape';
+import { useFocusTrap } from '../../primitives/useFocusTrap';
 
 interface UvttFloorsDialogProps {
   request: FloorsRequest;
@@ -48,6 +49,7 @@ export function UvttFloorsDialog({ request, onChoose }: UvttFloorsDialogProps): 
   const [floors, setFloors] = useState<FloorDraft[]>(() => request.floors.map((floor, key) => ({ key, floor, name: floor.name, suggested: floor.name })));
   const cancel = (): void => onChoose(null);
   useDialogEscape(dialogRef, cancel);
+  useFocusTrap(dialogRef);
 
   const rename = (index: number, name: string): void => setFloors((current) => current.map((draft, at) => (at === index ? { ...draft, name } : draft)));
   const move = (index: number, by: 1 | -1): void => setFloors((current) => {

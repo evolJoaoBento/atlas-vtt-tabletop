@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/model/templateGrid.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/model/templateGrid.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * The grid the template editor shows a template's layout as, below the header

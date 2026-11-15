@@ -1,4 +1,4 @@
-// Atlas source: src/app/recovery/recoveryFieldRename.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/recovery/recoveryFieldRename.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Recovery buttons follow a template field renamed in the template (`renameFieldKey`): every rule

@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/presets/bxCreature.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/presets/bxCreature.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -12,7 +12,7 @@
 import type { BuiltInTemplate } from '../model/templateTypes';
 import { builtIn, descriptionField, hiddenParts, nameField, portraitField, runInStat } from './presetParts';
 
-export const BX_CREATURE: BuiltInTemplate = builtIn('builtin:bx-creature', 'B/X-style creature', 2, {
+export const BX_CREATURE: BuiltInTemplate = builtIn('builtin:bx-creature', 'B/X-style creature', 3, {
   fields: [
     nameField(),
     portraitField(),
@@ -22,7 +22,7 @@ export const BX_CREATURE: BuiltInTemplate = builtIn('builtin:bx-creature', 'B/X-
     // A rating, as hit dice read: "3+1*".
     { key: 'hit_dice', label: 'Hit Dice', type: 'rating', meaning: 'rating' },
     { key: 'hp', label: 'Hit Points', type: 'number', meaning: 'hit-points' },
-    { key: 'movement', label: 'Movement', type: 'text' },
+    { key: 'movement', label: 'Movement', type: 'text', meaning: 'speed' },
     { key: 'attacks', label: 'Attacks', type: 'text' },
     { key: 'saves', label: 'Saves', type: 'text' },
     { key: 'morale', label: 'Morale', type: 'number' },

@@ -1,4 +1,4 @@
-// Atlas source: src/app/ui/notice.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/ui/notice.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { Notice } from 'obsidian';
 import { animateNotice } from './noticeMotion';
@@ -20,5 +20,23 @@ export function showNotice(message: string | DocumentFragment, duration?: number
     el.classList.add(ATLAS_NOTICE_CLASS);
     animateNotice(notice);
   }
+  return notice;
+}
+
+/**
+ * A notice that offers one thing to do about it (Undo, Open): the message, then a link that does it and
+ * closes the notice. `duration` should leave time to read the message and reach the link.
+ */
+export function showNoticeWithAction(text: string, actionLabel: string, onAction: () => void, duration: number): Notice {
+  const message = createFragment();
+  message.append(`${text} `);
+  const link = createEl('a', { text: actionLabel, href: '#' });
+  message.append(link);
+  const notice = showNotice(message, duration);
+  link.addEventListener('click', (event) => {
+    event.preventDefault();
+    notice.hide();
+    onAction();
+  });
   return notice;
 }

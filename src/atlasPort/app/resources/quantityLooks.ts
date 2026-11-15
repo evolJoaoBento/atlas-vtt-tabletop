@@ -1,4 +1,4 @@
-// Atlas source: src/app/resources/quantityLooks.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/resources/quantityLooks.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * What a statblock draws of a creature's quantities, as the DM screen lists
@@ -10,6 +10,7 @@
 
 import type { StatblockItem, StatblockLayout } from '../../shims/atlasTypes';
 import type { StatblockTemplate } from '../statblocks/model/templateTypes';
+import { meaningsOf, type FieldMeanings } from '../statblocks/resolve/fieldMeanings';
 import { flattenReadingOrder } from '../statblocks/model/treeQueries';
 import { isHitPointsKey, normalizedKey } from './resourceFields';
 import { trackedNumbers, type TrackedNumber } from '../statblocks/values/trackedNumbers';
@@ -21,6 +22,8 @@ export interface QuantityLook {
   labels: ReadonlyMap<string, string>;
   /** The numbers a native template tracks (`trackedNumbers`): listed with the note's maximum. */
   tracked?: readonly TrackedNumber[];
+  /** What the native template's fields mean (`meaningsOf`), so a tracked number a resource reads under another key is that resource. */
+  meanings?: FieldMeanings;
 }
 
 /** A statblock that draws no tracks and names nothing: every quantity is a gauge under its field's name. */
@@ -83,5 +86,5 @@ export function templateQuantityLook(template: StatblockTemplate): QuantityLook 
     tracks.add(quantityKey(block.field));
     if (block.resource) tracks.add(block.resource);
   }
-  return { tracks, labels, tracked: trackedNumbers(template) };
+  return { tracks, labels, tracked: trackedNumbers(template), meanings: meaningsOf(template.fields) };
 }

@@ -1635,6 +1635,36 @@ feature('asset manager without Atlas', async ({ page }) => {
   check('asset manager without Atlas: no "Initializing asset service failed" is logged', seen.errors.length === 0, JSON.stringify(seen.errors));
 });
 
+// Atlas 0.15's floating UI joins one host under <body>; the copies join the running Atlas's and never remove it.
+feature('portal host', async ({ page }) => {
+  await page.evaluate(() => window.boardTest.palette.open()); // (installs Atlas's DOM host, which gives the body createDiv)
+  await wait(600);
+  await page.keyboard.press('Escape');
+  await wait(300);
+  const seen = await page.evaluate(async () => {
+    const dialogIn = async () => {
+      const pending = window.boardTest.chooseAction({ title: 'Delete it?', message: ['Really?'], choices: [{ label: 'Delete', value: 1 }] });
+      const backdrop = document.querySelector('.atlas-text-dialog-backdrop');
+      const parent = backdrop?.parentElement ?? null;
+      const info = { parent: parent?.className ?? null, underBody: parent?.parentElement === document.body, display: parent ? getComputedStyle(parent).display : null };
+      backdrop?.querySelector('button.atlas-close-btn')?.click();
+      await pending;
+      return info;
+    };
+    // No Atlas host: the copies make Tabletop's own, which Atlas would not take for a stale one of its own.
+    const alone = await dialogIn();
+    // The running Atlas's host, with something of Atlas's in it: the copies join it and leave Atlas's content alone.
+    const atlas = document.body.createDiv({ cls: 'atlas-portal-host' });
+    const atlasThing = atlas.createDiv({ cls: 'atlas-thing' });
+    const joined = await dialogIn();
+    const out = { alone, joined, atlasKept: atlas.isConnected && atlasThing.isConnected };
+    atlas.remove();
+    return out;
+  });
+  check('portal host: without Atlas\'s host the dialog goes into Tabletop\'s own (display: contents, not named as Atlas\'s)', /(^|\s)atlas-tabletop-portal-host(\s|$)/.test(seen.alone.parent ?? '') && !/(^|\s)atlas-portal-host(\s|$)/.test(seen.alone.parent ?? '') && seen.alone.underBody && seen.alone.display === 'contents', JSON.stringify(seen));
+  check('portal host: with Atlas\'s host the dialog joins it, and Atlas\'s own content stays', /(^|\s)atlas-portal-host(\s|$)/.test(seen.joined.parent ?? '') && seen.joined.underBody && seen.atlasKept, JSON.stringify(seen));
+});
+
 feature('command palette', async ({ page, shot }) => {
   await page.evaluate(() => window.boardTest.palette.open());
   const win = page.locator('.atlas-tabletop-atlas-ui .atlas-command-palette-window');

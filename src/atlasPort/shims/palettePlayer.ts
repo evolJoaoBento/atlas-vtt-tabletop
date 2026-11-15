@@ -1,5 +1,5 @@
 // Stand-in for Atlas's services/PlayerWindowService.ts, services/PlayerWindowPresenter.ts and stores/playerWindowStore.ts
-// @ 0.12.0 (AGPL-3.0) in the copied command palette: the players' window on the board is the board's own player view
+// @ 0.15.0 (AGPL-3.0) in the copied command palette: the players' window on the board is the board's own player view
 // (src/palette/paletteHost.ts); presenting a scene to players goes through Atlas.
 import { onPaletteChange, paletteHost } from '../../palette/paletteHost';
 

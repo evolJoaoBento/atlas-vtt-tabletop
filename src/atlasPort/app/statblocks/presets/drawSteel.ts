@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/presets/drawSteel.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/presets/drawSteel.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 // SPDX-License-Identifier: AGPL-3.0-only AND LicenseRef-DRAW-STEEL-Creator-License
 
@@ -14,7 +14,7 @@ import type { BuiltInTemplate } from '../model/templateTypes';
 import { DRAW_STEEL_SOURCE } from './attributions';
 import { builtIn, centredColumns, hiddenParts, nameField, portraitField, runInStat, stackedStat } from './presetParts';
 
-export const DRAW_STEEL_MONSTER: BuiltInTemplate = builtIn('builtin:draw-steel-monster', 'Draw Steel', 5, {
+export const DRAW_STEEL_MONSTER: BuiltInTemplate = builtIn('builtin:draw-steel-monster', 'Draw Steel', 6, {
   // A bonus without dice rolls with the system's dice set, whatever the collection rolls (revision 5).
   diceSetId: POWER_ROLL_DICE_SET_ID,
   source: DRAW_STEEL_SOURCE,
@@ -33,7 +33,7 @@ export const DRAW_STEEL_MONSTER: BuiltInTemplate = builtIn('builtin:draw-steel-m
     { key: 'keywords', label: 'Keywords', type: 'list', meaning: 'traits' },
     { key: 'ev', label: 'EV', type: 'text' },
     { key: 'stamina', label: 'Stamina', type: 'number', meaning: 'hit-points' },
-    { key: 'speed', label: 'Speed', type: 'text' },
+    { key: 'speed', label: 'Speed', type: 'text', meaning: 'speed' },
     { key: 'size', label: 'Size', type: 'text', meaning: 'size' },
     { key: 'stability', label: 'Stability', type: 'number' },
     { key: 'free_strike', label: 'Free Strike', type: 'number' },

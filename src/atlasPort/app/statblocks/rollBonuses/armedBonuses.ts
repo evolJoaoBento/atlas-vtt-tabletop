@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/rollBonuses/armedBonuses.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/rollBonuses/armedBonuses.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Which values a GM armed for a statblock's next roll ("Add to next roll"): view

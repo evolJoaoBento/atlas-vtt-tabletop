@@ -1,11 +1,11 @@
 import type { ParityRow } from './types';
 
-/** Atlas 0.12.0's toolbar catalog (`toolbarCatalog.ts`), in Atlas's order, then its undo unit. */
+/** Atlas 0.15.0's toolbar catalog (as 0.12.0's) (`toolbarCatalog.ts`), in Atlas's order, then its undo unit. */
 export const ATLAS_TOOLBAR: readonly ParityRow[] = [
   { id: 'move', status: 'mapped', note: "The board's Move/Select tool (with the laser pointer)." },
   { id: 'fog', status: 'not-yet', note: 'Fog painting is a later round.' },
   { id: 'draw', status: 'not-yet', note: 'Drawing is a later round.' },
-  { id: 'text', status: 'not-yet', note: 'Text is a later round.' },
+  { id: 'text', status: 'not-yet', note: 'Text is a later round. Atlas 0.16 took the tool off its toolbar.', droppedIn: '0.16.0' },
   { id: 'measure', status: 'native', note: "The board's Measure tool (line, circle, cone, in the theme's accent), and the token drag ruler." },
   { id: 'wall', status: 'not-yet', note: 'Drawing walls and placing lights is a later round; the board has its lighting menu.' },
   { id: 'pin', status: 'not-yet', note: 'Placing note pins is a later round; the board shows them.' },

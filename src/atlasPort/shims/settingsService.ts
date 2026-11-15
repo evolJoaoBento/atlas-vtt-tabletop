@@ -1,4 +1,4 @@
-// Stand-in for Atlas's services/SettingsService.ts @ 0.12.0 (AGPL-3.0) in the copies: `forApp` hands over Atlas's own running
+// Stand-in for Atlas's services/SettingsService.ts @ 0.15.0 (AGPL-3.0) in the copies: `forApp` hands over Atlas's own running
 // settings (its hotkeys and stored settings, followed as they change). Atlas's guided tours are not shown on the board.
 import type { App } from 'obsidian';
 import { AtlasBridge } from '../../atlasBridge';
@@ -11,6 +11,7 @@ export interface SettingsService {
   getHotkeys(): Record<string, string>;
   getSetting(key: string): any;
   onChange(listener: () => void): () => void;
+  isExperimentalOn(feature: string): boolean;
   shouldShowTutorial(id: TutorialId): boolean;
   completeTutorial(id: TutorialId): void;
 }
@@ -26,6 +27,8 @@ export const SettingsService = {
       // An Atlas setting as Atlas stores it; an empty record without Atlas, so the copies read every field as unset.
       getSetting: (key) => call('getSetting', key) ?? {},
       onChange: (listener) => call('onChange', listener) ?? (() => {}),
+      // Atlas 0.15's experimental switches (its hotkeys and statblock counters ask): off without Atlas.
+      isExperimentalOn: (feature) => call('isExperimentalOn', feature) === true,
       shouldShowTutorial: () => false,
       completeTutorial: () => {},
     };

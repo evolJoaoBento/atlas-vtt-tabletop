@@ -1,4 +1,4 @@
-// Atlas source: src/app/pixi/mosaicCanvas/video/videoMapFiles.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/pixi/mosaicCanvas/video/videoMapFiles.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Which files are animated maps: videos Chromium plays (WebM with VP8 or VP9, MP4 with H.264),

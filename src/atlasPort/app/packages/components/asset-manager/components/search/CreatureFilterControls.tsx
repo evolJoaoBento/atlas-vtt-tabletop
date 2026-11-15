@@ -1,4 +1,4 @@
-// Atlas source: src/app/packages/components/asset-manager/components/search/CreatureFilterControls.tsx @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/packages/components/asset-manager/components/search/CreatureFilterControls.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import React, { useState } from 'react';
 import type { HiddenSummary, OptionsFacet, RangeFacet } from '../../../../../creatures/creatureFilterEngine';
@@ -11,6 +11,7 @@ import type { CreatureFilterPanel } from '../../hooks/useCreatureFilters';
 import { FilterSection } from './FilterSection';
 import { OptionFilter } from './OptionFilter';
 import { RangeFilter } from './RangeFilter';
+import { filterGlyph } from '../../search/filterGlyphs';
 import { t } from '../../../../../../shims/i18n';
 
 const STATBLOCK_CHOICES = [
@@ -94,6 +95,7 @@ export function CreatureFilterControls({ panel, statblockFilter = true }: Creatu
     <OptionFilter
       key={facet.definition.id}
       title={facet.definition.label}
+      icon={filterGlyph(facet.definition.id)}
       options={facet.options}
       onChange={(key, state) => setSelection((current) => withOptionState(current, facet.definition.id, key, state))}
     />

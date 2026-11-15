@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/format/keptValues.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/format/keptValues.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Values of known keys that the parser could not read as they stood in the

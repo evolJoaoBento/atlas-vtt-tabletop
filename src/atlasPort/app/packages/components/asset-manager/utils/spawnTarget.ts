@@ -1,4 +1,4 @@
-// Atlas source: src/app/packages/components/asset-manager/utils/spawnTarget.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/packages/components/asset-manager/utils/spawnTarget.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import type { App as ObsidianApp } from 'obsidian';
 import type { AssetService } from '../../../../../shims/assetService';
@@ -33,8 +33,13 @@ export interface SpawnContext {
   assetService: AssetService | null;
   /** The dice stream hit points joining a scene are rolled with: the local roller's (`diceRandom`). */
   random: () => number;
-  /** Called once spawned tokens are in the GM's hand, waiting to be placed on the map: the asset manager closes then. */
+  /** Called once spawned tokens are in the GM's hand, waiting to be placed on the map. */
   onPlacing?: () => void;
+  /**
+   * Called as soon as the scene the tokens go to is known, before they are built: the asset
+   * manager fades out then, while the tokens are made, instead of after they are in the hand.
+   */
+  onTarget?: () => void;
 }
 
 /** Lets the GM place tokens by hand on the target's map (`TokenPlacer`). */
@@ -66,7 +71,9 @@ export async function getSpawnTarget(ctx: SpawnContext): Promise<SpawnTarget | n
     return null;
   }
   if (view !== ctx.view) void ctx.app.workspace.revealLeaf(view.leaf);
-  return spawnTargetOf(view);
+  const target = spawnTargetOf(view);
+  if (target) ctx.onTarget?.();
+  return target;
 }
 
 /** `view` as spawned tokens find it; null, after telling the user, while its scene is not ready. */

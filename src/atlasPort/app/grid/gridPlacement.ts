@@ -1,4 +1,4 @@
-// Atlas source: src/app/grid/gridPlacement.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/grid/gridPlacement.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import type { GridType } from '../../shims/atlasTypes';
 import { createHexLayout, hexCellExtent, hexCircumradius, hexOrientationForGridType, isHexGridType } from './hexGeometry';

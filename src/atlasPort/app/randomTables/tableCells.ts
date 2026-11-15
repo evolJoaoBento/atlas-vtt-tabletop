@@ -1,4 +1,4 @@
-// Atlas source: src/app/randomTables/tableCells.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/randomTables/tableCells.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Splitting one line of a Markdown table into its cells. An escaped pipe (`\|`)

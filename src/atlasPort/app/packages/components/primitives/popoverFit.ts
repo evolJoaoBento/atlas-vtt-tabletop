@@ -1,4 +1,4 @@
-// Atlas source: src/app/packages/components/primitives/popoverFit.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/packages/components/primitives/popoverFit.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /** Distance a popover keeps from the edges of its view, in px. */
 export const POPOVER_VIEW_MARGIN = 8

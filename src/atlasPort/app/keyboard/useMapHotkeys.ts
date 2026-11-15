@@ -1,4 +1,4 @@
-// Atlas source: src/app/keyboard/useMapHotkeys.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/keyboard/useMapHotkeys.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { useContext, useEffect, useRef, useState } from 'react';
 import { AtlasUIContext } from '../../shims/atlasUI';
@@ -35,7 +35,7 @@ export function useMapHotkeys(handlers: Partial<Record<Exclude<MapHotkeyId, Held
   useEffect(() => {
     const handle = (event: KeyboardEvent): void => {
       if (!canRunMapHotkeys(event, id)) return;
-      const action = availableHotkeys().find(action => current.current[action.id] && matchesMapHotkey(event, action.id, settings));
+      const action = availableHotkeys(false, (feature) => settings?.isExperimentalOn(feature) ?? false).find(action => current.current[action.id] && matchesMapHotkey(event, action.id, settings));
       if (!action || ('yieldsToTextSelection' in action && hasTextSelection(event))) return;
       event.preventDefault();
       current.current[action.id]?.(event);

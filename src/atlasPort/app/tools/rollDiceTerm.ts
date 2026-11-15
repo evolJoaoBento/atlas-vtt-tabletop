@@ -1,4 +1,4 @@
-// Atlas source: src/app/tools/rollDiceTerm.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/tools/rollDiceTerm.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Rolls one dice term with its modifiers, in the order they are written:

@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/values/counterRegain.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/values/counterRegain.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * How many uses of a counter come back when it is restored: a dice formula Atlas's dice parser reads and that

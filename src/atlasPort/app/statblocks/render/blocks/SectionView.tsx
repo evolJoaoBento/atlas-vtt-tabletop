@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/render/blocks/SectionView.tsx @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/render/blocks/SectionView.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import React, { useContext, useId, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';

@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/presets/fiveEChallenge.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/presets/fiveEChallenge.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 // SPDX-License-Identifier: AGPL-3.0-only AND CC-BY-4.0
 

@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/render/useLinkedStatblock.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/render/useLinkedStatblock.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { useEffect, useMemo, useReducer, useState } from 'react';
 import { TFile, type App } from 'obsidian';

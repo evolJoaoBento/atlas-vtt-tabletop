@@ -1,4 +1,4 @@
-// Atlas source: src/app/creatures/CreatureIndex.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/creatures/CreatureIndex.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { TAbstractFile, type App, type EventRef, type Events } from 'obsidian';
 import { TemplateLibrary } from '../statblocks/library/TemplateLibrary';
@@ -191,7 +191,7 @@ export class CreatureIndex {
       while (this.queue.size > 0 && !this.destroyed) {
         const paths = [...this.queue];
         this.queue.clear();
-        const bestiary = this.bestiary ??= bestiaryLookup();
+        const bestiary = this.bestiary ??= bestiaryLookup(this.app);
         const resolved = await this.resolveAll(paths, bestiary);
         if (this.destroyed) return;
         for (const [path, creature] of resolved) this.entries.set(path, creature);

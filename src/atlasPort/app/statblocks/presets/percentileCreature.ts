@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/presets/percentileCreature.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/presets/percentileCreature.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -12,7 +12,7 @@ import { PERCENTILE_DICE_SET_ID } from '../../gameSystems/builtInDiceSets';
 import type { BuiltInTemplate } from '../model/templateTypes';
 import { builtIn, centredColumns, descriptionField, hiddenParts, nameField, portraitField, runInStat, stackedStat } from './presetParts';
 
-export const PERCENTILE_CREATURE: BuiltInTemplate = builtIn('builtin:percentile-creature', 'Percentile creature', 5, {
+export const PERCENTILE_CREATURE: BuiltInTemplate = builtIn('builtin:percentile-creature', 'Percentile creature', 6, {
   // A bonus without dice rolls with the system's dice set, whatever the collection rolls (revision 5).
   diceSetId: PERCENTILE_DICE_SET_ID,
   fields: [
@@ -24,7 +24,7 @@ export const PERCENTILE_CREATURE: BuiltInTemplate = builtIn('builtin:percentile-
     },
     { key: 'hp', label: 'HP', type: 'number', meaning: 'hit-points' },
     { key: 'mp', label: 'MP', type: 'number' },
-    { key: 'move', label: 'Move', type: 'text' },
+    { key: 'move', label: 'Move', type: 'text', meaning: 'speed' },
     { key: 'build', label: 'Build', type: 'number' },
     { key: 'damage_bonus', label: 'Damage Bonus', type: 'text' },
     { key: 'armor', label: 'Armor', type: 'text', meaning: 'armor' },

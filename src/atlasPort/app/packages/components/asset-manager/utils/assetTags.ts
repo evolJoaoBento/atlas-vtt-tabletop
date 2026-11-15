@@ -1,7 +1,7 @@
-// Atlas source: src/app/packages/components/asset-manager/utils/assetTags.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/packages/components/asset-manager/utils/assetTags.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { hasAssetTag, type TagGroup } from '../../../../services/tagGroups';
-import type { Tab, Tag } from '../types';
+import type { AnyAsset, Tab, Tag } from '../types';
 import { isCharacterTab } from './tabKinds';
 
 /** A collection's tags, one list per tag group. */
@@ -18,6 +18,23 @@ export function toggleAssetTag(assigned: readonly string[] | undefined, tag: Tag
   return hasAssetTag(current, tag)
     ? current.filter((value) => !hasAssetTag([value], tag))
     : [...current, tag.name];
+}
+
+/** The tags one asset is to hold after an edit. */
+export interface AssetTagChange {
+  asset: AnyAsset;
+  tags: string[];
+}
+
+/**
+ * What pressing `tag` does for a selection: it goes to the assets that lack it,
+ * and only once all hold it, from all of them. Assets it does not change are left out.
+ */
+export function tagChangesForAssets(assets: readonly AnyAsset[], tag: Tag): AssetTagChange[] {
+  const allHold = assets.every((asset) => hasAssetTag(asset.tags, tag));
+  return assets
+    .filter((asset) => hasAssetTag(asset.tags, tag) === allHold)
+    .map((asset) => ({ asset, tags: toggleAssetTag(asset.tags, tag) }));
 }
 
 /** Tags whose name contains `query`, the `pinned` ones first, each part by name. */

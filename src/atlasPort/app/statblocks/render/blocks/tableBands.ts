@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/render/blocks/tableBands.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/render/blocks/tableBands.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * A Table too wide for its card wraps as Fantasy Statblocks wraps its tables:

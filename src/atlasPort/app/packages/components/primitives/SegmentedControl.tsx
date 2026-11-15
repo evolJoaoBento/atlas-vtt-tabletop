@@ -1,4 +1,4 @@
-// Atlas source: src/app/packages/components/primitives/SegmentedControl.tsx @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/packages/components/primitives/SegmentedControl.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import React, { useId, useRef } from 'react';
 import { Button } from './button';

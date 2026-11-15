@@ -1,4 +1,4 @@
-// Atlas source: src/app/utils/workSlices.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/utils/workSlices.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /** How long a job may run before the browser gets a turn: half a frame at 60 Hz, so a frame is rarely missed. */
 export const WORK_SLICE_MS = 8;

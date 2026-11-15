@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/roles/roleValidation.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/roles/roleValidation.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Statblock roles as they are stored and edited: reading a stored list field by field, giving

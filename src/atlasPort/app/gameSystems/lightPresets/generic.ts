@@ -1,4 +1,4 @@
-// Atlas source: src/app/gameSystems/lightPresets/generic.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/gameSystems/lightPresets/generic.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { LIGHT_PRESETS, LIGHT_PRESET_IDS } from '../../lighting/lightPresets';
 import type { LightPresetDefinition } from '../../../shims/atlasTypes';

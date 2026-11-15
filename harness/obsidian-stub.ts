@@ -14,6 +14,7 @@ export class TFolder extends TAbstractFile {
 export const setIcon = (): void => undefined;
 export class Component { load(): void {} unload(): void {} addChild<T>(child: T): T { return child; } register(): void {} registerEvent(): void {} }
 export class View extends Component {}
+export class MarkdownView extends View {}
 export class BasesView extends View {}
 export const MarkdownRenderer = { render: async (): Promise<void> => {} };
 export const requireApiVersion = (): boolean => true;

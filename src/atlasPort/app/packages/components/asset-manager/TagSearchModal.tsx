@@ -1,4 +1,4 @@
-// Atlas source: src/app/packages/components/asset-manager/TagSearchModal.tsx @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/packages/components/asset-manager/TagSearchModal.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -8,15 +8,16 @@ import { CloseButton } from '../primitives/CloseButton';
 import { Button } from '../primitives/button';
 import type { AnyAsset, Tag } from './types';
 import { hasAssetTag } from '../../../services/tagGroups';
-import { toggleAssetTag } from './utils/assetTags';
+import { tagChangesForAssets, type AssetTagChange } from './utils/assetTags';
 import { t } from '../../../../shims/i18n';
+import { portalHost } from '../../../../shims/portalHost';
 
 interface TagSearchModalProps {
   selectedAssets: AnyAsset[];
   availableTags: Tag[];
   allAssets: AnyAsset[];
-  /** Saves one asset's tags after a toggle; called for each asset of the dialog. */
-  onSetAssetTags: (asset: AnyAsset, tags: string[]) => void;
+  /** Saves what one press of a tag changed, on all the assets it changed. */
+  onSetTags: (changes: AssetTagChange[]) => void;
   /** Receives the dialog's assets with the tags toggled so far. */
   onCreateTag: (tagName: string, selectedAssets: AnyAsset[]) => void;
   onClose: () => void;
@@ -26,7 +27,7 @@ function TagSearchModalInner({
   selectedAssets: initialAssets,
   availableTags,
   allAssets,
-  onSetAssetTags,
+  onSetTags,
   onCreateTag,
   onClose,
 }: TagSearchModalProps): React.ReactElement {
@@ -74,9 +75,13 @@ function TagSearchModalInner({
 
   // Assets carry tags by name (creators, Edit Token) or, from older versions, by id.
   const handleToggleTag = (tag: Tag): void => {
-    const toggled = assets.map(asset => ({ ...asset, tags: toggleAssetTag(asset.tags, tag) }));
-    toggled.forEach((asset, index) => onSetAssetTags(assets[index]!, asset.tags));
-    setAssets(toggled);
+    const changes = tagChangesForAssets(assets, tag);
+    onSetTags(changes);
+    const changed = new Map(changes.map(({ asset, tags }) => [asset, tags]));
+    setAssets(assets.map(asset => {
+      const tags = changed.get(asset);
+      return tags ? { ...asset, tags } : asset;
+    }));
   };
 
   const handleCreate = (): void => {
@@ -186,7 +191,7 @@ export class TagSearchModal {
   }
 
   open(): void {
-    this.container = document.body.createDiv({ cls: 'atlas-vtt-plugin atlas-vtt-root' });
+    this.container = portalHost().createDiv({ cls: 'atlas-vtt-plugin atlas-vtt-root' });
 
     this.root = createRoot(this.container);
     this.root.render(

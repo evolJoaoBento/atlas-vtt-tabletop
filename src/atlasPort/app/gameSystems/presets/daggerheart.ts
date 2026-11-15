@@ -1,4 +1,4 @@
-// Atlas source: src/app/gameSystems/presets/daggerheart.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/gameSystems/presets/daggerheart.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { D20_DICE_SET_ID } from '../builtInDiceSets';
 import type { SystemPreset } from '../../types/systemPresetTypes';
@@ -28,6 +28,14 @@ export const DAGGERHEART: SystemPreset = {
         // The last band also names every longer distance.
         { name: 'Very Far', maxSquares: 13 },
       ],
+    },
+    // With an action a character moves within Close range, and up to Far with an Agility roll. The
+    // speed is Close's reach, 6 squares of 5 feet, and Far ends at twice that. Nothing adds up:
+    // the game has no turns that a move could be counted over.
+    movement: {
+      steps: [{ name: 'Move', multiple: 1, color: '#22c55e' }, { name: 'Agility roll', multiple: 2, color: '#f59e0b' }],
+      countPerTurn: false,
+      speed: 30,
     },
     // Adversary statblocks roll a d20; player characters' duality dice come with character sheets.
     dice: { defaultRoll: '1d20', crit: 'natural' },

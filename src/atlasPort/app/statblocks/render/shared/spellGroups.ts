@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/render/shared/spellGroups.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/render/shared/spellGroups.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Spell lists in Fantasy Statblocks' shape: a list of header lines

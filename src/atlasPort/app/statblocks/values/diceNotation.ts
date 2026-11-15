@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/values/diceNotation.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/values/diceNotation.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Dice notation as statblocks write it: "7d10 + 14", "2d6+2", "d20",

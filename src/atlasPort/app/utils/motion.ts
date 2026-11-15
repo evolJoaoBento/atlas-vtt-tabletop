@@ -1,10 +1,13 @@
-// Atlas source: src/app/utils/motion.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/utils/motion.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { getDomHost } from '../host/dom';
 /** Web Animations and canvas counterparts of the motion tokens in styles/_tokens.scss. */
 
 /** `$transition-ease-out` as control points, for Motion's `ease` and `cubicBezier`. */
 export const EASE_OUT_CONTROL_POINTS = [0.23, 1, 0.32, 1] as const;
+
+/** `$transition-ease` as control points, for Motion's `ease`: a change of colour or opacity, gentle at both ends. */
+export const EASE_CONTROL_POINTS = [0.4, 0, 0.2, 1] as const;
 
 /** `$transition-ease-out`: entering and leaving elements. */
 export const MOTION_EASE_OUT = `cubic-bezier(${EASE_OUT_CONTROL_POINTS.join(', ')})`;

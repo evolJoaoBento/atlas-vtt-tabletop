@@ -1,10 +1,11 @@
-// Atlas source: src/app/types/systemPresetTypes.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/types/systemPresetTypes.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Game system presets: a named set of collection rules (measurement and
  * conditions) that can be applied to any collection.
  */
 
+import type { MovementRules } from '../measure/movementRules';
 import type { ResourceDefinition } from '../resources/resourceTypes';
 import type { CollectionGridDefaults, ConditionDefinition } from './collectionSettingsTypes';
 import type { DiceRules } from '../../shims/atlasTypes';
@@ -37,6 +38,12 @@ export interface SystemRules {
   diceSetId?: string;
   /** How the initiative tracker runs a fight. Unset means `DEFAULT_INITIATIVE_RULES`: a d20 each, highest first. */
   initiative?: InitiativeRules;
+  /**
+   * The steps a token's movement falls into (one move, a second one), whether it adds up over a
+   * turn, and the speed of a creature that states none, in the unit of `gridDefaults`. Unset for a
+   * system that names none: its collections move without steps (`collectionMovementRules`).
+   */
+  movement?: MovementRules;
   /** Token resources the system defines, copied on apply like conditions. */
   resources?: ResourceDefinition[];
   /**

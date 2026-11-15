@@ -1,10 +1,9 @@
-// Atlas source: src/app/packages/components/asset-manager/components/ContentSkeleton.tsx @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/packages/components/asset-manager/components/ContentSkeleton.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import React, { useLayoutEffect, useRef, useState } from 'react';
 import type { Tab } from '../types';
 import { getTabDisplayName } from '../types';
 import { Skeleton, SkeletonGroup, skeletonTextWidth } from '../../primitives/Skeleton';
-import { useScrollbarGutter } from '../../primitives/useScrollbarGutter';
 import { ENCOUNTER_PREVIEW_COUNT, encounterPreviewStyle } from '../utils/encounterPreviewLayout';
 import { useGridMetrics } from './useGridMetrics';
 import { assetTypeOfTab } from '../utils/tabKinds';
@@ -50,7 +49,6 @@ export function ContentSkeleton({ tab, folderCount, assetCount }: ContentSkeleto
   const { columns, gap, cardWidth } = useGridMetrics(gridRef);
   // One row to begin with: its card is measured, and the rows that fill the pane follow before the first paint.
   const [rows, setRows] = useState(1);
-  useScrollbarGutter(pane);
 
   useLayoutEffect(() => {
     const grid = gridRef.current;
@@ -85,7 +83,11 @@ export function ContentSkeleton({ tab, folderCount, assetCount }: ContentSkeleto
             {Array.from({ length: cards }, (_, index) => (
               <div key={index} className="atlas-asset-card" data-type={assetTypeOfTab(tab)}>
                 <div className="atlas-asset-card-thumb"><ArtSkeleton tab={tab} /></div>
-                <span className="atlas-asset-card-name"><Skeleton shape="text" width={skeletonTextWidth(index, 80)} /></span>
+                <span className="atlas-asset-card-caption">
+                  <span className="atlas-asset-card-name"><Skeleton shape="text" width={skeletonTextWidth(index, 80)} /></span>
+                  {/* A scene card's status line, empty, so the cards take their placeholders' height. */}
+                  {tab === 'scenes' && <span className="atlas-asset-scene-marks" />}
+                </span>
               </div>
             ))}
           </div>

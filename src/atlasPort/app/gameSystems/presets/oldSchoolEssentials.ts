@@ -1,4 +1,4 @@
-// Atlas source: src/app/gameSystems/presets/oldSchoolEssentials.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/gameSystems/presets/oldSchoolEssentials.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { D20_DICE_SET_ID } from '../builtInDiceSets';
 import type { SystemPreset } from '../../types/systemPresetTypes';
@@ -26,6 +26,13 @@ export const OLD_SCHOOL_ESSENTIALS: SystemPreset = {
       measurementMode: 'metric',
       diagonalRule: 'equidistant',
       abstractRangeBands: [],
+    },
+    // A statblock states the base movement rate first, 120' (40'). In an encounter a creature
+    // moves a third of it each round, and all of it while it runs. One that states none moves 120'.
+    movement: {
+      steps: [{ name: 'Move', multiple: 1 / 3, color: '#22c55e' }, { name: 'Run', multiple: 1, color: '#f59e0b' }],
+      countPerTurn: true,
+      speed: 120,
     },
     dice: { defaultRoll: '1d20', crit: 'natural' },
     diceSetId: D20_DICE_SET_ID,

@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/format/valueReads.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/format/valueReads.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /** Readers for single values of a template file: each returns the value, or undefined when it is not one. */
 

@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/render/blocks/EntriesView.tsx @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/render/blocks/EntriesView.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import React, { useContext, useMemo } from 'react';
 import type { EntriesBlock, EntryShape, FieldValue } from '../../model/templateTypes';
@@ -21,13 +21,15 @@ function EntryExtras({ entry, shape }: { entry: FieldValue; shape: EntryShape | 
   const extras = entryExtras(entry, shape);
   if (!extras.length) return null;
   return (
-    <span className="atlas-sb-entry-extras">
-      {extras.map((extra) => (
-        <span key={extra.key} className="atlas-sb-entry-extra">
-          <span className="atlas-sb-entry-extra-label">{extra.label}</span> <InlineText text={valueText(extra.value)} app={app} sourcePath={sourcePath} dice />
-        </span>
-      ))}
-    </span>
+    <>
+      <span className="atlas-sb-entry-extras">
+        {extras.map((extra) => (
+          <span key={extra.key} className="atlas-sb-entry-extra">
+            <span className="atlas-sb-entry-extra-label">{extra.label}</span> <InlineText text={valueText(extra.value)} app={app} sourcePath={sourcePath} dice />
+          </span>
+        ))}
+      </span>{' '}
+    </>
   );
 }
 

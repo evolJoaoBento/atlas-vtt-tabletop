@@ -1,4 +1,4 @@
-// Stand-in for Atlas's onboarding/lootTutorials.ts @ 0.12.0 (AGPL-3.0) in the copies: Atlas's guided tours (and their
+// Stand-in for Atlas's onboarding/lootTutorials.ts @ 0.15.0 (AGPL-3.0) in the copies: Atlas's guided tours (and their
 // pictures) are not shown on the board, so they have no steps.
 type TutorialStep = Record<string, unknown>;
 

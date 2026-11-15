@@ -1,4 +1,4 @@
-// Stand-in for Atlas's react/ViewStoreContext.tsx @ 0.12.0 (AGPL-3.0) in the copies: the same hooks, over the board's own
+// Stand-in for Atlas's react/ViewStoreContext.tsx @ 0.15.0 (AGPL-3.0) in the copies: the same hooks, over the board's own
 // small store (src/loot/boardStore.ts) instead of an Atlas map view's.
 import { createContext, createElement, useContext, useSyncExternalStore, type ReactNode } from 'react';
 import type { BoardStore, BoardState } from '../../loot/boardStore';

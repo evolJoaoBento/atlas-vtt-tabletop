@@ -1,4 +1,4 @@
-// Atlas source: src/app/react/components/statblock/previewEdgeGap.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/react/components/statblock/previewEdgeGap.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * A theme may draw around a statblock preview (the Atlas VTT theme grows ivy over its

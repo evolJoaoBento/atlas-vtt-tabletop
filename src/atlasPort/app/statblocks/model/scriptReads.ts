@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/model/scriptReads.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/model/scriptReads.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * What a `script` block reads of a statblock. Atlas never runs Fantasy Statblocks' JavaScript

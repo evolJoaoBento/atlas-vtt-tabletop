@@ -1,4 +1,4 @@
-// Atlas source: src/app/packages/components/asset-manager/hooks/useHeaderCompaction.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/packages/components/asset-manager/hooks/useHeaderCompaction.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { useEffect, useLayoutEffect, type RefObject } from 'react';
 import { observeResize } from '../../../../utils/observeResize';
@@ -34,6 +34,9 @@ function columnsFit(toolbar: HTMLElement): boolean {
  * off meanwhile, or a control would animate back from a form nobody saw.
  */
 export function fitHeaderToolbar(toolbar: HTMLElement): void {
+  // Roomiest already and it fits: nothing to try. Most renders end here, and the attributes a try sets would have the
+  // browser restyle the toolbar twice in the frame (a menu opening, a card selected).
+  if (!toolbar.dataset.compact && columnsFit(toolbar)) return;
   toolbar.toggleAttribute('data-fitting', true);
   for (let steps = 0; steps <= HEADER_COMPACT_STEPS.length; steps++) {
     toolbar.dataset.compact = HEADER_COMPACT_STEPS.slice(0, steps).join(' ');

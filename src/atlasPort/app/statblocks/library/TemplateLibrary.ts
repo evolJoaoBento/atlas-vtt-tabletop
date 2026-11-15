@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/library/TemplateLibrary.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/library/TemplateLibrary.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { TAbstractFile, TFile, type App, type EventRef, type Events } from 'obsidian';
 import type { LibraryTemplate, TemplateLookup } from '../model/resolvedTypes';

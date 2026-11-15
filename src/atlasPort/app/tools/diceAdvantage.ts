@@ -1,4 +1,4 @@
-// Atlas source: src/app/tools/diceAdvantage.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/tools/diceAdvantage.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Advantage and disadvantage: what a dice set's rule for a side does to a

@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/presets/d20Creature.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/presets/d20Creature.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -13,7 +13,7 @@ import { builtIn, centredColumns, nameField, portraitField, sizeField } from './
 
 const MODIFIER = 'floor((value - 10) / 2)';
 
-export const D20_CREATURE: BuiltInTemplate = builtIn('builtin:d20-creature', 'd20 creature', 4, {
+export const D20_CREATURE: BuiltInTemplate = builtIn('builtin:d20-creature', 'd20 creature', 5, {
   fields: [
     nameField(),
     portraitField(),
@@ -25,7 +25,7 @@ export const D20_CREATURE: BuiltInTemplate = builtIn('builtin:d20-creature', 'd2
     { key: 'hp', label: 'HP', type: 'number', meaning: 'hit-points' },
     { key: 'hit_dice', label: 'Hit Dice', type: 'dice' },
     { key: 'initiative', label: 'Initiative', type: 'number', meaning: 'initiative' },
-    { key: 'speed', label: 'Speed', type: 'text' },
+    { key: 'speed', label: 'Speed', type: 'text', meaning: 'speed' },
     {
       key: 'stats', label: 'Abilities', type: 'scores', addRows: false, addColumns: false, slots: ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'], align: centredColumns(6),
       slotKeys: ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'],

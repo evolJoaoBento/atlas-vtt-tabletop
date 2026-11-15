@@ -1,4 +1,4 @@
-// Atlas source: src/app/randomTables/generatorParts.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/randomTables/generatorParts.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * A generator as its note writes it: a table whose rows are its parts, the first column naming

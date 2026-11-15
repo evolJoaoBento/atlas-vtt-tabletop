@@ -1,4 +1,4 @@
-// Atlas source: src/app/react/components/randomTables/PasteTableDialog.tsx @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/react/components/randomTables/PasteTableDialog.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -19,6 +19,7 @@ import { FileTableImport } from './FileTableImport';
 import type { ImportedTableNote, ImportSaveJournal } from '../../../randomTables/import/saveImportedTables';
 import { IMPORT_LIMITS, validateImportTable } from '../../../randomTables/import/importModel';
 import { t } from '../../../../shims/i18n';
+import { portalHost } from '../../../../shims/portalHost';
 
 const KINDS = [
   { value: 'text', label: t('tables.kind.text') },
@@ -170,6 +171,6 @@ export function PasteTableDialog({ folder, onSave, onImport, onClose }: PasteTab
         </>}
       </motion.div>
     </motion.div>,
-    doc.body,
+    portalHost(doc),
   );
 }

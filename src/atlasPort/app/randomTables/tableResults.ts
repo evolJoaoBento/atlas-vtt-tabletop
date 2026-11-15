@@ -1,4 +1,4 @@
-// Atlas source: src/app/randomTables/tableResults.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/randomTables/tableResults.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * A roll on one of the collection's tables, as the history keeps it: Text tables give

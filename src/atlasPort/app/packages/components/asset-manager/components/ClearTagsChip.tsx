@@ -1,4 +1,4 @@
-// Atlas source: src/app/packages/components/asset-manager/components/ClearTagsChip.tsx @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/packages/components/asset-manager/components/ClearTagsChip.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import React from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -39,7 +39,8 @@ export function ClearTagsChip({ count, onClear, label }: ClearTagsChipProps): Re
               className="atlas-tags-clear"
               onClick={(e) => { e.stopPropagation(); onClear(); }}
             >
-              <span className="atlas-tags-clear-count">{count}</span>
+              {/* The name says the count in words; the digit is for the eye. */}
+              <span className="atlas-tags-clear-count" aria-hidden="true">{count}</span>
               <X />
             </Button>
           </LabelTooltip>

@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/presets/generic.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/presets/generic.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -17,7 +17,7 @@ function combatFields(): TemplateField[] {
   return [
     { key: 'ac', label: 'Armor', type: 'number', meaning: 'armor' },
     { key: 'hp', label: 'Hit Points', type: 'number', meaning: 'hit-points' },
-    { key: 'speed', label: 'Speed', type: 'text' },
+    { key: 'speed', label: 'Speed', type: 'text', meaning: 'speed' },
     { key: 'senses', label: 'Senses', type: 'text', meaning: 'senses' },
   ];
 }
@@ -30,7 +30,7 @@ function closingFields(): TemplateField[] {
   ];
 }
 
-export const GENERIC_CREATURE: BuiltInTemplate = builtIn('builtin:generic-creature', 'Creature', 2, {
+export const GENERIC_CREATURE: BuiltInTemplate = builtIn('builtin:generic-creature', 'Creature', 3, {
   fields: [
     nameField(),
     portraitField(),
@@ -53,7 +53,7 @@ export const GENERIC_CREATURE: BuiltInTemplate = builtIn('builtin:generic-creatu
   sample: { name: 'Creature name' },
 });
 
-export const GENERIC_NPC: BuiltInTemplate = builtIn('builtin:generic-npc', 'NPC', 2, {
+export const GENERIC_NPC: BuiltInTemplate = builtIn('builtin:generic-npc', 'NPC', 3, {
   fields: [
     nameField(),
     portraitField(),

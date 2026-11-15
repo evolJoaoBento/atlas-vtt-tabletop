@@ -1,6 +1,7 @@
-// Atlas source: src/app/packages/components/asset-manager/components/search/OptionChips.tsx @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/packages/components/asset-manager/components/search/OptionChips.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import React, { useRef } from 'react';
+import { Check } from 'lucide-react';
 import type { FacetOption } from '../../../../../creatures/creatureFilterEngine';
 import type { OptionState } from '../../../../../types/creatureFilterTypes';
 import { Button } from '../../../primitives/button';
@@ -47,7 +48,10 @@ export function OptionChips({ options, label, onChange }: OptionChipsProps): Rea
           onClick={(event) => click(option, event)}
           onDoubleClick={() => doubleClick(option)}
         >
-          <span className="atlas-filter-chip__label">{option.label}</span>
+          {/* A required option carries a tick, as an excluded one its strikethrough: told apart by more than hue. */}
+          {option.state === 'include' && <Check className="atlas-filter-chip__tick" aria-hidden="true" />}
+          {/* The space is not drawn in the flex row; it keeps the visible text "Solo 22", as the name says it. */}
+          <span className="atlas-filter-chip__label">{option.label}</span>{' '}
           <span className="atlas-filter-chip__count">{option.count}</span>
         </Button>
       ))}

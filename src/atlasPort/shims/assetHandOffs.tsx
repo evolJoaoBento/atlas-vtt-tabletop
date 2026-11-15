@@ -1,8 +1,8 @@
-// Stand-ins for the asset manager's authoring windows and actions that are Atlas's (Atlas 0.12.0, AGPL-3.0): the token
+// Stand-ins for the asset manager's authoring windows and actions that are Atlas's (Atlas 0.15.0, AGPL-3.0): the token
 // creator, encounter builder, new scene, statblock link, new collection, collection export/import, Universal VTT import,
-// player characters, and deleting token assets (Atlas checks the maps that use them first). None needs the board, so the
+// player characters, deleting token assets (Atlas checks the maps that use them first), and the starter tokens offer. None needs the board, so the
 // board opens Atlas's own asset manager on the tab instead of carrying a second copy of them.
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { Notice, type App } from 'obsidian';
 import { AtlasBridge, type AssetTab } from '../../atlasBridge';
 
@@ -69,6 +69,10 @@ export function playerCharacterEntry(isOn: boolean, onToggle: (on: boolean) => v
 }
 
 export function transferTargets(..._args: unknown[]): [] { return []; }
+/** The collection picker's order, as Atlas sorts it (by name, numbers in order). */
+export function collectionsByName<T extends { name: string }>(collections: readonly T[]): T[] {
+  return [...collections].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+}
 export async function transferToCollection(..._args: unknown[]): Promise<void> { handOff('Move assets between collections'); }
 
 export function useCollectionTransfer(_deps: unknown): {
@@ -90,4 +94,17 @@ export function mapFilesAmong(_files: readonly File[]): File[] { return []; }
 export function mayCarryMapFile(_transfer: unknown): boolean { return false; }
 export function useUvttImport(_options: unknown): ImportMaps {
   return async () => { handOff('Import Universal VTT maps', 'maps'); };
+}
+
+/**
+ * Atlas 0.15's starter tokens offer (packages/components/asset-manager/components/BestiaryTokensOffer.tsx) downloads a
+ * token pack and its statblocks into the vault: Atlas's asset manager offers it. On the board the empty Tokens tab shows
+ * its own way in (`fallback`, as Atlas does once the pack is in), and the sidebar shows no offer.
+ */
+export function BestiaryTokensOffer({ variant, fallback = null }: { variant: 'empty' | 'sidebar'; fallback?: ReactNode; [prop: string]: unknown }): ReactNode {
+  return variant === 'empty' ? fallback : null;
+}
+/** The sidebar offer's dismissal (packages/components/asset-manager/hooks/useStarterOfferDismissal.ts): never shown. */
+export function useStarterOfferDismissal(..._args: unknown[]): { dismissed: boolean; dismiss: undefined } {
+  return { dismissed: true, dismiss: undefined };
 }

@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/expressions/evaluate.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/expressions/evaluate.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Evaluates a parsed formula against a statblock's values. Text that is a

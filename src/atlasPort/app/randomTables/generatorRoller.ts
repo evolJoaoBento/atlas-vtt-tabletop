@@ -1,4 +1,4 @@
-// Atlas source: src/app/randomTables/generatorRoller.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/randomTables/generatorRoller.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Rolling a generator: every part's cell resolved as any table cell is (dice, linked tables,

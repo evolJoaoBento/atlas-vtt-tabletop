@@ -1,4 +1,4 @@
-// Atlas source: src/app/resources/resourceFields.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/resources/resourceFields.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { IGNORED_FIELDS } from '../creatures/creatureFieldDiscovery';
 import { NO_MEANINGS, type FieldMeanings } from '../statblocks/resolve/fieldMeanings';
@@ -28,7 +28,7 @@ function hitPointsKey(keys: readonly string[], meanings: FieldMeanings): string 
  * statblock's template means as its hit points or any of their usual names.
  */
 export function matchingKey(record: Readonly<Record<string, unknown>>, key: string, meanings: FieldMeanings = NO_MEANINGS): string | undefined {
-  if (key in record) return key;
+  if (Object.hasOwn(record, key)) return key;
   const wanted = normalizedKey(key);
   const keys = Object.keys(record);
   return keys.find((candidate) => normalizedKey(candidate) === wanted)

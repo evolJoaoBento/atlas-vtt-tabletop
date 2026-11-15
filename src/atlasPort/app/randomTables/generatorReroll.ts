@@ -1,4 +1,4 @@
-// Atlas source: src/app/randomTables/generatorReroll.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/randomTables/generatorReroll.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Rolling a generator's result again on its card: one part (the Name filled again with what it

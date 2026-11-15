@@ -1,4 +1,4 @@
-// Stand-in for Atlas's react/root/AtlasUIContext.tsx @ 0.12.0 (AGPL-3.0) in the copies: on the board there is no Atlas map
+// Stand-in for Atlas's react/root/AtlasUIContext.tsx @ 0.15.0 (AGPL-3.0) in the copies: on the board there is no Atlas map
 // view, Pixi app or renderer, only Obsidian's app.
 import { createContext, useContext } from 'react';
 import type { App } from 'obsidian';

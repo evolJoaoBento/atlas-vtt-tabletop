@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/render/blocks/SpellTabs.tsx @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/render/blocks/SpellTabs.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import React, { useId } from 'react';
 import type { SpellLine } from '../shared/spellGroups';

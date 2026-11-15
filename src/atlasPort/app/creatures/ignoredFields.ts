@@ -1,4 +1,4 @@
-// Atlas source: src/app/creatures/ignoredFields.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/creatures/ignoredFields.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /** Fields that identify, place or render a statblock rather than describe the creature. */
 export const IGNORED_FIELDS: ReadonlySet<string> = new Set([

@@ -1,4 +1,4 @@
-// Atlas source: src/app/packages/components/primitives/button.tsx @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/packages/components/primitives/button.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";

@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/values/valueCoercion.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/values/valueCoercion.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Turns what someone typed into the value a field of its declared type stores.
@@ -13,7 +13,7 @@ import { choiceText, readChoice, unreadProblem, type ChoiceShape } from './choic
 import { parseDiceNotation } from './diceNotation';
 import { isDiceValue } from './diceValues';
 import { isWholeNumberText, parseNumberText } from './numberText';
-import { splitListText } from './listText';
+import { splitEscapedList } from './listText';
 import { parsePairText } from './pairValues';
 import { quoted } from './valueText';
 import { NUMBER_SUM, withReferencesAsOne } from './fillReferences';
@@ -97,7 +97,7 @@ function coerceScores(text: string): CoercionResult {
 
 function coercePairs(text: string, input: string): CoercionResult {
   const pairs: FieldValue[] = [];
-  for (const part of splitListText(text)) {
+  for (const part of splitEscapedList(text)) {
     const pair = parsePairText(part);
     if (!pair) return refused(input, `${quoted(part)} isn't a name and a number, like Dex +5.`);
     pairs.push({ [pair.key]: pair.value });
@@ -112,7 +112,7 @@ const COERCERS: Readonly<Record<FieldType, Coercer>> = {
   rating: coerceRating,
   dice: coerceDice,
   choice: coerceChoice,
-  list: (text) => kept(splitListText(text)),
+  list: (text) => kept(splitEscapedList(text)),
   scores: coerceScores,
   entries: (_text, input) => refused(input, 'Entries are added one at a time.'),
   pairs: coercePairs,

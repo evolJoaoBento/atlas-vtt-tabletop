@@ -1,4 +1,4 @@
-// Atlas source: src/app/packages/components/asset-manager/components/AssetTagPicker.tsx @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/packages/components/asset-manager/components/AssetTagPicker.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Check, Plus, Search } from 'lucide-react';

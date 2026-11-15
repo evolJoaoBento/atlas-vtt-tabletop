@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/render/valueSlot.tsx @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/render/valueSlot.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import React, { createContext, useContext } from 'react';
 import type { ResourceValue } from '../../resources/resourceTypes';

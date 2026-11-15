@@ -1,4 +1,4 @@
-// Atlas source: src/app/recovery/parseRecovery.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/recovery/parseRecovery.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Reads recovery buttons where they arrive unchecked: a template's file, a bundle. Strict: a button or rule it cannot read whole is left out, never guessed at, and what

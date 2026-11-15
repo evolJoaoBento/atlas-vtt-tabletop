@@ -1,4 +1,4 @@
-// Atlas source: src/app/services/statblockDiceLinks.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/services/statblockDiceLinks.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Click-to-roll dice notation, routed through Atlas' own dice tool (toast, roll

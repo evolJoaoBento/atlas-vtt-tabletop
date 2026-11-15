@@ -1,4 +1,4 @@
-// Atlas source: src/app/types/widgetIcons.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/types/widgetIcons.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Widget icon set: silhouettes from game-icons.net (CC BY 3.0, see README credits).

@@ -1,4 +1,4 @@
-// Atlas source: src/app/keyboard/textEntry.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/keyboard/textEntry.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /** Elements whose keys belong to the text in them: Mod+A selects that text, letters type. */
 const TEXT_ENTRY = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), .cm-editor, [role="textbox"]';

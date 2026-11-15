@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/render/shared/EntryLine.tsx @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/render/shared/EntryLine.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import React from 'react';
 import type { App } from 'obsidian';
@@ -48,6 +48,7 @@ export function EntryLine({
 }: EntryLineProps): React.JSX.Element | null {
   if (!name && !text) return null;
   const editable = editPaths !== undefined;
+  const runIn = nameStyle === 'run-in';
 
   return (
     <div
@@ -59,13 +60,15 @@ export function EntryLine({
       {name && (
         <span className="atlas-sb-trait-name">
           <EditableField path={editPaths?.name ?? []} value={name} editable={editable} label={t('statblockEditor.traitName')}>
-            <InlineText text={nameStyle === 'run-in' ? name.trim() : name} app={app} sourcePath={sourcePath} markdown={markdown} dice={false} />
+            <InlineText text={runIn ? name.trim() : name} app={app} sourcePath={sourcePath} markdown={markdown} dice={false} />
           </EditableField>
         </span>
       )}
+      {/* A word space of the text's own font, which copy and screen readers read too. */}
+      {name && runIn && ' '}
       {children}
       <EditableField path={editPaths?.text ?? []} value={text} editable={editable} label={t('statblockEditor.traitText')} multiline>
-        <StatblockMarkdown text={text} app={app} sourcePath={sourcePath} markdown={markdown} />
+        <StatblockMarkdown text={runIn ? text.trimStart() : text} app={app} sourcePath={sourcePath} markdown={markdown} />
       </EditableField>
     </div>
   );

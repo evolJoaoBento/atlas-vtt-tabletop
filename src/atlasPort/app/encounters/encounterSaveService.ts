@@ -1,4 +1,4 @@
-// Atlas source: src/app/encounters/encounterSaveService.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/encounters/encounterSaveService.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { TFile, App as ObsidianApp, base64ToArrayBuffer } from 'obsidian';
 import type { AssetService, EncounterAsset } from '../../shims/assetService';
@@ -31,7 +31,7 @@ function describeTokens(tokens: readonly EncounterTokenDraft[]): string {
  */
 function promptForEncounterName(app: ObsidianApp, tokens: EncounterTokenDraft[]): Promise<string | null> {
   return new Promise((resolve) => {
-    const { root, dialog, footer } = createDialogShell(t('encounter.saveTitle'), { onDismiss: () => close(null) });
+    const { root, dialog } = createDialogShell(t('encounter.saveTitle'));
     dialog.createEl('p', { cls: 'atlas-text-dialog__message', text: t('encounter.createWith', { count: tokens.length }) });
 
     const previewContainer = dialog.createDiv({ cls: 'atlas-encounter-save-preview' });
@@ -63,8 +63,9 @@ function promptForEncounterName(app: ObsidianApp, tokens: EncounterTokenDraft[])
       if (name) close(name);
     };
 
-    footer.createEl('button', { text: t('common.cancel') }).addEventListener('click', () => close(null));
-    footer.createEl('button', { text: t('encounter.save'), cls: 'mod-cta' }).addEventListener('click', submit);
+    const actions = dialog.createDiv({ cls: 'atlas-text-dialog__actions' });
+    actions.createEl('button', { text: t('common.cancel') }).addEventListener('click', () => close(null));
+    actions.createEl('button', { text: t('encounter.save'), cls: 'mod-cta' }).addEventListener('click', submit);
     root.addEventListener('click', (event) => {
       if (event.target === root) close(null);
     });

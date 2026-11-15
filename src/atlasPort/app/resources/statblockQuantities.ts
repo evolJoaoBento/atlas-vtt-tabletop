@@ -1,4 +1,4 @@
-// Atlas source: src/app/resources/statblockQuantities.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/resources/statblockQuantities.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import type { StatblockMonster } from '../../shims/atlasTypes';
 import { isRecord } from '../utils/guards';
@@ -69,7 +69,7 @@ export function tokenQuantities(
     definitions.some((definition) => definition.key === key || normalizedKey(definition.field) === normalizedKey(field));
 
   for (const tracked of look.tracked ?? []) {
-    if (quantities.has(tracked.key) || isCollectionResource(definitions, tracked.key, tracked.field.key)) continue;
+    if (quantities.has(tracked.key) || isCollectionResource(definitions, tracked.key, tracked.field.key, look.meanings)) continue;
     const max = trackedMax(tracked, (key) => fieldNumber(monster[key]));
     if (max === null) continue;
     quantities.set(tracked.key, {

@@ -1,4 +1,4 @@
-// Stand-in for Atlas's pixi/mosaicCanvas/mapProcessing.ts and packages/components/shared/useMapProcessing.ts @ 0.12.0
+// Stand-in for Atlas's pixi/mosaicCanvas/mapProcessing.ts and packages/components/shared/useMapProcessing.ts @ 0.15.0
 // (AGPL-3.0): how far Atlas has cut a large map into tiles is Atlas's own (its worker); the board's cards show none.
 import type { App } from 'obsidian';
 

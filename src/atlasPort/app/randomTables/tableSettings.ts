@@ -1,4 +1,4 @@
-// Atlas source: src/app/randomTables/tableSettings.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/randomTables/tableSettings.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * The random tables a collection's settings name, which arrive unchecked: read
@@ -137,4 +137,28 @@ export function withMovedTableNotes(settings: TableSettings, moved: (path: strin
     return { ...entry, path: to };
   });
   return changed ? next as RandomTableSource[] : null;
+}
+
+/** The notes the collection's tables are read from, each once. */
+export function tableNotePaths(settings: TableSettings): string[] {
+  return [...new Set(readRandomTables(settings).map((source) => source.path))];
+}
+
+/**
+ * The stored list as a bundle carries or an import stores it: each entry's note at the path
+ * `pathOf` gives it, its save folder at the folder `folderOf` gives it. An entry whose note
+ * has no path there is left out, a save folder without one is removed (generated notes then go
+ * where Obsidian puts new notes). Every other field of an entry stays.
+ */
+export function withPlacedTableNotes(
+  settings: TableSettings, pathOf: (path: string) => string | undefined, folderOf: (folder: string) => string | undefined,
+): RandomTableSource[] {
+  return storedEntries(settings).flatMap((entry): RandomTableSource[] => {
+    if (!isRecord(entry) || typeof entry.path !== 'string') return [];
+    const path = pathOf(entry.path);
+    if (path === undefined) return [];
+    const { saveFolder, ...rest } = entry;
+    const folder = typeof saveFolder === 'string' ? folderOf(saveFolder) : undefined;
+    return [{ ...rest, path, ...(folder !== undefined && { saveFolder: folder }) } as RandomTableSource];
+  });
 }

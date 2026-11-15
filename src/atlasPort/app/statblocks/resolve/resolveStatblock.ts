@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/resolve/resolveStatblock.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/resolve/resolveStatblock.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * The one resolver: a statblock note as every consumer reads it, with the
@@ -111,7 +111,7 @@ export async function resolveStatblock(app: App, path: string, context: VaultRes
   const source = note ? await statblockSourceOf(app, note) : null;
   if (note && source?.kind === 'atlas') return resolveNative(path, source, cachedFrontmatter(app, note) ?? {}, context.templates);
 
-  const bestiary = context.bestiary ?? bestiaryLookup();
+  const bestiary = context.bestiary ?? bestiaryLookup(app);
   const loaded = bestiary.api !== null;
   const creature = await linkedCreatureFor(app, path, source, bestiary);
   if (!creature) return !loaded && source?.kind === 'fs-fence' ? resolveInlineFence(path, source) : null;

@@ -17,4 +17,9 @@ export interface ParityRow {
   status: ParityStatus;
   /** What the board does, or why not. */
   note: string;
+  /**
+   * The Atlas version that dropped it. The tables follow the floor (0.15), which still has it, so a newer Atlas without it
+   * is reported, not failed (`npm run check:atlas`).
+   */
+  droppedIn?: string;
 }

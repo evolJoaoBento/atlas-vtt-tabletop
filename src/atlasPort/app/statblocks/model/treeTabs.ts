@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/model/treeTabs.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/model/treeTabs.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 // Tabs in the block tree: adding a tab, splitting a list into tabs, and which
 // tabs hold a block. Pure and immutable like `treeOps`; a refusal returns the

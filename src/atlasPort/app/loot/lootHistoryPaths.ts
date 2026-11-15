@@ -1,4 +1,4 @@
-// Atlas source: src/app/loot/lootHistoryPaths.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/loot/lootHistoryPaths.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { COLLECTIONS_DIR, collectionFolderPath } from '../services/assetPaths';
 import { COLLECTION_DATA_DIR } from '../../shims/installRecord';

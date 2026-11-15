@@ -1,4 +1,4 @@
-// Atlas source: src/app/gameSystems/presets/presetHelpers.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/gameSystems/presets/presetHelpers.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import type { ConditionDefinition } from '../../types/collectionSettingsTypes';
 import { BUILT_IN_ID_PREFIX } from '../../types/systemPresetTypes';

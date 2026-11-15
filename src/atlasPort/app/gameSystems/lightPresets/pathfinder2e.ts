@@ -1,4 +1,4 @@
-// Atlas source: src/app/gameSystems/lightPresets/pathfinder2e.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/gameSystems/lightPresets/pathfinder2e.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { CANDLE_LOOK, DARKNESS_LOOK, LANTERN_LOOK, SPELL_LOOK, STEADY_MAGIC_LOOK, TORCH_LOOK, lightsOf } from './lightPresetHelpers';
 

@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/presets/fiveE2014.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/presets/fiveE2014.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 // SPDX-License-Identifier: AGPL-3.0-only AND CC-BY-4.0
 
@@ -15,7 +15,7 @@ import { SRD_5_1_SOURCE } from './attributions';
 import { experienceTable } from './fiveEChallenge';
 import { builtIn, centredColumns, hiddenParts, nameField, portraitField, runInStat, sizeField } from './presetParts';
 
-export const FIVE_E_2014_MONSTER: BuiltInTemplate = builtIn('builtin:5e-2014-monster', '5E (2014 rules)', 6, {
+export const FIVE_E_2014_MONSTER: BuiltInTemplate = builtIn('builtin:5e-2014-monster', '5E (2014 rules)', 7, {
   // A bonus without dice rolls with the system's dice set, whatever the collection rolls (revision 6).
   diceSetId: D20_DICE_SET_ID,
   source: SRD_5_1_SOURCE,
@@ -29,7 +29,7 @@ export const FIVE_E_2014_MONSTER: BuiltInTemplate = builtIn('builtin:5e-2014-mon
     { key: 'ac', label: 'Armor Class', type: 'number', meaning: 'armor' },
     { key: 'hp', label: 'Hit Points', type: 'number', meaning: 'hit-points' },
     { key: 'hit_dice', label: 'Hit Dice', type: 'dice' },
-    { key: 'speed', label: 'Speed', type: 'text' },
+    { key: 'speed', label: 'Speed', type: 'text', meaning: 'speed' },
     {
       key: 'stats', label: 'Abilities', type: 'scores', addRows: false, addColumns: false, slots: ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'], align: centredColumns(6),
       slotKeys: ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'],

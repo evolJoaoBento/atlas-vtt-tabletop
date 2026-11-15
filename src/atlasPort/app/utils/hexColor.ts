@@ -1,4 +1,4 @@
-// Atlas source: src/app/utils/hexColor.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/utils/hexColor.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 

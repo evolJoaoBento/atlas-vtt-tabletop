@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/model/fieldOps.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/model/fieldOps.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 // Pure, immutable edits of a template's fields (§8.8). An edit that cannot be
 // made, or changes nothing, returns the very template it was given, so a

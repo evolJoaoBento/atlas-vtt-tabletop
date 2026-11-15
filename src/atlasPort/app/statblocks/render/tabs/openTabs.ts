@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/render/tabs/openTabs.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/render/tabs/openTabs.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Which tab each tab strip of a card shows: view state of one mounted sheet,

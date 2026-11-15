@@ -34,8 +34,8 @@ export const PORT_ENTRIES = [
 export const BOUNDARIES = {
   'i18n/index.ts': 'i18n.ts',
   'i18n/types.ts': 'i18n.ts',
-  // Atlas 0.14's text dialog (header row, body, footer), hand-ported from its main.js.
-  'ui/dialogShell.ts': 'dialogShell.ts',
+  // Where Atlas's floating UI joins the page: Atlas's own copy would remove the running Atlas's host (and all in it).
+  'host/portalHost.ts': 'portalHost.ts',
   'services/AssetService.ts': 'assetService.ts',
   'services/collectionBundle/installRecord.ts': 'installRecord.ts',
   'plugin/deviceId.ts': 'deviceId.ts',
@@ -61,6 +61,9 @@ export const BOUNDARIES = {
   'packages/components/asset-manager/utils/collectionTransferActions.ts': 'assetHandOffs.tsx',
   'services/createScene.ts': 'assetHandOffs.tsx',
   'packages/components/asset-manager/hooks/useCollectionTransfer.ts': 'assetHandOffs.tsx',
+  // Atlas 0.15's starter tokens offer downloads a token pack into the vault: that is Atlas's to do, not the board's.
+  'packages/components/asset-manager/components/BestiaryTokensOffer.tsx': 'assetHandOffs.tsx',
+  'packages/components/asset-manager/hooks/useStarterOfferDismissal.ts': 'assetHandOffs.tsx',
   // Where the asset manager meets the board.
   'packages/components/asset-manager/hooks/useOpenAsset.ts': 'boardOpen.ts',
   'plugin/atlasLeaves.ts': 'boardLeaves.ts',
@@ -82,6 +85,8 @@ export const BOUNDARIES = {
   'react/components/command-palette/GraphicsPanel.tsx': 'palettePages.tsx',
   'react/components/command-palette/SceneSnapshotsPanel.tsx': 'palettePages.tsx',
   'react/components/command-palette/SceneLevelsPanel.tsx': 'palettePages.tsx',
+  // Atlas 0.14's lighting page writes the scene lighting of Atlas's map view.
+  'react/components/command-palette/LightingSettingsPanel.tsx': 'palettePages.tsx',
   'react/components/levels/replaceMapImage.ts': 'palettePages.tsx',
   'react/components/levels/MapImagePickerModal.ts': 'palettePages.tsx',
   'packages/components/shared/useMapProcessing.ts': 'mapProcessing.ts',
@@ -91,6 +96,8 @@ export const BOUNDARIES = {
 export const ALLOWED_PACKAGES = [
   'obsidian', 'yaml', 'react', 'react-dom', 'framer-motion', 'lucide-react', 'clsx', 'tailwind-merge',
   '@radix-ui/react-tooltip', '@radix-ui/react-slot', '@radix-ui/react-dropdown-menu', '@radix-ui/react-slider', '@tanstack/react-virtual', 'zustand',
+  // Atlas 0.15's lighting/polygonClip.ts (reached by the asset manager's scene menus); Tabletop bundles it already.
+  'clipper2-ts',
 ];
 
 /**
@@ -110,21 +117,6 @@ export const PATCHES = [
     find: "import { customizeToolbarCommand } from './command-palette/customizeToolbarCommand';",
     replace: "import { customizeToolbarCommand } from './command-palette/customizeToolbarCommand';\nimport { tabletopCommands } from '@shims/tabletopCommands';",
   },
-  {
-    // Atlas 0.14 dropped the overlay scrollbar for native ones: the palette's options are a plain scrolling column
-    // (`.atlas-command-palette-options { flex: 1; min-height: 0; overflow-y: auto }`, restated in styles.css for 0.13).
-    file: 'react/components/CommandPalette.tsx',
-    find: '<OverlayScroll\n                    ref={optionsContainerRef}\n                    frameClassName="atlas-command-palette-options-frame"\n                    className="atlas-command-palette-options"',
-    replace: '<div\n                    ref={optionsContainerRef}\n                    className="atlas-command-palette-options"',
-  },
-  {
-    file: 'react/components/CommandPalette.tsx',
-    find: "import { OverlayScroll } from '../../packages/components/primitives/OverlayScroll';\n",
-    replace: '',
-  },
-  {
-    file: 'react/components/CommandPalette.tsx',
-    find: '                  </OverlayScroll>',
-    replace: '                  </div>',
-  },
 ];
+// (Until Atlas 0.12 three more patches swapped the palette's OverlayScroll for a plain div; Atlas 0.15's own palette
+// renders the options as that plain scrolling div, so they are gone.)

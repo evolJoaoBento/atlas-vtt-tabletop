@@ -1,4 +1,4 @@
-// Atlas source: src/app/services/sceneRename.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/services/sceneRename.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { normalizePath, type App } from 'obsidian';
 import type { AssetService } from '../../shims/assetService';

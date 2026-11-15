@@ -1,4 +1,4 @@
-// Stand-in for Atlas's plugin/deviceId.ts @ 0.12.0 (AGPL-3.0) in the copies. Atlas names the files only one device writes
+// Stand-in for Atlas's plugin/deviceId.ts @ 0.15.0 (AGPL-3.0) in the copies. Atlas names the files only one device writes
 // (its loot history) by this id; the board's copy of Atlas's history store must never write Atlas's own file, so it gets
 // its own id: this device's Atlas id with `-tabletop` after it (Atlas reads every device's file, so its rolls show in
 // Atlas and Atlas's in the board's).

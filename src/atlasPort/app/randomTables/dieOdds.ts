@@ -1,4 +1,4 @@
-// Atlas source: src/app/randomTables/dieOdds.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/randomTables/dieOdds.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Rolling a table's die and knowing its odds. The die goes through Atlas' own

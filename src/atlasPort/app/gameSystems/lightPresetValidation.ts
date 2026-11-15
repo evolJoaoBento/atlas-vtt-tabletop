@@ -1,4 +1,4 @@
-// Atlas source: src/app/gameSystems/lightPresetValidation.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/gameSystems/lightPresetValidation.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Reads light presets from stored data (a user preset, a collection's settings). The data can

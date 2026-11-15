@@ -1,4 +1,4 @@
-// Atlas source: src/app/gameSystems/presets/cairn.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/gameSystems/presets/cairn.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { D20_ROLL_UNDER_DICE_SET_ID } from '../builtInDiceSets';
 import type { SystemPreset } from '../../types/systemPresetTypes';
@@ -25,6 +25,12 @@ export const CAIRN: SystemPreset = {
       measurementMode: 'metric',
       diagonalRule: 'equidistant',
       abstractRangeBands: [],
+    },
+    // Everyone moves up to 40 feet on a turn; statblocks state no speed.
+    movement: {
+      steps: [{ name: 'Move', multiple: 1, color: '#22c55e' }],
+      countPerTurn: true,
+      speed: 40,
     },
     // Saves roll under an attribute on a d20: a 1 always succeeds, a 20 always fails.
     dice: { defaultRoll: '1d20', crit: 'roll-under' },

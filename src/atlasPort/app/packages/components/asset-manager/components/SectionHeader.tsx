@@ -1,10 +1,11 @@
-// Atlas source: src/app/packages/components/asset-manager/components/SectionHeader.tsx @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/packages/components/asset-manager/components/SectionHeader.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import React from 'react';
 import { ChevronDown } from 'lucide-react';
 
 export interface SectionHeaderProps {
   title: string;
+  /** What the section lists: under a search or filters, the matches it shows. */
   count: number;
   collapsed: boolean;
   onToggle: () => void;

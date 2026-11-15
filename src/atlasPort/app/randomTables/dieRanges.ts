@@ -1,4 +1,4 @@
-// Atlas source: src/app/randomTables/dieRanges.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/randomTables/dieRanges.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * The numbers of a table's roll column and the die they belong to: cells such

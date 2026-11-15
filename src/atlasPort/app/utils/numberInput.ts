@@ -1,4 +1,4 @@
-// Atlas source: src/app/utils/numberInput.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/utils/numberInput.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /** A number as its input text; blank when unset. */
 export function numberText(value: number | undefined): string {

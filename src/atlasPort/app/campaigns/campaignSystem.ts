@@ -1,7 +1,8 @@
-// Atlas source: src/app/campaigns/campaignSystem.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/campaigns/campaignSystem.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import type { RulesSettings } from '../gameSystems/mapRules';
 import { parseSystemRules } from '../gameSystems/presetValidation';
+import { parseMovementRules } from '../measure/movementRules';
 import { rulesOfPreset } from '../gameSystems/systemRules';
 import { parseVisionDefaults } from '../gameSystems/visionDefaults';
 import { parseResourceDefinitions } from '../resources/resourceDefinitions';
@@ -11,7 +12,7 @@ import { isRecord } from './campaignValues';
 /**
  * The game system a campaign plays by, stored as a collection's rules are: the preset it was taken
  * from, measurement, conditions, dice (a dice set of the library, or dice rules), resources and default vision, and senses, light presets and
- * initiative rules only once the GM edited them (until then the preset's are read). No default
+ * initiative and movement rules only once the GM edited them (until then the preset's are read). No default
  * widgets: a campaign makes no scenes.
  */
 export type CampaignSystem = Omit<RulesSettings, 'defaultWidgets'>;
@@ -33,6 +34,8 @@ export function readCampaignSystem(raw: unknown): CampaignSystem | undefined {
   // An empty list is a system without resources, not one that reads its preset's.
   const resources = Array.isArray(raw.resources) ? parseResourceDefinitions(raw.resources) : undefined;
   const defaultTokenVision = parseVisionDefaults(raw.defaultTokenVision);
+  // Rules without steps are the campaign's own too: they switch its preset's steps off.
+  const movement = parseMovementRules(raw.movement);
   return {
     gridDefaults: rules.gridDefaults,
     conditions: rules.conditions,
@@ -44,6 +47,7 @@ export function readCampaignSystem(raw: unknown): CampaignSystem | undefined {
     ...(rules.senses && { senses: rules.senses }),
     ...(rules.lightPresets && { lightPresets: rules.lightPresets }),
     ...(rules.initiative && { initiative: rules.initiative }),
+    ...(movement && { movement }),
   };
 }
 

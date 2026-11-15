@@ -1,4 +1,4 @@
-// Stand-in for Atlas's services/AssetThumbnailService.ts @ 0.12.0 (AGPL-3.0): Atlas makes and writes thumbnails; the board
+// Stand-in for Atlas's services/AssetThumbnailService.ts @ 0.15.0 (AGPL-3.0): Atlas makes and writes thumbnails; the board
 // only reads the ones Atlas made (a second maker would write them twice). A card without one shows the asset's own image.
 import { TFile, type App } from 'obsidian';
 

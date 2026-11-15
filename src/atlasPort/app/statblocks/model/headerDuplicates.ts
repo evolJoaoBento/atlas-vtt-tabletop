@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/model/headerDuplicates.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/model/headerDuplicates.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Blocks of a layout that show what the header already shows (`templateHeader`):
@@ -74,7 +74,7 @@ const ONLY_SEPARATORS = /^[\s\p{P}]*$/u;
  * Whether a block strings several parts' values together and nothing else ("{tier} {type}"): the
  * header shows each, so the block repeats them all.
  */
-function joinsHeaderValues(block: TemplateBlock, keys: ReadonlySet<FieldKey>): boolean {
+export function joinsHeaderValues(block: TemplateBlock, keys: ReadonlySet<FieldKey>): boolean {
   if (!PLAIN.has(block.type)) return false;
   const pattern = 'pattern' in block ? block.pattern : undefined;
   if (pattern === undefined || WORKED_OUT.test(pattern) || findCode(block).length > 0) return false;

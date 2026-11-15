@@ -3,7 +3,7 @@
 //   in Atlas's folder layout, each with a source header;
 // - Atlas's texts those files and src/atlasPort/atlasTextKeys.ts use, in every language Atlas speaks, into
 //   src/atlasPort/atlasTextData.ts.
-// Usage: node scripts/sync-atlas-port.mjs [Atlas source checkout] [--dry]   (default: ../atlas-vtt-0.12-ref)
+// Usage: node scripts/sync-atlas-port.mjs [Atlas source checkout] [--dry]   (default: ../atlas-vtt-0.15-ref, the floor)
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, posix, relative, resolve } from 'node:path';
 import { build } from 'esbuild';
@@ -11,7 +11,7 @@ import { ALLOWED_PACKAGES, BOUNDARIES, PATCHES, PORT_ENTRIES } from './atlasPort
 
 const args = process.argv.slice(2);
 const dry = args.includes('--dry');
-const root = resolve(args.find((arg) => !arg.startsWith('--')) ?? '../atlas-vtt-0.12-ref');
+const root = resolve(args.find((arg) => !arg.startsWith('--')) ?? '../atlas-vtt-0.15-ref');
 const app = join(root, 'src/app');
 if (!existsSync(join(app, 'i18n/languages.ts'))) throw new Error(`No Atlas source at ${root}; pass an Atlas source checkout.`);
 const version = JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf8')).version;

@@ -1,4 +1,4 @@
-// Atlas source: src/app/randomTables/tableMarkdown.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/randomTables/tableMarkdown.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * The note Atlas writes for a pasted table: its name as a heading and the table

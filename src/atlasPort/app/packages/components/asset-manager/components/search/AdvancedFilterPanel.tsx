@@ -1,4 +1,4 @@
-// Atlas source: src/app/packages/components/asset-manager/components/search/AdvancedFilterPanel.tsx @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/packages/components/asset-manager/components/search/AdvancedFilterPanel.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import React, { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
@@ -6,6 +6,7 @@ import { EASE_OUT_CONTROL_POINTS } from '../../../../../utils/motion';
 import { Button } from '../../../primitives/button';
 import { CloseButton } from '../../../primitives/CloseButton';
 import { useDialogEscape } from '../../../primitives/useDialogEscape';
+import { useFocusTrap } from '../../../primitives/useFocusTrap';
 import type { CreatureFilterPanel } from '../../hooks/useCreatureFilters';
 import { CreatureFilterControls, hiddenFilterText } from './CreatureFilterControls';
 import { t } from '../../../../../../shims/i18n';
@@ -35,6 +36,8 @@ export function AdvancedFilterPanel({ panel, onClose, onReset, anchorRef }: Adva
   const hidden = hiddenFilterText(panel.result.hidden);
 
   useDialogEscape(rootRef, onClose);
+  // Tab moves among the panel's own controls while it is open, never on to the tabs of the window behind it.
+  useFocusTrap(rootRef);
 
   useEffect(() => {
     const doc = rootRef.current?.ownerDocument ?? document;
@@ -59,7 +62,7 @@ export function AdvancedFilterPanel({ panel, onClose, onReset, anchorRef }: Adva
 
       <div className="atlas-filter-panel__footer">
         {hidden && <span className="atlas-filter-panel__hidden" role="status">{hidden}</span>}
-        <Button variant="ghost" className="atlas-filter-panel__reset" disabled={panel.activeCount === 0} onClick={onReset}>{t('common.reset')}</Button>
+        <Button variant="ghost" className="atlas-filter-panel__reset" disabled={panel.activeCount === 0} onClick={onReset}>{t('am.empty.clearFilters')}</Button>
         <Button variant="default" className="atlas-filter-panel__done" onClick={onClose}>{t('common.done')}</Button>
       </div>
     </motion.div>

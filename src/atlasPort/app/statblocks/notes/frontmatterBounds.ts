@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/notes/frontmatterBounds.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/notes/frontmatterBounds.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Where a note's frontmatter lies, read the way Obsidian reads it. Pure.

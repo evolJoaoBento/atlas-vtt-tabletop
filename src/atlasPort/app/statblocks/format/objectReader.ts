@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/format/objectReader.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/format/objectReader.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Reads one object of a template file key by key. A value it cannot read is

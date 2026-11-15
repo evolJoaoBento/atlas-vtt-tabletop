@@ -1,4 +1,4 @@
-// Atlas source: src/app/ui/noticeMotion.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/ui/noticeMotion.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { animate, type AnimationOptions } from 'framer-motion';
 import type { Notice } from 'obsidian';
@@ -45,11 +45,13 @@ export function animateNotice(notice: Notice): void {
     if (leaving) return;
     leaving = true;
     el.addClass('atlas-notice--leaving');
-    const fade = animate(el, { opacity: 0, transform: reduce ? AT_REST : LEAVE_TO }, reduce ? FADE : LEAVE);
     if (reduce) {
-      void fade.then(() => remove(el));
+      // Ended by its own callback, never by waiting on it: Motion makes no animation of a value that
+      // does not change (a notice hidden before it showed), and waiting on that one throws.
+      void animate(el, { opacity: 0 }, { ...FADE, onComplete: () => remove(el) });
       return;
     }
+    void animate(el, { opacity: 0, transform: LEAVE_TO }, LEAVE);
     const closed = -(el.offsetHeight + (parseFloat(getComputedStyle(el).marginBottom) || 0));
     void animate(el, { marginTop: `${closed}px` }, CLOSE_UP).then(() => remove(el));
   };

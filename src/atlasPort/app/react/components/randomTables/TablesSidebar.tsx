@@ -1,10 +1,10 @@
-// Atlas source: src/app/react/components/randomTables/TablesSidebar.tsx @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/react/components/randomTables/TablesSidebar.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import React, { useEffect, useRef, useState } from 'react';
 import { FolderInput, Plus, Search } from 'lucide-react';
 import { Button } from '../../../packages/components/primitives/button';
 import { LabelTooltip } from '../../../packages/components/primitives/tooltip';
-import { lootBaseItemCount, needsBases, type LootBase } from '../../../loot/LootBaseReader';
+import { isLootBaseUnreadable, lootBaseItemCount, needsBases, type LootBase } from '../../../loot/LootBaseReader';
 import type { CollectionTable } from '../../../randomTables/TableNoteReader';
 import { LootViewChecks } from '../loot/LootSourceTree';
 import type { ContextMenuEntry } from '../../root/ContextMenuContext';
@@ -16,6 +16,7 @@ import { t } from '../../../../shims/i18n';
 function baseProblems(base: LootBase): string[] {
   if (base.missing) return [t('csm.loot.notFound')];
   if (needsBases(base)) return [t('csm.loot.basesOff')];
+  if (isLootBaseUnreadable(base)) return [t('loot.unreadable')];
   if (base.views.length === 0) return [t('csm.loot.noViews')];
   return [];
 }

@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/library/builtInTemplates.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/library/builtInTemplates.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /** The templates built into Atlas, read-only, looked up by id, each with a field for every part of its header (`templateHeader.ts`). */
 

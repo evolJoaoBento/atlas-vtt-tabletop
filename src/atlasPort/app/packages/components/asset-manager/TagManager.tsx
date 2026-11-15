@@ -1,6 +1,6 @@
-// Atlas source: src/app/packages/components/asset-manager/TagManager.tsx @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/packages/components/asset-manager/TagManager.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useId } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Search, Plus } from 'lucide-react';
 import { openContextMenuGlobal, type ContextMenuEntry } from '../../../react/root/ContextMenuContext';
@@ -10,6 +10,7 @@ import { isShortcutScopeActive } from '../../../utils/activeLeafGuard';
 import { CloseButton } from '../primitives/CloseButton';
 import { Button } from '../primitives/button';
 import { dialogOverlayMotion, useDialogWindowVariants } from '../primitives/dialogMotion';
+import { useFocusTrap } from '../primitives/useFocusTrap';
 import { ManagedItemRow, type ManagedItem } from './components/ManagedItemRow';
 import { TagManagerTabs, type TagManagerTab } from './components/TagManagerTabs';
 import { useItemSelection } from './hooks/useItemSelection';
@@ -51,6 +52,8 @@ const TagManager: React.FC<TagManagerProps> = ({
   const [error, setError] = useState('');
 
   const modalRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  useFocusTrap(modalRef, isOpen);
   const windowVariants = useDialogWindowVariants();
 
   const tagGroup = activeTab === 'collections' ? null : activeTab;
@@ -201,11 +204,14 @@ const TagManager: React.FC<TagManagerProps> = ({
             className="atlas-tag-manager-content"
             variants={windowVariants}
             tabIndex={-1}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="atlas-tag-manager-header">
-              <h2>{t('am.manage.title')}</h2>
+              <h2 id={titleId}>{t('am.manage.title')}</h2>
               <CloseButton onClick={onClose} />
             </div>
 
@@ -218,6 +224,7 @@ const TagManager: React.FC<TagManagerProps> = ({
                   <input
                     type="text"
                     placeholder={tagGroup ? t('am.manage.searchTags') : t('am.manage.searchCollections')}
+                    aria-label={tagGroup ? t('am.manage.searchTagsLabel') : t('am.manage.searchCollectionsLabel')}
                     value={searchValue}
                     onChange={(e) => setSearchValue(e.target.value)}
                     onKeyDown={(e) => {

@@ -1,4 +1,4 @@
-// Atlas source: src/app/services/recordFiles/recordLayout.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/services/recordFiles/recordLayout.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /** A record as stored, with every field a newer Atlas may have added. */
 export type StoredRecord = Record<string, unknown> & { id: string };

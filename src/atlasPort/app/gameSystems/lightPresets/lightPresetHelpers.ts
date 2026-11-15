@@ -1,4 +1,4 @@
-// Atlas source: src/app/gameSystems/lightPresets/lightPresetHelpers.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/gameSystems/lightPresets/lightPresetHelpers.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { DARKNESS_COLOR } from '../../lighting/lightPresets';
 import type { LightPresetDefinition, LightPresetUnit } from '../../../shims/atlasTypes';

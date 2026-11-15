@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/presets/cairn.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/presets/cairn.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 // SPDX-License-Identifier: CC-BY-SA-4.0 OR GPL-3.0-only
 

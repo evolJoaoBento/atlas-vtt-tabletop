@@ -1,4 +1,4 @@
-// Atlas source: src/app/packages/components/asset-manager/hooks/useSearchShortcut.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/packages/components/asset-manager/hooks/useSearchShortcut.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { useEffect, type RefObject } from 'react';
 import { Scope, type App } from 'obsidian';

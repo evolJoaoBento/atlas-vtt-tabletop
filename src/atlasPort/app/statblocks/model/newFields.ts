@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/model/newFields.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/model/newFields.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * The property a block gets when it is first named: its type follows the

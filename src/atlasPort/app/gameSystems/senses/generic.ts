@@ -1,4 +1,4 @@
-// Atlas source: src/app/gameSystems/senses/generic.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/gameSystems/senses/generic.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import type { SenseDefinition } from '../../../shims/atlasTypes';
 import { BY_LIGHT, IN_ANY_LIGHT, granting, seeing, sensing } from './senseHelpers';

@@ -1,4 +1,4 @@
-// Atlas source: src/app/ui/confirmDialog.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/ui/confirmDialog.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { createDialogShell } from './dialogShell';
 import { t } from '../../shims/i18n';
@@ -10,6 +10,10 @@ export interface ConfirmDialogOptions {
   confirmLabel: string;
   /** Styles the confirm button as a warning, for deletions and overwrites. */
   destructive?: boolean;
+  /** Lucide icon before the title. */
+  icon?: string | undefined;
+  /** Names listed under the first paragraph, such as the items a deletion takes. */
+  list?: string[] | undefined;
 }
 
 export interface DialogChoice<T> {
@@ -23,8 +27,15 @@ export interface ChoiceDialogOptions<T> {
   title: string;
   /** One paragraph per entry. */
   message: string[];
-  /** The buttons after Cancel, in order; the last one has focus. */
+  /**
+   * The buttons after Cancel, in order. The last one has focus, unless one of them deletes or
+   * overwrites (`warning`): then Cancel has it, so only a deliberate press destroys anything.
+   */
   choices: DialogChoice<T>[];
+  /** Lucide icon before the title. */
+  icon?: string | undefined;
+  /** Names listed under the first paragraph, such as the items a deletion takes. */
+  list?: string[] | undefined;
 }
 
 /**
@@ -37,12 +48,16 @@ export function chooseAction<T>(options: ChoiceDialogOptions<T>): Promise<T | nu
       root.remove();
       resolve(value);
     };
-    // Atlas 0.14: a header row with a close button, the paragraphs in the body, the buttons in the footer.
-    const { root, dialog, footer } = createDialogShell(options.title, { onDismiss: () => close(null) });
+
+    const { root, dialog, footer } = createDialogShell(options.title, { icon: options.icon, onDismiss: () => close(null) });
     dialog.parentElement?.addClass('atlas-text-dialog--confirm');
-    for (const paragraph of options.message) {
+    options.message.forEach((paragraph, index) => {
       dialog.createEl('p', { cls: 'atlas-text-dialog__message', text: paragraph });
-    }
+      if (index === 0 && options.list?.length) {
+        const list = dialog.createEl('ul', { cls: 'atlas-text-dialog__list' });
+        for (const name of options.list) list.createEl('li', { text: name });
+      }
+    });
 
     const cancel = footer.createEl('button', { text: t('common.cancel') });
     cancel.addEventListener('click', () => close(null));
@@ -63,7 +78,8 @@ export function chooseAction<T>(options: ChoiceDialogOptions<T>): Promise<T | nu
       }
     });
 
-    (options.choices.some((choice) => choice.style === 'warning') ? cancel : buttons[buttons.length - 1])?.focus();
+    const destructive = options.choices.some((choice) => choice.style === 'warning');
+    (destructive ? cancel : buttons[buttons.length - 1])?.focus();
   });
 }
 
@@ -75,6 +91,8 @@ export async function confirmAction(options: ConfirmDialogOptions): Promise<bool
   const confirmed = await chooseAction({
     title: options.title,
     message: options.message,
+    icon: options.icon,
+    list: options.list,
     choices: [{ label: options.confirmLabel, value: true, style: options.destructive ? 'warning' : 'cta' }],
   });
   return confirmed === true;

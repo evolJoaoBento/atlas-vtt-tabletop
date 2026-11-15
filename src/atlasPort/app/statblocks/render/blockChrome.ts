@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/render/blockChrome.ts @ 0.12.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/render/blockChrome.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { createContext, useContext, type DOMAttributes, type ReactNode } from 'react';
 import type { FieldKey, MetricBlock, TemplateBlock } from '../model/templateTypes';
