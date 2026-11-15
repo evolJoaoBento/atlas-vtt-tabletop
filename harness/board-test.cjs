@@ -1468,9 +1468,9 @@ server.listen(0, async () => {
       await picker.locator('[aria-label="Decrease modifier"]').click();
       await d6.click({ button: 'right' });
       await wait(300);
-      // The d6's colours: two in the pack's own; a red one added, and a blue one added and taken back.
+      // The d6's colours (Atlas's dice set colours): two in the pack's own; a crimson one added, and a blue one added and taken back.
       const colours = page.locator('.atlas-tabletop-dice-swatches');
-      await colours.locator('[aria-label="Add a Red d6"]').click();
+      await colours.locator('[aria-label="Add a Crimson d6"]').click();
       await colours.locator('[aria-label="Add a Blue d6"]').click();
       await colours.locator('[aria-label="Take a Blue d6 back"]').click();
       await wait(600);
@@ -1480,8 +1480,8 @@ server.listen(0, async () => {
         cell.querySelector('.atlas-dice-tray__count')?.textContent ?? '0',
         cell.querySelector('.atlas-dice-tray__grip') !== null,
       ]));
-      check('right-click on a die shows its colours as the dice are shown: a badge of how many, a grip under those picked', JSON.stringify(counted) === JSON.stringify([["The pack's colour", '2', true], ['Red', '1', true], ['Blue', '0', false]]), counted);
-      await colours.locator('[aria-label="Take a Red d6 back"]').click();
+      check('right-click on a die shows its colours as the dice are shown: a badge of how many, a grip under those picked', JSON.stringify(counted) === JSON.stringify([["The pack's colour", '2', true], ['Crimson', '1', true], ['Orange', '0', false]]), counted);
+      await colours.locator('[aria-label="Take a Crimson d6 back"]').click();
       const pictures = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-dice-picker .atlas-dice-tray__face img')].filter((img) => img.src.startsWith('data:image/png')).length);
       check('each die on the tray is a picture of the pack\'s die', pictures === 7, pictures);
       const asked = await page.evaluate(() => ({ request: window.boardTest.boardDice.picker.request(), formula: document.querySelector('.atlas-dice-tray__formula').textContent, badge: document.querySelector('[data-die="d6"] .atlas-dice-tray__count')?.textContent }));
