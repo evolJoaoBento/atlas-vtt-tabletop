@@ -13,7 +13,7 @@
     "name": "sight follows Atlas: on a lit scene the board's players' picture is Atlas's own sight from the tab that hosts the map; the GM's board shows everything, also on a board made anew by a change of quality; a token moved into sight shows",
     "pass": true,
     "evidence": {
-      "readyMs": 431,
+      "readyMs": 429,
       "lit": {
         "kind": "ready",
         "sight": [
@@ -42,7 +42,7 @@
           "blocks": 8400
         }
       },
-      "movedMs": 106,
+      "movedMs": 110,
       "moved": {
         "player": {
           "seer": true,

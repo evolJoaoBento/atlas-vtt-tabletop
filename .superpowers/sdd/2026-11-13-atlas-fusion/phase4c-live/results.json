@@ -75,7 +75,7 @@
     "evidence": {
       "refused": null,
       "backup": "Tabletop backups/2026-11-15",
-      "took": 3038,
+      "took": 3229,
       "outcome": {
         "base": "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Base.atlasmap",
         "moved": true,
@@ -94,9 +94,9 @@
       "presented": {
         "set": true,
         "after": {
-          "tabId": "tab-1794704716012-vkt0uw",
+          "tabId": "tab-1794714656137-c1846k",
           "filePath": "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Base.atlasmap",
-          "levelId": "level_mwh4up0s_shf21q"
+          "levelId": "level_mwharqv6_cmqmge"
         }
       },
       "undoLeft": false,
@@ -117,21 +117,21 @@
       },
       "levels": [
         {
-          "id": "level_mwh4up0s_6sqkmu",
+          "id": "level_mwharqv6_uhifsf",
           "name": "Stack Lower",
           "bottom": -10,
           "top": 0,
           "background": "atlas-vtt/assets/smugglers-cove-v8.webm"
         },
         {
-          "id": "level_mwh4up0s_shf21q",
+          "id": "level_mwharqv6_cmqmge",
           "name": "Stack Base",
           "bottom": 0,
           "top": 10,
           "background": "atlas-vtt/assets/smugglers-cove-v8.webm"
         },
         {
-          "id": "level_mwh4up0s_c0jn79",
+          "id": "level_mwharqv6_f6jao5",
           "name": "Stack Upper",
           "bottom": 15,
           "top": 25,
@@ -139,7 +139,7 @@
         }
       ],
       "alignment": {
-        "level_mwh4up0s_c0jn79": {
+        "level_mwharqv6_f6jao5": {
           "offset": {
             "x": 200,
             "y": 100
@@ -151,7 +151,7 @@
           }
         }
       },
-      "viewed": "level_mwh4up0s_shf21q",
+      "viewed": "level_mwharqv6_cmqmge",
       "background": "atlas-vtt/assets/smugglers-cove-v8.webm",
       "upper": {
         "counts": {
@@ -202,24 +202,24 @@
         "tokens": [
           [
             "tok_1794200000009_kestrel00",
-            "level_mwh4up0s_shf21q"
+            "level_mwharqv6_cmqmge"
           ],
           [
             "tok_1794200000010_mara00000",
-            "level_mwh4up0s_shf21q"
+            "level_mwharqv6_cmqmge"
           ],
           [
             "tok_1794200000011_goblin000",
-            "level_mwh4up0s_shf21q"
+            "level_mwharqv6_cmqmge"
           ]
         ]
       },
       "file": {
         "version": 5,
         "levels": [
-          "level_mwh4up0s_6sqkmu",
-          "level_mwh4up0s_shf21q",
-          "level_mwh4up0s_c0jn79"
+          "level_mwharqv6_uhifsf",
+          "level_mwharqv6_cmqmge",
+          "level_mwharqv6_f6jao5"
         ],
         "tokens": 8
       },
@@ -229,13 +229,13 @@
         "style": "standee",
         "mini": "atlas-vtt/assets/minis/Goblin Raider.glb",
         "prop": {
-          "level": "level_mwh4up0s_c0jn79",
+          "level": "level_mwharqv6_f6jao5",
           "moved": true
         },
         "hidden": true,
         "shot": {
           "mapPath": "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Base.atlasmap",
-          "level": "level_mwh4up0s_c0jn79",
+          "level": "level_mwharqv6_f6jao5",
           "eye": {
             "x": 700.01,
             "y": 600.01,
@@ -249,7 +249,7 @@
         },
         "baseShot": {
           "mapPath": "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Base.atlasmap",
-          "level": "level_mwh4up0s_shf21q"
+          "level": "level_mwharqv6_cmqmge"
         },
         "memberKeeps": {
           "style": "standee",
@@ -271,23 +271,23 @@
     "pass": true,
     "evidence": {
       "levels": [
-        "level_mwh4up0s_6sqkmu",
-        "level_mwh4up0s_shf21q",
-        "level_mwh4up0s_c0jn79"
+        "level_mwharqv6_uhifsf",
+        "level_mwharqv6_cmqmge",
+        "level_mwharqv6_f6jao5"
       ],
-      "shown": "level_mwh4up0s_shf21q",
+      "shown": "level_mwharqv6_cmqmge",
       "want": {
-        "base": "level_mwh4up0s_shf21q",
-        "upper": "level_mwh4up0s_c0jn79",
-        "lower": "level_mwh4up0s_6sqkmu"
+        "base": "level_mwharqv6_cmqmge",
+        "upper": "level_mwharqv6_f6jao5",
+        "lower": "level_mwharqv6_uhifsf"
       },
       "layers": [
         [
-          "atlas-level:level_mwh4up0s_6sqkmu",
+          "atlas-level:level_mwharqv6_uhifsf",
           -2
         ],
         [
-          "atlas-level:level_mwh4up0s_c0jn79",
+          "atlas-level:level_mwharqv6_f6jao5",
           3
         ]
       ],
@@ -326,30 +326,30 @@
     "evidence": {
       "shot": {
         "mapPath": "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Base.atlasmap",
-        "level": "level_mwh4up0s_c0jn79"
+        "level": "level_mwharqv6_f6jao5"
       },
       "before": {
-        "place": "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Base.atlasmap\nlevel_mwh4up0s_shf21q",
+        "place": "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Base.atlasmap\nlevel_mwharqv6_cmqmge",
         "at": false,
-        "level": "level_mwh4up0s_shf21q"
+        "level": "level_mwharqv6_cmqmge"
       },
       "shown": true,
       "there": {
-        "place": "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Base.atlasmap\nlevel_mwh4up0s_c0jn79",
+        "place": "atlas-vtt/collections/The Gilded Flagon/scenes/Stack Base.atlasmap\nlevel_mwharqv6_f6jao5",
         "at": true,
-        "level": "level_mwh4up0s_c0jn79",
-        "atlas": "level_mwh4up0s_c0jn79"
+        "level": "level_mwharqv6_f6jao5",
+        "atlas": "level_mwharqv6_f6jao5"
       },
       "back": true,
       "home": {
-        "level": "level_mwh4up0s_shf21q",
+        "level": "level_mwharqv6_cmqmge",
         "at": true,
         "atMap": false
       },
       "levels": {
-        "base": "level_mwh4up0s_shf21q",
-        "upper": "level_mwh4up0s_c0jn79",
-        "lower": "level_mwh4up0s_6sqkmu"
+        "base": "level_mwharqv6_cmqmge",
+        "upper": "level_mwharqv6_f6jao5",
+        "lower": "level_mwharqv6_uhifsf"
       }
     }
   },
@@ -375,11 +375,11 @@
       ],
       "cell": 100,
       "levels": [
-        "level_mwh4v1rz_gqbe1p",
-        "level_mwh4v1rz_d7bcuv"
+        "level_mwhas3xz_9pcpaw",
+        "level_mwhas3xz_u9z2m2"
       ],
       "alignments": {
-        "level_mwh4v1rz_gqbe1p": {
+        "level_mwhas3xz_9pcpaw": {
           "offset": {
             "x": 300,
             "y": 0
@@ -390,7 +390,7 @@
             "y": 1
           }
         },
-        "level_mwh4v1rz_d7bcuv": {
+        "level_mwhas3xz_u9z2m2": {
           "offset": {
             "x": 50,
             "y": 0

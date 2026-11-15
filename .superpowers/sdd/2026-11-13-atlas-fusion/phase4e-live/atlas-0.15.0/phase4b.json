@@ -1,0 +1,160 @@
+[
+  {
+    "step": 0,
+    "name": "Phases 1 to 4A's live checks again: nothing regressed",
+    "pass": true,
+    "evidence": {
+      "summary": "6/6 steps passed",
+      "failed": []
+    }
+  },
+  {
+    "step": 37,
+    "name": "water painted before water was Atlas's is moved to Atlas's liquids on its own: a backup first, the brush's liquids with their motion in the store and the file, nothing left in Tabletop's data",
+    "pass": true,
+    "evidence": {
+      "hadLegacy": true,
+      "moved": 0,
+      "shown": 0,
+      "stepsAfter": -47,
+      "liquids": [
+        {
+          "liquid": "water",
+          "corners": 4,
+          "surface": "#336699",
+          "flow": {
+            "x": 1,
+            "y": 0
+          },
+          "motion": {
+            "kind": "flow",
+            "amount": 0.4,
+            "direction": 90,
+            "tint": "#336699",
+            "clarity": 0.5
+          }
+        },
+        {
+          "liquid": "water",
+          "corners": 4,
+          "surface": "#336699",
+          "flow": {
+            "x": 1,
+            "y": 0
+          },
+          "motion": {
+            "kind": "flow",
+            "amount": 0.4,
+            "direction": 90,
+            "tint": "#336699",
+            "clarity": 0.5
+          }
+        }
+      ],
+      "inFile": 2,
+      "backup": true,
+      "waterLeft": false,
+      "waterMoved": true,
+      "notice": "Tabletop: the water painted on Probe Cellar is now Atlas's own (2 liquids); backup in Tabletop backups/2026-11-15/"
+    }
+  },
+  {
+    "step": 38,
+    "name": "a finished stroke is Atlas's liquids: the brush's water in the store and the map file, one step of Atlas's undo, drawn by the board; Atlas's undo dries it",
+    "pass": true,
+    "evidence": {
+      "written": 3,
+      "stepsAfter": 1,
+      "drawn": 0,
+      "corners": 4,
+      "level": "level_probe_ground",
+      "shownLevel": "level_probe_ground",
+      "two": 2,
+      "stepsTwo": 2,
+      "inFile": 2,
+      "undone": 0,
+      "dry": 1,
+      "inData": false
+    }
+  },
+  {
+    "step": 39,
+    "name": "a liquid made in Atlas is drawn on the board and left as it is: by a stroke that erases over it, and by a change of the water's motion, which re-writes only the brush's water",
+    "pass": true,
+    "evidence": {
+      "drawn": 0,
+      "painted": 1,
+      "still": true,
+      "stillDrawn": 0,
+      "notDoubled": true,
+      "retinted": 547,
+      "motionSteps": 1,
+      "lavaSame": true,
+      "flowGone": true
+    }
+  },
+  {
+    "step": 40,
+    "name": "on a map Atlas does not hold water is refused: nothing is written, no map file changes",
+    "pass": true,
+    "evidence": {
+      "refused": [
+        "NotHeldError",
+        "NotHeldError"
+      ],
+      "changed": [],
+      "liquids": 0,
+      "held": true
+    }
+  },
+  {
+    "step": 42,
+    "name": "strokes that follow each other before the map is read again replace the brush's water, never double it; a motion chosen just before a stroke goes with the stroke and is written once",
+    "pass": true,
+    "evidence": {
+      "atOnce": 1,
+      "stepsAfter": 2,
+      "drawnAtOnce": true,
+      "settled": 1,
+      "drawn": true,
+      "motionSteps": 1,
+      "tinted": true,
+      "chosenLeft": 0,
+      "waiting": false
+    }
+  },
+  {
+    "step": 43,
+    "name": "old painted water is moved only where it can be read: not while another level than the first is shown (it moves once the first is), and a mask of another size stays in Tabletop's data, with no backup and nothing written",
+    "pass": true,
+    "evidence": {
+      "levels": 2,
+      "up": 1035,
+      "waited": {
+        "legacy": true,
+        "brush": 0
+      },
+      "down": 549,
+      "moved": 229,
+      "onFirst": true,
+      "stayed": {
+        "known": true,
+        "legacy": true,
+        "liquids": 0,
+        "backups": 0
+      }
+    }
+  },
+  {
+    "step": 41,
+    "name": "no console error from Tabletop or Connect across the run; the cellar is left with no brush water, and Tabletop's data keeps none for it",
+    "pass": true,
+    "evidence": {
+      "errors": [],
+      "left": {
+        "brush": 0,
+        "inData": false
+      }
+    }
+  }
+]

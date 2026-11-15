@@ -24,7 +24,7 @@
       "leaves": 1,
       "hidden": true,
       "boardActive": true,
-      "heldMs": 511,
+      "heldMs": 509,
       "mark": {
         "openedBy": "tabletop-for-atlas",
         "claims": [
@@ -51,7 +51,7 @@
     "name": "the host follows the focused board; the other board is view only; Edit here brings it back",
     "pass": true,
     "evidence": {
-      "coveMs": 0,
+      "coveMs": 1,
       "coveActive": true,
       "leaves": 1,
       "cellarBanner": {
@@ -59,7 +59,7 @@
         "button": "Edit here"
       },
       "coveBanner": null,
-      "cellarMs": 266,
+      "cellarMs": 278,
       "cellarActive": true,
       "leavesAfter": 1,
       "cellarBannerAfter": null,
@@ -75,7 +75,7 @@
     "name": "an edit on the held board saves through Atlas; on the other board it is refused and no file is written",
     "pass": true,
     "evidence": {
-      "savedMs": 571,
+      "savedMs": 575,
       "moved": true,
       "refused": {
         "name": "NotHeldError",
@@ -89,7 +89,7 @@
     "name": "a board in a popout: the Atlas tab stays in the main window, the popout board stays active",
     "pass": true,
     "evidence": {
-      "ms": 0,
+      "ms": 151,
       "leaves": 1,
       "atlasInMain": true,
       "boardInPopout": true,
@@ -110,7 +110,7 @@
           "button": "Reopen"
         }
       },
-      "ms": 577,
+      "ms": 547,
       "leaves": 1,
       "banner": null,
       "boardActive": true
@@ -146,7 +146,7 @@
     "name": "rooms: Atlas 0.15 converts them, the old wall settings move with a backup onto Atlas's own walls, no doubled outline",
     "pass": true,
     "evidence": {
-      "ms": 1,
+      "ms": 0,
       "fileHasRooms": false,
       "roomWalls": 10,
       "chains": [
