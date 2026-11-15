@@ -102,6 +102,13 @@ async function step(o, n, name, run) {
   await step(o, 3, 'host from nothing: one hidden Atlas tab, the board in front', async () => {
     const e = await o.ev(`const L = window.__L;
       await L.closeAll('atlas-tabletop-board'); await L.closeAll('atlas-vtt');
+      // A pop-out window the vault's saved layout brings back is closed: the board opens in the main window, where
+      // Atlas's host tab lies hidden behind it (a board in a pop-out leaves the host tab shown in the main window).
+      const ws = app.workspace;
+      const popped = []; ws.iterateAllLeaves((l) => { const root = l.getRoot(); if (root !== ws.rootSplit && root !== ws.leftSplit && root !== ws.rightSplit) popped.push(l); });
+      for (const l of popped) l.detach();
+      const main = ws.getMostRecentLeaf(ws.rootSplit); if (main) ws.setActiveLeaf(main, { focus: true });
+      await L.sleep(500);
       const before = L.atlasLeaves().length;
       const board = await L.openBoard(L.CELLAR);
       const ms = await L.until(() => L.held(L.CELLAR));
