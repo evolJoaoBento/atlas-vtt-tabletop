@@ -8,12 +8,12 @@
  */
 
 import { GROUND_NOISES, MAX_MARGIN, MAX_TILE, type GroundMode, type GroundSettings } from './ground';
+import type { WaterMotion } from './water';
 import { setSvg } from '../svg';
 import { atlasMeasureIcon, atlasToolIcon, historyIcon, modeIcon, waterIcon } from './atlasToolIcons';
 import { WATER_MOTION_KINDS, WATER_TINTS, type WaterMotionKind } from './water';
 import { DICES_SVG } from '../dice/dicePicker';
 import type { LightingChoice } from './look';
-import type { WaterMotion } from './water';
 import { DEFAULT_EDGES, DEFAULT_SEE_THROUGH_SIZE, MAX_SEE_THROUGH_SIZE, MIN_SEE_THROUGH_SIZE, readSeeThroughSize, DEFAULT_LAYER_LOOK, type LayerLook, type WallEdges } from './quality';
 import { t } from '../i18n';
 import { LASER_COLORS, LASER_COLOR_HINT, LASER_SIZE_MAX, LASER_SIZE_MIN, type LaserSettings } from './laser';
@@ -263,7 +263,8 @@ export class BoardToolbar {
   private readonly paintGroup: HTMLElement;
   private readonly shapeGroup: HTMLElement;
   private groundUi: {
-    section: HTMLElement; modes: Array<{ value: GroundMode; button: HTMLButtonElement }>; horizonRows: HTMLElement[];
+    section: HTMLElement; modes: Array<{ value: GroundMode; button: HTMLButtonElement }>; rows: Array<{ row: HTMLElement; modes: GroundMode[] }>;
+    water: { kind: HTMLSelectElement; amount: HTMLInputElement; direction: HTMLInputElement; directionRow: HTMLElement; clarity: HTMLInputElement; tint: HTMLInputElement };
     material: HTMLSelectElement; noise: HTMLSelectElement; strength: HTMLInputElement; strengthValue: HTMLElement;
     fog: HTMLInputElement; fogValue: HTMLElement; margin: HTMLInputElement; marginValue: HTMLElement; tile: HTMLInputElement; tileValue: HTMLElement;
   } | null = null;
@@ -789,23 +790,24 @@ export class BoardToolbar {
       choices.setAttribute('role', 'group');
       choices.setAttribute('aria-label', 'Ground round the map');
       const modes: Array<{ value: GroundMode; button: HTMLButtonElement }> = [];
-      for (const [value, label, hint] of [['board', 'Map board', 'The map on its table, framed.'], ['horizon', 'Horizon plane', 'The map lies on a plane running to the horizon, tiled with a material and shaped by a pattern past the board.']] as const) {
+      for (const [value, label, hint] of [['board', 'Map board', 'The map on its table, framed.'], ['horizon', 'Horizon plane', 'The map lies on a plane running to the horizon, tiled with a material and shaped by a pattern past the board.'], ['water', 'Water plane', 'The map lies on water running to the horizon, moving as painted water does.']] as const) {
         const button = el('button', 'atlas-tabletop-palette__choice', choices, label);
         button.type = 'button';
         button.title = hint;
         button.addEventListener('click', () => change({ mode: value }));
         modes.push({ value, button });
       }
-      const horizonRows: HTMLElement[] = [];
-      const selectRow = (label: string, aria: string): HTMLSelectElement => {
+      const rows: Array<{ row: HTMLElement; modes: GroundMode[] }> = [];
+      const ON_LAND: GroundMode[] = ['horizon'], ON_WATER: GroundMode[] = ['water'], BEYOND: GroundMode[] = ['horizon', 'water'], ALWAYS: GroundMode[] = ['board', 'horizon', 'water'];
+      const selectRow = (label: string, aria: string, modes: GroundMode[]): HTMLSelectElement => {
         const row = el('label', 'atlas-tabletop-palette__field', section);
         el('span', 'atlas-tabletop-palette__label', row, label);
         const select = el('select', 'dropdown atlas-tabletop-palette__select', row);
         select.setAttribute('aria-label', aria);
-        horizonRows.push(row);
+        rows.push({ row, modes });
         return select;
       };
-      const rangeRow = (label: string, aria: string, max: number, horizon: boolean): { input: HTMLInputElement; value: HTMLElement } => {
+      const rangeRow = (label: string, aria: string, max: number, modes: GroundMode[]): { input: HTMLInputElement; value: HTMLElement } => {
         const row = el('label', 'atlas-tabletop-palette__field', section);
         el('span', 'atlas-tabletop-palette__label', row, label);
         const input = el('input', 'atlas-tabletop-palette__range', row);
@@ -815,10 +817,10 @@ export class BoardToolbar {
         input.step = '1';
         input.setAttribute('aria-label', aria);
         const value = el('span', 'atlas-tabletop-palette__unit', row);
-        if (horizon) horizonRows.push(row);
+        rows.push({ row, modes });
         return { input, value };
       };
-      const material = selectRow('Ground material', 'Material the ground is tiled with');
+      const material = selectRow('Ground material', 'Material the ground is tiled with', ON_LAND);
       material.addEventListener('change', () => {
         const now = this.actions.ground?.();
         if (!now) return;
@@ -826,24 +828,42 @@ export class BoardToolbar {
         this.actions.setGround?.(material.value ? { ...rest, material: material.value } : rest);
         this.fillGround();
       });
-      const tile = rangeRow('Tile size', 'Squares one tile of the ground material spans', MAX_TILE, true);
+      const tile = rangeRow('Tile size', 'Squares one tile of the ground material spans', MAX_TILE, ON_LAND);
       tile.input.min = '1';
       tile.input.addEventListener('change', () => change({ tile: Number(tile.input.value) }));
       tile.input.addEventListener('input', () => { tile.value.textContent = `${tile.input.value} sq`; });
-      const noise = selectRow('Pattern', 'Height pattern past the board');
+      const noise = selectRow('Pattern', 'Height pattern past the board', ON_LAND);
       for (const one of GROUND_NOISES) { const option = el('option', '', noise, one.label); option.value = one.value; }
       noise.addEventListener('change', () => change({ noise: noise.value as GroundSettings['noise'] }));
-      const strength = rangeRow('Pattern strength', 'Height pattern strength', 100, true);
+      const strength = rangeRow('Pattern strength', 'Height pattern strength', 100, ON_LAND);
+      // The water: the same settings as painted water.
+      const waterChange = (edit: Partial<WaterMotion>): void => { const now = this.actions.ground?.(); if (now) this.actions.setGround?.({ ...now, water: { ...now.water, ...edit } }); this.fillGround(); };
+      const kind = selectRow('Water moves', 'How the water moves', ON_WATER);
+      for (const [value, label] of [['still', 'Still'], ['ripples', 'Ripples'], ['flow', 'Flow'], ['waves', 'Waves']] as const) { const option = el('option', '', kind, label); option.value = value; }
+      kind.addEventListener('change', () => waterChange({ kind: kind.value as WaterMotion['kind'] }));
+      const amount = rangeRow('Water movement', 'How much the water moves', 100, ON_WATER);
+      amount.input.addEventListener('change', () => waterChange({ amount: Number(amount.input.value) / 100 }));
+      const direction = rangeRow('Water direction', 'Where the water runs, in degrees', 359, ON_WATER);
+      direction.input.addEventListener('change', () => waterChange({ direction: Number(direction.input.value) }));
+      const clarity = rangeRow('Water clarity', 'How clear the water is', 100, ON_WATER);
+      clarity.input.addEventListener('change', () => waterChange({ clarity: Number(clarity.input.value) / 100 }));
+      const tintRow = el('label', 'atlas-tabletop-palette__field', section);
+      el('span', 'atlas-tabletop-palette__label', tintRow, 'Water colour');
+      const tint = el('input', 'atlas-tabletop-palette__color', tintRow);
+      tint.type = 'color';
+      tint.setAttribute('aria-label', 'Water colour');
+      tint.addEventListener('change', () => waterChange({ tint: tint.value.toLowerCase() }));
+      rows.push({ row: tintRow, modes: ON_WATER });
       strength.input.addEventListener('change', () => change({ strength: Number(strength.input.value) / 100 }));
       strength.input.addEventListener('input', () => { strength.value.textContent = `${strength.input.value}%`; });
-      const fogRow = rangeRow('Distance fog', 'Distance fog', 100, true);
+      const fogRow = rangeRow('Distance fog', 'Distance fog', 100, BEYOND);
       fogRow.input.addEventListener('change', () => change({ fog: Number(fogRow.input.value) }));
       fogRow.input.addEventListener('input', () => { fogRow.value.textContent = fogRow.input.value === '0' ? 'off' : fogRow.input.value; });
-      const margin = rangeRow('Extra board', 'Extra board round the map, in squares', MAX_MARGIN, false);
+      const margin = rangeRow('Extra board', 'Extra board round the map, in squares', MAX_MARGIN, ALWAYS);
       margin.input.addEventListener('change', () => change({ margin: Number(margin.input.value) }));
       margin.input.addEventListener('input', () => { margin.value.textContent = `${margin.input.value} sq`; });
       margin.input.closest('label')!.title = 'Room round the map where minis can stand, in squares each way.';
-      this.groundUi = { section, modes, horizonRows, material, noise, strength: strength.input, strengthValue: strength.value, fog: fogRow.input, fogValue: fogRow.value, margin: margin.input, marginValue: margin.value, tile: tile.input, tileValue: tile.value };
+      this.groundUi = { section, modes, rows, water: { kind, amount: amount.input, direction: direction.input, directionRow: direction.input.closest('label')!, clarity: clarity.input, tint }, material, noise, strength: strength.input, strengthValue: strength.value, fog: fogRow.input, fogValue: fogRow.value, margin: margin.input, marginValue: margin.value, tile: tile.input, tileValue: tile.value };
     }
     const edges = el('div', 'atlas-tabletop-palette__field', fog);
     el('span', 'atlas-tabletop-palette__label', edges, 'Wall edges');
@@ -1508,7 +1528,13 @@ export class BoardToolbar {
     const ground = this.actions.ground?.();
     if (!ui || !ground) return;
     for (const { value, button } of ui.modes) { button.classList.toggle('is-active', value === ground.mode); button.setAttribute('aria-pressed', String(value === ground.mode)); }
-    for (const row of ui.horizonRows) row.hidden = ground.mode !== 'horizon';
+    for (const { row, modes } of ui.rows) row.hidden = !modes.includes(ground.mode);
+    ui.water.kind.value = ground.water.kind;
+    ui.water.amount.value = String(Math.round(ground.water.amount * 100));
+    ui.water.direction.value = String(Math.round(ground.water.direction));
+    if (ground.mode === 'water') ui.water.directionRow.hidden = ground.water.kind !== 'flow' && ground.water.kind !== 'waves';
+    ui.water.clarity.value = String(Math.round(ground.water.clarity * 100));
+    ui.water.tint.value = ground.water.tint;
     const doc = ui.material.ownerDocument;
     ui.material.replaceChildren();
     const plain = doc.createElement('option');

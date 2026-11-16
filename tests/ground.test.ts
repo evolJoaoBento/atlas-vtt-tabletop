@@ -9,8 +9,10 @@ test('ground settings read tolerantly: defaults for what is missing, numbers kep
   assert.deepEqual(readGround(undefined), DEFAULT_GROUND);
   assert.deepEqual(readGround('junk'), DEFAULT_GROUND);
   const read = readGround({ mode: 'horizon', material: 'atlas-vtt/assets/materials/grass', noise: 'dunes', strength: 3, fog: -5, margin: 250, tile: 20 });
-  assert.deepEqual(read, { mode: 'horizon', material: 'atlas-vtt/assets/materials/grass', noise: 'dunes', strength: 1, fog: 0, margin: 100, tile: 8 });
+  assert.deepEqual(read, { mode: 'horizon', material: 'atlas-vtt/assets/materials/grass', noise: 'dunes', strength: 1, fog: 0, margin: 100, tile: 8, water: DEFAULT_GROUND.water });
   assert.equal(readGround({ tile: 0 }).tile, 1);
+  const sea = readGround({ mode: 'water', water: { kind: 'waves', amount: 0.9, direction: 450, tint: '#123F63', clarity: 2 } });
+  assert.deepEqual([sea.mode, sea.water], ['water', { kind: 'waves', amount: 0.9, direction: 90, tint: '#123f63', clarity: 1 }]);
   assert.equal(readGround({ mode: 'sky', noise: 'cliffs' }).mode, 'board');
   assert.equal(readGround({ mode: 'sky', noise: 'cliffs' }).noise, DEFAULT_GROUND.noise);
   assert.equal(readGround({ margin: 12.6 }).margin, 13);

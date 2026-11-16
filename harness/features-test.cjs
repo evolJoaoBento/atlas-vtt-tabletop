@@ -5470,7 +5470,7 @@ feature('shapes: painted and stood on', async ({ page }) => {
 
 feature('ground', async ({ page, shot }) => {
   // Board settings, Ground: the plane to the horizon (no table), its fog, extra board for minis, and the table grown by it.
-  await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2 }; board.refresh(); });
+  await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2, water: { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 } }; board.refresh(); });
   await page.getByRole('button', { name: 'Board settings' }).click();
   await wait(200);
   await page.getByRole('button', { name: 'Horizon plane' }).click();
@@ -5503,12 +5503,24 @@ feature('ground', async ({ page, shot }) => {
   await page.evaluate(() => { const { board } = window.boardTest; board.camera.goal.pitch = 0.45; board.camera.goal.distance *= 1.6; board.wake(true); });
   await wait(1200);
   await shot('ground-horizon');
+  // Water plane: painted water's surface to the horizon, with the painted water's settings; no table, no ground plane.
+  await page.evaluate(() => { const { board } = window.boardTest; board.toolbar.open?.(); });
+  await page.getByRole('button', { name: 'Water plane' }).click();
+  await wait(600);
+  await page.evaluate(() => { const select = document.querySelector('[aria-label="How the water moves"]'); select.value = 'waves'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+  await wait(600);
+  const sea = await page.evaluate(() => { const { board, groundState } = window.boardTest; return { mode: groundState.value.mode, kind: groundState.value.water.kind, sea: board.seaPlane.object3d.parent === board.scene, ground: board.groundPlane.object3d.parent !== null, table: board.surface.table.visible, rows: !document.querySelector('[aria-label="How clear the water is"]').closest('label').hidden && document.querySelector('[aria-label="Height pattern past the board"]').closest('label').hidden }; });
+  check('ground: Water plane lays the map on water to the horizon, set as painted water is', sea.mode === 'water' && sea.kind === 'waves' && sea.sea && !sea.ground && sea.table === false && sea.rows, JSON.stringify(sea));
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { const { board } = window.boardTest; board.camera.goal.pitch = 0.4; board.wake(true); });
+  await wait(1500);
+  await shot('ground-water');
   // Back to the map board, with the extra board: the table grows round it.
   await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { ...groundState.value, mode: 'board', margin: 10 }; board.refresh(); });
   await wait(400);
   const table = await page.evaluate(() => { const { board } = window.boardTest; const s = board.surface; s.frame.geometry.computeBoundingBox(); const box = s.frame.geometry.boundingBox; return { frame: box.max.x - box.min.x, width: s.width, cell: board.map.grid.size, mat: s.mat?.visible === true, table: s.table.visible, plane: board.groundPlane.object3d.parent !== null }; });
   check('ground: on the map board the table and its mat grow by the extra board', table.table && table.mat && !table.plane && table.frame > table.width + 20 * table.cell - 1, JSON.stringify(table));
-  await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2 }; board.refresh(); });
+  await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2, water: { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 } }; board.refresh(); });
 });
 
 server.listen(0, async () => {

@@ -5,11 +5,13 @@
  * extra board) stays level; past its edge the ground eases into the pattern. Pure, so it is tested without a board.
  */
 
-export type GroundMode = 'board' | 'horizon';
+import { DEFAULT_WATER_MOTION, readWaterMotion, type WaterMotion } from './water';
+
+export type GroundMode = 'board' | 'horizon' | 'water';
 export type GroundNoise = 'flat' | 'gentle' | 'rolling' | 'rough' | 'dunes';
 
 export interface GroundSettings {
-  /** The map on its table (frame and floor round it), or a plane to the horizon. */
+  /** The map on its table (frame and floor round it), a plane to the horizon, or water to the horizon. */
   mode: GroundMode;
   /** Vault folder of the material the plane is tiled with; unset: plain ground. */
   material?: string;
@@ -22,9 +24,11 @@ export interface GroundSettings {
   margin: number;
   /** How many squares one tile of the ground's material spans (1 to 8). */
   tile: number;
+  /** The water to the horizon (water mode): how it moves and looks, as painted water does. */
+  water: WaterMotion;
 }
 
-export const DEFAULT_GROUND: GroundSettings = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2 };
+export const DEFAULT_GROUND: GroundSettings = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2, water: { ...DEFAULT_WATER_MOTION } };
 export const MAX_TILE = 8;
 export const GROUND_NOISES: readonly { value: GroundNoise; label: string }[] = [
   { value: 'flat', label: 'Flat' }, { value: 'gentle', label: 'Gentle hills' }, { value: 'rolling', label: 'Rolling hills' },
@@ -40,15 +44,16 @@ const isObj = (value: unknown): value is Record<string, unknown> => typeof value
 const num = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 
 export function readGround(raw: unknown): GroundSettings {
-  if (!isObj(raw)) return { ...DEFAULT_GROUND };
+  if (!isObj(raw)) return { ...DEFAULT_GROUND, water: { ...DEFAULT_GROUND.water } };
   return {
-    mode: raw.mode === 'horizon' ? 'horizon' : 'board',
+    mode: raw.mode === 'horizon' || raw.mode === 'water' ? raw.mode : 'board',
     ...(typeof raw.material === 'string' && raw.material !== '' && { material: raw.material }),
     noise: NOISES.has(raw.noise as GroundNoise) ? raw.noise as GroundNoise : DEFAULT_GROUND.noise,
     strength: num(raw.strength) ? clamp(raw.strength, 0, 1) : DEFAULT_GROUND.strength,
     fog: num(raw.fog) ? clamp(Math.round(raw.fog), 0, 100) : DEFAULT_GROUND.fog,
     margin: num(raw.margin) ? clamp(Math.round(raw.margin), 0, MAX_MARGIN) : DEFAULT_GROUND.margin,
     tile: num(raw.tile) ? clamp(Math.round(raw.tile), 1, MAX_TILE) : DEFAULT_GROUND.tile,
+    water: readWaterMotion(raw.water),
   };
 }
 

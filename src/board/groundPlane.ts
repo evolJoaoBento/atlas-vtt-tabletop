@@ -27,7 +27,9 @@ export interface GroundArea {
 
 export class GroundPlane {
   readonly object3d: THREE.Mesh;
-  private readonly plain = naturalGround(new THREE.MeshStandardMaterial({ color: PLAIN_GROUND, roughness: 0.95, metalness: 0 }));
+  /** World units to a square, for the colour drift (shared by both materials' shaders). */
+  private readonly cell = { value: 1 };
+  private readonly plain = naturalGround(new THREE.MeshStandardMaterial({ color: PLAIN_GROUND, roughness: 0.95, metalness: 0 }), this.cell);
   /** The ground's own copy of a gallery material (its maps shared, its shader its own: the walls are untouched). */
   private textured: THREE.MeshStandardMaterial | null = null;
   private folder: string | null = null;
@@ -44,6 +46,7 @@ export class GroundPlane {
    * board draws again).
    */
   update(settings: GroundSettings, area: GroundArea, read: (folder: string) => Promise<LoadedMaterial | null>, loaded: () => void): void {
+    this.cell.value = area.cell;
     const folder = settings.material ?? null;
     if (folder !== this.folder) {
       this.folder = folder;
@@ -55,7 +58,7 @@ export class GroundPlane {
           if (this.folder !== folder || !material) return;
           const made = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0 });
           material.apply(made);
-          this.textured = naturalGround(made);
+          this.textured = naturalGround(made, this.cell);
           this.object3d.material = this.textured;
           loaded();
         });
@@ -106,21 +109,22 @@ const UNTILED: ReadonlyArray<[string, string]> = [
  * noise), and the colour drifts lighter and darker over tens of squares. Its own shader replaces any it had
  * (a gallery material's parallax: the ground needs none).
  */
-export function naturalGround<T extends THREE.MeshStandardMaterial>(material: T): T {
+export function naturalGround<T extends THREE.MeshStandardMaterial>(material: T, cell: { value: number }): T {
   material.onBeforeCompile = (shader) => {
-    let fragment = shader.fragmentShader.replace('#include <common>', `#include <common>\n${NO_TILE}`);
+    shader.uniforms.uGroundCell = cell;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vGroundAt;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGroundAt = (modelMatrix * vec4(transformed, 1.0)).xz;');
+    let fragment = shader.fragmentShader.replace('#include <common>', `#include <common>\nvarying vec2 vGroundAt;\nuniform float uGroundCell;\n${NO_TILE}`);
     for (const [chunk, sampler] of UNTILED) {
       const code = (THREE.ShaderChunk as unknown as Record<string, string>)[chunk];
       if (!code) continue;
       fragment = fragment.replace(`#include <${chunk}>`, code.split(`texture2D( ${sampler},`).join(`textureNoTile( ${sampler},`));
     }
-    // Slow patches of lighter and darker ground (uv runs in tiles).
+    // Slow patches of lighter and darker ground, by where it is (in squares): the same with any material or none.
     fragment = fragment.replace('#include <color_fragment>', `#include <color_fragment>
-#if defined( USE_MAP )
-  float groundPatch = groundNoise(vMapUv * 0.06) * 0.65 + groundNoise(vMapUv * 0.017 + 13.0) * 0.35;
-#else
-  float groundPatch = 0.5;
-#endif
+vec2 groundSq = vGroundAt / max(uGroundCell, 0.0001);
+float groundPatch = groundNoise(groundSq * 0.03) * 0.65 + groundNoise(groundSq * 0.009 + 13.0) * 0.35;
 diffuseColor.rgb *= mix(0.8, 1.14, groundPatch);`);
     shader.fragmentShader = fragment;
   };

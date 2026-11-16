@@ -288,6 +288,6 @@ test('ground settings: defaults until set, kept per map, dropped when back to th
   const read = new BoardData(readBoardData(JSON.parse(JSON.stringify(data.toJSON()))));
   assert.deepEqual({ mode: read.ground('m').mode, margin: read.ground('m').margin, material: read.ground('m').material }, { mode: 'horizon', margin: 30, material: 'atlas-vtt/assets/materials/grass' });
   assert.equal(read.ground('other').mode, 'board');
-  data.setGround('m', { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2 });
+  data.setGround('m', { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2, water: { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 } });
   assert.equal(data.toJSON().m, undefined);
 });

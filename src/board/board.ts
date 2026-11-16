@@ -58,6 +58,7 @@ import { ElevationLayerView, type ElevationLayerData, type ElevationLayerShape }
 import { ShapeEditor } from './shapeEditor';
 import { DEFAULT_GROUND, fogRange, type GroundSettings } from './ground';
 import { GroundPlane } from './groundPlane';
+import { SeaPlane } from './seaPlane';
 import { ShapesView } from './shapeView';
 import { shapeHeightAt, type TerrainShape } from './terrainShapes';
 import { EDGE_SHARE, ResolutionGovernor, type LayerLook, type QualityPreset, type WallEdges } from './quality';
@@ -755,6 +756,8 @@ export class Board {
   private readonly shapesView = new ShapesView();
   /** The plane to the horizon (the ground's horizon mode). */
   private readonly groundPlane = new GroundPlane();
+  /** The water to the horizon (the ground's water mode). */
+  private readonly seaPlane = new SeaPlane();
   /** The shapes drawn now (the one being edited as it is): what tokens stand on. */
   private drawnShapes: readonly TerrainShape[] = [];
   private shapeEditor: ShapeEditor | null = null;
@@ -1120,6 +1123,7 @@ export class Board {
     // The scene being played is always drawn solid (its transparent parts cut out, so the scenes below show through); the Upper layers look is for the scenes above it.
     surface.stack(lowest * map.grid.size, lowest < 0 ? 'solid' : null);
     this.groundPlane.object3d.position.y = lowest * map.grid.size;
+    this.seaPlane.object3d.position.y = lowest * map.grid.size;
     // The floor of the scene being played is never cut by the see-through window (only the floors above it, and walls, are).
     const wanted = new Map(this.stackData.map((layer) => [layer.path, layer]));
     // A layer no longer drawn is put away, not thrown out: shown again it fades straight back in, nothing read again.
@@ -1548,8 +1552,15 @@ export class Board {
     if (!map || !this.surface) return;
     const ground = this.groundSettings();
     const horizon = ground.mode === 'horizon' && !this.seeThrough;
+    const sea = ground.mode === 'water' && !this.seeThrough;
     this.surface.setMargin(ground.mode === 'board' ? ground.margin * map.grid.size : 0);
-    this.surface.showTable(!horizon);
+    this.surface.showTable(!horizon && !sea);
+    const lowest = Math.min(0, ...this.stackData.map((layer) => layer.elevation)) * map.grid.size;
+    if (sea) {
+      if (!this.seaPlane.object3d.parent) this.scene.add(this.seaPlane.object3d);
+      this.seaPlane.update(ground.water, { width: this.size.width, height: this.size.height, cell: map.grid.size });
+      this.seaPlane.object3d.position.y = lowest;
+    } else this.seaPlane.object3d.removeFromParent();
     if (horizon) {
       if (!this.groundPlane.object3d.parent) this.scene.add(this.groundPlane.object3d);
       this.groundPlane.update(ground, { width: this.size.width, height: this.size.height, cell: map.grid.size, margin: ground.margin }, (folder) => this.host.readMaterial(folder), () => this.wake(true));
@@ -1871,7 +1882,7 @@ export class Board {
     if (!this.cameraUnbound) this.camera.limits.minPitch = limitsFor(this.size.width, this.size.height, painted).minPitch;
     const ground = this.groundSettings();
     // The plane to the horizon fades into its own distance fog (the GM's slider), whatever the look.
-    const range = ground.mode === 'horizon' && !this.seeThrough ? fogRange(ground.fog, this.span) : painted && !this.seeThrough ? { near: this.span * 4, far: this.span * 16 } : null;
+    const range = ground.mode !== 'board' && !this.seeThrough ? fogRange(ground.fog, this.span) : painted && !this.seeThrough ? { near: this.span * 4, far: this.span * 16 } : null;
     this.scene.fog = range ? new THREE.Fog(tinted(horizonColor(this.quality.sky), this.tintShown ?? this.host.tint()), range.near, range.far) : null;
   }
 
@@ -2434,6 +2445,7 @@ export class Board {
     this.steer(dt);
     const driven = this.stepDriver();
     this.water?.tick(time / 1000);
+    if (this.seaPlane.object3d.parent) this.seaPlane.tick(time / 1000);
     // The water brush was put away (another tool, Escape): its outline goes with it.
     if (this.brushRing?.visible && !this.waterTool) this.brushRing.visible = false;
     // A cutscene's camera is set whole each frame, not eased, and asks for a frame after every frame.
@@ -2553,10 +2565,10 @@ export class Board {
     if (this.continuing) this.wake();
     // Flames flicker on a timer, a few times a second, not on every frame the screen can draw; those frames are
     // rests to the resolution governor.
-    else if ((this.rig.animated || [...this.layerViews.values()].some((view) => view.animated) || this.video !== null || this.water?.moving === true) && this.flickerTimer === 0) {
+    else if ((this.rig.animated || [...this.layerViews.values()].some((view) => view.animated) || this.video !== null || this.water?.moving === true || this.seaPlane.object3d.parent !== null) && this.flickerTimer === 0) {
       const win = this.frameWin ?? this.container.ownerDocument.defaultView ?? window;
       // Moving water is drawn as often as a playing map, so it flows smoothly.
-      this.flickerTimer = win.setTimeout(() => { this.flickerTimer = 0; this.wake(); }, this.video !== null || this.water?.moving === true ? VIDEO_FRAME_MS : FLICKER_MS);
+      this.flickerTimer = win.setTimeout(() => { this.flickerTimer = 0; this.wake(); }, this.video !== null || this.water?.moving === true || this.seaPlane.object3d.parent !== null ? VIDEO_FRAME_MS : FLICKER_MS);
     }
   }
 
@@ -7167,6 +7179,7 @@ export class Board {
     this.shapeEditor?.dispose();
     this.shapesView.dispose();
     this.groundPlane.dispose();
+    this.seaPlane.dispose();
     this.surface?.dispose();
     for (const art of this.arts.values()) void art.then((texture) => texture?.dispose());
     this.tilt?.dispose();
