@@ -25,6 +25,8 @@ export class ShapesView {
   private readonly meshes = new Map<string, { key: string; mesh: THREE.Mesh }>();
   /** The level's map image, laid on from above (shared by every shape here that has no material). */
   private readonly imageMaterial = new THREE.MeshStandardMaterial({ color: PLAIN, roughness: 0.85, metalness: 0, side: THREE.DoubleSide });
+  /** Plain closed sides (no material named for them). */
+  private readonly sideMaterial = new THREE.MeshStandardMaterial({ color: 0x9c9184, roughness: 0.9, metalness: 0, side: THREE.DoubleSide });
 
   constructor() {
     this.object3d.name = 'shapes';
@@ -44,7 +46,7 @@ export class ShapesView {
       this.meshes.delete(id);
     }
     for (const shape of shapes) {
-      const key = JSON.stringify([shape.outline, shape.inner, shape.material ?? null, look.cell, look.width, look.height]);
+      const key = JSON.stringify([shape.outline, shape.inner, shape.material ?? null, shape.sides ?? null, look.cell, look.width, look.height]);
       let kept = this.meshes.get(shape.id);
       if (!kept || kept.key !== key) {
         const geometry = shapeGeometry(shape, look.cell, look.width, look.height, shape.material !== undefined);
@@ -59,7 +61,9 @@ export class ShapesView {
           this.object3d.add(mesh);
         }
       }
-      kept.mesh.material = shape.material ? look.material(shape.material) : this.imageMaterial;
+      const top = shape.material ? look.material(shape.material) : this.imageMaterial;
+      const sides = typeof shape.sides === 'string' ? look.material(shape.sides) : this.sideMaterial;
+      kept.mesh.material = [top, sides];
     }
   }
 
@@ -72,6 +76,7 @@ export class ShapesView {
     for (const kept of this.meshes.values()) kept.mesh.geometry.dispose();
     this.meshes.clear();
     this.imageMaterial.dispose();
+    this.sideMaterial.dispose();
     this.object3d.removeFromParent();
   }
 }

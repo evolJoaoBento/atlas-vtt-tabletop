@@ -25,6 +25,11 @@ export interface TerrainShape {
   readonly inner: readonly ShapePoint[];
   /** Vault folder of a material (Tabletop's Materials) it is painted with; unset wears the level's map image from above. */
   readonly material?: string;
+  /**
+   * Closed sides: each outline edge above the floor stands a wall down to it (a gable's end, a dormer's cheek). True
+   * draws them plain; a material's folder paints them with it.
+   */
+  readonly sides?: true | string;
 }
 
 type Tri = [number, number, number];
@@ -57,6 +62,7 @@ export function readShapes(raw: unknown): TerrainShape[] {
       outline,
       inner: readPoints(entry.inner),
       ...(typeof entry.material === 'string' && entry.material !== '' && { material: entry.material }),
+      ...((entry.sides === true || (typeof entry.sides === 'string' && entry.sides !== '')) && { sides: entry.sides as true | string }),
     });
   }
   return out;
@@ -181,9 +187,44 @@ export function shapeGeometry(shape: TerrainShape, cell: number, width: number, 
       n++;
     }
   }
+  // Closed sides: under each outline edge above the floor, its wall down to the floor (a triangle where one end is on it).
+  const wall: number[] = [], wallUv: number[] = [];
+  if (shape.sides) {
+    const outline = shape.outline;
+    // The outline's winding, so each wall faces out (a material of the gallery is drawn on its front only).
+    let area = 0;
+    for (let i = 0; i < outline.length; i++) { const p = outline[i], q = outline[(i + 1) % outline.length]; area += p.x * q.y - q.x * p.y; }
+    const out = Math.sign(area) || 1;
+    let along = 0;
+    for (let i = 0; i < outline.length; i++) {
+      const a = outline[i], b = outline[(i + 1) % outline.length];
+      const length = Math.hypot(b.x - a.x, b.y - a.y);
+      const ua = along / cell, ub = (along + length) / cell;
+      along += length;
+      if (Math.max(a.h, b.h) <= 1e-6 || length < 1e-6) continue;
+      // Outward, in the world (map y is the world's z).
+      const nx = (b.y - a.y) * out, nz = -(b.x - a.x) * out;
+      const corner = (p: ShapePoint, up: boolean, u: number): [number, number, number, number, number] => [p.x, up ? p.h * cell : 0, p.y, u, up ? p.h : 0];
+      const tri = (v: Array<[number, number, number, number, number]>): void => {
+        const [p0, p1, p2] = v;
+        const e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]], e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+        const cx = e1[1] * e2[2] - e1[2] * e2[1], cz = e1[0] * e2[1] - e1[1] * e2[0];
+        const ordered = cx * nx + cz * nz < 0 ? [p0, p2, p1] : v;
+        for (const c of ordered) { wall.push(c[0], c[1], c[2]); wallUv.push(c[3], c[4]); }
+      };
+      if (a.h > 1e-6) tri([corner(a, false, ua), corner(a, true, ua), corner(b, true, ub)]);
+      if (b.h > 1e-6) tri([corner(a, false, ua), corner(b, true, ub), corner(b, false, ub)]);
+    }
+  }
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(position, 3));
-  geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  const all = new Float32Array(position.length + wall.length);
+  all.set(position); all.set(wall, position.length);
+  const allUv = new Float32Array(uv.length + wallUv.length);
+  allUv.set(uv); allUv.set(wallUv, uv.length);
+  geometry.setAttribute('position', new THREE.BufferAttribute(all, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(allUv, 2));
+  geometry.addGroup(0, n, 0);
+  if (wall.length > 0) geometry.addGroup(n, wall.length / 3, 1);
   geometry.computeVertexNormals();
   return geometry;
 }

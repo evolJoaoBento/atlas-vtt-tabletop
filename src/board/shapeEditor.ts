@@ -44,6 +44,7 @@ export class ShapeEditor {
   private readonly panel: HTMLElement;
   private readonly hint: HTMLElement;
   private readonly heightInput: HTMLInputElement;
+  private readonly sidesInput: HTMLInputElement;
   private readonly finishButton: HTMLButtonElement;
   private readonly cornerButton: HTMLButtonElement;
   private readonly shapeButton: HTMLButtonElement;
@@ -70,6 +71,14 @@ export class ShapeEditor {
     this.heightInput.setAttribute('aria-label', 'Corner height in squares');
     this.heightInput.addEventListener('change', () => this.typedHeight());
     row.append(this.heightInput);
+    const sidesRow = doc.createElement('label');
+    sidesRow.className = 'atlas-tabletop-shapes-panel__row';
+    sidesRow.append('Closed sides (gable ends, walls) ');
+    this.sidesInput = doc.createElement('input');
+    this.sidesInput.type = 'checkbox';
+    this.sidesInput.setAttribute('aria-label', 'Closed sides');
+    this.sidesInput.addEventListener('change', () => this.toggledSides());
+    sidesRow.append(this.sidesInput);
     const buttons = doc.createElement('div');
     buttons.className = 'atlas-tabletop-shapes-panel__buttons';
     const button = (label: string, act: () => void): HTMLButtonElement => {
@@ -83,7 +92,7 @@ export class ShapeEditor {
     this.cornerButton = button('Delete corner', () => this.deleteCorner());
     this.shapeButton = button('Delete shape', () => this.deleteShape());
     this.shapeButton.classList.add('mod-warning');
-    this.panel.append(title, this.hint, row, buttons);
+    this.panel.append(title, this.hint, row, sidesRow, buttons);
     // Presses on the panel are its own (not the board's).
     this.panel.addEventListener('pointerdown', (event) => event.stopPropagation());
     this.panel.addEventListener('keydown', (event) => event.stopPropagation());
@@ -280,6 +289,16 @@ export class ShapeEditor {
     this.finishButton.hidden = this.drawing === null;
     this.cornerButton.disabled = point === null;
     this.shapeButton.disabled = shape === null;
+    this.sidesInput.disabled = shape === null;
+    this.sidesInput.checked = shape?.sides !== undefined;
+  }
+
+  /** Closes the picked shape's sides (walls down to the floor under its raised edges), or opens them. */
+  private toggledSides(): void {
+    const shape = this.shape(this.selected?.shape);
+    if (!shape) return;
+    const { sides: _sides, ...open } = shape;
+    this.keep(this.sidesInput.checked ? { ...open, sides: shape.sides ?? true } : open);
   }
 
   private typedHeight(): void {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { pointInOutline, pointOf, readShapes, shapeHeightAt, shapeTriangles, withAdded, withoutPoint, withPoint, type TerrainShape } from '../src/board/terrainShapes';
+import { pointInOutline, pointOf, readShapes, shapeGeometry, shapeHeightAt, shapeTriangles, withAdded, withoutPoint, withPoint, type TerrainShape } from '../src/board/terrainShapes';
 
 const square = (h = 0) => [{ x: 0, y: 0, h }, { x: 100, y: 0, h }, { x: 100, y: 100, h }, { x: 0, y: 100, h }];
 
@@ -68,4 +68,58 @@ test('corners are moved, raised, added and taken out by reference', () => {
   assert.equal(cut.outline.length, 3);
   assert.equal(cut.outline[0].x, 100);
   assert.equal(withPoint(shape, { list: 'inner', index: 0 }, { h: 1 }), shape);
+});
+
+test('closed sides: a raised outline edge gets a wall down to the floor; an edge on the floor gets none', () => {
+  // A gable half: eave on the floor, ridge raised; its two gable edges and the ridge edge stand walls.
+  const shape: TerrainShape = { id: 'g', outline: [{ x: 0, y: 0, h: 0 }, { x: 100, y: 0, h: 2 }, { x: 100, y: 200, h: 2 }, { x: 0, y: 200, h: 0 }], inner: [], sides: true };
+  const geometry = shapeGeometry(shape, 50, 1000, 1000);
+  const top = geometry.groups.find((g) => g.materialIndex === 0)!;
+  const side = geometry.groups.find((g) => g.materialIndex === 1)!;
+  assert.equal(top.count, 2 * 3);
+  // gable edges: one triangle each (one end on the floor); ridge edge: a quad (two triangles); the eave: none
+  assert.equal(side.count, (1 + 2 + 1) * 3);
+  const pos = geometry.getAttribute('position');
+  let low = Infinity;
+  for (let i = side.start; i < side.start + side.count; i++) low = Math.min(low, pos.getY(i));
+  assert.equal(low, 0);
+  const open = shapeGeometry({ ...shape, sides: undefined }, 50, 1000, 1000);
+  assert.equal(open.groups.length, 1);
+});
+
+test('saved sides are read: true, or a material folder', () => {
+  const [a, b, c] = readShapes([
+    { id: 'a', outline: [[0, 0], [1, 0], [1, 1]], sides: true },
+    { id: 'b', outline: [[0, 0], [1, 0], [1, 1]], sides: 'atlas-vtt/assets/materials/plank' },
+    { id: 'c', outline: [[0, 0], [1, 0], [1, 1]], sides: 3 },
+  ]);
+  assert.equal(a.sides, true);
+  assert.equal(b.sides, 'atlas-vtt/assets/materials/plank');
+  assert.equal(c.sides, undefined);
+});
+
+test('closed sides face out of the shape, whichever way its outline was drawn', () => {
+  for (const outline of [
+    [{ x: 0, y: 0, h: 1 }, { x: 100, y: 0, h: 1 }, { x: 100, y: 100, h: 1 }, { x: 0, y: 100, h: 1 }],
+    [{ x: 0, y: 0, h: 1 }, { x: 0, y: 100, h: 1 }, { x: 100, y: 100, h: 1 }, { x: 100, y: 0, h: 1 }],
+  ]) {
+    const geometry = shapeGeometry({ id: 's', outline, inner: [], sides: true }, 50, 1000, 1000);
+    const side = geometry.groups.find((g) => g.materialIndex === 1)!;
+    const pos = geometry.getAttribute('position');
+    for (let i = side.start; i < side.start + side.count; i += 3) {
+      const v = [0, 1, 2].map((k) => [pos.getX(i + k), pos.getY(i + k), pos.getZ(i + k)]);
+      const e1 = v[1].map((c, k) => c - v[0][k]), e2 = v[2].map((c, k) => c - v[0][k]);
+      const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+      const mid = [(v[0][0] + v[1][0] + v[2][0]) / 3 - 50, (v[0][2] + v[1][2] + v[2][2]) / 3 - 50];
+      assert.ok(n[0] * mid[0] + n[2] * mid[1] > 0, `face ${i / 3} points in`);
+    }
+  }
+});
+
+test('the surface faces up, whichever way its outline was drawn', () => {
+  for (const outline of [square(), [...square()].reverse()]) {
+    const geometry = shapeGeometry({ id: 's', outline, inner: [{ x: 50, y: 50, h: 2 }] }, 50, 1000, 1000);
+    const normal = geometry.getAttribute('normal');
+    for (let i = 0; i < normal.count; i++) assert.ok(normal.getY(i) > 0, `vertex ${i} faces down`);
+  }
 });

@@ -5403,12 +5403,17 @@ feature('shapes tool', async ({ page, shot }) => {
   const top = await page.evaluate(() => { const { board, Box3 } = window.boardTest; const box = new Box3().setFromObject(board.shapesView.object3d); return { y: box.max.y, cell: board.map.grid.size, meshes: board.shapesView.pickables.length }; });
   check('shapes: the board draws the shape as a mesh peaking at the raised corner', top.meshes === 1 && Math.abs(top.y - 2 * top.cell) < 1, JSON.stringify(top));
   // Its height is typed in the panel too.
-  await page.locator('.atlas-tabletop-shapes-panel input').fill('3');
-  await page.locator('.atlas-tabletop-shapes-panel input').press('Enter');
+  await page.locator('.atlas-tabletop-shapes-panel input[type=number]').fill('3');
+  await page.locator('.atlas-tabletop-shapes-panel input[type=number]').press('Enter');
   await wait(300);
   const typed = await page.evaluate(() => window.boardTest.shapes[0].inner[0].h);
   check('shapes: the picked corner\'s height is typed in the panel', typed === 3, String(typed));
   await shot('shapes-roof');
+  // Closed sides: the shape gets walls under its raised edges (its peak is inside, so none: a raised outline corner does).
+  await page.locator('.atlas-tabletop-shapes-panel input[type=checkbox]').check();
+  await wait(300);
+  const sides = await page.evaluate(() => window.boardTest.shapes[0].sides);
+  check('shapes: Closed sides is kept on the picked shape', sides === true, String(sides));
   // Delete takes the picked corner out; out of Edit mode the tool is put down.
   await page.locator('.atlas-tabletop-shapes-panel').getByRole('button', { name: 'Delete corner' }).click();
   await wait(300);
