@@ -57,7 +57,7 @@ import { carryView, isNoPlacement, NO_PLACEMENT, snapTurn, turnAbout, turnStep, 
 import { ElevationLayerView, type ElevationLayerData, type ElevationLayerShape } from './elevationLayer';
 import { ShapeEditor } from './shapeEditor';
 import { ShapesView } from './shapeView';
-import type { TerrainShape } from './terrainShapes';
+import { shapeHeightAt, type TerrainShape } from './terrainShapes';
 import { EDGE_SHARE, ResolutionGovernor, type LayerLook, type QualityPreset, type WallEdges } from './quality';
 import { PostFx, type PostFxLook } from './postFx';
 import { BoardSurface } from './surface';
@@ -748,6 +748,8 @@ export class Board {
   private waterTool: 'paint' | 'erase' | 'fill' | null = null;
   /** The raised shapes of the level shown, and the Shapes tool editing them (the GM's, made when first used). */
   private readonly shapesView = new ShapesView();
+  /** The shapes drawn now (the one being edited as it is): what tokens stand on. */
+  private drawnShapes: readonly TerrainShape[] = [];
   private shapeEditor: ShapeEditor | null = null;
   /** The bucket's sensitivity, 0 (the very colour clicked) to 100 (almost any): how far a colour may be from it. */
   private waterFill = 30;
@@ -1534,7 +1536,10 @@ export class Board {
     if (!this.shapesView.object3d.parent) this.scene.add(this.shapesView.object3d);
     const kept = this.host.shapes?.() ?? [];
     const image = (this.surface?.imageMaterial as THREE.MeshStandardMaterial | undefined)?.map ?? null;
-    this.shapesView.update(this.shapeEditor ? this.shapeEditor.merged(kept) : kept, {
+    this.drawnShapes = this.shapeEditor ? this.shapeEditor.merged(kept) : kept;
+    // The tokens' stands are found again (they stand on the shapes).
+    this.propsVersion += 1;
+    this.shapesView.update(this.drawnShapes, {
       cell: map.grid.size, width: this.size.width, height: this.size.height, image,
       material: (folder) => this.wallLook(folder, false),
     });
@@ -1572,6 +1577,30 @@ export class Board {
   private shapeAt(clientX: number, clientY: number): string | null {
     const hit = this.hit(clientX, clientY, this.shapesView.pickables);
     return (hit?.userData.shapeId as string | undefined) ?? null;
+  }
+
+  /**
+   * The raised shape under the pointer and which part of it (its surface, or its closed sides), when it is nearer than
+   * any wall there: what a material dropped or painted there goes to. Null over nothing of a shape, or a wall before it.
+   */
+  private shapePartAt(clientX: number, clientY: number): { shape: TerrainShape; part: 'top' | 'sides' } | null {
+    this.ray(clientX, clientY);
+    for (const mesh of this.shapesView.pickables) mesh.updateWorldMatrix(true, false);
+    const hit = this.raycaster.intersectObjects(this.shapesView.pickables, false)[0];
+    if (!hit) return null;
+    this.walls.object3d.updateWorldMatrix(true, true);
+    const wall = this.raycaster.intersectObject(this.walls.object3d, true)[0];
+    if (wall && wall.distance < hit.distance) return null;
+    const shape = (this.host.shapes?.() ?? []).find((one) => one.id === hit.object.userData.shapeId);
+    if (!shape) return null;
+    return { shape, part: hit.face?.materialIndex === 1 ? 'sides' : 'top' };
+  }
+
+  /** Paints a raised shape's surface or its sides with a material (null: plain again: the map image on top, plain sides). */
+  private paintShape(shape: TerrainShape, part: 'top' | 'sides', material: string | null): void {
+    const { material: top, sides, ...rest } = shape;
+    if (part === 'top') this.host.saveShape?.({ ...rest, ...(sides !== undefined && { sides }), ...(material && { material }) });
+    else this.host.saveShape?.({ ...rest, ...(top && { material: top }), sides: material ?? true });
   }
 
   /** Brings tokens, pins and props in line with the map and the host. */
@@ -2613,6 +2642,18 @@ export class Board {
     return hit ? { x: hit.x, y: hit.z } : null;
   }
 
+  /** The board point under the pointer, on the surface of a raised shape (a roof, a hill) when one is there, else on the floor. */
+  private surfacePoint(clientX: number, clientY: number): { x: number; y: number } | null {
+    const meshes = this.shapesView.pickables;
+    if (meshes.length > 0) {
+      this.ray(clientX, clientY);
+      for (const mesh of meshes) mesh.updateWorldMatrix(true, false);
+      const hit = this.raycaster.intersectObjects(meshes, false)[0];
+      if (hit) return { x: hit.point.x, y: hit.point.z };
+    }
+    return this.boardPoint(clientX, clientY);
+  }
+
   private hit<T extends THREE.Object3D>(clientX: number, clientY: number, objects: T[]): T | null {
     this.ray(clientX, clientY);
     // Rays use the world matrices of the last frame drawn: what a reload rebuilt since would still sit at the origin.
@@ -3344,8 +3385,15 @@ export class Board {
         this.showTip(event.clientX, event.clientY, this.tokenAt(event.clientX, event.clientY) ? 'Give this token the mini' : 'Drop on a token');
         return;
       }
+      // A raised shape in front: its surface or its sides take the material.
+      const shaped = this.shapePartAt(event.clientX, event.clientY);
+      if (shaped) {
+        this.showTip(event.clientX, event.clientY, shaped.part === 'sides' ? 'Paint its sides' : 'Paint its surface');
+        this.previewPaint(null);
+        return;
+      }
       const wall = this.wallAt(event.clientX, event.clientY);
-      this.showTip(event.clientX, event.clientY, wall ? (event.shiftKey ? 'Paint the whole wall' : 'Paint this segment (Shift: the whole wall)') : 'Drop on a wall or door');
+      this.showTip(event.clientX, event.clientY, wall ? (event.shiftKey ? 'Paint the whole wall' : 'Paint this segment (Shift: the whole wall)') : 'Drop on a wall, a door or a shape');
       // The material shows on the wall under the pointer (the whole wall with Shift) before it is dropped. The drag's
       // data cannot be read until the drop: the gallery says what it carries (`materialDrag`).
       const carried = materialDrag.folder;
@@ -3372,12 +3420,14 @@ export class Board {
       event.preventDefault();
       event.stopPropagation();
       this.tooltip.hidden = true;
-      const wall = this.wallAt(event.clientX, event.clientY);
       this.previewPaint(null);
+      const shaped = this.shapePartAt(event.clientX, event.clientY);
+      if (shaped) { this.paintShape(shaped.shape, shaped.part, material); return; }
+      const wall = this.wallAt(event.clientX, event.clientY);
       if (wall) {
         this.host.paintWall(wall, material, event.shiftKey);
         this.slapImpact(event.shiftKey ? wholeWall(this.map?.walls ?? [], wall) : [wall]);
-      } else this.host.warn('Tabletop: drop the material on a wall or door.');
+      } else this.host.warn('Tabletop: drop the material on a wall, a door or a raised shape.');
     });
     on('blur', () => this.held.clear());
   }
@@ -3543,7 +3593,7 @@ export class Board {
     if (event.button === 0) {
       const id = this.tokenAt(x, y);
       const entry = id ? this.tokens.get(id) : null;
-      const at = this.boardPoint(x, y);
+      const at = this.surfacePoint(x, y);
       const turn = id && event.altKey && !event.shiftKey ? this.host.miniTurn?.(id) ?? null : null;
       if (id && entry && at && turn !== null) {
         const center = { x: entry.at.x, y: entry.at.y };
@@ -3591,7 +3641,7 @@ export class Board {
     if (event.button === 0) {
       const id = this.movableTokenAt(x, y);
       const entry = id ? this.tokens.get(id) : null;
-      const at = this.boardPoint(x, y);
+      const at = this.surfacePoint(x, y);
       if (id && entry && at) {
         this.press = {
           kind: 'token', id, x, y, moved: false, grab: { dx: entry.at.x - at.x, dy: entry.at.y - at.y },
@@ -3854,7 +3904,7 @@ export class Board {
       this.wake(true);
       return;
     }
-    const at = this.boardPoint(x, y);
+    const at = this.surfacePoint(x, y);
     if (!at) return;
     const point = this.clampToBoard(at.x + press.grab.dx, at.y + press.grab.dy);
     if (press.kind === 'token') {
@@ -3901,11 +3951,9 @@ export class Board {
     // Painting: a click paints the wall under it (Shift: the whole wall), and painting goes on until Esc.
     if (event.button === 0 && this.painting) {
       // A raised shape under the pointer takes the material (or loses it), before the walls behind it.
-      const shapeId = this.shapeAt(x, y);
-      const shape = shapeId ? (this.host.shapes?.() ?? []).find((one) => one.id === shapeId) : undefined;
-      if (shape) {
-        const { material: _material, ...plain } = shape;
-        this.host.saveShape?.(this.painting === UNPAINT ? plain : { ...plain, material: this.painting });
+      const shaped = this.shapePartAt(x, y);
+      if (shaped) {
+        this.paintShape(shaped.shape, shaped.part, this.painting === UNPAINT ? null : this.painting);
         return;
       }
       const wall = this.wallAt(x, y);
@@ -5137,6 +5185,12 @@ export class Board {
       this.standRay.far = 2e5;
       const hit = this.standRay.intersectObjects(bodies, true)[0];
       if (hit) value = Math.max(0, hit.point.y);
+    }
+    // On a raised shape (a roof, a hill) it stands on its surface.
+    const cell = this.map?.grid.size ?? 50;
+    for (const shape of this.drawnShapes) {
+      const h = shapeHeightAt(shape, entry.at.x, entry.at.y);
+      if (h !== null) value = Math.max(value, h * cell);
     }
     entry.stand = { x: entry.at.x, y: entry.at.y, version: this.propsVersion, value };
     return value;

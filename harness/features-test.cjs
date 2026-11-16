@@ -5425,6 +5425,49 @@ feature('shapes tool', async ({ page, shot }) => {
   await page.evaluate(() => { const { board, modes, shapes } = window.boardTest; shapes.length = 0; modes.on = false; board.refresh(); board.refreshToolbar(); });
 });
 
+feature('shapes: painted and stood on', async ({ page }) => {
+  // A hill with closed sides round a token: the token stands on its surface; the paint tool paints the sides or the surface, whichever is clicked.
+  const setup = await page.evaluate(async () => {
+    const { board, shapes, modes } = window.boardTest;
+    modes.on = true; modes.mode = 'edit';
+    const token = board.map.tokens.find((t) => !t.hidden && !t.offMap);
+    const x = token.x, y = token.y, r = 280;
+    shapes.length = 0;
+    shapes.push({ id: 'hill', outline: [{ x: x - r, y: y - r, h: 1 }, { x: x + r, y: y - r, h: 1 }, { x: x + r, y: y + r, h: 1 }, { x: x - r, y: y + r, h: 1 }], inner: [{ x, y, h: 2 }], sides: true });
+    board.refresh(); board.refreshToolbar();
+    board.camera.goal.yaw = 0; board.camera.goal.pitch = 0.55; board.camera.goal.target.x = x; board.camera.goal.target.z = y + 200; board.camera.goal.distance = 2600; board.camera.snap?.(); board.wake(true);
+    await new Promise((r) => setTimeout(r, 1500));
+    const entry = board.tokens.get(token.id);
+    return { id: token.id, x, y, r, lift: entry.lift, cell: board.map.grid.size };
+  });
+  check('shapes: a token on a raised shape stands on its surface', Math.abs(setup.lift - 2 * setup.cell) < 2, JSON.stringify(setup));
+  const screen = (x, z, y) => page.evaluate(({ x, z, y }) => { const { board } = window.boardTest; board.applyView(); const rect = board.canvas.getBoundingClientRect(); const on = new window.boardTest.Vector3(x, y, z).project(board.view); return { x: rect.left + ((on.x + 1) / 2) * rect.width, y: rect.top + ((1 - on.y) / 2) * rect.height }; }, { x, z, y });
+  // A token dragged onto the hill lands where the pointer is on its surface, not on the floor behind it.
+  const aim = { x: setup.x + 100, y: setup.y + 80 };
+  const from = await screen(setup.x, setup.y, setup.cell * 2);
+  const to = await screen(aim.x, aim.y, setup.cell * (2 - 0.5 * 100 / setup.r));
+  await page.evaluate(() => { const { modes, board } = window.boardTest; modes.mode = 'play'; board.refreshToolbar(); });
+  await page.mouse.move(from.x, from.y); await page.mouse.down();
+  for (let k = 1; k <= 8; k++) { await page.mouse.move(from.x + (to.x - from.x) * k / 8, from.y + (to.y - from.y) * k / 8); await wait(30); }
+  const carried = await page.evaluate((id) => { const e = window.boardTest.board.tokens.get(id); return { x: e.at.x, y: e.at.y }; }, setup.id);
+  await page.mouse.up(); await wait(300);
+  check('shapes: a token dragged over a shape follows the pointer on its surface', Math.hypot(carried.x - aim.x, carried.y - aim.y) < 60, JSON.stringify({ carried, aim }));
+  await page.evaluate(() => { const { modes, board } = window.boardTest; modes.mode = 'edit'; board.refreshToolbar(); });
+  await page.evaluate(() => window.boardTest.board.paintWith('materials/brick'));
+  // The south side faces the camera: halfway up it.
+  const side = await screen(setup.x + 40, setup.y + setup.r, setup.cell * 0.5);
+  await page.mouse.click(side.x, side.y);
+  await wait(300);
+  const afterSide = await page.evaluate(() => { const s = window.boardTest.shapes[0]; return { sides: s.sides, material: s.material ?? null }; });
+  check('shapes: painting a side paints the sides, not the surface', afterSide.sides === 'materials/brick' && afterSide.material === null, JSON.stringify(afterSide));
+  const top = await screen(setup.x + 120, setup.y + 60, setup.cell * 1.7);
+  await page.mouse.click(top.x, top.y);
+  await wait(300);
+  const afterTop = await page.evaluate(() => { const s = window.boardTest.shapes[0]; return { sides: s.sides, material: s.material ?? null }; });
+  check('shapes: painting the surface paints it, the sides kept', afterTop.material === 'materials/brick' && afterTop.sides === 'materials/brick', JSON.stringify(afterTop));
+  await page.evaluate(() => { const { board, shapes, modes } = window.boardTest; board.paintWith(null); shapes.length = 0; modes.on = false; board.refresh(); board.refreshToolbar(); });
+});
+
 server.listen(0, async () => {
   const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const errors = [];

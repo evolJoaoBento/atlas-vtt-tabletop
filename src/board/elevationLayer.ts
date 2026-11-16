@@ -24,7 +24,7 @@ import { WaterSurface } from './waterSurface';
 import { releaseTexture } from './textures';
 import { stretchPlacement } from './mapStretch';
 import { ShapesView } from './shapeView';
-import type { TerrainShape } from './terrainShapes';
+import { shapeHeightAt, type TerrainShape } from './terrainShapes';
 
 /** What a layer is drawn from: its scene, and what Tabletop keeps for it (the same data the shown scene's own comes from). */
 /** How long a layer takes to fade in or out, or to another look. */
@@ -395,6 +395,16 @@ export class ElevationLayerView {
   }
 
   /** Loads the layer's map image the first time, or when it changed. */
+  /** How high a token at (x, y) stands: on the surface of a raised shape there (a roof, a hill), else the floor. */
+  private standOf(x: number, y: number): number {
+    let top = 0;
+    for (const shape of this.data.shapes ?? []) {
+      const h = shapeHeightAt(shape, x, y);
+      if (h !== null) top = Math.max(top, h * this.data.map.grid.size);
+    }
+    return top;
+  }
+
   /** Its raised shapes, at its size and in its image (once read). */
   private drawShapes(): void {
     const { width, height } = this.size;
@@ -580,7 +590,7 @@ export class ElevationLayerView {
     const moving = this.walls.step(dt) || eased;
     this.rig.step(now);
     this.water?.tick(now);
-    for (const entry of this.tokens.values()) entry.piece.pose(entry.x, entry.y, context);
+    for (const entry of this.tokens.values()) entry.piece.pose(entry.x, entry.y, context, this.standOf(entry.x, entry.y));
     return moving;
   }
 
