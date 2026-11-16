@@ -783,6 +783,7 @@ export class BoardView extends ItemView {
         fogHeight: boardData.fogHeight(path),
         wallThickness: boardData.wallThickness(path),
         props: propsOnLevel(boardData.props(path), level.id, shown.levels),
+        shapes: propsOnLevel(boardData.shapes(path), level.id, shown.levels),
         // The level's own liquids; a mask painted before water was Atlas's lies on the first level.
         water: waterSourceOf(map.liquids, onFirstLevel(shown.levels, level.id) ? boardData.legacyWater(path) : null),
         // Levels share the scene's grid: each lies where it is.
@@ -1424,6 +1425,14 @@ export class BoardView extends ItemView {
       placement: (id) => assignments.get(mapPath(), id),
       style: (id) => boardData.style(mapPath(), id),
       props: () => propsOnLevel(boardData.props(mapPath()), this.map?.level ?? null, this.map?.levels ?? []),
+      shapes: () => propsOnLevel(boardData.shapes(mapPath()), this.map?.level ?? null, this.map?.levels ?? []),
+      // A new shape stands on the level shown (none named: the first, as for Atlas's own objects).
+      saveShape: (shape) => {
+        const level = this.map && !onFirstLevel(this.map.levels, this.map.level) ? this.map.level : null;
+        const known = boardData.shapes(mapPath()).some((one) => one.id === shape.id);
+        boardData.saveShape(mapPath(), known || shape.level || !level ? shape : { ...shape, level });
+      },
+      removeShape: (id) => boardData.removeShape(mapPath(), id),
       rules: () => this.rules,
       moveToken: (id, x, y) => {
         writer.move(mapPath(), id, x, y).catch((error: unknown) => this.unsaved('move', error));

@@ -2354,3 +2354,13 @@ body.atlas-tabletop-player-window .view-header {
  * (src/atlasPort/shims/portalHost.ts). Atlas's rule for its host while it holds a dialog, restated for that one.
  */
 .atlas-tabletop-portal-host.atlas-portal-host--dialog .tooltip-content { display: none; }
+
+/* The Shapes tool's panel (Edit mode): what a click does now, the picked corner's height, and the shape's actions. */
+.atlas-tabletop-shapes-panel { position: absolute; left: 12px; bottom: 84px; z-index: 30; width: 260px; padding: 10px 12px; border-radius: 10px; background: var(--background-primary); border: 1px solid var(--background-modifier-border); box-shadow: var(--shadow-s); font-size: var(--font-ui-small); display: flex; flex-direction: column; gap: 8px; }
+.atlas-tabletop-shapes-panel[hidden] { display: none; }
+.atlas-tabletop-shapes-panel__title { font-weight: var(--font-semibold); }
+.atlas-tabletop-shapes-panel__hint { color: var(--text-muted); line-height: 1.35; }
+.atlas-tabletop-shapes-panel__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.atlas-tabletop-shapes-panel__row input { width: 80px; }
+.atlas-tabletop-shapes-panel__buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+.atlas-tabletop-shapes-panel__buttons button[hidden] { display: none; }

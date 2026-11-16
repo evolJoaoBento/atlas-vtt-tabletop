@@ -5371,6 +5371,55 @@ feature('cutscene board fixes', async ({ page }) => {
   check('board: a cutscene\'s camera is drawn even while a room-tracking session is up', Math.abs(room.x - 500) < 0.5 && Math.abs(room.y - 900) < 0.5 && Math.abs(room.z - 1400) < 0.5, JSON.stringify(room));
 });
 
+feature('shapes tool', async ({ page, shot }) => {
+  // The Shapes tool in Edit mode: corners clicked on the floor make a shape, a click inside adds a corner, Ctrl + drag raises it.
+  await page.evaluate(() => { const { board, modes, shapes } = window.boardTest; shapes.length = 0; modes.on = true; modes.mode = 'edit'; board.refresh(); board.refreshToolbar(); board.camera.goal.pitch = 0.9; board.wake(true); });
+  await wait(400);
+  await page.getByRole('button', { name: 'Shapes', exact: true }).click();
+  await wait(200);
+  check('shapes: the tool opens its panel', await page.locator('.atlas-tabletop-shapes-panel').isVisible());
+  const screen = (x, z, y = 0) => page.evaluate(({ x, z, y }) => { const { board } = window.boardTest; board.applyView(); const rect = board.canvas.getBoundingClientRect(); const on = new window.boardTest.Vector3(x, y, z).project(board.view); return { x: rect.left + ((on.x + 1) / 2) * rect.width, y: rect.top + ((1 - on.y) / 2) * rect.height }; }, { x, z, y });
+  const corners = [[560, 420], [1120, 420], [1120, 840], [560, 840]];
+  for (const [x, z] of corners) { const p = await screen(x, z); await page.mouse.click(p.x, p.y); await wait(120); }
+  const first = await screen(560, 420);
+  await page.mouse.click(first.x, first.y);
+  await wait(300);
+  const kept = await page.evaluate(() => window.boardTest.shapes.map((s) => ({ outline: s.outline.length, inner: s.inner.length })));
+  check('shapes: four corners clicked and the first again make one closed shape', kept.length === 1 && kept[0].outline === 4 && kept[0].inner === 0, JSON.stringify(kept));
+  // A click inside the shape adds a corner there; Ctrl + drag on it raises it.
+  const mid = await screen(840, 630);
+  await page.mouse.click(mid.x, mid.y);
+  await wait(300);
+  const handle = await screen(840, 630);
+  await page.keyboard.down('Control');
+  await page.mouse.move(handle.x, handle.y);
+  await page.mouse.down();
+  for (let k = 1; k <= 10; k++) { await page.mouse.move(handle.x, handle.y - k * 10); await wait(16); }
+  await page.mouse.up();
+  await page.keyboard.up('Control');
+  await wait(400);
+  const raised = await page.evaluate(() => { const s = window.boardTest.shapes[0]; return { inner: s.inner.map((p) => p.h), outline: s.outline.map((p) => p.h) }; });
+  check('shapes: a click inside adds a corner, and Ctrl + drag up raises it (2 squares for 100 px)', raised.inner.length === 1 && Math.abs(raised.inner[0] - 2) < 0.05 && raised.outline.every((h) => h === 0), JSON.stringify(raised));
+  const top = await page.evaluate(() => { const { board, Box3 } = window.boardTest; const box = new Box3().setFromObject(board.shapesView.object3d); return { y: box.max.y, cell: board.map.grid.size, meshes: board.shapesView.pickables.length }; });
+  check('shapes: the board draws the shape as a mesh peaking at the raised corner', top.meshes === 1 && Math.abs(top.y - 2 * top.cell) < 1, JSON.stringify(top));
+  // Its height is typed in the panel too.
+  await page.locator('.atlas-tabletop-shapes-panel input').fill('3');
+  await page.locator('.atlas-tabletop-shapes-panel input').press('Enter');
+  await wait(300);
+  const typed = await page.evaluate(() => window.boardTest.shapes[0].inner[0].h);
+  check('shapes: the picked corner\'s height is typed in the panel', typed === 3, String(typed));
+  await shot('shapes-roof');
+  // Delete takes the picked corner out; out of Edit mode the tool is put down.
+  await page.locator('.atlas-tabletop-shapes-panel').getByRole('button', { name: 'Delete corner' }).click();
+  await wait(300);
+  const left = await page.evaluate(() => window.boardTest.shapes[0]?.inner.length);
+  check('shapes: Delete corner takes the picked corner out', left === 0, String(left));
+  await page.evaluate(() => { const { board, modes } = window.boardTest; modes.mode = 'play'; board.refreshToolbar(); });
+  await wait(200);
+  check('shapes: leaving Edit mode puts the tool down', !(await page.locator('.atlas-tabletop-shapes-panel').isVisible()));
+  await page.evaluate(() => { const { board, modes, shapes } = window.boardTest; shapes.length = 0; modes.on = false; board.refresh(); board.refreshToolbar(); });
+});
+
 server.listen(0, async () => {
   const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const errors = [];

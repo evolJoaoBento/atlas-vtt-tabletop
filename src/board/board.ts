@@ -55,6 +55,9 @@ import { LayerRuler } from './layerRuler';
 import { PlacementGizmo, type GizmoPart } from './placementGizmo';
 import { carryView, isNoPlacement, NO_PLACEMENT, snapTurn, turnAbout, turnStep, wrapTurn, type Placement } from './layerPlacement';
 import { ElevationLayerView, type ElevationLayerData, type ElevationLayerShape } from './elevationLayer';
+import { ShapeEditor } from './shapeEditor';
+import { ShapesView } from './shapeView';
+import type { TerrainShape } from './terrainShapes';
 import { EDGE_SHARE, ResolutionGovernor, type LayerLook, type QualityPreset, type WallEdges } from './quality';
 import { PostFx, type PostFxLook } from './postFx';
 import { BoardSurface } from './surface';
@@ -218,6 +221,10 @@ export interface BoardHost {
   placement(tokenId: string): MiniPlacement | null;
   style(tokenId: string): TokenStyle;
   props(): readonly PropPlacement[];
+  /** The raised shapes of the level shown (roofs, hills), and keeping or removing one; without these there is no Shapes tool. */
+  shapes?(): readonly TerrainShape[];
+  saveShape?(shape: TerrainShape): void;
+  removeShape?(id: string): void;
   rules(): CollectionRules;
   moveToken(id: string, x: number, y: number): void;
   /** Several tokens moved as one change; a host without it is given the moves one by one. */
@@ -739,6 +746,9 @@ export class Board {
   private water: WaterSurface | null = null;
   /** The water brush while the GM paints or erases water; null while the tool is off. */
   private waterTool: 'paint' | 'erase' | 'fill' | null = null;
+  /** The raised shapes of the level shown, and the Shapes tool editing them (the GM's, made when first used). */
+  private readonly shapesView = new ShapesView();
+  private shapeEditor: ShapeEditor | null = null;
   /** The bucket's sensitivity, 0 (the very colour clicked) to 100 (almost any): how far a colour may be from it. */
   private waterFill = 30;
   /** The map's image as the bucket sees it (one pixel a water texel), made at its first fill; null until then. */
@@ -912,7 +922,7 @@ export class Board {
       ...(this.host.setWallEdges && { setWallEdges: (edges: WallEdges) => this.host.setWallEdges?.(edges) }),
       playerViewOpen: () => this.host.playerViewOpen(),
       laserOn: () => this.laserOn,
-      selectTool: (tool) => { this.waterTool = null; this.showBrush(); this.stopPainting(); this.setLaser(tool === 'laser'); this.toolbar.refresh(); },
+      selectTool: (tool) => { this.waterTool = null; this.shapeEditor?.setActive(false); this.showBrush(); this.stopPainting(); this.setLaser(tool === 'laser'); this.toolbar.refresh(); },
       ...(this.audience === 'gm' && {
         mode: () => this.host.boardMode?.() ?? null,
         setMode: (mode: 'play' | 'edit' | 'cinematic') => this.setMode(mode),
@@ -940,9 +950,13 @@ export class Board {
         placeArTable: () => this.placeTable(true),
       }),
       waterTool: () => this.waterTool,
+      ...(this.audience === 'gm' && this.host.saveShape && {
+        shapeTool: () => this.shapeEditor?.active === true,
+        setShapeTool: (on: boolean) => this.setShapeTool(on),
+      }),
       setWaterTool: (mode) => {
         this.shiftErase = false;
-        if (mode) this.stopPainting();
+        if (mode) { this.stopPainting(); this.shapeEditor?.setActive(false); }
         this.waterTool = mode;
         if (mode && this.tools.tool !== 'move') { this.tools.select('move'); this.toolsChanged(); }
         this.showBrush();
@@ -1509,6 +1523,55 @@ export class Board {
     this.view.far = span * 40;
     this.view.updateProjectionMatrix();
     this.applyStack();
+    // The shapes wear the map image just read, at the map's size.
+    this.drawShapes();
+  }
+
+  /** Draws the raised shapes of the level shown (the one being edited as it is now), and the editor's handles with `handles`. */
+  private drawShapes(handles = true): void {
+    const map = this.map;
+    if (!map) return;
+    if (!this.shapesView.object3d.parent) this.scene.add(this.shapesView.object3d);
+    const kept = this.host.shapes?.() ?? [];
+    const image = (this.surface?.imageMaterial as THREE.MeshStandardMaterial | undefined)?.map ?? null;
+    this.shapesView.update(this.shapeEditor ? this.shapeEditor.merged(kept) : kept, {
+      cell: map.grid.size, width: this.size.width, height: this.size.height, image,
+      material: (folder) => this.wallLook(folder, false),
+    });
+    if (handles) this.shapeEditor?.refresh();
+    this.wake(true);
+  }
+
+  /** Takes up the Shapes tool, or puts it down: one tool at a time. */
+  private setShapeTool(on: boolean): void {
+    if (on) {
+      if (this.host.boardMode?.() !== 'edit') this.setMode('edit');
+      if (this.waterTool) { this.waterTool = null; this.showBrush(); }
+      this.stopPainting();
+      if (this.laserOn) this.setLaser(false);
+      if (this.tools.tool !== 'move') { this.tools.select('move'); this.toolsChanged(); }
+      if (!this.shapeEditor) {
+        this.shapeEditor = new ShapeEditor(this.container, {
+          cell: () => this.map?.grid.size ?? 1,
+          shapes: () => this.host.shapes?.() ?? [],
+          floorAt: (x, y) => this.boardPoint(x, y),
+          pick: (x, y, objects) => this.hit(x, y, objects),
+          save: (shape) => this.host.saveShape?.(shape),
+          remove: (id) => this.host.removeShape?.(id),
+          changed: () => this.drawShapes(false),
+        });
+        this.scene.add(this.shapeEditor.object3d);
+      }
+    }
+    this.shapeEditor?.setActive(on);
+    this.toolbar.refresh();
+    this.wake(true);
+  }
+
+  /** The shape under the pointer, of the level shown. */
+  private shapeAt(clientX: number, clientY: number): string | null {
+    const hit = this.hit(clientX, clientY, this.shapesView.pickables);
+    return (hit?.userData.shapeId as string | undefined) ?? null;
   }
 
   /** Brings tokens, pins and props in line with the map and the host. */
@@ -1665,6 +1728,7 @@ export class Board {
       });
     }
     this.propsVersion += 1;
+    this.drawShapes();
     // What was rebuilt is sized on screen now: an unsized sprite fills the view for a press made before the next frame.
     const pose = this.lastPose;
     if (pose) {
@@ -3156,6 +3220,7 @@ export class Board {
         this.caster.open();
         return;
       }
+      if (this.audience === 'gm' && this.shapeEditor?.key(key)) { event.preventDefault(); return; }
       if (key === 'escape' && this.placing) { this.stopPlacing(); return; }
       if (key === 'escape' && this.painting) { this.paintWith(null); return; }
       if (key === 'escape' && this.laserOn) { this.setLaser(false); return; }
@@ -3373,6 +3438,8 @@ export class Board {
       this.playerDown(event);
       return;
     }
+    // The Shapes tool: a click adds a corner, a corner pressed is dragged (Ctrl: raised).
+    if (this.shapeEditor?.down(x, y, event.button, event.ctrlKey || event.metaKey)) return;
     // The GM's water brush: a drag paints water over the map (or takes it away).
     if (event.button === 0 && this.waterTool === 'fill' && this.audience === 'gm') {
       const at = this.boardPoint(x, y);
@@ -3665,6 +3732,7 @@ export class Board {
       return;
     }
     const press = this.press;
+    if (this.shapeEditor?.move(event.clientX, event.clientY, event.shiftKey)) return;
     if (this.waterTool) { this.brushAt = this.boardPoint(event.clientX, event.clientY); this.showBrush(); }
     if (press?.kind === 'gizmo') {
       this.dragGizmo(press, event.clientX, event.clientY, { shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey, alt: event.altKey });
@@ -3821,6 +3889,7 @@ export class Board {
     if (this.endTouch(event)) return;
     if (this.spellGizmo?.dragging) { this.spellGizmo.release(); this.wake(); return; }
     if (this.eye) { this.eyeDrag = null; return; }
+    if (this.shapeEditor?.up()) { this.press = null; return; }
     const press = this.press;
     this.press = null;
     // A handle let go: the table's new place is saved.
@@ -3831,6 +3900,14 @@ export class Board {
     const { clientX: x, clientY: y } = event;
     // Painting: a click paints the wall under it (Shift: the whole wall), and painting goes on until Esc.
     if (event.button === 0 && this.painting) {
+      // A raised shape under the pointer takes the material (or loses it), before the walls behind it.
+      const shapeId = this.shapeAt(x, y);
+      const shape = shapeId ? (this.host.shapes?.() ?? []).find((one) => one.id === shapeId) : undefined;
+      if (shape) {
+        const { material: _material, ...plain } = shape;
+        this.host.saveShape?.(this.painting === UNPAINT ? plain : { ...plain, material: this.painting });
+        return;
+      }
       const wall = this.wallAt(x, y);
       if (wall) this.host.paintWall(wall, this.painting === UNPAINT ? null : this.painting, event.shiftKey);
       return;
@@ -6542,8 +6619,9 @@ export class Board {
     const current = this.host.boardMode?.();
     if (material && (current === 'play' || current === 'cinematic')) this.setMode('edit');
     if (material) {
-      // One tool at a time: painting puts the water brush, the ruler and the template away.
+      // One tool at a time: painting puts the water brush, the Shapes tool, the ruler and the template away.
       if (this.waterTool) { this.waterTool = null; this.showBrush(); }
+      this.shapeEditor?.setActive(false);
       if (this.tools.tool !== 'move') { this.tools.select('move'); this.toolsChanged(); }
     }
     this.painting = material;
@@ -6991,6 +7069,8 @@ export class Board {
     this.activeMarks.dispose();
     for (const material of this.wallMaterials.values()) material.dispose();
     for (const piece of this.props.values()) piece.dispose();
+    this.shapeEditor?.dispose();
+    this.shapesView.dispose();
     this.surface?.dispose();
     for (const art of this.arts.values()) void art.then((texture) => texture?.dispose());
     this.tilt?.dispose();

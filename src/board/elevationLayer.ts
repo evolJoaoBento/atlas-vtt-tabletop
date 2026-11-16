@@ -23,6 +23,8 @@ import { waterDistance } from '../sound/waterSound';
 import { WaterSurface } from './waterSurface';
 import { releaseTexture } from './textures';
 import { stretchPlacement } from './mapStretch';
+import { ShapesView } from './shapeView';
+import type { TerrainShape } from './terrainShapes';
 
 /** What a layer is drawn from: its scene, and what Tabletop keeps for it (the same data the shown scene's own comes from). */
 /** How long a layer takes to fade in or out, or to another look. */
@@ -47,6 +49,8 @@ export interface ElevationLayerData {
   fogHeight: number;
   wallThickness: number;
   props: readonly PropPlacement[];
+  /** The raised shapes standing on it (roofs, hills: `terrainShapes.ts`). */
+  shapes?: readonly TerrainShape[];
   /** The water painted on it, and how it moves (as the scene keeps them); none for no water. */
   water?: WaterSource | null;
   /** Where it stands on the plane beyond its height, seen from the scene being played; none puts it where its grid does. */
@@ -123,6 +127,8 @@ export class ElevationLayerView {
   private readonly walls: WallSet;
   private readonly rig = new LightRig();
   private readonly props = new Map<string, PropPiece>();
+  /** Its raised shapes, wearing its own map image. */
+  private readonly shapes = new ShapesView();
   private readonly tokens = new Map<string, Standing>();
   private picture: string | null | undefined;
   /**
@@ -162,7 +168,7 @@ export class ElevationLayerView {
       prop: (glb) => host.model(glb),
     });
     this.object3d.name = `layer:${data.path}`;
-    this.content.add(this.walls.object3d, this.rig.object3d);
+    this.content.add(this.walls.object3d, this.rig.object3d, this.shapes.object3d);
     this.laying.add(this.floor);
     this.object3d.add(this.laying, this.content);
   }
@@ -268,6 +274,7 @@ export class ElevationLayerView {
   }
 
   private syncProps(data: ElevationLayerData, map: BoardMap): void {
+    this.drawShapes();
     const wanted = new Map(data.props.map((prop) => [prop.id, prop]));
     for (const [id, piece] of [...this.props]) {
       const next = wanted.get(id);
@@ -388,6 +395,13 @@ export class ElevationLayerView {
   }
 
   /** Loads the layer's map image the first time, or when it changed. */
+  /** Its raised shapes, at its size and in its image (once read). */
+  private drawShapes(): void {
+    const { width, height } = this.size;
+    this.shapes.update(this.data.shapes ?? [], { cell: this.data.map.grid.size, width, height, image: this.image.map, material: (folder) => this.host.wallLook(folder, false) });
+    this.contentDirty = true;
+  }
+
   private setImage(path: string | null): void {
     if (this.picture === path) return;
     this.picture = path;
@@ -408,6 +422,7 @@ export class ElevationLayerView {
       this.shade.needsUpdate = true;
       this.imageSize = { width, height };
       this.layFloor();
+      this.drawShapes();
       this.applyShown();
       // The water is laid on the image's own size.
       this.syncWater();
@@ -620,6 +635,7 @@ export class ElevationLayerView {
     for (const copy of this.fadedCopies.values()) copy.dispose();
     this.fadedCopies.clear();
     for (const piece of this.props.values()) piece.dispose();
+    this.shapes.dispose();
     for (const entry of this.tokens.values()) entry.piece.dispose();
     releaseTexture(this.image.map);
     this.image.dispose();

@@ -85,6 +85,9 @@ export interface ToolbarActions {
   /** The GM's water brush: painting or erasing (null: off), its radius in grid cells, and how all of the map's water moves. */
   waterTool?(): 'paint' | 'erase' | 'fill' | null;
   setWaterTool?(mode: 'paint' | 'erase' | 'fill' | null): void;
+  /** The Shapes tool (Edit mode): raised shapes, roofs and hills, drawn corner by corner on the level shown. */
+  shapeTool?(): boolean;
+  setShapeTool?(on: boolean): void;
   /** The water bucket's sensitivity, 0 to 100. */
   waterFill?(): number;
   setWaterFill?(sensitivity: number): void;
@@ -175,6 +178,8 @@ const MORE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 
 /** Lucide's `command` icon (ISC), the glyph of Atlas's command palette button. */
 /** Lucide's `brick-wall` icon (ISC): the board settings button, whose panel is about walls and fog first. */
+/** Lucide's mountain: the Shapes tool (roofs, hills). */
+const SHAPES_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 3 4 8 5-5 5 15H2L8 3z"/></svg>';
 const WALL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 9v6"/><path d="M16 15v6"/><path d="M16 3v6"/><path d="M3 15h18"/><path d="M3 9h18"/><path d="M8 15v6"/><path d="M8 3v6"/></svg>';
 
 
@@ -252,6 +257,8 @@ export class BoardToolbar {
   private readonly modeGroup: HTMLElement;
   private readonly modeButtons: Array<{ mode: BoardMode; button: HTMLButtonElement }> = [];
   private readonly paintGroup: HTMLElement;
+  private readonly shapeGroup: HTMLElement;
+  private readonly shapeButton: HTMLButtonElement;
   private readonly paintButton: HTMLButtonElement;
   private readonly paintMenuButton: HTMLButtonElement;
   private readonly paintPanel: HTMLElement;
@@ -581,6 +588,12 @@ export class BoardToolbar {
     });
     this.waterGroup.style.display = this.actions.setWaterTool ? '' : 'none';
     // Wall paint: a click paints the wall under it with the material chosen (Shift: the whole wall), until Esc or a right-click.
+    // The Shapes tool: corners on the level's floor, each at its own height (roofs, hills).
+    this.shapeGroup = el('div', 'atlas-tool-group', bar);
+    this.shapeButton = toolIn(this.shapeGroup, SHAPES_SVG, () => { this.actions.setShapeTool?.(this.actions.shapeTool?.() !== true); this.refresh(); });
+    this.shapeButton.setAttribute('aria-label', 'Shapes');
+    this.shapeButton.title = 'Shapes: draw roofs and hills corner by corner, each corner at its own height';
+    this.shapeGroup.style.display = this.actions.setShapeTool ? '' : 'none';
     this.paintGroup = el('div', 'atlas-tool-group', bar);
     this.paintButton = toolIn(this.paintGroup, modeIcon('paint'), () => {
       if (this.actions.painting?.()) this.actions.setPainting?.(null);
@@ -906,6 +919,12 @@ export class BoardToolbar {
     show(this.waterGroup, editing);
     show(this.lightingGroup, editing);
     show(this.paintGroup, editing);
+    show(this.shapeGroup, editing);
+    // Out of Edit mode the Shapes tool is put down.
+    if (!editing && this.actions.shapeTool?.() === true) this.actions.setShapeTool?.(false);
+    const shaping = this.actions.shapeTool?.() === true;
+    this.shapeButton.classList.toggle('is-active', shaping);
+    this.shapeButton.setAttribute('aria-pressed', String(shaping));
     show(this.button.closest<HTMLElement>('.atlas-tool-button'), editing);
     if (!playing) { this.closeTemplate(); this.closeMeasure(); this.closeDice(); }
     if (!editing) { this.close(); this.closeWater(); this.closePaint(); this.closeLighting(); }

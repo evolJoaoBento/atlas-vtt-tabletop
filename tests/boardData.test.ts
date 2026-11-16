@@ -264,3 +264,19 @@ test("what a map kept of painted water before it moved to Atlas's liquids is rea
   data.clearLegacyWater('none');
   assert.equal(changes, 1);
 });
+
+test('raised shapes: saved per map, replaced by id, removed, and read back from saved data', () => {
+  const data = new BoardData();
+  const seen: Array<string | null> = [];
+  data.onChange((map) => seen.push(map));
+  const roof = { id: 'r1', level: 'L2', outline: [{ x: 0, y: 0, h: 1 }, { x: 10, y: 0, h: 1 }, { x: 10, y: 10, h: 1 }], inner: [{ x: 5, y: 5, h: 3 }] };
+  data.saveShape('m', roof);
+  data.saveShape('m', { ...roof, inner: [] });
+  assert.deepEqual(data.shapes('m'), [{ ...roof, inner: [] }]);
+  assert.deepEqual(seen, ['m', 'm']);
+  const read = new BoardData(readBoardData(JSON.parse(JSON.stringify(data.toJSON()))));
+  assert.deepEqual(read.shapes('m'), [{ ...roof, inner: [] }]);
+  data.removeShape('m', 'r1');
+  assert.deepEqual(data.shapes('m'), []);
+  assert.equal(data.toJSON().m, undefined);
+});

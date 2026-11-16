@@ -3,6 +3,7 @@
  * mini, a standee, a hidden one and one whose art is missing; two pins and a prop) on a `Board` with a fake host that
  * records what the board asks of it. Driven by Playwright; not shipped.
  */
+import type { TerrainShape } from '../src/board/terrainShapes';
 import { equipWindow } from './dom-polyfill';
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
@@ -229,7 +230,10 @@ async function main(): Promise<void> {
   const images: Record<string, string> = { 'bg.png': background, 'red.png': face('#b03030'), 'green.png': face('#3a8a3a'), 'balcony.png': balcony };
   const snapping = { tokens: true, props: true };
   const props: PropPlacement[] = [{ id: 'barrel', glb: 'props/barrel.glb', x: 910, y: 805, rotation: 0, scale: 1 }];
+  /** The raised shapes kept (Shapes tool), as the board data keeps them. */
+  const shapes: TerrainShape[] = [];
   const record = {
+    shapeSaves: 0,
     moves: [] as Array<[string, number, number]>, propMoves: [] as Array<[string, number, number]>, propScales: [] as Array<[string, number]>, propLifts: [] as Array<[string, number]>, added: [] as Array<[string, number, number, unknown?]>,
     notes: [] as string[], menus: [] as string[], propMenus: [] as string[], previews: [] as string[], warnings: [] as string[],
     copies: [] as Array<[string, string, number, number]>, menuActions: [] as unknown[][], initiative: [] as unknown[], shown: [] as string[],
@@ -384,6 +388,9 @@ async function main(): Promise<void> {
     placement: (id) => (id === 'hero' || id === 'fallen' ? { mini: 'minis/hero.glb', scale: 1, turn: 0, ...(heroBase === 'none' ? {} : { base: heroBase }) } : null),
     style: (id) => (id === 'gob' ? 'standee' : 'disc'),
     props: () => props,
+    shapes: () => shapes,
+    saveShape: (shape) => { const at = shapes.findIndex((one) => one.id === shape.id); if (at >= 0) shapes[at] = shape; else shapes.push(shape); record.shapeSaves += 1; queueMicrotask(() => board.refresh()); },
+    removeShape: (id) => { const at = shapes.findIndex((one) => one.id === id); if (at >= 0) shapes.splice(at, 1); queueMicrotask(() => board.refresh()); },
     rules: () => rules,
     moveToken: (id, x, y) => { record.moves.push([id, x, y]); },
     // As one move each (what the board did without it), and kept as one batch.
@@ -816,7 +823,7 @@ async function main(): Promise<void> {
   cinematicStudio = studio;
   board.cinemaButton({ live: () => studio.live, toggleLive: () => studio.toggleLive() });
   const cutsceneHarness = { studio, host: studioHost, store: cutsceneStore, log: cutsceneLog, first: map.path, second: crypt.path, session: fakeSession, channel, owner };
-  Object.assign(window, { boardTest: { studio: cutsceneHarness, api: { cutscene: channel }, Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
+  Object.assign(window, { boardTest: { studio: cutsceneHarness, api: { cutscene: channel }, Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

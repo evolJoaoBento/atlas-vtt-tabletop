@@ -16,6 +16,7 @@ import type { Frame, MemberMove } from './stackMove';
 /** A member's point in its base's pixels (`stackMove.ts` `moveOf`, here without its module's weight). */
 const moveOf = (frame: Frame) => (point: { x: number; y: number }): { x: number; y: number } => ({ x: point.x * frame.k + frame.x, y: point.y * frame.k + frame.y });
 import { dropShotMaps, readCutscenes, renameShotMaps, type Cutscene } from '../cutscene/cutsceneData';
+import { readShapes, type TerrainShape } from './terrainShapes';
 
 export type TokenStyle = 'disc' | 'standee';
 
@@ -75,6 +76,8 @@ export interface MapData {
   arTable?: SavedArTable;
   /** Cinematic cutscenes made in this map (their shots may look at other maps). */
   cutscenes?: Cutscene[];
+  /** Raised shapes drawn on its levels (roofs, hills: `terrainShapes.ts`). */
+  shapes?: TerrainShape[];
   /** The settings of this map's 0.14 room walls were looked for and moved to Atlas 0.15's room walls: done once. */
   roomWallsMoved?: true;
   /** What the GM set in 3D on walls, doors and lights (the seven records above) was moved onto Atlas's own records: done once. */
@@ -204,6 +207,7 @@ function tidy(map: MapData): MapData | null {
   if (map.stackJournal) out.stackJournal = map.stackJournal;
   if (map.arTable) out.arTable = map.arTable;
   if (map.cutscenes && map.cutscenes.length > 0) out.cutscenes = map.cutscenes;
+  if (map.shapes && map.shapes.length > 0) out.shapes = map.shapes;
   if (map.roomWallsMoved === true) out.roomWallsMoved = true;
   if (map.extrasMoved === true) out.extrasMoved = true;
   return Object.keys(out).length > 0 ? out : null;
@@ -290,6 +294,7 @@ export function readBoardData(raw: unknown): BoardDataJSON {
     const kept = tidy({
       ...(arTable && { arTable }),
       cutscenes,
+      shapes: readShapes(value.shapes),
       styles, props, ...(layer && { layer }), ...(value.hidden === true && { hidden: true as const }), ...(readWater(value.water) && { water: readWater(value.water)! }), ...(fogHeight !== undefined && { fogHeight }),
       wallMaterials: strings(value.wallMaterials), doorProps: strings(value.doorProps), lightHeights: heights(value.lightHeights),
       wallHeights: heights(value.wallHeights), wallWidths: widths(value.wallWidths), windows: windows(value.windows), doorFlips: flips(value.doorFlips),
@@ -497,6 +502,25 @@ export class BoardData {
     if (table) map.arTable = table;
     else delete map.arTable;
     this.put(mapPath, map);
+  }
+
+  /** The raised shapes drawn on this map's levels. */
+  shapes(mapPath: string): readonly TerrainShape[] {
+    return this.data[mapPath]?.shapes ?? [];
+  }
+
+  /** Keeps a shape: a new one, or the one of its id replaced. */
+  saveShape(mapPath: string, shape: TerrainShape): void {
+    const map = this.data[mapPath] ?? {};
+    const all = map.shapes ?? [];
+    const shapes = all.some((s) => s.id === shape.id) ? all.map((s) => (s.id === shape.id ? shape : s)) : [...all, shape];
+    this.put(mapPath, { ...map, shapes });
+  }
+
+  removeShape(mapPath: string, id: string): void {
+    const map = this.data[mapPath];
+    if (!map?.shapes?.some((s) => s.id === id)) return;
+    this.put(mapPath, { ...map, shapes: map.shapes.filter((s) => s.id !== id) });
   }
 
   /** The cutscenes made in this map. */
