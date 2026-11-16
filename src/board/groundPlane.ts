@@ -4,6 +4,7 @@
  * (a tile a square) or plain ground. It lies a hair under the map, which is drawn on it.
  */
 import * as THREE from 'three';
+import type { LoadedMaterial } from '../materials';
 import { groundHeight, type GroundSettings } from './ground';
 
 const PLAIN_GROUND = 0x5d6b45;
@@ -26,7 +27,10 @@ export interface GroundArea {
 
 export class GroundPlane {
   readonly object3d: THREE.Mesh;
-  private readonly plain = new THREE.MeshStandardMaterial({ color: PLAIN_GROUND, roughness: 0.95, metalness: 0 });
+  private readonly plain = naturalGround(new THREE.MeshStandardMaterial({ color: PLAIN_GROUND, roughness: 0.95, metalness: 0 }));
+  /** The ground's own copy of a gallery material (its maps shared, its shader its own: the walls are untouched). */
+  private textured: THREE.MeshStandardMaterial | null = null;
+  private folder: string | null = null;
   private key = '';
 
   constructor() {
@@ -35,10 +39,29 @@ export class GroundPlane {
     this.object3d.receiveShadow = true;
   }
 
-  /** Shapes it for the settings and the map; `material` gives the shared material of a gallery folder. */
-  update(settings: GroundSettings, area: GroundArea, material: (folder: string) => THREE.Material): void {
-    this.object3d.material = settings.material ? material(settings.material) : this.plain;
-    const key = JSON.stringify([settings.noise, settings.strength, settings.margin, area.width, area.height, area.cell]);
+  /**
+   * Shapes it for the settings and the map; `read` loads a gallery material, and `loaded` is told when it is on (the
+   * board draws again).
+   */
+  update(settings: GroundSettings, area: GroundArea, read: (folder: string) => Promise<LoadedMaterial | null>, loaded: () => void): void {
+    const folder = settings.material ?? null;
+    if (folder !== this.folder) {
+      this.folder = folder;
+      this.textured?.dispose();
+      this.textured = null;
+      this.object3d.material = this.plain;
+      if (folder) {
+        void read(folder).then((material) => {
+          if (this.folder !== folder || !material) return;
+          const made = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0 });
+          material.apply(made);
+          this.textured = naturalGround(made);
+          this.object3d.material = this.textured;
+          loaded();
+        });
+      }
+    }
+    const key = JSON.stringify([settings.noise, settings.strength, settings.margin, settings.tile, area.width, area.height, area.cell]);
     if (key === this.key) return;
     this.key = key;
     this.object3d.geometry.dispose();
@@ -48,8 +71,62 @@ export class GroundPlane {
   dispose(): void {
     this.object3d.geometry.dispose();
     this.plain.dispose();
+    this.textured?.dispose();
     this.object3d.removeFromParent();
   }
+}
+
+/** GLSL: a value noise (0 to 1) and the texture read without its tiling showing (Inigo Quilez's "texture repetition"). */
+const NO_TILE = `
+float groundHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float groundNoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(groundHash(i), groundHash(i + vec2(1.0, 0.0)), u.x), mix(groundHash(i + vec2(0.0, 1.0)), groundHash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+vec4 textureNoTile(sampler2D samp, vec2 uv) {
+  // A slow noise picks, place by place, which of a few shifted copies of the texture shows; neighbours blend.
+  float k = groundNoise(uv * 0.35) * 8.0;
+  float ia = floor(k), f = fract(k);
+  vec2 offa = sin(vec2(3.0, 7.0) * ia), offb = sin(vec2(3.0, 7.0) * (ia + 1.0));
+  vec2 dx = dFdx(uv), dy = dFdy(uv);
+  vec4 a = textureGrad(samp, uv + offa, dx, dy), b = textureGrad(samp, uv + offb, dx, dy);
+  return mix(a, b, smoothstep(0.2, 0.8, f));
+}
+`;
+
+/** The chunks whose texture reads go through `textureNoTile`. */
+const UNTILED: ReadonlyArray<[string, string]> = [
+  ['map_fragment', 'map'], ['normal_fragment_maps', 'normalMap'], ['roughnessmap_fragment', 'roughnessMap'],
+  ['aomap_fragment', 'aoMap'], ['metalnessmap_fragment', 'metalnessMap'],
+];
+
+/**
+ * A ground material that looks less like tiles: every texture read is untiled (shifted copies blended by a slow
+ * noise), and the colour drifts lighter and darker over tens of squares. Its own shader replaces any it had
+ * (a gallery material's parallax: the ground needs none).
+ */
+export function naturalGround<T extends THREE.MeshStandardMaterial>(material: T): T {
+  material.onBeforeCompile = (shader) => {
+    let fragment = shader.fragmentShader.replace('#include <common>', `#include <common>\n${NO_TILE}`);
+    for (const [chunk, sampler] of UNTILED) {
+      const code = (THREE.ShaderChunk as unknown as Record<string, string>)[chunk];
+      if (!code) continue;
+      fragment = fragment.replace(`#include <${chunk}>`, code.split(`texture2D( ${sampler},`).join(`textureNoTile( ${sampler},`));
+    }
+    // Slow patches of lighter and darker ground (uv runs in tiles).
+    fragment = fragment.replace('#include <color_fragment>', `#include <color_fragment>
+#if defined( USE_MAP )
+  float groundPatch = groundNoise(vMapUv * 0.06) * 0.65 + groundNoise(vMapUv * 0.017 + 13.0) * 0.35;
+#else
+  float groundPatch = 0.5;
+#endif
+diffuseColor.rgb *= mix(0.8, 1.14, groundPatch);`);
+    shader.fragmentShader = fragment;
+  };
+  material.customProgramCacheKey = () => 'tabletop-ground';
+  material.needsUpdate = true;
+  return material;
 }
 
 /** The grid: lines bunched near the middle (u², so the board's surroundings are fine and the horizon coarse). */
@@ -66,7 +143,8 @@ export function groundGeometry(settings: GroundSettings, area: GroundArea): THRE
       const x = cx + along(i), z = cz + along(j), k = j * n + i;
       const h = groundHeight(x / cell, z / cell, settings, flat);
       position.set([x, h * cell - SINK, z], k * 3);
-      uv.set([x / cell, -z / cell], k * 2);
+      // In tiles: one tile a `tile` squares wide.
+      uv.set([x / (cell * settings.tile), -z / (cell * settings.tile)], k * 2);
     }
   }
   const index: number[] = [];

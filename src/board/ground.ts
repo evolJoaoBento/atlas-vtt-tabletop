@@ -20,9 +20,12 @@ export interface GroundSettings {
   fog: number;
   /** Extra board round the map where minis can stand, in grid squares (0 to 100). */
   margin: number;
+  /** How many squares one tile of the ground's material spans (1 to 8). */
+  tile: number;
 }
 
-export const DEFAULT_GROUND: GroundSettings = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0 };
+export const DEFAULT_GROUND: GroundSettings = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2 };
+export const MAX_TILE = 8;
 export const GROUND_NOISES: readonly { value: GroundNoise; label: string }[] = [
   { value: 'flat', label: 'Flat' }, { value: 'gentle', label: 'Gentle hills' }, { value: 'rolling', label: 'Rolling hills' },
   { value: 'rough', label: 'Rough ground' }, { value: 'dunes', label: 'Dunes' },
@@ -45,6 +48,7 @@ export function readGround(raw: unknown): GroundSettings {
     strength: num(raw.strength) ? clamp(raw.strength, 0, 1) : DEFAULT_GROUND.strength,
     fog: num(raw.fog) ? clamp(Math.round(raw.fog), 0, 100) : DEFAULT_GROUND.fog,
     margin: num(raw.margin) ? clamp(Math.round(raw.margin), 0, MAX_MARGIN) : DEFAULT_GROUND.margin,
+    tile: num(raw.tile) ? clamp(Math.round(raw.tile), 1, MAX_TILE) : DEFAULT_GROUND.tile,
   };
 }
 

@@ -5470,7 +5470,7 @@ feature('shapes: painted and stood on', async ({ page }) => {
 
 feature('ground', async ({ page, shot }) => {
   // Board settings, Ground: the plane to the horizon (no table), its fog, extra board for minis, and the table grown by it.
-  await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0 }; board.refresh(); });
+  await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2 }; board.refresh(); });
   await page.getByRole('button', { name: 'Board settings' }).click();
   await wait(200);
   await page.getByRole('button', { name: 'Horizon plane' }).click();
@@ -5488,6 +5488,17 @@ feature('ground', async ({ page, shot }) => {
   await wait(400);
   const out = await page.evaluate(() => { const { board } = window.boardTest; const cell = board.map.grid.size; return { inside: board.clampToBoard(-10 * cell, -5 * cell), beyond: board.clampToBoard(-40 * cell, 0), cell }; });
   check('ground: the extra board lets a mini stand off the map, up to its edge', Math.abs(out.inside.x + 10 * out.cell) < 1 && Math.abs(out.beyond.x + 20 * out.cell) < 1, JSON.stringify(out));
+  // The plane lies under the scene's first level, whichever is shown; a material on it is read untiled, its own copy.
+  const placed = await page.evaluate(async () => {
+    const { board, groundState } = window.boardTest;
+    groundState.value = { ...groundState.value, material: 'materials/brick', tile: 3 };
+    board.refresh();
+    await new Promise((r) => setTimeout(r, 800));
+    const lowest = Math.min(0, ...board.stackData.map((l) => l.elevation));
+    const material = board.groundPlane.object3d.material;
+    return { y: board.groundPlane.object3d.position.y, want: lowest * board.map.grid.size, own: material !== board.wallLook('materials/brick', false), mapped: !!material.map, key: material.customProgramCacheKey?.() };
+  });
+  check('ground: the plane lies under the first level, and wears its own untiled copy of the material', placed.y === placed.want && placed.own && placed.mapped && placed.key === 'tabletop-ground', JSON.stringify(placed));
   await page.keyboard.press('Escape');
   await page.evaluate(() => { const { board } = window.boardTest; board.camera.goal.pitch = 0.45; board.camera.goal.distance *= 1.6; board.wake(true); });
   await wait(1200);
@@ -5497,7 +5508,7 @@ feature('ground', async ({ page, shot }) => {
   await wait(400);
   const table = await page.evaluate(() => { const { board } = window.boardTest; const s = board.surface; s.frame.geometry.computeBoundingBox(); const box = s.frame.geometry.boundingBox; return { frame: box.max.x - box.min.x, width: s.width, cell: board.map.grid.size, mat: s.mat?.visible === true, table: s.table.visible, plane: board.groundPlane.object3d.parent !== null }; });
   check('ground: on the map board the table and its mat grow by the extra board', table.table && table.mat && !table.plane && table.frame > table.width + 20 * table.cell - 1, JSON.stringify(table));
-  await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0 }; board.refresh(); });
+  await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2 }; board.refresh(); });
 });
 
 server.listen(0, async () => {

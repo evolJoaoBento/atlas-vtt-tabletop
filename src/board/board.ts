@@ -1119,6 +1119,7 @@ export class Board {
     const lowest = Math.min(0, ...this.stackData.map((layer) => layer.elevation));
     // The scene being played is always drawn solid (its transparent parts cut out, so the scenes below show through); the Upper layers look is for the scenes above it.
     surface.stack(lowest * map.grid.size, lowest < 0 ? 'solid' : null);
+    this.groundPlane.object3d.position.y = lowest * map.grid.size;
     // The floor of the scene being played is never cut by the see-through window (only the floors above it, and walls, are).
     const wanted = new Map(this.stackData.map((layer) => [layer.path, layer]));
     // A layer no longer drawn is put away, not thrown out: shown again it fades straight back in, nothing read again.
@@ -1551,7 +1552,9 @@ export class Board {
     this.surface.showTable(!horizon);
     if (horizon) {
       if (!this.groundPlane.object3d.parent) this.scene.add(this.groundPlane.object3d);
-      this.groundPlane.update(ground, { width: this.size.width, height: this.size.height, cell: map.grid.size, margin: ground.margin }, (folder) => this.wallLook(folder, false));
+      this.groundPlane.update(ground, { width: this.size.width, height: this.size.height, cell: map.grid.size, margin: ground.margin }, (folder) => this.host.readMaterial(folder), () => this.wake(true));
+      // Always under the scene's first level, whichever level is shown (the shown one stands at 0, those below it under).
+      this.groundPlane.object3d.position.y = Math.min(0, ...this.stackData.map((layer) => layer.elevation)) * map.grid.size;
     } else this.groundPlane.object3d.removeFromParent();
     this.applyHorizon();
     this.wake(true);

@@ -8,8 +8,9 @@ const hills = (over: Partial<GroundSettings> = {}): GroundSettings => ({ ...DEFA
 test('ground settings read tolerantly: defaults for what is missing, numbers kept in range', () => {
   assert.deepEqual(readGround(undefined), DEFAULT_GROUND);
   assert.deepEqual(readGround('junk'), DEFAULT_GROUND);
-  const read = readGround({ mode: 'horizon', material: 'atlas-vtt/assets/materials/grass', noise: 'dunes', strength: 3, fog: -5, margin: 250 });
-  assert.deepEqual(read, { mode: 'horizon', material: 'atlas-vtt/assets/materials/grass', noise: 'dunes', strength: 1, fog: 0, margin: 100 });
+  const read = readGround({ mode: 'horizon', material: 'atlas-vtt/assets/materials/grass', noise: 'dunes', strength: 3, fog: -5, margin: 250, tile: 20 });
+  assert.deepEqual(read, { mode: 'horizon', material: 'atlas-vtt/assets/materials/grass', noise: 'dunes', strength: 1, fog: 0, margin: 100, tile: 8 });
+  assert.equal(readGround({ tile: 0 }).tile, 1);
   assert.equal(readGround({ mode: 'sky', noise: 'cliffs' }).mode, 'board');
   assert.equal(readGround({ mode: 'sky', noise: 'cliffs' }).noise, DEFAULT_GROUND.noise);
   assert.equal(readGround({ margin: 12.6 }).margin, 13);

@@ -7,7 +7,7 @@
  * keys typed in it stay out of the board's camera keys.
  */
 
-import { GROUND_NOISES, MAX_MARGIN, type GroundMode, type GroundSettings } from './ground';
+import { GROUND_NOISES, MAX_MARGIN, MAX_TILE, type GroundMode, type GroundSettings } from './ground';
 import { setSvg } from '../svg';
 import { atlasMeasureIcon, atlasToolIcon, historyIcon, modeIcon, waterIcon } from './atlasToolIcons';
 import { WATER_MOTION_KINDS, WATER_TINTS, type WaterMotionKind } from './water';
@@ -265,7 +265,7 @@ export class BoardToolbar {
   private groundUi: {
     section: HTMLElement; modes: Array<{ value: GroundMode; button: HTMLButtonElement }>; horizonRows: HTMLElement[];
     material: HTMLSelectElement; noise: HTMLSelectElement; strength: HTMLInputElement; strengthValue: HTMLElement;
-    fog: HTMLInputElement; fogValue: HTMLElement; margin: HTMLInputElement; marginValue: HTMLElement;
+    fog: HTMLInputElement; fogValue: HTMLElement; margin: HTMLInputElement; marginValue: HTMLElement; tile: HTMLInputElement; tileValue: HTMLElement;
   } | null = null;
   private readonly shapeButton: HTMLButtonElement;
   private readonly paintButton: HTMLButtonElement;
@@ -826,6 +826,10 @@ export class BoardToolbar {
         this.actions.setGround?.(material.value ? { ...rest, material: material.value } : rest);
         this.fillGround();
       });
+      const tile = rangeRow('Tile size', 'Squares one tile of the ground material spans', MAX_TILE, true);
+      tile.input.min = '1';
+      tile.input.addEventListener('change', () => change({ tile: Number(tile.input.value) }));
+      tile.input.addEventListener('input', () => { tile.value.textContent = `${tile.input.value} sq`; });
       const noise = selectRow('Pattern', 'Height pattern past the board');
       for (const one of GROUND_NOISES) { const option = el('option', '', noise, one.label); option.value = one.value; }
       noise.addEventListener('change', () => change({ noise: noise.value as GroundSettings['noise'] }));
@@ -839,7 +843,7 @@ export class BoardToolbar {
       margin.input.addEventListener('change', () => change({ margin: Number(margin.input.value) }));
       margin.input.addEventListener('input', () => { margin.value.textContent = `${margin.input.value} sq`; });
       margin.input.closest('label')!.title = 'Room round the map where minis can stand, in squares each way.';
-      this.groundUi = { section, modes, horizonRows, material, noise, strength: strength.input, strengthValue: strength.value, fog: fogRow.input, fogValue: fogRow.value, margin: margin.input, marginValue: margin.value };
+      this.groundUi = { section, modes, horizonRows, material, noise, strength: strength.input, strengthValue: strength.value, fog: fogRow.input, fogValue: fogRow.value, margin: margin.input, marginValue: margin.value, tile: tile.input, tileValue: tile.value };
     }
     const edges = el('div', 'atlas-tabletop-palette__field', fog);
     el('span', 'atlas-tabletop-palette__label', edges, 'Wall edges');
@@ -1520,6 +1524,8 @@ export class BoardToolbar {
     ui.fogValue.textContent = ground.fog === 0 ? 'off' : String(ground.fog);
     ui.margin.value = String(ground.margin);
     ui.marginValue.textContent = `${ground.margin} sq`;
+    ui.tile.value = String(ground.tile);
+    ui.tileValue.textContent = `${ground.tile} sq`;
   }
 
   private fill(): void {
