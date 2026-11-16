@@ -4,6 +4,7 @@
  * records what the board asks of it. Driven by Playwright; not shipped.
  */
 import type { TerrainShape } from '../src/board/terrainShapes';
+import { DEFAULT_GROUND, type GroundSettings } from '../src/board/ground';
 import { equipWindow } from './dom-polyfill';
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
@@ -232,6 +233,8 @@ async function main(): Promise<void> {
   const props: PropPlacement[] = [{ id: 'barrel', glb: 'props/barrel.glb', x: 910, y: 805, rotation: 0, scale: 1 }];
   /** The raised shapes kept (Shapes tool), as the board data keeps them. */
   const shapes: TerrainShape[] = [];
+  /** The ground round the map (Board settings, Ground), as the board data keeps it. */
+  const groundState = { value: { ...DEFAULT_GROUND } as GroundSettings };
   const record = {
     shapeSaves: 0,
     moves: [] as Array<[string, number, number]>, propMoves: [] as Array<[string, number, number]>, propScales: [] as Array<[string, number]>, propLifts: [] as Array<[string, number]>, added: [] as Array<[string, number, number, unknown?]>,
@@ -389,6 +392,8 @@ async function main(): Promise<void> {
     style: (id) => (id === 'gob' ? 'standee' : 'disc'),
     props: () => props,
     shapes: () => shapes,
+    ground: () => groundState.value,
+    setGround: (settings) => { groundState.value = settings; queueMicrotask(() => board.refresh()); },
     saveShape: (shape) => { const at = shapes.findIndex((one) => one.id === shape.id); if (at >= 0) shapes[at] = shape; else shapes.push(shape); record.shapeSaves += 1; queueMicrotask(() => board.refresh()); },
     removeShape: (id) => { const at = shapes.findIndex((one) => one.id === id); if (at >= 0) shapes.splice(at, 1); queueMicrotask(() => board.refresh()); },
     rules: () => rules,
@@ -823,7 +828,7 @@ async function main(): Promise<void> {
   cinematicStudio = studio;
   board.cinemaButton({ live: () => studio.live, toggleLive: () => studio.toggleLive() });
   const cutsceneHarness = { studio, host: studioHost, store: cutsceneStore, log: cutsceneLog, first: map.path, second: crypt.path, session: fakeSession, channel, owner };
-  Object.assign(window, { boardTest: { studio: cutsceneHarness, api: { cutscene: channel }, Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
+  Object.assign(window, { boardTest: { studio: cutsceneHarness, api: { cutscene: channel }, Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

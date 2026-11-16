@@ -280,3 +280,14 @@ test('raised shapes: saved per map, replaced by id, removed, and read back from 
   assert.deepEqual(data.shapes('m'), []);
   assert.equal(data.toJSON().m, undefined);
 });
+
+test('ground settings: defaults until set, kept per map, dropped when back to the defaults', () => {
+  const data = new BoardData();
+  assert.equal(data.ground('m').mode, 'board');
+  data.setGround('m', { ...data.ground('m'), mode: 'horizon', margin: 30, material: 'atlas-vtt/assets/materials/grass' });
+  const read = new BoardData(readBoardData(JSON.parse(JSON.stringify(data.toJSON()))));
+  assert.deepEqual({ mode: read.ground('m').mode, margin: read.ground('m').margin, material: read.ground('m').material }, { mode: 'horizon', margin: 30, material: 'atlas-vtt/assets/materials/grass' });
+  assert.equal(read.ground('other').mode, 'board');
+  data.setGround('m', { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0 });
+  assert.equal(data.toJSON().m, undefined);
+});

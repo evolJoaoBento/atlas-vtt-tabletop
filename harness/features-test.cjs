@@ -5468,6 +5468,38 @@ feature('shapes: painted and stood on', async ({ page }) => {
   await page.evaluate(() => { const { board, shapes, modes } = window.boardTest; board.paintWith(null); shapes.length = 0; modes.on = false; board.refresh(); board.refreshToolbar(); });
 });
 
+feature('ground', async ({ page, shot }) => {
+  // Board settings, Ground: the plane to the horizon (no table), its fog, extra board for minis, and the table grown by it.
+  await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0 }; board.refresh(); });
+  await page.getByRole('button', { name: 'Board settings' }).click();
+  await wait(200);
+  await page.getByRole('button', { name: 'Horizon plane' }).click();
+  await wait(500);
+  const horizon = await page.evaluate(() => { const { board, groundState } = window.boardTest; return { mode: groundState.value.mode, plane: board.groundPlane.object3d.parent === board.scene, table: board.surface.table.visible, fog: board.scene.fog ? board.scene.fog.far : null, pattern: !document.querySelector('[aria-label="Height pattern past the board"]').closest('label').hidden }; });
+  check('ground: Horizon plane lays the map on a plane to the horizon, with no table round it', horizon.mode === 'horizon' && horizon.plane && horizon.table === false && horizon.pattern, JSON.stringify(horizon));
+  // The fog slider: thicker is nearer.
+  await page.evaluate(() => { const input = document.querySelector('[aria-label="Distance fog"]'); input.value = '90'; input.dispatchEvent(new Event('change', { bubbles: true })); });
+  await wait(400);
+  const thick = await page.evaluate(() => window.boardTest.board.scene.fog?.far ?? null);
+  check('ground: the distance fog slider brings the fog nearer', horizon.fog !== null && thick !== null && thick < horizon.fog, JSON.stringify({ before: horizon.fog, thick }));
+  await page.evaluate(() => { const input = document.querySelector('[aria-label="Distance fog"]'); input.value = '30'; input.dispatchEvent(new Event('change', { bubbles: true })); });
+  // Extra board: a token is carried out past the map's edge, where it could not go before.
+  await page.evaluate(() => { const input = document.querySelector('[aria-label="Extra board round the map, in squares"]'); input.value = '20'; input.dispatchEvent(new Event('change', { bubbles: true })); });
+  await wait(400);
+  const out = await page.evaluate(() => { const { board } = window.boardTest; const cell = board.map.grid.size; return { inside: board.clampToBoard(-10 * cell, -5 * cell), beyond: board.clampToBoard(-40 * cell, 0), cell }; });
+  check('ground: the extra board lets a mini stand off the map, up to its edge', Math.abs(out.inside.x + 10 * out.cell) < 1 && Math.abs(out.beyond.x + 20 * out.cell) < 1, JSON.stringify(out));
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { const { board } = window.boardTest; board.camera.goal.pitch = 0.45; board.camera.goal.distance *= 1.6; board.wake(true); });
+  await wait(1200);
+  await shot('ground-horizon');
+  // Back to the map board, with the extra board: the table grows round it.
+  await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { ...groundState.value, mode: 'board', margin: 10 }; board.refresh(); });
+  await wait(400);
+  const table = await page.evaluate(() => { const { board } = window.boardTest; const s = board.surface; s.frame.geometry.computeBoundingBox(); const box = s.frame.geometry.boundingBox; return { frame: box.max.x - box.min.x, width: s.width, cell: board.map.grid.size, mat: s.mat?.visible === true, table: s.table.visible, plane: board.groundPlane.object3d.parent !== null }; });
+  check('ground: on the map board the table and its mat grow by the extra board', table.table && table.mat && !table.plane && table.frame > table.width + 20 * table.cell - 1, JSON.stringify(table));
+  await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0 }; board.refresh(); });
+});
+
 server.listen(0, async () => {
   const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const errors = [];

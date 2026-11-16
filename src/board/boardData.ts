@@ -17,6 +17,7 @@ import type { Frame, MemberMove } from './stackMove';
 const moveOf = (frame: Frame) => (point: { x: number; y: number }): { x: number; y: number } => ({ x: point.x * frame.k + frame.x, y: point.y * frame.k + frame.y });
 import { dropShotMaps, readCutscenes, renameShotMaps, type Cutscene } from '../cutscene/cutsceneData';
 import { readShapes, type TerrainShape } from './terrainShapes';
+import { isDefaultGround, readGround, type GroundSettings } from './ground';
 
 export type TokenStyle = 'disc' | 'standee';
 
@@ -78,6 +79,8 @@ export interface MapData {
   cutscenes?: Cutscene[];
   /** Raised shapes drawn on its levels (roofs, hills: `terrainShapes.ts`). */
   shapes?: TerrainShape[];
+  /** The ground round it (`ground.ts`): kept only when it is not the default. */
+  ground?: GroundSettings;
   /** The settings of this map's 0.14 room walls were looked for and moved to Atlas 0.15's room walls: done once. */
   roomWallsMoved?: true;
   /** What the GM set in 3D on walls, doors and lights (the seven records above) was moved onto Atlas's own records: done once. */
@@ -208,6 +211,7 @@ function tidy(map: MapData): MapData | null {
   if (map.arTable) out.arTable = map.arTable;
   if (map.cutscenes && map.cutscenes.length > 0) out.cutscenes = map.cutscenes;
   if (map.shapes && map.shapes.length > 0) out.shapes = map.shapes;
+  if (map.ground && !isDefaultGround(map.ground)) out.ground = map.ground;
   if (map.roomWallsMoved === true) out.roomWallsMoved = true;
   if (map.extrasMoved === true) out.extrasMoved = true;
   return Object.keys(out).length > 0 ? out : null;
@@ -295,6 +299,7 @@ export function readBoardData(raw: unknown): BoardDataJSON {
       ...(arTable && { arTable }),
       cutscenes,
       shapes: readShapes(value.shapes),
+      ...(isObj(value.ground) && { ground: readGround(value.ground) }),
       styles, props, ...(layer && { layer }), ...(value.hidden === true && { hidden: true as const }), ...(readWater(value.water) && { water: readWater(value.water)! }), ...(fogHeight !== undefined && { fogHeight }),
       wallMaterials: strings(value.wallMaterials), doorProps: strings(value.doorProps), lightHeights: heights(value.lightHeights),
       wallHeights: heights(value.wallHeights), wallWidths: widths(value.wallWidths), windows: windows(value.windows), doorFlips: flips(value.doorFlips),
@@ -502,6 +507,15 @@ export class BoardData {
     if (table) map.arTable = table;
     else delete map.arTable;
     this.put(mapPath, map);
+  }
+
+  /** The ground round this map (its defaults until set). */
+  ground(mapPath: string): GroundSettings {
+    return this.data[mapPath]?.ground ?? readGround(undefined);
+  }
+
+  setGround(mapPath: string, settings: GroundSettings): void {
+    this.put(mapPath, { ...(this.data[mapPath] ?? {}), ground: readGround(settings) });
   }
 
   /** The raised shapes drawn on this map's levels. */

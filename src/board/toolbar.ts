@@ -7,6 +7,7 @@
  * keys typed in it stay out of the board's camera keys.
  */
 
+import { GROUND_NOISES, MAX_MARGIN, type GroundMode, type GroundSettings } from './ground';
 import { setSvg } from '../svg';
 import { atlasMeasureIcon, atlasToolIcon, historyIcon, modeIcon, waterIcon } from './atlasToolIcons';
 import { WATER_MOTION_KINDS, WATER_TINTS, type WaterMotionKind } from './water';
@@ -86,6 +87,9 @@ export interface ToolbarActions {
   waterTool?(): 'paint' | 'erase' | 'fill' | null;
   setWaterTool?(mode: 'paint' | 'erase' | 'fill' | null): void;
   /** The Shapes tool (Edit mode): raised shapes, roofs and hills, drawn corner by corner on the level shown. */
+  /** The ground round the map (Board settings, Ground): the table or a plane to the horizon, its pattern, fog and extra board. */
+  ground?(): GroundSettings;
+  setGround?(settings: GroundSettings): void;
   shapeTool?(): boolean;
   setShapeTool?(on: boolean): void;
   /** The water bucket's sensitivity, 0 to 100. */
@@ -258,6 +262,11 @@ export class BoardToolbar {
   private readonly modeButtons: Array<{ mode: BoardMode; button: HTMLButtonElement }> = [];
   private readonly paintGroup: HTMLElement;
   private readonly shapeGroup: HTMLElement;
+  private groundUi: {
+    section: HTMLElement; modes: Array<{ value: GroundMode; button: HTMLButtonElement }>; horizonRows: HTMLElement[];
+    material: HTMLSelectElement; noise: HTMLSelectElement; strength: HTMLInputElement; strengthValue: HTMLElement;
+    fog: HTMLInputElement; fogValue: HTMLElement; margin: HTMLInputElement; marginValue: HTMLElement;
+  } | null = null;
   private readonly shapeButton: HTMLButtonElement;
   private readonly paintButton: HTMLButtonElement;
   private readonly paintMenuButton: HTMLButtonElement;
@@ -768,6 +777,69 @@ export class BoardToolbar {
       row.title = hint;
       input.addEventListener('change', () => this.actions.setSnap?.(kind, input.checked));
       this.snapToggles.push({ kind, input });
+    }
+    // Ground: the map on its table, or a plane to the horizon round it; and extra board round the map either way.
+    if (this.actions.setGround) {
+      const section = el('div', 'atlas-tabletop-palette__section', this.panel);
+      el('div', 'atlas-tabletop-palette__heading', section, 'Ground');
+      const change = (edit: Partial<GroundSettings>): void => { const now = this.actions.ground?.(); if (now) this.actions.setGround?.({ ...now, ...edit }); this.fillGround(); };
+      const modeRow = el('div', 'atlas-tabletop-palette__field', section);
+      el('span', 'atlas-tabletop-palette__label', modeRow, 'Background');
+      const choices = el('span', 'atlas-tabletop-palette__choices', modeRow);
+      choices.setAttribute('role', 'group');
+      choices.setAttribute('aria-label', 'Ground round the map');
+      const modes: Array<{ value: GroundMode; button: HTMLButtonElement }> = [];
+      for (const [value, label, hint] of [['board', 'Map board', 'The map on its table, framed.'], ['horizon', 'Horizon plane', 'The map lies on a plane running to the horizon, tiled with a material and shaped by a pattern past the board.']] as const) {
+        const button = el('button', 'atlas-tabletop-palette__choice', choices, label);
+        button.type = 'button';
+        button.title = hint;
+        button.addEventListener('click', () => change({ mode: value }));
+        modes.push({ value, button });
+      }
+      const horizonRows: HTMLElement[] = [];
+      const selectRow = (label: string, aria: string): HTMLSelectElement => {
+        const row = el('label', 'atlas-tabletop-palette__field', section);
+        el('span', 'atlas-tabletop-palette__label', row, label);
+        const select = el('select', 'dropdown atlas-tabletop-palette__select', row);
+        select.setAttribute('aria-label', aria);
+        horizonRows.push(row);
+        return select;
+      };
+      const rangeRow = (label: string, aria: string, max: number, horizon: boolean): { input: HTMLInputElement; value: HTMLElement } => {
+        const row = el('label', 'atlas-tabletop-palette__field', section);
+        el('span', 'atlas-tabletop-palette__label', row, label);
+        const input = el('input', 'atlas-tabletop-palette__range', row);
+        input.type = 'range';
+        input.min = '0';
+        input.max = String(max);
+        input.step = '1';
+        input.setAttribute('aria-label', aria);
+        const value = el('span', 'atlas-tabletop-palette__unit', row);
+        if (horizon) horizonRows.push(row);
+        return { input, value };
+      };
+      const material = selectRow('Ground material', 'Material the ground is tiled with');
+      material.addEventListener('change', () => {
+        const now = this.actions.ground?.();
+        if (!now) return;
+        const { material: _old, ...rest } = now;
+        this.actions.setGround?.(material.value ? { ...rest, material: material.value } : rest);
+        this.fillGround();
+      });
+      const noise = selectRow('Pattern', 'Height pattern past the board');
+      for (const one of GROUND_NOISES) { const option = el('option', '', noise, one.label); option.value = one.value; }
+      noise.addEventListener('change', () => change({ noise: noise.value as GroundSettings['noise'] }));
+      const strength = rangeRow('Pattern strength', 'Height pattern strength', 100, true);
+      strength.input.addEventListener('change', () => change({ strength: Number(strength.input.value) / 100 }));
+      strength.input.addEventListener('input', () => { strength.value.textContent = `${strength.input.value}%`; });
+      const fogRow = rangeRow('Distance fog', 'Distance fog', 100, true);
+      fogRow.input.addEventListener('change', () => change({ fog: Number(fogRow.input.value) }));
+      fogRow.input.addEventListener('input', () => { fogRow.value.textContent = fogRow.input.value === '0' ? 'off' : fogRow.input.value; });
+      const margin = rangeRow('Extra board', 'Extra board round the map, in squares', MAX_MARGIN, false);
+      margin.input.addEventListener('change', () => change({ margin: Number(margin.input.value) }));
+      margin.input.addEventListener('input', () => { margin.value.textContent = `${margin.input.value} sq`; });
+      margin.input.closest('label')!.title = 'Room round the map where minis can stand, in squares each way.';
+      this.groundUi = { section, modes, horizonRows, material, noise, strength: strength.input, strengthValue: strength.value, fog: fogRow.input, fogValue: fogRow.value, margin: margin.input, marginValue: margin.value };
     }
     const edges = el('div', 'atlas-tabletop-palette__field', fog);
     el('span', 'atlas-tabletop-palette__label', edges, 'Wall edges');
@@ -1426,7 +1498,32 @@ export class BoardToolbar {
   private readonly tableHint: HTMLElement;
   private readonly tableButton: HTMLButtonElement;
 
+  /** The Ground section as the map's settings are now (the material list read again: the gallery may have more). */
+  private fillGround(): void {
+    const ui = this.groundUi;
+    const ground = this.actions.ground?.();
+    if (!ui || !ground) return;
+    for (const { value, button } of ui.modes) { button.classList.toggle('is-active', value === ground.mode); button.setAttribute('aria-pressed', String(value === ground.mode)); }
+    for (const row of ui.horizonRows) row.hidden = ground.mode !== 'horizon';
+    const doc = ui.material.ownerDocument;
+    ui.material.replaceChildren();
+    const plain = doc.createElement('option');
+    plain.value = '';
+    plain.textContent = 'Plain ground';
+    ui.material.append(plain);
+    for (const one of this.actions.materials?.() ?? []) { const option = doc.createElement('option'); option.value = one.path; option.textContent = one.name; ui.material.append(option); }
+    ui.material.value = ground.material ?? '';
+    ui.noise.value = ground.noise;
+    ui.strength.value = String(Math.round(ground.strength * 100));
+    ui.strengthValue.textContent = `${ui.strength.value}%`;
+    ui.fog.value = String(ground.fog);
+    ui.fogValue.textContent = ground.fog === 0 ? 'off' : String(ground.fog);
+    ui.margin.value = String(ground.margin);
+    ui.marginValue.textContent = `${ground.margin} sq`;
+  }
+
   private fill(): void {
+    this.fillGround();
     const sheets = this.actions.arTableSheets?.() ?? null;
     this.tableSection.hidden = this.actions.placeArTable === undefined;
     this.tableButton.disabled = sheets === null;

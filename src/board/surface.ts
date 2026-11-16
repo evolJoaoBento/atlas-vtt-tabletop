@@ -53,6 +53,9 @@ export function stripGeometry(segments: readonly number[], width: number): THREE
   return geometry;
 }
 
+/** The mat round the map on the table (the extra board): a dark felt. */
+const MAT_COLOR = 0x3a3530;
+
 export class BoardSurface {
   readonly object3d = new THREE.Group();
   private floor: THREE.Mesh | null = null;
@@ -61,6 +64,11 @@ export class BoardSurface {
   private readonly plane: THREE.Mesh;
   private readonly image: THREE.MeshStandardMaterial;
   private grid: THREE.Mesh | null = null;
+  /** The table's brown frame, and the mat between it and the map (the extra board round the map). */
+  private frame: THREE.Mesh | null = null;
+  private mat: THREE.Mesh | null = null;
+  private border = 0;
+  private depth = 0;
 
   /**
    * `width` and `height`: the world's size. `laid`: the map image's own size and where Atlas's stretch puts it
@@ -109,6 +117,9 @@ export class BoardSurface {
     // Sunk by a share of the map, and pushed back in depth: far out the depth buffer cannot tell a half unit, and the frame showed through the map.
     frame.position.set(width / 2, -depth / 2 - Math.max(0.5, span * 0.002), height / 2);
     frame.receiveShadow = true;
+    this.frame = frame;
+    this.border = border;
+    this.depth = depth;
 
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(span * 30, span * 30).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: FLOOR_COLOR, roughness: 1 }));
     floor.position.set(width / 2, -depth * 3, height / 2);
@@ -145,6 +156,34 @@ export class BoardSurface {
   /** The floor beyond the table, made wider to run out to the horizon (it fades into the sky's colour there). */
   widenFloor(factor: number): void {
     this.floor?.scale.set(factor, 1, factor);
+  }
+
+  /**
+   * Extra board round the map (`margin` world units each way, where minis can stand): the frame grows out round it
+   * and a plain mat lies between the frame and the map. 0 takes it back to the map's own size.
+   */
+  setMargin(margin: number): void {
+    const frame = this.frame;
+    if (!frame) return;
+    const m = Math.max(0, margin);
+    frame.geometry.dispose();
+    frame.geometry = new THREE.BoxGeometry(this.width + (this.border + m) * 2, this.depth, this.height + (this.border + m) * 2);
+    if (m > 0 && !this.mat) {
+      this.mat = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: MAT_COLOR, roughness: 0.95, metalness: 0 }));
+      this.mat.receiveShadow = true;
+      this.table.add(this.mat);
+    }
+    if (this.mat) {
+      this.mat.visible = m > 0;
+      this.mat.scale.set(this.width + m * 2, 1, this.height + m * 2);
+      // Between the frame's top and the map, so the map is drawn over it.
+      this.mat.position.set(this.width / 2, frame.position.y + this.depth / 2 + 0.25, this.height / 2);
+    }
+  }
+
+  /** Shows the table (its frame, the mat and the floor round it), or leaves it out: the plane to the horizon takes its place. */
+  showTable(visible: boolean): void {
+    this.table.visible = visible;
   }
 
   /** Shows the floor round the table, or leaves it out (augmented reality: the real table is round the map). */

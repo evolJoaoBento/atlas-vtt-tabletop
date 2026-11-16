@@ -1433,6 +1433,8 @@ export class BoardView extends ItemView {
         boardData.saveShape(mapPath(), known || shape.level || !level ? shape : { ...shape, level });
       },
       removeShape: (id) => boardData.removeShape(mapPath(), id),
+      ground: () => boardData.ground(mapPath()),
+      setGround: (settings) => boardData.setGround(mapPath(), settings),
       rules: () => this.rules,
       moveToken: (id, x, y) => {
         writer.move(mapPath(), id, x, y).catch((error: unknown) => this.unsaved('move', error));

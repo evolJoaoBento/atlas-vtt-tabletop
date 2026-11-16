@@ -56,6 +56,8 @@ import { PlacementGizmo, type GizmoPart } from './placementGizmo';
 import { carryView, isNoPlacement, NO_PLACEMENT, snapTurn, turnAbout, turnStep, wrapTurn, type Placement } from './layerPlacement';
 import { ElevationLayerView, type ElevationLayerData, type ElevationLayerShape } from './elevationLayer';
 import { ShapeEditor } from './shapeEditor';
+import { DEFAULT_GROUND, fogRange, type GroundSettings } from './ground';
+import { GroundPlane } from './groundPlane';
 import { ShapesView } from './shapeView';
 import { shapeHeightAt, type TerrainShape } from './terrainShapes';
 import { EDGE_SHARE, ResolutionGovernor, type LayerLook, type QualityPreset, type WallEdges } from './quality';
@@ -223,6 +225,9 @@ export interface BoardHost {
   props(): readonly PropPlacement[];
   /** The raised shapes of the level shown (roofs, hills), and keeping or removing one; without these there is no Shapes tool. */
   shapes?(): readonly TerrainShape[];
+  /** The ground round the map (Board settings → Ground), and keeping a change to it; without it, the map on its table. */
+  ground?(): GroundSettings;
+  setGround?(settings: GroundSettings): void;
   saveShape?(shape: TerrainShape): void;
   removeShape?(id: string): void;
   rules(): CollectionRules;
@@ -748,6 +753,8 @@ export class Board {
   private waterTool: 'paint' | 'erase' | 'fill' | null = null;
   /** The raised shapes of the level shown, and the Shapes tool editing them (the GM's, made when first used). */
   private readonly shapesView = new ShapesView();
+  /** The plane to the horizon (the ground's horizon mode). */
+  private readonly groundPlane = new GroundPlane();
   /** The shapes drawn now (the one being edited as it is): what tokens stand on. */
   private drawnShapes: readonly TerrainShape[] = [];
   private shapeEditor: ShapeEditor | null = null;
@@ -952,6 +959,10 @@ export class Board {
         placeArTable: () => this.placeTable(true),
       }),
       waterTool: () => this.waterTool,
+      ...(this.audience === 'gm' && this.host.setGround && {
+        ground: () => this.groundSettings(),
+        setGround: (settings: GroundSettings) => this.host.setGround?.(settings),
+      }),
       ...(this.audience === 'gm' && this.host.saveShape && {
         shapeTool: () => this.shapeEditor?.active === true,
         setShapeTool: (on: boolean) => this.setShapeTool(on),
@@ -1527,6 +1538,27 @@ export class Board {
     this.applyStack();
     // The shapes wear the map image just read, at the map's size.
     this.drawShapes();
+    this.applyGround();
+  }
+
+  /** The ground round the map as its settings say: the table (grown by the extra board) or the plane to the horizon, and the fog. */
+  private applyGround(): void {
+    const map = this.map;
+    if (!map || !this.surface) return;
+    const ground = this.groundSettings();
+    const horizon = ground.mode === 'horizon' && !this.seeThrough;
+    this.surface.setMargin(ground.mode === 'board' ? ground.margin * map.grid.size : 0);
+    this.surface.showTable(!horizon);
+    if (horizon) {
+      if (!this.groundPlane.object3d.parent) this.scene.add(this.groundPlane.object3d);
+      this.groundPlane.update(ground, { width: this.size.width, height: this.size.height, cell: map.grid.size, margin: ground.margin }, (folder) => this.wallLook(folder, false));
+    } else this.groundPlane.object3d.removeFromParent();
+    this.applyHorizon();
+    this.wake(true);
+  }
+
+  private groundSettings(): GroundSettings {
+    return this.host.ground?.() ?? DEFAULT_GROUND;
   }
 
   /** Draws the raised shapes of the level shown (the one being edited as it is now), and the editor's handles with `handles`. */
@@ -1758,6 +1790,7 @@ export class Board {
     }
     this.propsVersion += 1;
     this.drawShapes();
+    this.applyGround();
     // What was rebuilt is sized on screen now: an unsized sprite fills the view for a press made before the next frame.
     const pose = this.lastPose;
     if (pose) {
@@ -1833,7 +1866,10 @@ export class Board {
     this.surface?.widenFloor(painted ? 3 : 1);
     this.surface?.showFloor(!this.seeThrough);
     if (!this.cameraUnbound) this.camera.limits.minPitch = limitsFor(this.size.width, this.size.height, painted).minPitch;
-    this.scene.fog = painted && !this.seeThrough ? new THREE.Fog(tinted(horizonColor(this.quality.sky), this.tintShown ?? this.host.tint()), this.span * 4, this.span * 16) : null;
+    const ground = this.groundSettings();
+    // The plane to the horizon fades into its own distance fog (the GM's slider), whatever the look.
+    const range = ground.mode === 'horizon' && !this.seeThrough ? fogRange(ground.fog, this.span) : painted && !this.seeThrough ? { near: this.span * 4, far: this.span * 16 } : null;
+    this.scene.fog = range ? new THREE.Fog(tinted(horizonColor(this.quality.sky), this.tintShown ?? this.host.tint()), range.near, range.far) : null;
   }
 
   /** What the sky behind the table was last painted for: its look, its sky and the tint. */
@@ -6784,7 +6820,9 @@ export class Board {
   /** Keeps a carried piece on the map image; a map without one has no edge to keep to. */
   private clampToBoard(x: number, y: number): { x: number; y: number } {
     if (!this.hasImage) return { x, y };
-    return { x: THREE.MathUtils.clamp(x, 0, this.size.width), y: THREE.MathUtils.clamp(y, 0, this.size.height) };
+    // The extra board round the map is board too.
+    const margin = this.groundSettings().margin * (this.map?.grid.size ?? 0);
+    return { x: THREE.MathUtils.clamp(x, -margin, this.size.width + margin), y: THREE.MathUtils.clamp(y, -margin, this.size.height + margin) };
   }
 
   /** Ctrl/Cmd was let go: the stat block card closed, and pressing it again over the same token opens it again. */
@@ -7125,6 +7163,7 @@ export class Board {
     for (const piece of this.props.values()) piece.dispose();
     this.shapeEditor?.dispose();
     this.shapesView.dispose();
+    this.groundPlane.dispose();
     this.surface?.dispose();
     for (const art of this.arts.values()) void art.then((texture) => texture?.dispose());
     this.tilt?.dispose();
