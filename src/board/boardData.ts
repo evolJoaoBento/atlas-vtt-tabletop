@@ -781,7 +781,10 @@ export class BoardData {
       if (base) touched = true;
       const cutscenes = map.cutscenes?.map((c) => renameShotMaps(c, moved));
       if (cutscenes?.some((c, i) => c !== map.cutscenes![i])) touched = true;
-      next[to] = { ...map, ...(cutscenes ? { cutscenes } : {}), ...(props ? { props } : {}), ...(wallMaterials ? { wallMaterials } : {}), ...(doorProps ? { doorProps } : {}), ...(map.layer && base ? { layer: { ...map.layer, base } } : {}) };
+      // The painted background the ground shows (a vault folder) follows its folder's rename.
+      const background = map.ground?.background ? moved(map.ground.background) : null;
+      if (background) touched = true;
+      next[to] = { ...map, ...(map.ground && background ? { ground: { ...map.ground, background } } : {}),...(cutscenes ? { cutscenes } : {}), ...(props ? { props } : {}), ...(wallMaterials ? { wallMaterials } : {}), ...(doorProps ? { doorProps } : {}), ...(map.layer && base ? { layer: { ...map.layer, base } } : {}) };
     }
     if (!touched) return;
     this.data = next;

@@ -51,6 +51,26 @@ test('nothing is wet inside the usable board, even where lava is painted', () =>
   assert.equal(wetAt(mask, 65, 50), true);
 });
 
+test('with a reach past the picture, liquid at its edge continues outward as far as the plane runs', () => {
+  const layers = emptyLayers(SIZE);
+  paint(layers, LAVA, 0, 100, 10, 160); // the picture's left edge (squares 0 to 4), rows beside the board
+  // The plane runs 1500 units (150 squares) each way from the middle, the picture only 50 squares.
+  const mask = liquidMask(layers, frame, CELL, 'lava', flat, 1500)!;
+  assert.ok(mask);
+  assert.ok(mask.width * mask.texel >= 3000 - mask.texel, 'the sheet covers the plane');
+  assert.ok(mask.width <= 2048);
+  const left = 50 - 150;
+  const at = (x: number, y: number): boolean => mask.data[Math.floor((y - left) * CELL / mask.texel) * mask.width + Math.floor((x - left) * CELL / mask.texel)] === 255;
+  // y = 50 is in the painted rows (picture cells 100 to 160 are squares 39 to 62): past the left edge, still lava.
+  assert.equal(at(-30, 45), true);
+  assert.equal(at(-95, 45), true);
+  // Rows the edge pixel is not lava in stay dry.
+  assert.equal(at(-30, 10), false);
+  // The picture itself is as before.
+  assert.equal(at(1, 45), true);
+  assert.equal(at(50, 10), false);
+});
+
 test('a liquid not painted at all has no mask', () => {
   const layers = emptyLayers(SIZE);
   paint(layers, LAVA, 200, 200, 230, 230);

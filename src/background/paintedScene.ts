@@ -24,17 +24,23 @@ export interface PaintedArea {
   margin: number;
   /** The Ground settings' squares to a material tile. */
   tile: number;
+  /** How far the plane runs from the map's middle, in world units; the liquid sheets run as far. Unset: just the picture's square. */
+  reach?: number;
 }
 
 /** A background read, with a copy of each material of its slots to take the maps from (null where there is none). */
 interface Read {
   background: LoadedBackground;
   slots: (THREE.MeshStandardMaterial | null)[];
+  /** Which read it is: a background read again is another read. */
+  serial: number;
 }
 
 /** What is drawn for one background at one map size. */
 interface Built {
   key: string;
+  /** The background it shows. */
+  ref: string;
   look: PaintedLook;
   splat: THREE.DataTexture;
   material: THREE.MeshStandardMaterial;
@@ -56,14 +62,19 @@ export class PaintedScene {
   private readonly cell = { value: 1 };
   private readonly tile = { value: 1 };
   private readonly area = new THREE.Vector3();
+  /** Slots of a read that was forgotten while its look was still drawn: put away when the look is replaced. */
+  private retired: (THREE.MeshStandardMaterial | null)[] = [];
+  private serial = 0;
 
   /**
    * `background` and `material` read from the host; `changed` is called when a background has come in (the board
-   * draws the ground again).
+   * draws the ground again). `keepOnlyCurrent`: only the background shown stays read (a player's board, where an
+   * old one is never shown again), asked at each draw.
    */
   constructor(
     private readonly source: { background(ref: string): Promise<LoadedBackground | null>; material(path: string): Promise<LoadedMaterial | null> },
     private readonly changed: () => void,
+    private readonly options: { keepOnlyCurrent?: () => boolean } = {},
   ) {
     this.object3d.name = 'painted-liquids';
   }
@@ -80,17 +91,23 @@ export class PaintedScene {
    */
   look(ref: string | undefined, area: PaintedArea): PaintedLook | null {
     if (!ref || this.gone) { this.clear(); return null; }
+    if (this.options.keepOnlyCurrent?.()) this.evictOthers(ref);
     const read = this.reads.get(ref);
-    if (read === undefined) { this.start(ref); this.clear(); return null; }
+    if (read === undefined) {
+      this.start(ref);
+      // A background read again after a save goes on being drawn as it was until the fresh read comes; any other waits drawn plain.
+      if (this.built?.ref !== ref) this.clear();
+      return this.built?.look ?? null;
+    }
     // The tile's width is not in the key: it reaches the shader through its uniform.
-    const key = JSON.stringify([ref, area.width, area.height, area.cell, area.margin]);
+    const key = JSON.stringify([ref, read.serial, area.width, area.height, area.cell, area.margin, area.reach ?? null]);
     this.cell.value = area.cell;
     this.tile.value = area.cell * area.tile;
-    if (this.built?.key !== key) this.build(key, read, area);
+    if (this.built?.key !== key) this.build(key, ref, read, area);
     return this.built?.look ?? null;
   }
 
-  /** Reads this background again next time (it was saved). */
+  /** Reads this background again next time (it was saved); what is drawn of it stays until the fresh read is in. */
   forget(ref: string): void {
     const read = this.reads.get(ref);
     this.reads.delete(ref);
@@ -98,8 +115,25 @@ export class PaintedScene {
     // A read still under way is out of date now: its answer is dropped when it lands, and the next draw reads afresh.
     this.generations.set(ref, (this.generations.get(ref) ?? 0) + 1);
     this.pending.delete(ref);
-    this.clear();
-    for (const slot of read?.slots ?? []) slot?.dispose();
+    // The look drawn still wears the old read's materials: they go when it is replaced.
+    if (this.built?.ref === ref) this.retired.push(...(read?.slots ?? []));
+    else for (const slot of read?.slots ?? []) slot?.dispose();
+  }
+
+  /** Puts away every read but the one of `ref`. */
+  private evictOthers(ref: string): void {
+    for (const other of [...this.reads.keys()]) {
+      if (other === ref) continue;
+      for (const slot of this.reads.get(other)?.slots ?? []) slot?.dispose();
+      this.reads.delete(other);
+      this.warned.delete(other);
+    }
+    // A read under way for another background is out of date too.
+    for (const other of [...this.pending]) {
+      if (other === ref) continue;
+      this.generations.set(other, (this.generations.get(other) ?? 0) + 1);
+      this.pending.delete(other);
+    }
   }
 
   /** Moves the liquids on to this time, in seconds. */
@@ -115,6 +149,8 @@ export class PaintedScene {
     this.built?.splat.dispose();
     this.built = null;
     this.object3d.removeFromParent();
+    for (const slot of this.retired) slot?.dispose();
+    this.retired = [];
   }
 
   dispose(): void {
@@ -135,6 +171,8 @@ export class PaintedScene {
       if (!read) {
         // Not kept: whatever went wrong (mid-save, mid-sync) may be over by the next draw, which reads it again.
         if (!this.warned.has(ref)) { this.warned.add(ref); console.warn(`Painted background "${ref}" could not be read; the ground is drawn plain.`); }
+        // The old drawing kept meanwhile (after a save) is not true any more: put it away and draw again, plain.
+        if (this.built?.ref === ref) { this.clear(); this.changed(); }
         return;
       }
       this.reads.set(ref, read);
@@ -156,10 +194,10 @@ export class PaintedScene {
         return copy;
       } catch { return null; }
     }));
-    return { background, slots };
+    return { background, slots, serial: ++this.serial };
   }
 
-  private build(key: string, read: Read, area: PaintedArea): void {
+  private build(key: string, ref: string, read: Read, area: PaintedArea): void {
     this.clear();
     const { settings, layers } = read.background;
     const frame = backgroundFrame(area.width, area.height, area.cell, layers.size);
@@ -169,11 +207,13 @@ export class PaintedScene {
     const splat = splatTexture(layers, frame, flat);
     const material = paintedGroundMaterial(splat, read.slots, this.cell, { area: this.area, tile: this.tile });
     const look: PaintedLook = { height: (x, y) => backgroundHeight(x, y, settings, layers, frame, flat), material, key };
-    this.built = { key, look, splat, material };
+    this.built = { key, ref, look, splat, material };
+    // The liquid sheets run as far as the plane does, even past the picture (its edge liquid goes on outward).
+    const sheet = Math.max(side, 2 * (area.reach ?? 0));
     for (const kind of LIQUID_KINDS) {
-      const mask = liquidMask(layers, frame, area.cell, kind, flat);
+      const mask = liquidMask(layers, frame, area.cell, kind, flat, area.reach);
       if (!mask) continue;
-      const surface = new WaterSurface(mask, side, side, area.cell, settings.liquids[kind], kind);
+      const surface = new WaterSurface(mask, sheet, sheet, area.cell, settings.liquids[kind], kind);
       // Laid like the sea plane: centred on the map, a tenth of a square down, so the beds the ground sinks to lie under it.
       surface.object3d.position.set(area.width / 2, -area.cell * 0.1, area.height / 2);
       this.object3d.add(surface.object3d);

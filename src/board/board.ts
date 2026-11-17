@@ -785,6 +785,8 @@ export class Board {
       material: (path) => this.loads.track(this.host.readMaterial(path), 2),
     },
     () => { if (!this.disposed) this.applyGround(); },
+    // A player's board (the host cannot choose backgrounds) shows one background at a time: it keeps only that one read.
+    { keepOnlyCurrent: () => this.host.backgrounds === undefined },
   );
   /** The shapes drawn now (the one being edited as it is): what tokens stand on. */
   private drawnShapes: readonly TerrainShape[] = [];
@@ -1602,13 +1604,13 @@ export class Board {
     const ground = this.groundSettings();
     const cell = map.grid.size;
     // The painted background, once it is read and made; until then (or if it cannot be), the plain horizon plane.
+    // Out to a little past where the fog hides everything, from anywhere over the map.
+    const reach = planeReach(ground.fog, this.span);
     const paintedLook = ground.mode === 'painted' && !this.seeThrough
-      ? this.painted.look(ground.background, { width: this.size.width, height: this.size.height, cell, margin: ground.margin, tile: ground.tile })
+      ? this.painted.look(ground.background, { width: this.size.width, height: this.size.height, cell, margin: ground.margin, tile: ground.tile, reach })
       : (this.painted.clear(), null);
     const horizon = (ground.mode === 'horizon' || ground.mode === 'painted') && !this.seeThrough;
     const sea = (ground.mode === 'water' || ground.mode === 'lava' || ground.mode === 'acid') && !this.seeThrough;
-    // Out to a little past where the fog hides everything, from anywhere over the map.
-    const reach = planeReach(ground.fog, this.span);
     this.surface.setMargin(ground.mode === 'board' ? ground.margin * map.grid.size : 0);
     this.surface.showTable(!horizon && !sea);
     const lowest = Math.min(0, ...this.stackData.map((layer) => layer.elevation)) * map.grid.size;

@@ -5,13 +5,15 @@
  * showing.
  */
 import * as THREE from 'three';
+import { EASE_SQUARES } from '../board/ground';
 import { naturalGround, PLAIN_GROUND } from '../board/groundPlane';
 import { MAX_MATERIALS, type BackgroundLayers } from './backgroundData';
 import type { BackgroundFrame } from './terrainHeight';
 
 /**
  * The picture of weights: red where material slot 1 is painted, green slot 2, blue slot 3, alpha slot 4. Inside `flat`
- * (the usable board, in squares) nothing is painted: the board's ground stays plain. Smoothly filtered, so a border
+ * (the usable board, in squares) nothing is painted: the board's ground stays plain, and past its edge the weights
+ * grow from nothing to full over `EASE_SQUARES`, as the heights do. Smoothly filtered, so a border
  * between materials is soft, and mipmapped, so far ground does not shimmer.
  */
 export function splatTexture(layers: BackgroundLayers, frame: BackgroundFrame, flat: { x0: number; y0: number; x1: number; y1: number }): THREE.DataTexture {
@@ -35,11 +37,21 @@ export function splatTexture(layers: BackgroundLayers, frame: BackgroundFrame, f
   // A border between materials fades over about two squares, not at the edge of one cell.
   const radius = Math.max(1, Math.round(size / frame.extent));
   for (let c = 0; c < MAX_MATERIALS; c++) if (right[c] >= 0) blur(data, size, c, radius, rows[c], Math.max(0, left[c] - radius), Math.min(size - 1, right[c] + radius));
-  // The cells whose middles lie inside the board are left plain.
-  const x0 = Math.ceil(at(flat.x0, frame.cx)), x1 = Math.floor(at(flat.x1, frame.cx));
-  const y0 = Math.ceil(at(flat.y0, frame.cy)), y1 = Math.floor(at(flat.y1, frame.cy));
-  for (let y = Math.max(0, y0); y <= Math.min(size - 1, y1); y++) {
-    for (let x = Math.max(0, x0); x <= Math.min(size - 1, x1); x++) data.fill(0, (y * size + x) * 4, (y * size + x) * 4 + 4);
+  // The cells inside the board are left plain, and past its edge the materials ease in over `EASE_SQUARES`, as the heights do.
+  const from = (lo: number, centre: number): number => Math.max(0, Math.floor(at(lo, centre)));
+  const to = (hi: number, centre: number): number => Math.min(size - 1, Math.ceil(at(hi, centre)));
+  const x0 = from(flat.x0 - EASE_SQUARES, frame.cx), x1 = to(flat.x1 + EASE_SQUARES, frame.cx);
+  const y0 = from(flat.y0 - EASE_SQUARES, frame.cy), y1 = to(flat.y1 + EASE_SQUARES, frame.cy);
+  // A cell's middle, in squares.
+  const squareOf = (cell: number, centre: number): number => centre - frame.extent / 2 + (cell + 0.5) / size * frame.extent;
+  for (let y = y0; y <= y1; y++) {
+    const sy = squareOf(y, frame.cy), dy = Math.max(flat.y0 - sy, 0, sy - flat.y1);
+    for (let x = x0; x <= x1; x++) {
+      const sx = squareOf(x, frame.cx), d = Math.hypot(Math.max(flat.x0 - sx, 0, sx - flat.x1), dy);
+      if (d >= EASE_SQUARES) continue;
+      const t = d / EASE_SQUARES, ease = t * t * (3 - 2 * t), i = (y * size + x) * 4;
+      for (let c = 0; c < 4; c++) data[i + c] = Math.round(data[i + c] * ease);
+    }
   }
   const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat, THREE.UnsignedByteType);
   texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;

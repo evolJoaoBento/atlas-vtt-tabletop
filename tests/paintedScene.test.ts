@@ -99,6 +99,64 @@ test('a background the host answers null for is not kept as missing either', asy
   } finally { console.warn = warn; }
 });
 
+test('on a player board only the current background stays read: others are evicted', async () => {
+  let asked = 0;
+  const made = new PaintedScene({ background: async () => { asked++; return background(2); }, material: async () => null }, () => {}, { keepOnlyCurrent: () => true });
+  made.look('a', AREA);
+  await settle();
+  assert.ok(made.look('a', AREA));
+  made.look('b', AREA);
+  await settle();
+  assert.ok(made.look('b', AREA));
+  assert.equal(asked, 2);
+  made.look('a', AREA);
+  await settle();
+  assert.equal(asked, 3, 'a was evicted when b was shown, so it is read again');
+});
+
+test('without that option every background read stays', async () => {
+  let asked = 0;
+  const made = new PaintedScene({ background: async () => { asked++; return background(2); }, material: async () => null }, () => {});
+  made.look('a', AREA);
+  await settle();
+  made.look('b', AREA);
+  await settle();
+  made.look('a', AREA);
+  assert.equal(asked, 2);
+});
+
+test('after a save the old background keeps being drawn until the fresh read arrives', async () => {
+  const fresh = deferred();
+  let asked = 0;
+  const made = new PaintedScene({ background: () => (asked++ === 0 ? Promise.resolve(background(3)) : fresh.promise), material: async () => null }, () => {});
+  heightOf(made);
+  await settle();
+  assert.equal(heightOf(made), 3);
+  made.forget('a');
+  assert.equal(heightOf(made), 3, 'no blank to the plain horizon in between');
+  fresh.done(background(7));
+  await settle();
+  assert.equal(heightOf(made), 7);
+});
+
+test('a refreshed background that cannot be read any more is dropped, and the board is told once', async () => {
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    let asked = 0, changed = 0;
+    const made = new PaintedScene({ background: async () => (asked++ === 0 ? background(3) : null), material: async () => null }, () => { changed++; });
+    heightOf(made);
+    await settle();
+    assert.equal(heightOf(made), 3);
+    changed = 0;
+    made.forget('a');
+    assert.equal(heightOf(made), 3);
+    await settle();
+    assert.equal(changed, 1);
+    assert.equal(heightOf(made), null);
+  } finally { console.warn = warn; }
+});
+
 test('a read that lands after the scene was put away is ignored', async () => {
   const late = deferred();
   const { scene: made, changed } = scene([late.promise]);

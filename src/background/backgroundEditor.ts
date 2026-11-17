@@ -11,7 +11,8 @@
  */
 
 import { BACKGROUND_SIZE, MAX_MATERIALS, TERRAINS, type BackgroundLayers, type BackgroundSettings, readBackgroundSettings } from './backgroundData';
-import { buildSettingsPanel, type SettingsPanel } from './backgroundSettingsPanel';
+import { planeReach } from '../board/ground';
+import { buildSettingsPanel,type SettingsPanel } from './backgroundSettingsPanel';
 import type { BackgroundStore } from './backgroundStore';
 import { LayerHistory, floodFill, paintStroke, type PixelBox } from './layerPaint';
 
@@ -27,8 +28,8 @@ export interface BackgroundEditorHost {
 type LayerName = 'terrain' | 'material' | 'height';
 type Tool = 'brush' | 'eraser' | 'fill';
 
-/** How wide the map is in the picture, in pixels: the picture spans `2 × (7.6 × 1.15 + 0.5)` map widths. */
-export const MAP_FOOTPRINT = BACKGROUND_SIZE / (2 * (7.6 * 1.15 + 0.5));
+/** How wide the map is in the picture, in pixels: the picture spans twice the plane's reach (at its thinnest fog) in map widths (`backgroundFrame` lays it so). */
+export const MAP_FOOTPRINT = BACKGROUND_SIZE / (2 * planeReach(80, 1));
 /** The colours the material slots are shown in (0 is plain ground). */
 const MATERIAL_COLORS = ['#7a7a7a', '#d9822b', '#3b8ed0', '#c94f8a', '#7bc043'];
 const LAYERS: readonly { id: LayerName; label: string }[] = [
@@ -809,7 +810,8 @@ export class BackgroundEditor {
 
   private onKey(event: KeyboardEvent): void {
     const target = event.target as HTMLElement;
-    if (target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'text') return;
+    // A field being typed in or chosen from has its own undo and keys: the editor's shortcuts stay out of it.
+    if (['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)) return;
     if (!(event.ctrlKey || event.metaKey)) return;
     const key = event.key.toLowerCase();
     if (key === 'z') { event.preventDefault(); this.step(event.shiftKey); } else if (key === 'y') { event.preventDefault(); this.step(true); } else if (key === 's') { event.preventDefault(); void this.save(); }

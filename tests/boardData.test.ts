@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { extrasOf } from '../src/board/recordExtras';
 import { mirroredDoor, rotatedDoor } from '../src/board/walls';
-import { BoardData, DEFAULT_WALL_THICKNESS, lookOf, readBoardData, readVariants } from '../src/board/boardData';
+import { readGround } from '../src/board/ground';
+import { BoardData,DEFAULT_WALL_THICKNESS, lookOf, readBoardData, readVariants } from '../src/board/boardData';
 
 /** What a map's data still holds of the 3D settings, read as the board reads it. */
 const legacy = (data: BoardData, path: string) => extrasOf(null, data.legacyExtras(path));
@@ -37,6 +38,18 @@ test('rename follows maps, GLBs and folders, prefix-safe', () => {
   assert.equal(data.style('scenes/a.atlasmap', 't'), 'standee');
   assert.equal(data.props('scenes/a.atlasmap')[0]!.glb, 'things/x.glb');
   assert.equal(data.style('maps2/b.atlasmap', 't'), 'standee');
+});
+
+test('renaming a painted background folder moves every map that shows it (and only those)', () => {
+  const data = new BoardData({
+    'a.atlasmap': { ground: readGround({ mode: 'painted', background: 'atlas-vtt/assets/backgrounds/Caves' }) },
+    'b.atlasmap': { ground: readGround({ mode: 'painted', background: 'atlas-vtt/assets/backgrounds/Caves 2' }) },
+    'c.atlasmap': { ground: readGround({ mode: 'painted', background: 'atlas-vtt/assets/backgrounds/Caves/inner' }) },
+  });
+  data.rename('atlas-vtt/assets/backgrounds/Caves', 'atlas-vtt/assets/backgrounds/Deep Caves');
+  assert.equal(data.ground('a.atlasmap').background, 'atlas-vtt/assets/backgrounds/Deep Caves');
+  assert.equal(data.ground('b.atlasmap').background, 'atlas-vtt/assets/backgrounds/Caves 2');
+  assert.equal(data.ground('c.atlasmap').background, 'atlas-vtt/assets/backgrounds/Deep Caves/inner');
 });
 
 test('deleting a map drops its data; deleting a GLB drops its props', () => {

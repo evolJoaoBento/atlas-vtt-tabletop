@@ -11,7 +11,7 @@ import { DIE_COLOURS } from './dice/diceLook';
 import { parseMini, type LoadedMini } from './library';
 import { Board, type BoardHost } from './board/board';
 import type { AugmentedView, RoomPlace } from './board/augmented';
-import { boardFromScene, type PlayerSceneLike, type SceneBoard } from './board/sceneAdapter';
+import { boardFromScene, paintedRef, type PlayerSceneLike, type SceneBoard } from './board/sceneAdapter';
 import { leaner, QUALITY, withLooks, type LayerLook, type MemoryMode, type Quality, type QualityPreset, type WallEdges } from './board/quality';
 import type { Sky } from './board/look';
 import { NO_FLIP } from './board/walls';
@@ -947,14 +947,15 @@ class PlayerBoard implements PlayerBoardHandle {
           color: url('color'), normal: url('normal') ?? url('normal-dx'), roughness: url('roughness'), ao: url('ao'), arm: url('arm'), metalness: url('metalness'), height: url('height'),
         }, record.scale, record.maps['normal-dx'] !== undefined && record.maps.normal === undefined, record.tuning);
       },
-      // The GM's painted background, by its terrain picture's asset id: its three pictures once they have come, decoded as the vault's are.
+      // The GM's painted background, by its ref (`paintedRef`: its three pictures and settings): its pictures once they have come, decoded as the vault's are.
       readBackground: async (ref): Promise<LoadedBackground | null> => {
         const block = look()?.painted;
-        if (!block || block.terrain !== ref) return null;
+        if (!block || paintedRef(block) !== ref) return null;
         const ids = [block.terrain, block.material, block.height];
         // A picture that never comes leaves the horizon plane (the next draw asks again) rather than a read pending for ever.
         const came = await settlesWithin(Promise.all(ids.map((asset) => this.arrival(asset, () => this.host.image(asset) !== null))), STALL_MS);
-        if (came === null || look()?.painted?.terrain !== ref) return null;
+        const now = look()?.painted;
+        if (came === null || !now || paintedRef(now) !== ref) return null;
         const layer = async (asset: string): Promise<Uint8Array | null> => {
           const url = this.host.image(asset);
           if (!url) return null;

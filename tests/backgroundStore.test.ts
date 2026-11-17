@@ -101,6 +101,19 @@ test('save writes the thumbnail and tells listeners', async () => {
   assert.equal(calls, 1);
 });
 
+test('settings reads background.json alone, without decoding a picture', async () => {
+  const { store, codec } = setup();
+  const folder = await store.create('Light');
+  await store.save(folder, { ...DEFAULT_BACKGROUND, name: 'Light', height: { low: -3, high: 8 } }, emptyLayers());
+  let decoded = 0;
+  codec.decode = async () => { decoded++; return null; };
+  const settings = await store.settings(folder);
+  assert.equal(settings?.name, 'Light');
+  assert.deepEqual(settings?.height, { low: -3, high: 8 });
+  assert.equal(decoded, 0);
+  assert.equal(await store.settings(`${ROOT}/Nothing`), null);
+});
+
 test('a folder without background.json does not load', async () => {
   const { store } = setup();
   assert.equal(await store.load(`${ROOT}/Nothing`), null);

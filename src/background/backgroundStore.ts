@@ -58,6 +58,15 @@ export class BackgroundStore {
     return found.sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  /** Reads a background's settings alone (no picture is decoded); null when it has no settings file. */
+  async settings(folder: string): Promise<BackgroundSettings | null> {
+    const text = await this.files.readText(`${folder}/${SETTINGS_FILE}`);
+    if (text === null) return null;
+    let raw: unknown;
+    try { raw = JSON.parse(text); } catch { raw = undefined; }
+    return readBackgroundSettings(raw);
+  }
+
   /** Reads a background. A layer that is missing or unreadable comes back empty, with one warning. */
   async load(folder: string): Promise<{ settings: BackgroundSettings; layers: BackgroundLayers } | null> {
     const text = await this.files.readText(`${folder}/${SETTINGS_FILE}`);

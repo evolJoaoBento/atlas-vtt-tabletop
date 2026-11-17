@@ -6,7 +6,7 @@ import { BoardData, readBoardData } from '../src/board/boardData';
 import type { BoardMap } from '../src/board/mapModel';
 import { layersFor } from '../src/boardLayers';
 import type { MaterialInfo } from '../src/boardLook';
-import { groundFromWire, layersFromExtras, paintedFromWire, shapesFromWire } from '../src/board/sceneAdapter';
+import { groundFromWire, layersFromExtras, paintedFromWire, paintedRef, shapesFromWire } from '../src/board/sceneAdapter';
 import type { BoardExtras } from '../src/connectContract';
 
 const materials = { info: (folder: string): MaterialInfo | null => (folder === 'mat/brick' ? { scale: 2, maps: { color: 'mat/brick/c.jpg' } } : null) };
@@ -101,8 +101,25 @@ test("a painted ground from the wire reads as the painted mode, its background t
   const painted = { terrain: 'TERRAIN', material: 'MATERIAL', height: 'HEIGHT', materials: ['MAT', ''], settings: { patterns: [], height: { low: -2, high: 6 }, liquids: { water: liquid, lava: liquid, acid: liquid } } };
   const ground = { mode: 'painted' as const, noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2, water: liquid, painted };
   const read = groundFromWire(ground);
-  assert.deepEqual([read.mode, read.background], ['painted', 'TERRAIN']);
+  assert.equal(read.mode, 'painted');
+  assert.equal(read.background, paintedRef(painted));
+  assert.ok(read.background!.startsWith('TERRAIN|MATERIAL|HEIGHT|'));
   assert.equal(paintedFromWire(ground), painted);
   assert.equal(paintedFromWire(undefined), null);
   assert.equal(paintedFromWire({ ...ground, mode: 'horizon' }), null);
+});
+
+test('two painted backgrounds that share a terrain picture, or differ only in settings or another picture, have different refs', () => {
+  const liquid = { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 };
+  const settings = { patterns: [], height: { low: -2, high: 6 }, liquids: { water: liquid, lava: liquid, acid: liquid } };
+  const painted = { terrain: 'TERRAIN', material: 'MATERIAL', height: 'HEIGHT', materials: ['MAT', ''], settings };
+  const same = paintedRef({ ...painted, settings: { ...settings } });
+  assert.equal(paintedRef(painted), same, 'the same background keeps its ref');
+  const other = [
+    { ...painted, settings: { ...settings, height: { low: -2, high: 7 } } },
+    { ...painted, material: 'MATERIAL2' },
+    { ...painted, height: 'HEIGHT2' },
+    { ...painted, materials: ['MAT2', ''] },
+  ].map(paintedRef);
+  assert.equal(new Set([paintedRef(painted), ...other]).size, 5);
 });

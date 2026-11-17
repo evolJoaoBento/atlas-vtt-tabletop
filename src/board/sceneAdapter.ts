@@ -96,8 +96,21 @@ export function shapesFromWire(records: readonly BoardShapeRecord[] | undefined)
 
 /** The ground as the board reads it, from the wire; the map on its table where none came. */
 export function groundFromWire(ground: BoardGround | undefined): GroundSettings {
-  // A painted ground's background is its terrain picture's asset id: `paintedFromWire` finds the block again by it.
-  return readGround(ground ? { ...ground, ...(ground.painted ? { background: ground.painted.terrain } : {}) } : null);
+  // A painted ground's background is the ref of its block (`paintedRef`): the player's board finds the block again by it.
+  return readGround(ground ? { ...ground, ...(ground.painted ? { background: paintedRef(ground.painted) } : {}) } : null);
+}
+
+/**
+ * What names a painted background on a player's board: its three picture ids, and a short fingerprint of its settings
+ * and material slots. Picture ids are fingerprints of their content, so a resave that changed one picture or only the
+ * settings gives a new ref, and two backgrounds that share one picture do not share their reads.
+ */
+export function paintedRef(painted: BoardPainted): string {
+  const text = JSON.stringify([painted.settings, painted.materials]);
+  // FNV-1a: short, and the same on every machine.
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193);
+  return `${painted.terrain}|${painted.material}|${painted.height}|${(hash >>> 0).toString(36)}`;
 }
 
 /** The painted background the wire's ground carries (pictures by asset id, materials by id), or null for none. */
