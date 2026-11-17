@@ -508,8 +508,11 @@ export class ElevationLayerView {
       let copy = this.fadedCopies.get(material);
       if (!copy) {
         copy = material.clone();
-        // A clone leaves the shader hooks behind (the see-through cut): the copy keeps them.
+        // A clone leaves the shader hooks behind (the see-through cut), and three's own copy sets its defines anew (the
+        // water's USE_UV, which its hook reads): the copy keeps both.
         copy.onBeforeCompile = material.onBeforeCompile;
+        const defines = (material as THREE.Material & { defines?: Record<string, unknown> }).defines;
+        if (defines) (copy as THREE.Material & { defines?: Record<string, unknown> }).defines = { ...defines };
         copy.customProgramCacheKey = material.customProgramCacheKey;
         copy.transparent = true;
         copy.depthWrite = false;

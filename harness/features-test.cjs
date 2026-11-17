@@ -1997,6 +1997,8 @@ feature('layer fit', async ({ page }) => {
 });
 
 feature('layer-water', async ({ page, shot }) => {
+  const shaderErrors = [];
+  page.on('console', (m) => { if (m.type() === 'error' && /Shader Error|program not valid/.test(m.text())) shaderErrors.push(m.text().slice(0, 120)); });
   // Paint some water on this scene, to have a saved mask to give a layer.
   const box = await page.evaluate(() => { const r = window.boardTest.board.canvas.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
   await page.evaluate(() => { const a = window.boardTest.board.toolbarActions(); a.setWaterTool('fill'); a.setWaterFill(100); });
@@ -2016,6 +2018,8 @@ feature('layer-water', async ({ page, shot }) => {
   await page.waitForFunction(() => (window.boardTest.board.layerViews.get('wet.atlasmap')?.presence ?? 0) > 0.99, null, { timeout: 10000 }).catch(() => {});
   const seen = await page.evaluate(() => { const views = window.boardTest.board.layerViews; const wet = views.get('wet.atlasmap'); const dry = views.get('dry.atlasmap'); const visible = (o) => { for (let n = o; n; n = n.parent) if (!n.visible) return false; return true; }; return { wet: !!wet?.water && visible(wet.water.object3d), dry: !!dry?.water, dbg: { water: !!wet?.water, presence: wet?.presence, look: wet?.look, lookLevel: wet?.lookLevel, content: wet?.content.visible, obj: wet?.object3d.visible, parentIsFloor: wet?.water?.object3d.parent === wet?.floor, parentName: wet?.water?.object3d.parent?.type } }; });
   check('a stacked scene that is shown draws its painted water; one with none draws none', seen.wet && !seen.dry, JSON.stringify(seen));
+  // Faded on the way in, the water wore a copy of its material: the copy compiles as the water does.
+  check('layer-water: the water of a stacked scene compiles (its faded copy keeps what its shader reads)', shaderErrors.length === 0, JSON.stringify(shaderErrors));
   await shot('layer-water');
   await page.evaluate(() => { const { board } = window.boardTest; board.setStack([]); board.refresh(); });
 });
