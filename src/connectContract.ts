@@ -101,6 +101,10 @@ export interface BoardLook {
   readonly layerLook?: 'solid' | 'faded' | 'transparent';
   /** Where the players' AR marker sheets lie on this map, placed, for their phones; absent for none. */
   readonly arTable?: { squareMm: number; groups: ReadonlyArray<{ group: string; x: number; y: number; heading: number; w: number; h: number }> };
+  /** The raised shapes on the level players are shown (Shapes tool); absent for none. */
+  readonly shapes?: ReadonlyArray<BoardShapeLook>;
+  /** The ground round the map (Ground panel). */
+  readonly ground?: BoardGroundLook;
   /** The materials this map's walls use, with their texture maps by role (vault paths). */
   readonly materials: ReadonlyArray<{ id: string; scale: number; maps: Record<string, string> }>;
 }
@@ -129,9 +133,32 @@ export interface BoardLayerLook {
   props: ReadonlyArray<{ id: string; path: string; x: number; y: number; scale: number; turn: number; solid?: boolean; lift?: number }>;
   /** The layer's painted water. */
   water?: BoardWater;
+  /** The layer's raised shapes; absent for none. */
+  shapes?: ReadonlyArray<BoardShapeLook>;
   readonly materials: ReadonlyArray<{ id: string; scale: number; maps: Record<string, string>; tuning?: { relief: number; occlusion: number; shine: number; depth: number; displace: number; outward: number } }>;
   fogHeight: number | null;
   wallThickness: number | null;
+}
+
+/** A raised shape as Connect reads it: corners in map pixels with heights in grid squares; materials by vault folder (ids of the look's `materials`). */
+export interface BoardShapeLook {
+  readonly id: string;
+  readonly outline: ReadonlyArray<{ x: number; y: number; h: number }>;
+  readonly inner: ReadonlyArray<{ x: number; y: number; h: number }>;
+  readonly material?: string;
+  readonly sides?: true | string;
+}
+
+/** The ground round a map as Connect reads it; the material by vault folder (an id of the look's `materials`). */
+export interface BoardGroundLook {
+  readonly mode: 'board' | 'horizon' | 'water';
+  readonly material?: string;
+  readonly noise: string;
+  readonly strength: number;
+  readonly fog: number;
+  readonly margin: number;
+  readonly tile: number;
+  readonly water: { kind: string; amount: number; direction: number; tint: string; clarity: number };
 }
 
 /** What players do on a map, for the GM's board: a ping, new points of a laser, or an instantaneous spell. */

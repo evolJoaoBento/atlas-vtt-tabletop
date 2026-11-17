@@ -13,7 +13,9 @@ import { extrasOf, type RecordExtras } from './board/recordExtras';
 import { wireWater } from './board/liquids';
 import { defaultsUsed, materialWith, type MaterialDefaults } from './materialDefaults';
 import { placedTable, type ArTable } from './arTable';
-import type { BoardLayerLook, BoardLook, BoardWater } from './connectContract';
+import type { BoardGroundLook, BoardLayerLook, BoardLook, BoardShapeLook, BoardWater } from './connectContract';
+import type { TerrainShape } from './board/terrainShapes';
+import type { GroundSettings } from './board/ground';
 import { DEFAULT_TUNING, pickMaps, readMaterialSettings, tuningOf, MATERIAL_SETTINGS_FILE, type MaterialMaps, type MaterialTuning } from './materialMaps';
 
 export interface MaterialInfo {
@@ -55,7 +57,10 @@ export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: 
     return wall ? materialWith(painted, wall, defaults?.chosen) : painted;
   };
   const fromDefaults = defaults ? defaultsUsed(defaults.walls, (index) => extras.wallMaterial(defaults.walls[index]!.id), defaults.chosen) : [];
-  const used = [...new Set([...extras.usedMaterials(), ...fromDefaults])]
+  // The raised shapes of the level shown, and the ground round the map: their materials go with the walls'.
+  const shapes = propsOnLevel(data.shapes(mapPath), shown.level, shown.levels);
+  const ground = data.ground(mapPath);
+  const used = [...new Set([...extras.usedMaterials(), ...fromDefaults, ...shapeMaterials(shapes), ...(ground.material ? [ground.material] : [])])]
     .map((id) => ({ id, info: materials.info(id) }))
     .filter((entry): entry is { id: string; info: MaterialInfo } => entry.info !== null)
     .map(({ id, info }) => ({ id, scale: info.scale, maps: { ...info.maps }, ...(!info.tuning || isDefault(info.tuning) ? {} : { tuning: { ...info.tuning } }) }));
@@ -74,9 +79,32 @@ export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: 
     // The water of the level shown (Atlas's liquids, as the caller read them); props stand on their own level.
     ...water,
     ...arTableOf(data, mapPath),
+    ...(shapes.length > 0 ? { shapes: shapes.map(shapeLook) } : {}),
+    ground: groundLook(ground),
     props: propsOnLevel(data.props(mapPath), shown.level, shown.levels).map((prop) => ({ id: prop.id, path: prop.glb, x: prop.x, y: prop.y, scale: prop.scale, turn: prop.rotation, ...(prop.solid ? { solid: true } : {}), ...(prop.lift ? { lift: prop.lift } : {}) })),
     materials: used,
   });
+}
+
+/** The materials a level's shapes are painted with (tops and sides), by vault folder. */
+export function shapeMaterials(shapes: readonly TerrainShape[]): string[] {
+  return shapes.flatMap((shape) => [shape.material, typeof shape.sides === 'string' ? shape.sides : undefined]).filter((folder): folder is string => typeof folder === 'string' && folder !== '');
+}
+
+/** A shape as Connect reads it: its corners copied, its materials by folder. */
+export function shapeLook(shape: TerrainShape): BoardShapeLook {
+  return {
+    id: shape.id,
+    outline: shape.outline.map(({ x, y, h }) => ({ x, y, h })),
+    inner: shape.inner.map(({ x, y, h }) => ({ x, y, h })),
+    ...(shape.material ? { material: shape.material } : {}),
+    ...(shape.sides !== undefined ? { sides: shape.sides } : {}),
+  };
+}
+
+/** The ground as Connect reads it. */
+export function groundLook(ground: GroundSettings): BoardGroundLook {
+  return { mode: ground.mode, ...(ground.material ? { material: ground.material } : {}), noise: ground.noise, strength: ground.strength, fog: ground.fog, margin: ground.margin, tile: ground.tile, water: { ...ground.water } };
 }
 
 /** Where the players' AR marker sheets lie on the map, placed, for their phones; nothing when the GM placed none. */

@@ -67,3 +67,20 @@ test('a material with its texture strengthened tells Connect how; one left as ma
   assert.deepEqual(look.materials.find((material) => material.id === 'mat/brick')?.tuning, { relief: 2, occlusion: 1, shine: 0.3, depth: 0, displace: 0, outward: 0 });
   assert.equal('tuning' in look.materials.find((material) => material.id === 'mat/wood')!, false);
 });
+
+test("the raised shapes of the level shown go to players with their materials; the ground goes always", () => {
+  const board = data();
+  board.saveShape('m.atlasmap', { id: 'hill', outline: [{ x: 0, y: 0, h: 0 }, { x: 70, y: 0, h: 0 }, { x: 35, y: 70, h: 0 }], inner: [{ x: 35, y: 30, h: 1.5 }], material: 'mat/unused' });
+  board.saveShape('m.atlasmap', { id: 'up', level: 'b', outline: [{ x: 0, y: 0, h: 0 }, { x: 70, y: 0, h: 0 }, { x: 35, y: 70, h: 0 }], inner: [] });
+  board.setGround('m.atlasmap', { mode: 'horizon', material: 'mat/wood', noise: 'dunes', strength: 0.4, fog: 60, margin: 8, tile: 3, water: { kind: 'waves', amount: 0.3, direction: 45, tint: '#336699', clarity: 0.5 } });
+  const levels = [{ id: 'a', name: 'Ground', elevation: { bottom: 0, top: 10 }, background: null }, { id: 'b', name: 'Up', elevation: { bottom: 10, top: 20 }, background: null }] as never;
+  const look = boardLookFor(board, materials, 'm.atlasmap', [], { levels, level: 'a' }, null, extras());
+  assert.deepEqual(look.shapes, [{ id: 'hill', outline: [{ x: 0, y: 0, h: 0 }, { x: 70, y: 0, h: 0 }, { x: 35, y: 70, h: 0 }], inner: [{ x: 35, y: 30, h: 1.5 }], material: 'mat/unused' }]);
+  assert.deepEqual(look.ground, { mode: 'horizon', material: 'mat/wood', noise: 'dunes', strength: 0.4, fog: 60, margin: 8, tile: 3, water: { kind: 'waves', amount: 0.3, direction: 45, tint: '#336699', clarity: 0.5 } });
+  // The shape's and the ground's materials are listed with the walls'.
+  assert.deepEqual(look.materials.map((material) => material.id).sort(), ['mat/brick', 'mat/unused', 'mat/wood']);
+  // A map with none has no shapes key, and the ground as it is by default.
+  const plain = lookOf(new BoardData());
+  assert.equal('shapes' in plain, false);
+  assert.equal(plain.ground?.mode, 'board');
+});

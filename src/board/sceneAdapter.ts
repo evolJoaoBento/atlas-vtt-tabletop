@@ -5,7 +5,9 @@
  * player board needs (conditions' names and colours, the bars' colours) come with the scene, so they are made from it.
  * The darkness Connect lays over the fog for a lit scene goes to its own layer: the board draws it as black ground.
  */
-import type { BoardExtras, BoardLayerRecord, BoardMaterialRecord, BoardPropRecord } from '../connectContract';
+import type { BoardExtras, BoardGround, BoardLayerRecord, BoardMaterialRecord, BoardPropRecord, BoardShapeRecord } from '../connectContract';
+import type { ShapePoint, TerrainShape } from './terrainShapes';
+import { readGround, type GroundSettings } from './ground';
 import type { ElevationLayerData } from './elevationLayer';
 import type { CollectionRules, ConditionDefinition } from './conditions';
 import type { FogOperation } from './fog';
@@ -69,6 +71,30 @@ export interface PlayerLook {
   water: WaterSource | null;
   materials: readonly BoardMaterialRecord[];
   props: readonly BoardPropRecord[];
+  /** The raised shapes of the level shown (materials by asset id: ids of `materials`). */
+  shapes: readonly TerrainShape[];
+  /** The ground round the map, as the GM set it (its material by asset id). */
+  ground: GroundSettings;
+}
+
+/** Corners from the wire's flat x, y, h list. */
+function cornersFrom(flat: readonly number[] | undefined): ShapePoint[] {
+  const out: ShapePoint[] = [];
+  for (let i = 0; flat && i + 2 < flat.length; i += 3) out.push({ x: flat[i]!, y: flat[i + 1]!, h: flat[i + 2]! });
+  return out;
+}
+
+/** Shapes as the board reads them, from the wire (a shape with fewer than three corners round it is none). */
+export function shapesFromWire(records: readonly BoardShapeRecord[] | undefined): TerrainShape[] {
+  return (records ?? []).map((record) => ({
+    id: record.id, outline: cornersFrom(record.outline), inner: cornersFrom(record.inner),
+    ...(record.material ? { material: record.material } : {}), ...(record.sides !== undefined ? { sides: record.sides } : {}),
+  })).filter((shape) => shape.outline.length >= 3);
+}
+
+/** The ground as the board reads it, from the wire; the map on its table where none came. */
+export function groundFromWire(ground: BoardGround | undefined): GroundSettings {
+  return readGround(ground ?? null);
 }
 
 /** The scenes stacked with the one shown, as a player's board draws them (files are asset ids; nothing stands on them but their walls, lights and props). */
@@ -116,6 +142,7 @@ export function layersFromExtras(extras: BoardExtras | null): ElevationLayerData
       props: layer.props.map((prop) => ({ id: prop.id, glb: prop.asset, x: prop.x, y: prop.y, rotation: prop.turn, scale: prop.scale, ...(prop.solid ? { solid: true } : {}), ...(prop.lift ? { lift: prop.lift } : {}) })),
       stands: { ...layer.stands },
       water: waterFromWire(layer.water),
+      shapes: shapesFromWire(layer.shapes),
       placement: () => null,
       style: () => 'disc' as const,
     } satisfies ElevationLayerData;
@@ -255,6 +282,8 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
     water: waterFromWire(extras?.water),
     materials: extras?.materials ?? [],
     props: extras?.props ?? [],
+    shapes: shapesFromWire(extras?.shapes),
+    ground: groundFromWire(extras?.ground),
   };
   return {
     map: {

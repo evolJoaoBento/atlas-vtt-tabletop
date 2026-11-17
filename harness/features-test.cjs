@@ -5534,6 +5534,29 @@ feature('ground', async ({ page, shot }) => {
   await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2, water: { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 } }; board.refresh(); });
 });
 
+feature('player shapes and ground', async ({ page, shot }) => {
+  // Connect sends the GM's raised shapes and ground: a player's board draws the shapes, stands on them, and lays the plane.
+  await page.evaluate(() => {
+    const t = window.playerTest;
+    t.handle.setExtras({ ...t.extras, shapes: [{ id: 'hill', outline: [300, 500, 0, 600, 500, 0, 600, 800, 0, 300, 800, 0], inner: [450, 650, 2] }], ground: { mode: 'horizon', noise: 'rolling', strength: 0.5, fog: 40, margin: 6, tile: 2, water: { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 } } });
+  });
+  await page.waitForFunction(() => window.playerTest.board.groundPlane.object3d.parent !== null, null, { timeout: 15000 }).catch(() => {});
+  await wait(800);
+  const drawn = await page.evaluate(() => {
+    const { board } = window.playerTest;
+    return { shapes: board.shapesView.pickables.length, plane: board.groundPlane.object3d.parent === board.scene, table: board.surface.table.visible };
+  });
+  check('player shapes and ground: the GM\'s shape is drawn on the player\'s board and the plane runs to the horizon, no table', drawn.shapes === 1 && drawn.plane && drawn.table === false, JSON.stringify(drawn));
+  await page.evaluate(() => { const { board } = window.playerTest; board.camera.goal.pitch = 0.5; board.wake(true); });
+  await wait(1200);
+  await shot('player-shapes-ground');
+  // Without them (an older GM): no shapes, the map on its table.
+  await page.evaluate(() => { const t = window.playerTest; t.handle.setExtras({ ...t.extras }); });
+  await wait(1200);
+  const plain = await page.evaluate(() => { const { board } = window.playerTest; return { shapes: board.shapesView.pickables.length, plane: board.groundPlane.object3d.parent !== null, table: board.surface.table.visible }; });
+  check('player shapes and ground: extras without them leave no shape and the map on its table', plain.shapes === 0 && !plain.plane && plain.table, JSON.stringify(plain));
+}, PLAYER_URL);
+
 /** What every feature depends on beside the bundle: this file outside the features, the page, the styles, the runner. */
 function globalHash() {
   let rest = fs.readFileSync(__filename, 'utf8');

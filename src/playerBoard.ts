@@ -18,6 +18,7 @@ import { NO_FLIP } from './board/walls';
 import { framesAnew } from './board/playerView';
 import type { CameraKeep } from './board/camera';
 import { materialFromUrls, type LoadedMaterial } from './materials';
+import { readGround } from './board/ground';
 import type { BoardCamera, BoardCutscene, BoardExtras, PlayerCutsceneHandle, PlayerCutsceneOptions, PlayerDiceRequest, PlayerDiceResult } from './connectContract';
 import { readBoardCutscene } from './cutscene/broadcast';
 import { PlayerCutsceneState, type PlayerCutsceneView } from './cutscene/playerCutscene';
@@ -949,6 +950,9 @@ class PlayerBoard implements PlayerBoardHandle {
       },
       style: () => 'disc',
       water: () => look()?.water ?? null,
+      // The GM's raised shapes and ground, as Connect sent them (materials by asset id, read as walls' are).
+      shapes: () => look()?.shapes ?? [],
+      ground: () => look()?.ground ?? readGround(null),
       props: () => (look()?.props ?? []).map((prop) => ({ id: prop.id, glb: prop.asset, x: prop.x, y: prop.y, rotation: prop.turn, scale: prop.scale, ...(prop.solid ? { solid: true } : {}), ...(prop.lift ? { lift: prop.lift } : {}) })),
       rules: () => this.shown!.rules,
       moveToken: (id, x, y) => { this.host.sendMove(id, x, y); },

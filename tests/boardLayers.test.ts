@@ -4,7 +4,7 @@ import { BoardData, readBoardData } from '../src/board/boardData';
 import type { BoardMap } from '../src/board/mapModel';
 import { layersFor } from '../src/boardLayers';
 import type { MaterialInfo } from '../src/boardLook';
-import { layersFromExtras } from '../src/board/sceneAdapter';
+import { groundFromWire, layersFromExtras, shapesFromWire } from '../src/board/sceneAdapter';
 import type { BoardExtras } from '../src/connectContract';
 
 const materials = { info: (folder: string): MaterialInfo | null => (folder === 'mat/brick' ? { scale: 2, maps: { color: 'mat/brick/c.jpg' } } : null) };
@@ -78,4 +78,15 @@ test('a level can be hidden on the board and shown again; hiding one says nothin
   data.setLayerHidden(upper, false);
   assert.equal(data.layerHidden(upper), false);
   assert.deepEqual(data.toJSON(), {});
+});
+
+test("a player's board reads the GM's shapes and ground from the wire: corners from x, y, h lists, the ground the map board where none came", () => {
+  const sent = { ...extras([{ id: 'layer-1', elevation: 3, stands: { x: 0, y: 0, turn: 0 }, image: 'IMG', grid: { size: 70, offsetX: 0, offsetY: 0 }, walls: [], lights: [], props: [], fogHeight: null, wallThickness: null, shapes: [{ id: 'r', outline: [0, 0, 0, 70, 0, 0, 35, 70, 2], sides: true }] }]),
+    shapes: [{ id: 'hill', outline: [0, 0, 0, 70, 0, 0, 35, 70, 0], inner: [35, 30, 1.5], material: 'MAT' }, { id: 'broken', outline: [0, 0, 0, 1, 1, 1] }],
+    ground: { mode: 'water' as const, noise: 'flat', strength: 0, fog: 20, margin: 5, tile: 2, water: { kind: 'waves', amount: 0.3, direction: 45, tint: '#336699', clarity: 0.5 } } };
+  const [layer] = layersFromExtras(sent);
+  assert.deepEqual(layer.shapes, [{ id: 'r', outline: [{ x: 0, y: 0, h: 0 }, { x: 70, y: 0, h: 0 }, { x: 35, y: 70, h: 2 }], inner: [], sides: true }]);
+  assert.deepEqual(shapesFromWire(sent.shapes), [{ id: 'hill', outline: [{ x: 0, y: 0, h: 0 }, { x: 70, y: 0, h: 0 }, { x: 35, y: 70, h: 0 }], inner: [{ x: 35, y: 30, h: 1.5 }], material: 'MAT' }]);
+  assert.deepEqual(groundFromWire(sent.ground), { mode: 'water', noise: 'flat', strength: 0, fog: 20, margin: 5, tile: 2, water: { kind: 'waves', amount: 0.3, direction: 45, tint: '#336699', clarity: 0.5 } });
+  assert.equal(groundFromWire(undefined).mode, 'board');
 });

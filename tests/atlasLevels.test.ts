@@ -88,6 +88,12 @@ test("a scene with levels sends its other levels as players' layers, at their he
   assert.equal(fromUp.length, 1);
   assert.equal(fromUp[0].elevation, -2);
   assert.equal(fromUp[0].image, 'ground.png');
+  // A level's raised shapes go with it; the level shown's are the look's, not a layer's.
+  data.saveShape('s.atlasmap', { id: 'roof', level: 'b', outline: [{ x: 0, y: 0, h: 0 }, { x: 70, y: 0, h: 0 }, { x: 35, y: 70, h: 2 }], inner: [], sides: 'mat/brick' });
+  const shaped = layersFor(data, materials, scenes, 's.atlasmap', 'a');
+  assert.deepEqual(shaped[0].shapes, [{ id: 'roof', outline: [{ x: 0, y: 0, h: 0 }, { x: 70, y: 0, h: 0 }, { x: 35, y: 70, h: 2 }], inner: [], sides: 'mat/brick' }]);
+  assert.equal(layersFor(data, materials, scenes, 's.atlasmap', 'b')[0].shapes, undefined);
+  data.removeShape('s.atlasmap', 'roof');
   // A level the GM hid on the boards is not sent.
   data.setLayerHidden('s.atlasmap#atlas-level:b', true);
   assert.equal(layersFor(data, materials, scenes, 's.atlasmap', 'a').length, 0);

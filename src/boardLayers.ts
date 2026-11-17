@@ -11,6 +11,8 @@ import type { BoardData } from './board/boardData';
 import { readMap, type BoardMap } from './board/mapModel';
 import { levelRise, onFirstLevel, propsOnLevel, resolveLevel } from './board/levels';
 import type { BoardLayerLook } from './connectContract';
+import type { TerrainShape } from './board/terrainShapes';
+import { shapeLook, shapeMaterials } from './boardLook';
 import { waterOf, type MaterialInfo, type MaterialView } from './boardLook';
 import { extrasOf } from './board/recordExtras';
 
@@ -123,7 +125,8 @@ function levelLayersFor(data: BoardData, materials: MaterialView, scenes: Pick<L
   const shown = resolveLevel(own.levels, viewedLevel);
   const units = unitsOf(own);
   const legacy = data.legacyExtras(mapPath);
-  const used = [...new Set(own.levels.flatMap((level) => { const map = scenes.mapAt(mapPath, level.id); const extras = extrasOf(map, legacy); return map ? [...extras.usedMaterials(), ...defaultsUsed(map.walls, (index) => extras.wallMaterial(map.walls[index]!.id), defaults)] : []; }))]
+  const shapesOn = (level: string): TerrainShape[] => propsOnLevel(data.shapes(mapPath), level, own.levels);
+  const used = [...new Set(own.levels.flatMap((level) => { const map = scenes.mapAt(mapPath, level.id); const extras = extrasOf(map, legacy); return map ? [...extras.usedMaterials(), ...defaultsUsed(map.walls, (index) => extras.wallMaterial(map.walls[index]!.id), defaults), ...shapeMaterials(shapesOn(level.id))] : []; }))]
     .map((id) => ({ id, info: materials.info(id) }))
     .filter((entry): entry is { id: string; info: MaterialInfo } => entry.info !== null)
     .map(({ id, info }) => ({ id, scale: info.scale, maps: { ...info.maps }, ...(isDefault(info) ? {} : { tuning: { ...info.tuning! } }) }));
@@ -138,6 +141,7 @@ function levelLayersFor(data: BoardData, materials: MaterialView, scenes: Pick<L
     // The level's own liquids; a mask painted before water was Atlas's lies on the first level.
     const water = waterOf(map, onFirstLevel(own.levels, level.id) ? data.legacyWater(mapPath) : null);
     const extras = extrasOf(map, legacy);
+    const shapes = shapesOn(level.id);
     out.push({
       elevation: levelRise(own.levels, shown, level.id, units),
       stands: { x: 0, y: 0, turn: 0 },
@@ -157,6 +161,7 @@ function levelLayersFor(data: BoardData, materials: MaterialView, scenes: Pick<L
       fogHeight: data.fogHeight(mapPath),
       wallThickness: data.wallThickness(mapPath),
       ...water,
+      ...(shapes.length > 0 ? { shapes: shapes.map(shapeLook) } : {}),
     });
   }
   return out.sort((a, b) => a.elevation - b.elevation);
