@@ -19,6 +19,16 @@ test('ground settings read tolerantly: defaults for what is missing, numbers kep
   assert.equal(readGround({ margin: 12.6 }).margin, 13);
 });
 
+test('the painted ground names a saved background; anything but a non-empty text is dropped', () => {
+  const folder = 'atlas-vtt/assets/backgrounds/Isle';
+  const painted = readGround({ mode: 'painted', background: folder });
+  assert.equal(painted.mode, 'painted');
+  assert.equal(painted.background, folder);
+  assert.equal('background' in readGround({ mode: 'painted', background: 3 }), false);
+  assert.equal('background' in readGround({ mode: 'painted', background: '' }), false);
+  assert.equal('background' in readGround({}), false);
+});
+
 test('fog is off or 80 to 100: a thinner fog saved before reads as the thinnest; the default is the thinnest', () => {
   assert.equal(DEFAULT_GROUND.fog, FOG_MIN);
   assert.equal(FOG_MIN, 80);

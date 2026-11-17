@@ -5826,8 +5826,27 @@ feature('ground', async ({ page, shot }) => {
   });
   const shownRows = await page.evaluate(() => [...document.querySelectorAll('[aria-label="Ground"][role="dialog"] .atlas-tabletop-palette__field')].filter((row) => row.getBoundingClientRect().height > 0).map((row) => row.querySelector('.atlas-tabletop-palette__label')?.textContent));
   check('ground: on the map board only its own rows show (no plane, pattern or liquid settings)', !shownRows.includes('Pattern') && !shownRows.includes('Moves') && !shownRows.includes('Ground material') && shownRows.includes('Extra board'), JSON.stringify(shownRows));
-  check('ground: all five backgrounds show in full inside the panel, lava and acid among them', fits.length === 5 && fits.every((f) => f.inside) && fits.some((f) => f.name === 'Lava plane') && fits.some((f) => f.name === 'Acid plane'), JSON.stringify(fits));
+  check('ground: all six backgrounds show in full inside the panel, lava, acid and Painted among them', fits.length === 6 && fits.every((f) => f.inside) && fits.some((f) => f.name === 'Lava plane') && fits.some((f) => f.name === 'Acid plane') && fits.some((f) => f.name === 'Painted'), JSON.stringify(fits));
   await shot('ground-panel');
+  // Painted: a saved background chosen from a select (the harness holds Isle and Badlands); no material or pattern rows.
+  await page.evaluate(() => window.boardTest.backgroundsReady());
+  await wait(300);
+  await page.getByRole('button', { name: 'Painted', exact: true }).click();
+  await wait(500);
+  const paintedUi = await page.evaluate(() => {
+    const { groundState } = window.boardTest;
+    const select = document.querySelector('[aria-label="Painted background"]');
+    const shown = (label) => { const row = document.querySelector(`[aria-label="${label}"]`)?.closest('label'); return !!row && !row.hidden && row.getBoundingClientRect().height > 0; };
+    const rows = [...document.querySelectorAll('[aria-label="Ground"][role="dialog"] .atlas-tabletop-palette__field')].filter((row) => row.getBoundingClientRect().height > 0).map((row) => row.querySelector('.atlas-tabletop-palette__label')?.textContent);
+    return { mode: groundState.value.mode, select: !!select && shown('Painted background'), options: select ? [...select.options].map((o) => o.textContent) : [], pattern: shown('Height pattern past the board'), material: shown('Material the ground is tiled with'), strength: shown('Height pattern strength'), rows };
+  });
+  check('ground: Painted lists the saved backgrounds in a select and hides Ground material, Pattern and Pattern strength', paintedUi.mode === 'painted' && paintedUi.select && paintedUi.options.includes('Isle') && paintedUi.options.includes('Badlands') && paintedUi.options[0] === 'Choose a background…' && !paintedUi.pattern && !paintedUi.material && !paintedUi.strength && paintedUi.rows.includes('Tile size') && paintedUi.rows.includes('Distance fog') && paintedUi.rows.includes('Extra board'), JSON.stringify(paintedUi));
+  await page.evaluate(() => { const select = document.querySelector('[aria-label="Painted background"]'); select.value = [...select.options].find((o) => o.textContent === 'Isle').value; select.dispatchEvent(new Event('change', { bubbles: true })); });
+  await wait(300);
+  const chosen = await page.evaluate(() => ({ background: window.boardTest.groundState.value.background, value: document.querySelector('[aria-label="Painted background"]').value }));
+  check('ground: choosing a background in Painted keeps its folder in the ground settings', typeof chosen.background === 'string' && chosen.background.endsWith('/Isle') && chosen.value === chosen.background, JSON.stringify(chosen));
+  await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { ...groundState.value, mode: 'board' }; board.refresh(); });
+  await wait(300);
   await page.getByRole('button', { name: 'Horizon plane' }).click();
   await wait(500);
   const horizon = await page.evaluate(() => { const { board, groundState } = window.boardTest; return { mode: groundState.value.mode, plane: board.groundPlane.object3d.parent === board.scene, table: board.surface.table.visible, fog: board.scene.fog ? board.scene.fog.far : null, pattern: !document.querySelector('[aria-label="Height pattern past the board"]').closest('label').hidden }; });

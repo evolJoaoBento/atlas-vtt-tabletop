@@ -90,6 +90,8 @@ export interface ToolbarActions {
   /** The ground round the map (the Ground button's panel): the table or a plane to the horizon, its pattern, fog and extra board. */
   ground?(): GroundSettings;
   setGround?(settings: GroundSettings): void;
+  /** The saved painted backgrounds that can lie round the map (the Painted ground's choices). */
+  backgrounds?(): readonly { folder: string; name: string }[];
   shapeTool?(): boolean;
   setShapeTool?(on: boolean): void;
   /** The water bucket's sensitivity, 0 to 100. */
@@ -273,7 +275,7 @@ export class BoardToolbar {
   private groundUi: {
     section: HTMLElement; modes: Array<{ value: GroundMode; button: HTMLButtonElement }>; rows: Array<{ row: HTMLElement; modes: GroundMode[] }>;
     water: { kind: HTMLSelectElement; style: HTMLSelectElement; amount: HTMLInputElement; direction: HTMLInputElement; directionRow: HTMLElement; clarity: HTMLInputElement; tint: HTMLInputElement; presets: HTMLElement; makePresets(liquid: LiquidKind): void };
-    material: HTMLSelectElement; noise: HTMLSelectElement; strength: HTMLInputElement; strengthValue: HTMLElement;
+    material: HTMLSelectElement; background: HTMLSelectElement; noise: HTMLSelectElement; strength: HTMLInputElement; strengthValue: HTMLElement;
     fog: HTMLInputElement; fogOn: HTMLInputElement; fogValue: HTMLElement; margin: HTMLInputElement; marginValue: HTMLElement; tile: HTMLInputElement; tileValue: HTMLElement;
   } | null = null;
   private readonly shapeButton: HTMLButtonElement;
@@ -839,14 +841,14 @@ export class BoardToolbar {
     if (this.actions.setGround) {
       const section = el('div', 'atlas-tabletop-palette__section', this.groundPanel);
       const change = (edit: Partial<GroundSettings>): void => { const now = this.actions.ground?.(); if (now) this.actions.setGround?.({ ...now, ...edit }); this.fillGround(); };
-      // Five choices: the label above them, and they wrap (in one row they ran past the panel's edge).
+      // Six choices: the label above them, and they wrap (in one row they ran past the panel's edge).
       const modeRow = el('div', 'atlas-tabletop-palette__field atlas-tabletop-palette__field--stacked', section);
       el('span', 'atlas-tabletop-palette__label', modeRow, 'Background');
       const choices = el('span', 'atlas-tabletop-palette__choices atlas-tabletop-ground-modes', modeRow);
       choices.setAttribute('role', 'group');
       choices.setAttribute('aria-label', 'Ground round the map');
       const modes: Array<{ value: GroundMode; button: HTMLButtonElement }> = [];
-      for (const [value, label, hint] of [['board', 'Map board', 'The map on its table, framed.'], ['horizon', 'Horizon plane', 'The map lies on a plane running to the horizon, tiled with a material and shaped by a pattern past the board.'], ['water', 'Water plane', 'The map lies on water running to the horizon, moving as painted water does.'], ['lava', 'Lava plane', 'The map lies on lava running to the horizon, glowing and moving as painted lava does.'], ['acid', 'Acid plane', 'The map lies on acid running to the horizon, bubbling and moving as painted acid does.']] as const) {
+      for (const [value, label, hint] of [['board', 'Map board', 'The map on its table, framed.'], ['horizon', 'Horizon plane', 'The map lies on a plane running to the horizon, tiled with a material and shaped by a pattern past the board.'], ['water', 'Water plane', 'The map lies on water running to the horizon, moving as painted water does.'], ['lava', 'Lava plane', 'The map lies on lava running to the horizon, glowing and moving as painted lava does.'], ['acid', 'Acid plane', 'The map lies on acid running to the horizon, bubbling and moving as painted acid does.'], ['painted', 'Painted', 'The map lies on a background painted in the Tabletop Gallery']] as const) {
         const button = el('button', 'atlas-tabletop-palette__choice', choices, label);
         button.type = 'button';
         button.title = hint;
@@ -854,7 +856,7 @@ export class BoardToolbar {
         modes.push({ value, button });
       }
       const rows: Array<{ row: HTMLElement; modes: GroundMode[] }> = [];
-      const ON_LAND: GroundMode[] = ['horizon'], ON_WATER: GroundMode[] = ['water', 'lava', 'acid'], CLEAR: GroundMode[] = ['water', 'acid'], BEYOND: GroundMode[] = ['horizon', 'water', 'lava', 'acid'], ALWAYS: GroundMode[] = ['board', 'horizon', 'water', 'lava', 'acid'];
+      const ON_LAND: GroundMode[] = ['horizon'], ON_WATER: GroundMode[] = ['water', 'lava', 'acid'], CLEAR: GroundMode[] = ['water', 'acid'], BEYOND: GroundMode[] = ['horizon', 'water', 'lava', 'acid', 'painted'], ALWAYS: GroundMode[] = ['board', 'horizon', 'water', 'lava', 'acid', 'painted'], PAINTED: GroundMode[] = ['painted'];
       const selectRow = (label: string, aria: string, modes: GroundMode[]): HTMLSelectElement => {
         const row = el('label', 'atlas-tabletop-palette__field', section);
         el('span', 'atlas-tabletop-palette__label', row, label);
@@ -884,7 +886,15 @@ export class BoardToolbar {
         this.actions.setGround?.(material.value ? { ...rest, material: material.value } : rest);
         this.fillGround();
       });
-      const tile = rangeRow('Tile size', 'Squares one tile of the ground material spans', MAX_TILE, ON_LAND);
+      const background = selectRow('Painted background', 'Painted background', PAINTED);
+      background.addEventListener('change', () => {
+        const now = this.actions.ground?.();
+        if (!now) return;
+        const { background: _old, ...rest } = now;
+        this.actions.setGround?.(background.value ? { ...rest, background: background.value } : rest);
+        this.fillGround();
+      });
+      const tile = rangeRow('Tile size', 'Squares one tile of the ground material spans', MAX_TILE, [...ON_LAND, 'painted']);
       tile.input.min = '1';
       tile.input.addEventListener('change', () => change({ tile: Number(tile.input.value) }));
       tile.input.addEventListener('input', () => { tile.value.textContent = `${tile.input.value} sq`; });
@@ -955,7 +965,7 @@ export class BoardToolbar {
       margin.input.addEventListener('change', () => change({ margin: Number(margin.input.value) }));
       margin.input.addEventListener('input', () => { margin.value.textContent = `${margin.input.value} sq`; });
       margin.input.closest('label')!.title = 'Room round the map where minis can stand, in squares each way.';
-      this.groundUi = { section, modes, rows, water: { kind, style: lavaStyle, amount: amount.input, direction: direction.input, directionRow: direction.input.closest('label')!, clarity: clarity.input, tint, presets, makePresets }, material, noise, strength: strength.input, strengthValue: strength.value, fog: fogRow.input, fogOn, fogValue: fogRow.value, margin: margin.input, marginValue: margin.value, tile: tile.input, tileValue: tile.value };
+      this.groundUi = { section, modes, rows, water: { kind, style: lavaStyle, amount: amount.input, direction: direction.input, directionRow: direction.input.closest('label')!, clarity: clarity.input, tint, presets, makePresets }, material, background, noise, strength: strength.input, strengthValue: strength.value, fog: fogRow.input, fogOn, fogValue: fogRow.value, margin: margin.input, marginValue: margin.value, tile: tile.input, tileValue: tile.value };
     }
     const edges = el('div', 'atlas-tabletop-palette__field', fog);
     el('span', 'atlas-tabletop-palette__label', edges, 'Wall edges');
@@ -1694,6 +1704,13 @@ export class BoardToolbar {
     ui.material.append(plain);
     for (const one of this.actions.materials?.() ?? []) { const option = doc.createElement('option'); option.value = one.path; option.textContent = one.name; ui.material.append(option); }
     ui.material.value = ground.material ?? '';
+    ui.background.replaceChildren();
+    const choose = doc.createElement('option');
+    choose.value = '';
+    choose.textContent = 'Choose a background…';
+    ui.background.append(choose);
+    for (const one of this.actions.backgrounds?.() ?? []) { const option = doc.createElement('option'); option.value = one.folder; option.textContent = one.name; ui.background.append(option); }
+    ui.background.value = ground.background ?? '';
     ui.noise.value = ground.noise;
     ui.strength.value = String(Math.round(ground.strength * 100));
     ui.strengthValue.textContent = `${ui.strength.value}%`;

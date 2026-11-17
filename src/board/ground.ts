@@ -8,15 +8,17 @@
 
 import { LIQUID_DEFAULTS, readWaterMotion, type LiquidKind, type WaterMotion } from './water';
 
-export type GroundMode = 'board' | 'horizon' | LiquidKind;
-export const GROUND_MODES: readonly GroundMode[] = ['board', 'horizon', 'water', 'lava', 'acid'];
+export type GroundMode = 'board' | 'horizon' | LiquidKind | 'painted';
+export const GROUND_MODES: readonly GroundMode[] = ['board', 'horizon', 'water', 'lava', 'acid', 'painted'];
 export type GroundNoise = 'flat' | 'gentle' | 'rolling' | 'rough' | 'dunes';
 
 export interface GroundSettings {
-  /** The map on its table (frame and floor round it), a plane to the horizon, or water, lava or acid to the horizon. */
+  /** The map on its table (frame and floor round it), a plane to the horizon, water, lava or acid to the horizon, or a painted background. */
   mode: GroundMode;
   /** Vault folder of the material the plane is tiled with; unset: plain ground. */
   material?: string;
+  /** Vault folder of the saved background the painted ground shows (its mode); unset: none chosen yet. */
+  background?: string;
   noise: GroundNoise;
   /** How strongly the pattern shapes the ground, 0 to 1. */
   strength: number;
@@ -57,6 +59,7 @@ export function readGround(raw: unknown): GroundSettings {
   return {
     mode: GROUND_MODES.includes(raw.mode as GroundMode) ? raw.mode as GroundMode : 'board',
     ...(typeof raw.material === 'string' && raw.material !== '' && { material: raw.material }),
+    ...(typeof raw.background === 'string' && raw.background !== '' && { background: raw.background }),
     noise: NOISES.has(raw.noise as GroundNoise) ? raw.noise as GroundNoise : DEFAULT_GROUND.noise,
     strength: num(raw.strength) ? clamp(raw.strength, 0, 1) : DEFAULT_GROUND.strength,
     fog: num(raw.fog) ? readFog(raw.fog) : DEFAULT_GROUND.fog,

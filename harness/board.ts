@@ -428,6 +428,7 @@ async function main(): Promise<void> {
     shapes: () => shapes,
     ground: () => groundState.value,
     setGround: (settings) => { groundState.value = settings; queueMicrotask(() => board.refresh()); },
+    backgrounds: () => backgroundList,
     saveShape: (shape) => { const at = shapes.findIndex((one) => one.id === shape.id); if (at >= 0) shapes[at] = shape; else shapes.push(shape); record.shapeSaves += 1; queueMicrotask(() => board.refresh()); },
     removeShape: (id) => { const at = shapes.findIndex((one) => one.id === id); if (at >= 0) shapes.splice(at, 1); queueMicrotask(() => board.refresh()); },
     rules: () => rules,
@@ -881,7 +882,10 @@ async function main(): Promise<void> {
   });
   let seeded: Promise<void> | null = null;
   const backgroundsReady = (): Promise<void> => (seeded ??= (async () => { await backgrounds.create('Isle'); await backgrounds.create('Badlands'); })());
-  let backgroundOverlay: HTMLDivElement | null = null;
+  // The list the Painted ground offers, kept fresh for the host's synchronous `backgrounds()`.
+  let backgroundList: readonly { folder: string; name: string }[] = [];
+  const refreshBackgroundList = (): void => { void backgrounds.list().then((list) => { backgroundList = list.map(({ folder, name }) => ({ folder, name })); board.refreshToolbar(); }); };
+  backgrounds.onChange(refreshBackgroundList);  let backgroundOverlay: HTMLDivElement | null = null;
   let backgroundEditor: BackgroundEditor | null = null;
   const closeBackgroundEditor = (): void => {
     backgroundEditor?.dispose();

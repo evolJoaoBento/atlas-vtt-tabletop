@@ -153,7 +153,7 @@ export interface BoardShapeLook {
 
 /** The ground round a map as Connect reads it; the material by vault folder (an id of the look's `materials`). */
 export interface BoardGroundLook {
-  readonly mode: 'board' | 'horizon' | 'water' | 'lava' | 'acid';
+  readonly mode: 'board' | 'horizon' | 'water' | 'lava' | 'acid' | 'painted';
   readonly material?: string;
   readonly noise: string;
   readonly strength: number;

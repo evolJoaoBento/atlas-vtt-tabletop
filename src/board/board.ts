@@ -232,6 +232,8 @@ export interface BoardHost {
   /** The ground round the map (Board settings → Ground), and keeping a change to it; without it, the map on its table. */
   ground?(): GroundSettings;
   setGround?(settings: GroundSettings): void;
+  /** The saved painted backgrounds the Painted ground can show: a list the host keeps fresh, so it answers at once. */
+  backgrounds?(): readonly { folder: string; name: string }[];
   saveShape?(shape: TerrainShape): void;
   removeShape?(id: string): void;
   rules(): CollectionRules;
@@ -980,6 +982,7 @@ export class Board {
       ...(this.audience === 'gm' && this.host.setGround && {
         ground: () => this.groundSettings(),
         setGround: (settings: GroundSettings) => this.host.setGround?.(settings),
+        ...(this.host.backgrounds && { backgrounds: () => this.host.backgrounds?.() ?? [] }),
       }),
       ...(this.audience === 'gm' && this.host.saveShape && {
         shapeTool: () => this.shapeEditor?.active === true,
@@ -1584,7 +1587,8 @@ export class Board {
     const map = this.map;
     if (!map || !this.surface) return;
     const ground = this.groundSettings();
-    const horizon = ground.mode === 'horizon' && !this.seeThrough;
+    // Until the painted ground is drawn (a later step), it lies on the horizon plane.
+    const horizon = (ground.mode === 'horizon' || ground.mode === 'painted') && !this.seeThrough;
     const sea = (ground.mode === 'water' || ground.mode === 'lava' || ground.mode === 'acid') && !this.seeThrough;
     // Out to a little past where the fog hides everything, from anywhere over the map.
     const reach = planeReach(ground.fog, this.span);
