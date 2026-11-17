@@ -5615,11 +5615,12 @@ server.listen(0, async () => {
     process.exit(0);
   }
   const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+  let veilSeen = 0;
   try {
     for (const one of chosen) {
       const page = await browser.newPage({ viewport: { width: 1000, height: 640 } });
       page.on('console', (m) => { if (m.type() === 'error') errors.push(`${one.name}: ${m.text()}`); });
-      page.on('pageerror', (e) => errors.push(`${one.name}: pageerror: ${e.message}`));
+      page.on('pageerror', (e) => errors.push(`${one.name}: pageerror: ${e.message}${e.stack ? ` @ ${e.stack.split(String.fromCharCode(10)).slice(1, 4).join(" < ").trim()}` : ""}`));
       const before = results.length;
       let threw = false;
       const cdp = await page.context().newCDPSession(page);
@@ -5631,6 +5632,11 @@ server.listen(0, async () => {
         const boot = await page.evaluate(() => window.boardError ?? null);
         if (boot) throw new Error(boot);
         await wait(1200);
+        // The board's loading veil (it blurs the board while its first files come) is gone before a feature starts:
+        // its blur would slow the frames a timed check counts.
+        const veiled = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-loading')].some((veil) => !veil.hidden));
+        veilSeen += veiled ? 1 : 0;
+        await page.waitForFunction(() => [...document.querySelectorAll('.atlas-tabletop-loading')].every((veil) => veil.hidden), null, { timeout: 10000 }).catch(() => {});
         const shot = (name, clip) => page.screenshot({ path: `${shots}/${name}.png`, ...(clip ? { clip } : {}) });
         await one.run({ page, shot });
       } catch (error) {
@@ -5664,6 +5670,7 @@ server.listen(0, async () => {
   if (only) console.log(`ran the ${chosen.length} of ${features.length} features matching ${only}`);
   else if (chosen.length < features.length) console.log(`affected: ran ${chosen.length} of ${features.length} features (${features.length - chosen.length} unchanged since they last passed; --full runs them all)`);
   for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.ok || !r.detail ? '' : `  ${r.detail}`}`);
+  if (veilSeen) console.log(`the loading veil was still up after boot on ${veilSeen} feature page(s); waited for it`);
   if (errors.length) console.log(`console errors (${errors.length}):\n  ${[...new Set(errors)].slice(0, 6).join('\n  ')}`);
   const failed = results.filter((r) => !r.ok).length;
   console.log(`${results.length - failed}/${results.length} checks passed`);
