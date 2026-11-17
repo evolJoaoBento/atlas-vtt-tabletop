@@ -6,7 +6,7 @@ import { BoardData, readBoardData } from '../src/board/boardData';
 import type { BoardMap } from '../src/board/mapModel';
 import { layersFor } from '../src/boardLayers';
 import type { MaterialInfo } from '../src/boardLook';
-import { groundFromWire, layersFromExtras, shapesFromWire } from '../src/board/sceneAdapter';
+import { groundFromWire, layersFromExtras, paintedFromWire, shapesFromWire } from '../src/board/sceneAdapter';
 import type { BoardExtras } from '../src/connectContract';
 
 const materials = { info: (folder: string): MaterialInfo | null => (folder === 'mat/brick' ? { scale: 2, maps: { color: 'mat/brick/c.jpg' } } : null) };
@@ -94,4 +94,14 @@ test("a player's board reads the GM's shapes and ground from the wire: corners f
   const lava = groundFromWire({ ...sent.ground, mode: 'lava', lava: { kind: 'waves', amount: 0.2, direction: 10, tint: '#c2240f', clarity: 0 } });
   assert.deepEqual([lava.mode, lava.lava.tint, lava.acid], ['lava', '#c2240f', LIQUID_DEFAULTS.acid]);
   assert.equal(groundFromWire(undefined).mode, 'board');
+});
+
+test("a painted ground from the wire reads as the painted mode, its background the terrain picture's id", () => {
+  const liquid = { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 };
+  const painted = { terrain: 'TERRAIN', material: 'MATERIAL', height: 'HEIGHT', materials: ['MAT', ''], settings: { patterns: [], height: { low: -2, high: 6 }, liquids: { water: liquid, lava: liquid, acid: liquid } } };
+  const ground = { mode: 'painted' as const, noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2, water: liquid, painted };
+  const read = groundFromWire(ground);
+  assert.deepEqual([read.mode, read.background], ['painted', 'TERRAIN']);
+  assert.equal(paintedFromWire(ground), painted);
+  assert.equal(paintedFromWire(undefined), null);
 });

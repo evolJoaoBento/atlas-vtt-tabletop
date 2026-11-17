@@ -6013,6 +6013,28 @@ feature('player shapes and ground', async ({ page, shot }) => {
   check('player shapes and ground: extras without them leave no shape and the map on its table', plain.shapes === 0 && !plain.plane && plain.table, JSON.stringify(plain));
 }, PLAYER_URL);
 
+feature('player painted ground', async ({ page, shot }) => {
+  // Connect sends the GM's painted background (three pictures by asset id): a player's board reads them, draws the painted plane and the lava sheet.
+  const pageErrors = [];
+  page.on('pageerror', (error) => pageErrors.push(String(error)));
+  await page.evaluate(() => {
+    const t = window.playerTest;
+    t.handle.setExtras({ ...t.extras, ground: { mode: 'painted', noise: 'rolling', strength: 0.5, fog: 80, margin: 0, tile: 2, water: { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 }, painted: t.painted } });
+  });
+  await page.waitForFunction(() => window.playerTest.board.groundPlane.object3d.material.customProgramCacheKey?.() === 'tabletop-painted-ground', null, { timeout: 60000 }).catch(() => {});
+  await wait(800);
+  const seen = await page.evaluate(() => {
+    const { board } = window.playerTest;
+    const plane = board.groundPlane.object3d;
+    return { present: plane.parent === board.scene, key: plane.material.customProgramCacheKey?.(), liquids: [...board.paintedLiquids.keys()].sort() };
+  });
+  check('player painted ground: the plane is drawn with the painted ground material and the lava sheet is there', seen.present && seen.key === 'tabletop-painted-ground' && seen.liquids.includes('lava'), JSON.stringify(seen));
+  await page.evaluate(() => { const { board } = window.playerTest; board.camera.goal.pitch = 0.5; board.wake(true); });
+  await wait(1200);
+  await shot('player-painted-ground');
+  check('player painted ground: no page errors', pageErrors.length === 0, JSON.stringify(pageErrors));
+}, PLAYER_URL);
+
 feature('loading veil', async ({ page, shot }) => {
   // A board whose files take a while: the board blurred behind a bar and the time left, which go once all is in.
   await page.evaluate(() => {

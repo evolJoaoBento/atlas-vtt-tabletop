@@ -19,6 +19,8 @@ import { framesAnew } from './board/playerView';
 import type { CameraKeep } from './board/camera';
 import { materialFromUrls, type LoadedMaterial } from './materials';
 import { readGround } from './board/ground';
+import { decodeLayer } from './background/backgroundCodec';
+import { BACKGROUND_SIZE, emptyLayers, readBackgroundSettings, type LoadedBackground } from './background/backgroundData';
 import type { BoardCamera, BoardCutscene, BoardExtras, PlayerCutsceneHandle, PlayerCutsceneOptions, PlayerDiceRequest, PlayerDiceResult } from './connectContract';
 import { readBoardCutscene } from './cutscene/broadcast';
 import { PlayerCutsceneState, type PlayerCutsceneView } from './cutscene/playerCutscene';
@@ -943,6 +945,25 @@ class PlayerBoard implements PlayerBoardHandle {
         return materialFromUrls('', {
           color: url('color'), normal: url('normal') ?? url('normal-dx'), roughness: url('roughness'), ao: url('ao'), arm: url('arm'), metalness: url('metalness'), height: url('height'),
         }, record.scale, record.maps['normal-dx'] !== undefined && record.maps.normal === undefined, record.tuning);
+      },
+      // The GM's painted background, by its terrain picture's asset id: its three pictures once they have come, decoded as the vault's are.
+      readBackground: async (ref): Promise<LoadedBackground | null> => {
+        const block = look()?.painted;
+        if (!block || block.terrain !== ref) return null;
+        const ids = [block.terrain, block.material, block.height];
+        await Promise.all(ids.map((asset) => this.arrival(asset, () => this.host.image(asset) !== null)));
+        const layer = async (asset: string): Promise<Uint8Array | null> => {
+          const url = this.host.image(asset);
+          if (!url) return null;
+          try { return await decodeLayer(await (await fetch(url)).arrayBuffer(), BACKGROUND_SIZE); } catch { return null; }
+        };
+        const [terrain, material, height] = await Promise.all(ids.map(layer));
+        const fresh = emptyLayers(BACKGROUND_SIZE);
+        return {
+          settings: readBackgroundSettings({ ...block.settings, materials: [] }),
+          layers: { size: BACKGROUND_SIZE, terrain: terrain ?? fresh.terrain, material: material ?? fresh.material, height: height ?? fresh.height },
+          materials: block.materials.map((id) => (id === '' ? null : id)),
+        };
       },
       placement: (tokenId) => {
         const mini = this.shown?.minis[tokenId];

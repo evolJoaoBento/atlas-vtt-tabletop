@@ -6,6 +6,9 @@ import './dom-polyfill';
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { playerBoardFactory, type PlayerBoardHandle, type PlayerBoardHost } from '../src/playerBoard';
+import { encodeLayer } from '../src/background/backgroundCodec';
+import { emptyLayers, TERRAINS } from '../src/background/backgroundData';
+import { backgroundFrame } from '../src/background/terrainHeight';
 import { readSpellNote } from '../src/board/spellNotes';
 import type { SpellBook, SpellEntry } from '../src/board/spellPicker';
 import { searchSpells } from '../src/spellLibrary';
@@ -133,7 +136,26 @@ async function main(): Promise<void> {
   const deliver = (): void => { for (const [id, file] of late) files.set(id, file); late.clear(); handle.refresh(); };
   /** Holds a map image back for `deliver`: a scene that names it draws without a background until then. */
   const hold = (id: string): void => { const file = files.get(id); if (file === undefined) return; late.set(id, file); files.delete(id); };
-  Object.assign(window, { playerTest: { handle, board, record, project, deliver, scene, extras, files, late, hold, spawn, setSpellNotes, MAP, MAP2, ready: true } });
+  // The GM's painted background as Connect sends it: three layer pictures held as files, a lava lake past the board's right edge.
+  const frame = backgroundFrame(scene.map.width, scene.map.height, scene.map.cellSize);
+  const layers = emptyLayers();
+  const per = layers.size / frame.extent;
+  const lava = TERRAINS.find((terrain) => terrain.id === 'lava')!.index;
+  const cx = layers.size / 2 + 24 * per, cy = layers.size / 2 - 2 * per, radius = 8 * per;
+  for (let y = Math.max(0, Math.floor(cy - radius)); y <= Math.min(layers.size - 1, Math.ceil(cy + radius)); y++) {
+    for (let x = Math.max(0, Math.floor(cx - radius)); x <= Math.min(layers.size - 1, Math.ceil(cx + radius)); x++) {
+      if (Math.hypot(x - cx, y - cy) <= radius) layers.terrain[y * layers.size + x] = lava;
+    }
+  }
+  const PAINTED = { terrain: 'P'.repeat(43), material: 'Q'.repeat(43), height: 'R'.repeat(43) };
+  for (const [key, layer] of [['terrain', layers.terrain], ['material', layers.material], ['height', layers.height]] as const) {
+    files.set(PAINTED[key], URL.createObjectURL(new Blob([await encodeLayer(layer, layers.size, document)], { type: 'image/png' })));
+  }
+  const painted = {
+    ...PAINTED, materials: [TEX, ''],
+    settings: { patterns: [], height: { low: -2, high: 6 }, liquids: { water: { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 }, lava: { kind: 'flow', amount: 0.35, direction: 90, tint: '#ff5a1f', clarity: 0, style: 'crust' }, acid: { kind: 'ripples', amount: 0.45, direction: 90, tint: '#8bd630', clarity: 0.35 } } },
+  };
+  Object.assign(window, { playerTest: { handle, board, record, project, deliver, scene, extras, files, late, hold, spawn, setSpellNotes, painted, MAP, MAP2, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

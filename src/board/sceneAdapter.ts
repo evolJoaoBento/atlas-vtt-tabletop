@@ -5,7 +5,7 @@
  * player board needs (conditions' names and colours, the bars' colours) come with the scene, so they are made from it.
  * The darkness Connect lays over the fog for a lit scene goes to its own layer: the board draws it as black ground.
  */
-import type { BoardExtras, BoardGround, BoardLayerRecord, BoardMaterialRecord, BoardPropRecord, BoardShapeRecord } from '../connectContract';
+import type { BoardExtras, BoardGround, BoardPainted, BoardLayerRecord, BoardMaterialRecord, BoardPropRecord, BoardShapeRecord } from '../connectContract';
 import type { ShapePoint, TerrainShape } from './terrainShapes';
 import { readGround, type GroundSettings } from './ground';
 import type { ElevationLayerData } from './elevationLayer';
@@ -75,6 +75,8 @@ export interface PlayerLook {
   shapes: readonly TerrainShape[];
   /** The ground round the map, as the GM set it (its material by asset id). */
   ground: GroundSettings;
+  /** The painted background of that ground, as the wire carries it; null for none. */
+  painted: BoardPainted | null;
 }
 
 /** Corners from the wire's flat x, y, h list. */
@@ -94,7 +96,13 @@ export function shapesFromWire(records: readonly BoardShapeRecord[] | undefined)
 
 /** The ground as the board reads it, from the wire; the map on its table where none came. */
 export function groundFromWire(ground: BoardGround | undefined): GroundSettings {
-  return readGround(ground ?? null);
+  // A painted ground's background is its terrain picture's asset id: `paintedFromWire` finds the block again by it.
+  return readGround(ground ? { ...ground, ...(ground.painted ? { background: ground.painted.terrain } : {}) } : null);
+}
+
+/** The painted background the wire's ground carries (pictures by asset id, materials by id), or null for none. */
+export function paintedFromWire(ground: BoardGround | undefined): BoardPainted | null {
+  return ground?.painted ?? null;
 }
 
 /** The scenes stacked with the one shown, as a player's board draws them (files are asset ids; nothing stands on them but their walls, lights and props). */
@@ -286,6 +294,7 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
     props: extras?.props ?? [],
     shapes: shapesFromWire(extras?.shapes),
     ground: groundFromWire(extras?.ground),
+    painted: paintedFromWire(extras?.ground),
   };
   return {
     map: {
