@@ -198,6 +198,10 @@
   min-height: 0;
 }
 
+/* The Backgrounds tab: the editor fills what the tabs leave. */
+.atlas-tabletop-gallery-body.is-backgrounds { flex: 1 1 auto; }
+.atlas-tabletop-bg-host { flex: 1 1 auto; min-height: 480px; }
+
 /* A GLB drawn thinned (too many triangles). */
 .atlas-tabletop-heavy {
   color: var(--text-warning);

@@ -1,6 +1,7 @@
 /**
- * The gallery (a view of its own, opened by the "Open minis gallery" command) with three tabs, Minis, Props and
- * Materials, and the picker "Assign mini…" opens from a token's menu on the 3D board. Minis and props show a library's
+ * The Tabletop Gallery (a view of its own, opened by the "Open Tabletop Gallery" command) with four tabs, Minis, Props,
+ * Materials and Backgrounds, and the picker "Assign mini…" opens from a token's menu on the 3D board. Backgrounds hosts
+ * the painted-background editor. Minis and props show a library's
  * GLBs as cards with a drawn thumbnail, and import more: by the Import button or by dropping .glb files (or HeroForge and TaleSpire exports) on them.
  * Clicking a prop puts it on the 3D board last used. Materials show their colour map, import Poly Haven's zips (or
  * its maps, or a folder of them), and are dragged onto a wall or door of a 3D board to paint it.
@@ -15,6 +16,8 @@ import { MATERIAL_DRAG_TYPE, MATERIAL_TEXT_PREFIX, materialDrag, type MaterialLi
 import { MATERIAL_KIND_NAMES, MATERIAL_KINDS, type MaterialDefaults } from './materialDefaults';
 import { DEFAULT_TUNING, MAX_DEPTH, MAX_DISPLACE, MAX_OCCLUSION, MAX_RELIEF, MAX_TEXTURE_SCALE, MIN_TEXTURE_SCALE, tuningOf, type MaterialSettings, type MaterialTuning } from './materialMaps';
 import { MaterialPreview } from './materialPreview';
+import { BackgroundEditor } from './background/backgroundEditor';
+import type { BackgroundStore } from './background/backgroundStore';
 
 export const GALLERY_VIEW_TYPE = 'atlas-tabletop-gallery';
 
@@ -130,7 +133,7 @@ This model has ${model.simplifiedFrom.toLocaleString()} triangles; Tabletop draw
   }
 }
 
-type GalleryTab = 'minis' | 'props' | 'materials';
+type GalleryTab = 'minis' | 'props' | 'materials' | 'backgrounds';
 
 /** Imports materials and tells the user how it went. */
 async function importMaterials(library: MaterialLibrary, files: readonly File[]): Promise<void> {
@@ -158,6 +161,10 @@ export class GalleryView extends ItemView {
   private filter = '';
   private body: HTMLElement | null = null;
   private stops: Array<() => void> = [];
+  /** The Backgrounds tab's editor while that tab is shown. */
+  private editor: BackgroundEditor | null = null;
+  /** Resource addresses of the saved thumbnails, kept while the file has not changed. */
+  private readonly thumbUrls = new Map<string, { mtime: number; url: string }>();
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -171,12 +178,14 @@ export class GalleryView extends ItemView {
     private readonly variants: { list(): readonly PropVariant[]; remove(id: string): void } = { list: () => [], remove: () => undefined },
     /** The materials walls and doors wear when none is painted on them, by kind (the Materials tab's Defaults). */
     private readonly defaults: { get(): MaterialDefaults; set(next: MaterialDefaults): void } = { get: () => ({}), set: () => undefined },
+    /** The painted backgrounds the Backgrounds tab edits; without it the tab says there is nothing to edit. */
+    private readonly backgrounds: BackgroundStore | null = null,
   ) {
     super(leaf);
   }
 
   getViewType(): string { return GALLERY_VIEW_TYPE; }
-  getDisplayText(): string { return 'Tabletop gallery'; }
+  getDisplayText(): string { return 'Tabletop Gallery'; }
   getIcon(): string { return 'box'; }
 
   async onOpen(): Promise<void> {
@@ -184,10 +193,17 @@ export class GalleryView extends ItemView {
     root.empty();
     root.addClass('atlas-tabletop-gallery');
     const tabs = root.createDiv({ cls: 'atlas-tabletop-tabs' });
-    const names: Record<GalleryTab, string> = { minis: 'Minis', props: 'Props', materials: 'Materials' };
-    const buttons = (['minis', 'props', 'materials'] as const).map((tab) => {
+    const names: Record<GalleryTab, string> = { minis: 'Minis', props: 'Props', materials: 'Materials', backgrounds: 'Backgrounds' };
+    const buttons = (['minis', 'props', 'materials', 'backgrounds'] as const).map((tab) => {
       const button = tabs.createEl('button', { cls: 'atlas-tabletop-tab', text: names[tab] });
-      button.addEventListener('click', () => { this.tab = tab; this.filter = ''; this.draw(); sync(); });
+      button.addEventListener('click', () => {
+        if (tab === this.tab) return;
+        // Unsaved background changes get the editor's Save / Discard / Cancel bar first; Cancel keeps the tab.
+        void (this.editor ? this.editor.requestLeave() : Promise.resolve(true)).then((leave) => {
+          if (!leave || !this.body) return;
+          this.tab = tab; this.filter = ''; this.draw(); sync();
+        });
+      });
       return { tab, button };
     });
     const sync = (): void => { for (const { tab, button } of buttons) button.toggleClass('is-active', tab === this.tab); };
@@ -197,6 +213,7 @@ export class GalleryView extends ItemView {
     // draw, they piled up: a HeroForge zip dropped on Minis after a look at Materials was also imported as a material,
     // "holds no colour map", and a mini dropped after a few tab changes was imported once per visit.)
     acceptDrops(this.body, (files) => {
+      if (this.tab === 'backgrounds') return;
       if (this.tab === 'materials') void importMaterials(this.materials, files);
       else void importWithNotice(this.library, files);
     });
@@ -209,6 +226,36 @@ export class GalleryView extends ItemView {
   async onClose(): Promise<void> {
     for (const stop of this.stops) stop();
     this.stops = [];
+    // The view cannot ask when it closes, so unsaved painting is saved, never dropped.
+    const editor = this.editor;
+    this.editor = null;
+    if (editor) {
+      if (editor.dirty) await editor.save();
+      if (editor.dirty) new Notice('Tabletop: could not save the background you were painting; its changes were lost.', 8000);
+      editor.dispose();
+    }
+    this.thumbUrls.clear();
+  }
+
+  /** The Backgrounds tab: the painted-background editor, filling the view. */
+  private drawBackgrounds(body: HTMLElement): void {
+    const store = this.backgrounds;
+    if (!store) { body.createDiv({ cls: 'atlas-tabletop-empty', text: 'Painted backgrounds are not available.' }); return; }
+    const host = body.createDiv({ cls: 'atlas-tabletop-bg-host' });
+    this.editor = new BackgroundEditor(host, {
+      store,
+      materials: () => this.materials.list().map((folder) => ({ path: folder.path, name: folder.name, thumb: this.materials.thumbnail(folder.path) })),
+      thumbnail: async (path) => {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (!file || !('stat' in file)) return null;
+        const mtime = (file as TFile).stat.mtime;
+        const kept = this.thumbUrls.get(path);
+        if (kept && kept.mtime === mtime) return kept.url;
+        const url = this.app.vault.getResourcePath(file as TFile);
+        this.thumbUrls.set(path, { mtime, url });
+        return url;
+      },
+    });
   }
 
   private get library(): MiniLibrary {
@@ -221,7 +268,12 @@ export class GalleryView extends ItemView {
   private draw(): void {
     const body = this.body;
     if (!body) return;
+    // Only reached once the editor has agreed to go (or is closing): it is taken away with the tab.
+    this.editor?.dispose();
+    this.editor = null;
     body.empty();
+    body.toggleClass('is-backgrounds', this.tab === 'backgrounds');
+    if (this.tab === 'backgrounds') { this.drawBackgrounds(body); return; }
     if (this.tab === 'materials') { this.drawMaterials(body); return; }
     const library = this.library;
     const bar = body.createDiv({ cls: 'atlas-tabletop-bar' });

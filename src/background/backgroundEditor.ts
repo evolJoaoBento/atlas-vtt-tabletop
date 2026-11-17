@@ -117,6 +117,8 @@ export class BackgroundEditor {
   private stroke: { history: LayerHistory; layer: Uint8Array; last: { x: number; y: number } } | null = null;
   private pan: { x: number; y: number; vx: number; vy: number } | null = null;
   private pending: (() => Promise<void>) | null = null;
+  /** Set while the unsaved-changes bar waits for an answer to `requestLeave`; called when that answer is Cancel or a failed Save. */
+  private leaveCancel: (() => void) | null = null;
   private naming: { kind: 'new' } | { kind: 'rename'; folder: string } | null = null;
   private deleting = false;
   private message: { text: string; error: boolean } | null = null;
@@ -266,6 +268,7 @@ export class BackgroundEditor {
   /** Runs `action` now, or after the user has answered the unsaved-changes bar. */
   private guard(action: () => Promise<void>): void {
     if (!this.changed) { void action(); return; }
+    this.abandonLeave();
     this.pending = action;
     this.renderUnsaved();
   }
@@ -546,15 +549,36 @@ export class BackgroundEditor {
     }
   }
 
+  /** Answers a waiting `requestLeave` with "stay". */
+  private abandonLeave(): void {
+    const cancel = this.leaveCancel;
+    this.leaveCancel = null;
+    cancel?.();
+  }
+
+  /**
+   * For whoever is about to take the editor away (a tab change): resolves true at once when nothing is unsaved, otherwise
+   * shows the Save / Discard / Cancel bar and resolves true after Save or Discard, false on Cancel (or a failed Save).
+   */
+  requestLeave(): Promise<boolean> {
+    if (!this.changed) return Promise.resolve(true);
+    this.abandonLeave();
+    return new Promise<boolean>((resolve) => {
+      this.leaveCancel = () => { this.pending = null; this.unsavedEl.hidden = true; resolve(false); };
+      this.pending = async () => { this.leaveCancel = null; resolve(true); };
+      this.renderUnsaved();
+    });
+  }
+
   private renderUnsaved(): void {
     const bar = this.unsavedEl;
     bar.textContent = '';
     bar.hidden = false;
     this.el(bar, 'span', undefined, `"${this.folderPath ? baseName(this.folderPath) : ''}" has unsaved changes.`);
     const done = (): (() => Promise<void>) | null => { const action = this.pending; this.pending = null; bar.hidden = true; return action; };
-    this.button(bar, 'Save', { bgUnsaved: 'save' }, () => { const action = done(); void this.save().then(() => (this.changed ? undefined : action?.())); }, 'mod-cta');
+    this.button(bar, 'Save', { bgUnsaved: 'save' }, () => { const action = done(); void this.save().then(() => (this.changed ? this.abandonLeave() : action?.())); }, 'mod-cta');
     this.button(bar, 'Discard', { bgUnsaved: 'discard' }, () => { const action = done(); this.changed = false; void action?.(); });
-    this.button(bar, 'Cancel', { bgUnsaved: 'cancel' }, () => { done(); });
+    this.button(bar, 'Cancel', { bgUnsaved: 'cancel' }, () => { done(); this.abandonLeave(); });
   }
 
   // ── Drawing ──────────────────────────────────────────────────────────────────────────────────────────────────

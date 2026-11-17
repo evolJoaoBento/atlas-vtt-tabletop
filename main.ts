@@ -57,6 +57,9 @@ import { SOUND_INFO } from './src/sound/soundInfo';
 import { drawSoundControls } from './src/sound/soundRow';
 import { SoundEngine } from './src/sound/soundEngine';
 import { VaultSounds } from './src/sound/vaultSounds';
+import { BackgroundStore } from './src/background/backgroundStore';
+import { decodeLayer, encodeLayer, renderThumbnail } from './src/background/backgroundCodec';
+import { vaultBackgroundFiles } from './src/background/vaultBackgroundFiles';
 import { DEFAULT_DICE_SETTINGS, DIE_SQUARES, MOTION_THRESHOLD, readDiceSettings, TOLERANCE, type TabletopDiceSettings } from './src/dice/diceSettings';
 import { ensureDefaultPack, listPacks, packsFolder, type PackFs } from './src/dice/kit/packs';
 
@@ -191,6 +194,8 @@ export default class TabletopPlugin extends Plugin {
   library!: MiniLibrary;
   props!: MiniLibrary;
   materials!: MaterialLibrary;
+  /** The painted backgrounds kept in the vault (the gallery's Backgrounds tab edits them; boards use them). */
+  backgrounds!: BackgroundStore;
   api: TabletopApi | null = null;
   /** The one Atlas view the boards edit through; null before load and after unload. */
   private host: AtlasHost | null = null;
@@ -273,6 +278,11 @@ export default class TabletopPlugin extends Plugin {
     this.library = new MiniLibrary(this.app, () => this.settings.folder);
     this.props = new MiniLibrary(this.app, () => this.settings.propsFolder, PROPS);
     this.materials = new MaterialLibrary(this.app, () => this.settings.materialsFolder);
+    this.backgrounds = new BackgroundStore(vaultBackgroundFiles(this.app), {
+      encode: (layer, size) => encodeLayer(layer, size, document),
+      decode: (bytes, size) => decodeLayer(bytes, size),
+      thumbnail: (layers) => renderThumbnail(layers, document),
+    });
     this.register(() => { this.library.dispose(); this.props.dispose(); this.materials.dispose(); });
     this.register(this.materials.onChange(() => { for (const view of this.boards()) view.refreshMaterials(); }));
     // The one Atlas view every edit of Atlas's records goes through (Atlas keeps one map loaded at a time).
@@ -343,7 +353,7 @@ export default class TabletopPlugin extends Plugin {
         for (const view of this.boards()) view.refreshMaterials();
         this.boardChanged(null);
       },
-    }));
+    }, this.backgrounds));
     this.registerView(BOARD_VIEW_TYPE, (leaf) => new BoardView(leaf, {
       history: this.history,
       assignments: this.assignments,
@@ -420,8 +430,8 @@ export default class TabletopPlugin extends Plugin {
       },
     }));
     this.registerHoverLinkSource(HOVER_SOURCE, { display: 'Tabletop 3D board', defaultMod: true });
-    this.addRibbonIcon('box', 'Open minis gallery', () => { void this.openGallery(); });
-    this.addCommand({ id: 'open-gallery', name: 'Open minis gallery', callback: () => { void this.openGallery(); } });
+    this.addRibbonIcon('box', 'Open Tabletop Gallery', () => { void this.openGallery(); });
+    this.addCommand({ id: 'open-gallery', name: 'Open Tabletop Gallery', callback: () => { void this.openGallery(); } });
     this.addCommand({
       id: 'import-minis',
       name: 'Import GLB minis',

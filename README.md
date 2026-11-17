@@ -91,7 +91,7 @@ with either; it does not depend on one.
   picture in `Tabletop snapshots/` and copies its embed; and a code block
   ```` ```tabletop ```` holding `[[Maps/Cave.atlasmap]]` shows a card with the map's latest snapshot and an **Open in
   3D** button. Atlas's own map toolbar gets an **Open in 3D** button too.
-- **Props:** open the gallery (**Open minis gallery**) and go to the **Props** tab. Click a prop, then click the board
+- **Props:** open the gallery (**Open Tabletop Gallery**) and go to the **Props** tab. Click a prop, then click the board
   where it should go. **Ctrl + drag** moves a prop, and right-clicking one removes it.
 - **Folders:** minis live in `atlas-vtt/assets/minis` and props in `atlas-vtt/assets/props`. Both can be changed in
   the settings.
