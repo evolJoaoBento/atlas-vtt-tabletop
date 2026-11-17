@@ -5532,8 +5532,9 @@ feature('ground', async ({ page, shot }) => {
 function globalHash() {
   let rest = fs.readFileSync(__filename, 'utf8');
   for (const one of features) rest = rest.replace(one.run.toString(), '');
-  const files = ['harness/affected.cjs', 'scripts/testCache.cjs', 'harness/run-ui.mjs', 'harness/make-test-video.cjs', 'harness/board.html', 'styles.css', 'package-lock.json', ...cache.repoFiles(['tests/fixtures'])];
-  return cache.hashText([rest, cache.hashFiles(files), cache.hashFile(path.join(root, 'atlas.css'))].join('\n'));
+  const files = ['harness/affected.cjs', 'scripts/testCache.cjs', 'harness/run-ui.mjs', 'harness/make-test-video.cjs', 'harness/board.html', 'package-lock.json', ...cache.repoFiles(['tests/fixtures'])];
+  // The styles without their comments: a comment changes no page.
+  return cache.hashText([rest, cache.hashFiles(files), affected.cssHash('styles.css'), affected.cssHash(path.join(root, 'atlas.css'))].join('\n'));
 }
 
 server.listen(0, async () => {
@@ -5590,6 +5591,8 @@ server.listen(0, async () => {
       }
       await page.close();
     }
+          // Kept as it goes: a run stopped half way keeps what it found.
+          cache.save('features', kept);
   } finally {
     await browser.close();
     server.close();

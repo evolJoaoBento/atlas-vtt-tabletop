@@ -95,4 +95,11 @@ function holds(record, inv) {
   return true;
 }
 
-module.exports = { inventory, ran, holds };
+/** A stylesheet's hash without its comments ('' for none there). */
+function cssHash(file) {
+  let text;
+  try { text = readFileSync(file, 'utf8'); } catch { return ''; }
+  return hashText(text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' '));
+}
+
+module.exports = { inventory, ran, holds, cssHash };
