@@ -59,6 +59,8 @@ import { ShapeEditor } from './shapeEditor';
 import { DEFAULT_GROUND, fogRange, planeReach, readGround, type GroundSettings } from './ground';
 import { GroundPlane } from './groundPlane';
 import { SeaPlane } from './seaPlane';
+import { PaintedScene } from '../background/paintedScene';
+import type { LoadedBackground } from '../background/backgroundData';
 import { ShapesView } from './shapeView';
 import { shapeHeightAt, type TerrainShape } from './terrainShapes';
 import { EDGE_SHARE, ResolutionGovernor, type LayerLook, type QualityPreset, type WallEdges } from './quality';
@@ -234,6 +236,8 @@ export interface BoardHost {
   setGround?(settings: GroundSettings): void;
   /** The saved painted backgrounds the Painted ground can show: a list the host keeps fresh, so it answers at once. */
   backgrounds?(): readonly { folder: string; name: string }[];
+  /** Reads a saved painted background (its painted layers, settings and the materials of its slots); null when it is gone or cannot be read. */
+  readBackground?(ref: string): Promise<LoadedBackground | null>;
   saveShape?(shape: TerrainShape): void;
   removeShape?(id: string): void;
   rules(): CollectionRules;
@@ -774,6 +778,14 @@ export class Board {
   private readonly groundPlane = new GroundPlane();
   /** The water, lava or acid to the horizon (the ground's liquid modes). */
   private readonly seaPlane = new SeaPlane();
+  /** The painted background's ground and liquids (the ground's painted mode); the plane it shapes is the ground plane above. */
+  private readonly painted = new PaintedScene(
+    {
+      background: (ref) => this.loads.track(this.host.readBackground?.(ref) ?? Promise.resolve(null), 2),
+      material: (path) => this.loads.track(this.host.readMaterial(path), 2),
+    },
+    () => { if (!this.disposed) this.applyGround(); },
+  );
   /** The shapes drawn now (the one being edited as it is): what tokens stand on. */
   private drawnShapes: readonly TerrainShape[] = [];
   private shapeEditor: ShapeEditor | null = null;
@@ -1153,6 +1165,7 @@ export class Board {
     surface.stack(lowest * map.grid.size, lowest < 0 ? 'solid' : null);
     this.groundPlane.object3d.position.y = lowest * map.grid.size;
     this.seaPlane.object3d.position.y = lowest * map.grid.size;
+    this.painted.object3d.position.y = lowest * map.grid.size;
     // The floor of the scene being played is never cut by the see-through window (only the floors above it, and walls, are).
     const wanted = new Map(this.stackData.map((layer) => [layer.path, layer]));
     // A layer no longer drawn is put away, not thrown out: shown again it fades straight back in, nothing read again.
@@ -1587,7 +1600,11 @@ export class Board {
     const map = this.map;
     if (!map || !this.surface) return;
     const ground = this.groundSettings();
-    // Until the painted ground is drawn (a later step), it lies on the horizon plane.
+    const cell = map.grid.size;
+    // The painted background, once it is read and made; until then (or if it cannot be), the plain horizon plane.
+    const paintedLook = ground.mode === 'painted' && !this.seeThrough
+      ? this.painted.look(ground.background, { width: this.size.width, height: this.size.height, cell, margin: ground.margin, tile: ground.tile })
+      : (this.painted.clear(), null);
     const horizon = (ground.mode === 'horizon' || ground.mode === 'painted') && !this.seeThrough;
     const sea = (ground.mode === 'water' || ground.mode === 'lava' || ground.mode === 'acid') && !this.seeThrough;
     // Out to a little past where the fog hides everything, from anywhere over the map.
@@ -1603,13 +1620,30 @@ export class Board {
     } else this.seaPlane.object3d.removeFromParent();
     if (horizon) {
       if (!this.groundPlane.object3d.parent) this.scene.add(this.groundPlane.object3d);
-      this.groundPlane.update(ground, { width: this.size.width, height: this.size.height, cell: map.grid.size, margin: ground.margin, reach }, (folder) => this.loads.track(this.host.readMaterial(folder), 2), () => this.wake(true));
+      // A painted background not yet read (or gone) leaves plain ground: the Ground panel's material is not its own.
+      const { material: _material, ...plain } = ground;
+      this.groundPlane.update(ground.mode === 'painted' ? plain : ground, { width: this.size.width, height: this.size.height, cell, margin: ground.margin, reach }, (folder) => this.loads.track(this.host.readMaterial(folder), 2), () => this.wake(true), paintedLook ?? undefined);
       // Always under the scene's first level, whichever level is shown (the shown one stands at 0, those below it under).
-      this.groundPlane.object3d.position.y = Math.min(0, ...this.stackData.map((layer) => layer.elevation)) * map.grid.size;
+      this.groundPlane.object3d.position.y = lowest;
     } else this.groundPlane.object3d.removeFromParent();
+    if (paintedLook && this.painted.liquids.size > 0) {
+      if (!this.painted.object3d.parent) this.scene.add(this.painted.object3d);
+      this.painted.object3d.position.y = lowest;
+    } else this.painted.object3d.removeFromParent();
     this.applyHorizon();
     this.paintDaylight();
     this.wake(true);
+  }
+
+  /** The painted background's liquid sheets, by liquid (none while the ground is not painted). */
+  get paintedLiquids(): ReadonlyMap<LiquidKind, WaterSurface> {
+    return this.painted.liquids;
+  }
+
+  /** Reads the painted background `ref` again next time the ground is drawn (the host saved it), and draws the ground now. */
+  forgetBackground(ref: string): void {
+    this.painted.forget(ref);
+    if (!this.disposed) this.applyGround();
   }
 
   private groundSettings(): GroundSettings {
@@ -2491,6 +2525,7 @@ export class Board {
     const driven = this.stepDriver();
     for (const surface of this.liquids.values()) surface.tick(time / 1000);
     if (this.seaPlane.object3d.parent) this.seaPlane.tick(time / 1000);
+    if (this.painted.object3d.parent) this.painted.tick(time / 1000);
     // The water brush was put away (another tool, Escape): its outline goes with it.
     if (this.brushRing?.visible && !this.waterTool) this.brushRing.visible = false;
     // A cutscene's camera is set whole each frame, not eased, and asks for a frame after every frame.
@@ -2610,10 +2645,10 @@ export class Board {
     if (this.continuing) this.wake();
     // Flames flicker on a timer, a few times a second, not on every frame the screen can draw; those frames are
     // rests to the resolution governor.
-    else if ((this.rig.animated || [...this.layerViews.values()].some((view) => view.animated) || this.video !== null || this.liquidsMoving || this.seaPlane.object3d.parent !== null) && this.flickerTimer === 0) {
+    else if ((this.rig.animated || [...this.layerViews.values()].some((view) => view.animated) || this.video !== null || this.liquidsMoving || this.seaPlane.object3d.parent !== null || this.painted.moving) && this.flickerTimer === 0) {
       const win = this.frameWin ?? this.container.ownerDocument.defaultView ?? window;
       // Moving water is drawn as often as a playing map, so it flows smoothly.
-      this.flickerTimer = win.setTimeout(() => { this.flickerTimer = 0; this.wake(); }, this.video !== null || this.liquidsMoving || this.seaPlane.object3d.parent !== null ? VIDEO_FRAME_MS : FLICKER_MS);
+      this.flickerTimer = win.setTimeout(() => { this.flickerTimer = 0; this.wake(); }, this.video !== null || this.liquidsMoving || this.seaPlane.object3d.parent !== null || this.painted.moving ? VIDEO_FRAME_MS : FLICKER_MS);
     }
   }
 
@@ -7256,6 +7291,7 @@ export class Board {
     this.shapesView.dispose();
     this.groundPlane.dispose();
     this.seaPlane.dispose();
+    this.painted.dispose();
     for (const surface of this.liquids.values()) surface.dispose();
     this.liquids.clear();
     this.surface?.dispose();

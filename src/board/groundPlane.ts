@@ -7,7 +7,8 @@ import * as THREE from 'three';
 import type { LoadedMaterial } from '../materials';
 import { groundHeight, REACH_SPANS, type GroundSettings } from './ground';
 
-const PLAIN_GROUND = 0x5d6b45;
+/** The colour of ground with no material. */
+export const PLAIN_GROUND = 0x5d6b45;
 /** Grid lines across, each way. */
 const SEGMENTS = 220;
 /** How far under the map's floor it lies, in world units (so the map never fights it for the same depth). */
@@ -25,6 +26,13 @@ export interface GroundArea {
   reach?: number;
 }
 
+/** What a painted background gives the plane: its heights, in squares, its material, and a key that changes when either does. */
+export interface PaintedLook {
+  height(x: number, y: number): number;
+  material: THREE.Material;
+  key: string;
+}
+
 export class GroundPlane {
   readonly object3d: THREE.Mesh;
   /** World units to a square, for the colour drift (shared by both materials' shaders). */
@@ -34,6 +42,8 @@ export class GroundPlane {
   private textured: THREE.MeshStandardMaterial | null = null;
   private folder: string | null = null;
   private key = '';
+  /** The key of the painted look it wears, or null when it wears the Ground settings. */
+  private paintedKey: string | null = null;
 
   constructor() {
     this.object3d = new THREE.Mesh(new THREE.BufferGeometry(), this.plain);
@@ -45,10 +55,12 @@ export class GroundPlane {
    * Shapes it for the settings and the map; `read` loads a gallery material, and `loaded` is told when it is on (the
    * board draws again).
    */
-  update(settings: GroundSettings, area: GroundArea, read: (folder: string) => Promise<LoadedMaterial | null>, loaded: () => void): void {
+  update(settings: GroundSettings, area: GroundArea, read: (folder: string) => Promise<LoadedMaterial | null>, loaded: () => void, painted?: PaintedLook): void {
     this.cell.value = area.cell;
-    const folder = settings.material ?? null;
-    if (folder !== this.folder) {
+    // A painted look brings its own material and heights; the Ground settings' material and pattern are not used.
+    const folder = painted ? null : settings.material ?? null;
+    const wasPainted = this.paintedKey !== null;
+    if (folder !== this.folder || (wasPainted && !painted)) {
       this.folder = folder;
       this.textured?.dispose();
       this.textured = null;
@@ -64,11 +76,13 @@ export class GroundPlane {
         });
       }
     }
-    const key = JSON.stringify([settings.noise, settings.strength, settings.margin, settings.tile, area.width, area.height, area.cell, area.reach ?? null]);
+    if (painted) this.object3d.material = painted.material;
+    const key = JSON.stringify([settings.noise, settings.strength, settings.margin, settings.tile, area.width, area.height, area.cell, area.reach ?? null, painted?.key ?? null]);
+    this.paintedKey = painted?.key ?? null;
     if (key === this.key) return;
     this.key = key;
     this.object3d.geometry.dispose();
-    this.object3d.geometry = groundGeometry(settings, area);
+    this.object3d.geometry = groundGeometry(settings, area, painted?.height);
   }
 
   dispose(): void {
@@ -87,15 +101,15 @@ float groundNoise(vec2 p) {
   vec2 u = f * f * (3.0 - 2.0 * f);
   return mix(mix(groundHash(i), groundHash(i + vec2(1.0, 0.0)), u.x), mix(groundHash(i + vec2(0.0, 1.0)), groundHash(i + vec2(1.0, 1.0)), u.x), u.y);
 }
-vec4 textureNoTile(sampler2D samp, vec2 uv) {
+vec4 textureNoTileGrad(sampler2D samp, vec2 uv, vec2 dx, vec2 dy) {
   // A slow noise picks, place by place, which of a few shifted copies of the texture shows; neighbours blend.
   float k = groundNoise(uv * 0.35) * 8.0;
   float ia = floor(k), f = fract(k);
   vec2 offa = sin(vec2(3.0, 7.0) * ia), offb = sin(vec2(3.0, 7.0) * (ia + 1.0));
-  vec2 dx = dFdx(uv), dy = dFdy(uv);
   vec4 a = textureGrad(samp, uv + offa, dx, dy), b = textureGrad(samp, uv + offb, dx, dy);
   return mix(a, b, smoothstep(0.2, 0.8, f));
 }
+vec4 textureNoTile(sampler2D samp, vec2 uv) { return textureNoTileGrad(samp, uv, dFdx(uv), dFdy(uv)); }
 `;
 
 /** The chunks whose texture reads go through `textureNoTile`. */
@@ -133,8 +147,8 @@ diffuseColor.rgb *= mix(0.8, 1.14, groundPatch);`);
   return material;
 }
 
-/** The grid: lines bunched near the middle (u², so the board's surroundings are fine and the horizon coarse). */
-export function groundGeometry(settings: GroundSettings, area: GroundArea): THREE.BufferGeometry {
+/** The grid: lines bunched near the middle (u², so the board's surroundings are fine and the horizon coarse). `heightAt`, in squares, gives the heights instead of the Ground settings' pattern. */
+export function groundGeometry(settings: GroundSettings, area: GroundArea, heightAt?: (x: number, y: number) => number): THREE.BufferGeometry {
   const { width, height, cell, margin } = area;
   const cx = width / 2, cz = height / 2;
   const reach = area.reach ?? Math.max(width, height) * REACH_SPANS;
@@ -145,7 +159,7 @@ export function groundGeometry(settings: GroundSettings, area: GroundArea): THRE
   for (let j = 0; j < n; j++) {
     for (let i = 0; i < n; i++) {
       const x = cx + along(i), z = cz + along(j), k = j * n + i;
-      const h = groundHeight(x / cell, z / cell, settings, flat);
+      const h = heightAt ? heightAt(x / cell, z / cell) : groundHeight(x / cell, z / cell, settings, flat);
       position.set([x, h * cell - SINK, z], k * 3);
       // In tiles: one tile a `tile` squares wide.
       uv.set([x / (cell * settings.tile), -z / (cell * settings.tile)], k * 2);

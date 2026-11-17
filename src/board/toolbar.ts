@@ -1710,7 +1710,8 @@ export class BoardToolbar {
     choose.textContent = 'Choose a background…';
     ui.background.append(choose);
     for (const one of this.actions.backgrounds?.() ?? []) { const option = doc.createElement('option'); option.value = one.folder; option.textContent = one.name; ui.background.append(option); }
-    ui.background.value = ground.background ?? '';
+    // A folder no longer in the list shows "Choose a background…", not a blank select.
+    ui.background.value = [...ui.background.options].some((option) => option.value === ground.background) ? ground.background ?? '' : '';
     ui.noise.value = ground.noise;
     ui.strength.value = String(Math.round(ground.strength * 100));
     ui.strengthValue.textContent = `${ui.strength.value}%`;

@@ -120,6 +120,13 @@ export interface BackgroundLayers {
   height: Uint8Array;
 }
 
+/** A background read for the board: what was painted, and the materials its slots name, as `readMaterial` takes them (null where the folder is gone). */
+export interface LoadedBackground {
+  settings: BackgroundSettings;
+  layers: BackgroundLayers;
+  materials: (string | null)[];
+}
+
 /** Fresh layers: all plains, the first material, mid height. */
 export function emptyLayers(size: number = BACKGROUND_SIZE): BackgroundLayers {
   return { size, terrain: new Uint8Array(size * size), material: new Uint8Array(size * size), height: new Uint8Array(size * size).fill(128) };

@@ -5897,6 +5897,99 @@ feature('ground', async ({ page, shot }) => {
   await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2, water: { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 } }; board.refresh(); });
 });
 
+feature('painted ground', async ({ page, shot }) => {
+  // A painted background drawn round the map: its heights, its material blended by the material picture, and a sheet
+  // for each liquid painted. The shapes lie just past the board (10 squares across, 7 up), inside what the camera sees.
+  const shaderErrors = [], pageErrors = [];
+  page.on('console', (m) => { if (m.type() === 'error' && /Shader Error|program not valid/.test(m.text())) shaderErrors.push(m.text().slice(0, 300)); });
+  page.on('pageerror', (error) => pageErrors.push(String(error)));
+  const made =await page.evaluate(async () => {
+    const test = window.boardTest;
+    await test.backgroundsReady();
+    const { emptyLayers, TERRAINS, DEFAULT_BACKGROUND, backgroundFrame } = test.backgroundKit;
+    const { board } = test;
+    const cell = board.map.grid.size;
+    const frame = backgroundFrame(board.size.width, board.size.height, cell);
+    const layers = emptyLayers();
+    const size = layers.size, per = size / frame.extent;
+    const index = (id) => TERRAINS.find((t) => t.id === id).index;
+    // Paints `fn(k, distance)` over the cells within `radius` squares of the point (dx, dy) squares from the map's middle.
+    const disc = (dx, dy, radius, fn) => {
+      const cx = size / 2 + dx * per, cy = size / 2 + dy * per, r = radius * per;
+      for (let y = Math.max(0, Math.floor(cy - r)); y <= Math.min(size - 1, Math.ceil(cy + r)); y++) for (let x = Math.max(0, Math.floor(cx - r)); x <= Math.min(size - 1, Math.ceil(cx + r)); x++) {
+        const d = Math.hypot(x - cx, y - cy) / per;
+        if (d <= radius) fn(y * size + x, d);
+      }
+    };
+    const rect = (x0, y0, x1, y1, fn) => {
+      for (let y = Math.max(0, Math.floor(size / 2 + y0 * per)); y < Math.min(size, Math.ceil(size / 2 + y1 * per)); y++) for (let x = Math.max(0, Math.floor(size / 2 + x0 * per)); x < Math.min(size, Math.ceil(size / 2 + x1 * per)); x++) fn(y * size + x);
+    };
+    // The left half of the picture: rolling hills.
+    for (let y = 0; y < size; y++) layers.terrain.fill(index('rolling'), y * size, y * size + size / 2);
+    // A lava lake to the right, a strip of water below, a topography hill to the left.
+    disc(24, -2, 8, (k) => { layers.terrain[k] = index('lava'); });
+    rect(-24, 11, 24, 15, (k) => { layers.terrain[k] = index('water'); });
+    disc(-24, 0, 9, (k, d) => { layers.terrain[k] = index('topography'); layers.height[k] = Math.round(255 - (255 - 64) * Math.min(1, d / 9) ** 1.5); });
+    // Material slot 1 (brick) on a band above the map, slot 2 (a folder the gallery does not have) on a patch below it.
+    rect(-40, -30, 40, -15, (k) => { layers.material[k] = 1; });
+    rect(-40, 18, -12, 26, (k) => { layers.material[k] = 2; });
+    const folder = await test.backgrounds.create('Painted test');
+    await test.backgrounds.save(folder, { ...DEFAULT_BACKGROUND, name: 'Painted test', materials: ['materials/brick', 'materials/gone'] }, layers);
+    return { folder, cell, extent: frame.extent };
+  });
+  await wait(300);
+  const t0 = Date.now();
+  await page.evaluate((folder) => { const { board, groundState } = window.boardTest; groundState.value = { ...groundState.value, mode: 'painted', background: folder, fog: 80, margin: 0 }; board.refresh(); }, made.folder);
+  await page.waitForFunction(() => window.boardTest.board.groundPlane.object3d.material.customProgramCacheKey?.() === 'tabletop-painted-ground', null, { timeout: 60000 });
+  const ms = Date.now() - t0;
+  await wait(800);
+  const seen = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    const plane = board.groundPlane.object3d, cell = board.map.grid.size, w = board.size.width, h = board.size.height;
+    const at = plane.geometry.attributes.position;
+    let inside = 0, count = 0, lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < at.count; i++) {
+      const x = at.getX(i), z = at.getZ(i), y = at.getY(i) + 1;
+      if (x >= 0 && x <= w && z >= 0 && z <= h) { inside = Math.max(inside, Math.abs(y)); count++; } else { lo = Math.min(lo, y); hi = Math.max(hi, y); }
+    }
+    return { present: plane.parent === board.scene, key: plane.material.customProgramCacheKey?.(), inside, count, lo: lo / cell, hi: hi / cell, liquids: [...board.paintedLiquids.keys()].sort(), sheets: board.painted.object3d.parent === board.scene };
+  });
+  console.log('painted ground: applied in', ms, 'ms (reads three PNGs, builds 221x221 heights and the splat)');
+  check('painted ground: the plane is drawn with the painted ground material', seen.present && seen.key === 'tabletop-painted-ground', JSON.stringify(seen));
+  check('painted ground: the board is level and the ground past it is not', seen.count > 0 && seen.inside < 1e-3 && seen.hi > 1 && seen.lo < -1, JSON.stringify(seen));
+  check('painted ground: lava and water sheets are drawn, acid (none painted) is not', seen.liquids.join() === 'lava,water' && seen.sheets, JSON.stringify(seen.liquids));
+  // Re-applying the same ground does not build again (a cached look): time a refresh with the ground changed by the margin.
+  const timing = await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { ...groundState.value, margin: 1 }; const t = performance.now(); board.refresh(); const dt = performance.now() - t; groundState.value = { ...groundState.value, margin: 0 }; board.refresh(); return dt; });
+  console.log('painted ground: a refresh that rebuilds the heights and splat took', Math.round(timing), 'ms');
+  // The camera pulled back, looking at the ground just past the board.
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { const { board } = window.boardTest; board.camera.goal.pitch = 0.75; board.camera.goal.distance *= 1.7; board.wake(true); });
+  await wait(2000);
+  await shot('painted-ground');
+  check('painted ground: no shader errors or page errors', shaderErrors.length === 0 && pageErrors.length === 0, JSON.stringify({ shaderErrors, pageErrors }));
+  // A material slot whose folder is gone (slot 2 above) left the plane drawn: checked by the screenshot and the above.
+  // Review focus 2: a ground naming a folder that is not there lays the plain horizon plane, and says so once.
+  const warnings = [];
+  page.on('console', (m) => { if (m.type() === 'warning' && /Painted background/.test(m.text())) warnings.push(m.text()); });
+  await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { ...groundState.value, background: 'atlas-vtt/assets/backgrounds/Nope' }; board.refresh(); });
+  await wait(1200);
+  await page.evaluate(() => window.boardTest.board.refresh());
+  await wait(500);
+  const missing = await page.evaluate(() => { const { board } = window.boardTest; const plane = board.groundPlane.object3d; return { drawn: plane.parent === board.scene, key: plane.material.customProgramCacheKey?.(), liquids: board.paintedLiquids.size, select: document.querySelector('[aria-label="Painted background"]')?.value }; });
+  check('painted ground: a background that is gone leaves the plain horizon plane, no sheets, "Choose a background" in the panel', missing.drawn && missing.key !== 'tabletop-painted-ground' && missing.liquids === 0 && missing.select === '', JSON.stringify(missing));
+  check('painted ground: a background that is gone is mentioned once and throws nothing', warnings.length === 1 && pageErrors.length === 0, JSON.stringify({ warnings, pageErrors }));
+  // Back to the first: drawn again from the cache; then another mode takes the sheets away.
+  await page.evaluate((folder) => { const { board, groundState } = window.boardTest; groundState.value = { ...groundState.value, background: folder }; board.refresh(); }, made.folder);
+  await wait(800);
+  const again = await page.evaluate(() => { const { board } = window.boardTest; return { key: board.groundPlane.object3d.material.customProgramCacheKey?.(), liquids: [...board.paintedLiquids.keys()].sort() }; });
+  check('painted ground: choosing the background again draws it again', again.key === 'tabletop-painted-ground' && again.liquids.join() === 'lava,water', JSON.stringify(again));
+  await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { ...groundState.value, mode: 'board' }; board.refresh(); });
+  await wait(500);
+  const gone = await page.evaluate(() => { const { board } = window.boardTest; return { sheets: board.paintedLiquids.size, sheetsInScene: board.painted.object3d.parent !== null, plane: board.groundPlane.object3d.parent !== null }; });
+  check('painted ground: another mode takes the plane and the liquid sheets away', gone.sheets === 0 && !gone.sheetsInScene && !gone.plane, JSON.stringify(gone));
+  await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2, water: { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 } }; board.refresh(); });
+});
+
 feature('player shapes and ground', async ({ page, shot }) => {
   // Connect sends the GM's raised shapes and ground: a player's board draws the shapes, stands on them, and lays the plane.
   await page.evaluate(() => {

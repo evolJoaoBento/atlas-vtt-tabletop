@@ -42,6 +42,8 @@ import { TFile, TFolder } from 'obsidian';
 import { BackgroundEditor } from '../src/background/backgroundEditor';
 import { BackgroundStore } from '../src/background/backgroundStore';
 import { decodeLayer, encodeLayer, renderThumbnail } from '../src/background/backgroundCodec';
+import { DEFAULT_BACKGROUND, emptyLayers, TERRAINS } from '../src/background/backgroundData';
+import { backgroundFrame } from '../src/background/terrainHeight';
 import { chooseAction } from '../src/atlasPort/app/ui/confirmDialog';
 import { LootWindow } from '../src/loot/LootWindow';
 import { AssetWindow } from '../src/assets/AssetWindow';
@@ -388,6 +390,8 @@ async function main(): Promise<void> {
     loop(key: string, id: string | null, gain: number) { this.loopKeys.push(key); this.loops.push([key.replace(/^board\d+:/, ''), id, gain]); },
     setListener(listener: unknown, span: number) { this.listeners.push({ listener, span }); },
   };
+  // The saved painted backgrounds the Painted ground offers, kept fresh for the host's synchronous `backgrounds()`.
+  let backgroundList: readonly { folder: string; name: string }[] = [];
   const host: BoardHost = {
     spellBook: () => (spellEntries === null ? null : spellBook),
     water: () => (liquids ? waterSourceOf(readLiquids(liquids), null, { ...(otherLiquids.lava.motion ? { lava: otherLiquids.lava.motion } : {}), ...(otherLiquids.acid.motion ? { acid: otherLiquids.acid.motion } : {}) }) : keptWater()),
@@ -429,6 +433,11 @@ async function main(): Promise<void> {
     ground: () => groundState.value,
     setGround: (settings) => { groundState.value = settings; queueMicrotask(() => board.refresh()); },
     backgrounds: () => backgroundList,
+    // A slot naming a material folder the gallery does not hold reads as gone (null).
+    readBackground: async (ref) => {
+      const loaded = await backgrounds.load(ref);
+      return loaded ? { ...loaded, materials: loaded.settings.materials.map((path) => (['materials/brick', 'materials/stone'].includes(path) ? path : null)) } : null;
+    },
     saveShape: (shape) => { const at = shapes.findIndex((one) => one.id === shape.id); if (at >= 0) shapes[at] = shape; else shapes.push(shape); record.shapeSaves += 1; queueMicrotask(() => board.refresh()); },
     removeShape: (id) => { const at = shapes.findIndex((one) => one.id === id); if (at >= 0) shapes.splice(at, 1); queueMicrotask(() => board.refresh()); },
     rules: () => rules,
@@ -882,10 +891,13 @@ async function main(): Promise<void> {
   });
   let seeded: Promise<void> | null = null;
   const backgroundsReady = (): Promise<void> => (seeded ??= (async () => { await backgrounds.create('Isle'); await backgrounds.create('Badlands'); })());
-  // The list the Painted ground offers, kept fresh for the host's synchronous `backgrounds()`.
-  let backgroundList: readonly { folder: string; name: string }[] = [];
-  const refreshBackgroundList = (): void => { void backgrounds.list().then((list) => { backgroundList = list.map(({ folder, name }) => ({ folder, name })); board.refreshToolbar(); }); };
-  backgrounds.onChange(refreshBackgroundList);  let backgroundOverlay: HTMLDivElement | null = null;
+  const refreshBackgroundList = (): void => {
+    backgrounds.list()
+      .then((list) => { backgroundList = list.map(({ folder, name }) => ({ folder, name })); board.refreshToolbar(); })
+      .catch((error) => { console.warn('Harness: the background list could not be read:', error); });
+  };
+  backgrounds.onChange(refreshBackgroundList);
+  let backgroundOverlay: HTMLDivElement | null = null;
   let backgroundEditor: BackgroundEditor | null = null;
   const closeBackgroundEditor = (): void => {
     backgroundEditor?.dispose();
@@ -910,7 +922,7 @@ async function main(): Promise<void> {
     await editor.open(folder);
     return editor;
   };
-  Object.assign(window, { boardTest: { backgrounds, backgroundFiles, backgroundsReady, openBackgroundEditor, closeBackgroundEditor, backgroundEditor: null, studio: cutsceneHarness, api: { cutscene: channel },Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
+  Object.assign(window, { boardTest: { backgrounds, backgroundFiles, backgroundsReady, backgroundKit: { DEFAULT_BACKGROUND, emptyLayers, TERRAINS, backgroundFrame }, openBackgroundEditor, closeBackgroundEditor, backgroundEditor: null, studio: cutsceneHarness, api: { cutscene: channel },Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });
