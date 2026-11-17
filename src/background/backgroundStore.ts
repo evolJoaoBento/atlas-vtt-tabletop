@@ -32,8 +32,10 @@ const LAYER_FILES = [
 /** A name made safe to be a folder name: odd characters become spaces, runs of spaces shrink to one. */
 function folderName(name: string): string {
   // eslint-disable-next-line no-control-regex
-  const clean = name.replace(/[\/\\:*?"<>|\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim();
-  return clean || 'Background';
+  const clean = name.replace(/[\/\\:*?"<>|\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').replace(/^[. ]+|[. ]+$/g, '').slice(0, 60).replace(/[. ]+$/, '');
+  if (!clean) return 'Background';
+  // Windows keeps these names for devices, so a folder may not use them.
+  return /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(clean) ? `${clean} 1` : clean;
 }
 
 function baseName(path: string): string {
@@ -61,7 +63,10 @@ export class BackgroundStore {
     const text = await this.files.readText(`${folder}/${SETTINGS_FILE}`);
     if (text === null) return null;
     let raw: unknown;
-    try { raw = JSON.parse(text); } catch { raw = undefined; }
+    try { raw = JSON.parse(text); } catch {
+      raw = undefined;
+      console.warn(`Painted background "${folder}": ${SETTINGS_FILE} is not valid JSON, using default settings.`);
+    }
     const settings = readBackgroundSettings(raw);
     const layers = emptyLayers(BACKGROUND_SIZE);
     const missing: string[] = [];
@@ -94,14 +99,11 @@ export class BackgroundStore {
 
   /** Copies a background under a new name and returns the new folder. */
   async duplicate(folder: string, name: string): Promise<string> {
+    const settingsText = await this.files.readText(`${folder}/${SETTINGS_FILE}`);
+    if (settingsText === null) throw new Error(`Cannot duplicate "${folder}": it has no ${SETTINGS_FILE}`);
     const target = await this.freeFolder(name);
-    const copyName = baseName(target);
-    for (const file of [SETTINGS_FILE, THUMB_FILE, ...LAYER_FILES.map((l) => l.file)]) {
-      if (file === SETTINGS_FILE) {
-        const text = await this.files.readText(`${folder}/${file}`);
-        if (text !== null) await this.files.write(`${target}/${file}`, this.withName(text, copyName));
-        continue;
-      }
+    await this.files.write(`${target}/${SETTINGS_FILE}`, this.withName(settingsText, baseName(target)));
+    for (const file of [THUMB_FILE, ...LAYER_FILES.map((l) => l.file)]) {
       const bytes = await this.files.read(`${folder}/${file}`);
       if (bytes) await this.files.write(`${target}/${file}`, bytes.slice(0));
     }
@@ -112,7 +114,9 @@ export class BackgroundStore {
   /** Renames a background (its folder and its saved name) and returns the new folder. */
   async rename(folder: string, name: string): Promise<string> {
     const wanted = folderName(name);
-    const target = wanted === baseName(folder) ? folder : await this.freeFolder(name);
+    const parent = folder.slice(0, folder.lastIndexOf('/'));
+    // Only the capitals changed: it is the same folder, so no number is added.
+    const target = wanted.toLowerCase() === baseName(folder).toLowerCase() ? `${parent}/${wanted}` : await this.freeFolder(name);
     if (target !== folder) await this.files.rename(folder, target);
     const text = await this.files.readText(`${target}/${SETTINGS_FILE}`);
     if (text !== null) await this.files.write(`${target}/${SETTINGS_FILE}`, this.withName(text, baseName(target)));
@@ -149,10 +153,11 @@ export class BackgroundStore {
 
   /** A folder path under the root for this name, with " 2", " 3"... added until nothing is there. */
   private async freeFolder(name: string): Promise<string> {
-    const taken = new Set((await this.files.folders(this.root)).map(baseName));
+    // Compared without capitals: the vault may treat "caves" and "Caves" as the same folder.
+    const taken = new Set((await this.files.folders(this.root)).map((f) => baseName(f).toLowerCase()));
     const base = folderName(name);
     let candidate = base;
-    for (let n = 2; taken.has(candidate); n++) candidate = `${base} ${n}`;
+    for (let n = 2; taken.has(candidate.toLowerCase()); n++) candidate = `${base} ${n}`;
     return `${this.root}/${candidate}`;
   }
 }

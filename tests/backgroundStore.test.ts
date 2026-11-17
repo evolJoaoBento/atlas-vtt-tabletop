@@ -35,7 +35,7 @@ class MemoryFiles implements BackgroundFiles {
   }
 }
 
-/** Encode copies the bytes; a first byte of 255 with size 1 is not used, so decode only returns null for a marker. */
+/** Encode copies the bytes. Decode copies them back, except that bytes starting with `nullFor` cannot be read (null). */
 const NULL_MARKER = 77;
 class CopyCodec implements LayerCodec {
   nullFor: number | null = null;
@@ -190,4 +190,67 @@ test('remove drops it from the list', async () => {
   await store.remove(a);
   assert.deepEqual((await store.list()).map((b) => b.name), ['Stay']);
   assert.equal(calls, 1);
+});
+
+test('dangerous names become safe folders', async () => {
+  const { store } = setup();
+  assert.equal(await store.create('..'), `${ROOT}/Background`);
+  assert.equal(await store.create('.'), `${ROOT}/Background 2`);
+  assert.equal(await store.create('con'), `${ROOT}/con 1`);
+  assert.equal(await store.create('name.'), `${ROOT}/name`);
+  const long = await store.create('x'.repeat(80));
+  assert.equal(long, `${ROOT}/${'x'.repeat(60)}`);
+});
+
+test('folder names that differ only by capitals count as the same', async () => {
+  const { store } = setup();
+  await store.create('Caves');
+  assert.equal(await store.create('caves'), `${ROOT}/caves 2`);
+  const a = await store.create('Mine');
+  assert.equal(await store.duplicate(a, 'MINE'), `${ROOT}/MINE 2`);
+});
+
+test('a rename that only changes capitals is a rename of itself', async () => {
+  const { store } = setup();
+  const a = await store.create('caves');
+  const moved = await store.rename(a, 'Caves');
+  assert.equal(moved, `${ROOT}/Caves`);
+  assert.equal((await store.load(moved))?.settings.name, 'Caves');
+  assert.deepEqual((await store.list()).map((b) => b.name), ['Caves']);
+});
+
+test('a layer of the wrong length loads as empty', async () => {
+  const { store, files } = setup();
+  const folder = await store.create('Short');
+  files.files.set(`${folder}/height.png`, new Uint8Array(10).buffer as ArrayBuffer);
+  const original = console.warn;
+  console.warn = () => {};
+  try {
+    const loaded = await store.load(folder);
+    assert.ok(loaded);
+    assert.equal(loaded.layers.height.length, BACKGROUND_SIZE * BACKGROUND_SIZE);
+    assert.ok(loaded.layers.height.every((v) => v === 128));
+  } finally { console.warn = original; }
+});
+
+test('settings that are not valid JSON warn and load as defaults', async () => {
+  const { store, files } = setup();
+  const folder = await store.create('Broken');
+  files.files.set(`${folder}/background.json`, '{ nope');
+  let warned = 0;
+  const original = console.warn;
+  console.warn = () => { warned++; };
+  try {
+    assert.deepEqual((await store.load(folder))?.settings, DEFAULT_BACKGROUND);
+  } finally { console.warn = original; }
+  assert.equal(warned, 1);
+});
+
+test('duplicating a folder without settings changes nothing', async () => {
+  const { store, files } = setup();
+  let calls = 0;
+  store.onChange(() => { calls++; });
+  await assert.rejects(store.duplicate(`${ROOT}/Ghost`, 'Copy'));
+  assert.equal(files.files.size, 0);
+  assert.equal(calls, 0);
 });
