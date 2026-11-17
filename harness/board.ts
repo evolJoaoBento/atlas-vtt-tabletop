@@ -39,6 +39,9 @@ import { materialDrag, type LoadedMaterial } from '../src/materials';
 import { parseMini, type LoadedMini } from '../src/library';
 import { DiceTable } from '../src/dice/diceTable';
 import { TFile, TFolder } from 'obsidian';
+import { BackgroundEditor } from '../src/background/backgroundEditor';
+import { BackgroundStore } from '../src/background/backgroundStore';
+import { decodeLayer, encodeLayer, renderThumbnail } from '../src/background/backgroundCodec';
 import { chooseAction } from '../src/atlasPort/app/ui/confirmDialog';
 import { LootWindow } from '../src/loot/LootWindow';
 import { AssetWindow } from '../src/assets/AssetWindow';
@@ -859,7 +862,51 @@ async function main(): Promise<void> {
   cinematicStudio = studio;
   board.cinemaButton({ live: () => studio.live, toggleLive: () => studio.toggleLive() });
   const cutsceneHarness = { studio, host: studioHost, store: cutsceneStore, log: cutsceneLog, first: map.path, second: crypt.path, session: fakeSession, channel, owner };
-  Object.assign(window, { boardTest: { studio: cutsceneHarness, api: { cutscene: channel }, Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
+  // Painted backgrounds: a store over in-memory files with the real codec, and the editor mounted on demand in an
+  // overlay. "Isle" and "Badlands" are made the first time they are needed (`backgroundsReady()`), not at boot:
+  // writing a background encodes six million pixels, which would slow every other feature's page.
+  const backgroundFiles = new Map<string, ArrayBuffer | string>();
+  const under = (folder: string): string[] => [...backgroundFiles.keys()].filter((path) => path.startsWith(`${folder}/`));
+  const backgrounds = new BackgroundStore({
+    read: async (path) => { const value = backgroundFiles.get(path); return value instanceof ArrayBuffer ? value.slice(0) : null; },
+    readText: async (path) => { const value = backgroundFiles.get(path); return typeof value === 'string' ? value : null; },
+    write: async (path, data) => { backgroundFiles.set(path, typeof data === 'string' ? data : data.slice(0)); },
+    folders: async (root) => [...new Set([...backgroundFiles.keys()].filter((path) => path.startsWith(`${root}/`)).map((path) => `${root}/${path.slice(root.length + 1).split('/')[0]}`))],
+    remove: async (folder) => { for (const path of under(folder)) backgroundFiles.delete(path); },
+    rename: async (from, to) => { for (const path of under(from)) { backgroundFiles.set(`${to}${path.slice(from.length)}`, backgroundFiles.get(path) as ArrayBuffer | string); backgroundFiles.delete(path); } },
+  }, {
+    encode: (layer, size) => encodeLayer(layer, size, document),
+    decode: (bytes, size) => decodeLayer(bytes, size),
+    thumbnail: (layers) => renderThumbnail(layers, document),
+  });
+  let seeded: Promise<void> | null = null;
+  const backgroundsReady = (): Promise<void> => (seeded ??= (async () => { await backgrounds.create('Isle'); await backgrounds.create('Badlands'); })());
+  let backgroundOverlay: HTMLDivElement | null = null;
+  let backgroundEditor: BackgroundEditor | null = null;
+  const closeBackgroundEditor = (): void => {
+    backgroundEditor?.dispose();
+    backgroundOverlay?.remove();
+    backgroundEditor = null;
+    backgroundOverlay = null;
+    (window as unknown as { boardTest: { backgroundEditor: BackgroundEditor | null } }).boardTest.backgroundEditor = null;
+  };
+  const openBackgroundEditor = async (folder: string | null = null): Promise<BackgroundEditor> => {
+    await backgroundsReady();
+    closeBackgroundEditor();
+    backgroundOverlay = document.createElement('div');
+    backgroundOverlay.style.cssText = 'position:fixed;inset:0;z-index:50;background:#1e1e1e';
+    document.body.appendChild(backgroundOverlay);
+    const editor = new BackgroundEditor(backgroundOverlay, {
+      store: backgrounds,
+      materials: host.materials,
+      thumbnail: async (path) => { const bytes = backgroundFiles.get(path); return bytes instanceof ArrayBuffer ? URL.createObjectURL(new Blob([bytes], { type: 'image/png' })) : null; },
+    });
+    backgroundEditor = editor;
+    (window as unknown as { boardTest: { backgroundEditor: BackgroundEditor | null } }).boardTest.backgroundEditor = editor;
+    await editor.open(folder);
+    return editor;
+  };
+  Object.assign(window, { boardTest: { backgrounds, backgroundFiles, backgroundsReady, openBackgroundEditor, closeBackgroundEditor, backgroundEditor: null, studio: cutsceneHarness, api: { cutscene: channel },Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

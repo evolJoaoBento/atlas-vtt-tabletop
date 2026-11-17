@@ -2382,8 +2382,166 @@ feature('lava types', async ({ page, shot }) => {
   await page.evaluate(() => { const { board, groundState } = window.boardTest; board.toolbarActions().setLiquid('water'); groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 80, margin: 0, tile: 2 }; board.refresh(); });
 });
 
+// ── Painted backgrounds: the editor where the GM paints a background's terrain, materials and heights ───────────────
+feature('background editor', async ({ page, shot }) => {
+  const ed = (fn, arg) => page.evaluate(fn, arg);
+  const until = async (fn, arg, tries = 60) => { for (let i = 0; i < tries; i++) { if (await page.evaluate(fn, arg)) return true; await wait(100); } return false; };
+  /** Screen position of a picture pixel. */
+  const at = (x, y) => page.evaluate(([x, y]) => window.boardTest.backgroundEditor.clientOf(x, y), [x, y]);
+  const drag = async (points) => {
+    const screen = [];
+    for (const [x, y] of points) screen.push(await at(x, y));
+    await page.mouse.move(screen[0].x, screen[0].y);
+    await page.mouse.down();
+    for (const p of screen.slice(1)) await page.mouse.move(p.x, p.y, { steps: 8 });
+    await page.mouse.up();
+  };
+  const setRange = (selector, value) => page.evaluate(([selector, value]) => { const el = document.querySelector(selector); el.value = String(value); el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }, [selector, value]);
+  const count = (layer, value) => page.evaluate(([layer, value]) => { let n = 0; const a = window.boardTest.backgroundEditor.layers[layer]; for (let i = 0; i < a.length; i++) if (a[i] === value) n++; return n; }, [layer, value]);
+  const pixel = (layer, x, y) => page.evaluate(([layer, x, y]) => window.boardTest.backgroundEditor.layers[layer][y * 2048 + x], [layer, x, y]);
+
+  await page.evaluate(async () => { await window.boardTest.openBackgroundEditor(); });
+  const cards = await ed(() => [...document.querySelectorAll('.atlas-tabletop-bg-card .atlas-tabletop-bg-card__name')].map((n) => n.textContent));
+  check('background editor: the saved backgrounds are listed', cards.includes('Isle') && cards.includes('Badlands'), JSON.stringify(cards));
+
+  // New: a name typed in the list, then it is made, listed and opened.
+  await page.locator('[data-bg-action="new"]').click();
+  await page.locator('.atlas-tabletop-bg-name-input').fill('Caves');
+  await page.keyboard.press('Enter');
+  check('background editor: a new background is opened', await until(() => window.boardTest.backgroundEditor.folder?.endsWith('/Caves') && window.boardTest.backgroundEditor.layers));
+  check('background editor: a new background shows in the list', await until(() => [...document.querySelectorAll('.atlas-tabletop-bg-card__name')].some((n) => n.textContent === 'Caves')));
+  check('background editor: a new background starts empty and unchanged', await ed(() => { const e = window.boardTest.backgroundEditor; return !e.dirty && e.layers.terrain.every((v) => v === 0) && e.layers.height.every((v) => v === 128); }));
+  await wait(300);
+
+  // The map's footprint is shaded in the middle of the empty picture.
+  const lit = await ed(async () => {
+    const e = window.boardTest.backgroundEditor;
+    const canvas = document.querySelector('.atlas-tabletop-bg-canvas');
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const box = canvas.getBoundingClientRect();
+    const read = (x, y) => { const p = e.clientOf(x, y); return [...canvas.getContext('2d').getImageData(Math.round(p.x - box.left), Math.round(p.y - box.top), 1, 1).data.slice(0, 3)]; };
+    return { inside: read(1024 + 20, 1024 + 20), outside: read(1024 + 160, 1024 + 160) };
+  });
+  check('background editor: the map footprint is drawn in the middle', lit.inside.join() !== lit.outside.join(), JSON.stringify(lit));
+
+  // Painting Water with the brush sets the terrain pixels to water's index (10).
+  await page.locator('[data-bg-layer="terrain"]').click();
+  await page.locator('[data-bg-terrain="water"]').click();
+  await page.locator('[data-bg-tool="brush"]').click();
+  await setRange('[data-bg-brush]', 20);
+  await drag([[700, 1300], [1000, 1300], [1300, 1400]]);
+  check('background editor: painting with the brush sets terrain pixels to water', (await pixel('terrain', 1000, 1300)) === 10 && (await pixel('terrain', 700, 1300)) === 10 && (await pixel('terrain', 1000, 900)) === 0, JSON.stringify([await pixel('terrain', 1000, 1300), await count('terrain', 10)]));
+  check('background editor: a painted change marks the background as changed', await ed(() => window.boardTest.backgroundEditor.dirty));
+  await page.locator('[data-bg-terrain="lava"]').click();
+  await drag([[1500, 700], [1700, 700]]);
+  await page.locator('[data-bg-terrain="dunes"]').click();
+  await page.locator('[data-bg-tool="fill"]').click();
+  const at1 = await at(500, 500);
+  await page.mouse.click(at1.x, at1.y);
+  check('background editor: Fill on Terrain pours dunes over the open ground and stops at the water', (await pixel('terrain', 500, 500)) === 4 && (await pixel('terrain', 1000, 1300)) === 10 && (await pixel('terrain', 1600, 700)) === 11, JSON.stringify([await pixel('terrain', 500, 500), await pixel('terrain', 1000, 1300), await pixel('terrain', 1600, 700)]));
+  await page.locator('[data-bg-action="undo"]').click();
+  check('background editor: Undo takes the terrain fill back', (await pixel('terrain', 500, 500)) === 0 && (await pixel('terrain', 1600, 700)) === 11);
+
+  // Material layer: slot 1 is picked from the gallery, a closed ring is drawn, and Fill with slot 2 fills the inside.
+  await page.locator('[data-bg-layer="material"]').click();
+  await page.locator('[data-bg-slot="1"]').selectOption('materials/brick');
+  check('background editor: picking a material fills the slot', await ed(() => JSON.stringify(window.boardTest.backgroundEditor.settings.materials) === '["materials/brick"]'));
+  await page.locator('[data-bg-tool="brush"]').click();
+  await drag([[700, 700], [900, 700], [900, 900], [700, 900], [700, 700]]);
+  check('background editor: the material brush paints the slot number', (await pixel('material', 800, 700)) === 1 && (await pixel('material', 800, 800)) === 0);
+  await page.locator('[data-bg-slot="2"]').selectOption('materials/stone');
+  await page.locator('[data-bg-tool="fill"]').click();
+  const inside = await at(800, 800);
+  await page.mouse.click(inside.x, inside.y);
+  const filled = [await pixel('material', 800, 800), await pixel('material', 760, 840), await pixel('material', 800, 700), await pixel('material', 500, 500)];
+  check('background editor: Fill on Material fills the closed region and nothing outside it', filled.join() === '2,2,1,0', JSON.stringify(filled));
+  await page.locator('[data-bg-action="undo"]').click();
+  const undone = [await pixel('material', 800, 800), await pixel('material', 800, 700)];
+  check('background editor: Undo restores the filled region in one step', undone.join() === '0,1', JSON.stringify(undone));
+  await page.locator('[data-bg-action="redo"]').click();
+  check('background editor: Redo puts the fill back', (await pixel('material', 800, 800)) === 2);
+
+  // Wheel zooms around the pointer; right-drag pans.
+  const before = await at(1024, 1024);
+  const box = await page.locator('.atlas-tabletop-bg-canvas').boundingBox();
+  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+  await page.mouse.wheel(0, -300);
+  await wait(150);
+  const zoomed = await ed(() => window.boardTest.backgroundEditor.view.scale);
+  const fit = await ed(() => window.boardTest.backgroundEditor.view.fit);
+  check('background editor: the wheel zooms in', zoomed > fit * 1.3, JSON.stringify([zoomed, fit]));
+  const mid = await at(1024, 1024);
+  await page.mouse.move(mid.x, mid.y);
+  await page.mouse.down({ button: 'right' });
+  await page.mouse.move(mid.x + 60, mid.y + 40, { steps: 5 });
+  await page.mouse.up({ button: 'right' });
+  const panned = await at(1024, 1024);
+  check('background editor: right-drag pans the picture', Math.abs(panned.x - mid.x - 60) < 2 && Math.abs(panned.y - mid.y - 40) < 2, JSON.stringify([mid, panned, before]));
+  await ed(() => window.boardTest.backgroundEditor.fitView());
+
+  // At most four custom patterns.
+  for (let i = 0; i < 4; i++) await page.locator('[data-bg-action="add-pattern"]').click();
+  const patterns = await ed(() => ({ n: window.boardTest.backgroundEditor.settings.patterns.length, off: document.querySelector('[data-bg-action="add-pattern"]').disabled }));
+  check('background editor: adding a fifth custom pattern is refused (the button is disabled)', patterns.n === 4 && patterns.off, JSON.stringify(patterns));
+  await page.locator('[data-bg-action="add-pattern"]').click({ force: true }).catch(() => {});
+  check('background editor: still four patterns after trying a fifth', await ed(() => window.boardTest.backgroundEditor.settings.patterns.length === 4));
+  await page.locator('[data-bg-layer="terrain"]').click();
+  check('background editor: the custom terrains open up once their patterns exist', await ed(() => ['custom1', 'custom4'].every((id) => !document.querySelector(`[data-bg-terrain="${id}"]`).disabled)));
+  // A liquid's settings: lava's own kind of lava, and the tint presets.
+  await ed(() => { const s = document.querySelector('[data-bg-liquid="lava"] [data-bg-lava-style]'); s.value = 'magma'; s.dispatchEvent(new Event('change', { bubbles: true })); });
+  await ed(() => document.querySelectorAll('[data-bg-liquid="water"] .atlas-tabletop-bg-tint')[2].click());
+  const liquids = await ed(() => { const l = window.boardTest.backgroundEditor.settings.liquids; return { style: l.lava.style, tint: l.water.tint, clear: !!document.querySelector('[data-bg-liquid="lava"] [data-bg-clarity]') }; });
+  check('background editor: the lava type and a water tint preset are kept in the settings', liquids.style === 'magma' && liquids.tint === '#123f63' && !liquids.clear, JSON.stringify(liquids));
+  await page.locator('[data-bg-terrain="water"]').click();
+  await shot('background-editor');
+
+  // Save writes it all; opening it again shows the same pixels and settings.
+  const sums = await ed(() => { const e = window.boardTest.backgroundEditor; const sum = (a) => { let s = 0; for (let i = 0; i < a.length; i++) s = (Math.imul(s ^ a[i], 16777619) + i) >>> 0; return s; }; return { terrain: sum(e.layers.terrain), material: sum(e.layers.material), height: sum(e.layers.height), patterns: e.settings.patterns.length, folder: e.folder }; });
+  await page.locator('[data-bg-action="save"]').click();
+  check('background editor: Save clears the changed mark', await until(() => !window.boardTest.backgroundEditor.dirty));
+  await ed(async (folder) => { await window.boardTest.backgroundEditor.open(null); await window.boardTest.backgroundEditor.open(folder); }, sums.folder);
+  const reread = await ed(() => { const e = window.boardTest.backgroundEditor; const sum = (a) => { let s = 0; for (let i = 0; i < a.length; i++) s = (Math.imul(s ^ a[i], 16777619) + i) >>> 0; return s; }; return { terrain: sum(e.layers.terrain), material: sum(e.layers.material), height: sum(e.layers.height), patterns: e.settings.patterns.length, folder: e.folder, materials: e.settings.materials.length, lava: e.settings.liquids.lava.style }; });
+  check('background editor: saved, then reopened, it shows the same pixels and settings', reread.terrain === sums.terrain && reread.material === sums.material && reread.height === sums.height && reread.patterns === sums.patterns && reread.materials === 2 && reread.lava === 'magma', JSON.stringify([sums, reread]));
+  check('background editor: the thumbnail was saved', await ed(() => window.boardTest.backgroundFiles.has(`${window.boardTest.backgroundEditor.folder}/thumb.png`)));
+
+  // Heightmap import: a picture of two colours becomes height 0 and 255, as one undo step.
+  await ed(async () => {
+    const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+    const ctx = c.getContext('2d'); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, 32, 64); ctx.fillStyle = '#fff'; ctx.fillRect(32, 0, 32, 64);
+    const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+    const dt = new DataTransfer(); dt.items.add(new File([blob], 'height.png', { type: 'image/png' }));
+    const input = document.querySelector('.atlas-tabletop-bg input[type="file"]');
+    input.files = dt.files; input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  check('background editor: importing a heightmap changes the height layer', await until(() => window.boardTest.backgroundEditor.layers.height[1000 * 2048 + 10] === 0 && window.boardTest.backgroundEditor.layers.height[1000 * 2048 + 2040] === 255));
+  check('background editor: the imported heightmap marks the background as changed and shows the height layer', await ed(() => window.boardTest.backgroundEditor.dirty && document.querySelector('[data-bg-layer="height"]').classList.contains('is-active')));
+  await page.locator('[data-bg-action="undo"]').click();
+  check('background editor: Undo takes the whole imported heightmap back', (await pixel('height', 10, 1000)) === 128 && (await pixel('height', 2040, 1000)) === 128);
+
+  // Leaving a changed background asks first.
+  await drag([[500, 500], [600, 500]]);
+  await page.locator('.atlas-tabletop-bg-card', { hasText: 'Isle' }).click();
+  check('background editor: leaving a changed background asks to save', await ed(() => !!document.querySelector('.atlas-tabletop-bg-unsaved:not([hidden])') && window.boardTest.backgroundEditor.folder.endsWith('/Caves')));
+  await page.locator('[data-bg-unsaved="cancel"]').click();
+  check('background editor: Cancel stays on the changed background', await ed(() => !document.querySelector('.atlas-tabletop-bg-unsaved:not([hidden])') && window.boardTest.backgroundEditor.folder.endsWith('/Caves') && window.boardTest.backgroundEditor.dirty));
+  await page.locator('.atlas-tabletop-bg-card', { hasText: 'Isle' }).click();
+  await page.locator('[data-bg-unsaved="discard"]').click();
+  check('background editor: Discard leaves without saving', await until(() => window.boardTest.backgroundEditor.folder?.endsWith('/Isle') && !window.boardTest.backgroundEditor.dirty));
+  // Rename and Duplicate work on the open background.
+  await page.locator('[data-bg-action="rename"]').click();
+  await page.locator('.atlas-tabletop-bg-name-input').fill('Atoll');
+  await page.keyboard.press('Enter');
+  check('background editor: Rename renames the open background', await until(() => window.boardTest.backgroundEditor.folder?.endsWith('/Atoll') && [...document.querySelectorAll('.atlas-tabletop-bg-card__name')].some((n) => n.textContent === 'Atoll')));
+  await page.locator('[data-bg-action="duplicate"]').click();
+  check('background editor: Duplicate opens a copy', await until(() => window.boardTest.backgroundEditor.folder?.endsWith('/Atoll copy')));
+  await page.locator('[data-bg-action="delete"]').click();
+  await page.locator('[data-bg-action="confirm-delete"]').click();
+  check('background editor: Delete removes it from the list', await until(() => ![...document.querySelectorAll('.atlas-tabletop-bg-card__name')].some((n) => n.textContent === 'Atoll copy')));
+  await ed(() => window.boardTest.closeBackgroundEditor());
+});
+
 // ── Ground: lava and acid to the horizon; the fog switch, and a plane that ends a little past the fog ─────────────
-feature('ground liquids and fog', async ({ page, shot }) => {
+feature('ground liquids and fog',async ({ page, shot }) => {
   const shaderErrors = [];
   page.on('console', (m) => { if (m.type() === 'error' && /Shader Error|program not valid/.test(m.text())) shaderErrors.push(m.text().slice(0, 160)); });
   await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'horizon', noise: 'rolling', strength: 0.5, fog: 80, margin: 0, tile: 2 }; board.refresh(); });
