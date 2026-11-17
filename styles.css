@@ -421,6 +421,11 @@
   color: var(--text-normal);
 }
 
+/* A field the panel puts away (the ground's rows of another background): its flex must not show it. */
+.atlas-tabletop-palette__field[hidden] {
+  display: none;
+}
+
 .atlas-tabletop-palette__label {
   flex: 1;
 }
@@ -1851,6 +1856,31 @@ body.atlas-tabletop-player-window .view-header {
 .atlas-tabletop-palette__choice.is-active {
   background: var(--interactive-accent);
   color: var(--text-on-accent);
+}
+
+/* A field whose control takes the panel's width under its label (the ground's five backgrounds). */
+.atlas-tabletop-palette__field--stacked {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* The ground's backgrounds: buttons of their own that wrap, three to a row, all inside the panel. */
+.atlas-tabletop-ground-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-1);
+  margin-left: 0;
+  border: 0;
+  overflow: visible;
+}
+
+.atlas-tabletop-ground-modes .atlas-tabletop-palette__choice,
+.atlas-tabletop-ground-modes .atlas-tabletop-palette__choice + .atlas-tabletop-palette__choice {
+  flex: 1 1 30%;
+  padding: 4px 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  white-space: nowrap;
 }
 
 /* The chip that says whose point of view the board is shown from, and stops it. */

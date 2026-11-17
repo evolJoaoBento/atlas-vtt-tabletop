@@ -823,9 +823,10 @@ export class BoardToolbar {
     if (this.actions.setGround) {
       const section = el('div', 'atlas-tabletop-palette__section', this.groundPanel);
       const change = (edit: Partial<GroundSettings>): void => { const now = this.actions.ground?.(); if (now) this.actions.setGround?.({ ...now, ...edit }); this.fillGround(); };
-      const modeRow = el('div', 'atlas-tabletop-palette__field', section);
+      // Five choices: the label above them, and they wrap (in one row they ran past the panel's edge).
+      const modeRow = el('div', 'atlas-tabletop-palette__field atlas-tabletop-palette__field--stacked', section);
       el('span', 'atlas-tabletop-palette__label', modeRow, 'Background');
-      const choices = el('span', 'atlas-tabletop-palette__choices', modeRow);
+      const choices = el('span', 'atlas-tabletop-palette__choices atlas-tabletop-ground-modes', modeRow);
       choices.setAttribute('role', 'group');
       choices.setAttribute('aria-label', 'Ground round the map');
       const modes: Array<{ value: GroundMode; button: HTMLButtonElement }> = [];

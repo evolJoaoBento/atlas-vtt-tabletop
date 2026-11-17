@@ -5609,6 +5609,19 @@ feature('ground', async ({ page, shot }) => {
   await wait(200);
   const opened = await page.evaluate(() => { const panel = document.querySelector('[aria-label="Ground"][role="dialog"]'); const settings = document.querySelector('[aria-label="Board settings"][role="dialog"]'); return { shown: !panel.hidden, settings: settings.hidden, expanded: document.querySelector('button[aria-label="Ground"]').getAttribute('aria-expanded') }; });
   check('ground: the Ground button opens its panel, Board settings stays closed', opened.shown && opened.settings && opened.expanded === 'true', JSON.stringify(opened));
+  // Every background is in full sight inside the panel (five of them once ran past its edge, lava and acid cut off).
+  const fits = await page.evaluate(() => {
+    // Narrower than here (Obsidian's own fonts and a narrow pane take more room): the choices must still fit.
+    const element = document.querySelector('[aria-label="Ground"][role="dialog"]');
+    element.style.width = '280px';
+    const panel = element.getBoundingClientRect();
+    const out = [...document.querySelectorAll('[aria-label="Ground round the map"] button')].map((b) => { const r = b.getBoundingClientRect(); return { name: b.textContent, inside: r.width > 20 && r.left >= panel.left - 0.5 && r.right <= panel.right + 0.5 && r.top >= panel.top - 0.5 && r.bottom <= panel.bottom + 0.5 }; });
+    element.style.width = '';
+    return out;
+  });
+  const shownRows = await page.evaluate(() => [...document.querySelectorAll('[aria-label="Ground"][role="dialog"] .atlas-tabletop-palette__field')].filter((row) => row.getBoundingClientRect().height > 0).map((row) => row.querySelector('.atlas-tabletop-palette__label')?.textContent));
+  check('ground: on the map board only its own rows show (no plane, pattern or liquid settings)', !shownRows.includes('Pattern') && !shownRows.includes('Moves') && !shownRows.includes('Ground material') && shownRows.includes('Extra board'), JSON.stringify(shownRows));
+  check('ground: all five backgrounds show in full inside the panel, lava and acid among them', fits.length === 5 && fits.every((f) => f.inside) && fits.some((f) => f.name === 'Lava plane') && fits.some((f) => f.name === 'Acid plane'), JSON.stringify(fits));
   await shot('ground-panel');
   await page.getByRole('button', { name: 'Horizon plane' }).click();
   await wait(500);
