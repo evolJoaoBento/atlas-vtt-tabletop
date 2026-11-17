@@ -9,8 +9,12 @@
  * distance instead, so its falloff is replaced once (`getDistanceAttenuation`, before anything is drawn): Atlas's
  * lights are the only point and spot lights on the board, and each carries its bright radius, as a share of its dim
  * one, in `decay`, which nothing else reads.
+ *
+ * A light that glows from a whole surface (lava, Atlas's `area`) is a few lamps spread over it (`areaGlow.ts`), low over
+ * the surface, casting no shadows; the board holds at most `AREA_LAMPS` such lamps, the largest surfaces first.
  */
 import * as THREE from 'three';
+import { areaSpots } from './areaGlow';
 import { flicker, seedOf, unitsToPx, type BoardLight } from './walls';
 
 export interface LightLayout {
@@ -50,9 +54,17 @@ const STRENGTH = 2.6;
 /** Shadow maps of a point light are six of this size; kept small, they are many. */
 const SHADOW_PX = 512;
 
+/** The most lamps all the board's surface lights together are made of, and of one. */
+const AREA_LAMPS = 12;
+const LAMPS_PER_AREA = 4;
+/** How high over its surface a surface light's lamps hang, in squares. */
+const AREA_HEIGHT = 0.6;
+
 interface Entry {
   light: BoardLight;
   lamp: THREE.PointLight | THREE.SpotLight;
+  /** A surface light's other lamps, spread over it (none for any other). */
+  extra: THREE.PointLight[];
   bulb: THREE.Mesh | null;
   seed: number;
   height: number;
@@ -81,11 +93,12 @@ export class LightRig {
   /** Puts up the map's lights; a light whose look did not change keeps its lamp. */
   update(lights: readonly BoardLight[], layout: LightLayout & { litThreshold: number }): void {
     this.dark = layout.ambient < layout.litThreshold;
-    const signature = JSON.stringify(lights.map((light) => [light.id, light.bright, light.dim, light.color, light.angle, light.darkness, light.tokenId]));
+    const signature = JSON.stringify(lights.map((light) => [light.id, light.bright, light.dim, light.color, light.angle, light.darkness, light.tokenId, light.area ?? null]));
     if (signature !== this.signature) {
       this.clear();
       this.signature = signature;
-      for (const light of lights) this.add(light, layout);
+      const budget = areaBudget(lights, AREA_LAMPS);
+      for (const light of lights) this.add(light, layout, budget.get(light.id) ?? LAMPS_PER_AREA);
     }
     for (const light of lights) {
       const entry = this.entries.get(light.id);
@@ -94,6 +107,7 @@ export class LightRig {
       entry.height = layout.heightOf(light);
       const on = !light.hidden && !light.darkness && light.dim > 0 && (light.activeBelowAmbient === null || layout.ambient <= light.activeBelowAmbient);
       entry.lamp.visible = on;
+      for (const lamp of entry.extra) lamp.visible = on;
       if (entry.bulb) {
         (entry.bulb.material as THREE.MeshBasicMaterial).color.set(on ? light.color : 0x555555);
         entry.bulb.scale.setScalar(layout.cell * 0.09);
@@ -103,7 +117,8 @@ export class LightRig {
     }
   }
 
-  private add(light: BoardLight, layout: LightLayout): void {
+  private add(light: BoardLight, layout: LightLayout, lamps: number): void {
+    if (light.area) { this.addArea(light, layout, lamps); return; }
     const reach = unitsToPx(light.dim, layout.unitDistance, layout.cell);
     const color = new THREE.Color(light.color);
     // `decay` carries the bright radius's share of the dim one (see the falloff above).
@@ -125,13 +140,45 @@ export class LightRig {
       bulb.userData.gmOnly = true;
       this.object3d.add(bulb);
     }
-    this.entries.set(light.id, { light, lamp, bulb, seed: seedOf(light.id), height: layout.heightOf(light) });
+    this.entries.set(light.id, { light, lamp, extra: [], bulb, seed: seedOf(light.id), height: layout.heightOf(light) });
+  }
+
+  /**
+   * A surface light: `lamps` point lamps over its area (none when the board's budget is spent), each reaching its radii
+   * past the part of the area it stands for, low over the surface (unless the GM hung it), never casting shadows.
+   */
+  private addArea(light: BoardLight, layout: LightLayout, lamps: number): void {
+    const dim = unitsToPx(light.dim, layout.unitDistance, layout.cell);
+    const bright = unitsToPx(light.bright, layout.unitDistance, layout.cell);
+    const { spots, spread } = areaSpots(light.area ?? [], lamps, Math.max(dim, layout.cell) * 0.6);
+    const reach = dim + spread;
+    const height = light.ownHeight != null ? layout.heightOf(light) : AREA_HEIGHT * layout.cell;
+    const made = spots.map((spot) => {
+      const lamp = new THREE.PointLight(new THREE.Color(light.color), 0, reach, reach > 0 ? Math.min(1, (bright + spread) / reach) : 0);
+      lamp.castShadow = false;
+      lamp.position.set(spot.x, height, spot.y);
+      lamp.userData.lightId = light.id;
+      lamp.userData.surface = true;
+      this.object3d.add(lamp);
+      return lamp;
+    });
+    const [lamp, ...extra] = made;
+    // A light with no lamp to spare still gets one, dark, so its bulb and its entry stand.
+    const first = lamp ?? new THREE.PointLight(new THREE.Color(light.color), 0, reach, 0);
+    if (!lamp) { first.position.set(light.x, height, light.y); first.userData.lightId = light.id; first.userData.surface = true; first.userData.spare = true; this.object3d.add(first); }
+    const bulb = new THREE.Mesh(BULB_GEOMETRY, new THREE.MeshBasicMaterial({ color: light.color }));
+    bulb.userData.lightId = light.id;
+    bulb.userData.gmOnly = true;
+    this.object3d.add(bulb);
+    this.entries.set(light.id, { light, lamp: first, extra, bulb, seed: seedOf(light.id), height });
   }
 
   /** Moves a light (a token's, as the token moves) to a point of the map. */
   place(id: string, x: number, y: number): void {
     const entry = this.entries.get(id);
     if (!entry) return;
+    // A surface light's lamps stand over its surface: only its bulb is at its middle.
+    if (entry.lamp.userData.surface) { entry.bulb?.position.set(x, entry.height, y); return; }
     entry.lamp.position.set(x, entry.height, y);
     entry.bulb?.position.set(x, entry.height, y);
     this.aim(entry);
@@ -149,13 +196,15 @@ export class LightRig {
   step(t: number): void {
     for (const entry of this.entries.values()) {
       if (!entry.lamp.visible) continue;
-      entry.lamp.intensity = STRENGTH * entry.light.intensity * (this.dark ? flicker(entry.light.animation, t, entry.seed) : 1);
+      const strength = STRENGTH * entry.light.intensity * (this.dark ? flicker(entry.light.animation, t, entry.seed) : 1);
+      entry.lamp.intensity = entry.lamp.userData.spare ? 0 : strength;
+      for (const lamp of entry.extra) lamp.intensity = strength;
     }
   }
 
   /** Lets the `count` lights nearest `target` cast shadows; returns whether that changed. */
   castShadows(count: number, target: { x: number; z: number }): boolean {
-    const lit = [...this.entries.values()].filter((entry) => entry.lamp.visible)
+    const lit = [...this.entries.values()].filter((entry) => entry.lamp.visible && !entry.lamp.userData.surface)
       .sort((a, b) => Math.hypot(a.lamp.position.x - target.x, a.lamp.position.z - target.z) - Math.hypot(b.lamp.position.x - target.x, b.lamp.position.z - target.z))
       .slice(0, count);
     let changed = false;
@@ -194,6 +243,7 @@ export class LightRig {
 
   private clear(): void {
     for (const entry of this.entries.values()) {
+      for (const lamp of entry.extra) { lamp.removeFromParent(); lamp.dispose(); }
       entry.lamp.removeFromParent();
       if (entry.lamp instanceof THREE.SpotLight) entry.lamp.target.removeFromParent();
       entry.lamp.shadow.map?.dispose();
@@ -210,4 +260,18 @@ export class LightRig {
     this.clear();
     this.object3d.removeFromParent();
   }
+}
+
+/** Twice an area's size, by its corners. */
+const areaOf = (ring: readonly { x: number; y: number }[]): number => Math.abs(ring.reduce((sum, p, k) => { const q = ring[(k + 1) % ring.length]!; return sum + p.x * q.y - q.x * p.y; }, 0));
+
+/** How many lamps each surface light gets of `total`: the largest surfaces first, up to `LAMPS_PER_AREA` each, at least one while any is left. */
+export function areaBudget(lights: readonly BoardLight[], total: number): Map<string, number> {
+  const surfaces = lights.filter((light) => light.area && !light.darkness).sort((a, b) => areaOf(b.area!) - areaOf(a.area!));
+  const out = new Map<string, number>();
+  let left = total;
+  // One each first, the largest first; then the rest to the largest again.
+  for (const light of surfaces) { const give = left > 0 ? 1 : 0; out.set(light.id, give); left -= give; }
+  for (const light of surfaces) { if (left <= 0) break; const give = Math.min(LAMPS_PER_AREA - 1, left); out.set(light.id, (out.get(light.id) ?? 0) + give); left -= give; }
+  return out;
 }

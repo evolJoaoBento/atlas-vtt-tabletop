@@ -108,8 +108,9 @@ export function layersFromExtras(extras: BoardExtras | null): ElevationLayerData
     }));
     const lights: BoardLight[] = layer.lights.map((light) => ({
       id: light.id, x: light.x, y: light.y, bright: light.bright, dim: light.dim, color: light.color, intensity: light.intensity,
-      animation: light.animation === 'torch' || light.animation === 'candle' || light.animation === 'pulse' || light.animation === 'magic' ? light.animation : 'none',
+      animation: light.animation === 'torch' || light.animation === 'candle' || light.animation === 'pulse' || light.animation === 'magic' || light.animation === 'smoulder' ? light.animation : 'none',
       angle: light.angle, rotation: light.rotation, hidden: false, darkness: light.darkness, activeBelowAmbient: light.activeBelowAmbient, tokenId: null,
+      ...areaFromWire(light.area),
     }));
     const map: BoardMap = {
       path: layer.id,
@@ -260,9 +261,10 @@ export function boardFromScene(scene: PlayerSceneLike, given: BoardExtras | null
   }));
   const lights: BoardLight[] = (extras?.lights ?? []).map((light) => ({
     id: light.id, x: light.x, y: light.y, bright: light.bright, dim: light.dim, color: light.color, intensity: light.intensity,
-    animation: light.animation === 'torch' || light.animation === 'candle' || light.animation === 'pulse' || light.animation === 'magic' ? light.animation : 'none',
+    animation: light.animation === 'torch' || light.animation === 'candle' || light.animation === 'pulse' || light.animation === 'magic' || light.animation === 'smoulder' ? light.animation : 'none',
     angle: light.angle, rotation: light.rotation, hidden: false, darkness: light.darkness, activeBelowAmbient: light.activeBelowAmbient,
     tokenId: tokenIds.has(light.id) ? light.id : null,
+    ...areaFromWire(light.area),
   }));
   const byWall = new Map((extras?.walls ?? []).map((wall) => [wall.id, wall]));
   const byLight = new Map((extras?.lights ?? []).map((light) => [light.id, light]));
@@ -327,4 +329,12 @@ function gridOf(scene: PlayerSceneLike): BoardGrid {
     numbers: numbers === 'column-row' || numbers === 'sequential' || numbers === 'letter-number' ? numbers : null,
     numberOpacity: grid?.cellNumberOpacity ?? grid?.hexNumberOpacity ?? 0.8,
   };
+}
+
+/** A surface light's outline from the wire (a flat list of x, y); nothing for a light without one, or a broken one. */
+function areaFromWire(area: readonly number[] | undefined): { area?: Array<{ x: number; y: number }> } {
+  if (!Array.isArray(area) || area.length < 6 || area.length % 2 !== 0 || !area.every((n) => typeof n === 'number' && Number.isFinite(n))) return {};
+  const out: Array<{ x: number; y: number }> = [];
+  for (let k = 0; k < area.length; k += 2) out.push({ x: area[k]!, y: area[k + 1]! });
+  return { area: out };
 }

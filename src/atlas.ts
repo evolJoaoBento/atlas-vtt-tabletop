@@ -91,6 +91,9 @@ export interface AtlasSceneState {
   deleteLiquid?: (id: string) => void;
   /** Changes a placed light's fields; a field given as undefined is removed. */
   updateLight?: (id: string, changes: Record<string, unknown>) => void;
+  /** Atlas's placed lights: place one (its id), take one off. */
+  addLight?: (data: Record<string, unknown>) => string;
+  deleteLight?: (id: string) => void;
   /** Atlas's walls and map features, as its own tools make them: add one (its id), take some off. */
   addWall?: (data: Record<string, unknown>) => string;
   deleteWalls?: (ids: string[]) => void;

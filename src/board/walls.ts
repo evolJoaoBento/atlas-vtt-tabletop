@@ -40,7 +40,7 @@ export interface BoardWall {
   extra?: WallExtra | null;
 }
 
-export type LightAnimation = 'none' | 'torch' | 'candle' | 'pulse' | 'magic';
+export type LightAnimation = 'none' | 'torch' | 'candle' | 'pulse' | 'magic' | 'smoulder';
 
 export interface BoardLight {
   /** The light's id, or the id of the token carrying it. */
@@ -67,6 +67,8 @@ export interface BoardLight {
   tokenId: string | null;
   /** Its height above the map as the GM set it, grid squares (the record's `tabletop` field; a carried light's is its token's); absent or null when never set. */
   ownHeight?: number | null;
+  /** A light that glows from a whole surface (lava): its corners in map pixels; its radii are counted from that outline. */
+  area?: Point[];
 }
 
 export interface SceneLighting {
@@ -165,10 +167,18 @@ function readEmission(raw: unknown, id: string, at: Point, tokenId: string | nul
     id, x: at.x, y: at.y, bright, dim,
     color: str(raw.color) ?? '#ffffff',
     intensity: Math.max(0, num(raw.intensity, 1)),
-    animation: animation === 'torch' || animation === 'candle' || animation === 'pulse' || animation === 'magic' ? animation : 'none',
+    animation: animation === 'torch' || animation === 'candle' || animation === 'pulse' || animation === 'magic' || animation === 'smoulder' ? animation : 'none',
     angle: angle > 0 && angle < 360 ? angle : null,
     rotation, hidden, darkness: raw.darkness === true, activeBelowAmbient, tokenId,
   };
+}
+
+/** The corners of a light's area (Atlas's `LightSource.area`: three to 256 places); null for anything else. */
+function areaOf(raw: unknown): Point[] | null {
+  if (!Array.isArray(raw) || raw.length < 3 || raw.length > 256) return null;
+  const ring: Point[] = [];
+  for (const corner of raw) { const at = point(corner); if (!at) return null; ring.push(at); }
+  return ring;
 }
 
 /** The lights placed on the map (`state.objects.lights`) and those its tokens carry (`token.light`). */
@@ -180,7 +190,9 @@ export function readLights(lights: unknown, tokens: unknown): BoardLight[] {
     if (!id || !at) continue;
     const gate = typeof raw.activeBelowAmbient === 'number' && raw.activeBelowAmbient < 1 ? raw.activeBelowAmbient : null;
     const light = readEmission(raw.emission, id, at, null, num(raw.rotation, 0), raw.hidden === true, gate);
-    if (light) out.push({ ...light, ...heightOf(raw.tabletop, 'height') });
+    const area = areaOf(raw.area);
+    // A light over an area has no beam (Atlas's rule).
+    if (light) out.push({ ...light, ...heightOf(raw.tabletop, 'height'), ...(area && { area, angle: null }) });
   }
   for (const raw of items(tokens)) {
     const id = str(raw.id);
@@ -308,6 +320,8 @@ export function flicker(animation: LightAnimation, t: number, seed: number): num
     case 'candle': return 0.88 + 0.16 * waver(t * 1.4, seed);
     case 'pulse': return 0.75 + 0.25 * Math.sin((t / 2) * Math.PI * 2 + seed);
     case 'magic': return 0.8 + 0.2 * Math.sin(t * 1.3 + seed) * Math.sin(t * 0.7 + seed * 1.7);
+    // Lava's slow, deep breathing.
+    case 'smoulder': return 0.88 + 0.12 * (Math.sin(t * 0.9 + seed) * 0.6 + Math.sin(t * 1.7 + seed * 1.3) * 0.4);
     default: return 1;
   }
 }

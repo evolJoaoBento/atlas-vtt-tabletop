@@ -5,13 +5,11 @@
  */
 import * as THREE from 'three';
 import type { LoadedMaterial } from '../materials';
-import { groundHeight, type GroundSettings } from './ground';
+import { groundHeight, REACH_SPANS, type GroundSettings } from './ground';
 
 const PLAIN_GROUND = 0x5d6b45;
 /** Grid lines across, each way. */
 const SEGMENTS = 220;
-/** How far out it runs, in spans of the map. */
-const REACH = 14;
 /** How far under the map's floor it lies, in world units (so the map never fights it for the same depth). */
 const SINK = 1;
 
@@ -23,6 +21,8 @@ export interface GroundArea {
   cell: number;
   /** The extra board round the map, in squares. */
   margin: number;
+  /** How far out it runs from the map's middle, in world units (`planeReach`); unset, as far as it runs without fog. */
+  reach?: number;
 }
 
 export class GroundPlane {
@@ -64,7 +64,7 @@ export class GroundPlane {
         });
       }
     }
-    const key = JSON.stringify([settings.noise, settings.strength, settings.margin, settings.tile, area.width, area.height, area.cell]);
+    const key = JSON.stringify([settings.noise, settings.strength, settings.margin, settings.tile, area.width, area.height, area.cell, area.reach ?? null]);
     if (key === this.key) return;
     this.key = key;
     this.object3d.geometry.dispose();
@@ -137,7 +137,7 @@ diffuseColor.rgb *= mix(0.8, 1.14, groundPatch);`);
 export function groundGeometry(settings: GroundSettings, area: GroundArea): THREE.BufferGeometry {
   const { width, height, cell, margin } = area;
   const cx = width / 2, cz = height / 2;
-  const reach = Math.max(width, height) * REACH;
+  const reach = area.reach ?? Math.max(width, height) * REACH_SPANS;
   const flat = { x0: -margin, y0: -margin, x1: width / cell + margin, y1: height / cell + margin };
   const n = SEGMENTS + 1;
   const position = new Float32Array(n * n * 3), uv = new Float32Array(n * n * 2);

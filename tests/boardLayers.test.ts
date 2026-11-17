@@ -1,3 +1,5 @@
+import { FOG_MIN } from '../src/board/ground';
+import { LIQUID_DEFAULTS } from '../src/board/water';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { BoardData, readBoardData } from '../src/board/boardData';
@@ -87,6 +89,9 @@ test("a player's board reads the GM's shapes and ground from the wire: corners f
   const [layer] = layersFromExtras(sent);
   assert.deepEqual(layer.shapes, [{ id: 'r', outline: [{ x: 0, y: 0, h: 0 }, { x: 70, y: 0, h: 0 }, { x: 35, y: 70, h: 2 }], inner: [], sides: true }]);
   assert.deepEqual(shapesFromWire(sent.shapes), [{ id: 'hill', outline: [{ x: 0, y: 0, h: 0 }, { x: 70, y: 0, h: 0 }, { x: 35, y: 70, h: 0 }], inner: [{ x: 35, y: 30, h: 1.5 }], material: 'MAT' }]);
-  assert.deepEqual(groundFromWire(sent.ground), { mode: 'water', noise: 'flat', strength: 0, fog: 20, margin: 5, tile: 2, water: { kind: 'waves', amount: 0.3, direction: 45, tint: '#336699', clarity: 0.5 } });
+  assert.deepEqual(groundFromWire(sent.ground), { mode: 'water', noise: 'flat', strength: 0, fog: FOG_MIN, margin: 5, tile: 2, water: { kind: 'waves', amount: 0.3, direction: 45, tint: '#336699', clarity: 0.5 }, lava: LIQUID_DEFAULTS.lava, acid: LIQUID_DEFAULTS.acid });
+  // Lava to the horizon, with its own motion (an older GM's board sends none: it starts as lava does).
+  const lava = groundFromWire({ ...sent.ground, mode: 'lava', lava: { kind: 'waves', amount: 0.2, direction: 10, tint: '#c2240f', clarity: 0 } });
+  assert.deepEqual([lava.mode, lava.lava.tint, lava.acid], ['lava', '#c2240f', LIQUID_DEFAULTS.acid]);
   assert.equal(groundFromWire(undefined).mode, 'board');
 });

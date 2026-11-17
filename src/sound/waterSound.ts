@@ -1,9 +1,16 @@
-import type { WaterMotionKind } from '../board/water';
+import type { LiquidKind, WaterMotionKind } from '../board/water';
 import type { SoundId } from './catalog';
 
 /** The loop sound of water that moves as `kind`. */
 export function waterLoop(kind: WaterMotionKind): SoundId {
   return `water.${kind}` as SoundId;
+}
+
+/** The loop sound of a liquid: water by how it moves; lava roars as a fire does, acid hisses as an acid spell does. */
+export function liquidLoop(liquid: LiquidKind, kind: WaterMotionKind): SoundId {
+  if (liquid === 'lava') return 'spell.loop.fire';
+  if (liquid === 'acid') return 'spell.loop.acid';
+  return waterLoop(kind);
 }
 
 /** A water mask as the search reads it; `version` changes whenever its cells do (without one it is searched afresh each time). */

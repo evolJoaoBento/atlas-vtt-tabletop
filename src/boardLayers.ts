@@ -155,6 +155,7 @@ function levelLayersFor(data: BoardData, materials: MaterialView, scenes: Pick<L
       lights: map.lights.filter((light) => light.tokenId === null && !light.hidden && !lit.has(light.id)).map((light) => ({
         id: light.id, x: light.x, y: light.y, height: extras.lightHeight(light.id), bright: light.bright, dim: light.dim, color: light.color, intensity: light.intensity,
         animation: light.animation === 'none' ? null : light.animation, angle: light.angle, rotation: light.rotation, darkness: light.darkness, activeBelowAmbient: light.activeBelowAmbient,
+        ...(light.area ? { area: light.area.map(({ x, y }) => ({ x, y })) } : {}),
       })),
       props: propsOnLevel(data.props(mapPath), level.id, own.levels).map((prop) => ({ id: prop.id, path: prop.glb, x: prop.x, y: prop.y, scale: prop.scale, turn: prop.rotation, ...(prop.solid ? { solid: true } : {}), ...(prop.lift ? { lift: prop.lift } : {}) })),
       materials: used,

@@ -10,7 +10,9 @@ const triangle = [{ x: 0, y: 0 }, { x: 0, y: 70 }, { x: 70, y: 70 }];
 const liquid = (id: string, more: Record<string, unknown> = {}) => ({ id, kind: 'liquid', liquid: 'water', polygon: triangle, colors: { surface: '#3b82f6', deep: '#1e3a8a', glint: '#93c5fd' }, ...more });
 
 /** A stand-in for the Atlas view holding `mapPath`: its liquids, Atlas's two actions on them and its history. */
-function atlas(mapPath: string, liquids: Record<string, Record<string, unknown>> = {}, options: { untracked?: boolean; past?: number; cap?: number } = {}) {
+function atlas(mapPath: string, liquids: Record<string, Record<string, unknown>> = {}, options: { untracked?: boolean; past?: number; cap?: number; lights?: Record<string, Record<string, unknown>> } = {}) {
+  const lights = options.lights ?? {};
+  let lightNo = 0;
   const log: string[] = [];
   const past: unknown[] = Array.from({ length: options.past ?? 0 }, () => 1);
   let depth = 0;
@@ -18,7 +20,9 @@ function atlas(mapPath: string, liquids: Record<string, Record<string, unknown>>
   let next = 0;
   const step = (): void => { if (depth === 0 && quiet === 0) past.push(1); };
   const state = {
-    mapPath, mapLoaded: true, isMapLoading: false, objects: { tokens: {}, liquids },
+    mapPath, mapLoaded: true, isMapLoading: false, objects: { tokens: {}, liquids, lights },
+    addLight: (data: Record<string, unknown>): string => { const id = `light_${++lightNo}`; lights[id] = { id, kind: 'light', ...data }; log.push(`light ${id}${depth > 0 ? ' in transaction' : ''}`); step(); return id; },
+    deleteLight: (id: string): void => { delete lights[id]; log.push(`unlight ${id}${depth > 0 ? ' in transaction' : ''}`); step(); },
     addLiquids: (data: ReadonlyArray<Record<string, unknown>>): string[] => {
       const ids: string[] = [];
       for (const input of data) {
@@ -42,7 +46,7 @@ function atlas(mapPath: string, liquids: Record<string, Record<string, unknown>>
     }),
   };
   const view = { viewId: 'v', atlasStore: Object.assign({ getState: () => state, subscribe: () => () => {} }, { temporal }) } as unknown as AtlasView;
-  return { view, liquids, log, past };
+  return { view, liquids, lights, log, past };
 }
 
 test("the map's liquids are read from Atlas's store, those of the level shown", () => {
@@ -130,4 +134,24 @@ test("the move of a map's painted water is written outside Atlas's undo, whole o
   const idle = atlas('m.atlasmap', {}, { past: 3 });
   assert.deepEqual(await new TokenWriter({ views: () => [idle.view], held: async () => null }).applyWaterMove('m.atlasmap', []), []);
   assert.equal(idle.past.length, 3);
+});
+
+test("lava is written with the light it glows with, linked to it, in the same step; the brush's old glows go; one the level has no room for leaves no light", async () => {
+  const a = atlas('m.atlasmap', { old: liquid('old', { liquid: 'lava', tabletop: { v: 1, brush: true } }) }, { cap: 2, lights: { oldGlow: { id: 'oldGlow', tabletop: { v: 1, glow: '' } } } });
+  const writer = new TokenWriter({ views: () => [a.view], held: async () => null });
+  const glow = { x: 20, y: 40, emission: { bright: 5, dim: 20 }, area: triangle, tabletop: { v: 1, glow: '' } };
+  const ids = await writer.replaceLiquids('m.atlasmap', (record, lights) => ({
+    remove: Object.keys(record), removeLights: Object.keys(lights),
+    add: [{ liquid: 'lava', polygon: triangle, glow }, { liquid: 'acid', polygon: triangle, glow }, { liquid: 'lava', polygon: triangle, glow }],
+  }));
+  assert.deepEqual(ids, ['liquid_1', 'liquid_2']);
+  // The lava names its light; the acid has its light but no link (Atlas reads the link of lava only); no liquid keeps the glow input.
+  assert.equal(a.liquids.liquid_1!.lavaLight, 'light_1');
+  assert.equal(a.liquids.liquid_2!.lavaLight, undefined);
+  assert.equal(a.liquids.liquid_1!.glow, undefined);
+  // The third found no room: its light went again.
+  assert.deepEqual(Object.keys(a.lights), ['light_1', 'light_2']);
+  assert.deepEqual(a.lights.light_1, { id: 'light_1', kind: 'light', ...glow });
+  assert.equal(a.past.length, 1);
+  assert.ok(a.log.every((line) => line === 'transaction' || line.endsWith('in transaction')), a.log.join(', '));
 });

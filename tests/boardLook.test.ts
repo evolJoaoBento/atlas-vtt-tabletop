@@ -1,3 +1,5 @@
+import { FOG_MIN } from '../src/board/ground';
+import { LIQUID_DEFAULTS } from '../src/board/water';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { BoardData } from '../src/board/boardData';
@@ -76,7 +78,8 @@ test("the raised shapes of the level shown go to players with their materials; t
   const levels = [{ id: 'a', name: 'Ground', elevation: { bottom: 0, top: 10 }, background: null }, { id: 'b', name: 'Up', elevation: { bottom: 10, top: 20 }, background: null }] as never;
   const look = boardLookFor(board, materials, 'm.atlasmap', [], { levels, level: 'a' }, null, extras());
   assert.deepEqual(look.shapes, [{ id: 'hill', outline: [{ x: 0, y: 0, h: 0 }, { x: 70, y: 0, h: 0 }, { x: 35, y: 70, h: 0 }], inner: [{ x: 35, y: 30, h: 1.5 }], material: 'mat/unused' }]);
-  assert.deepEqual(look.ground, { mode: 'horizon', material: 'mat/wood', noise: 'dunes', strength: 0.4, fog: 60, margin: 8, tile: 3, water: { kind: 'waves', amount: 0.3, direction: 45, tint: '#336699', clarity: 0.5 } });
+  // A fog thinner than the thinnest there is reads as the thinnest; the lava and acid go as they start.
+  assert.deepEqual(look.ground, { mode: 'horizon', material: 'mat/wood', noise: 'dunes', strength: 0.4, fog: FOG_MIN, margin: 8, tile: 3, water: { kind: 'waves', amount: 0.3, direction: 45, tint: '#336699', clarity: 0.5 }, lava: LIQUID_DEFAULTS.lava, acid: LIQUID_DEFAULTS.acid });
   // The shape's and the ground's materials are listed with the walls'.
   assert.deepEqual(look.materials.map((material) => material.id).sort(), ['mat/brick', 'mat/unused', 'mat/wood']);
   // A map with none has no shapes key, and the ground as it is by default.

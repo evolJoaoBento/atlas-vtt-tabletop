@@ -56,7 +56,7 @@ import { PlacementGizmo, type GizmoPart } from './placementGizmo';
 import { carryView, isNoPlacement, NO_PLACEMENT, snapTurn, turnAbout, turnStep, wrapTurn, type Placement } from './layerPlacement';
 import { ElevationLayerView, type ElevationLayerData, type ElevationLayerShape } from './elevationLayer';
 import { ShapeEditor } from './shapeEditor';
-import { DEFAULT_GROUND, fogRange, type GroundSettings } from './ground';
+import { DEFAULT_GROUND, fogRange, planeReach, readGround, type GroundSettings } from './ground';
 import { GroundPlane } from './groundPlane';
 import { SeaPlane } from './seaPlane';
 import { ShapesView } from './shapeView';
@@ -67,8 +67,8 @@ import { BoardSurface } from './surface';
 import { FogVolume } from './fogVolume';
 import { LaserBeam } from './laserBeam';
 import { LaserTrail, beamWidth, smoothBeam, type LaserSettings } from './laser';
-import { WaterMask, readWaterMotion, type SavedWaterMask, type WaterMotion, type WaterMotionKind } from './water';
-import { maskOfSource, sameWet, waterKeyOf, type WaterSource } from './liquids';
+import { LIQUID_KINDS, WaterMask, type LiquidKind, type SavedWaterMask, type WaterMotion, type WaterMotionKind } from './water';
+import { maskOfSource, motionsOf, sameWet, waterKeyOf, type WaterSource } from './liquids';
 import { WaterSurface } from './waterSurface';
 import { EyeView } from './eyeView';
 import { PieceOutline } from './pieceOutline';
@@ -78,7 +78,7 @@ import { SpellGizmo } from './spellGizmo';
 import { boxPoints, isInstantaneous, readCastSpells, type DamageType, readSpellRequests, spellHits, spellUnder, type CastSpell, type Spell, type SpellAsk, type SpellTarget, spellLabel } from './spells';
 import { GROW_MS, SpellView } from './spellView';
 import { nearness, placeAt } from '../sound/placement';
-import { waterDistance, waterLoop } from '../sound/waterSound';
+import { liquidLoop, waterDistance } from '../sound/waterSound';
 import { castsToAnnounce, spellImpactSound, spellLoopGains } from '../sound/spellSounds';
 import { hitAura, type SpellEffect } from './spellEffects';
 import { inDifficultSpell, pushTo, slide, spellFootprint, spellRuleLights, spellRuleWalls, type SpellRules } from './spellRules';
@@ -193,16 +193,17 @@ function accent(element: HTMLElement): string {
 export interface BoardHost {
   /** The GM previews another token's point of view (null: none): the host asks Atlas for its sight (fusion 4D). */
   povChanged?(id: string | null): void;
-  /** The map's water (Atlas's liquids as outlines, an old saved mask, or both; and its motion), for the board to draw. */
+  /** The map's liquids (Atlas's liquids as outlines, each of its kind, an old saved mask of water, or both; and how each moves), for the board to draw. */
   water?(): WaterSource | null;
   /**
-   * Keeps the map's painted water (null: no water left). Where the host keeps it somewhere that may keep something
-   * else (Atlas's liquids: its limits, liquids the brush may not change, a refusal), it gives a promise that settles
-   * once it is kept or refused: the board then draws what `water()` gives, where that is not what was painted.
+   * Keeps the map's painted liquids, a mask for each (null: none of it left). Where the host keeps them somewhere that
+   * may keep something else (Atlas's liquids: its limits, liquids the brush may not change, a refusal), it gives a
+   * promise that settles once they are kept or refused: the board then draws what `water()` gives, where that is not
+   * what was painted.
    */
-  saveWater?(mask: SavedWaterMask | null): void | Promise<unknown>;
-  /** Keeps how all of the map's water moves. */
-  saveWaterMotion?(motion: WaterMotion): void;
+  saveWater?(masks: Record<LiquidKind, SavedWaterMask | null>): void | Promise<unknown>;
+  /** Keeps how all of the map's liquid of a kind moves. */
+  saveWaterMotion?(motion: WaterMotion, liquid: LiquidKind): void;
   /** Tabletop's undo history for this board's map (src/board/undoHistory.ts): a step back, a step forward. */
   undo?(): void;
   redo?(): void;
@@ -489,6 +490,8 @@ const PLAIN_WALL = 0x8d8780;
 const PLAIN_DOOR = 0x6e4a2c;
 /** An animated map is redrawn this often, in milliseconds (about thirty frames a second). */
 const VIDEO_FRAME_MS = 33;
+/** The colour a sea of lava lights the board with from below (set from its tint). */
+const LAVA_UNDERLIGHT = new THREE.Color();
 
 /** How long the turn banner stays before it is gone, in milliseconds (it fades out over most of it). */
 const TURN_BANNER_MS = 2400;
@@ -750,8 +753,14 @@ export class Board {
   private readonly arts = new Map<string, Promise<THREE.Texture | null>>();
   private readonly models = new Map<string, Promise<LoadedMini | null>>();
   private press: Press | null = null;
-  /** The map's painted water, drawn over its floor; null while it has none. */
-  private water: WaterSurface | null = null;
+  /** The map's painted liquids, each a sheet drawn over its floor; a liquid the map has none of has none. */
+  private readonly liquids = new Map<LiquidKind, WaterSurface>();
+  /** The liquid the brush paints. */
+  private brushLiquid: LiquidKind = 'water';
+  /** The map's painted water (the water sounds' search). */
+  private get water(): WaterSurface | null {
+    return this.liquids.get('water') ?? null;
+  }
   /** The water brush while the GM paints or erases water; null while the tool is off. */
   private waterTool: 'paint' | 'erase' | 'fill' | null = null;
   /** The raised shapes of the level shown, and the Shapes tool editing them (the GM's, made when first used). */
@@ -761,7 +770,7 @@ export class Board {
   private readonly loadingOverlay: LoadingOverlay;
   /** The plane to the horizon (the ground's horizon mode). */
   private readonly groundPlane = new GroundPlane();
-  /** The water to the horizon (the ground's water mode). */
+  /** The water, lava or acid to the horizon (the ground's liquid modes). */
   private readonly seaPlane = new SeaPlane();
   /** The shapes drawn now (the one being edited as it is): what tokens stand on. */
   private drawnShapes: readonly TerrainShape[] = [];
@@ -786,8 +795,8 @@ export class Board {
   /** The water brush is the eraser only while Shift is held: back to the brush when it is let go. */
   private shiftErase = false;
   private brushTipTimer: ReturnType<typeof setTimeout> | undefined;
-  /** The motion the GM chose for this map's water, before any is painted too; null follows what the map keeps. */
-  private chosenWaterMotion: WaterMotion | null = null;
+  /** The motion the GM chose for this map's liquids, before any is painted too; a liquid without one follows what the map keeps. */
+  private chosenWaterMotion: Partial<Record<LiquidKind, WaterMotion>> = {};
   private placing: string | null = null;
   /** The look of the prop being placed (a variant's), else none: as the model comes. */
   private placingLook: PropLook | undefined = undefined;
@@ -988,8 +997,17 @@ export class Board {
       waterFill: () => this.waterFill,
       setWaterFill: (sensitivity) => { this.waterFill = Math.min(100, Math.max(0, Math.round(sensitivity))); },
       setWaterBrush: (cells) => { this.waterBrush = Math.min(8, Math.max(0.25, cells)); this.showBrush(); },
-      waterMotion: () => this.water?.currentMotion ?? this.chosenWaterMotion ?? readWaterMotion(this.host.water?.()?.motion),
-      setWaterMotion: (motion) => { this.chosenWaterMotion = motion; this.water?.setMotion(motion); this.waterLoopsAt = -Infinity; this.host.saveWaterMotion?.(motion); this.wake(); },
+      liquid: () => this.brushLiquid,
+      setLiquid: (liquid) => { this.brushLiquid = liquid; this.toolbar.refresh(); },
+      waterMotion: () => this.motionOf(this.brushLiquid),
+      setWaterMotion: (motion) => {
+        const liquid = this.brushLiquid;
+        this.chosenWaterMotion = { ...this.chosenWaterMotion, [liquid]: motion };
+        this.liquids.get(liquid)?.setMotion(motion);
+        this.waterLoopsAt = -Infinity;
+        this.host.saveWaterMotion?.(motion, liquid);
+        this.wake();
+      },
       measureOn: () => this.tools.tool === 'measure',
       measureShape: () => this.tools.shape,
       selectMeasure: (shape) => {
@@ -1396,10 +1414,17 @@ export class Board {
     if (this.press?.kind === 'water' || this.savingWater > 0) return;
     const saved = this.host.water?.() ?? null;
     if (waterKeyOf(saved) !== this.waterKey) { this.loadWater(map); this.wake(); return; }
-    if (saved?.motion && this.water) {
-      const motion = readWaterMotion(saved.motion);
-      if (JSON.stringify(motion) !== JSON.stringify(this.water.currentMotion)) { this.water.setMotion(motion); this.waterLoopsAt = -Infinity; this.toolbar.refresh(); this.wake(); }
+    if (!saved) return;
+    const motions = motionsOf(saved);
+    for (const [liquid, surface] of this.liquids) {
+      const motion = motions[liquid];
+      if (JSON.stringify(motion) !== JSON.stringify(surface.currentMotion)) { surface.setMotion(motion); this.waterLoopsAt = -Infinity; this.toolbar.refresh(); this.wake(); }
     }
+  }
+
+  /** How the map's liquid of a kind moves now: as drawn, else as chosen, else as the map keeps it. */
+  private motionOf(liquid: LiquidKind): WaterMotion {
+    return this.liquids.get(liquid)?.currentMotion ?? this.chosenWaterMotion[liquid] ?? motionsOf(this.host.water?.() ?? null)[liquid];
   }
 
   /** The next left click on the board drops a prop of `glb` there. */
@@ -1560,27 +1585,32 @@ export class Board {
     if (!map || !this.surface) return;
     const ground = this.groundSettings();
     const horizon = ground.mode === 'horizon' && !this.seeThrough;
-    const sea = ground.mode === 'water' && !this.seeThrough;
+    const sea = (ground.mode === 'water' || ground.mode === 'lava' || ground.mode === 'acid') && !this.seeThrough;
+    // Out to a little past where the fog hides everything, from anywhere over the map.
+    const reach = planeReach(ground.fog, this.span);
     this.surface.setMargin(ground.mode === 'board' ? ground.margin * map.grid.size : 0);
     this.surface.showTable(!horizon && !sea);
     const lowest = Math.min(0, ...this.stackData.map((layer) => layer.elevation)) * map.grid.size;
     if (sea) {
       if (!this.seaPlane.object3d.parent) this.scene.add(this.seaPlane.object3d);
-      this.seaPlane.update(ground.water, { width: this.size.width, height: this.size.height, cell: map.grid.size });
+      const liquid = ground.mode as LiquidKind;
+      this.seaPlane.update(ground[liquid], { width: this.size.width, height: this.size.height, cell: map.grid.size, reach }, liquid);
       this.seaPlane.object3d.position.y = lowest;
     } else this.seaPlane.object3d.removeFromParent();
     if (horizon) {
       if (!this.groundPlane.object3d.parent) this.scene.add(this.groundPlane.object3d);
-      this.groundPlane.update(ground, { width: this.size.width, height: this.size.height, cell: map.grid.size, margin: ground.margin }, (folder) => this.loads.track(this.host.readMaterial(folder), 2), () => this.wake(true));
+      this.groundPlane.update(ground, { width: this.size.width, height: this.size.height, cell: map.grid.size, margin: ground.margin, reach }, (folder) => this.loads.track(this.host.readMaterial(folder), 2), () => this.wake(true));
       // Always under the scene's first level, whichever level is shown (the shown one stands at 0, those below it under).
       this.groundPlane.object3d.position.y = Math.min(0, ...this.stackData.map((layer) => layer.elevation)) * map.grid.size;
     } else this.groundPlane.object3d.removeFromParent();
     this.applyHorizon();
+    this.paintDaylight();
     this.wake(true);
   }
 
   private groundSettings(): GroundSettings {
-    return this.host.ground?.() ?? DEFAULT_GROUND;
+    const ground = this.host.ground?.();
+    return ground ? readGround(ground) : DEFAULT_GROUND;
   }
 
   /** Draws the raised shapes of the level shown (the one being edited as it is now), and the editor's handles with `handles`. */
@@ -1903,6 +1933,9 @@ export class Board {
     const tint = this.tintShown ?? this.host.tint();
     this.hemisphere.color.copy(tinted(lighting.skyColor, tint));
     this.hemisphere.groundColor.copy(tinted(lighting.groundColor, tint));
+    // A sea of lava lights everything from below in its own glow.
+    const ground = this.groundSettings();
+    if (ground.mode === 'lava' && !this.seeThrough) this.hemisphere.groundColor.lerp(LAVA_UNDERLIGHT.set(ground.lava.tint), 0.65);
     this.sun.color.copy(tinted(lighting.sunColor, tint));
     // In augmented reality the camera's picture is the room round the table.
     if (this.seeThrough) return;
@@ -2452,7 +2485,7 @@ export class Board {
     this.clock += dt;
     this.steer(dt);
     const driven = this.stepDriver();
-    this.water?.tick(time / 1000);
+    for (const surface of this.liquids.values()) surface.tick(time / 1000);
     if (this.seaPlane.object3d.parent) this.seaPlane.tick(time / 1000);
     // The water brush was put away (another tool, Escape): its outline goes with it.
     if (this.brushRing?.visible && !this.waterTool) this.brushRing.visible = false;
@@ -2573,10 +2606,10 @@ export class Board {
     if (this.continuing) this.wake();
     // Flames flicker on a timer, a few times a second, not on every frame the screen can draw; those frames are
     // rests to the resolution governor.
-    else if ((this.rig.animated || [...this.layerViews.values()].some((view) => view.animated) || this.video !== null || this.water?.moving === true || this.seaPlane.object3d.parent !== null) && this.flickerTimer === 0) {
+    else if ((this.rig.animated || [...this.layerViews.values()].some((view) => view.animated) || this.video !== null || this.liquidsMoving || this.seaPlane.object3d.parent !== null) && this.flickerTimer === 0) {
       const win = this.frameWin ?? this.container.ownerDocument.defaultView ?? window;
       // Moving water is drawn as often as a playing map, so it flows smoothly.
-      this.flickerTimer = win.setTimeout(() => { this.flickerTimer = 0; this.wake(); }, this.video !== null || this.water?.moving === true || this.seaPlane.object3d.parent !== null ? VIDEO_FRAME_MS : FLICKER_MS);
+      this.flickerTimer = win.setTimeout(() => { this.flickerTimer = 0; this.wake(); }, this.video !== null || this.liquidsMoving || this.seaPlane.object3d.parent !== null ? VIDEO_FRAME_MS : FLICKER_MS);
     }
   }
 
@@ -4030,8 +4063,10 @@ export class Board {
     if (!press) return;
     if (press.kind === 'laser') { this.wake(); return; }
     if (press.kind === 'water') {
-      const mask = this.water?.mask;
-      const saved = mask && !mask.empty ? mask.save() : null;
+      const saved = Object.fromEntries(LIQUID_KINDS.map((liquid) => {
+        const mask = this.liquids.get(liquid)?.mask;
+        return [liquid, mask && !mask.empty ? mask.save() : null];
+      })) as Record<LiquidKind, SavedWaterMask | null>;
       // While the host keeps it the water it gives is not drawn again (it may refresh the board from within, and its
       // water is a stroke behind until it is kept); once kept, the board shows what the host has.
       this.savingWater += 1;
@@ -4955,31 +4990,50 @@ export class Board {
     const map = this.map;
     if (this.disposed || !map || this.savingWater > 0 || this.press?.kind === 'water') return;
     const source = this.host.water?.() ?? null;
-    const kept = this.size.width > 0 ? maskOfSource(source, this.size.width, this.size.height, map.grid.size) : null;
-    if (sameWet(kept, this.water?.mask ?? null)) { this.waterKey = waterKeyOf(source); return; }
+    const same = LIQUID_KINDS.every((liquid) => {
+      const kept = this.size.width > 0 ? maskOfSource(source, this.size.width, this.size.height, map.grid.size, liquid) : null;
+      return sameWet(kept, this.liquids.get(liquid)?.mask ?? null);
+    });
+    if (same) { this.waterKey = waterKeyOf(source); return; }
     this.loadWater(map);
     this.toolbar.refresh();
     this.wake();
   }
 
-  /** The map's saved water, drawn over its floor (none while it has no water and none is being painted). */
+  /** The map's saved liquids, each drawn over its floor (none of a liquid it has none of and none is being painted). */
   private loadWater(map: BoardMap): void {
-    this.water?.dispose();
-    this.water = null;
+    for (const surface of this.liquids.values()) surface.dispose();
+    this.liquids.clear();
     this.waterLoopsAt = -Infinity;
-    this.chosenWaterMotion = null;
+    this.chosenWaterMotion = {};
     const saved = this.host.water?.() ?? null;
     this.waterKey = waterKeyOf(saved);
     if (!saved || !this.size) return;
-    const mask = maskOfSource(saved, this.size.width, this.size.height, map.grid.size);
-    if (mask) this.showWater(mask, readWaterMotion(saved.motion));
+    const motions = motionsOf(saved);
+    for (const liquid of LIQUID_KINDS) {
+      const mask = maskOfSource(saved, this.size.width, this.size.height, map.grid.size, liquid);
+      if (mask) this.showWater(mask, motions[liquid], liquid);
+    }
   }
 
-  private showWater(mask: WaterMask, motion: WaterMotion): WaterSurface {
-    const water = new WaterSurface(mask, this.size?.width ?? 1, this.size?.height ?? 1, this.map?.grid.size ?? 70, motion);
-    this.water = water;
-    this.scene.add(water.object3d);
-    return water;
+  private showWater(mask: WaterMask, motion: WaterMotion, liquid: LiquidKind): WaterSurface {
+    const surface = new WaterSurface(mask, this.size?.width ?? 1, this.size?.height ?? 1, this.map?.grid.size ?? 70, motion, liquid);
+    this.liquids.get(liquid)?.dispose();
+    this.liquids.set(liquid, surface);
+    this.scene.add(surface.object3d);
+    return surface;
+  }
+
+  /** Whether any painted liquid needs frames to move. */
+  private get liquidsMoving(): boolean {
+    for (const surface of this.liquids.values()) if (surface.moving) return true;
+    return false;
+  }
+
+  /** The brush's liquid's sheet, made (empty) to paint into when the map has none of it yet. */
+  private brushSheet(map: BoardMap): WaterSurface {
+    const liquid = this.brushLiquid;
+    return this.liquids.get(liquid) ?? this.showWater(WaterMask.forMap(this.size.width, this.size.height, map.grid.size), this.motionOf(liquid), liquid);
   }
 
   /**
@@ -5068,16 +5122,18 @@ export class Board {
   private fillWater(at: { x: number; y: number }, wet: boolean): void {
     const map = this.map;
     if (!map || !this.size) return;
-    let water = this.water;
-    if (!water) {
-      if (!wet) return;
-      water = this.showWater(WaterMask.forMap(this.size.width, this.size.height, map.grid.size), this.chosenWaterMotion ?? readWaterMotion(this.host.water?.()?.motion));
-    }
+    if (!wet && !this.liquids.has(this.brushLiquid)) return;
+    const water = this.brushSheet(map);
     const colors = this.mapColors(water.mask);
     if (!colors) return;
     // 0 takes only the colour clicked, 100 a long way off it (the farthest two colours are 441 apart).
     const tolerance = (this.waterFill / 100) * 200;
-    if (water.mask.fill(at.x, at.y, colors, tolerance, wet, this.fillWalls(water.mask))) { water.maskChanged(); this.waterLoopsAt = -Infinity; }
+    if (water.mask.fill(at.x, at.y, colors, tolerance, wet, this.fillWalls(water.mask))) {
+      water.maskChanged();
+      this.waterLoopsAt = -Infinity;
+      // One liquid at a place: what was filled is no longer any other.
+      if (wet) for (const [liquid, other] of this.liquids) if (liquid !== this.brushLiquid && other.mask.dryUnder(water.mask)) other.maskChanged();
+    }
     this.wake();
   }
 
@@ -5260,12 +5316,13 @@ export class Board {
     const map = this.map;
     if (!map || !this.size || !this.waterTool) return;
     const wet = this.waterTool === 'paint';
-    let water = this.water;
-    if (!water) {
-      if (!wet) return;
-      water = this.showWater(WaterMask.forMap(this.size.width, this.size.height, map.grid.size), this.chosenWaterMotion ?? readWaterMotion(this.host.water?.()?.motion));
+    const radius = this.waterBrush * map.grid.size;
+    // The eraser takes every liquid away; the brush paints its own and takes the others away under it.
+    for (const [liquid, other] of this.liquids) if ((!wet || liquid !== this.brushLiquid) && other.mask.stroke(from, to, radius, false)) { other.maskChanged(); this.waterLoopsAt = -Infinity; }
+    if (wet) {
+      const water = this.brushSheet(map);
+      if (water.mask.stroke(from, to, radius, true)) { water.maskChanged(); this.waterLoopsAt = -Infinity; }
     }
-    if (water.mask.stroke(from, to, this.waterBrush * map.grid.size, wet)) { water.maskChanged(); this.waterLoopsAt = -Infinity; }
     this.wake();
   }
 
@@ -6058,23 +6115,29 @@ export class Board {
     this.waterLoopsAt = now;
     seen.x = pose.target.x; seen.z = pose.target.z; seen.distance = pose.distance; seen.yaw = pose.yaw; seen.pitch = pose.pitch;
     const cell = this.map?.grid.size ?? 50;
-    const reach = new Map<WaterMotionKind, number>();
-    const note = (kind: WaterMotionKind, distance: number): void => {
-      reach.set(kind, Math.min(reach.get(kind) ?? Infinity, distance));
+    // By liquid and motion: `lava:flow`.
+    const reach = new Map<string, number>();
+    const note = (liquid: LiquidKind, kind: WaterMotionKind, distance: number): void => {
+      const key = `${liquid}:${kind}`;
+      reach.set(key, Math.min(reach.get(key) ?? Infinity, distance));
     };
-    if (this.water && this.size) {
-      const distance = waterDistance(this.water.mask, this.size.width, this.size.height, { x: pose.target.x, y: pose.target.z });
-      if (distance !== Infinity) note(this.water.currentMotion.kind, distance);
+    if (this.size) {
+      for (const [liquid, surface] of this.liquids) {
+        const distance = waterDistance(surface.mask, this.size.width, this.size.height, { x: pose.target.x, y: pose.target.z });
+        if (distance !== Infinity) note(liquid, surface.currentMotion.kind, distance);
+      }
     }
     for (const view of this.layerViews.values()) {
-      const near = view.waterReach(pose.target.x, pose.target.z);
-      if (near) note(near.kind, near.distance);
+      for (const near of view.waterReach(pose.target.x, pose.target.z)) note(near.liquid, near.kind, near.distance);
     }
     // How loud the camera's height makes the water it looks at (the same for every kind): full close up, quieter from twenty cells and more away.
     const listener = { eye: positionOf(pose), target: { ...pose.target } };
     const heard = reach.size > 0 ? placeAt(listener, { ...pose.target }, WATER_SPAN_CELLS * cell).gain : 0;
     const wanted = new Map<string, { id: SoundId; gain: number }>();
-    for (const [kind, distance] of reach) wanted.set(`water:${kind}`, { id: waterLoop(kind), gain: nearness(distance, 8 * cell) * heard });
+    for (const [key, distance] of reach) {
+      const [liquid, kind] = key.split(':') as [LiquidKind, WaterMotionKind];
+      wanted.set(key, { id: liquidLoop(liquid, kind), gain: nearness(distance, 8 * cell) * heard });
+    }
     for (const key of [...this.waterLoops.keys()]) {
       if (wanted.has(key)) continue;
       this.waterLoops.delete(key);
@@ -7189,6 +7252,8 @@ export class Board {
     this.shapesView.dispose();
     this.groundPlane.dispose();
     this.seaPlane.dispose();
+    for (const surface of this.liquids.values()) surface.dispose();
+    this.liquids.clear();
     this.surface?.dispose();
     for (const art of this.arts.values()) void art.then((texture) => texture?.dispose());
     this.tilt?.dispose();

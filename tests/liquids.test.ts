@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { givenUpText, legacyWaterMove, sameWet, strokeLiquids, type OutlineReport, legacyWaterLiquids, waterFromWire, wireAreas, brushLiquids, LIQUID_LIMITS, maskOfSource, maskOutlines, motionOf, rasterAreas, readLiquids, waterKeyOf, withoutAreas, type WaterArea } from '../src/board/liquids';
-import { DEFAULT_WATER_MOTION, WaterMask } from '../src/board/water';
+import { brushGlows, givenUpText, legacyWaterMove, motionsOf, restyledLiquids, sameWet, strokeLiquids, waterSourceOf, wireWater, type LiquidMasks, type LiquidMotions, type OutlineReport, legacyWaterLiquids, waterFromWire, wireAreas, brushLiquids, LIQUID_LIMITS, maskOfSource, maskOutlines, motionOf, rasterAreas, readLiquids, waterKeyOf, withoutAreas, type WaterArea } from '../src/board/liquids';
+import { mixColor } from '../src/board/liquidLook';
+import { DEFAULT_WATER_MOTION, LIQUID_DEFAULTS, WaterMask, type WaterMotion } from '../src/board/water';
 
 /** A mask of 10 px texels (an 80 px cell) drawn from rows of `#` (wet) and `.` (dry). */
 function maskOf(rows: string[]): WaterMask {
@@ -9,6 +10,12 @@ function maskOf(rows: string[]): WaterMask {
   rows.forEach((row, j) => [...row].forEach((cell, i) => { if (cell === '#') mask.data[j * mask.width + i] = 255; }));
   return mask;
 }
+/** A mask for each liquid, drawn as `maskOf` draws one (dry where none is given). */
+function masksOf(rows: Partial<Record<'water' | 'lava' | 'acid', string[]>>): LiquidMasks {
+  const dry = ['....', '....'];
+  return { water: maskOf(rows.water ?? dry), lava: maskOf(rows.lava ?? dry), acid: maskOf(rows.acid ?? dry) };
+}
+const motionsWith = (water: WaterMotion): LiquidMotions => ({ water, lava: LIQUID_DEFAULTS.lava, acid: LIQUID_DEFAULTS.acid });
 const rowsOf = (mask: WaterMask): string[] => Array.from({ length: mask.height }, (_, j) => Array.from({ length: mask.width }, (_, i) => (mask.data[j * mask.width + i]! > 0 ? '#' : '.')).join(''));
 /** The mask its outlines give back. */
 function roundTrip(rows: string[], limits = LIQUID_LIMITS): { areas: WaterArea[]; rows: string[] } {
@@ -115,9 +122,11 @@ test("Atlas's liquids are read as the board draws them: the brush's with its mot
   assert.match(liquids[2]!.surface, /^#[0-9a-f]{6}$/);
   assert.deepEqual(liquids[0]!.motion, motion);
   assert.deepEqual(readLiquids(undefined), []);
-  // One motion for the level: the brush's; with only Atlas's own, still water in the first one's colour; none without liquids.
+  // One motion for each liquid of the level: the brush's; with only Atlas's own, as that liquid starts (water still) in the first one's colour; none without any.
   assert.deepEqual(motionOf(liquids), motion);
-  assert.deepEqual(motionOf(liquids.slice(1)), { ...DEFAULT_WATER_MOTION, kind: 'still', tint: '#ea580c' });
+  assert.deepEqual(motionOf(liquids.slice(1)), { ...DEFAULT_WATER_MOTION, kind: 'still', tint: liquids[2]!.surface });
+  assert.deepEqual(motionOf(liquids, 'lava'), { ...LIQUID_DEFAULTS.lava, tint: '#ea580c' });
+  assert.equal(motionOf(liquids, 'acid'), null);
   assert.equal(motionOf([]), null);
 });
 
@@ -292,19 +301,78 @@ test("a stroke is written against the liquids Atlas has at that moment: every br
     lastStroke: liquidAt('lastStroke', 20, { tabletop: { v: 1, brush: true, motion } }),
     pool: liquidAt('pool', 30),
   });
-  const painted = maskOf(['#..#', '....']);
+  const painted = masksOf({ water: ['#..#', '....'] });
   const report = noReport();
-  const write = strokeLiquids(painted, now, 'upper', motion, report);
+  const write = strokeLiquids(painted, now, 'upper', motionsWith(motion), report);
   assert.deepEqual(write.remove, ['older', 'lastStroke']);
   // The texel under Atlas's own pool is not the brush's to write.
   assert.equal(write.add.length, 1);
   assert.equal((write.add[0]!.polygon as unknown[]).length, 4);
   assert.equal(write.add[0]!.level, 'upper');
   // What Atlas will hold after the write: its own pool and the brush's new water.
-  assert.deepEqual(rowsOf(write.kept), ['#..#', '....']);
+  assert.deepEqual(rowsOf(write.kept.water), ['#..#', '....']);
   // Erasing over Atlas's pool changes nothing of it: the board is told what is kept, which is not what was painted.
-  const erased = strokeLiquids(maskOf(['....', '....']), now, 'upper', motion, noReport());
+  const erased = strokeLiquids(masksOf({}), now, 'upper', motionsWith(motion), noReport());
   assert.deepEqual([erased.remove, erased.add], [['older', 'lastStroke'], []]);
-  assert.deepEqual(rowsOf(erased.kept), ['...#', '....']);
-  assert.equal(sameWet(erased.kept, maskOf(['....', '....'])), false);
+  assert.deepEqual(rowsOf(erased.kept.water), ['...#', '....']);
+  assert.equal(sameWet(erased.kept.water, maskOf(['....', '....'])), false);
+});
+
+test("a stroke writes each liquid as what it is: lava and acid in their colours, each with its motion and the light it glows with; the level's count is shared", () => {
+  const now = readLiquids({});
+  const lava = { ...LIQUID_DEFAULTS.lava, tint: '#ff5a1f' };
+  const painted = masksOf({ water: ['#...', '....'], lava: ['..##', '..##'], acid: ['....', '#...'] });
+  const write = strokeLiquids(painted, now, 'upper', { water: DEFAULT_WATER_MOTION, lava, acid: LIQUID_DEFAULTS.acid }, noReport(), 5);
+  assert.deepEqual(write.add.map((liquid) => liquid.liquid), ['water', 'lava', 'acid']);
+  const [water, molten, acid] = write.add as Array<Record<string, any>>;
+  assert.equal(water.glow, undefined);
+  assert.deepEqual(molten.colors, { surface: '#ff5a1f', deep: mixColor('#ff5a1f', '#000000', 0.62), glint: mixColor('#ff5a1f', '#ffd27a', 0.5) });
+  assert.deepEqual(molten.tabletop.motion, lava);
+  // Lava glows brightly over its whole surface, as Atlas's own lava does (a square is 5 ft here); acid faintly.
+  assert.deepEqual(molten.glow.emission, { bright: 5, dim: 20, color: molten.colors.glint, intensity: 1, animation: 'smoulder', kind: 'custom' });
+  assert.deepEqual(molten.glow.levels, ['upper']);
+  assert.equal(molten.glow.tabletop.glow, 'upper');
+  assert.ok(molten.glow.area.length >= 3 && molten.glow.area.length <= 256);
+  assert.deepEqual([molten.glow.x, molten.glow.y], [30, 10]);
+  assert.deepEqual([acid.glow.emission.bright, acid.glow.emission.dim, acid.glow.emission.intensity], [0, 7.5, 0.5]);
+  for (const kind of ['water', 'lava', 'acid'] as const) assert.deepEqual(rowsOf(write.kept[kind]), rowsOf(painted[kind]));
+  // Atlas keeps 256 liquids on a level, whatever they are: with 255 of Atlas's own there, only the water goes.
+  const crowded = readLiquids(Object.fromEntries(Array.from({ length: 255 }, (_, k) => [`a${k}`, { liquid: 'water', polygon: [{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }] }])));
+  const fitted = strokeLiquids(painted, crowded, 'upper', { water: DEFAULT_WATER_MOTION, lava, acid: LIQUID_DEFAULTS.acid }, noReport());
+  assert.deepEqual(fitted.add.map((liquid) => liquid.liquid), ['water']);
+});
+
+test("the brush's liquids are written again in a changed motion of their liquid alone; the glows the brush made on a level are its own", () => {
+  const lava = { ...LIQUID_DEFAULTS.lava };
+  const [mine] = brushLiquids([{ polygon: [{ x: 0, y: 0 }, { x: 0, y: 10 }, { x: 10, y: 10 }], holes: [] }], lava, 'upper', 'lava');
+  const [wet] = brushLiquids([{ polygon: [{ x: 20, y: 0 }, { x: 20, y: 10 }, { x: 30, y: 10 }], holes: [] }], DEFAULT_WATER_MOTION, 'upper');
+  const now = readLiquids({ a: { ...mine, glow: undefined, lavaLight: 'light-1' }, b: wet });
+  assert.equal(now[0]!.glow, 'light-1');
+  assert.deepEqual(restyledLiquids(now, 'upper', { lava }), { remove: [], add: [] });
+  const redder = { ...lava, tint: '#c2240f' };
+  const restyled = restyledLiquids(now, 'upper', { lava: redder });
+  assert.deepEqual(restyled.remove, ['a', 'b']);
+  assert.deepEqual(restyled.add.map((liquid) => [liquid.liquid, (liquid.tabletop as { motion: { tint: string } }).motion.tint]), [['water', DEFAULT_WATER_MOTION.tint], ['lava', '#c2240f']]);
+  const lights = { g1: { tabletop: { v: 1, glow: 'upper' } }, g2: { tabletop: { v: 1, glow: '' } }, torch: { emission: {} }, g3: { tabletop: { glow: 'upper' } } };
+  assert.deepEqual(brushGlows(lights, 'upper'), ['g1', 'g3']);
+  assert.deepEqual(brushGlows(lights, null), ['g2']);
+  assert.deepEqual(brushGlows(undefined, 'upper'), []);
+});
+
+test('each liquid is drawn from its own outlines; the old mask is water; players get each area as its liquid, with the lava and acid motions', () => {
+  const tri = (x: number) => [{ x, y: 0 }, { x, y: 40 }, { x: x + 40, y: 40 }, { x: x + 40, y: 0 }];
+  const liquids = readLiquids({ w: { liquid: 'water', polygon: tri(0) }, l: { liquid: 'lava', polygon: tri(40), tabletop: { brush: true, motion: { ...LIQUID_DEFAULTS.lava, tint: '#c2240f' } } } });
+  const source = waterSourceOf(liquids, null)!;
+  assert.deepEqual(source.areas!.map((area) => area.liquid ?? 'water'), ['water', 'lava']);
+  assert.deepEqual(motionsOf(source).lava.tint, '#c2240f');
+  const water = maskOfSource(source, 80, 40, 80, 'water')!, lava = maskOfSource(source, 80, 40, 80, 'lava')!;
+  assert.deepEqual([rowsOf(water)[0], rowsOf(lava)[0]], ['####....', '....####']);
+  assert.equal(maskOfSource(source, 80, 40, 80, 'acid'), null);
+  const sent = wireWater(liquids, null)!;
+  assert.deepEqual(sent.areas!.map((area) => area.liquid ?? 'water'), ['water', 'lava']);
+  const back = waterFromWire(JSON.parse(JSON.stringify(sent)))!;
+  assert.deepEqual(back.areas!.map((area) => area.liquid ?? 'water'), ['water', 'lava']);
+  assert.deepEqual(motionsOf(back).lava, motionsOf(source).lava);
+  // What is no liquid of Atlas's comes as water.
+  assert.equal(waterFromWire({ areas: [{ polygon: [0, 0, 0, 10, 10, 10], liquid: 'slime' }] })!.areas![0]!.liquid, undefined);
 });

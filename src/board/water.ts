@@ -33,13 +33,55 @@ export const WATER_TINTS: readonly { name: string; tint: string }[] = [
 
 export const DEFAULT_WATER_MOTION: WaterMotion = { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 };
 
-export function readWaterMotion(raw: unknown): WaterMotion {
+/** What a liquid is: Atlas's three (`objects.liquids`). Each is painted, moves and looks on its own. */
+export type LiquidKind = 'water' | 'lava' | 'acid';
+export const LIQUID_KINDS: readonly LiquidKind[] = ['water', 'lava', 'acid'];
+
+/** How each liquid starts: lava flowing slowly in molten orange and opaque, acid bubbling, bright and a little clear. */
+export const LIQUID_DEFAULTS: Readonly<Record<LiquidKind, WaterMotion>> = {
+  water: DEFAULT_WATER_MOTION,
+  lava: { kind: 'flow', amount: 0.35, direction: 90, tint: '#ff5a1f', clarity: 0 },
+  acid: { kind: 'ripples', amount: 0.45, direction: 90, tint: '#8bd630', clarity: 0.35 },
+};
+
+/** Colours to start each liquid's tint from. */
+export const LIQUID_TINTS: Readonly<Record<LiquidKind, readonly { name: string; tint: string }[]>> = {
+  water: WATER_TINTS,
+  lava: [
+    { name: 'Molten', tint: '#ff5a1f' },
+    { name: 'White-hot', tint: '#ffb347' },
+    { name: 'Deep red', tint: '#c2240f' },
+    { name: 'Cooling', tint: '#8a2a0a' },
+    { name: 'Sulfur blue', tint: '#2f8cff' },
+    { name: 'Fel green', tint: '#57d12b' },
+  ],
+  acid: [
+    { name: 'Toxic', tint: '#8bd630' },
+    { name: 'Bile', tint: '#c9d43a' },
+    { name: 'Venom', tint: '#3fbf5a' },
+    { name: 'Sickly', tint: '#a3b83a' },
+    { name: 'Caustic', tint: '#38d6c0' },
+    { name: 'Violet', tint: '#9a4fd6' },
+  ],
+};
+
+/** What each motion is called for each liquid (lava that stands still is a crusted pool, acid that ripples bubbles). */
+export const MOTION_LABELS: Readonly<Record<LiquidKind, Readonly<Record<WaterMotionKind, string>>>> = {
+  water: { still: 'Still', ripples: 'Ripples', flow: 'Flowing', waves: 'Waves' },
+  lava: { still: 'Crusted', ripples: 'Churning', flow: 'Flowing', waves: 'Surging' },
+  acid: { still: 'Still', ripples: 'Bubbling', flow: 'Flowing', waves: 'Surging' },
+};
+
+export const LIQUID_NAMES: Readonly<Record<LiquidKind, string>> = { water: 'Water', lava: 'Lava', acid: 'Acid' };
+
+/** A motion as kept, read tolerantly: what is missing or broken is `fallback`'s (the water's, unless said). */
+export function readWaterMotion(raw: unknown, fallback: WaterMotion = DEFAULT_WATER_MOTION): WaterMotion {
   const value = typeof raw === 'object' && raw !== null ? raw as Record<string, unknown> : {};
-  const kind = WATER_MOTION_KINDS.includes(value.kind as WaterMotionKind) ? value.kind as WaterMotionKind : DEFAULT_WATER_MOTION.kind;
-  const amount = typeof value.amount === 'number' && Number.isFinite(value.amount) ? Math.min(1, Math.max(0, value.amount)) : DEFAULT_WATER_MOTION.amount;
-  const turn = typeof value.direction === 'number' && Number.isFinite(value.direction) ? value.direction : DEFAULT_WATER_MOTION.direction;
-  const tint = typeof value.tint === 'string' && /^#[0-9a-f]{6}$/i.test(value.tint) ? value.tint.toLowerCase() : DEFAULT_WATER_MOTION.tint;
-  const clarity = typeof value.clarity === 'number' && Number.isFinite(value.clarity) ? Math.min(1, Math.max(0, value.clarity)) : DEFAULT_WATER_MOTION.clarity;
+  const kind = WATER_MOTION_KINDS.includes(value.kind as WaterMotionKind) ? value.kind as WaterMotionKind : fallback.kind;
+  const amount = typeof value.amount === 'number' && Number.isFinite(value.amount) ? Math.min(1, Math.max(0, value.amount)) : fallback.amount;
+  const turn = typeof value.direction === 'number' && Number.isFinite(value.direction) ? value.direction : fallback.direction;
+  const tint = typeof value.tint === 'string' && /^#[0-9a-f]{6}$/i.test(value.tint) ? value.tint.toLowerCase() : fallback.tint;
+  const clarity = typeof value.clarity === 'number' && Number.isFinite(value.clarity) ? Math.min(1, Math.max(0, value.clarity)) : fallback.clarity;
   return { kind, amount, direction: ((turn % 360) + 360) % 360, tint, clarity };
 }
 
@@ -132,6 +174,15 @@ export class WaterMask {
     let text = '';
     for (const byte of bytes) text += String.fromCharCode(byte);
     return { width: this.width, height: this.height, data: btoa(text) };
+  }
+
+  /** Dries every texel `other` (a mask of the same size) has wet; whether any changed. */
+  dryUnder(other: WaterMask): boolean {
+    if (other.width !== this.width || other.height !== this.height) return false;
+    let changed = false;
+    for (let k = 0; k < this.data.length; k++) if (this.data[k]! > 0 && other.data[k]! > 0) { this.data[k] = 0; changed = true; }
+    if (changed) this.version++;
+    return changed;
   }
 
   get empty(): boolean {

@@ -5,9 +5,12 @@
  * dancing on it; the surface catches the sun's and Atlas's lights as glints and reflects the sky at grazing angles, and
  * foam gathers on the shore. How clear it is, its tint and its motion are the map's one setting (src/board/water.ts), so
  * all of the map's water looks and moves alike.
+ *
+ * The same sheet draws lava and acid (`liquidShaders.ts`): one sheet for each liquid, each with its own motion.
  */
 import * as THREE from 'three';
-import { WATER_MOTION_KINDS, type WaterMask, type WaterMotion } from './water';
+import { ACID_BODY, LAVA_BODY, LAVA_EMISSION, LIQUID_HEAD } from './liquidShaders';
+import { WATER_MOTION_KINDS, type LiquidKind, type WaterMask, type WaterMotion } from './water';
 
 /** Just above the floor, under walls, props and tokens. */
 const LIFT = 0.08;
@@ -101,6 +104,18 @@ const SHADER_BODY = /* glsl */ `
   diffuseColor = vec4(mix(waterBody, vec3(0.92, 0.95, 0.96), waterFoam), waterWet);
 `;
 
+/** The body of the liquid the sheet draws: lava's in place of the water's, acid's over it. */
+const LIQUID_BODY = `
+#if LIQUID == 1
+${LAVA_BODY}
+#else
+${SHADER_BODY}
+#if LIQUID == 2
+${ACID_BODY}
+#endif
+#endif
+`;
+
 /** The surface's slope bends its normal (view space: the map's x runs along world x, its y along world z). */
 const SHADER_NORMAL = /* glsl */ `
 #include <normal_fragment_maps>
@@ -109,7 +124,11 @@ const SHADER_NORMAL = /* glsl */ `
     vec3 waterTz = normalize((viewMatrix * vec4(0.0, 0.0, 1.0, 0.0)).xyz);
     normal = normalize(normal - (waterSlope.x * waterTx + waterSlope.y * waterTz) * (1.0 - waterFoam * 0.6));
   }
+#if LIQUID == 1
+  roughnessFactor = mix(0.3, 0.92, lavaCrust);
+#else
   roughnessFactor = mix(roughnessFactor, 0.75, waterFoam);
+#endif
 `;
 
 /** The sky, mirrored at grazing angles (Fresnel), in the colour and strength of the board's ambient light. */
@@ -118,6 +137,10 @@ const SHADER_SKY = /* glsl */ `
   {
     float waterCos = saturate(dot(normal, geometryViewDir));
     float waterFresnel = 0.02 + 0.98 * pow(1.0 - waterCos, 5.0);
+#if LIQUID == 1
+    // Rock and molten stone mirror little of the sky.
+    waterFresnel *= 0.12;
+#endif
     reflectedLight.indirectSpecular += irradiance * waterFresnel * (1.0 - waterFoam) * 0.3;
   }
 `;
@@ -146,6 +169,9 @@ function transmissionChunk(): string {
   return chunk;
 }
 
+/** The `LIQUID` define of each liquid's sheet. */
+const LIQUID_DEFINE: Record<LiquidKind, number> = { water: 0, lava: 1, acid: 2 };
+
 export class WaterSurface {
   readonly object3d: THREE.Mesh;
   private readonly texture: THREE.DataTexture;
@@ -163,7 +189,7 @@ export class WaterSurface {
   };
   private motion: WaterMotion;
 
-  constructor(readonly mask: WaterMask, mapWidth: number, mapHeight: number, cell: number, motion: WaterMotion) {
+  constructor(readonly mask: WaterMask, mapWidth: number, mapHeight: number, cell: number, motion: WaterMotion, readonly liquid: LiquidKind = 'water') {
     this.texture = new THREE.DataTexture(mask.data, mask.width, mask.height, THREE.RedFormat, THREE.UnsignedByteType);
     this.texture.magFilter = THREE.LinearFilter;
     // Mipmaps: the mask blurred, read as the water's depth.
@@ -174,21 +200,24 @@ export class WaterSurface {
     this.uniforms.uWaterCells.value.set(mapWidth / cell, mapHeight / cell);
     // Blur over about two cells: the mip level whose texel spans that much of the mask.
     this.uniforms.uWaterBlur.value = Math.max(1, Math.log2(Math.max(1, (2 * cell) / Math.max(1e-6, mask.texel))));
+    // Lava is opaque rock and stone: nothing is seen through it.
+    const lava = liquid === 'lava';
     this.material = new THREE.MeshPhysicalMaterial({
-      roughness: 0.05, metalness: 0, ior: 1.333, transmission: 1, thickness: cell * 0.6, specularIntensity: 1,
+      roughness: lava ? 0.6 : 0.05, metalness: 0, ior: lava ? 1.5 : 1.333, transmission: lava ? 0 : 1, thickness: cell * 0.6, specularIntensity: lava ? 0.5 : 1,
       transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1,
     });
-    this.material.defines = { ...this.material.defines, USE_UV: '' };
+    this.material.defines = { ...this.material.defines, USE_UV: '', LIQUID: String(LIQUID_DEFINE[liquid]) };
     const transmission = transmissionChunk();
     this.material.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, this.uniforms);
-      shader.fragmentShader = SHADER_HEAD + shader.fragmentShader
-        .replace('#include <map_fragment>', SHADER_BODY)
+      shader.fragmentShader = SHADER_HEAD + LIQUID_HEAD + shader.fragmentShader
+        .replace('#include <map_fragment>', LIQUID_BODY)
         .replace('#include <normal_fragment_maps>', SHADER_NORMAL)
+        .replace('#include <emissivemap_fragment>', LAVA_EMISSION)
         .replace('#include <lights_fragment_end>', SHADER_SKY)
         .replace('#include <transmission_fragment>', transmission);
     };
-    this.material.customProgramCacheKey = () => 'tabletop-water-2';
+    this.material.customProgramCacheKey = () => `tabletop-water-3-${liquid}`;
     const geometry = new THREE.PlaneGeometry(mapWidth, mapHeight).rotateX(-Math.PI / 2);
     this.object3d = new THREE.Mesh(geometry, this.material);
     this.object3d.position.set(mapWidth / 2, LIFT, mapHeight / 2);

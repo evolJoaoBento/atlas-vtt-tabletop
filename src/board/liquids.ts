@@ -9,21 +9,38 @@
  *   per level): what that gives up is counted (`OutlineReport`).
  * - `strokeLiquids`: a finished stroke as the change it makes to the liquids Atlas has at that moment.
  * - `brushLiquids`: outlines as the liquids the brush writes: Atlas's fields for its own 2D view (kind, colours,
- *   flow), and the board's motion beside them (`tabletop: { v: 1, brush: true, motion }`).
+ *   flow), and the board's motion beside them (`tabletop: { v: 1, brush: true, motion }`); lava and acid also ask for
+ *   the light they glow with (`glow`: an Atlas light over the whole surface, as Atlas's own lava has, `liquidLook.ts`).
+ *
+ * Each liquid (water, lava, acid) is a mask of its own on the board, moving and looking as its own motion says; an
+ * area that is no water says which liquid it is (`liquid`).
  * - `withoutAreas`: a painted mask less what liquids made in Atlas cover: those are Atlas's to change.
  *
  * Pure.
  */
-import { DEFAULT_WATER_MOTION, readWaterMotion, WaterMask, type WaterMotion } from './water';
+import { LIQUID_DEFAULTS, LIQUID_KINDS, readWaterMotion, WaterMask, type LiquidKind, type WaterMotion } from './water';
+import { glowOf, liquidColors } from './liquidLook';
+
+export type { LiquidKind } from './water';
 
 type Point = { x: number; y: number };
 
-/** A patch of liquid: its outline and what stands dry inside it, map pixels. */
-export interface WaterArea { polygon: Point[]; holes: Point[][] }
+/** An outline and what stands dry inside it, map pixels. */
+export interface Outline { polygon: Point[]; holes: Point[][] }
 
-export type LiquidKind = 'water' | 'lava' | 'acid';
+/** A patch of liquid: its outline, and which liquid it is when it is no water. */
+export interface WaterArea extends Outline { liquid?: 'lava' | 'acid' }
 
-export interface BoardLiquid extends WaterArea {
+/** The liquid an area is. */
+export const kindOf = (area: Pick<WaterArea, 'liquid'>): LiquidKind => area.liquid ?? 'water';
+/** An area as the given liquid. */
+const asKind = (area: Outline, kind: LiquidKind): WaterArea => ({ polygon: area.polygon, holes: area.holes, ...(kind !== 'water' && { liquid: kind }) });
+
+/** One mask, or one motion, for each liquid. */
+export type LiquidMasks = Record<LiquidKind, WaterMask>;
+export type LiquidMotions = Record<LiquidKind, WaterMotion>;
+
+export interface BoardLiquid extends Outline {
   /** Its id in Atlas (its place in Atlas's record). */
   id: string;
   liquid: LiquidKind;
@@ -33,6 +50,8 @@ export interface BoardLiquid extends WaterArea {
   brush: boolean;
   /** How the brush's water moves; null on a liquid made in Atlas. */
   motion: WaterMotion | null;
+  /** The light lava glows with (Atlas's `lavaLight`, a light's id). */
+  glow?: string;
 }
 
 /** What Atlas keeps: the corners of one liquid (its outline and holes together) and the liquids of one level. */
@@ -49,7 +68,6 @@ const SMALL_HOLE = 2 * MOST_THIN * MOST_THIN;
 
 /** What `maskOutlines` gave up to fit what Atlas keeps: dry spots filled, patches whose edge was smoothed (it no longer gives the mask's own texels back), patches left out. */
 export interface OutlineReport { holes: number; thinned: number; patches: number }
-const KINDS: readonly LiquidKind[] = ['water', 'lava', 'acid'];
 const SURFACES: Record<LiquidKind, string> = { water: '#3b82f6', lava: '#ea580c', acid: '#65a30d' };
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -64,7 +82,7 @@ export function readLiquids(raw: unknown): BoardLiquid[] {
   const liquids: BoardLiquid[] = [];
   for (const [id, value] of Object.entries(raw)) {
     if (!isObj(value)) continue;
-    const liquid = KINDS.find((kind) => kind === value.liquid);
+    const liquid = LIQUID_KINDS.find((kind) => kind === value.liquid);
     const polygon = ringOf(value.polygon);
     if (!liquid || !polygon) continue;
     const holes = (Array.isArray(value.holes) ? value.holes : []).map(ringOf).filter((ring): ring is Point[] => ring !== null);
@@ -74,22 +92,27 @@ export function readLiquids(raw: unknown): BoardLiquid[] {
     liquids.push({
       id, liquid, polygon, holes,
       surface: typeof colors.surface === 'string' && HEX.test(colors.surface) ? colors.surface.toLowerCase() : SURFACES[liquid],
-      brush, motion: brush ? readWaterMotion(extra.motion) : null,
+      brush, motion: brush ? readWaterMotion(extra.motion, LIQUID_DEFAULTS[liquid]) : null,
+      ...(typeof value.lavaLight === 'string' && value.lavaLight !== '' && value.lavaLight.length <= 256 && { glow: value.lavaLight }),
     });
   }
   return liquids;
 }
 
-/** How a level's water moves on the board: as the brush's water says; with only liquids made in Atlas, still, in the first one's colour; null without any. */
-export function motionOf(liquids: readonly BoardLiquid[]): WaterMotion | null {
-  const mine = liquids.find((liquid) => liquid.motion !== null);
+/**
+ * How a level's liquid of a kind moves on the board: as the brush's says; with only ones made in Atlas, as that liquid
+ * starts (water still) in the first one's colour; null without any.
+ */
+export function motionOf(liquids: readonly BoardLiquid[], kind: LiquidKind = 'water'): WaterMotion | null {
+  const ofKind = liquids.filter((liquid) => liquid.liquid === kind);
+  const mine = ofKind.find((liquid) => liquid.motion !== null);
   if (mine?.motion) return mine.motion;
-  const [first] = liquids;
-  return first ? { ...DEFAULT_WATER_MOTION, kind: 'still', tint: first.surface } : null;
+  const [first] = ofKind;
+  return first ? { ...LIQUID_DEFAULTS[kind], ...(kind === 'water' && { kind: 'still' as const }), tint: first.surface } : null;
 }
 
 /** Makes wet every texel of `mask` whose centre lies in one of `areas` (in its outline and in none of its holes). */
-export function rasterAreas(mask: WaterMask, areas: readonly WaterArea[]): void {
+export function rasterAreas(mask: WaterMask, areas: readonly Outline[]): void {
   const { texel, width, height } = mask;
   let changed = false;
   for (const area of areas) {
@@ -123,7 +146,7 @@ export function rasterAreas(mask: WaterMask, areas: readonly WaterArea[]): void 
 }
 
 /** A copy of `mask` with every texel `areas` cover made dry. */
-export function withoutAreas(mask: WaterMask, areas: readonly WaterArea[]): WaterMask {
+export function withoutAreas(mask: WaterMask, areas: readonly Outline[]): WaterMask {
   const out = mask.copy();
   if (areas.length === 0) return out;
   const covered = WaterMask.like(mask);
@@ -172,6 +195,13 @@ function thinRun(points: readonly Point[], from: number, to: number, tolerance: 
     keep[far] = 1;
     stack.push([a, far], [far, b]);
   }
+}
+
+/** A closed ring of at most `most` corners: thinned as little as that takes (null when no thinning gets it there). */
+export function fitRing(ring: Point[], most: number): Point[] | null {
+  let out = withoutStraights(ring);
+  for (let tolerance = 0.5; out.length > most && tolerance < 1e6; tolerance *= 1.5) out = thinRing(out, tolerance);
+  return out.length <= most && out.length >= 3 ? out : null;
 }
 
 /** A closed ring thinned to within `tolerance`; the ring as it was when thinning would leave it no area. */
@@ -363,34 +393,46 @@ export function sameWet(a: WaterMask | null, b: WaterMask | null): boolean {
   return true;
 }
 
-const hex = (value: number): string => Math.round(Math.min(255, Math.max(0, value))).toString(16).padStart(2, '0');
-/** `color` mixed towards `other` (`#rrggbb` each) by `share`. */
-function mix(color: string, other: string, share: number): string {
-  const part = (text: string, at: number): number => parseInt(text.slice(at, at + 2), 16);
-  return `#${[1, 3, 5].map((at) => hex(part(color, at) + (part(other, at) - part(color, at)) * share)).join('')}`;
-}
-
 const cent = (value: number): number => Math.round(value * 100) / 100 + 0;
 
 /**
- * Outlines as the liquids the brush writes (Atlas's `LiquidSurfaceInput`): water in the motion's tint (Atlas draws it
- * in these colours in its own view), flowing the way the motion runs when it flows (0 runs up the map, 90 to the
- * right), on `level` when the scene has levels, with the motion and the brush's mark in the `tabletop` field.
+ * Outlines as the liquids the brush writes (Atlas's `LiquidSurfaceInput`): the liquid of `kind` in the motion's tint
+ * (Atlas draws it in these colours in its own view), flowing the way the motion runs when it flows (0 runs up the
+ * map, 90 to the right), on `level` when the scene has levels, with the motion and the brush's mark in the `tabletop`
+ * field. Lava and acid carry the light they glow with (`glow`, Atlas's light input, ranges in `unit` game units a
+ * square): the writer makes it and links lava to it (`lavaLight`), as Atlas's own lava is.
  */
-export function brushLiquids(areas: readonly WaterArea[], motion: WaterMotion, level: string | null): Array<Record<string, unknown>> {
-  const tint = HEX.test(motion.tint) ? motion.tint.toLowerCase() : DEFAULT_WATER_MOTION.tint;
-  const colors = { surface: tint, deep: mix(tint, '#000000', 0.45), glint: mix(tint, '#ffffff', 0.6) };
+export function brushLiquids(areas: readonly WaterArea[], motion: WaterMotion, level: string | null, kind: LiquidKind = 'water', unit = 5): Array<Record<string, unknown>> {
+  const tint = HEX.test(motion.tint) ? motion.tint.toLowerCase() : LIQUID_DEFAULTS[kind].tint;
+  const colors = liquidColors(kind, tint);
   const turn = (motion.direction * Math.PI) / 180;
   const round = (ring: readonly Point[]): Point[] => ring.map((point) => ({ x: cent(point.x), y: cent(point.y) }));
-  return areas.map((area) => ({
-    liquid: 'water',
-    polygon: round(area.polygon),
-    ...(area.holes.length > 0 ? { holes: area.holes.map(round) } : {}),
-    colors: { ...colors },
-    ...(motion.kind === 'flow' ? { flow: { x: Math.round(Math.sin(turn) * 1e6) / 1e6 + 0, y: Math.round(-Math.cos(turn) * 1e6) / 1e6 + 0 } } : {}),
-    ...(level ? { level } : {}),
-    tabletop: { v: 1, brush: true, motion: { ...motion } },
-  }));
+  return areas.map((area) => {
+    const glow = glowOf(kind, fitRing(round(area.polygon), GLOW_CORNERS), colors, level, unit);
+    return {
+      liquid: kind,
+      polygon: round(area.polygon),
+      ...(area.holes.length > 0 ? { holes: area.holes.map(round) } : {}),
+      colors: { ...colors },
+      ...(motion.kind === 'flow' ? { flow: { x: Math.round(Math.sin(turn) * 1e6) / 1e6 + 0, y: Math.round(-Math.cos(turn) * 1e6) / 1e6 + 0 } } : {}),
+      ...(level ? { level } : {}),
+      tabletop: { v: 1, brush: true, motion: { ...motion } },
+      ...(glow && { glow }),
+    };
+  });
+}
+
+/** The corners Atlas reads of an area light (its `MAX_AREA_CORNERS`). */
+const GLOW_CORNERS = 256;
+
+/**
+ * The lights the brush made for its lava and acid on a level (Atlas's `objects.lights`, marked `tabletop.glow` with
+ * the level, '' in a scene without levels): they go when the brush's liquids there are written again.
+ */
+export function brushGlows(lights: unknown, level: string | null): string[] {
+  if (!isObj(lights)) return [];
+  const on = level ?? '';
+  return Object.entries(lights).filter(([, light]) => isObj(light) && isObj(light.tabletop) && light.tabletop.glow === on).map(([id]) => id);
 }
 
 /**
@@ -402,12 +444,35 @@ export function brushLiquids(areas: readonly WaterArea[], motion: WaterMotion, l
  * the level has once that is done: not what was painted where a liquid of Atlas's was erased over, or where Atlas's
  * limits gave something up (`report`).
  */
-export function strokeLiquids(painted: WaterMask, now: readonly BoardLiquid[], level: string | null, motion: WaterMotion, report?: OutlineReport): { remove: string[]; add: Array<Record<string, unknown>>; kept: WaterMask } {
+export function strokeLiquids(painted: LiquidMasks, now: readonly BoardLiquid[], level: string | null, motions: LiquidMotions, report?: OutlineReport, unit = 5): { remove: string[]; add: Array<Record<string, unknown>>; kept: LiquidMasks } {
   const foreign = now.filter((liquid) => !liquid.brush);
-  const areas = maskOutlines(withoutAreas(painted, foreign), { corners: LIQUID_LIMITS.corners, patches: Math.max(0, LIQUID_LIMITS.patches - foreign.length) }, report);
-  const kept = WaterMask.like(painted);
-  rasterAreas(kept, [...foreign, ...areas]);
-  return { remove: now.filter((liquid) => liquid.brush).map((liquid) => liquid.id), add: brushLiquids(areas, motion, level), kept };
+  // The level's count is shared: water first, then lava, then acid, each taking what the others left.
+  let room = Math.max(0, LIQUID_LIMITS.patches - foreign.length);
+  const add: Array<Record<string, unknown>> = [];
+  const kept = {} as LiquidMasks;
+  for (const kind of LIQUID_KINDS) {
+    const areas = maskOutlines(withoutAreas(painted[kind], foreign), { corners: LIQUID_LIMITS.corners, patches: room }, report);
+    room -= areas.length;
+    kept[kind] = WaterMask.like(painted[kind]);
+    rasterAreas(kept[kind], [...foreign.filter((liquid) => liquid.liquid === kind), ...areas]);
+    add.push(...brushLiquids(areas, motions[kind], level, kind, unit));
+  }
+  return { remove: now.filter((liquid) => liquid.brush).map((liquid) => liquid.id), add, kept };
+}
+
+/**
+ * The brush's liquids of a level written again in `motions` (a tint or a motion changed): the same outlines, each of
+ * its own liquid. Nothing when every one already moves as its liquid's motion says.
+ */
+export function restyledLiquids(now: readonly BoardLiquid[], level: string | null, motions: Partial<LiquidMotions>, unit = 5): { remove: string[]; add: Array<Record<string, unknown>> } {
+  const mine = now.filter((liquid) => liquid.brush);
+  if (mine.every((liquid) => !motions[liquid.liquid] || JSON.stringify(liquid.motion) === JSON.stringify(motions[liquid.liquid]))) return { remove: [], add: [] };
+  const add = LIQUID_KINDS.flatMap((kind) => {
+    const ofKind = mine.filter((liquid) => liquid.liquid === kind);
+    const motion = motions[kind] ?? ofKind[0]?.motion;
+    return ofKind.length > 0 && motion ? brushLiquids(ofKind.map(({ polygon, holes }) => ({ polygon, holes })), motion, level, kind, unit) : [];
+  });
+  return { remove: mine.map((liquid) => liquid.id), add };
 }
 
 /**
@@ -419,7 +484,20 @@ export interface WaterSource {
   areas?: readonly WaterArea[];
   mask?: unknown;
   key?: string;
+  /** How the water moves. */
   motion: unknown;
+  /** How the lava and the acid move, where there are some. */
+  lava?: unknown;
+  acid?: unknown;
+}
+
+/** How each liquid of a source moves (as each starts, where the source says nothing). */
+export function motionsOf(source: WaterSource | null): LiquidMotions {
+  return {
+    water: readWaterMotion(source?.motion, LIQUID_DEFAULTS.water),
+    lava: readWaterMotion(source?.lava, LIQUID_DEFAULTS.lava),
+    acid: readWaterMotion(source?.acid, LIQUID_DEFAULTS.acid),
+  };
 }
 
 /** What tells one water from another: the key given, else the mask and the outlines themselves (never the motion). */
@@ -428,16 +506,20 @@ export function waterKeyOf(source: WaterSource | null): string {
   return source.key ?? JSON.stringify([source.mask ?? null, source.areas ?? []]);
 }
 
-/** The mask a board draws for `source` on a map of this size: the saved mask and every outline together; null when nothing is wet. */
-export function maskOfSource(source: WaterSource | null, mapWidth: number, mapHeight: number, cell: number): WaterMask | null {
+/**
+ * The mask a board draws for one liquid of `source` on a map of this size: its outlines, with the saved mask for water;
+ * null when none of it is wet.
+ */
+export function maskOfSource(source: WaterSource | null, mapWidth: number, mapHeight: number, cell: number, kind: LiquidKind = 'water'): WaterMask | null {
   if (!source || !(mapWidth > 0) || !(mapHeight > 0)) return null;
-  const mask = WaterMask.read(source.mask, mapWidth, mapHeight, cell) ?? WaterMask.forMap(mapWidth, mapHeight, cell);
-  if (source.areas && source.areas.length > 0) rasterAreas(mask, source.areas);
+  const mask = (kind === 'water' ? WaterMask.read(source.mask, mapWidth, mapHeight, cell) : null) ?? WaterMask.forMap(mapWidth, mapHeight, cell);
+  const areas = (source.areas ?? []).filter((area) => kindOf(area) === kind);
+  if (areas.length > 0) rasterAreas(mask, areas);
   return mask.empty ? null : mask;
 }
 
-/** Outlines as the wire carries them to players: each ring a flat list of x, y in map pixels. */
-export interface WireWaterArea { polygon: number[]; holes?: number[][] }
+/** Outlines as the wire carries them to players: each ring a flat list of x, y in map pixels; the liquid when it is no water. */
+export interface WireWaterArea { polygon: number[]; holes?: number[][]; liquid?: 'lava' | 'acid' }
 
 const flat = (ring: readonly Point[]): number[] => ring.flatMap((point) => [cent(point.x), cent(point.y)]);
 const unflat = (ring: unknown): Point[] | null => {
@@ -449,7 +531,7 @@ const unflat = (ring: unknown): Point[] | null => {
 
 /** Outlines for the wire. */
 export function wireAreas(areas: readonly WaterArea[]): WireWaterArea[] {
-  return areas.map((area) => ({ polygon: flat(area.polygon), ...(area.holes.length > 0 ? { holes: area.holes.map(flat) } : {}) }));
+  return areas.map((area) => ({ polygon: flat(area.polygon), ...(area.holes.length > 0 ? { holes: area.holes.map(flat) } : {}), ...(area.liquid && { liquid: area.liquid }) }));
 }
 
 /**
@@ -463,28 +545,40 @@ export function waterFromWire(water: unknown): WaterSource | null {
     if (!isObj(entry)) continue;
     const polygon = unflat(entry.polygon);
     if (!polygon) continue;
-    areas.push({ polygon, holes: (Array.isArray(entry.holes) ? entry.holes : []).map(unflat).filter((ring): ring is Point[] => ring !== null) });
+    const liquid = entry.liquid === 'lava' || entry.liquid === 'acid' ? entry.liquid : null;
+    areas.push({ polygon, holes: (Array.isArray(entry.holes) ? entry.holes : []).map(unflat).filter((ring): ring is Point[] => ring !== null), ...(liquid && { liquid }) });
   }
   if (areas.length === 0 && !isObj(water.mask)) return null;
-  return { ...(areas.length > 0 ? { areas } : {}), ...(isObj(water.mask) ? { mask: water.mask } : {}), motion: water.motion ?? null };
+  return {
+    ...(areas.length > 0 ? { areas } : {}), ...(isObj(water.mask) ? { mask: water.mask } : {}), motion: water.motion ?? null,
+    ...(isObj(water.lava) && { lava: water.lava }), ...(isObj(water.acid) && { acid: water.acid }),
+  };
 }
 
 /**
- * A level's water as a board is handed it: the outlines of its liquids, the saved mask of a map whose painted water
- * was not moved to Atlas yet (`legacy`), and its motion: the one `chosen` on the board just now, else the brush's
- * water's, else the old mask's. Null without water and without a motion chosen.
+ * A level's liquids as a board is handed them: the outlines of its liquids (each of its own kind), the saved mask of a
+ * map whose painted water was not moved to Atlas yet (`legacy`), and how each liquid moves: as `chosen` on the board
+ * just now, else as the brush's of that liquid, else (water) as the old mask did, else as `motionOf` says. Null
+ * without liquids and without a motion chosen.
  */
-export function waterSourceOf(liquids: readonly BoardLiquid[], legacy: { mask: unknown; motion?: unknown } | null, chosen: WaterMotion | null = null): WaterSource | null {
-  const motion = chosen ?? liquids.find((liquid) => liquid.motion !== null)?.motion ?? legacy?.motion ?? motionOf(liquids);
-  if (liquids.length === 0 && !legacy && !motion) return null;
-  return { areas: liquids.map(({ polygon, holes }) => ({ polygon, holes })), ...(legacy ? { mask: legacy.mask } : {}), motion: motion ?? null };
+export function waterSourceOf(liquids: readonly BoardLiquid[], legacy: { mask: unknown; motion?: unknown } | null, chosen: Partial<LiquidMotions> = {}): WaterSource | null {
+  const motion = (kind: LiquidKind): unknown => chosen[kind] ?? liquids.find((liquid) => liquid.liquid === kind && liquid.motion !== null)?.motion ?? (kind === 'water' ? legacy?.motion : undefined) ?? motionOf(liquids, kind);
+  const water = motion('water'), lava = motion('lava'), acid = motion('acid');
+  if (liquids.length === 0 && !legacy && !water && !lava && !acid) return null;
+  return {
+    areas: liquids.map((liquid) => asKind(liquid, liquid.liquid)), ...(legacy ? { mask: legacy.mask } : {}), motion: water ?? null,
+    ...(lava ? { lava } : {}), ...(acid ? { acid } : {}),
+  };
 }
 
-/** Water for the wire (`BoardWater`): outlines, an old mask not moved yet, and the motion; nothing without water. */
-export function wireWater(liquids: readonly BoardLiquid[], legacy: { mask: unknown; motion?: unknown } | null): { areas?: WireWaterArea[]; mask?: unknown; motion: unknown } | null {
+/** Liquids for the wire (`BoardWater`): outlines, an old mask not moved yet, and the motions; nothing without liquids. */
+export function wireWater(liquids: readonly BoardLiquid[], legacy: { mask: unknown; motion?: unknown } | null): { areas?: WireWaterArea[]; mask?: unknown; motion: unknown; lava?: unknown; acid?: unknown } | null {
   const source = waterSourceOf(liquids, legacy);
   if (!source || (liquids.length === 0 && !legacy)) return null;
-  return { ...(liquids.length > 0 ? { areas: wireAreas(source.areas ?? []) } : {}), ...(legacy ? { mask: legacy.mask } : {}), motion: source.motion };
+  return {
+    ...(liquids.length > 0 ? { areas: wireAreas(source.areas ?? []) } : {}), ...(legacy ? { mask: legacy.mask } : {}), motion: source.motion,
+    ...(source.lava !== undefined && { lava: source.lava }), ...(source.acid !== undefined && { acid: source.acid }),
+  };
 }
 
 /**

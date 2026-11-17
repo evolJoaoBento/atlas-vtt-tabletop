@@ -7,11 +7,11 @@
  * keys typed in it stay out of the board's camera keys.
  */
 
-import { GROUND_NOISES, MAX_MARGIN, MAX_TILE, type GroundMode, type GroundSettings } from './ground';
-import type { WaterMotion } from './water';
+import { FOG_MIN, GROUND_NOISES, MAX_MARGIN, MAX_TILE, type GroundMode, type GroundSettings } from './ground';
+import type { LiquidKind, WaterMotion } from './water';
 import { setSvg } from '../svg';
 import { atlasMeasureIcon, atlasToolIcon, historyIcon, modeIcon, waterIcon } from './atlasToolIcons';
-import { WATER_MOTION_KINDS, WATER_TINTS, type WaterMotionKind } from './water';
+import { LIQUID_KINDS, LIQUID_NAMES, LIQUID_TINTS, MOTION_LABELS, WATER_MOTION_KINDS, type WaterMotionKind } from './water';
 import { DICES_SVG } from '../dice/dicePicker';
 import type { LightingChoice } from './look';
 import { DEFAULT_EDGES, DEFAULT_SEE_THROUGH_SIZE, MAX_SEE_THROUGH_SIZE, MIN_SEE_THROUGH_SIZE, readSeeThroughSize, DEFAULT_LAYER_LOOK, type LayerLook, type WallEdges } from './quality';
@@ -99,6 +99,9 @@ export interface ToolbarActions {
   setWaterBrush?(cells: number): void;
   waterMotion?(): WaterMotion;
   setWaterMotion?(motion: WaterMotion): void;
+  /** The liquid the brush paints (water, lava, acid); its motion is `waterMotion`'s. */
+  liquid?(): LiquidKind;
+  setLiquid?(liquid: LiquidKind): void;
   /** The GM's Measure tool (Atlas's): on, its shape, and choosing one (null goes back to Move). */
   measureOn?(): boolean;
   measureShape?(): 'line' | 'circle' | 'cone';
@@ -269,9 +272,9 @@ export class BoardToolbar {
   private readonly shapeGroup: HTMLElement;
   private groundUi: {
     section: HTMLElement; modes: Array<{ value: GroundMode; button: HTMLButtonElement }>; rows: Array<{ row: HTMLElement; modes: GroundMode[] }>;
-    water: { kind: HTMLSelectElement; amount: HTMLInputElement; direction: HTMLInputElement; directionRow: HTMLElement; clarity: HTMLInputElement; tint: HTMLInputElement };
+    water: { kind: HTMLSelectElement; amount: HTMLInputElement; direction: HTMLInputElement; directionRow: HTMLElement; clarity: HTMLInputElement; tint: HTMLInputElement; presets: HTMLElement; makePresets(liquid: LiquidKind): void };
     material: HTMLSelectElement; noise: HTMLSelectElement; strength: HTMLInputElement; strengthValue: HTMLElement;
-    fog: HTMLInputElement; fogValue: HTMLElement; margin: HTMLInputElement; marginValue: HTMLElement; tile: HTMLInputElement; tileValue: HTMLElement;
+    fog: HTMLInputElement; fogOn: HTMLInputElement; fogValue: HTMLElement; margin: HTMLInputElement; marginValue: HTMLElement; tile: HTMLInputElement; tileValue: HTMLElement;
   } | null = null;
   private readonly shapeButton: HTMLButtonElement;
   private readonly paintButton: HTMLButtonElement;
@@ -283,6 +286,8 @@ export class BoardToolbar {
   private readonly waterMenuButton: HTMLButtonElement;
   private readonly waterPanel: HTMLElement;
   private waterFillInput: HTMLInputElement | null = null;
+  /** What of the brush's menu names its liquid: the modes, the motions, the tint's label and swatches (made for `tintsOf`). */
+  private readonly liquidUi: { modes: Map<string, HTMLElement>; motions: Map<WaterMotionKind, HTMLElement>; motionLabel: HTMLElement; tintLabel: HTMLElement; tintGrid: HTMLElement; tintsOf: LiquidKind | null; clarityRow: HTMLElement | null; makeTints(liquid: LiquidKind): void };
   private readonly waterInputs: { brush: HTMLInputElement; amount: HTMLInputElement; direction: HTMLInputElement; directionRow: HTMLElement; clarity: HTMLInputElement; tint: HTMLInputElement; tints: HTMLButtonElement[] };
   private readonly measureGroup: HTMLElement;
   private readonly measureButton: HTMLButtonElement;
@@ -511,23 +516,35 @@ export class BoardToolbar {
     this.waterGroup = el('div', 'atlas-tool-group', bar);
     this.waterButton = toolIn(this.waterGroup, waterIcon('tool'), () => this.actions.setWaterTool?.(this.actions.waterTool?.() ? null : 'paint'));
     this.waterButton.setAttribute('aria-label', 'Water');
-    this.waterButton.title = 'Paint water';
+    this.waterButton.title = 'Paint water, lava or acid';
     const waterMenu = el('div', 'atlas-dropdown-menu', this.waterGroup);
     this.waterMenuButton = el('button', 'btn btn--ghost btn--icon atlas-dropdown-trigger btn--toolbar', waterMenu);
     this.waterMenuButton.type = 'button';
     setSvg(this.waterMenuButton, CHEVRON_SVG);
     this.waterMenuButton.setAttribute('aria-label', 'Water options');
-    this.waterMenuButton.title = 'Water options';
+    this.waterMenuButton.title = 'Liquid options: water, lava, acid';
     this.waterPanel = el('div', 'atlas-dropdown-content atlas-dropdown-content--top atlas-dropdown-content--left atlas-tabletop-water-options', waterMenu);
     this.waterPanel.hidden = true;
+    // Which liquid the brush paints: each has its own motion and tint.
+    const liquids = el('div', 'atlas-dropdown-section', this.waterPanel);
+    el('div', 'atlas-dropdown-label', liquids, 'Liquid');
+    for (const liquid of LIQUID_KINDS) {
+      const made = el('button', 'btn btn--ghost btn--sm atlas-dropdown-menu-item', liquids);
+      made.type = 'button';
+      made.dataset.liquid = liquid;
+      el('span', 'atlas-dropdown-menu-item__check', made);
+      el('span', '', made, LIQUID_NAMES[liquid]);
+      made.addEventListener('click', () => { this.actions.setLiquid?.(liquid); this.refresh(); });
+    }
     const brushModes = el('div', 'atlas-dropdown-section', this.waterPanel);
-    for (const [mode, label] of [['paint', 'Paint water'], ['erase', 'Erase water'], ['fill', 'Fill water']] as const) {
+    const modeLabels = new Map<string, HTMLElement>();
+    for (const [mode, label] of [['paint', 'Paint water'], ['erase', 'Erase liquids'], ['fill', 'Fill water']] as const) {
       const made = el('button', 'btn btn--ghost btn--sm atlas-dropdown-menu-item', brushModes);
       made.type = 'button';
       made.dataset.water = mode;
       el('span', 'atlas-dropdown-menu-item__check', made);
       setSvg(made, waterIcon(mode), true);
-      el('span', '', made, label);
+      modeLabels.set(mode, el('span', '', made, label));
       made.addEventListener('click', () => { this.actions.setWaterTool?.(mode); this.refresh(); });
     }
     const slider = (parent: HTMLElement, label: string, min: number, max: number, step: number): { input: HTMLInputElement; row: HTMLElement } => {
@@ -551,14 +568,14 @@ export class BoardToolbar {
     this.waterFillInput = fill.input;
     // How all of the map's water moves: one motion for the whole map.
     const motion = el('div', 'atlas-dropdown-section', this.waterPanel);
-    el('div', 'atlas-dropdown-label', motion, 'Motion (all water on this map)');
-    const kinds: Record<WaterMotionKind, string> = { still: 'Still', ripples: 'Ripples', flow: 'Flowing', waves: 'Waves' };
+    const motionLabel = el('div', 'atlas-dropdown-label', motion, 'Motion (all water on this map)');
+    const motionNames = new Map<WaterMotionKind, HTMLElement>();
     for (const kind of WATER_MOTION_KINDS) {
       const made = el('button', 'btn btn--ghost btn--sm atlas-dropdown-menu-item', motion);
       made.type = 'button';
       made.dataset.motion = kind;
       el('span', 'atlas-dropdown-menu-item__check', made);
-      el('span', '', made, kinds[kind]);
+      motionNames.set(kind, el('span', '', made, MOTION_LABELS.water[kind]));
       made.addEventListener('click', () => {
         const current = this.actions.waterMotion?.();
         if (current) this.actions.setWaterMotion?.({ ...current, kind });
@@ -576,19 +593,25 @@ export class BoardToolbar {
     const tintGroup = el('div', 'atlas-dropdown-swatches', look);
     tintGroup.setAttribute('role', 'group');
     tintGroup.setAttribute('aria-label', 'Water tint');
-    el('span', 'atlas-dropdown-swatches__label', tintGroup, 'Tint (all water on this map)');
+    const tintLabel = el('span', 'atlas-dropdown-swatches__label', tintGroup, 'Tint (all water on this map)');
     const tintGrid = el('div', 'atlas-swatch-grid', tintGroup);
     const tints: HTMLButtonElement[] = [];
-    for (const preset of WATER_TINTS) {
-      const button = el('button', 'atlas-swatch', tintGrid);
-      button.type = 'button';
-      button.style.backgroundColor = preset.tint;
-      button.setAttribute('aria-label', preset.name);
-      button.title = preset.name;
-      button.dataset.tint = preset.tint;
-      button.addEventListener('click', () => { change({ tint: preset.tint }); this.refresh(); });
-      tints.push(button);
-    }
+    // The swatches are the liquid's own presets: made again when the brush's liquid changes.
+    const makeTints = (liquid: LiquidKind): void => {
+      tintGrid.replaceChildren();
+      tints.length = 0;
+      for (const preset of LIQUID_TINTS[liquid]) {
+        const button = el('button', 'atlas-swatch', tintGrid);
+        button.type = 'button';
+        button.style.backgroundColor = preset.tint;
+        button.setAttribute('aria-label', preset.name);
+        button.title = preset.name;
+        button.dataset.tint = preset.tint;
+        button.addEventListener('click', () => { change({ tint: preset.tint }); this.refresh(); });
+        tints.push(button);
+      }
+    };
+    makeTints('water');
     const tintRow = el('label', 'atlas-tabletop-palette__field', look);
     el('span', 'atlas-tabletop-palette__label', tintRow, 'Custom tint');
     const waterTint = el('input', 'atlas-tabletop-palette__color', tintRow);
@@ -597,6 +620,7 @@ export class BoardToolbar {
     waterTint.addEventListener('input', () => { change({ tint: waterTint.value.toLowerCase() }); this.refresh(); });
     const clarity = slider(look, 'Clarity', 0, 100, 1);
     clarity.input.addEventListener('input', () => change({ clarity: Number(clarity.input.value) / 100 }));
+    this.liquidUi = { modes: modeLabels, motions: motionNames, motionLabel, tintLabel, tintGrid, tintsOf: 'water', clarityRow: clarity.row, makeTints };
     this.waterInputs = { brush: brush.input, amount: amount.input, direction: direction.input, directionRow: direction.row, clarity: clarity.input, tint: waterTint, tints };
     this.waterMenuButton.addEventListener('click', () => {
       if (this.waterPanel.hidden) { this.waterPanel.hidden = false; this.waterMenuButton.classList.add('atlas-is-active'); this.waterMenuButton.setAttribute('aria-expanded', 'true'); this.row.ownerDocument.addEventListener('pointerdown', this.onOutside, true); this.refresh(); }
@@ -805,7 +829,7 @@ export class BoardToolbar {
       choices.setAttribute('role', 'group');
       choices.setAttribute('aria-label', 'Ground round the map');
       const modes: Array<{ value: GroundMode; button: HTMLButtonElement }> = [];
-      for (const [value, label, hint] of [['board', 'Map board', 'The map on its table, framed.'], ['horizon', 'Horizon plane', 'The map lies on a plane running to the horizon, tiled with a material and shaped by a pattern past the board.'], ['water', 'Water plane', 'The map lies on water running to the horizon, moving as painted water does.']] as const) {
+      for (const [value, label, hint] of [['board', 'Map board', 'The map on its table, framed.'], ['horizon', 'Horizon plane', 'The map lies on a plane running to the horizon, tiled with a material and shaped by a pattern past the board.'], ['water', 'Water plane', 'The map lies on water running to the horizon, moving as painted water does.'], ['lava', 'Lava plane', 'The map lies on lava running to the horizon, glowing and moving as painted lava does.'], ['acid', 'Acid plane', 'The map lies on acid running to the horizon, bubbling and moving as painted acid does.']] as const) {
         const button = el('button', 'atlas-tabletop-palette__choice', choices, label);
         button.type = 'button';
         button.title = hint;
@@ -813,7 +837,7 @@ export class BoardToolbar {
         modes.push({ value, button });
       }
       const rows: Array<{ row: HTMLElement; modes: GroundMode[] }> = [];
-      const ON_LAND: GroundMode[] = ['horizon'], ON_WATER: GroundMode[] = ['water'], BEYOND: GroundMode[] = ['horizon', 'water'], ALWAYS: GroundMode[] = ['board', 'horizon', 'water'];
+      const ON_LAND: GroundMode[] = ['horizon'], ON_WATER: GroundMode[] = ['water', 'lava', 'acid'], CLEAR: GroundMode[] = ['water', 'acid'], BEYOND: GroundMode[] = ['horizon', 'water', 'lava', 'acid'], ALWAYS: GroundMode[] = ['board', 'horizon', 'water', 'lava', 'acid'];
       const selectRow = (label: string, aria: string, modes: GroundMode[]): HTMLSelectElement => {
         const row = el('label', 'atlas-tabletop-palette__field', section);
         el('span', 'atlas-tabletop-palette__label', row, label);
@@ -851,34 +875,67 @@ export class BoardToolbar {
       for (const one of GROUND_NOISES) { const option = el('option', '', noise, one.label); option.value = one.value; }
       noise.addEventListener('change', () => change({ noise: noise.value as GroundSettings['noise'] }));
       const strength = rangeRow('Pattern strength', 'Height pattern strength', 100, ON_LAND);
-      // The water: the same settings as painted water.
-      const waterChange = (edit: Partial<WaterMotion>): void => { const now = this.actions.ground?.(); if (now) this.actions.setGround?.({ ...now, water: { ...now.water, ...edit } }); this.fillGround(); };
-      const kind = selectRow('Water moves', 'How the water moves', ON_WATER);
-      for (const [value, label] of [['still', 'Still'], ['ripples', 'Ripples'], ['flow', 'Flow'], ['waves', 'Waves']] as const) { const option = el('option', '', kind, label); option.value = value; }
+      // The water, lava or acid: the same settings as the painted liquid, each its own.
+      const liquidOf = (mode: GroundMode): LiquidKind | null => (mode === 'water' || mode === 'lava' || mode === 'acid' ? mode : null);
+      const waterChange = (edit: Partial<WaterMotion>): void => {
+        const now = this.actions.ground?.();
+        const liquid = now ? liquidOf(now.mode) : null;
+        if (now && liquid) this.actions.setGround?.({ ...now, [liquid]: { ...now[liquid], ...edit } });
+        this.fillGround();
+      };
+      const kind = selectRow('Moves', 'How the liquid moves', ON_WATER);
+      for (const value of WATER_MOTION_KINDS) { const option = el('option', '', kind, MOTION_LABELS.water[value]); option.value = value; }
       kind.addEventListener('change', () => waterChange({ kind: kind.value as WaterMotion['kind'] }));
-      const amount = rangeRow('Water movement', 'How much the water moves', 100, ON_WATER);
+      const amount = rangeRow('Movement', 'How much the liquid moves', 100, ON_WATER);
       amount.input.addEventListener('change', () => waterChange({ amount: Number(amount.input.value) / 100 }));
-      const direction = rangeRow('Water direction', 'Where the water runs, in degrees', 359, ON_WATER);
+      const direction = rangeRow('Direction', 'Where the liquid runs, in degrees', 359, ON_WATER);
       direction.input.addEventListener('change', () => waterChange({ direction: Number(direction.input.value) }));
-      const clarity = rangeRow('Water clarity', 'How clear the water is', 100, ON_WATER);
+      const clarity = rangeRow('Clarity', 'How clear the liquid is', 100, CLEAR);
       clarity.input.addEventListener('change', () => waterChange({ clarity: Number(clarity.input.value) / 100 }));
       const tintRow = el('label', 'atlas-tabletop-palette__field', section);
-      el('span', 'atlas-tabletop-palette__label', tintRow, 'Water colour');
+      el('span', 'atlas-tabletop-palette__label', tintRow, 'Tint');
       const tint = el('input', 'atlas-tabletop-palette__color', tintRow);
       tint.type = 'color';
-      tint.setAttribute('aria-label', 'Water colour');
+      tint.setAttribute('aria-label', 'Liquid tint');
       tint.addEventListener('change', () => waterChange({ tint: tint.value.toLowerCase() }));
       rows.push({ row: tintRow, modes: ON_WATER });
+      // The liquid's own presets, made again for each liquid.
+      const presetRow = el('div', 'atlas-tabletop-palette__field', section);
+      el('span', 'atlas-tabletop-palette__label', presetRow, 'Presets');
+      const presets = el('span', 'atlas-swatch-grid atlas-tabletop-ground-tints', presetRow);
+      presets.setAttribute('role', 'group');
+      presets.setAttribute('aria-label', 'Liquid tint presets');
+      rows.push({ row: presetRow, modes: ON_WATER });
+      const makePresets = (liquid: LiquidKind): void => {
+        presets.replaceChildren();
+        for (const preset of LIQUID_TINTS[liquid]) {
+          const button = el('button', 'atlas-swatch', presets);
+          button.type = 'button';
+          button.style.backgroundColor = preset.tint;
+          button.setAttribute('aria-label', preset.name);
+          button.title = preset.name;
+          button.dataset.tint = preset.tint;
+          button.addEventListener('click', () => waterChange({ tint: preset.tint }));
+        }
+        presets.dataset.liquid = liquid;
+      };
       strength.input.addEventListener('change', () => change({ strength: Number(strength.input.value) / 100 }));
       strength.input.addEventListener('input', () => { strength.value.textContent = `${strength.input.value}%`; });
+      // Distance fog: off, or from thin (80) to thick (100); the plane runs a little past where it hides everything.
       const fogRow = rangeRow('Distance fog', 'Distance fog', 100, BEYOND);
+      fogRow.input.min = String(FOG_MIN);
+      const fogOn = el('input', 'atlas-tabletop-palette__check', fogRow.input.closest('label')!);
+      fogOn.type = 'checkbox';
+      fogOn.setAttribute('aria-label', 'Distance fog on');
+      fogRow.input.before(fogOn);
+      fogOn.addEventListener('change', () => change({ fog: fogOn.checked ? Number(fogRow.input.value) || FOG_MIN : 0 }));
       fogRow.input.addEventListener('change', () => change({ fog: Number(fogRow.input.value) }));
-      fogRow.input.addEventListener('input', () => { fogRow.value.textContent = fogRow.input.value === '0' ? 'off' : fogRow.input.value; });
+      fogRow.input.addEventListener('input', () => { fogRow.value.textContent = fogRow.input.value; });
       const margin = rangeRow('Extra board', 'Extra board round the map, in squares', MAX_MARGIN, ALWAYS);
       margin.input.addEventListener('change', () => change({ margin: Number(margin.input.value) }));
       margin.input.addEventListener('input', () => { margin.value.textContent = `${margin.input.value} sq`; });
       margin.input.closest('label')!.title = 'Room round the map where minis can stand, in squares each way.';
-      this.groundUi = { section, modes, rows, water: { kind, amount: amount.input, direction: direction.input, directionRow: direction.input.closest('label')!, clarity: clarity.input, tint }, material, noise, strength: strength.input, strengthValue: strength.value, fog: fogRow.input, fogValue: fogRow.value, margin: margin.input, marginValue: margin.value, tile: tile.input, tileValue: tile.value };
+      this.groundUi = { section, modes, rows, water: { kind, amount: amount.input, direction: direction.input, directionRow: direction.input.closest('label')!, clarity: clarity.input, tint, presets, makePresets }, material, noise, strength: strength.input, strengthValue: strength.value, fog: fogRow.input, fogOn, fogValue: fogRow.value, margin: margin.input, marginValue: margin.value, tile: tile.input, tileValue: tile.value };
     }
     const edges = el('div', 'atlas-tabletop-palette__field', fog);
     el('span', 'atlas-tabletop-palette__label', edges, 'Wall edges');
@@ -1057,6 +1114,9 @@ export class BoardToolbar {
     this.waterButton.setAttribute('aria-pressed', String(waterMode !== null));
     const tick = (on: boolean): string => (on ? CHECK_SVG.replace('class="atlas-swatch-check"', 'class="atlas-dropdown-menu-item__tick"') : '');
     for (const choice of this.waterPanel.querySelectorAll<HTMLElement>('[data-water]')) setSvg(choice.querySelector('.atlas-dropdown-menu-item__check')!, tick(choice.dataset.water === waterMode));
+    const liquid = this.actions.liquid?.() ?? 'water';
+    for (const choice of this.waterPanel.querySelectorAll<HTMLElement>('[data-liquid]')) setSvg(choice.querySelector('.atlas-dropdown-menu-item__check')!, tick(choice.dataset.liquid === liquid));
+    this.nameLiquid(liquid);
     const motion = this.actions.waterMotion?.();
     for (const choice of this.waterPanel.querySelectorAll<HTMLElement>('[data-motion]')) setSvg(choice.querySelector('.atlas-dropdown-menu-item__check')!, tick(choice.dataset.motion === motion?.kind));
     if (motion) {
@@ -1565,18 +1625,42 @@ export class BoardToolbar {
   private readonly tableButton: HTMLButtonElement;
 
   /** The Ground section as the map's settings are now (the material list read again: the gallery may have more). */
+  /** The brush's menu named for its liquid: its modes, motions and tint, the liquid's presets, no clarity for lava. */
+  private nameLiquid(liquid: LiquidKind): void {
+    const ui = this.liquidUi;
+    const name = LIQUID_NAMES[liquid].toLowerCase();
+    ui.modes.get('paint')!.textContent = `Paint ${name}`;
+    ui.modes.get('fill')!.textContent = `Fill ${name}`;
+    for (const [kind, label] of ui.motions) label.textContent = MOTION_LABELS[liquid][kind];
+    ui.motionLabel.textContent = `Motion (all ${name} on this map)`;
+    ui.tintLabel.textContent = `Tint (all ${name} on this map)`;
+    this.waterButton.setAttribute('aria-label', liquid === 'water' ? 'Water' : `Water (${name})`);
+    if (ui.tintsOf !== liquid) { ui.makeTints(liquid); ui.tintsOf = liquid; }
+    // Lava is never clear: the row stays, shown off, so the menu keeps its shape.
+    if (ui.clarityRow) {
+      ui.clarityRow.classList.toggle('is-disabled', liquid === 'lava');
+      ui.clarityRow.querySelector('input')!.disabled = liquid === 'lava';
+    }
+  }
+
   private fillGround(): void {
     const ui = this.groundUi;
     const ground = this.actions.ground?.();
     if (!ui || !ground) return;
     for (const { value, button } of ui.modes) { button.classList.toggle('is-active', value === ground.mode); button.setAttribute('aria-pressed', String(value === ground.mode)); }
     for (const { row, modes } of ui.rows) row.hidden = !modes.includes(ground.mode);
-    ui.water.kind.value = ground.water.kind;
-    ui.water.amount.value = String(Math.round(ground.water.amount * 100));
-    ui.water.direction.value = String(Math.round(ground.water.direction));
-    if (ground.mode === 'water') ui.water.directionRow.hidden = ground.water.kind !== 'flow' && ground.water.kind !== 'waves';
-    ui.water.clarity.value = String(Math.round(ground.water.clarity * 100));
-    ui.water.tint.value = ground.water.tint;
+    // The liquid to the horizon's own settings (the water's while the mode is no liquid).
+    const liquid: LiquidKind = ground.mode === 'lava' || ground.mode === 'acid' ? ground.mode : 'water';
+    const motion = ground[liquid];
+    for (const option of ui.water.kind.options) option.textContent = MOTION_LABELS[liquid][option.value as WaterMotionKind];
+    ui.water.kind.value = motion.kind;
+    ui.water.amount.value = String(Math.round(motion.amount * 100));
+    ui.water.direction.value = String(Math.round(motion.direction));
+    if (ground.mode === liquid) ui.water.directionRow.hidden = motion.kind !== 'flow' && motion.kind !== 'waves';
+    ui.water.clarity.value = String(Math.round(motion.clarity * 100));
+    ui.water.tint.value = motion.tint;
+    if (ui.water.presets.dataset.liquid !== liquid) ui.water.makePresets(liquid);
+    for (const swatch of ui.water.presets.querySelectorAll<HTMLElement>('[data-tint]')) swatch.classList.toggle('atlas-swatch--active', swatch.dataset.tint === motion.tint);
     const doc = ui.material.ownerDocument;
     ui.material.replaceChildren();
     const plain = doc.createElement('option');
@@ -1588,8 +1672,10 @@ export class BoardToolbar {
     ui.noise.value = ground.noise;
     ui.strength.value = String(Math.round(ground.strength * 100));
     ui.strengthValue.textContent = `${ui.strength.value}%`;
-    ui.fog.value = String(ground.fog);
-    ui.fogValue.textContent = ground.fog === 0 ? 'off' : String(ground.fog);
+    ui.fogOn.checked = ground.fog > 0;
+    ui.fog.disabled = ground.fog <= 0;
+    if (ground.fog > 0) ui.fog.value = String(ground.fog);
+    ui.fogValue.textContent = ground.fog <= 0 ? 'off' : String(ground.fog);
     ui.margin.value = String(ground.margin);
     ui.marginValue.textContent = `${ground.margin} sq`;
     ui.tile.value = String(ground.tile);

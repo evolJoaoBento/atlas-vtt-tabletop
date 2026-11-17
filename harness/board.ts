@@ -12,8 +12,8 @@ import { Board, type BoardHost } from '../src/board/board';
 import { SceneTabBar } from '../src/board/sceneTabBar';
 import type { PropPlacement } from '../src/board/boardData';
 import { UndoHistory, type UndoStep } from '../src/board/undoHistory';
-import { readWaterMotion, WaterMask, type SavedWaterMask, type WaterMotion } from '../src/board/water';
-import { readLiquids, strokeLiquids, waterSourceOf } from '../src/board/liquids';
+import { LIQUID_DEFAULTS, LIQUID_KINDS, readWaterMotion, WaterMask, type LiquidKind, type SavedWaterMask, type WaterMotion } from '../src/board/water';
+import { maskOutlines, readLiquids, strokeLiquids, waterSourceOf, type LiquidMasks, type WaterArea, type WaterSource } from '../src/board/liquids';
 import { emptyRules } from '../src/board/conditions';
 import { QUALITY } from '../src/board/quality';
 import { lookOf } from '../src/board/look';
@@ -317,18 +317,41 @@ async function main(): Promise<void> {
     setWaterStore(next);
     history.push(waterStep(before, { ...next }, look));
   };
+  // Lava and acid as this host keeps them out of Atlas's record: their outlines (traced as Atlas would keep them) and
+  // their motions, not undone.
+  const otherLiquids: Record<'lava' | 'acid', { areas: WaterArea[]; motion: WaterMotion | null }> = { lava: { areas: [], motion: null }, acid: { areas: [], motion: null } };
+  const keepOthers = (masks: Record<LiquidKind, SavedWaterMask | null>): void => {
+    const size = board.mapSize;
+    if (!size) return;
+    for (const liquid of ['lava', 'acid'] as const) {
+      const mask = masks[liquid] ? WaterMask.read(masks[liquid], size.width, size.height, map.grid.size) : null;
+      otherLiquids[liquid].areas = mask ? maskOutlines(mask).map((area) => ({ ...area, liquid })) : [];
+    }
+  };
+  const keptWater = (): WaterSource | null => {
+    const areas = [...otherLiquids.lava.areas, ...otherLiquids.acid.areas];
+    const motions = { ...(otherLiquids.lava.motion ? { lava: otherLiquids.lava.motion } : {}), ...(otherLiquids.acid.motion ? { acid: otherLiquids.acid.motion } : {}) };
+    if (!waterStore.mask && !waterStore.motion && areas.length === 0 && Object.keys(motions).length === 0) return null;
+    return { mask: waterStore.mask, motion: waterStore.motion, ...(areas.length > 0 ? { areas } : {}), ...motions };
+  };
   // The same water kept as Atlas keeps it (`setLiquids`): a record of liquids, of which the brush changes only its
   // own. The board is then handed outlines, and a stroke is kept as the plugin's view keeps it (`strokeLiquids`).
   let liquids: Record<string, Record<string, unknown>> | null = null;
   let liquidCount = 0;
   const setLiquids = (record: Record<string, Record<string, unknown>> | null): void => { liquids = record; board.refresh(); };
-  const keepStroke = (mask: SavedWaterMask | null, record: Record<string, Record<string, unknown>>): Promise<void> | void => {
+  const keepStroke = (masks: Record<LiquidKind, SavedWaterMask | null>, record: Record<string, Record<string, unknown>>): Promise<void> | void => {
     const size = board.mapSize;
     const cell = map.grid.size;
     if (!size) return;
-    const painted = mask ? WaterMask.read(mask, size.width, size.height, cell) : WaterMask.forMap(size.width, size.height, cell);
-    if (!painted) return;
-    const stroke = strokeLiquids(painted, readLiquids(record), null, readWaterMotion(waterStore.motion));
+    const painted = {} as LiquidMasks;
+    for (const liquid of LIQUID_KINDS) {
+      const mask = masks[liquid] ? WaterMask.read(masks[liquid], size.width, size.height, cell) : WaterMask.forMap(size.width, size.height, cell);
+      if (!mask) return;
+      painted[liquid] = mask;
+    }
+    const now = readLiquids(record);
+    const motion = (liquid: LiquidKind): WaterMotion => now.find((one) => one.liquid === liquid && one.motion)?.motion ?? (liquid === 'water' ? readWaterMotion(waterStore.motion) : otherLiquids[liquid].motion ?? LIQUID_DEFAULTS[liquid]);
+    const stroke = strokeLiquids(painted, now, null, { water: motion('water'), lava: motion('lava'), acid: motion('acid') });
     for (const id of stroke.remove) delete record[id];
     for (const liquid of stroke.add) { const id = `brush_${++liquidCount}`; record[id] = { id, kind: 'liquid', ...liquid }; }
     // As the view does when Atlas's store changes; the stroke is kept by the time the promise settles.
@@ -364,10 +387,18 @@ async function main(): Promise<void> {
   };
   const host: BoardHost = {
     spellBook: () => (spellEntries === null ? null : spellBook),
-    water: () => (liquids ? waterSourceOf(readLiquids(liquids), null) : waterStore.mask || waterStore.motion ? { mask: waterStore.mask, motion: waterStore.motion } : null),
-    saveWater: (mask) => (liquids ? keepStroke(mask, liquids) : putWater({ mask, motion: waterStore.motion }, false)),
+    water: () => (liquids ? waterSourceOf(readLiquids(liquids), null, { ...(otherLiquids.lava.motion ? { lava: otherLiquids.lava.motion } : {}), ...(otherLiquids.acid.motion ? { acid: otherLiquids.acid.motion } : {}) }) : keptWater()),
+    saveWater: (masks) => {
+      if (liquids) return keepStroke(masks, liquids);
+      keepOthers(masks);
+      putWater({ mask: masks.water, motion: waterStore.motion }, false);
+      board.refresh();
+    },
     // Without water yet the motion is only remembered, for the first stroke.
-    saveWaterMotion: (motion) => { if (waterStore.mask) putWater({ mask: waterStore.mask, motion }, true); else waterStore.motion = motion; },
+    saveWaterMotion: (motion, liquid) => {
+      if (liquid !== 'water') { otherLiquids[liquid].motion = motion; return; }
+      if (waterStore.mask) putWater({ mask: waterStore.mask, motion }, true); else waterStore.motion = motion;
+    },
     undo: () => travel('undo'),
     redo: () => travel('redo'),
     canUndo: () => history.canUndo([waterPath]),

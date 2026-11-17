@@ -17,8 +17,8 @@ import { PropPiece, TokenPiece, type PoseContext } from './pieces';
 import { WallSet, type WallLookup } from './wallPieces';
 import { NO_FLIP, type DoorFlip } from './walls';
 import { NO_PLACEMENT, type Placement } from './layerPlacement';
-import { readWaterMotion, type WaterMotionKind } from './water';
-import { maskOfSource, waterKeyOf, type WaterSource } from './liquids';
+import { LIQUID_KINDS, type LiquidKind, type WaterMotionKind } from './water';
+import { maskOfSource, motionsOf, waterKeyOf, type WaterSource } from './liquids';
 import { waterDistance } from '../sound/waterSound';
 import { WaterSurface } from './waterSurface';
 import { releaseTexture } from './textures';
@@ -51,7 +51,7 @@ export interface ElevationLayerData {
   props: readonly PropPlacement[];
   /** The raised shapes standing on it (roofs, hills: `terrainShapes.ts`). */
   shapes?: readonly TerrainShape[];
-  /** The water painted on it, and how it moves (as the scene keeps them); none for no water. */
+  /** The liquids painted on it, and how each moves (as the scene keeps them); none for no liquid. */
   water?: WaterSource | null;
   /** Where it stands on the plane beyond its height, seen from the scene being played; none puts it where its grid does. */
   stands?: Placement;
@@ -143,8 +143,8 @@ export class ElevationLayerView {
   private readonly lookEase = new Fade(0);
   private imageSize: { width: number; height: number } | null = null;
   private disposed = false;
-  /** Its painted water, drawn over its floor; and what it was made from. */
-  private water: WaterSurface | null = null;
+  /** Its painted liquids, each drawn over its floor; and what they were made from. */
+  private readonly liquids = new Map<LiquidKind, WaterSurface>();
   private waterKey = '';
 
   constructor(private data: ElevationLayerData, private readonly host: ElevationLayerHost) {
@@ -361,19 +361,27 @@ export class ElevationLayerView {
     const { width, height } = this.size;
     const cell = this.data.map.grid.size;
     const key = saved && width > 0 && height > 0 ? JSON.stringify([waterKeyOf(saved), width, height, cell]) : '';
+    const motions = motionsOf(saved);
     if (key === this.waterKey) {
-      if (this.water && saved) this.water.setMotion(readWaterMotion(saved.motion));
+      for (const [liquid, surface] of this.liquids) surface.setMotion(motions[liquid]);
       return;
     }
     this.waterKey = key;
-    this.water?.dispose();
-    this.water = null;
+    this.clearLiquids();
     if (!key || !saved) return;
-    const mask = maskOfSource(saved, width, height, cell);
-    if (!mask) return;
-    this.water = new WaterSurface(mask, width, height, cell, readWaterMotion(saved.motion));
-    this.content.add(this.water.object3d);
-    this.host.wake();
+    for (const liquid of LIQUID_KINDS) {
+      const mask = maskOfSource(saved, width, height, cell, liquid);
+      if (!mask) continue;
+      const surface = new WaterSurface(mask, width, height, cell, motions[liquid], liquid);
+      this.liquids.set(liquid, surface);
+      this.content.add(surface.object3d);
+    }
+    if (this.liquids.size > 0) this.host.wake();
+  }
+
+  private clearLiquids(): void {
+    for (const surface of this.liquids.values()) surface.dispose();
+    this.liquids.clear();
   }
 
   /** Lays the floor by the layer's grid alignment (`stretchPlacement`), or, without one, at its corner at the image's own size. */
@@ -560,16 +568,19 @@ export class ElevationLayerView {
   }
 
   /**
-   * How the layer's painted water moves and how far it lies from a board point (board units); null while it shows none
-   * (no water, hidden, put away, or blacked out).
+   * How each of the layer's painted liquids moves and how far it lies from a board point (board units); none while it
+   * shows none (no liquid, hidden, put away, or blacked out).
    */
-  waterReach(x: number, z: number): { kind: WaterMotionKind; distance: number } | null {
-    const water = this.water;
+  waterReach(x: number, z: number): Array<{ liquid: LiquidKind; kind: WaterMotionKind; distance: number }> {
     const size = this.imageSize;
-    if (!water || !size || !this.object3d.visible || !this.content.visible) return null;
+    if (this.liquids.size === 0 || !size || !this.object3d.visible || !this.content.visible) return [];
     const at = this.mapPointAt(x, z);
-    const distance = waterDistance(water.mask, size.width, size.height, at);
-    return distance === Infinity ? null : { kind: water.currentMotion.kind, distance: distance * this.object3d.scale.x };
+    const out: Array<{ liquid: LiquidKind; kind: WaterMotionKind; distance: number }> = [];
+    for (const [liquid, surface] of this.liquids) {
+      const distance = waterDistance(surface.mask, size.width, size.height, at);
+      if (distance !== Infinity) out.push({ liquid, kind: surface.currentMotion.kind, distance: distance * this.object3d.scale.x });
+    }
+    return out;
   }
 
   /** Whether its floor has ground at a board point: its image there not see-through (no image: no ground). */
@@ -592,13 +603,13 @@ export class ElevationLayerView {
     }
     const moving = this.walls.step(dt) || eased;
     this.rig.step(now);
-    this.water?.tick(now);
+    for (const surface of this.liquids.values()) surface.tick(now);
     for (const entry of this.tokens.values()) entry.piece.pose(entry.x, entry.y, context, this.standOf(entry.x, entry.y));
     return moving;
   }
 
   get animated(): boolean {
-    return this.rig.animated || this.water?.moving === true || this.fading;
+    return this.rig.animated || [...this.liquids.values()].some((surface) => surface.moving) || this.fading;
   }
 
   /**
@@ -640,8 +651,7 @@ export class ElevationLayerView {
 
   dispose(): void {
     this.disposed = true;
-    this.water?.dispose();
-    this.water = null;
+    this.clearLiquids();
     this.walls.dispose();
     this.rig.dispose();
     // The faded copies are the layer's own (their textures are not: those belong to what they copy).

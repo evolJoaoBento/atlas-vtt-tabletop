@@ -2016,7 +2016,7 @@ feature('layer-water', async ({ page, shot }) => {
   }, saved);
   // The layer fades in by the clock, a frame at a time: under load that takes longer than any fixed wait.
   await page.waitForFunction(() => (window.boardTest.board.layerViews.get('wet.atlasmap')?.presence ?? 0) > 0.99, null, { timeout: 10000 }).catch(() => {});
-  const seen = await page.evaluate(() => { const views = window.boardTest.board.layerViews; const wet = views.get('wet.atlasmap'); const dry = views.get('dry.atlasmap'); const visible = (o) => { for (let n = o; n; n = n.parent) if (!n.visible) return false; return true; }; return { wet: !!wet?.water && visible(wet.water.object3d), dry: !!dry?.water, dbg: { water: !!wet?.water, presence: wet?.presence, look: wet?.look, lookLevel: wet?.lookLevel, content: wet?.content.visible, obj: wet?.object3d.visible, parentIsFloor: wet?.water?.object3d.parent === wet?.floor, parentName: wet?.water?.object3d.parent?.type } }; });
+  const seen = await page.evaluate(() => { const views = window.boardTest.board.layerViews; const wet = views.get('wet.atlasmap'); const dry = views.get('dry.atlasmap'); const visible = (o) => { for (let n = o; n; n = n.parent) if (!n.visible) return false; return true; }; const sheet = wet?.liquids.get('water'); return { wet: !!sheet && visible(sheet.object3d), dry: (dry?.liquids.size ?? 0) > 0, dbg: { water: !!sheet, presence: wet?.presence, look: wet?.look, lookLevel: wet?.lookLevel, content: wet?.content.visible, obj: wet?.object3d.visible, parentIsFloor: sheet?.object3d.parent === wet?.floor, parentName: sheet?.object3d.parent?.type } }; });
   check('a stacked scene that is shown draws its painted water; one with none draws none', seen.wet && !seen.dry, JSON.stringify(seen));
   // Faded on the way in, the water wore a copy of its material: the copy compiles as the water does.
   check('layer-water: the water of a stacked scene compiles (its faded copy keeps what its shader reads)', shaderErrors.length === 0, JSON.stringify(shaderErrors));
@@ -2232,7 +2232,8 @@ feature('water', async ({ page, shot }) => {
 
 // ── Water kept as Atlas's liquids: the board is handed outlines, and draws what was kept, not what was painted ──
 feature('water-liquids', async ({ page }) => {
-  const wetCount = () => page.evaluate(() => { const water = window.boardTest.board.water; if (!water) return 0; let n = 0; for (const v of water.mask.data) if (v) n++; return n; });
+  // Every liquid the board draws (Atlas's lava pool below is drawn as lava).
+  const wetCount = () => page.evaluate(() => { let n = 0; for (const sheet of window.boardTest.board.liquids.values()) for (const v of sheet.mask.data) if (v) n++; return n; });
   const brushCount = () => page.evaluate(() => Object.values(window.boardTest.liquids() ?? {}).filter((liquid) => liquid.tabletop?.brush === true).length);
   // The host keeps water as Atlas does from here on: a record of liquids, the brush's own marked.
   await page.evaluate(() => window.boardTest.setLiquids({}));
@@ -2265,6 +2266,127 @@ feature('water-liquids', async ({ page }) => {
   check("painting beside Atlas's liquid adds the brush's water there, in one liquid, stroke after stroke", more > pool && kept.brush === 1, JSON.stringify({ more, pool, kept }));
   check('no page error', true);
   await page.evaluate(() => { window.boardTest.board.toolbarActions().setWaterTool(null); window.boardTest.setLiquids(null); });
+});
+
+// ── Lava and acid: the brush paints each as its own liquid, each with its own look; one liquid at a place ───────────
+feature('lava and acid', async ({ page, shot }) => {
+  const shaderErrors = [];
+  page.on('console', (m) => { if (m.type() === 'error' && /Shader Error|program not valid/.test(m.text())) shaderErrors.push(m.text().slice(0, 160)); });
+  const wet = (liquid) => page.evaluate((liquid) => { const sheet = window.boardTest.board.liquids.get(liquid); if (!sheet) return 0; let n = 0; for (const v of sheet.mask.data) if (v) n++; return n; }, liquid);
+  const canvas = await page.locator('canvas').first().boundingBox();
+  const [x, y] = [canvas.x + canvas.width * 0.42, canvas.y + canvas.height * 0.62];
+  const drag = async (fromX, toX) => { await page.mouse.move(fromX, y); await page.mouse.down(); await page.mouse.move(toX, y + 10, { steps: 12 }); await page.mouse.up(); await wait(250); };
+  // The menu: a liquid picker; the modes, motions and presets named for the liquid chosen.
+  await page.locator('.atlas-tabletop-toolbar button[aria-label="Water options"]').click();
+  await page.locator('.atlas-tabletop-water-options [data-liquid="lava"]').click();
+  await wait(100);
+  const menu = await page.evaluate(() => {
+    const panel = document.querySelector('.atlas-tabletop-water-options');
+    return {
+      liquids: [...panel.querySelectorAll('[data-liquid]')].map((b) => b.dataset.liquid),
+      paint: panel.querySelector('[data-water="paint"]').textContent.trim(), still: panel.querySelector('[data-motion="still"]').textContent.trim(),
+      swatches: [...panel.querySelectorAll('.atlas-swatch')].map((b) => b.getAttribute('aria-label')),
+      clarity: panel.querySelector('input[aria-label="Clarity"]').disabled, chosen: window.boardTest.board.toolbarActions().liquid(),
+    };
+  });
+  check('lava and acid: the brush menu picks water, lava or acid, and names itself for the one picked', menu.liquids.join() === 'water,lava,acid' && menu.chosen === 'lava' && menu.paint === 'Paint lava' && menu.still === 'Crusted', JSON.stringify(menu));
+  check("lava and acid: lava's own tint presets, and no clarity for lava (shown off, the menu keeps its shape)", menu.swatches.includes('Molten') && menu.swatches.includes('Sulfur blue') && !menu.swatches.includes('Lake') && menu.clarity === true, JSON.stringify(menu));
+  await shot('lava-menu');
+  await page.locator('.atlas-tabletop-toolbar button[aria-label^="Water options"]').click();
+  // Painting lava: its own sheet, opaque, glowing, in its own motion.
+  await page.evaluate(() => { const actions = window.boardTest.board.toolbarActions(); actions.setWaterTool('paint'); actions.setWaterBrush(1.5); actions.setWaterMotion({ kind: 'flow', amount: 0.4, direction: 90, tint: '#ff5a1f', clarity: 0 }); });
+  await drag(x, x + 220);
+  const lava = await page.evaluate(() => { const { board } = window.boardTest; const sheet = board.liquids.get('lava'); const m = sheet?.object3d.material; return sheet ? { liquid: sheet.liquid, define: m.defines.LIQUID, transmission: m.transmission, tint: sheet.currentMotion.tint, kind: sheet.currentMotion.kind, water: board.liquids.has('water') } : null; });
+  check('lava and acid: a stroke of lava paints lava: its own opaque sheet in its own motion and tint', lava && lava.liquid === 'lava' && lava.define === '1' && lava.transmission === 0 && lava.tint === '#ff5a1f' && lava.kind === 'flow' && !lava.water, JSON.stringify(lava));
+  const lavaWet = await wet('lava');
+  // Acid across part of it: acid there, lava no longer under it.
+  await page.evaluate(() => { const actions = window.boardTest.board.toolbarActions(); actions.setLiquid('acid'); });
+  await drag(x + 150, x + 330);
+  const acid = await wet('acid'), lavaLeft = await wet('lava');
+  const overlap = await page.evaluate(() => { const { board } = window.boardTest; const a = board.liquids.get('acid').mask.data, l = board.liquids.get('lava').mask.data; let both = 0; for (let k = 0; k < a.length; k++) if (a[k] && l[k]) both++; return { both, define: board.liquids.get('acid').object3d.material.defines.LIQUID, clear: board.liquids.get('acid').object3d.material.transmission > 0 }; });
+  check('lava and acid: acid painted over lava replaces it there: one liquid at a place', acid > 0 && lavaLeft < lavaWet && lavaLeft > 0 && overlap.both === 0, JSON.stringify({ acid, lavaWet, lavaLeft, overlap }));
+  check('lava and acid: acid is its own sheet, see-through like water', overlap.define === '2' && overlap.clear, JSON.stringify(overlap));
+  // Each keeps its own motion: changing the acid's leaves the lava's.
+  await page.evaluate(() => window.boardTest.board.toolbarActions().setWaterMotion({ kind: 'ripples', amount: 0.7, direction: 90, tint: '#c9d43a', clarity: 0.3 }));
+  const motions = await page.evaluate(() => { const { board } = window.boardTest; return { lava: board.liquids.get('lava').currentMotion.tint, acid: board.liquids.get('acid').currentMotion.tint, kept: window.boardTest.board.host?.water?.()?.acid?.tint ?? null }; });
+  check("lava and acid: each liquid keeps its own motion and tint", motions.lava === '#ff5a1f' && motions.acid === '#c9d43a', JSON.stringify(motions));
+  await page.evaluate(() => { const { board } = window.boardTest; window.lavaPose = [JSON.parse(JSON.stringify(board.camera.pose)), JSON.parse(JSON.stringify(board.camera.goal))]; });
+  await page.evaluate(() => { const { board } = window.boardTest; const m = board.liquids.get('lava').mask; let sx = 0, sy = 0, n = 0; for (let j = 0; j < m.height; j++) for (let i = 0; i < m.width; i++) if (m.data[j * m.width + i]) { sx += i; sy += j; n++; } for (const pose of [board.camera.pose, board.camera.goal]) { pose.target.x = (sx / n) * m.texel; pose.target.z = (sy / n) * m.texel; pose.distance = 520; pose.pitch = 0.8; } board.camera.snap(); board.wake(true); });
+  await wait(900);
+  await shot('lava-acid');
+  check('lava and acid: both sheets compile', shaderErrors.length === 0, JSON.stringify(shaderErrors));
+  await page.evaluate(() => { const { board } = window.boardTest; const [pose, goal] = window.lavaPose; for (const [to, from] of [[board.camera.pose, pose], [board.camera.goal, goal]]) { Object.assign(to.target, from.target); to.distance = from.distance; to.pitch = from.pitch; to.yaw = from.yaw; } board.camera.snap(); board.wake(true); });
+  await wait(300);
+  // The eraser takes every liquid away.
+  await page.evaluate(() => { const actions = window.boardTest.board.toolbarActions(); actions.setWaterTool('erase'); actions.setWaterBrush(4); });
+  await drag(x - 80, x + 420);
+  check('lava and acid: the eraser takes every liquid away', (await wet('lava')) + (await wet('acid')) === 0);
+  await page.evaluate(() => { const actions = window.boardTest.board.toolbarActions(); actions.setWaterTool(null); actions.setLiquid('water'); });
+  // A light that glows from a surface (Atlas's lava light): a few lamps low over it, no shadows; the board's share of them capped.
+  const lamps = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    const square = (x0, y0, side) => [{ x: x0, y: y0 }, { x: x0 + side, y: y0 }, { x: x0 + side, y: y0 + side }, { x: x0, y: y0 + side }];
+    const light = (id, x0, side) => ({ id, x: x0 + side / 2, y: 100 + side / 2, bright: 5, dim: 20, color: '#ff963c', intensity: 1, animation: 'smoulder', angle: null, rotation: 0, hidden: false, darkness: false, activeBelowAmbient: null, tokenId: null, area: square(x0, 100, side) });
+    const layout = { unitDistance: 5, cell: 70, heightOf: () => 70, ambient: 0.1, litThreshold: 0.25 };
+    board.rig.update([light('river', 0, 1200), light('pool', 1300, 60)], layout);
+    const surface = board.rig.object3d.children.filter((child) => child.isPointLight && child.userData.surface);
+    const result = { count: surface.length, shadows: surface.some((l) => l.castShadow), low: surface.every((l) => l.position.y < 70), pool: surface.filter((l) => l.userData.lightId === 'pool').length };
+    board.refresh();
+    return result;
+  });
+  check("lava and acid: a surface light is a few low lamps spread over it, casting no shadows; a small pool gets one", lamps.count === 5 && lamps.pool === 1 && !lamps.shadows && lamps.low, JSON.stringify(lamps));
+});
+
+// ── Ground: lava and acid to the horizon; the fog switch, and a plane that ends a little past the fog ─────────────
+feature('ground liquids and fog', async ({ page, shot }) => {
+  const shaderErrors = [];
+  page.on('console', (m) => { if (m.type() === 'error' && /Shader Error|program not valid/.test(m.text())) shaderErrors.push(m.text().slice(0, 160)); });
+  await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'horizon', noise: 'rolling', strength: 0.5, fog: 80, margin: 0, tile: 2 }; board.refresh(); });
+  await wait(300);
+  await page.evaluate(() => window.boardTest.board.toolbar.openGround?.());
+  await wait(150);
+  const slider = await page.evaluate(() => { const input = document.querySelector('[aria-label="Distance fog"]'); return { min: input.min, max: input.max, on: document.querySelector('[aria-label="Distance fog on"]').checked }; });
+  check('ground: the fog slider runs from 80 to 100, with a switch that is on', slider.min === '80' && slider.max === '100' && slider.on, JSON.stringify(slider));
+  const reach = () => page.evaluate(() => { const { board } = window.boardTest; const g = board.groundPlane.object3d.geometry; g.computeBoundingBox(); const box = g.boundingBox; return { half: (box.max.x - box.min.x) / 2, span: board.span, fog: board.scene.fog?.far ?? null }; });
+  const at80 = await reach();
+  check('ground: at 80 the plane runs a little past where the fog hides everything, no further', at80.fog !== null && at80.half > at80.fog && at80.half < at80.fog * 1.3 + at80.span, JSON.stringify(at80));
+  await page.evaluate(() => { const box = document.querySelector('[aria-label="Distance fog on"]'); box.checked = false; box.dispatchEvent(new Event('change', { bubbles: true })); });
+  await wait(400);
+  const off = await reach();
+  const offUi = await page.evaluate(() => ({ fog: window.boardTest.groundState.value.fog, disabled: document.querySelector('[aria-label="Distance fog"]').disabled, value: document.querySelector('[aria-label="Distance fog"]').closest('label').querySelector('.atlas-tabletop-palette__unit').textContent }));
+  check('ground: the fog switched off: no fog, the plane as far as it ran before, the slider shown off', off.fog === null && Math.abs(off.half - off.span * 14) < 1 && offUi.fog === 0 && offUi.disabled && offUi.value === 'off', JSON.stringify({ off, offUi }));
+  await page.evaluate(() => { const box = document.querySelector('[aria-label="Distance fog on"]'); box.checked = true; box.dispatchEvent(new Event('change', { bubbles: true })); });
+  await wait(300);
+  check('ground: switched on again, the fog is back at the slider', (await page.evaluate(() => window.boardTest.groundState.value.fog)) >= 80);
+  // Lava to the horizon: its own sheet, its own settings, lighting the board from below.
+  const below = await page.evaluate(() => window.boardTest.board.hemisphere.groundColor.getHexString());
+  await page.getByRole('button', { name: 'Lava plane' }).click();
+  await wait(700);
+  const sea = await page.evaluate(() => {
+    const { board, groundState } = window.boardTest;
+    const presets = [...document.querySelectorAll('[aria-label="Liquid tint presets"] .atlas-swatch')].map((b) => b.getAttribute('aria-label'));
+    return { mode: groundState.value.mode, liquid: board.seaPlane.liquid, on: board.seaPlane.object3d.parent === board.scene, below: board.hemisphere.groundColor.getHexString(), presets, clarity: document.querySelector('[aria-label="How clear the liquid is"]').closest('label').hidden, still: document.querySelector('[aria-label="How the liquid moves"] option[value="still"]').textContent };
+  });
+  check('ground: Lava plane lays the map on lava to the horizon, with lava\'s presets and motions and no clarity', sea.mode === 'lava' && sea.liquid === 'lava' && sea.on && sea.presets.includes('Molten') && sea.clarity && sea.still === 'Crusted', JSON.stringify(sea));
+  check('ground: a sea of lava lights the board from below in its glow', sea.below !== below, JSON.stringify({ below, now: sea.below }));
+  await page.locator('[aria-label="Liquid tint presets"] .atlas-swatch[aria-label="Deep red"]').click();
+  await wait(300);
+  const tinted = await page.evaluate(() => ({ lava: window.boardTest.groundState.value.lava?.tint, water: window.boardTest.groundState.value.water?.tint }));
+  check("ground: the lava's tint is its own (the water's stays)", tinted.lava === '#c2240f' && tinted.water !== '#c2240f', JSON.stringify(tinted));
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { const { board } = window.boardTest; board.camera.goal.pitch = 0.4; board.wake(true); });
+  await wait(1200);
+  await shot('ground-lava');
+  await page.evaluate(() => window.boardTest.board.toolbar.openGround?.());
+  await page.getByRole('button', { name: 'Acid plane' }).click();
+  await wait(700);
+  const acid = await page.evaluate(() => ({ liquid: window.boardTest.board.seaPlane.liquid, clarity: !document.querySelector('[aria-label="How clear the liquid is"]').closest('label').hidden }));
+  check('ground: Acid plane lays the map on acid, with its clarity', acid.liquid === 'acid' && acid.clarity, JSON.stringify(acid));
+  await page.keyboard.press('Escape');
+  await wait(800);
+  await shot('ground-acid');
+  check('ground: the lava and acid seas compile', shaderErrors.length === 0, JSON.stringify(shaderErrors));
+  await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 80, margin: 0, tile: 2 }; board.refresh(); });
 });
 
 // ── Undo and redo: the toolbar's buttons take back painted water and bring it back ──────────────────────────────
@@ -5522,9 +5644,9 @@ feature('ground', async ({ page, shot }) => {
   await page.evaluate(() => { const { board } = window.boardTest; board.toolbar.openGround?.(); });
   await page.getByRole('button', { name: 'Water plane' }).click();
   await wait(600);
-  await page.evaluate(() => { const select = document.querySelector('[aria-label="How the water moves"]'); select.value = 'waves'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+  await page.evaluate(() => { const select = document.querySelector('[aria-label="How the liquid moves"]'); select.value = 'waves'; select.dispatchEvent(new Event('change', { bubbles: true })); });
   await wait(600);
-  const sea = await page.evaluate(() => { const { board, groundState } = window.boardTest; return { mode: groundState.value.mode, kind: groundState.value.water.kind, sea: board.seaPlane.object3d.parent === board.scene, ground: board.groundPlane.object3d.parent !== null, table: board.surface.table.visible, rows: !document.querySelector('[aria-label="How clear the water is"]').closest('label').hidden && document.querySelector('[aria-label="Height pattern past the board"]').closest('label').hidden }; });
+  const sea = await page.evaluate(() => { const { board, groundState } = window.boardTest; return { mode: groundState.value.mode, kind: groundState.value.water.kind, sea: board.seaPlane.object3d.parent === board.scene, ground: board.groundPlane.object3d.parent !== null, table: board.surface.table.visible, rows: !document.querySelector('[aria-label="How clear the liquid is"]').closest('label').hidden && document.querySelector('[aria-label="Height pattern past the board"]').closest('label').hidden }; });
   check('ground: Water plane lays the map on water to the horizon, set as painted water is', sea.mode === 'water' && sea.kind === 'waves' && sea.sea && !sea.ground && sea.table === false && sea.rows, JSON.stringify(sea));
   await page.keyboard.press('Escape');
   await page.evaluate(() => { const { board } = window.boardTest; board.camera.goal.pitch = 0.4; board.wake(true); });

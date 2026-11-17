@@ -104,7 +104,10 @@ export function shapeLook(shape: TerrainShape): BoardShapeLook {
 
 /** The ground as Connect reads it. */
 export function groundLook(ground: GroundSettings): BoardGroundLook {
-  return { mode: ground.mode, ...(ground.material ? { material: ground.material } : {}), noise: ground.noise, strength: ground.strength, fog: ground.fog, margin: ground.margin, tile: ground.tile, water: { ...ground.water } };
+  return {
+    mode: ground.mode, ...(ground.material ? { material: ground.material } : {}), noise: ground.noise, strength: ground.strength, fog: ground.fog, margin: ground.margin, tile: ground.tile,
+    water: { ...ground.water }, lava: { ...ground.lava }, acid: { ...ground.acid },
+  };
 }
 
 /** Where the players' AR marker sheets lie on the map, placed, for their phones; nothing when the GM placed none. */
