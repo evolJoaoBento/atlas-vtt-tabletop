@@ -19,6 +19,7 @@ import { framesAnew } from './board/playerView';
 import type { CameraKeep } from './board/camera';
 import { materialFromUrls, type LoadedMaterial } from './materials';
 import { readGround } from './board/ground';
+import { settlesWithin, STALL_MS } from './board/loadProgress';
 import { decodeLayer } from './background/backgroundCodec';
 import { BACKGROUND_SIZE, emptyLayers, readBackgroundSettings, type LoadedBackground } from './background/backgroundData';
 import type { BoardCamera, BoardCutscene, BoardExtras, PlayerCutsceneHandle, PlayerCutsceneOptions, PlayerDiceRequest, PlayerDiceResult } from './connectContract';
@@ -951,7 +952,9 @@ class PlayerBoard implements PlayerBoardHandle {
         const block = look()?.painted;
         if (!block || block.terrain !== ref) return null;
         const ids = [block.terrain, block.material, block.height];
-        await Promise.all(ids.map((asset) => this.arrival(asset, () => this.host.image(asset) !== null)));
+        // A picture that never comes leaves the horizon plane (the next draw asks again) rather than a read pending for ever.
+        const came = await settlesWithin(Promise.all(ids.map((asset) => this.arrival(asset, () => this.host.image(asset) !== null))), STALL_MS);
+        if (came === null || look()?.painted?.terrain !== ref) return null;
         const layer = async (asset: string): Promise<Uint8Array | null> => {
           const url = this.host.image(asset);
           if (!url) return null;

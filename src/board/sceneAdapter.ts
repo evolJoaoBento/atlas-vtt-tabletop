@@ -102,7 +102,7 @@ export function groundFromWire(ground: BoardGround | undefined): GroundSettings 
 
 /** The painted background the wire's ground carries (pictures by asset id, materials by id), or null for none. */
 export function paintedFromWire(ground: BoardGround | undefined): BoardPainted | null {
-  return ground?.painted ?? null;
+  return ground?.mode === 'painted' ? ground.painted ?? null : null;
 }
 
 /** The scenes stacked with the one shown, as a player's board draws them (files are asset ids; nothing stands on them but their walls, lights and props). */

@@ -104,4 +104,5 @@ test("a painted ground from the wire reads as the painted mode, its background t
   assert.deepEqual([read.mode, read.background], ['painted', 'TERRAIN']);
   assert.equal(paintedFromWire(ground), painted);
   assert.equal(paintedFromWire(undefined), null);
+  assert.equal(paintedFromWire({ ...ground, mode: 'horizon' }), null);
 });

@@ -108,3 +108,9 @@ test('the time left reads as a person says it', () => {
   assert.equal(timeLeft(120_000), 'about 2 min left');
   assert.equal(timeLeft(14 * 60_000 + 20_000), 'about 14 min left');
 });
+
+test('settlesWithin gives what came in time, and null for what never comes', async () => {
+  const { settlesWithin } = await import('../src/board/loadProgress');
+  assert.equal(await settlesWithin(Promise.resolve(7), 50), 7);
+  assert.equal(await settlesWithin(new Promise<number>(() => undefined), 20), null);
+});

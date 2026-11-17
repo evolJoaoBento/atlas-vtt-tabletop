@@ -110,3 +110,11 @@ export function timeLeft(remainingMs: number | null): string {
   const minutes = Math.floor(seconds / 60), rest = Math.round(seconds % 60);
   return rest === 0 || minutes >= 10 ? `about ${Math.round(seconds / 60)} min left` : `about ${minutes} min ${rest} s left`;
 }
+
+/** What `work` gives, or null if it has not settled within `ms` milliseconds (the wait is dropped, not the work). */
+export function settlesWithin<T>(work: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => resolve(null), ms);
+    work.then((value) => { clearTimeout(timer); resolve(value); }, (error: unknown) => { clearTimeout(timer); reject(error); });
+  });
+}
