@@ -10,3 +10,4 @@ dist-web/
 
 # Sound sources and intermediate WAVs
 .sound-src/
+.test-cache/

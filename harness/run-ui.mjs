@@ -1,6 +1,8 @@
-// Usage: PLAYWRIGHT_MODULE=<playwright or playwright-core module> node harness/run-ui.mjs [feature regex]
+// Usage: PLAYWRIGHT_MODULE=<playwright or playwright-core module> node harness/run-ui.mjs [feature regex] [--full] [--all]
 // Builds the board harness into .ui-build/, makes the test video, then runs the features checks (browser checks of what
-// was added since, with screenshots in .ui-build/shots/) and, with `--all`, the full board checks too.
+// was added since, with screenshots in .ui-build/shots/) and, with `--all`, the full board checks too. The features
+// run are the affected ones (harness/affected.cjs: new, failed last time, or a function they ran changed); a regex
+// runs the ones it matches, `--full` all of them.
 import { build } from 'esbuild';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -21,6 +23,6 @@ const atlas = process.env.ATLAS_CSS ?? '../../atlas-vtt/styles.css';
 if (existsSync(atlas)) copyFileSync(atlas, `${out}/atlas.css`);
 const run = (args) => spawnSync(process.execPath, args, { stdio: 'inherit', env: process.env }).status ?? 1;
 let status = run(['harness/make-test-video.cjs', `${out}/sweep.webm`]);
-if (status === 0) status = run(['harness/features-test.cjs', out, `${out}/shots`, ...(only ? [only] : [])]);
+if (status === 0) status = run(['harness/features-test.cjs', out, `${out}/shots`, ...(only ? [only] : []), ...(process.argv.includes('--full') ? ['--full'] : [])]);
 if (all && status === 0) status = run(['harness/board-test.cjs', out, `${out}/shots`]);
 process.exit(status);

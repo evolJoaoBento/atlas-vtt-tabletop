@@ -5,8 +5,13 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const http = require('http'), fs = require('fs'), path = require('path');
 const root = process.argv[2];
 const shots = process.argv[3];
-const only = process.argv[4] ? new RegExp(process.argv[4]) : null;
-const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.webm': 'video/webm' };
+// A name regex runs the features it matches, whatever changed; `--full` runs every one; else the affected ones
+// (harness/affected.cjs): new, failed last time, or with a function they ran changed since they last passed.
+const pattern = process.argv.slice(4).find((arg) => !arg.startsWith('--'));
+const only = pattern ? new RegExp(pattern) : null;
+const affected = require('./affected.cjs');
+const cache = require('../scripts/testCache.cjs');
+const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript; charset=utf-8', '.webm': 'video/webm' };
 const server = http.createServer((req, res) => {
   const file = path.join(root, decodeURIComponent(req.url.split('?')[0]).replace(/^\/$/, '/index.html'));
   fs.readFile(file, (err, data) => { if (err) { res.writeHead(404); res.end(); return; } res.writeHead(200, { 'content-type': types[path.extname(file)] ?? 'application/octet-stream' }); res.end(data); });
@@ -5523,15 +5528,41 @@ feature('ground', async ({ page, shot }) => {
   await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2, water: { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 } }; board.refresh(); });
 });
 
+/** What every feature depends on beside the bundle: this file outside the features, the page, the styles, the runner. */
+function globalHash() {
+  let rest = fs.readFileSync(__filename, 'utf8');
+  for (const one of features) rest = rest.replace(one.run.toString(), '');
+  const files = ['harness/affected.cjs', 'scripts/testCache.cjs', 'harness/run-ui.mjs', 'harness/make-test-video.cjs', 'harness/board.html', 'styles.css', 'package-lock.json', ...cache.repoFiles(['tests/fixtures'])];
+  return cache.hashText([rest, cache.hashFiles(files), cache.hashFile(path.join(root, 'atlas.css'))].join('\n'));
+}
+
 server.listen(0, async () => {
-  const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const errors = [];
+  const bundles = { 'board.js': affected.inventory(path.join(root, 'board.js')), 'playerBoard.js': affected.inventory(path.join(root, 'playerBoard.js')) };
+  const bundleOf = (one) => (one.url === '/playerBoard.html' ? 'playerBoard.js' : 'board.js');
+  const testHash = (one) => cache.hashText(`${one.name}\n${one.url ?? '/'}\n${one.run.toString()}`);
+  const global = globalHash();
+  const kept = cache.load('features');
+  const counts = new Map();
+  for (const one of features) { const n = counts.get(one.name) ?? 0; counts.set(one.name, n + 1); one.key = n ? `${one.name}#${n}` : one.name; }
+  const stale = (one) => { const record = kept[one.key]; return !record || record.global !== global || record.test !== testHash(one) || !affected.holds(record, bundles[bundleOf(one)]); };
+  const chosen = features.filter((one) => (only ? only.test(one.name) : cache.full() || stale(one)));
+  if (!chosen.length) {
+    console.log(`affected: 0 of ${features.length} features (all unchanged since they last passed; --full runs them all)`);
+    server.close();
+    process.exit(0);
+  }
+  const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   try {
-    for (const one of features) {
-      if (only && !only.test(one.name)) continue;
+    for (const one of chosen) {
       const page = await browser.newPage({ viewport: { width: 1000, height: 640 } });
       page.on('console', (m) => { if (m.type() === 'error') errors.push(`${one.name}: ${m.text()}`); });
       page.on('pageerror', (e) => errors.push(`${one.name}: pageerror: ${e.message}`));
+      const before = results.length;
+      let threw = false;
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send('Profiler.enable');
+      await cdp.send('Profiler.startPreciseCoverage', { callCount: false, detailed: false });
       try {
         await page.goto(`http://127.0.0.1:${server.address().port}${one.url ?? '/'}`);
         await page.waitForFunction(() => window.boardTest?.ready || window.playerTest?.ready || window.boardError, null, { timeout: 30000 });
@@ -5541,14 +5572,32 @@ server.listen(0, async () => {
         const shot = (name, clip) => page.screenshot({ path: `${shots}/${name}.png`, ...(clip ? { clip } : {}) });
         await one.run({ page, shot });
       } catch (error) {
+        threw = true;
         check(`${one.name} ran`, false, String(error && error.stack || error));
+      }
+      // Kept only when it passed: what it ran of its bundle, so a change elsewhere leaves it be.
+      const passed = !threw && results.slice(before).every((r) => r.ok);
+      delete kept[one.key];
+      if (passed) {
+        try {
+          const bundle = bundleOf(one);
+          const { result } = await cdp.send('Profiler.takePreciseCoverage');
+          const entry = result.find((script) => script.url.endsWith(`/${bundle}`));
+          if (entry) kept[one.key] = { global, test: testHash(one), ...affected.ran(entry, bundles[bundle]) };
+        } catch (error) {
+          errors.push(`${one.name}: coverage: ${error.message}`);
+        }
       }
       await page.close();
     }
   } finally {
     await browser.close();
     server.close();
+    for (const key of Object.keys(kept)) if (!features.some((one) => one.key === key)) delete kept[key];
+    cache.save('features', kept);
   }
+  if (only) console.log(`ran the ${chosen.length} of ${features.length} features matching ${only}`);
+  else if (chosen.length < features.length) console.log(`affected: ran ${chosen.length} of ${features.length} features (${features.length - chosen.length} unchanged since they last passed; --full runs them all)`);
   for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.ok || !r.detail ? '' : `  ${r.detail}`}`);
   if (errors.length) console.log(`console errors (${errors.length}):\n  ${[...new Set(errors)].slice(0, 6).join('\n  ')}`);
   const failed = results.filter((r) => !r.ok).length;
