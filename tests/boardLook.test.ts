@@ -1,4 +1,5 @@
 import { FOG_MIN } from '../src/board/ground';
+import { DEFAULT_BACKGROUND } from '../src/background/backgroundData';
 import { LIQUID_DEFAULTS } from '../src/board/water';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -68,6 +69,23 @@ test('a material with its texture strengthened tells Connect how; one left as ma
   const look = lookOf(data(), { info: (folder) => (folder === 'mat/brick' ? { ...infos[folder]!, tuning: { relief: 2, occlusion: 1, shine: 0.3, depth: 0, displace: 0, outward: 0 } } : folder === 'mat/wood' ? { ...infos[folder]!, tuning: { relief: 1, occlusion: 1, shine: 0, depth: 0, displace: 0, outward: 0 } } : null) });
   assert.deepEqual(look.materials.find((material) => material.id === 'mat/brick')?.tuning, { relief: 2, occlusion: 1, shine: 0.3, depth: 0, displace: 0, outward: 0 });
   assert.equal('tuning' in look.materials.find((material) => material.id === 'mat/wood')!, false);
+});
+
+test('a painted ground tells players where its layers are, its settings and its materials; without settings it says nothing of them', () => {
+  const board = data();
+  board.setGround('m.atlasmap', { mode: 'painted', background: 'atlas-vtt/assets/backgrounds/Moor', noise: 'dunes', strength: 0.4, fog: 60, margin: 8, tile: 3 } as never);
+  const settings = { ...DEFAULT_BACKGROUND, name: 'Moor', materials: ['mat/wood', 'mat/gone'] };
+  const known = (folder: string) => (folder === 'atlas-vtt/assets/backgrounds/Moor' ? settings : null);
+  const look = boardLookFor(board, materials, 'm.atlasmap', [], undefined, null, extras(), undefined, known);
+  assert.deepEqual(look.ground?.painted, {
+    terrain: 'atlas-vtt/assets/backgrounds/Moor/terrain.png', material: 'atlas-vtt/assets/backgrounds/Moor/material.png', height: 'atlas-vtt/assets/backgrounds/Moor/height.png',
+    settings, materials: ['mat/wood', ''],
+  });
+  assert.ok(look.materials.some((material) => material.id === 'mat/wood'));
+  assert.equal(look.ground?.mode, 'painted');
+  const unread = lookOf(board);
+  assert.equal(unread.ground?.mode, 'painted');
+  assert.equal('painted' in (unread.ground ?? {}), false);
 });
 
 test("the raised shapes of the level shown go to players with their materials; the ground goes always", () => {

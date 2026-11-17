@@ -10,7 +10,9 @@ import type { MaterialDefaults } from '../materialDefaults';
 import { placeSurvey, type ArSurvey, type SavedArTable } from '../arTable';
 import type { BoardMark, BoardSession, BoardViewer, GmCutscene } from '../connectContract';
 import type { CutsceneOwner } from '../cutscene/cutsceneRun';
-import { ItemView, Menu, Modal, Notice, TFile, debounce, setIcon, type App, type EventRef, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
+import type { BackgroundStore } from '../background/backgroundStore';
+import type { LoadedBackground } from '../background/backgroundData';
+import { ItemView, Menu, Modal, Notice, TFile, TFolder, debounce, setIcon, type App, type EventRef, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
 import { ATLAS_VIEW_TYPE, presentedSceneOf, tabViewOf, type AtlasSceneState, type AtlasView } from '../atlas';
 import { AtlasBridge } from '../atlasBridge';
 import { collectionRulesOf } from '../collectionRulesOf';
@@ -138,6 +140,8 @@ export interface BoardServices {
   minis: MiniLibrary;
   props: MiniLibrary;
   materials: MaterialLibrary;
+  /** The saved painted backgrounds the Painted ground can show; without it (the test harness) the board offers none. */
+  backgrounds?: BackgroundStore;
   writer: TokenWriter;
   /** The quality setting the board draws with. */
   quality(): Quality;
@@ -366,6 +370,47 @@ export class BoardView extends ItemView {
     // The toolbar's undo and redo follow the history.
     const history = this.services.history;
     if (history) this.register(history.onChange(() => this.board?.refreshToolbar()));
+    // The painted backgrounds: the list the Painted ground chooses from, kept fresh; one saved while shown is drawn again.
+    const backgrounds = this.services.backgrounds;
+    if (backgrounds) {
+      void this.listBackgrounds();
+      this.register(backgrounds.onChange(() => { void this.listBackgrounds(); this.backgroundSaved(); }));
+    }
+  }
+
+  /** The saved backgrounds, as the Painted ground's choices; filled when the tab opens and when one is made, renamed or removed. */
+  private backgroundList: readonly { folder: string; name: string }[] = [];
+
+  private async listBackgrounds(): Promise<void> {
+    const store = this.services.backgrounds;
+    if (!store) return;
+    try {
+      const items = await store.list();
+      if (this.closed) return;
+      this.backgroundList = items.map(({ folder, name }) => ({ folder, name }));
+      this.board?.refreshToolbar();
+    } catch (error) {
+      this.warn(`Tabletop: cannot list the backgrounds: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /** A background as the board draws it: its materials are the vault folders its slots name, null where one is gone. */
+  private async readBackground(folder: string): Promise<LoadedBackground | null> {
+    const loaded = await this.services.backgrounds?.load(folder);
+    if (!loaded) return null;
+    const materials = loaded.settings.materials.map((path) => (this.app.vault.getAbstractFileByPath(path) instanceof TFolder ? path : null));
+    return { ...loaded, materials };
+  }
+
+  /** Some background was saved: if the ground shown is painted, it is read again and drawn (any change may be a save of that one). */
+  private backgroundSaved(): void {
+    const path = this.path;
+    const board = this.board;
+    if (!path || !board) return;
+    const ground = this.services.boardData.ground(path);
+    if (ground.mode !== 'painted' || !ground.background) return;
+    board.forgetBackground(ground.background);
+    board.refresh();
   }
 
   /** The maps this board's undo reaches: its own. */
@@ -1607,6 +1652,11 @@ export class BoardView extends ItemView {
       setLightHeight: (id, squares) => this.setLightHeight(mapPath(), id, squares),
       doorProp: (id) => this.extras().doorProp(id),
       doorFlip: (id) => this.extras().doorFlip(id),
+      ...(this.services.backgrounds && {
+        // A background with the vault folders of its materials as `readMaterial` takes them (null where a folder is gone).
+        readBackground: (folder: string) => this.readBackground(folder),
+        backgrounds: () => this.backgroundList,
+      }),
       readMaterial: (path) => this.services.materials.load(path).catch((error: unknown) => {
         this.warn(`Tabletop: cannot read the material ${path}: ${error instanceof Error ? error.message : String(error)}`);
         return null;

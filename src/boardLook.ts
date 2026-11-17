@@ -16,6 +16,7 @@ import { placedTable, type ArTable } from './arTable';
 import type { BoardGroundLook, BoardLayerLook, BoardLook, BoardShapeLook, BoardWater } from './connectContract';
 import type { TerrainShape } from './board/terrainShapes';
 import type { GroundSettings } from './board/ground';
+import type { BackgroundSettings } from './background/backgroundData';
 import { DEFAULT_TUNING, pickMaps, readMaterialSettings, tuningOf, MATERIAL_SETTINGS_FILE, type MaterialMaps, type MaterialTuning } from './materialMaps';
 
 export interface MaterialInfo {
@@ -48,7 +49,7 @@ export function lookMaps(mapPath: string, viewedLevel: string | null, scenes: { 
   return { own, shown, levelMap };
 }
 
-export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: string, layers: ReadonlyArray<BoardLayerLook> = [], shown: { levels: readonly BoardLevel[]; level: string | null } = { levels: [], level: null }, defaults: { walls: readonly BoardWall[]; chosen: MaterialDefaults } | null = null, extras: RecordExtras = extrasOf(null, data.legacyExtras(mapPath)), water: { water?: BoardWater } = waterOf(null, onFirstLevel(shown.levels, shown.level) ? data.legacyWater(mapPath) : null)): BoardLook {
+export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: string, layers: ReadonlyArray<BoardLayerLook> = [], shown: { levels: readonly BoardLevel[]; level: string | null } = { levels: [], level: null }, defaults: { walls: readonly BoardWall[]; chosen: MaterialDefaults } | null = null, extras: RecordExtras = extrasOf(null, data.legacyExtras(mapPath)), water: { water?: BoardWater } = waterOf(null, onFirstLevel(shown.levels, shown.level) ? data.legacyWater(mapPath) : null), background: (folder: string) => BackgroundSettings | null = () => null): BoardLook {
   // Walls with no material painted wear their kind's default, for players too.
   const wallsById = new Map((defaults?.walls ?? []).map((wall) => [wall.id, wall]));
   const wallMaterial = (id: string): string | null => {
@@ -60,7 +61,10 @@ export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: 
   // The raised shapes of the level shown, and the ground round the map: their materials go with the walls'.
   const shapes = propsOnLevel(data.shapes(mapPath), shown.level, shown.levels);
   const ground = data.ground(mapPath);
-  const used = [...new Set([...extras.usedMaterials(), ...fromDefaults, ...shapeMaterials(shapes), ...(ground.material ? [ground.material] : [])])]
+  // A painted ground's settings, once read: its materials join the others, and a folder with none (gone, or not read yet) is an empty slot.
+  const settings = ground.mode === 'painted' && ground.background ? background(ground.background) : null;
+  const slots = settings ? settings.materials.map((folder) => (materials.info(folder) ? folder : '')) : [];
+  const used = [...new Set([...extras.usedMaterials(), ...fromDefaults, ...shapeMaterials(shapes), ...(ground.material ? [ground.material] : []), ...slots.filter((folder) => folder !== '')])]
     .map((id) => ({ id, info: materials.info(id) }))
     .filter((entry): entry is { id: string; info: MaterialInfo } => entry.info !== null)
     .map(({ id, info }) => ({ id, scale: info.scale, maps: { ...info.maps }, ...(!info.tuning || isDefault(info.tuning) ? {} : { tuning: { ...info.tuning } }) }));
@@ -80,7 +84,7 @@ export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: 
     ...water,
     ...arTableOf(data, mapPath),
     ...(shapes.length > 0 ? { shapes: shapes.map(shapeLook) } : {}),
-    ground: groundLook(ground),
+    ground: groundLook(ground, settings && ground.background ? { folder: ground.background, settings, materials: slots } : null),
     props: propsOnLevel(data.props(mapPath), shown.level, shown.levels).map((prop) => ({ id: prop.id, path: prop.glb, x: prop.x, y: prop.y, scale: prop.scale, turn: prop.rotation, ...(prop.solid ? { solid: true } : {}), ...(prop.lift ? { lift: prop.lift } : {}) })),
     materials: used,
   });
@@ -102,11 +106,16 @@ export function shapeLook(shape: TerrainShape): BoardShapeLook {
   };
 }
 
-/** The ground as Connect reads it. */
-export function groundLook(ground: GroundSettings): BoardGroundLook {
+/**
+ * The ground as Connect reads it. A painted ground also carries where its three layer pictures lie (`painted.folder`),
+ * its settings, and its material folders by slot (an empty one where the folder is gone); without the settings
+ * (`painted` null: not read yet) it says nothing of them, and Connect falls back.
+ */
+export function groundLook(ground: GroundSettings, painted: { folder: string; settings: BackgroundSettings; materials: readonly string[] } | null = null): BoardGroundLook {
   return {
     mode: ground.mode, ...(ground.material ? { material: ground.material } : {}), noise: ground.noise, strength: ground.strength, fog: ground.fog, margin: ground.margin, tile: ground.tile,
     water: { ...ground.water }, lava: { ...ground.lava }, acid: { ...ground.acid },
+    ...(painted ? { painted: { terrain: `${painted.folder}/terrain.png`, material: `${painted.folder}/material.png`, height: `${painted.folder}/height.png`, settings: painted.settings, materials: [...painted.materials] } } : {}),
   };
 }
 

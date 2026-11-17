@@ -163,6 +163,12 @@ export interface BoardGroundLook {
   readonly water: { kind: string; amount: number; direction: number; tint: string; clarity: number };
   readonly lava: { kind: string; amount: number; direction: number; tint: string; clarity: number; style?: string };
   readonly acid: { kind: string; amount: number; direction: number; tint: string; clarity: number };
+  /**
+   * The painted background of the 'painted' mode: vault paths of its three layer pictures, its settings as saved (plain
+   * JSON) and its material folders by slot ('' where the folder is gone; the others are ids of the look's `materials`).
+   * Absent while the GM's side has not read the background yet.
+   */
+  readonly painted?: { terrain: string; material: string; height: string; settings: unknown; materials: string[] };
 }
 
 /** What players do on a map, for the GM's board: a ping, new points of a laser, or an instantaneous spell. */

@@ -58,6 +58,7 @@ import { drawSoundControls } from './src/sound/soundRow';
 import { SoundEngine } from './src/sound/soundEngine';
 import { VaultSounds } from './src/sound/vaultSounds';
 import { BackgroundStore } from './src/background/backgroundStore';
+import type { BackgroundSettings } from './src/background/backgroundData';
 import { decodeLayer, encodeLayer, renderThumbnail } from './src/background/backgroundCodec';
 import { vaultBackgroundFiles } from './src/background/vaultBackgroundFiles';
 import { DEFAULT_DICE_SETTINGS, DIE_SQUARES, MOTION_THRESHOLD, readDiceSettings, TOLERANCE, type TabletopDiceSettings } from './src/dice/diceSettings';
@@ -196,6 +197,19 @@ export default class TabletopPlugin extends Plugin {
   materials!: MaterialLibrary;
   /** The painted backgrounds kept in the vault (the gallery's Backgrounds tab edits them; boards use them). */
   backgrounds!: BackgroundStore;
+  /** The settings of the backgrounds the look sent to players names, as last read (null: none there); the look is built at once, so a missing one is read and the look sent again. */
+  private readonly backgroundSettings = new Map<string, BackgroundSettings | null>();
+
+  private backgroundSettingsOf(folder: string): BackgroundSettings | null {
+    if (this.backgroundSettings.has(folder)) return this.backgroundSettings.get(folder) ?? null;
+    this.backgroundSettings.set(folder, null);
+    void this.backgrounds.load(folder).then((loaded) => {
+      if (!loaded) return;
+      this.backgroundSettings.set(folder, loaded.settings);
+      this.boardChanged(null);
+    }).catch((error: unknown) => { console.warn('[Tabletop] Could not read a painted background for Connect:', error); });
+    return null;
+  }
   api: TabletopApi | null = null;
   /** The one Atlas view the boards edit through; null before load and after unload. */
   private host: AtlasHost | null = null;
@@ -283,6 +297,8 @@ export default class TabletopPlugin extends Plugin {
       decode: (bytes, size) => decodeLayer(bytes, size),
       thumbnail: (layers) => renderThumbnail(layers, document),
     });
+    // A background saved, renamed or removed: the settings Connect's look carries are read again, and players are sent the look.
+    this.register(this.backgrounds.onChange(() => { this.backgroundSettings.clear(); this.boardChanged(null); }));
     this.register(() => { this.library.dispose(); this.props.dispose(); this.materials.dispose(); });
     this.register(this.materials.onChange(() => { for (const view of this.boards()) view.refreshMaterials(); }));
     // The one Atlas view every edit of Atlas's records goes through (Atlas keeps one map loaded at a time).
@@ -361,6 +377,7 @@ export default class TabletopPlugin extends Plugin {
       minis: this.library,
       props: this.props,
       materials: this.materials,
+      backgrounds: this.backgrounds,
       writer,
       quality: () => this.settings.quality,
       tiltShift: () => this.settings.tiltShift === true,
@@ -554,7 +571,7 @@ export default class TabletopPlugin extends Plugin {
         const extras = extrasOf({ walls, lights: [...(own?.lights ?? []), ...(levelMap?.lights ?? [])] }, this.boardData.legacyExtras(mapPath));
         // The water of the level players are shown: Atlas's liquids, and an old mask not moved yet (it lies on the first level).
         const water = waterOf(levelMap ?? own, !shown || onFirstLevel(shown.levels, shown.level) ? this.boardData.legacyWater(mapPath) : null);
-        return Object.freeze({ ...boardLookFor(this.boardData, this.materialIndex!, mapPath, layers, shown, { walls, chosen }, extras, water), layerLook: readLayerLook(this.settings.layerLook) });
+        return Object.freeze({ ...boardLookFor(this.boardData, this.materialIndex!, mapPath, layers, shown, { walls, chosen }, extras, water, (folder) => this.backgroundSettingsOf(folder)), layerLook: readLayerLook(this.settings.layerLook) });
       },
       onBoardChange: (listener: (mapPath: string | null) => void) => {
         this.boardListeners.add(listener);
