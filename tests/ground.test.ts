@@ -31,6 +31,11 @@ test('lava and acid to the horizon: their own modes, each with its own motion re
   assert.deepEqual(lava.lava, { ...LIQUID_DEFAULTS.lava, kind: 'waves', amount: 1, tint: '#c2240f' });
   assert.deepEqual(lava.acid, LIQUID_DEFAULTS.acid);
   assert.equal(readGround({ mode: 'acid' }).mode, 'acid');
+  // The kind of lava: read where it is one, its default where it is none; water and acid have none.
+  assert.equal(lava.lava.style, 'crust');
+  assert.equal(readGround({ lava: { style: 'magma' } }).lava.style, 'magma');
+  assert.equal(readGround({ lava: { style: 'plasma' } }).lava.style, 'crust');
+  assert.equal(readGround({ acid: { style: 'magma' } }).acid.style, undefined);
   // Water keeps its own: lava's settings never reach it.
   assert.deepEqual(lava.water, LIQUID_DEFAULTS.water);
 });

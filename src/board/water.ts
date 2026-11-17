@@ -17,7 +17,20 @@ export interface WaterMotion {
   tint: string;
   /** How clear the water is, 0 (opaque: the ground under it is hidden) to 1 (glass clear). */
   clarity: number;
+  /** Lava only: what kind of lava it is (`LAVA_STYLES`); absent on water and acid. */
+  style?: LavaStyle;
 }
+
+/** The kinds of lava, each its own look: how much of it is crust, and what the crust is like. */
+export type LavaStyle = 'crust' | 'ropey' | 'rubble' | 'lake' | 'magma';
+export const LAVA_STYLES: readonly { value: LavaStyle; label: string; hint: string }[] = [
+  { value: 'crust', label: 'Crusted flow', hint: 'Plates of dark cooled crust with glowing cracks between them' },
+  { value: 'ropey', label: 'Ropey (pahoehoe)', hint: 'A smooth glossy skin folded into ropes, molten toes breaking out' },
+  { value: 'rubble', label: 'Rubble (a\'a)', hint: 'Rough jagged clinker, glowing only deep in the gaps' },
+  { value: 'lake', label: 'Lava lake', hint: 'Open molten rock, crust rafts drifting and breaking on it' },
+  { value: 'magma', label: 'Magma', hint: 'Thick, very hot rock, swirling with dark streaks of slag' },
+];
+const STYLE_VALUES = new Set<string>(LAVA_STYLES.map((style) => style.value));
 
 /** Colours to start the tint from. */
 export const WATER_TINTS: readonly { name: string; tint: string }[] = [
@@ -40,7 +53,7 @@ export const LIQUID_KINDS: readonly LiquidKind[] = ['water', 'lava', 'acid'];
 /** How each liquid starts: lava flowing slowly in molten orange and opaque, acid bubbling, bright and a little clear. */
 export const LIQUID_DEFAULTS: Readonly<Record<LiquidKind, WaterMotion>> = {
   water: DEFAULT_WATER_MOTION,
-  lava: { kind: 'flow', amount: 0.35, direction: 90, tint: '#ff5a1f', clarity: 0 },
+  lava: { kind: 'flow', amount: 0.35, direction: 90, tint: '#ff5a1f', clarity: 0, style: 'crust' },
   acid: { kind: 'ripples', amount: 0.45, direction: 90, tint: '#8bd630', clarity: 0.35 },
 };
 
@@ -68,7 +81,7 @@ export const LIQUID_TINTS: Readonly<Record<LiquidKind, readonly { name: string; 
 /** What each motion is called for each liquid (lava that stands still is a crusted pool, acid that ripples bubbles). */
 export const MOTION_LABELS: Readonly<Record<LiquidKind, Readonly<Record<WaterMotionKind, string>>>> = {
   water: { still: 'Still', ripples: 'Ripples', flow: 'Flowing', waves: 'Waves' },
-  lava: { still: 'Crusted', ripples: 'Churning', flow: 'Flowing', waves: 'Surging' },
+  lava: { still: 'Still', ripples: 'Churning', flow: 'Flowing', waves: 'Surging' },
   acid: { still: 'Still', ripples: 'Bubbling', flow: 'Flowing', waves: 'Surging' },
 };
 
@@ -82,7 +95,9 @@ export function readWaterMotion(raw: unknown, fallback: WaterMotion = DEFAULT_WA
   const turn = typeof value.direction === 'number' && Number.isFinite(value.direction) ? value.direction : fallback.direction;
   const tint = typeof value.tint === 'string' && /^#[0-9a-f]{6}$/i.test(value.tint) ? value.tint.toLowerCase() : fallback.tint;
   const clarity = typeof value.clarity === 'number' && Number.isFinite(value.clarity) ? Math.min(1, Math.max(0, value.clarity)) : fallback.clarity;
-  return { kind, amount, direction: ((turn % 360) + 360) % 360, tint, clarity };
+  // A kind of lava only where the motion is lava's (its fallback has one).
+  const style = typeof value.style === 'string' && STYLE_VALUES.has(value.style) && fallback.style ? value.style as LavaStyle : fallback.style;
+  return { kind, amount, direction: ((turn % 360) + 360) % 360, tint, clarity, ...(style ? { style } : {}) };
 }
 
 /** A mask as the board data keeps it. */

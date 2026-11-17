@@ -11,7 +11,7 @@ import { FOG_MIN, GROUND_NOISES, MAX_MARGIN, MAX_TILE, type GroundMode, type Gro
 import type { LiquidKind, WaterMotion } from './water';
 import { setSvg } from '../svg';
 import { atlasMeasureIcon, atlasToolIcon, historyIcon, modeIcon, waterIcon } from './atlasToolIcons';
-import { LIQUID_KINDS, LIQUID_NAMES, LIQUID_TINTS, MOTION_LABELS, WATER_MOTION_KINDS, type WaterMotionKind } from './water';
+import { LAVA_STYLES, LIQUID_KINDS, LIQUID_NAMES, LIQUID_TINTS, MOTION_LABELS, WATER_MOTION_KINDS, type LavaStyle, type WaterMotionKind } from './water';
 import { DICES_SVG } from '../dice/dicePicker';
 import type { LightingChoice } from './look';
 import { DEFAULT_EDGES, DEFAULT_SEE_THROUGH_SIZE, MAX_SEE_THROUGH_SIZE, MIN_SEE_THROUGH_SIZE, readSeeThroughSize, DEFAULT_LAYER_LOOK, type LayerLook, type WallEdges } from './quality';
@@ -272,7 +272,7 @@ export class BoardToolbar {
   private readonly shapeGroup: HTMLElement;
   private groundUi: {
     section: HTMLElement; modes: Array<{ value: GroundMode; button: HTMLButtonElement }>; rows: Array<{ row: HTMLElement; modes: GroundMode[] }>;
-    water: { kind: HTMLSelectElement; amount: HTMLInputElement; direction: HTMLInputElement; directionRow: HTMLElement; clarity: HTMLInputElement; tint: HTMLInputElement; presets: HTMLElement; makePresets(liquid: LiquidKind): void };
+    water: { kind: HTMLSelectElement; style: HTMLSelectElement; amount: HTMLInputElement; direction: HTMLInputElement; directionRow: HTMLElement; clarity: HTMLInputElement; tint: HTMLInputElement; presets: HTMLElement; makePresets(liquid: LiquidKind): void };
     material: HTMLSelectElement; noise: HTMLSelectElement; strength: HTMLInputElement; strengthValue: HTMLElement;
     fog: HTMLInputElement; fogOn: HTMLInputElement; fogValue: HTMLElement; margin: HTMLInputElement; marginValue: HTMLElement; tile: HTMLInputElement; tileValue: HTMLElement;
   } | null = null;
@@ -567,6 +567,22 @@ export class BoardToolbar {
     fill.input.addEventListener('input', () => this.actions.setWaterFill?.(Number(fill.input.value)));
     this.waterFillInput = fill.input;
     // How all of the map's water moves: one motion for the whole map.
+    // What kind of lava the brush paints (shown while it paints lava).
+    const lavaStyles = el('div', 'atlas-dropdown-section atlas-tabletop-lava-styles', this.waterPanel);
+    el('div', 'atlas-dropdown-label', lavaStyles, 'Lava type');
+    for (const style of LAVA_STYLES) {
+      const made = el('button', 'btn btn--ghost btn--sm atlas-dropdown-menu-item', lavaStyles);
+      made.type = 'button';
+      made.dataset.lavaStyle = style.value;
+      made.title = style.hint;
+      el('span', 'atlas-dropdown-menu-item__check', made);
+      el('span', '', made, style.label);
+      made.addEventListener('click', () => {
+        const current = this.actions.waterMotion?.();
+        if (current) this.actions.setWaterMotion?.({ ...current, style: style.value });
+        this.refresh();
+      });
+    }
     const motion = el('div', 'atlas-dropdown-section', this.waterPanel);
     const motionLabel = el('div', 'atlas-dropdown-label', motion, 'Motion (all water on this map)');
     const motionNames = new Map<WaterMotionKind, HTMLElement>();
@@ -884,6 +900,9 @@ export class BoardToolbar {
         if (now && liquid) this.actions.setGround?.({ ...now, [liquid]: { ...now[liquid], ...edit } });
         this.fillGround();
       };
+      const lavaStyle = selectRow('Lava type', 'What kind of lava it is', ['lava']);
+      for (const style of LAVA_STYLES) { const option = el('option', '', lavaStyle, style.label); option.value = style.value; option.title = style.hint; }
+      lavaStyle.addEventListener('change', () => waterChange({ style: lavaStyle.value as LavaStyle }));
       const kind = selectRow('Moves', 'How the liquid moves', ON_WATER);
       for (const value of WATER_MOTION_KINDS) { const option = el('option', '', kind, MOTION_LABELS.water[value]); option.value = value; }
       kind.addEventListener('change', () => waterChange({ kind: kind.value as WaterMotion['kind'] }));
@@ -936,7 +955,7 @@ export class BoardToolbar {
       margin.input.addEventListener('change', () => change({ margin: Number(margin.input.value) }));
       margin.input.addEventListener('input', () => { margin.value.textContent = `${margin.input.value} sq`; });
       margin.input.closest('label')!.title = 'Room round the map where minis can stand, in squares each way.';
-      this.groundUi = { section, modes, rows, water: { kind, amount: amount.input, direction: direction.input, directionRow: direction.input.closest('label')!, clarity: clarity.input, tint, presets, makePresets }, material, noise, strength: strength.input, strengthValue: strength.value, fog: fogRow.input, fogOn, fogValue: fogRow.value, margin: margin.input, marginValue: margin.value, tile: tile.input, tileValue: tile.value };
+      this.groundUi = { section, modes, rows, water: { kind, style: lavaStyle, amount: amount.input, direction: direction.input, directionRow: direction.input.closest('label')!, clarity: clarity.input, tint, presets, makePresets }, material, noise, strength: strength.input, strengthValue: strength.value, fog: fogRow.input, fogOn, fogValue: fogRow.value, margin: margin.input, marginValue: margin.value, tile: tile.input, tileValue: tile.value };
     }
     const edges = el('div', 'atlas-tabletop-palette__field', fog);
     el('span', 'atlas-tabletop-palette__label', edges, 'Wall edges');
@@ -1119,6 +1138,7 @@ export class BoardToolbar {
     for (const choice of this.waterPanel.querySelectorAll<HTMLElement>('[data-liquid]')) setSvg(choice.querySelector('.atlas-dropdown-menu-item__check')!, tick(choice.dataset.liquid === liquid));
     this.nameLiquid(liquid);
     const motion = this.actions.waterMotion?.();
+    for (const choice of this.waterPanel.querySelectorAll<HTMLElement>('[data-lava-style]')) setSvg(choice.querySelector('.atlas-dropdown-menu-item__check')!, tick(choice.dataset.lavaStyle === (motion?.style ?? 'crust')));
     for (const choice of this.waterPanel.querySelectorAll<HTMLElement>('[data-motion]')) setSvg(choice.querySelector('.atlas-dropdown-menu-item__check')!, tick(choice.dataset.motion === motion?.kind));
     if (motion) {
       this.waterInputs.amount.value = String(Math.round(motion.amount * 100));
@@ -1637,6 +1657,9 @@ export class BoardToolbar {
     ui.tintLabel.textContent = `Tint (all ${name} on this map)`;
     this.waterButton.setAttribute('aria-label', liquid === 'water' ? 'Water' : `Water (${name})`);
     if (ui.tintsOf !== liquid) { ui.makeTints(liquid); ui.tintsOf = liquid; }
+    // Only lava has kinds.
+    const styles = this.waterPanel.querySelector<HTMLElement>('.atlas-tabletop-lava-styles');
+    if (styles) styles.hidden = liquid !== 'lava';
     // Lava is never clear: the row stays, shown off, so the menu keeps its shape.
     if (ui.clarityRow) {
       ui.clarityRow.classList.toggle('is-disabled', liquid === 'lava');
@@ -1655,6 +1678,7 @@ export class BoardToolbar {
     const motion = ground[liquid];
     for (const option of ui.water.kind.options) option.textContent = MOTION_LABELS[liquid][option.value as WaterMotionKind];
     ui.water.kind.value = motion.kind;
+    ui.water.style.value = ground.lava.style ?? 'crust';
     ui.water.amount.value = String(Math.round(motion.amount * 100));
     ui.water.direction.value = String(Math.round(motion.direction));
     if (ground.mode === liquid) ui.water.directionRow.hidden = motion.kind !== 'flow' && motion.kind !== 'waves';

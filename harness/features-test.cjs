@@ -2289,7 +2289,7 @@ feature('lava and acid', async ({ page, shot }) => {
       clarity: panel.querySelector('input[aria-label="Clarity"]').disabled, chosen: window.boardTest.board.toolbarActions().liquid(),
     };
   });
-  check('lava and acid: the brush menu picks water, lava or acid, and names itself for the one picked', menu.liquids.join() === 'water,lava,acid' && menu.chosen === 'lava' && menu.paint === 'Paint lava' && menu.still === 'Crusted', JSON.stringify(menu));
+  check('lava and acid: the brush menu picks water, lava or acid, and names itself for the one picked', menu.liquids.join() === 'water,lava,acid' && menu.chosen === 'lava' && menu.paint === 'Paint lava' && menu.still === 'Still', JSON.stringify(menu));
   check("lava and acid: lava's own tint presets, and no clarity for lava (shown off, the menu keeps its shape)", menu.swatches.includes('Molten') && menu.swatches.includes('Sulfur blue') && !menu.swatches.includes('Lake') && menu.clarity === true, JSON.stringify(menu));
   await shot('lava-menu');
   await page.locator('.atlas-tabletop-toolbar button[aria-label^="Water options"]').click();
@@ -2337,6 +2337,51 @@ feature('lava and acid', async ({ page, shot }) => {
   check("lava and acid: a surface light is a few low lamps spread over it, casting no shadows; a small pool gets one", lamps.count === 5 && lamps.pool === 1 && !lamps.shadows && lamps.low, JSON.stringify(lamps));
 });
 
+// ── The kinds of lava: each its own look, picked in the brush's menu and on the ground ────────────────────────────
+feature('lava types', async ({ page, shot }) => {
+  const shaderErrors = [];
+  page.on('console', (m) => { if (m.type() === 'error' && /Shader Error|program not valid/.test(m.text())) shaderErrors.push(m.text().slice(0, 160)); });
+  const canvas = await page.locator('canvas').first().boundingBox();
+  const [x, y] = [canvas.x + canvas.width * 0.42, canvas.y + canvas.height * 0.62];
+  await page.evaluate(() => { const actions = window.boardTest.board.toolbarActions(); actions.setLiquid('lava'); actions.setWaterTool('paint'); actions.setWaterBrush(3); actions.setWaterMotion({ kind: 'ripples', amount: 0.35, direction: 90, tint: '#ff5a1f', clarity: 0, style: 'crust' }); });
+  await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(x + 260, y + 10, { steps: 12 }); await page.mouse.up();
+  await wait(300);
+  await page.evaluate(() => window.boardTest.board.toolbarActions().setWaterTool(null));
+  // The menu: the lava's kinds, only while the brush paints lava.
+  await page.locator('.atlas-tabletop-toolbar button[aria-label^="Water options"]').click();
+  const menu = await page.evaluate(() => { const section = document.querySelector('.atlas-tabletop-lava-styles'); return { shown: section.getBoundingClientRect().height > 0, kinds: [...section.querySelectorAll('[data-lava-style]')].map((b) => b.dataset.lavaStyle) }; });
+  check('lava types: the brush menu offers the kinds of lava', menu.shown && menu.kinds.join() === 'crust,ropey,rubble,lake,magma', JSON.stringify(menu));
+  await page.locator('.atlas-tabletop-water-options [data-lava-style="lake"]').click();
+  await wait(100);
+  const picked = await page.evaluate(() => { const sheet = window.boardTest.board.liquids.get('lava'); return { style: sheet.currentMotion.style, uniform: sheet.uniforms.uLavaStyle.value }; });
+  check('lava types: picking one makes the painted lava that kind', picked.style === 'lake' && picked.uniform === 3, JSON.stringify(picked));
+  // The menu is taller than the window with the lava's kinds in it: it scrolls, its top never off the window.
+  const menuBox = await page.evaluate(() => { const r = document.querySelector('.atlas-tabletop-water-options').getBoundingClientRect(); return { top: r.top, bottom: r.bottom, vh: innerHeight }; });
+  check('lava types: the brush menu stays inside the window (it scrolls)', menuBox.top >= 0 && menuBox.bottom <= menuBox.vh, JSON.stringify(menuBox));
+  await page.locator('.atlas-tabletop-water-options [data-liquid="water"]').click();
+  await wait(100);
+  check('lava types: the kinds are put away while the brush paints water', await page.evaluate(() => document.querySelector('.atlas-tabletop-lava-styles').getBoundingClientRect().height === 0));
+  await page.locator('.atlas-tabletop-toolbar button[aria-label^="Water options"]').click();
+  // Each kind, close up.
+  await page.evaluate(() => { const { board } = window.boardTest; window.typesPose = [JSON.parse(JSON.stringify(board.camera.pose)), JSON.parse(JSON.stringify(board.camera.goal))]; const m = board.liquids.get('lava').mask; let sx = 0, sy = 0, n = 0; for (let j = 0; j < m.height; j++) for (let i = 0; i < m.width; i++) if (m.data[j * m.width + i]) { sx += i; sy += j; n++; } for (const pose of [board.camera.pose, board.camera.goal]) { pose.target.x = (sx / n) * m.texel; pose.target.z = (sy / n) * m.texel; pose.distance = 480; pose.pitch = 0.9; } board.camera.snap(); board.wake(true); });
+  for (const style of ['crust', 'ropey', 'rubble', 'lake', 'magma']) {
+    await page.evaluate((style) => { const actions = window.boardTest.board.toolbarActions(); actions.setLiquid('lava'); actions.setWaterMotion({ ...actions.waterMotion(), style }); window.boardTest.board.wake(true); }, style);
+    await wait(700);
+    await shot(`lava-${style}`);
+  }
+  check('lava types: every kind compiles', shaderErrors.length === 0, JSON.stringify(shaderErrors));
+  await page.evaluate(() => { const { board } = window.boardTest; const [pose, goal] = window.typesPose; for (const [to, from] of [[board.camera.pose, pose], [board.camera.goal, goal]]) { Object.assign(to.target, from.target); to.distance = from.distance; to.pitch = from.pitch; to.yaw = from.yaw; } board.camera.snap(); board.wake(true); });
+  // On the ground: Lava plane offers the same kinds.
+  await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'lava', noise: 'rolling', strength: 0.5, fog: 80, margin: 0, tile: 2 }; board.refresh(); board.toolbar.openGround?.(); });
+  await wait(400);
+  await page.evaluate(() => { const select = document.querySelector('[aria-label="What kind of lava it is"]'); select.value = 'rubble'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+  await wait(500);
+  const ground = await page.evaluate(() => ({ style: window.boardTest.groundState.value.lava?.style, shown: document.querySelector('[aria-label="What kind of lava it is"]').getBoundingClientRect().height > 0 }));
+  check('lava types: Lava plane has a kind of its own, picked on the Ground panel', ground.style === 'rubble' && ground.shown, JSON.stringify(ground));
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { const { board, groundState } = window.boardTest; board.toolbarActions().setLiquid('water'); groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 80, margin: 0, tile: 2 }; board.refresh(); });
+});
+
 // ── Ground: lava and acid to the horizon; the fog switch, and a plane that ends a little past the fog ─────────────
 feature('ground liquids and fog', async ({ page, shot }) => {
   const shaderErrors = [];
@@ -2367,7 +2412,7 @@ feature('ground liquids and fog', async ({ page, shot }) => {
     const presets = [...document.querySelectorAll('[aria-label="Liquid tint presets"] .atlas-swatch')].map((b) => b.getAttribute('aria-label'));
     return { mode: groundState.value.mode, liquid: board.seaPlane.liquid, on: board.seaPlane.object3d.parent === board.scene, below: board.hemisphere.groundColor.getHexString(), presets, clarity: document.querySelector('[aria-label="How clear the liquid is"]').closest('label').hidden, still: document.querySelector('[aria-label="How the liquid moves"] option[value="still"]').textContent };
   });
-  check('ground: Lava plane lays the map on lava to the horizon, with lava\'s presets and motions and no clarity', sea.mode === 'lava' && sea.liquid === 'lava' && sea.on && sea.presets.includes('Molten') && sea.clarity && sea.still === 'Crusted', JSON.stringify(sea));
+  check('ground: Lava plane lays the map on lava to the horizon, with lava\'s presets and motions and no clarity', sea.mode === 'lava' && sea.liquid === 'lava' && sea.on && sea.presets.includes('Molten') && sea.clarity && sea.still === 'Still', JSON.stringify(sea));
   check('ground: a sea of lava lights the board from below in its glow', sea.below !== below, JSON.stringify({ below, now: sea.below }));
   await page.locator('[aria-label="Liquid tint presets"] .atlas-swatch[aria-label="Deep red"]').click();
   await wait(300);

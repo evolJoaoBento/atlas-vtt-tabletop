@@ -10,7 +10,7 @@
  */
 import * as THREE from 'three';
 import { ACID_BODY, LAVA_BODY, LAVA_EMISSION, LIQUID_HEAD } from './liquidShaders';
-import { WATER_MOTION_KINDS, type LiquidKind, type WaterMask, type WaterMotion } from './water';
+import { LAVA_STYLES, WATER_MOTION_KINDS, type LiquidKind, type WaterMask, type WaterMotion } from './water';
 
 /** Just above the floor, under walls, props and tokens. */
 const LIFT = 0.08;
@@ -125,7 +125,7 @@ const SHADER_NORMAL = /* glsl */ `
     normal = normalize(normal - (waterSlope.x * waterTx + waterSlope.y * waterTz) * (1.0 - waterFoam * 0.6));
   }
 #if LIQUID == 1
-  roughnessFactor = mix(0.3, 0.92, lavaCrust);
+  roughnessFactor = mix(0.3, lavaRough, lavaCrust);
 #else
   roughnessFactor = mix(roughnessFactor, 0.75, waterFoam);
 #endif
@@ -186,6 +186,7 @@ export class WaterSurface {
     uWaterTint: { value: new THREE.Color() },
     uWaterClarity: { value: 0.6 },
     uWaterBlur: { value: 4 },
+    uLavaStyle: { value: 0 },
   };
   private motion: WaterMotion;
 
@@ -242,6 +243,7 @@ export class WaterSurface {
     this.uniforms.uWaterDir.value.set(Math.sin(turn), -Math.cos(turn));
     this.uniforms.uWaterTint.value.set(motion.tint);
     this.uniforms.uWaterClarity.value = motion.clarity;
+    this.uniforms.uLavaStyle.value = Math.max(0, LAVA_STYLES.findIndex((style) => style.value === motion.style));
   }
 
   /** Whether the water needs frames to move (still water barely moves, but it still shimmers). */

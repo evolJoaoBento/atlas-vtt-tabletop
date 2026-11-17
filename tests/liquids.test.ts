@@ -376,3 +376,16 @@ test('each liquid is drawn from its own outlines; the old mask is water; players
   // What is no liquid of Atlas's comes as water.
   assert.equal(waterFromWire({ areas: [{ polygon: [0, 0, 0, 10, 10, 10], liquid: 'slime' }] })!.areas![0]!.liquid, undefined);
 });
+
+test("the kind of lava is part of its motion: written with the brush's lava, read back, and a change of it writes the lava again", () => {
+  const ropey = { ...LIQUID_DEFAULTS.lava, style: 'ropey' as const };
+  const [mine] = brushLiquids([{ polygon: [{ x: 0, y: 0 }, { x: 0, y: 10 }, { x: 10, y: 10 }], holes: [] }], ropey, null, 'lava');
+  const now = readLiquids({ a: { ...mine, glow: undefined } });
+  assert.equal(now[0]!.motion!.style, 'ropey');
+  assert.deepEqual(restyledLiquids(now, null, { lava: ropey }), { remove: [], add: [] });
+  const magma = restyledLiquids(now, null, { lava: { ...ropey, style: 'magma' } });
+  assert.deepEqual(magma.add.map((liquid) => (liquid.tabletop as { motion: { style: string } }).motion.style), ['magma']);
+  // Older brush lava without a kind reads as the crusted flow; water never has one.
+  assert.equal(readLiquids({ b: { liquid: 'lava', polygon: [{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }], tabletop: { brush: true, motion: { kind: 'flow' } } } })[0]!.motion!.style, 'crust');
+  assert.equal(readLiquids({ c: { liquid: 'water', polygon: [{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }], tabletop: { brush: true, motion: { style: 'magma' } } } })[0]!.motion!.style, undefined);
+});
