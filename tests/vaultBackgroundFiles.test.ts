@@ -9,6 +9,7 @@ function fakeApp() {
   const items = new Map<string, TAbstractFile>();
   const data = new Map<string, ArrayBuffer>();
   const log: string[] = [];
+  const failRename: { to: string | null } = { to: null };
   const parentOf = (path: string): string => path.slice(0, Math.max(0, path.lastIndexOf('/')));
   const attach = (item: TAbstractFile): void => {
     items.set(item.path, item);
@@ -51,12 +52,13 @@ function fakeApp() {
   const fileManager = {
     renameFile: async (item: TAbstractFile, to: string) => {
       log.push(`rename ${item.path} -> ${to}`);
+      if (failRename.to === to) throw new Error('rename refused');
       if ([...items.keys()].some((path) => path.toLowerCase() === to.toLowerCase())) throw new Error('Destination file already exists!');
       move(item, to);
     },
     trashFile: async (item: TAbstractFile) => { log.push(`trash ${item.path}`); for (const entry of [...items.values()]) if (entry.path === item.path || entry.path.startsWith(`${item.path}/`)) { detach(entry); data.delete(entry.path); } },
   };
-  return { app: { vault, fileManager } as unknown as App, items, data, log };
+  return { app: { vault, fileManager } as unknown as App, items, data, log, failRename };
 }
 
 const bytes = (...values: number[]): ArrayBuffer => new Uint8Array(values).buffer as ArrayBuffer;
@@ -111,6 +113,27 @@ test('a rename that only changes capitals goes through a temporary name', async 
   await files.rename('root/forest', 'root/Forest');
   assert.deepEqual(await files.folders('root'), ['root/Forest']);
   assert.deepEqual([...new Uint8Array((await files.read('root/Forest/height.png'))!)], [7]);
+  assert.ok(world.log.includes('rename root/forest -> root/forest-renaming'));
+});
+
+test('a case-only rename picks another detour name when the first is taken', async () => {
+  const world = fakeApp();
+  const files = vaultBackgroundFiles(world.app);
+  await files.write('root/forest/background.json', '{}');
+  await files.write('root/forest-renaming/other.txt', 'x');
+  await files.rename('root/forest', 'root/Forest');
+  assert.deepEqual(await files.folders('root'), ['root/Forest']);
+  assert.ok(world.log.includes('rename root/forest -> root/forest-renaming-2'));
+  assert.equal(await files.readText('root/forest-renaming/other.txt'), 'x');
+});
+
+test('a case-only rename that fails halfway puts the folder back and rethrows', async () => {
+  const world = fakeApp();
+  const files = vaultBackgroundFiles(world.app);
+  await files.write('root/forest/background.json', '{}');
+  world.failRename.to = 'root/Forest';
+  await assert.rejects(files.rename('root/forest', 'root/Forest'), /rename refused/);
+  assert.deepEqual(await files.folders('root'), ['root/forest']);
 });
 
 test('remove trashes the whole folder', async () => {

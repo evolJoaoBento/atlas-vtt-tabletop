@@ -63,9 +63,16 @@ export function vaultBackgroundFiles(app: App): BackgroundFiles {
       await ensureFolder(parentOf(to));
       if (from !== to && from.toLowerCase() === to.toLowerCase()) {
         // Only the capitals change. Windows sees the same name and refuses, so the folder takes a detour.
-        const detour = `${from}-renaming`;
+        let detour = `${from}-renaming`;
+        for (let n = 2; vault.getAbstractFileByPath(detour); n++) detour = `${from}-renaming-${n}`;
         await app.fileManager.renameFile(found, detour);
-        await app.fileManager.renameFile(found, to);
+        try {
+          await app.fileManager.renameFile(found, to);
+        } catch (error) {
+          // Put the folder back, so it is not left under the detour name (the store would list it as another background).
+          await app.fileManager.renameFile(found, from);
+          throw error;
+        }
         return;
       }
       await app.fileManager.renameFile(found, to);
