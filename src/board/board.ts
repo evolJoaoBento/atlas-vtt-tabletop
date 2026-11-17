@@ -121,6 +121,8 @@ import { inputAllowed, type CinematicRole, type LockInput } from '../cutscene/lo
 import type { CameraKeep } from './camera';
 import type { DiceObstacle, DiceTable, DiceTableHost } from '../dice/diceTable';
 import { underBox } from './ink';
+import { LoadProgress } from './loadProgress';
+import { LoadingOverlay } from './loadingOverlay';
 
 /** The map's image as the bucket reads it: the image, its size in its own pixels, and the affine carrying those into the world. */
 interface FillSource { image: CanvasImageSource; width: number; height: number; transform: [number, number, number, number, number, number] }
@@ -754,6 +756,9 @@ export class Board {
   private waterTool: 'paint' | 'erase' | 'fill' | null = null;
   /** The raised shapes of the level shown, and the Shapes tool editing them (the GM's, made when first used). */
   private readonly shapesView = new ShapesView();
+  /** What a map being loaded still waits for (its image, art, minis, props, materials), and the veil that shows it. */
+  readonly loads = new LoadProgress();
+  private readonly loadingOverlay: LoadingOverlay;
   /** The plane to the horizon (the ground's horizon mode). */
   private readonly groundPlane = new GroundPlane();
   /** The water to the horizon (the ground's water mode). */
@@ -898,6 +903,7 @@ export class Board {
     this.canvas.className = 'atlas-tabletop-board';
     this.canvas.tabIndex = 0;
     container.appendChild(this.canvas);
+    this.loadingOverlay = new LoadingOverlay(container, this.loads);
     this.tooltip = doc.win.createDiv();
     this.tooltip.className = 'atlas-tabletop-tooltip';
     this.tooltip.hidden = true;
@@ -1078,6 +1084,8 @@ export class Board {
     const next = this.nextKey;
     this.nextKey = null;
     if (!first && next !== null && next !== this.currentKey) this.swapLayers(next, shiftY, carry);
+    // Another map: what it waits for shows (the same map's news does not).
+    if (first || !sameImage) this.loads.open();
     if (first || !sameImage || this.gridChanged(map)) await this.buildSurface(map);
     if (this.disposed) return;
     // Another scene of the stack: the camera stays where it was in the world, then glides to the new floor.
@@ -1471,10 +1479,10 @@ export class Board {
   private readonly floorTextures = new Map<string, Promise<THREE.Texture | null>>();
 
   private floorTexture(background: string): Promise<THREE.Texture | null> {
-    if (isVideoPath(background)) return this.mapTexture(background);
+    if (isVideoPath(background)) return this.loads.track(this.mapTexture(background), 4);
     let kept = this.floorTextures.get(background);
     if (!kept) {
-      kept = this.mapTexture(background).then((texture) => {
+      kept = this.loads.track(this.mapTexture(background), 4).then((texture) => {
         if (texture) { texture.userData.shared = true; this.floorReady.set(background, texture); }
         return texture;
       });
@@ -1563,7 +1571,7 @@ export class Board {
     } else this.seaPlane.object3d.removeFromParent();
     if (horizon) {
       if (!this.groundPlane.object3d.parent) this.scene.add(this.groundPlane.object3d);
-      this.groundPlane.update(ground, { width: this.size.width, height: this.size.height, cell: map.grid.size, margin: ground.margin }, (folder) => this.host.readMaterial(folder), () => this.wake(true));
+      this.groundPlane.update(ground, { width: this.size.width, height: this.size.height, cell: map.grid.size, margin: ground.margin }, (folder) => this.loads.track(this.host.readMaterial(folder), 2), () => this.wake(true));
       // Always under the scene's first level, whichever level is shown (the shown one stands at 0, those below it under).
       this.groundPlane.object3d.position.y = Math.min(0, ...this.stackData.map((layer) => layer.elevation)) * map.grid.size;
     } else this.groundPlane.object3d.removeFromParent();
@@ -1833,7 +1841,7 @@ export class Board {
   private artTexture(path: string): Promise<THREE.Texture | null> {
     let art = this.arts.get(path);
     if (!art) {
-      art = this.host.readImage(path).then((url) => (url ? loadImageTexture(url) : null)).catch(() => null);
+      art = this.loads.track(this.host.readImage(path).then((url) => (url ? loadImageTexture(url) : null)).catch(() => null));
       this.arts.set(path, art);
     }
     return art;
@@ -1857,10 +1865,10 @@ export class Board {
   private model(path: string): Promise<LoadedMini | null> {
     let found = this.models.get(path);
     if (!found) {
-      found = this.host.readMini(path).catch((error: unknown) => {
+      found = this.loads.track(this.host.readMini(path).catch((error: unknown) => {
         this.host.warn(`Tabletop: cannot show ${path}: ${error instanceof Error ? error.message : String(error)}`);
         return null;
-      });
+      }), 2);
       this.models.set(path, found);
     }
     return found;
@@ -3216,7 +3224,7 @@ export class Board {
     this.wallMaterials.set(key, material);
     if (path) {
       const made = material;
-      void this.host.readMaterial(path).then((loaded) => {
+      void this.loads.track(this.host.readMaterial(path), 2).then((loaded) => {
         if (this.disposed || !loaded) { if (!loaded) made.color.set(PLAIN_WALL); return; }
         loaded.apply(made);
         // A material's own shader (parallax) replaces the cut: put it back.
@@ -7108,6 +7116,7 @@ export class Board {
   }
 
   dispose(): void {
+    this.loadingOverlay.dispose();
     this.cinematicDriver = null;
     this.arLatest = null;
     this.cinema.dispose();

@@ -2367,3 +2367,15 @@ body.atlas-tabletop-player-window .view-header {
 .atlas-tabletop-shapes-panel__row input { width: 80px; }
 .atlas-tabletop-shapes-panel__buttons { display: flex; flex-wrap: wrap; gap: 6px; }
 .atlas-tabletop-shapes-panel__buttons button[hidden] { display: none; }
+
+/* The veil while a board's map loads (loadingOverlay.ts): the board blurred behind, a bar and the time left. It never
+   takes the pointer. */
+.atlas-tabletop-loading { position: absolute; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; pointer-events: none; opacity: 0; backdrop-filter: blur(0px); -webkit-backdrop-filter: blur(0px); background: color-mix(in srgb, var(--background-primary, #1e1e1e) 0%, transparent); transition: opacity 0.35s ease, backdrop-filter 0.35s ease, -webkit-backdrop-filter 0.35s ease, background-color 0.35s ease; }
+.atlas-tabletop-loading[hidden] { display: none; }
+.atlas-tabletop-loading.is-shown { opacity: 1; backdrop-filter: blur(10px) saturate(0.85); -webkit-backdrop-filter: blur(10px) saturate(0.85); background: color-mix(in srgb, var(--background-primary, #1e1e1e) 28%, transparent); }
+.atlas-tabletop-loading__card { width: min(320px, calc(100% - 32px)); padding: 14px 16px; border-radius: 12px; background: color-mix(in srgb, var(--background-primary, #1e1e1e) 82%, transparent); border: 1px solid var(--background-modifier-border, rgba(255, 255, 255, 0.12)); box-shadow: var(--shadow-l, 0 8px 24px rgba(0, 0, 0, 0.35)); display: flex; flex-direction: column; gap: 10px; color: var(--text-normal, #ddd); font-size: var(--font-ui-small, 13px); }
+.atlas-tabletop-loading__label { font-weight: 600; }
+.atlas-tabletop-loading__track { height: 6px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--text-normal, #ddd) 14%, transparent); }
+.atlas-tabletop-loading__fill { height: 100%; width: 100%; transform-origin: left center; transform: scaleX(0); border-radius: inherit; background: var(--interactive-accent, #7c6cf0); transition: transform 0.12s linear; }
+.atlas-tabletop-loading__detail { color: var(--text-muted, #999); font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .atlas-tabletop-loading, .atlas-tabletop-loading__fill { transition: none; } }

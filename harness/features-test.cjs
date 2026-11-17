@@ -5557,6 +5557,34 @@ feature('player shapes and ground', async ({ page, shot }) => {
   check('player shapes and ground: extras without them leave no shape and the map on its table', plain.shapes === 0 && !plain.plane && plain.table, JSON.stringify(plain));
 }, PLAYER_URL);
 
+feature('loading veil', async ({ page, shot }) => {
+  // A board whose files take a while: the board blurred behind a bar and the time left, which go once all is in.
+  await page.evaluate(() => {
+    const t = window.playerTest;
+    t.hold('G'.repeat(43));
+    const made = t.spawn();
+    window.veiled = made;
+    made.handle.setScene(t.scene);
+    made.handle.setExtras(t.extras);
+  });
+  await wait(900);
+  const during = await page.evaluate(() => {
+    const veil = window.veiled.container.querySelector('.atlas-tabletop-loading');
+    const style = veil && getComputedStyle(veil);
+    return { shown: !!veil && !veil.hidden && veil.classList.contains('is-shown'), blur: style?.backdropFilter ?? '', pointer: style?.pointerEvents, detail: veil?.querySelector('.atlas-tabletop-loading__detail')?.textContent ?? '', value: Number(veil?.getAttribute('aria-valuenow')) };
+  });
+  check('loading veil: while a mini has not come, the board is blurred behind a bar with what is in and the time left', during.shown && /blur/.test(during.blur) && during.pointer === 'none' && /of \d+ ·/.test(during.detail) && during.value < 100, JSON.stringify(during));
+  await page.evaluate(() => window.veiled.container.scrollIntoView());
+  await shot('loading-veil', await page.evaluate(() => { const r = window.veiled.container.getBoundingClientRect(); return { x: r.left, y: r.top, width: r.width, height: r.height }; }));
+  await page.evaluate(() => { window.playerTest.deliver(); window.veiled.handle.refresh(); });
+  await wait(1500);
+  const after = await page.evaluate(() => { const veil = window.veiled.container.querySelector('.atlas-tabletop-loading'); return { hidden: !!veil && veil.hidden, shown: veil?.classList.contains('is-shown') }; });
+  check('loading veil: once all is in, the veil goes', after.hidden && !after.shown, JSON.stringify(after));
+  // The first board, loaded with everything at hand, never showed it.
+  const quick = await page.evaluate(() => { const veil = document.getElementById('board').querySelector('.atlas-tabletop-loading'); return !!veil && veil.hidden; });
+  check('loading veil: a board whose files are all at hand shows none', quick);
+}, PLAYER_URL);
+
 /** What every feature depends on beside the bundle: this file outside the features, the page, the styles, the runner. */
 function globalHash() {
   let rest = fs.readFileSync(__filename, 'utf8');
