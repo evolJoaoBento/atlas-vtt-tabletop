@@ -19,6 +19,8 @@ export class LoadingOverlay {
   private readonly label: HTMLElement;
   private readonly detail: HTMLElement;
   private frame: number | null = null;
+  /** The window the pending frame was asked of (the board can move to a pop-out). */
+  private frameWin: Window | null = null;
   private shown = 0;
   private eta: number | null = null;
   private last = 0;
@@ -58,9 +60,21 @@ export class LoadingOverlay {
   }
 
   private wake(): void {
-    if (this.frame !== null) return;
+    // A frame asked of a window the board has left (or that closed) never comes: ask again of this one.
+    if (this.frame !== null && this.frameWin === this.win() && !this.frameWin.closed) return;
+    this.cancel();
     this.last = this.clock();
-    this.frame = this.win().requestAnimationFrame(() => this.tick());
+    this.schedule();
+  }
+
+  private schedule(): void {
+    this.frameWin = this.win();
+    this.frame = this.frameWin.requestAnimationFrame(() => this.tick());
+  }
+
+  private cancel(): void {
+    if (this.frame !== null && this.frameWin && !this.frameWin.closed) this.frameWin.cancelAnimationFrame(this.frame);
+    this.frame = null;
   }
 
   private win(): Window {
@@ -81,7 +95,7 @@ export class LoadingOverlay {
       if (state.remainingMs !== null) this.eta = this.eta === null ? state.remainingMs : this.eta + (state.remainingMs - this.eta) * (1 - Math.exp(-dt / ETA_EASE_MS)) - dt;
       if (this.eta !== null) this.eta = Math.max(0, this.eta);
       this.draw(`${state.done} of ${state.total} · ${timeLeft(this.eta)}`);
-      this.frame = this.win().requestAnimationFrame(() => this.tick());
+      this.schedule();
       return;
     }
     // All in: the bar runs to its end and the veil fades.
@@ -116,8 +130,7 @@ export class LoadingOverlay {
 
   dispose(): void {
     this.stop();
-    if (this.frame !== null) this.win().cancelAnimationFrame(this.frame);
-    this.frame = null;
+    this.cancel();
     this.root.remove();
   }
 }

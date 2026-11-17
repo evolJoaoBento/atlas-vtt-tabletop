@@ -24,6 +24,12 @@ function repoFiles(tops) {
   return out.split('\n').filter((file) => file && tops.some((top) => file === top || file.startsWith(`${top}/`)) && existsSync(file)).sort();
 }
 
+/** The repo's files at its root (package.json, connect-sync.json, tsconfig.json...). */
+function rootFiles() {
+  const out = execFileSync('git', ['ls-files', '-co', '--exclude-standard'], { encoding: 'utf8', maxBuffer: 64 << 20 });
+  return out.split('\n').filter((file) => file && !file.includes('/') && existsSync(file)).sort();
+}
+
 /** One hash for a set of files: their paths and contents. */
 function hashFiles(files) {
   return hashText(files.map((file) => `${file}\0${hashFile(file)}`).join('\n'));
@@ -48,4 +54,4 @@ function unchanged(kept, now) {
 
 const full = () => process.argv.includes('--full') || process.env.TEST_FULL === '1';
 
-module.exports = { hashText, hashFile, hashFiles, repoFiles, load, save, unchanged, full };
+module.exports = { hashText, hashFile, hashFiles, repoFiles, rootFiles, load, save, unchanged, full };

@@ -38,7 +38,7 @@ for (const [output, meta] of Object.entries(result.metafile.outputs)) {
 
 // What every test depends on: this runner, the stubs and fixtures, the dependencies.
 const globals = () => cache.hashFiles(['tests/run.mjs', 'scripts/testCache.cjs', 'package-lock.json', ...cache.repoFiles(['tests']).filter((file) => !file.endsWith('.test.ts'))]);
-const tree = () => cache.hashFiles(cache.repoFiles(['src', 'packages', 'scripts', 'tests', 'harness', 'main.ts', 'styles.css', 'manifest.json', 'package.json', 'package-lock.json', 'esbuild.config.mjs', 'versions.json']));
+const tree = () => cache.hashFiles([...cache.repoFiles(['src', 'packages', 'scripts', 'tests', 'harness']), ...cache.rootFiles()]);
 const special = new Map();
 const now = (key) => {
   if (!key.startsWith('@')) return cache.hashFile(key);
@@ -65,11 +65,17 @@ const run = spawnSync(process.execPath, ['--test',
   '--test-reporter=./tests/fileReporter.mjs', `--test-reporter-destination=${failedFile}`,
   ...chosen.map(outputOf)], { stdio: 'inherit' });
 
-// Remember what passed: a file is failed when any of its tests failed, or the run never reported it.
-let failed = null;
-try { failed = new Set(JSON.parse(readFileSync(failedFile, 'utf8')).map((file) => path.resolve(file))); } catch { failed = null; }
+// Remember what passed: a file is failed when any of its tests failed, or the run never reported it. A file with a
+// test that skipped itself (one that waits for a setting of the environment) is not remembered: it runs each time.
+let failed = null, selfSkipped = new Set();
+try {
+  const report = JSON.parse(readFileSync(failedFile, 'utf8'));
+  failed = new Set(report.failed.map((file) => path.resolve(file)));
+  selfSkipped = new Set(report.skipped.map((file) => path.resolve(file)));
+} catch { failed = null; }
 for (const entry of chosen) {
-  const bad = failed === null || failed.has(path.resolve(outputOf(entry)));
+  const built = path.resolve(outputOf(entry));
+  const bad = failed === null || failed.has(built) || selfSkipped.has(built);
   if (bad) delete kept[entry];
   else kept[entry] = depsOf(entry);
 }

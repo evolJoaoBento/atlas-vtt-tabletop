@@ -5640,8 +5640,9 @@ server.listen(0, async () => {
         try {
           const bundle = bundleOf(one);
           const { result } = await cdp.send('Profiler.takePreciseCoverage');
-          const entry = result.find((script) => script.url.endsWith(`/${bundle}`));
-          if (entry) kept[one.key] = { global, test: testHash(one), ...affected.ran(entry, bundles[bundle]) };
+          // One entry each time the page loaded the bundle (a feature may reload it): all of them.
+          const entries = result.filter((script) => script.url.endsWith(`/${bundle}`));
+          if (entries.length) kept[one.key] = { global, test: testHash(one), ...affected.ran(entries, bundles[bundle]) };
           // Kept as it goes: a run stopped half way keeps what it found.
           cache.save('features', kept);
         } catch (error) {

@@ -1,6 +1,7 @@
 // Which browser checks a change can touch (harness/features-test.cjs): each feature's page is run with V8's coverage
 // on, and the functions it ran are kept by the hash of their text in the bundle; next time, a feature runs again only
-// when one of those functions (or the top-level code of a file it ran a function of) is no longer the same.
+// when one of those functions, or any file's top-level code (constants, tables, class fields: all of it runs at load
+// and any of it may be read), is no longer the same.
 //
 // The bundle is esbuild's (harness/run-ui.mjs), whose `  // src/board/ground.ts` lines start each module: a
 // function belongs to the file whose part of the bundle it lies in. node_modules is left out (the lock file stands
@@ -10,7 +11,8 @@ const ts = require('typescript');
 const { readFileSync } = require('node:fs');
 const { hashText } = require('../scripts/testCache.cjs');
 
-const MARKER = /^ {2}\/\/ ([A-Za-z0-9_@./-]+\.(?:ts|tsx|js|mjs|cjs|json))$/gm;
+// Any module: code, JSON, and the binary files bundled in (sounds, pictures).
+const MARKER = /^ {2}\/\/ ([A-Za-z0-9_@./-]+\.[A-Za-z0-9]+)$/gm;
 
 /**
  * A bundle's inventory: every function of the repo's own files under a key (`file|hash of its text|n-th of that
@@ -66,32 +68,32 @@ function inventory(bundle) {
     rest += text.slice(at, to);
     tops.set(file, hashText(rest));
   }
-  return { keys, byEnd, fileAt, tops, length: text.length };
+  // All of the files' top level runs when the page loads, and any of it may be read by a function that ran elsewhere
+  // (a constant, a table, a class's fields): one hash of it all, which every feature depends on.
+  const top = hashText([...tops.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([file, hash]) => `${file}\0${hash}`).join('\n'));
+  return { keys, byEnd, fileAt, tops, top, length: text.length };
 }
 
 /**
- * What a feature's page ran of a bundle, from `Profiler.takePreciseCoverage`'s entry for it: the keys of the
- * functions it ran, and the files they are in with their top-level hashes.
+ * What a feature's page ran of a bundle, from `Profiler.takePreciseCoverage`'s entries for it (one each time the page
+ * loaded it): the keys of the functions it ran, and the bundle's top-level hash (all of it ran).
  */
-function ran(coverage, inv) {
-  const fns = new Set(), touched = new Set();
-  for (const fn of coverage.functions) {
+function ran(entries, inv) {
+  const fns = new Set();
+  for (const fn of entries.flatMap((entry) => entry.functions)) {
     const range = fn.ranges[0];
     if (!range || range.count === 0 || (range.startOffset === 0 && range.endOffset >= inv.length - 2)) continue;
     const found = inv.byEnd.get(range.endOffset);
-    if (found) for (const key of found) { fns.add(key); touched.add(key.split('|')[0]); }
-    else { const file = inv.fileAt(range.startOffset); if (file) touched.add(file); }
+    if (found) for (const key of found) fns.add(key);
   }
-  const files = {};
-  for (const file of touched) if (inv.tops.has(file)) files[file] = inv.tops.get(file);
-  return { fns: [...fns].sort(), files };
+  return { fns: [...fns].sort(), top: inv.top };
 }
 
 /** Whether a kept record still holds against the bundle as it is now. */
 function holds(record, inv) {
   if (!record || !inv) return false;
+  if (!Array.isArray(record.fns) || record.top !== inv.top) return false;
   for (const key of record.fns) if (!inv.keys.has(key)) return false;
-  for (const [file, top] of Object.entries(record.files)) if (inv.tops.get(file) !== top) return false;
   return true;
 }
 
