@@ -99,14 +99,14 @@ function valueNoise(x: number, y: number): number {
 }
 
 /** Octaves of noise, each half as tall and twice as fine; -1 to 1. */
-function fbm(x: number, y: number, octaves: number): number {
+export function fbm(x: number, y: number, octaves: number): number {
   let sum = 0, amp = 1, total = 0, f = 1;
   for (let o = 0; o < octaves; o++) { sum += valueNoise(x * f + o * 17.3, y * f - o * 9.1) * amp; total += amp; amp *= 0.5; f *= 2; }
   return sum / total;
 }
 
 /** The pattern's height at (x, y) squares, at full strength (0.5 strength is its usual swing), in squares. */
-function pattern(noise: GroundNoise, x: number, y: number): number {
+export function pattern(noise: GroundNoise, x: number, y: number): number {
   switch (noise) {
     case 'gentle': return fbm(x / 42, y / 42, 2) * 4;
     case 'rolling': return fbm(x / 24, y / 24, 3) * 8;
