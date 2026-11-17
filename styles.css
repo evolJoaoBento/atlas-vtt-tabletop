@@ -1879,6 +1879,13 @@ body.atlas-tabletop-player-window .view-header {
   overflow: visible;
 }
 
+/* The liquid's tint presets on the Ground panel: the panel's width under their label, six to a row. */
+.atlas-tabletop-atlas .atlas-swatch-grid.atlas-tabletop-ground-tints {
+  width: 100%;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+
 .atlas-tabletop-ground-modes .atlas-tabletop-palette__choice,
 .atlas-tabletop-ground-modes .atlas-tabletop-palette__choice + .atlas-tabletop-palette__choice {
   flex: 1 1 30%;

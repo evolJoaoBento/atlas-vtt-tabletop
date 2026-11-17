@@ -920,7 +920,7 @@ export class BoardToolbar {
       tint.addEventListener('change', () => waterChange({ tint: tint.value.toLowerCase() }));
       rows.push({ row: tintRow, modes: ON_WATER });
       // The liquid's own presets, made again for each liquid.
-      const presetRow = el('div', 'atlas-tabletop-palette__field', section);
+      const presetRow = el('div', 'atlas-tabletop-palette__field atlas-tabletop-palette__field--stacked', section);
       el('span', 'atlas-tabletop-palette__label', presetRow, 'Presets');
       const presets = el('span', 'atlas-swatch-grid atlas-tabletop-ground-tints', presetRow);
       presets.setAttribute('role', 'group');

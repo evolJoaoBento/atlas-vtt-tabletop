@@ -2412,6 +2412,8 @@ feature('ground liquids and fog', async ({ page, shot }) => {
     const presets = [...document.querySelectorAll('[aria-label="Liquid tint presets"] .atlas-swatch')].map((b) => b.getAttribute('aria-label'));
     return { mode: groundState.value.mode, liquid: board.seaPlane.liquid, on: board.seaPlane.object3d.parent === board.scene, below: board.hemisphere.groundColor.getHexString(), presets, clarity: document.querySelector('[aria-label="How clear the liquid is"]').closest('label').hidden, still: document.querySelector('[aria-label="How the liquid moves"] option[value="still"]').textContent };
   });
+  const swatchSize = await page.evaluate(() => Math.min(...[...document.querySelectorAll('[aria-label="Liquid tint presets"] .atlas-swatch')].map((b) => b.getBoundingClientRect().width)));
+  check('ground: the tint presets are swatches of a size to click (not specks)', swatchSize >= 24, String(swatchSize));
   check('ground: Lava plane lays the map on lava to the horizon, with lava\'s presets and motions and no clarity', sea.mode === 'lava' && sea.liquid === 'lava' && sea.on && sea.presets.includes('Molten') && sea.clarity && sea.still === 'Still', JSON.stringify(sea));
   check('ground: a sea of lava lights the board from below in its glow', sea.below !== below, JSON.stringify({ below, now: sea.below }));
   await page.locator('[aria-label="Liquid tint presets"] .atlas-swatch[aria-label="Deep red"]').click();
