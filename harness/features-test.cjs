@@ -5903,7 +5903,7 @@ feature('painted ground', async ({ page, shot }) => {
   const shaderErrors = [], pageErrors = [];
   page.on('console', (m) => { if (m.type() === 'error' && /Shader Error|program not valid/.test(m.text())) shaderErrors.push(m.text().slice(0, 300)); });
   page.on('pageerror', (error) => pageErrors.push(String(error)));
-  const made =await page.evaluate(async () => {
+  const made = await page.evaluate(async () => {
     const test = window.boardTest;
     await test.backgroundsReady();
     const { emptyLayers, TERRAINS, DEFAULT_BACKGROUND, backgroundFrame } = test.backgroundKit;

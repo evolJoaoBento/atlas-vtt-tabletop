@@ -21,7 +21,7 @@ export interface BackgroundFrame {
 /** How far below the board the bed of water, lava or acid lies, in squares. */
 export const LIQUID_BED = 2.5;
 /** How far, in squares, the farthest points mixed in to soften a border lie from the point asked about. */
-const BLEND = 2;
+const BLEND = 6;
 
 type Rect = { x0: number; y0: number; x1: number; y1: number };
 
@@ -103,11 +103,11 @@ export function typeHeight(id: TerrainId, x: number, y: number, settings: Backgr
 /** Where a stored terrain number sits in `TERRAINS`; a number nobody knows is plains. */
 const terrainIndex = (stored: number): number => Math.max(0, TERRAINS.findIndex((t) => t.id === terrainOf(stored)));
 
-/** The points mixed in round the point asked about: its own, then rings of eight at a half, one and `BLEND` squares. */
+/** The points mixed in round the point asked about: its own, then rings of eight at a sixth, a half and the whole of `BLEND` squares. */
 const RINGS: readonly (readonly [number, number])[] = (() => {
   const points: [number, number][] = [[0, 0]];
   // Each ring is turned a little, so the points do not line up and cross a border one by one, not together.
-  [BLEND / 4, BLEND / 2, BLEND].forEach((radius, ring) => {
+  [BLEND / 6, BLEND / 2, BLEND].forEach((radius, ring) => {
     for (let k = 0; k < 8; k++) {
       const angle = k * Math.PI / 4 + 0.3 + ring * 0.37;
       points.push([Math.cos(angle) * radius, Math.sin(angle) * radius]);

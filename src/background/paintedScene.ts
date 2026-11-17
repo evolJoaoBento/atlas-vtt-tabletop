@@ -45,8 +45,12 @@ export class PaintedScene {
   readonly object3d = new THREE.Group();
   /** The sheets by liquid; a liquid not painted has none. */
   readonly liquids = new Map<LiquidKind, WaterSurface>();
-  private readonly reads = new Map<string, Read | null>();
+  /** The backgrounds read. A read that failed is not kept: the next draw tries again. */
+  private readonly reads = new Map<string, Read>();
   private readonly pending = new Set<string>();
+  /** How many times each background was forgotten: a read tells by it whether it is out of date. */
+  private readonly generations = new Map<string, number>();
+  private gone = false;
   private readonly warned = new Set<string>();
   private built: Built | null = null;
   private readonly cell = { value: 1 };
@@ -75,11 +79,11 @@ export class PaintedScene {
    * mentioned once.
    */
   look(ref: string | undefined, area: PaintedArea): PaintedLook | null {
-    if (!ref) { this.clear(); return null; }
+    if (!ref || this.gone) { this.clear(); return null; }
     const read = this.reads.get(ref);
     if (read === undefined) { this.start(ref); this.clear(); return null; }
-    if (read === null) { this.clear(); return null; }
-    const key = JSON.stringify([ref, area.width, area.height, area.cell, area.margin, area.tile]);
+    // The tile's width is not in the key: it reaches the shader through its uniform.
+    const key = JSON.stringify([ref, area.width, area.height, area.cell, area.margin]);
     this.cell.value = area.cell;
     this.tile.value = area.cell * area.tile;
     if (this.built?.key !== key) this.build(key, read, area);
@@ -91,6 +95,9 @@ export class PaintedScene {
     const read = this.reads.get(ref);
     this.reads.delete(ref);
     this.warned.delete(ref);
+    // A read still under way is out of date now: its answer is dropped when it lands, and the next draw reads afresh.
+    this.generations.set(ref, (this.generations.get(ref) ?? 0) + 1);
+    this.pending.delete(ref);
     this.clear();
     for (const slot of read?.slots ?? []) slot?.dispose();
   }
@@ -111,18 +118,26 @@ export class PaintedScene {
   }
 
   dispose(): void {
+    this.gone = true;
     this.clear();
-    for (const read of this.reads.values()) for (const slot of read?.slots ?? []) slot?.dispose();
+    for (const read of this.reads.values()) for (const slot of read.slots) slot?.dispose();
     this.reads.clear();
   }
 
   private start(ref: string): void {
     if (this.pending.has(ref)) return;
     this.pending.add(ref);
+    const generation = this.generations.get(ref) ?? 0;
     void this.read(ref).then((read) => {
+      // Forgotten while it was being read (it was saved since), or the scene was put away: this answer is old.
+      if (this.gone || (this.generations.get(ref) ?? 0) !== generation) { for (const slot of read?.slots ?? []) slot?.dispose(); return; }
       this.pending.delete(ref);
+      if (!read) {
+        // Not kept: whatever went wrong (mid-save, mid-sync) may be over by the next draw, which reads it again.
+        if (!this.warned.has(ref)) { this.warned.add(ref); console.warn(`Painted background "${ref}" could not be read; the ground is drawn plain.`); }
+        return;
+      }
       this.reads.set(ref, read);
-      if (!read && !this.warned.has(ref)) { this.warned.add(ref); console.warn(`Painted background "${ref}" could not be read; the ground is drawn plain.`); }
       this.changed();
     });
   }
