@@ -5474,10 +5474,16 @@ feature('shapes: painted and stood on', async ({ page }) => {
 });
 
 feature('ground', async ({ page, shot }) => {
-  // Board settings, Ground: the plane to the horizon (no table), its fog, extra board for minis, and the table grown by it.
+  // The Ground button's panel (no longer in Board settings): the plane to the horizon (no table), its fog, extra board
+  // for minis, and the table grown by it.
   await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2, water: { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 } }; board.refresh(); });
-  await page.getByRole('button', { name: 'Board settings' }).click();
+  const placed0 = await page.evaluate(() => ({ inSettings: !!document.querySelector('[aria-label="Board settings"][role="dialog"] [aria-label="Ground round the map"]'), inGround: !!document.querySelector('[aria-label="Ground"][role="dialog"] [aria-label="Ground round the map"]') }));
+  check('ground: the ground settings have their own panel, out of Board settings', placed0.inGround && !placed0.inSettings, JSON.stringify(placed0));
+  await page.getByRole('button', { name: 'Ground', exact: true }).click();
   await wait(200);
+  const opened = await page.evaluate(() => { const panel = document.querySelector('[aria-label="Ground"][role="dialog"]'); const settings = document.querySelector('[aria-label="Board settings"][role="dialog"]'); return { shown: !panel.hidden, settings: settings.hidden, expanded: document.querySelector('button[aria-label="Ground"]').getAttribute('aria-expanded') }; });
+  check('ground: the Ground button opens its panel, Board settings stays closed', opened.shown && opened.settings && opened.expanded === 'true', JSON.stringify(opened));
+  await shot('ground-panel');
   await page.getByRole('button', { name: 'Horizon plane' }).click();
   await wait(500);
   const horizon = await page.evaluate(() => { const { board, groundState } = window.boardTest; return { mode: groundState.value.mode, plane: board.groundPlane.object3d.parent === board.scene, table: board.surface.table.visible, fog: board.scene.fog ? board.scene.fog.far : null, pattern: !document.querySelector('[aria-label="Height pattern past the board"]').closest('label').hidden }; });
@@ -5509,7 +5515,7 @@ feature('ground', async ({ page, shot }) => {
   await wait(1200);
   await shot('ground-horizon');
   // Water plane: painted water's surface to the horizon, with the painted water's settings; no table, no ground plane.
-  await page.evaluate(() => { const { board } = window.boardTest; board.toolbar.open?.(); });
+  await page.evaluate(() => { const { board } = window.boardTest; board.toolbar.openGround?.(); });
   await page.getByRole('button', { name: 'Water plane' }).click();
   await wait(600);
   await page.evaluate(() => { const select = document.querySelector('[aria-label="How the water moves"]'); select.value = 'waves'; select.dispatchEvent(new Event('change', { bubbles: true })); });
@@ -5585,14 +5591,14 @@ server.listen(0, async () => {
           const { result } = await cdp.send('Profiler.takePreciseCoverage');
           const entry = result.find((script) => script.url.endsWith(`/${bundle}`));
           if (entry) kept[one.key] = { global, test: testHash(one), ...affected.ran(entry, bundles[bundle]) };
+          // Kept as it goes: a run stopped half way keeps what it found.
+          cache.save('features', kept);
         } catch (error) {
           errors.push(`${one.name}: coverage: ${error.message}`);
         }
       }
       await page.close();
     }
-          // Kept as it goes: a run stopped half way keeps what it found.
-          cache.save('features', kept);
   } finally {
     await browser.close();
     server.close();

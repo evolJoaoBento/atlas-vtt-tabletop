@@ -87,7 +87,7 @@ export interface ToolbarActions {
   waterTool?(): 'paint' | 'erase' | 'fill' | null;
   setWaterTool?(mode: 'paint' | 'erase' | 'fill' | null): void;
   /** The Shapes tool (Edit mode): raised shapes, roofs and hills, drawn corner by corner on the level shown. */
-  /** The ground round the map (Board settings, Ground): the table or a plane to the horizon, its pattern, fog and extra board. */
+  /** The ground round the map (the Ground button's panel): the table or a plane to the horizon, its pattern, fog and extra board. */
   ground?(): GroundSettings;
   setGround?(settings: GroundSettings): void;
   shapeTool?(): boolean;
@@ -183,6 +183,8 @@ const MORE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 /** Lucide's `command` icon (ISC), the glyph of Atlas's command palette button. */
 /** Lucide's `brick-wall` icon (ISC): the board settings button, whose panel is about walls and fog first. */
 /** Lucide's mountain: the Shapes tool (roofs, hills). */
+/** Ground running to the horizon: a horizon line and a grid in perspective (drawn for this button, in Lucide's style). */
+const GROUND_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7h20"/><path d="m9 7-5 14"/><path d="m15 7 5 14"/><path d="M12 7v14"/><path d="M5.5 15h13"/></svg>';
 const SHAPES_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 3 4 8 5-5 5 15H2L8 3z"/></svg>';
 const WALL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 9v6"/><path d="M16 15v6"/><path d="M16 3v6"/><path d="M3 15h18"/><path d="M3 9h18"/><path d="M8 15v6"/><path d="M8 3v6"/></svg>';
 
@@ -251,6 +253,9 @@ export class BoardToolbar {
   /** The Visibility panel: what shows through walls, of the layers above, behind walls, and the initiative tracker. */
   private readonly viewPanel: HTMLElement;
   private readonly viewButton: HTMLButtonElement;
+  /** The Ground button and its panel: the map's background, kept per map (absent without `setGround`). */
+  private readonly groundButton: HTMLButtonElement;
+  private readonly groundPanel: HTMLElement;
   /** Connect's Template tool, offered only while Connect hosts, and its shapes. */
   private readonly templateButton: HTMLButtonElement;
   private readonly templateGroup: HTMLElement;
@@ -326,6 +331,7 @@ export class BoardToolbar {
     const target = event.target as Node;
     if (!this.panel.contains(target) && !this.button.contains(target)) this.close();
     if (!this.viewPanel.contains(target) && !this.viewButton.contains(target)) this.closeView();
+    if (!this.groundPanel.contains(target) && !this.groundButton.contains(target)) this.closeGround();
     if (!this.laserPanel.contains(target) && !this.laserMenuButton.contains(target)) this.closeLaser();
     if (!this.templatePanel.contains(target) && !this.templateMenuButton.contains(target)) this.closeTemplate();
     if (!this.lightingPanel.contains(target) && !this.lightingButton.contains(target)) this.closeLighting();
@@ -719,6 +725,11 @@ export class BoardToolbar {
       if (event.key === 'Escape') { event.preventDefault(); this.closeLighting(); }
     });
     // Players are shown scenes with the eye on Atlas's scene tabs over the board: no player view or freeze button here.
+    this.groundButton = tool(GROUND_SVG, () => (this.groundPanel.hidden ? this.openGround() : this.closeGround()));
+    this.groundButton.setAttribute('aria-label', 'Ground');
+    this.groundButton.title = 'Ground: the map board, or a plane or water to the horizon; fog and extra board';
+    this.groundButton.setAttribute('aria-expanded', 'false');
+    if (!this.actions.setGround) (this.groundButton.closest('.atlas-tool-button') as HTMLElement).style.display = 'none';
     this.button = tool(WALL_SVG, () => (this.panel.hidden ? this.open() : this.close()));
     this.viewButton = tool(modeIcon('view'), () => (this.viewPanel.hidden ? this.openView() : this.closeView()));
     this.viewButton.setAttribute('aria-label', 'Visibility');
@@ -735,6 +746,11 @@ export class BoardToolbar {
     this.panel.setAttribute('role', 'dialog');
     this.panel.setAttribute('aria-label', 'Board settings');
     el('div', 'atlas-tabletop-palette__title', this.panel, 'Board settings');
+    this.groundPanel = el('div', 'atlas-tabletop-palette atlas-tabletop-ground-panel', this.row);
+    this.groundPanel.hidden = true;
+    this.groundPanel.setAttribute('role', 'dialog');
+    this.groundPanel.setAttribute('aria-label', 'Ground');
+    el('div', 'atlas-tabletop-palette__title', this.groundPanel, 'Ground');
     this.viewPanel = el('div', 'atlas-tabletop-palette', this.row);
     this.viewPanel.hidden = true;
     this.viewPanel.setAttribute('role', 'dialog');
@@ -779,10 +795,9 @@ export class BoardToolbar {
       input.addEventListener('change', () => this.actions.setSnap?.(kind, input.checked));
       this.snapToggles.push({ kind, input });
     }
-    // Ground: the map on its table, or a plane to the horizon round it; and extra board round the map either way.
+    // Ground (its own panel): the map on its table, or a plane or water to the horizon round it; extra board either way.
     if (this.actions.setGround) {
-      const section = el('div', 'atlas-tabletop-palette__section', this.panel);
-      el('div', 'atlas-tabletop-palette__heading', section, 'Ground');
+      const section = el('div', 'atlas-tabletop-palette__section', this.groundPanel);
       const change = (edit: Partial<GroundSettings>): void => { const now = this.actions.ground?.(); if (now) this.actions.setGround?.({ ...now, ...edit }); this.fillGround(); };
       const modeRow = el('div', 'atlas-tabletop-palette__field', section);
       el('span', 'atlas-tabletop-palette__label', modeRow, 'Background');
@@ -950,6 +965,10 @@ export class BoardToolbar {
       event.stopPropagation();
       if (event.key === 'Escape') { event.preventDefault(); this.closeView(); }
     });
+    this.groundPanel.addEventListener('keydown', (event) => {
+      event.stopPropagation();
+      if (event.key === 'Escape') { event.preventDefault(); this.closeGround(); }
+    });
     this.panel.addEventListener('keydown', (event) => {
       // Typing here must not move the camera.
       event.stopPropagation();
@@ -970,11 +989,11 @@ export class BoardToolbar {
       if (event.key === 'Escape' && !this.moreMenu.hidden) { event.preventDefault(); event.stopPropagation(); this.closeMore(); }
     });
     // Left to right as they stand; they leave from the right.
-    this.fitOrder.push(laserGroup, this.measureGroup, this.waterGroup, this.paintGroup, this.templateGroup, this.lightingGroup, this.button.closest('.atlas-tool-button') as HTMLElement, this.viewButton.closest('.atlas-tool-button') as HTMLElement, this.endSlot);
+    this.fitOrder.push(laserGroup, this.measureGroup, this.waterGroup, this.paintGroup, this.templateGroup, this.lightingGroup, this.groundButton.closest('.atlas-tool-button') as HTMLElement, this.button.closest('.atlas-tool-button') as HTMLElement, this.viewButton.closest('.atlas-tool-button') as HTMLElement, this.endSlot);
     this.fitWatch = new (doc.defaultView ?? window).ResizeObserver(() => this.fit());
     this.fitWatch.observe(container);
     // Presses on the bar and the panel are not the board's: no camera drag, no deselecting.
-    for (const part of [bar, this.panel, this.viewPanel]) part.addEventListener('pointerdown', (event) => event.stopPropagation());
+    for (const part of [bar, this.panel, this.viewPanel, this.groundPanel]) part.addEventListener('pointerdown', (event) => event.stopPropagation());
     this.refresh();
   }
 
@@ -1022,8 +1041,9 @@ export class BoardToolbar {
     this.shapeButton.classList.toggle('is-active', shaping);
     this.shapeButton.setAttribute('aria-pressed', String(shaping));
     show(this.button.closest<HTMLElement>('.atlas-tool-button'), editing);
+    show(this.groundButton.closest<HTMLElement>('.atlas-tool-button'), editing);
     if (!playing) { this.closeTemplate(); this.closeMeasure(); this.closeDice(); }
-    if (!editing) { this.close(); this.closeWater(); this.closePaint(); this.closeLighting(); }
+    if (!editing) { this.close(); this.closeGround(); this.closeWater(); this.closePaint(); this.closeLighting(); }
     const painting = this.actions.painting?.() ?? null;
     if (painting) this.lastPaint = painting;
     this.paintButton.classList.toggle('is-active', painting !== null);
@@ -1092,7 +1112,7 @@ export class BoardToolbar {
   }
 
   get isOpen(): boolean {
-    return !this.panel.hidden || !this.viewPanel.hidden || !this.laserPanel.hidden || !this.lightingPanel.hidden || !this.moreMenu.hidden || this.ends().some((end) => end.handlers.isOpen());
+    return !this.panel.hidden || !this.viewPanel.hidden || !this.groundPanel.hidden || !this.laserPanel.hidden || !this.lightingPanel.hidden || !this.moreMenu.hidden || this.ends().some((end) => end.handlers.isOpen());
   }
 
   /** The end slot's buttons there now: Dice, its log and the stat sheet. */
@@ -1487,6 +1507,7 @@ export class BoardToolbar {
   open(): void {
     this.closeLaser();
     this.closeView();
+    this.closeGround();
     // The panels of the end slot (the dice tray, the log, an unpinned sheet) give way to this one.
     this.closeDice();
     this.fill();
@@ -1501,6 +1522,7 @@ export class BoardToolbar {
   /** Shows the Visibility panel above the toolbar. */
   openView(): void {
     this.close();
+    this.closeGround();
     this.closeLaser();
     this.closeDice();
     this.fill();
@@ -1515,6 +1537,26 @@ export class BoardToolbar {
     this.viewPanel.hidden = true;
     this.viewButton.classList.remove('is-active');
     this.viewButton.setAttribute('aria-expanded', 'false');
+  }
+
+  /** Shows the Ground panel above the toolbar: the map's background, as it is set now. */
+  openGround(): void {
+    this.close();
+    this.closeView();
+    this.closeLaser();
+    this.closeDice();
+    this.fillGround();
+    this.groundPanel.hidden = false;
+    this.groundButton.classList.add('is-active');
+    this.groundButton.setAttribute('aria-expanded', 'true');
+    this.row.ownerDocument.addEventListener('pointerdown', this.onOutside, true);
+  }
+
+  closeGround(): void {
+    if (this.groundPanel.hidden) return;
+    this.groundPanel.hidden = true;
+    this.groundButton.classList.remove('is-active');
+    this.groundButton.setAttribute('aria-expanded', 'false');
   }
 
   /** The two panels' fields as the board has them now. */
@@ -1555,7 +1597,6 @@ export class BoardToolbar {
   }
 
   private fill(): void {
-    this.fillGround();
     const sheets = this.actions.arTableSheets?.() ?? null;
     this.tableSection.hidden = this.actions.placeArTable === undefined;
     this.tableButton.disabled = sheets === null;
@@ -1592,6 +1633,7 @@ export class BoardToolbar {
   dispose(): void {
     this.close();
     this.closeView();
+    this.closeGround();
     this.closeLaser();
     this.setDice(null);
     this.setDiceLog(null);
