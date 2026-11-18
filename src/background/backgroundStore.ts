@@ -27,6 +27,7 @@ const LAYER_FILES = [
   { key: 'terrain', file: 'terrain.png', empty: 0 },
   { key: 'material', file: 'material.png', empty: 0 },
   { key: 'height', file: 'height.png', empty: 128 },
+  { key: 'props', file: 'props.png', empty: 0 },
 ] as const;
 
 /** A name made safe to be a folder name: odd characters become spaces, runs of spaces shrink to one. */

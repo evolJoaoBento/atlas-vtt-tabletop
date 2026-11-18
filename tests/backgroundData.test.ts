@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { BACKGROUND_SIZE, DEFAULT_BACKGROUND, emptyLayers, readBackgroundSettings, TERRAINS, terrainOf } from '../src/background/backgroundData';
+import { BACKGROUND_SIZE, DEFAULT_BACKGROUND, emptyLayers, MAX_BRUSHES, MAX_BRUSH_PROPS, readBackgroundSettings, TERRAINS, terrainOf } from '../src/background/backgroundData';
 import { LIQUID_DEFAULTS } from '../src/board/water';
 
 test('background settings read tolerantly: defaults when missing', () => {
@@ -37,8 +37,32 @@ test('terrains are numbered 0 to 12 and unknown numbers are plains', () => {
   assert.equal(terrainOf(10), 'water');
 });
 
+test('prop brushes: defaults, clamps and caps', () => {
+  assert.deepEqual(DEFAULT_BACKGROUND.props, []);
+  assert.equal(MAX_BRUSHES, 6);
+  assert.equal(MAX_BRUSH_PROPS, 4);
+  const read = readBackgroundSettings({ props: [{}, { name: '  Pines  ', props: ['a.glb'], density: 9999, scale: 0.001 }, { density: 'x', scale: null }] });
+  assert.deepEqual(read.props[0], { name: 'Props 1', props: [], density: 10, scale: 1 });
+  assert.deepEqual(read.props[1], { name: 'Pines', props: ['a.glb'], density: 200, scale: 0.1 });
+  assert.deepEqual(read.props[2], { name: 'Props 3', props: [], density: 10, scale: 1 });
+  assert.equal(readBackgroundSettings({ props: [{ density: -4, scale: 99 }] }).props[0].density, 0.1);
+  assert.equal(readBackgroundSettings({ props: [{ density: -4, scale: 99 }] }).props[0].scale, 20);
+  assert.equal(readBackgroundSettings({ props: [{ name: 'x'.repeat(80) }] }).props[0].name.length, 60);
+  assert.equal(readBackgroundSettings({ props: Array.from({ length: 9 }, () => ({})) }).props.length, 6);
+  assert.deepEqual(readBackgroundSettings({ props: 'junk' }).props, []);
+  assert.deepEqual(readBackgroundSettings({ props: [7, null] }).props.map((b) => b.name), ['Props 1', 'Props 2']);
+});
+
+test('brush props must be .glb paths, are deduplicated and capped at four', () => {
+  const read = readBackgroundSettings({ props: [{ props: ['a.glb', 'B.GLB', '', 7, 'c.png', 'a.glb', 'd.glb', 'e.glb', 'f.glb'] }] });
+  assert.deepEqual(read.props[0].props, ['a.glb', 'B.GLB', 'd.glb', 'e.glb']);
+  assert.deepEqual(readBackgroundSettings({ props: [{ props: 'a.glb' }] }).props[0].props, []);
+});
+
 test('empty layers are plains, first material, mid height', () => {
   const layers = emptyLayers(4);
+  assert.equal(layers.props.length, 16);
+  assert.ok(layers.props.every((v) => v === 0));
   assert.equal(layers.height.length, 16);
   assert.ok(layers.height.every((v) => v === 128));
   assert.ok(layers.terrain.every((v) => v === 0) && layers.material.every((v) => v === 0));

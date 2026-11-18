@@ -965,7 +965,7 @@ class PlayerBoard implements PlayerBoardHandle {
         const fresh = emptyLayers(BACKGROUND_SIZE);
         return {
           settings: readBackgroundSettings({ ...block.settings, materials: [] }),
-          layers: { size: BACKGROUND_SIZE, terrain: terrain ?? fresh.terrain, material: material ?? fresh.material, height: height ?? fresh.height },
+          layers: { size: BACKGROUND_SIZE, terrain: terrain ?? fresh.terrain, material: material ?? fresh.material, height: height ?? fresh.height, props: fresh.props },
           materials: block.materials.map((id) => (id === '' ? null : id)),
         };
       },

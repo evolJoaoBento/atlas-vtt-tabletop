@@ -51,6 +51,22 @@ export interface CustomPattern {
   shape: PatternShape;
 }
 
+/** How many prop brushes a background can hold. */
+export const MAX_BRUSHES = 6;
+/** How many different props one brush can scatter. */
+export const MAX_BRUSH_PROPS = 4;
+
+/** A prop brush: the 3D models it scatters where it is painted, how thick they stand and how big they are. */
+export interface PropBrush {
+  name: string;
+  /** Vault paths of the `.glb` models the brush picks from (up to 4). */
+  props: string[];
+  /** How many props stand in each square (0.1 to 200). */
+  density: number;
+  /** How big the props are compared to their natural size (0.1 to 20). */
+  scale: number;
+}
+
 /** The settings of a painted background, saved with the map. */
 export interface BackgroundSettings {
   v: 1;
@@ -61,6 +77,8 @@ export interface BackgroundSettings {
   /** The lowest and highest the painted topography reaches, in squares. */
   height: { low: number; high: number };
   liquids: Record<LiquidKind, WaterMotion>;
+  /** The prop brushes the painted props layer chooses from. */
+  props: PropBrush[];
 }
 
 /** A background with nothing painted or chosen yet. */
@@ -71,6 +89,7 @@ export const DEFAULT_BACKGROUND: BackgroundSettings = {
   materials: [],
   height: { low: -2, high: 6 },
   liquids: { water: LIQUID_DEFAULTS.water, lava: LIQUID_DEFAULTS.lava, acid: LIQUID_DEFAULTS.acid },
+  props: [],
 };
 
 function number(raw: unknown, fallback: number, min: number, max: number): number {
@@ -93,6 +112,20 @@ function readPattern(raw: unknown): CustomPattern {
   };
 }
 
+function readBrush(raw: unknown, index: number): PropBrush {
+  const value = typeof raw === 'object' && raw !== null ? raw as Record<string, unknown> : {};
+  const name = typeof value.name === 'string' ? value.name.trim().slice(0, 60) : '';
+  const paths = Array.isArray(value.props)
+    ? value.props.filter((p): p is string => typeof p === 'string' && p !== '' && p.toLowerCase().endsWith('.glb'))
+    : [];
+  return {
+    name: name || `Props ${index + 1}`,
+    props: [...new Set(paths)].slice(0, MAX_BRUSH_PROPS),
+    density: number(value.density, 10, 0.1, 200),
+    scale: number(value.scale, 1, 0.1, 20),
+  };
+}
+
 /** Reads saved background settings, forgiving anything missing or wrong: values are clamped, extras dropped, a reversed height range swapped. */
 export function readBackgroundSettings(raw: unknown): BackgroundSettings {
   const value = typeof raw === 'object' && raw !== null ? raw as Record<string, unknown> : {};
@@ -106,7 +139,8 @@ export function readBackgroundSettings(raw: unknown): BackgroundSettings {
   const liquids = typeof value.liquids === 'object' && value.liquids !== null ? value.liquids as Record<string, unknown> : {};
   const read = {} as Record<LiquidKind, WaterMotion>;
   for (const kind of LIQUID_KINDS) read[kind] = readWaterMotion(liquids[kind], LIQUID_DEFAULTS[kind]);
-  return { v: 1, name: readName(value.name), patterns, materials, height: { low: Math.min(a, b), high: Math.max(a, b) }, liquids: read };
+  const props = Array.isArray(value.props) ? value.props.slice(0, MAX_BRUSHES).map(readBrush) : [];
+  return { v: 1, name: readName(value.name), patterns, materials, height: { low: Math.min(a, b), high: Math.max(a, b) }, liquids: read, props };
 }
 
 /** The painted layers of a background, one byte per cell. */
@@ -118,6 +152,8 @@ export interface BackgroundLayers {
   material: Uint8Array;
   /** The painted topography, 0 (the lowest) to 255 (the highest); 128 is mid. */
   height: Uint8Array;
+  /** Which prop brush each cell is painted with: 0 for none, 1 for the first brush, and so on. */
+  props: Uint8Array;
 }
 
 /** A background read for the board: what was painted, and the materials its slots name, as `readMaterial` takes them (null where the folder is gone). */
@@ -129,5 +165,5 @@ export interface LoadedBackground {
 
 /** Fresh layers: all plains, the first material, mid height. */
 export function emptyLayers(size: number = BACKGROUND_SIZE): BackgroundLayers {
-  return { size, terrain: new Uint8Array(size * size), material: new Uint8Array(size * size), height: new Uint8Array(size * size).fill(128) };
+  return { size, terrain: new Uint8Array(size * size), material: new Uint8Array(size * size), height: new Uint8Array(size * size).fill(128), props: new Uint8Array(size * size) };
 }

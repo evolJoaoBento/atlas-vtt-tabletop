@@ -86,6 +86,37 @@ test('saved settings and layers load back the same', async () => {
   assert.deepEqual(loaded.layers.terrain, layers.terrain);
   assert.deepEqual(loaded.layers.material, layers.material);
   assert.deepEqual(loaded.layers.height, layers.height);
+  assert.deepEqual(loaded.layers.props, layers.props);
+});
+
+test('the props layer and brushes round-trip', async () => {
+  const { store, files } = setup();
+  const folder = await store.create('Woods');
+  const layers = emptyLayers();
+  layers.props[7] = 3;
+  const settings = { ...DEFAULT_BACKGROUND, name: 'Woods', props: [{ name: 'Pines', props: ['p.glb'], density: 20, scale: 2 }] };
+  await store.save(folder, settings, layers);
+  assert.ok(files.files.get(`${folder}/props.png`) instanceof ArrayBuffer);
+  const loaded = await store.load(folder);
+  assert.ok(loaded);
+  assert.deepEqual(loaded.settings, settings);
+  assert.equal(loaded.layers.props[7], 3);
+});
+
+test('a missing props.png loads empty and is named in the one warning', async () => {
+  const { store, files } = setup();
+  const folder = await store.create('Old');
+  files.files.delete(`${folder}/props.png`);
+  const warns: unknown[][] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => { warns.push(args); };
+  try {
+    const loaded = await store.load(folder);
+    assert.ok(loaded);
+    assert.ok(loaded.layers.props.every((v) => v === 0));
+  } finally { console.warn = original; }
+  assert.equal(warns.length, 1);
+  assert.ok(warns[0].join(' ').includes('props.png'));
 });
 
 test('save writes the thumbnail and tells listeners', async () => {
