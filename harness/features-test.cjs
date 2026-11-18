@@ -2540,6 +2540,93 @@ feature('background editor', async ({ page, shot }) => {
   await ed(() => window.boardTest.closeBackgroundEditor());
 });
 
+// ── Painted props: the editor's Props tab, where the GM makes prop brushes and paints them ───────────────────────────
+feature('background editor props', async ({ page, shot }) => {
+  const ed = (fn, arg) => page.evaluate(fn, arg);
+  const until = async (fn, arg, tries = 60) => { for (let i = 0; i < tries; i++) { if (await page.evaluate(fn, arg)) return true; await wait(100); } return false; };
+  const at = (x, y) => page.evaluate(([x, y]) => window.boardTest.backgroundEditor.clientOf(x, y), [x, y]);
+  const drag = async (points) => {
+    const screen = [];
+    for (const [x, y] of points) screen.push(await at(x, y));
+    await page.mouse.move(screen[0].x, screen[0].y);
+    await page.mouse.down();
+    for (const p of screen.slice(1)) await page.mouse.move(p.x, p.y, { steps: 8 });
+    await page.mouse.up();
+  };
+  const pixel = (layer, x, y) => page.evaluate(([layer, x, y]) => window.boardTest.backgroundEditor.layers[layer][y * 2048 + x], [layer, x, y]);
+  const typeNumber = async (selector, value) => { const box = page.locator(selector); await box.fill(String(value)); await box.blur(); };
+
+  await ed(async () => { await window.boardTest.openBackgroundEditor(); });
+  await page.locator('[data-bg-action="new"]').click();
+  await page.locator('.atlas-tabletop-bg-name-input').fill('Grove');
+  await page.keyboard.press('Enter');
+  check('background editor props: a new background is opened', await until(() => window.boardTest.backgroundEditor.folder?.endsWith('/Grove') && window.boardTest.backgroundEditor.layers));
+  await wait(300);
+
+  check('background editor props: there is a Props layer tab', await page.locator('[data-bg-layer="props"]').count() === 1);
+  await page.locator('[data-bg-layer="props"]').click();
+  check('background editor props: the Props tab is active', await ed(() => document.querySelector('[data-bg-layer="props"]').classList.contains('is-active')));
+  check('background editor props: no brush yet, Add brush is offered', await ed(() => document.querySelectorAll('[data-bg-propbrush]').length === 0 && !!document.querySelector('[data-bg-action="add-brush"]')));
+
+  await page.locator('[data-bg-action="add-brush"]').click();
+  check('background editor props: Add brush makes brush 1', await ed(() => window.boardTest.backgroundEditor.settings.props.length === 1 && document.querySelectorAll('[data-bg-propbrush]').length === 1));
+  await page.locator('[data-bg-brush-prop="0"]').selectOption('props/barrel.glb');
+  check('background editor props: picking a prop fills the brush and offers another picker', await ed(() => JSON.stringify(window.boardTest.backgroundEditor.settings.props[0].props) === '["props/barrel.glb"]' && document.querySelectorAll('[data-bg-brush-prop]').length === 2));
+  await typeNumber('[data-bg-brush-density]', 25);
+  await typeNumber('[data-bg-brush-scale]', 1.5);
+  await page.locator('[data-bg-brush-name]').fill('Barrels');
+  await page.locator('[data-bg-brush-name]').blur();
+  const kinds = await ed(() => ({ density: document.querySelector('[data-bg-brush-density]').type, scale: document.querySelector('[data-bg-brush-scale]').type, ranges: document.querySelectorAll('.atlas-tabletop-bg-palette input[type="range"]').length, b: window.boardTest.backgroundEditor.settings.props[0] }));
+  check('background editor props: density and scale are number inputs, not sliders', kinds.density === 'number' && kinds.scale === 'number' && kinds.ranges === 0, JSON.stringify(kinds));
+  check('background editor props: the brush keeps name, density 25 and scale 1.5', kinds.b.name === 'Barrels' && kinds.b.density === 25 && kinds.b.scale === 1.5, JSON.stringify(kinds.b));
+  await typeNumber('[data-bg-brush-density]', 9999);
+  check('background editor props: density is clamped to 200', await ed(() => window.boardTest.backgroundEditor.settings.props[0].density === 200));
+  await typeNumber('[data-bg-brush-density]', 25);
+
+  await page.locator('[data-bg-action="add-brush"]').click();
+  check('background editor props: a second brush is added and selected', await ed(() => window.boardTest.backgroundEditor.settings.props.length === 2 && document.querySelector('[data-bg-propbrush="2"]').classList.contains('is-active')));
+  check('background editor props: only the last brush can be removed', await ed(() => document.querySelectorAll('[data-bg-action="remove-brush"]').length === 1));
+  await page.locator('[data-bg-propbrush="1"]').click();
+  check('background editor props: brush 1 has no Remove while brush 2 exists', await ed(() => document.querySelectorAll('[data-bg-action="remove-brush"]').length === 0 && document.querySelector('[data-bg-brush-density]').value === '25'));
+
+  await page.locator('[data-bg-tool="brush"]').click();
+  await ed(() => { const el = document.querySelector('[data-bg-brush]'); el.value = '20'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+  await drag([[700, 1300], [1000, 1300]]);
+  check('background editor props: painting writes the brush number into the props layer', (await pixel('props', 850, 1300)) === 1 && (await pixel('props', 850, 900)) === 0, JSON.stringify(await pixel('props', 850, 1300)));
+  await page.locator('[data-bg-propbrush="2"]').click();
+  await wait(250); // the card above the canvas changes height, so the canvas is resized and the picture fitted again
+  await drag([[1300, 1500], [1500, 1500]]);
+  check('background editor props: brush 2 writes 2', (await pixel('props', 1400, 1500)) === 2);
+  await page.locator('[data-bg-tool="eraser"]').click();
+  await drag([[1350, 1500], [1450, 1500]]);
+  check('background editor props: the eraser writes 0', (await pixel('props', 1400, 1500)) === 0 && (await pixel('props', 850, 1300)) === 1);
+  await page.locator('[data-bg-action="undo"]').click();
+  check('background editor props: Undo takes the erasing back', (await pixel('props', 1400, 1500)) === 2);
+  await page.locator('[data-bg-action="undo"]').click();
+  check('background editor props: Undo takes the brush 2 stroke back', (await pixel('props', 1400, 1500)) === 0 && (await pixel('props', 850, 1300)) === 1);
+  await page.locator('[data-bg-action="redo"]').click();
+  check('background editor props: Redo puts it back', (await pixel('props', 1400, 1500)) === 2);
+
+  // Removing the last brush: its painted cells read as no brush (the numbers stay in the layer).
+  await page.locator('[data-bg-propbrush="2"]').click();
+  await page.locator('[data-bg-action="remove-brush"]').click();
+  check('background editor props: Remove drops the last brush', await ed(() => window.boardTest.backgroundEditor.settings.props.length === 1));
+
+  await page.locator('[data-bg-propbrush="1"]').click();
+  await shot('background-editor-props');
+
+  await page.locator('[data-bg-action="save"]').click();
+  check('background editor props: Save clears the changed mark', await until(() => !window.boardTest.backgroundEditor.dirty));
+  const folder = await ed(() => window.boardTest.backgroundEditor.folder);
+  await ed(async (f) => { await window.boardTest.backgroundEditor.open(null); await window.boardTest.backgroundEditor.open(f); }, folder);
+  const reread = await ed(() => ({ b: window.boardTest.backgroundEditor.settings.props, p: window.boardTest.backgroundEditor.layers.props[1300 * 2048 + 850] }));
+  check('background editor props: reopened, the brush keeps its name, prop, density and scale', reread.b.length === 1 && reread.b[0].name === 'Barrels' && reread.b[0].props[0] === 'props/barrel.glb' && reread.b[0].density === 25 && reread.b[0].scale === 1.5, JSON.stringify(reread.b));
+  check('background editor props: reopened, the painted pixels are still there', reread.p === 1, JSON.stringify(reread.p));
+  await page.locator('[data-bg-layer="props"]').click();
+  check('background editor props: reopened, the brush shows in the palette', await ed(() => document.querySelectorAll('[data-bg-propbrush]').length === 1 && document.querySelector('[data-bg-brush-density]').value === '25'));
+  await ed(() => window.boardTest.closeBackgroundEditor());
+});
+
 // ── Ground: lava and acid to the horizon; the fog switch, and a plane that ends a little past the fog ─────────────
 feature('ground liquids and fog',async ({ page, shot }) => {
   const shaderErrors = [];

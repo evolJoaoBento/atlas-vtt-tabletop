@@ -15,17 +15,20 @@ import { planeReach } from '../board/ground';
 import { buildSettingsPanel,type SettingsPanel } from './backgroundSettingsPanel';
 import type { BackgroundStore } from './backgroundStore';
 import { LayerHistory, floodFill, paintStroke, type PixelBox } from './layerPaint';
+import { BRUSH_COLORS, renderPropBrushPanel } from './propBrushPanel';
 
 /** What the editor needs from the plugin around it. */
 export interface BackgroundEditorHost {
   store: BackgroundStore;
   /** The ground materials of the gallery a material slot can be picked from. */
   materials(): { path: string; name: string; thumb: string | null }[];
+  /** The props (3D models) of the gallery a prop brush can scatter. */
+  props(): { path: string; name: string; thumb: string | null }[];
   /** A picture address for a saved thumbnail (a `thumb.png` path from the store's list); null when there is none. */
   thumbnail?(path: string): Promise<string | null>;
 }
 
-type LayerName = 'terrain' | 'material' | 'height';
+type LayerName = 'terrain' | 'material' | 'height' | 'props';
 type Tool = 'brush' | 'eraser' | 'fill';
 
 /** How wide the map is in the picture, in pixels: the picture spans twice the plane's reach (at its thinnest fog) in map widths (`backgroundFrame` lays it so). */
@@ -36,6 +39,7 @@ const LAYERS: readonly { id: LayerName; label: string }[] = [
   { id: 'terrain', label: 'Terrain' },
   { id: 'material', label: 'Material' },
   { id: 'height', label: 'Height' },
+  { id: 'props', label: 'Props' },
 ];
 const TOOLS: readonly { id: Tool; label: string }[] = [
   { id: 'brush', label: 'Brush' },
@@ -59,6 +63,8 @@ function colorTable(entries: readonly (readonly [number, string])[], fallback: s
 }
 const TERRAIN_RGB = colorTable(TERRAINS.map((t) => [t.index, t.color] as const), TERRAINS[0].color);
 const MATERIAL_RGB = colorTable(MATERIAL_COLORS.map((c, i) => [i, c] as const), MATERIAL_COLORS[0]);
+/** The colour of each prop brush number (0, no brush, is never looked up). */
+const BRUSH_RGB = colorTable(BRUSH_COLORS.map((c, i) => [i + 1, c] as const), BRUSH_COLORS[0]);
 
 function baseName(path: string): string {
   return path.slice(path.lastIndexOf('/') + 1);
@@ -109,6 +115,8 @@ export class BackgroundEditor {
   private tool: Tool = 'brush';
   private terrainId = 'plains';
   private slot = 0;
+  /** The prop brush painted with on the Props layer (1 to 6), or 0 when there is none. */
+  private brush = 0;
   private radius = 24;
   private heightValue = 200;
   private soft = true;
@@ -215,9 +223,10 @@ export class BackgroundEditor {
     this.folderPath = folder;
     this.background = loaded.layers;
     this.config = loaded.settings;
-    this.histories = { terrain: new LayerHistory(loaded.layers.size), material: new LayerHistory(loaded.layers.size), height: new LayerHistory(loaded.layers.size) };
+    this.histories = { terrain: new LayerHistory(loaded.layers.size), material: new LayerHistory(loaded.layers.size), height: new LayerHistory(loaded.layers.size), props: new LayerHistory(loaded.layers.size) };
     this.changed = false;
     this.slot = 0;
+    this.brush = loaded.settings.props.length ? 1 : 0;
     this.terrainId = 'plains';
     this.message = null;
     this.shade({ x0: 0, y0: 0, x1: loaded.layers.size - 1, y1: loaded.layers.size - 1 });
@@ -386,6 +395,15 @@ export class BackgroundEditor {
     this.syncUi();
   }
 
+  /** Brushes were added or removed: the picture shows what is painted with the ones that remain. */
+  private brushesChanged(): void {
+    this.markDirty();
+    this.brush = clamp(this.brush, this.config.props.length ? 1 : 0, this.config.props.length);
+    if (this.background) this.shade({ x0: 0, y0: 0, x1: this.background.size - 1, y1: this.background.size - 1 });
+    this.renderPalette();
+    this.syncUi();
+  }
+
   private markDirty(): void {
     this.changed = true;
     this.edits++;
@@ -397,6 +415,7 @@ export class BackgroundEditor {
   private renderPalette(): void {
     const box = this.paletteEl;
     box.textContent = '';
+    box.classList.toggle('is-props', this.layer === 'props');
     if (!this.background) return;
     if (this.layer === 'terrain') {
       for (const t of TERRAINS) {
@@ -411,6 +430,15 @@ export class BackgroundEditor {
       }
     } else if (this.layer === 'material') {
       this.renderSlots(box);
+    } else if (this.layer === 'props') {
+      renderPropBrushPanel(box, {
+        brushes: () => this.config.props,
+        props: () => this.host.props(),
+        selected: () => this.brush,
+        select: (brush) => { this.brush = brush; this.renderPalette(); },
+        edited: () => { this.markDirty(); this.syncUi(); },
+        restructured: () => this.brushesChanged(),
+      });
     } else {
       this.el(box, 'p', 'atlas-tabletop-bg-hint', 'Paint with the height value above: lighter is higher, darker is lower. Soft makes the brush blend into what is there.');
     }
@@ -588,7 +616,8 @@ export class BackgroundEditor {
   private shade(box: PixelBox): void {
     const layers = this.background;
     if (!layers) return;
-    const { size, terrain, material, height } = layers;
+    const { size, terrain, material, height, props } = layers;
+    const brushes = this.config.props.length;
     const out = this.pixels;
     const layer = this.layer;
     for (let j = box.y0; j <= box.y1; j++) {
@@ -601,6 +630,10 @@ export class BackgroundEditor {
           if (material[k]) { r = (r * 4 + MATERIAL_RGB[m]) / 5; g = (g * 4 + MATERIAL_RGB[m + 1]) / 5; b = (b * 4 + MATERIAL_RGB[m + 2]) / 5; }
         } else if (layer === 'material') {
           r = (TERRAIN_RGB[t] + MATERIAL_RGB[m] * 3) / 4; g = (TERRAIN_RGB[t + 1] + MATERIAL_RGB[m + 1] * 3) / 4; b = (TERRAIN_RGB[t + 2] + MATERIAL_RGB[m + 2] * 3) / 4;
+        } else if (layer === 'props') {
+          // A number above the brushes that exist is what a removed brush left: it shows as no brush.
+          const p = props[k] <= brushes ? props[k] * 3 : 0;
+          if (p) { r = (TERRAIN_RGB[t] + BRUSH_RGB[p] * 3) / 4; g = (TERRAIN_RGB[t + 1] + BRUSH_RGB[p + 1] * 3) / 4; b = (TERRAIN_RGB[t + 2] + BRUSH_RGB[p + 2] * 3) / 4; } else { r = TERRAIN_RGB[t] * 0.6; g = TERRAIN_RGB[t + 1] * 0.6; b = TERRAIN_RGB[t + 2] * 0.6; }
         } else {
           const h = height[k] * 3;
           r = (TERRAIN_RGB[t] + h) / 4; g = (TERRAIN_RGB[t + 1] + h) / 4; b = (TERRAIN_RGB[t + 2] + h) / 4;
@@ -694,6 +727,10 @@ export class BackgroundEditor {
   private paintValue(): number | null {
     if (this.tool === 'eraser') return this.layer === 'height' ? 128 : 0;
     if (this.layer === 'height') return this.heightValue;
+    if (this.layer === 'props') {
+      if (this.brush < 1 || this.brush > this.config.props.length) { this.say('Add a brush and pick it first.', true); return null; }
+      return this.brush;
+    }
     if (this.layer === 'material') {
       if (this.slot > 0 && !this.config.materials[this.slot - 1]) { this.say('Pick a material for that slot first.', true); return null; }
       return this.slot;

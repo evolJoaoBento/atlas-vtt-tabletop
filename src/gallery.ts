@@ -245,6 +245,7 @@ export class GalleryView extends ItemView {
     this.editor = new BackgroundEditor(host, {
       store,
       materials: () => this.materials.list().map((folder) => ({ path: folder.path, name: folder.name, thumb: this.materials.thumbnail(folder.path) })),
+      props: () => this.props.list().map((file) => ({ path: file.path, name: file.basename, thumb: null })),
       thumbnail: async (path) => {
         const file = this.app.vault.getAbstractFileByPath(path);
         if (!file || !('stat' in file)) return null;

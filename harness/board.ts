@@ -915,6 +915,7 @@ async function main(): Promise<void> {
     const editor = new BackgroundEditor(backgroundOverlay, {
       store: backgrounds,
       materials: host.materials,
+      props: () => [{ path: 'props/barrel.glb', name: 'barrel', thumb: null }, { path: 'props/crate.glb', name: 'crate', thumb: null }, { path: 'props/tree.glb', name: 'tree', thumb: null }],
       thumbnail: async (path) => { const bytes = backgroundFiles.get(path); return bytes instanceof ArrayBuffer ? URL.createObjectURL(new Blob([bytes], { type: 'image/png' })) : null; },
     });
     backgroundEditor = editor;
