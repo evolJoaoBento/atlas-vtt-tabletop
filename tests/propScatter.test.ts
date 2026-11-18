@@ -162,6 +162,31 @@ test('a 100-square map (a picture 1 500 squares across) with density 200 over ha
   assert.deepEqual(scatterProps(layers, settingsOf(brush(200)), big, map, one).slice(0, 50), out.slice(0, 50));
 });
 
+test('a class whose estimate came in high is made again on its own: the other class stays thinned and single props stay', () => {
+  const size = 2048;
+  const big: BackgroundFrame = { cx: 750, cy: 750, extent: 1500, size };
+  const layers = emptyLayers(size);
+  // Far: a dense band down the left side (over a million candidates before the caps).
+  for (let j = 0; j < size; j++) for (let i = 0; i < 512; i++) layers.props[j * size + i] = 1;
+  // Near: a big painted patch that is all water, so the estimate counts it but nothing can stand there.
+  for (let j = 683; j < 929; j++) for (let i = 683; i < 929; i++) { layers.props[j * size + i] = 1; layers.terrain[j * size + i] = WATER; }
+  // Two one-cell dots on dry ground near the middle: one prop each.
+  const dots = [[1000, 700], [1100, 1300]];
+  for (const [i, j] of dots) layers.props[j * size + i] = 1;
+  const map = { x0: 700, y0: 700, x1: 800, y1: 800 };
+  const t0 = performance.now();
+  const out = scatterProps(layers, settingsOf(brush(200)), big, map, one);
+  const ms = performance.now() - t0;
+  const near = out.filter((p) => !p.far), far = out.filter((p) => p.far);
+  const cell = big.extent / size;
+  for (const [i, j] of dots) {
+    assert.ok(near.some((p) => Math.abs(p.x - (i + 0.5) * cell) < 1e-6 && Math.abs(p.y - (j + 0.5) * cell) < 1e-6), `dot ${i},${j} kept`);
+  }
+  assert.equal(near.length, dots.length);
+  assert.ok(far.length <= MAX_IMPOSTORS && far.length > MAX_IMPOSTORS * 0.9, `far ${far.length}`);
+  assert.ok(ms < 1500, `took ${ms} ms`);
+});
+
 /** A square of `cells` by `cells` cells with its top-left cell at (i0, j0). */
 function square(layers: ReturnType<typeof emptyLayers>, i0: number, j0: number, cells: number): void {
   for (let j = j0; j < j0 + cells; j++) for (let i = i0; i < i0 + cells; i++) layers.props[j * 512 + i] = 1;

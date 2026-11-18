@@ -131,14 +131,15 @@ export function scatterProps(
     return v >= 1 && v <= brushes.length && usable[v - 1] ? v : 0;
   };
 
+  /** Every placement, near the middle and far from it: the single props, then the grids' (`grid`, kept apart until the end). */
   const near: Candidate[] = [], far: Candidate[] = [];
-  /** A candidate whose cap hash is not under its class's limit is never made: with a huge forest, millions would be. */
+  /** The grids' placements, apart from the single props, so one class can be made again on its own. */
+  const grid = { near: [] as Candidate[], far: [] as Candidate[] };
+  /** A grid point whose cap hash is not under its class's limit is never made: with a huge forest, millions would be. */
   const limit = { near: 1, far: 1 };
   const isFar = (x: number, y: number): boolean => Math.hypot(x - frame.cx, y - frame.cy) > farFrom;
-  const add = (brush: number, ix: number, iy: number, x: number, y: number, scale: number, limited = false): void => {
+  const candidate = (brush: number, ix: number, iy: number, x: number, y: number, scale: number, keep: number): Candidate => {
     const b = brushes[brush];
-    const keep = hash(ix, iy, brush, SALT_CAP);
-    if (limited && keep >= (isFar(x, y) ? limit.far : limit.near)) return;
     const prop: ScatteredProp = {
       brush,
       prop: Math.min(b.props.length - 1, Math.floor(hash(ix, iy, brush, SALT_PROP) * b.props.length)),
@@ -148,7 +149,20 @@ export function scatterProps(
       scale: scale * (0.85 + 0.3 * hash(ix, iy, brush, SALT_SCALE)),
       far: isFar(x, y),
     };
-    (prop.far ? far : near).push({ prop, keep });
+    return { prop, keep };
+  };
+  /** A single prop (a small spot's, or a missed spot's): always made. */
+  const add = (brush: number, ix: number, iy: number, x: number, y: number, scale: number): void => {
+    const c = candidate(brush, ix, iy, x, y, scale, hash(ix, iy, brush, SALT_CAP));
+    (c.prop.far ? far : near).push(c);
+  };
+  /** A grid point, made only when its cap hash is under its class's limit; `only` makes one class alone. */
+  const addGrid = (brush: number, ix: number, iy: number, x: number, y: number, scale: number, only: 'near' | 'far' | null): void => {
+    const cls = isFar(x, y) ? 'far' : 'near';
+    if (only !== null && cls !== only) return;
+    const keep = hash(ix, iy, brush, SALT_CAP);
+    if (keep >= limit[cls]) return;
+    grid[cls].push(candidate(brush, ix, iy, x, y, scale, keep));
   };
 
   /** One prop for the spot whose `count` cells are in the stack: at its middle, or at the allowed cell nearest the middle. */
@@ -255,14 +269,20 @@ export function scatterProps(
   // A margin, so the share kept is over the cap and the even thinning below trims it exactly.
   limit.near = Math.min(1, CAP_MARGIN * MAX_MODELS / Math.max(1, nearExpected));
   limit.far = Math.min(1, CAP_MARGIN * MAX_IMPOSTORS / Math.max(1, farExpected));
-  walk((brush, ix, iy, x, y, scale) => add(brush, ix, iy, x, y, scale, true));
-  // The estimate was too low (a thick, clumpy forest): so few were made that the cap is not reached. Made again, all of them.
-  if ((limit.near < 1 && near.length < MAX_MODELS) || (limit.far < 1 && far.length < MAX_IMPOSTORS)) {
-    near.length = 0;
-    far.length = 0;
-    limit.near = limit.far = 1;
-    walk((brush, ix, iy, x, y, scale) => add(brush, ix, iy, x, y, scale, true));
+  walk((brush, ix, iy, x, y, scale) => addGrid(brush, ix, iy, x, y, scale, null));
+  // A class whose estimate was too high (water, the map or clearings left fewer than guessed) did not reach its cap: that
+  // class alone is made again with its limit raised by how short it fell, until it reaches the cap or nothing is left out.
+  // The other class, and the single props, are kept as they are, so allocations stay near the caps.
+  const caps = { near: MAX_MODELS, far: MAX_IMPOSTORS };
+  for (const cls of ['near', 'far'] as const) {
+    while (limit[cls] < 1 && grid[cls].length < caps[cls]) {
+      limit[cls] = Math.min(1, limit[cls] * CAP_MARGIN * caps[cls] / Math.max(1, grid[cls].length));
+      grid[cls].length = 0;
+      walk((brush, ix, iy, x, y, scale) => addGrid(brush, ix, iy, x, y, scale, cls));
+    }
   }
+  for (const c of grid.near) near.push(c);
+  for (const c of grid.far) far.push(c);
 
   // Every spot gets at least one prop: a big spot the grid missed gets one at its middle.
   if (bigSpots.some((s) => !s.hit)) {
