@@ -173,3 +173,46 @@ test('a small spot whose middle is water puts its one prop on a dry cell of the 
 test('with no usable brush nothing is placed', () => {
   assert.deepEqual(scatterProps(layersFor(), settingsOf(brush(20)), frame, NO_MAP, () => 0), []);
 });
+
+test('a big forest is natural: uneven spacing, clumps and clearings, and the brush density holds', () => {
+  const size = 1024;
+  const f: BackgroundFrame = { cx: 128, cy: 128, extent: 256, size };
+  const layers = emptyLayers(size);
+  paint(layers, f, 20, 20, 220, 220, 1);
+  const out = scatterProps(layers, settingsOf(brush(20)), f, NO_MAP, one);
+  // Mean density: 200 x 200 squares at 20 per 100 squares.
+  const expected = 200 * 200 * 20 / 100;
+  assert.ok(Math.abs(out.length - expected) < expected * 0.1, `got ${out.length}, expected ${expected}`);
+  // Nearest-neighbour distances (props well inside the forest) vary widely.
+  const bucket = 4, buckets = new Map<number, number[]>();
+  const key = (bx: number, by: number): number => by * 1000 + bx;
+  out.forEach((p, i) => {
+    const k = key(Math.floor(p.x / bucket), Math.floor(p.y / bucket));
+    (buckets.get(k) ?? buckets.set(k, []).get(k)!).push(i);
+  });
+  const nearest: number[] = [];
+  for (const p of out) {
+    if (p.x < 40 || p.x > 200 || p.y < 40 || p.y > 200) continue;
+    let best = Infinity;
+    const bx = Math.floor(p.x / bucket), by = Math.floor(p.y / bucket);
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) for (const i of buckets.get(key(bx + dx, by + dy)) ?? []) {
+      const q = out[i];
+      if (q !== p) best = Math.min(best, Math.hypot(q.x - p.x, q.y - p.y));
+    }
+    nearest.push(best);
+  }
+  const mean = nearest.reduce((a, b) => a + b, 0) / nearest.length;
+  const sd = Math.sqrt(nearest.reduce((a, b) => a + (b - mean) ** 2, 0) / nearest.length);
+  console.log(`nearest-neighbour CV ${(sd / mean).toFixed(3)}`);
+  assert.ok(sd / mean > 0.35, `CV ${sd / mean}`);
+  // Local density: counts in 8 x 8 blocks spread far more than an even grid (variance above the mean, as for random scatter; an even grid is far below it).
+  const counts: number[] = [];
+  for (let by = 24; by < 216; by += 8) for (let bx = 24; bx < 216; bx += 8) {
+    counts.push(out.filter((p) => p.x >= bx && p.x < bx + 8 && p.y >= by && p.y < by + 8).length);
+  }
+  const cm = counts.reduce((a, b) => a + b, 0) / counts.length;
+  const cv = counts.reduce((a, b) => a + (b - cm) ** 2, 0) / counts.length;
+  console.log(`block counts mean ${cm.toFixed(2)} variance ${cv.toFixed(2)}`);
+  assert.ok(cv > cm, `variance ${cv} vs mean ${cm}`);
+  assert.deepEqual(out, scatterProps(layers, settingsOf(brush(20)), f, NO_MAP, one));
+});

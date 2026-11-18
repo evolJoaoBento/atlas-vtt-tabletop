@@ -32,7 +32,26 @@ export interface ScatteredProp {
   far: boolean;
 }
 
-const SALT_JITTER_X = 1, SALT_JITTER_Y = 2, SALT_PROP = 3, SALT_TURN = 4, SALT_SCALE = 5, SALT_CAP = 6;
+const SALT_JITTER_X = 1, SALT_JITTER_Y = 2, SALT_PROP = 3, SALT_TURN = 4, SALT_SCALE = 5, SALT_CAP = 6, SALT_KEEP = 7, SALT_NOISE = 8;
+
+/** The grid is finer than the brush's even spacing by this much (0.8, so 1.56 times the points before thinning). */
+const GRID_STEP = 0.8;
+/** How far, in grid cells, a point may stray from its cell's middle (a total range of 1.6 cells). */
+const JITTER = 1.6;
+/** How big a clump or clearing is, in times the brush's even spacing. */
+const CLUMP_FEATURE = 6;
+/** A point is kept with chance `KEEP_SCALE * (KEEP_BASE + KEEP_GAIN * noise)`: the scale undoes the finer grid, the rest averages 1. */
+const KEEP_SCALE = GRID_STEP * GRID_STEP, KEEP_BASE = 0.35, KEEP_GAIN = 1.3;
+
+/** Smooth noise from 0 to 1 that changes slowly over one unit of (x, y); the same for the same brush. */
+function valueNoise(x: number, y: number, brush: number): number {
+  const ix = Math.floor(x), iy = Math.floor(y);
+  const fx = x - ix, fy = y - iy;
+  const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+  const at = (i: number, j: number): number => hash(i, j, brush, SALT_NOISE);
+  const top = at(ix, iy) * (1 - sx) + at(ix + 1, iy) * sx, bottom = at(ix, iy + 1) * (1 - sx) + at(ix + 1, iy + 1) * sx;
+  return top * (1 - sy) + bottom * sy;
+}
 
 /** A fixed hash of four whole numbers to [0, 1). */
 function hash(a: number, b: number, c: number, d: number): number {
@@ -173,11 +192,17 @@ export function scatterProps(
   brushes.forEach((b, brush) => {
     const bb = box[brush];
     if (bb.i1 < 0 || !(b.density > 0)) return;
-    const spacing = 10 / Math.sqrt(b.density);
-    const gx0 = Math.floor((left + bb.i0 * cellSize) / spacing), gx1 = Math.floor((left + (bb.i1 + 1) * cellSize) / spacing);
-    const gy0 = Math.floor((top + bb.j0 * cellSize) / spacing), gy1 = Math.floor((top + (bb.j1 + 1) * cellSize) / spacing);
+    // The brush's even spacing; the grid is finer (OVERSAMPLE) and thinned by the clump noise, so the mean density holds.
+    const even = 10 / Math.sqrt(b.density), spacing = even * GRID_STEP, feature = even * CLUMP_FEATURE;
+    // A point may stray up to 0.8 cells, so the cells just outside the painted box are visited too.
+    const gx0 = Math.floor((left + bb.i0 * cellSize) / spacing) - 1, gx1 = Math.floor((left + (bb.i1 + 1) * cellSize) / spacing) + 1;
+    const gy0 = Math.floor((top + bb.j0 * cellSize) / spacing) - 1, gy1 = Math.floor((top + (bb.j1 + 1) * cellSize) / spacing) + 1;
     for (let iy = gy0; iy <= gy1; iy++) for (let ix = gx0; ix <= gx1; ix++) {
-      const x = (ix + hash(ix, iy, brush, SALT_JITTER_X)) * spacing, y = (iy + hash(ix, iy, brush, SALT_JITTER_Y)) * spacing;
+      const x = (ix + 0.5 + (hash(ix, iy, brush, SALT_JITTER_X) - 0.5) * JITTER) * spacing;
+      const y = (iy + 0.5 + (hash(ix, iy, brush, SALT_JITTER_Y) - 0.5) * JITTER) * spacing;
+      // Clumps and clearings: keep the point with a chance that follows the slow noise at its place.
+      const chance = KEEP_SCALE * (KEEP_BASE + KEEP_GAIN * valueNoise(x / feature, y / feature, brush));
+      if (hash(ix, iy, brush, SALT_KEEP) >= chance) continue;
       if (x < left || y < top || x >= left + frame.extent || y >= top + frame.extent) continue;
       const k = pixelAt(frame, x, y);
       const spot = spotOf[k];
