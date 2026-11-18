@@ -15,7 +15,8 @@ import { liquidMask } from './paintedLiquids';
 import { backgroundFrame, backgroundHeight } from './terrainHeight';
 import type { LoadedMini } from '../library';
 import { scatterProps } from './propScatter';
-import { PROP_FILL, PropForest } from './propForest';
+import { PropForest } from './propForest';
+import { PROP_FILL } from '../board/propSize';
 
 /** Where the map lies and how the ground is set, as the painted ground needs them. */
 export interface PaintedArea {
@@ -76,6 +77,7 @@ export class PaintedScene {
   private forestJob = 0;
   /** A flat picture of each model, by path, kept for the board's life: a forest drawn again does not make them again. */
   private readonly pictures = new Map<string, THREE.Texture>();
+  private readonly forestWarned = new Set<string>();
 
   /**
    * `background` and `material` read from the host; `changed` is called when a background has come in (the board
@@ -250,15 +252,15 @@ export class PaintedScene {
       this.object3d.add(surface.object3d);
       this.liquids.set(kind, surface);
     }
-    void this.grow(this.forestJob, read, frame, map, area.cell, look);
+    void this.grow(this.forestJob, ref, read, frame, map, area.cell, look);
   }
 
   /**
    * Stands the background's props on the plane: loads the models of every brush, places the props, builds the forest.
    * A forest asked for again (or put away) while the models load is dropped. Models that cannot be read are left out.
    */
-  private async grow(job: number, read: Read, frame: ReturnType<typeof backgroundFrame>, map: { x0: number; y0: number; x1: number; y1: number }, cell: number, look: PaintedLook): Promise<void> {
-    const { settings, layers } = read.background;
+  private async grow(job: number, ref: string, read: Read, frame: ReturnType<typeof backgroundFrame>, map: { x0: number; y0: number; x1: number; y1: number }, cell: number, look: PaintedLook): Promise<void> {
+    const { settings } = read.background;
     const load = this.source.model;
     const paths = [...new Set(settings.props.flatMap((brush) => brush.props))];
     if (!load || paths.length === 0 || !this.source.impostor) return;
@@ -270,6 +272,22 @@ export class PaintedScene {
       } catch { /* a model that cannot be read is left out */ }
     }));
     if (this.gone || job !== this.forestJob) return;
+    try {
+      this.plant(read, frame, map, cell, look, models);
+    } catch (error) {
+      // The ground stays; only the props are missing. Said once for each background.
+      if (!this.forestWarned.has(ref)) {
+        this.forestWarned.add(ref);
+        console.warn(`Painted background "${ref}": its props could not be drawn: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
+
+  /** Places the props with the models that loaded and stands them on the plane. */
+  private plant(read: Read, frame: ReturnType<typeof backgroundFrame>, map: { x0: number; y0: number; x1: number; y1: number }, cell: number, look: PaintedLook, models: Map<string, LoadedMini>): void {
+    const { settings, layers } = read.background;
+    const makePicture = this.source.impostor;
+    if (!makePicture) return;
     const started = performance.now();
     // Every model is drawn to the same width (as the gallery's props are), so a brush with any model loaded has that footprint.
     const placements = scatterProps(layers, settings, frame, map, (brush) => (settings.props[brush]?.props.some((path) => models.has(path)) ? PROP_FILL : 0));
@@ -282,7 +300,7 @@ export class PaintedScene {
       if (path === undefined || !model || pictures.has(path)) continue;
       let picture = this.pictures.get(path);
       if (!picture) {
-        try { picture = this.source.impostor(model); this.pictures.set(path, picture); } catch { continue; }
+        try { picture = makePicture(model); this.pictures.set(path, picture); } catch { continue; }
       }
       pictures.set(path, picture);
     }

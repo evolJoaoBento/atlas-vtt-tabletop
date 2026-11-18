@@ -118,7 +118,7 @@ async function rockGlb(): Promise<ArrayBuffer> {
   return exportGlb(root);
 }
 
-function drawn(width: number, height: number, draw:(context: CanvasRenderingContext2D) => void): string {
+function drawn(width: number, height: number, draw: (context: CanvasRenderingContext2D) => void): string {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;

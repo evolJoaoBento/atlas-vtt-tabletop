@@ -7,14 +7,16 @@
 import * as THREE from 'three';
 import type { LoadedMini } from '../library';
 import { SINK } from '../board/groundPlane';
+import { PROP_FILL } from '../board/propSize';
 import type { PropBrush } from './backgroundData';
 import type { ScatteredProp } from './propScatter';
 
-/** A prop at scale 1 fills this share of a cell (a prop of the gallery and a painted prop alike). */
-export const PROP_FILL = 0.9;
 
 /** How far above the ground plane a prop stands, in world units, so its foot does not sink through a coarse triangle. */
 const HAIR = 0.1;
+
+/** How much of its own picture a far card glows with, on top of the scene's light. */
+const IMPOSTOR_GLOW = 0.15;
 
 /** The side of the square picture taken of a model, in model units: its widest side or its height, a little roomy. */
 export function impostorSpan(model: LoadedMini): number {
@@ -105,12 +107,11 @@ export class PropForest {
     for (const [path, list] of near) {
       const model = models.get(path)!;
       const unit = cell * PROP_FILL / model.footprint;
+      // Where each prop stands is worked out once (the ground's height too), then every part of the model wears it.
+      const bases = list.map((p) => { const matrix = new THREE.Matrix4(); place(p, unit * p.scale, matrix); return matrix; });
       for (const part of partsOf(model)) {
         const mesh = new THREE.InstancedMesh(part.geometry, part.material, list.length);
-        list.forEach((p, i) => {
-          place(p, unit * p.scale, out);
-          mesh.setMatrixAt(i, out.multiply(part.matrix));
-        });
+        bases.forEach((matrix, i) => mesh.setMatrixAt(i, out.multiplyMatrices(matrix, part.matrix)));
         this.add(mesh, true);
       }
       this.counts.models += list.length;
@@ -120,7 +121,10 @@ export class PropForest {
       const model = models.get(path)!;
       // The picture is one square of side `impostorSpan` model units; the cards are one unit across.
       const unit = cell * PROP_FILL / model.footprint * impostorSpan(model);
-      const material = new THREE.MeshStandardMaterial({ map: impostors.get(path)!, alphaTest: 0.5, side: THREE.DoubleSide, transparent: false, roughness: 1, metalness: 0 });
+      // The picture was taken in flat light and a card faces sideways, so the sun would leave it darker than the models
+      // beside it: it also glows a little with its own picture.
+      const picture = impostors.get(path)!;
+      const material = new THREE.MeshStandardMaterial({ map: picture, emissive: 0xffffff, emissiveMap: picture, emissiveIntensity: IMPOSTOR_GLOW, alphaTest: 0.5, side: THREE.DoubleSide, transparent: false, roughness: 1, metalness: 0 });
       this.materials.push(material);
       const mesh = new THREE.InstancedMesh(this.cards, material, list.length);
       list.forEach((p, i) => {

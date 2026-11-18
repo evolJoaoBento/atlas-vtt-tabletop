@@ -19,7 +19,7 @@ import type { TokenStyle, PropPlacement } from './boardData';
 import { hexCenter, ringDiameter, tokenDiameter } from './geometry';
 import { isDowned, type BoardGrid, type BoardIcon, type BoardInk, type BoardPin, type BoardText, type BoardToken } from './mapModel';
 import { fillTriangles, inkTriangles } from './ink';
-import { PROP_FILL } from '../background/propForest';
+import { PROP_FILL } from './propSize';
 import type { ResourceDefinition } from './resources';
 import { mapIconSvg } from './mapIcons';
 import { pinShownName } from './pinIcons';

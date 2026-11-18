@@ -6257,6 +6257,64 @@ feature('painted props', async ({ page, shot }) => {
   check('painted props: a brush whose only model is gone draws nothing and the ground stays', (!none || none.models + none.impostors === 0) && pageErrors.length === 0, JSON.stringify({ none, pageErrors }));
   await page.evaluate(async ({ f, s }) => { const t = window.boardTest; const loaded = await t.backgrounds.load(f); await t.backgrounds.save(f, s, loaded.layers); t.board.forgetBackground(f); }, { f: setup.forestFolder, s: setup.forestSettings });
 
+  // A forest that cannot be built (a model that is not a model) warns once and leaves the ground, no unhandled rejection.
+  const warns = [];
+  page.on('console', (m) => { if (m.type() === 'warning' && /props could not be drawn/.test(m.text())) warns.push(m.text()); });
+  const broke = await page.evaluate(async (f) => {
+    const t = window.boardTest, painted = t.board.painted, real = painted.source.model;
+    painted.source.model = async () => ({ footprint: 1, height: 1 });
+    for (let n = 0; n < 2; n++) { const loaded = await t.backgrounds.load(f); await t.backgrounds.save(f, loaded.settings, loaded.layers); t.board.forgetBackground(f); await new Promise((r) => setTimeout(r, 900)); }
+    const result = { forest: painted.forest, plane: t.board.groundPlane.object3d.material.customProgramCacheKey?.() };
+    painted.source.model = real;
+    return result;
+  }, setup.forestFolder);
+  check('painted props: a forest that cannot be built warns once, leaves the ground, throws nothing', warns.length === 1 && broke.forest === null && broke.plane === 'tabletop-painted-ground' && pageErrors.length === 0, JSON.stringify({ warns, broke, pageErrors }));
+
+  // Review: the picture of a model that fails to render hands the renderer back as it was and frees its target.
+  const failed = await page.evaluate(async () => {
+    const { board } = window.boardTest, r = board.renderer;
+    const model = await board.model('props/tree.glb');
+    const before = { textures: r.info.memory.textures, alpha: r.getClearAlpha(), target: r.getRenderTarget() };
+    const render = r.render;
+    // The first draw (the small probe) goes through; the second (the picture itself) fails.
+    let calls = 0;
+    r.render = (...args) => { if (++calls === 2) throw new Error('render failed'); return render.apply(r, args); };
+    let threw = false;
+    try { board.impostorOf(model); } catch { threw = true; }
+    r.render = render;
+    return { threw, textures: r.info.memory.textures - before.textures, alpha: r.getClearAlpha() === before.alpha, target: r.getRenderTarget() === before.target };
+  });
+  console.log('painted props: a failed picture left', JSON.stringify(failed));
+  // What one picture costs once the shaders are warm (it reads a few pixels back to find the model's average colour).
+  const warm = await page.evaluate(async () => {
+    const { board } = window.boardTest, model = await board.model('props/tree.glb');
+    const times = [];
+    for (let n = 0; n < 5; n++) { const t = performance.now(); const texture = board.impostorOf(model); times.push(+(performance.now() - t).toFixed(1)); texture.dispose(); }
+    return times;
+  });
+  console.log('painted props: one warm picture takes (ms)', JSON.stringify(warm));
+  check('painted props: a picture that fails to render restores the render target and clear colour and frees its target', failed.threw && failed.textures === 0 && failed.alpha && failed.target, JSON.stringify(failed));
+
+  // Review: a forest asked for again while its models still load: only the newest stands.
+  const race = await page.evaluate(async (f) => {
+    const t = window.boardTest, painted = t.board.painted, real = painted.source.model;
+    const sparse = (await t.backgrounds.load(f));
+    let open; const gate = new Promise((r) => { open = r; });
+    painted.source.model = (p) => gate.then(() => real(p));
+    const again = async (density) => { await t.backgrounds.save(f, { ...sparse.settings, props: [{ name: 'Forest', props: ['props/tree.glb'], density, scale: 1 }] }, sparse.layers); t.board.forgetBackground(f); await new Promise((r) => setTimeout(r, 700)); };
+    await again(25);
+    await again(2);
+    const waiting = painted.forest;
+    open();
+    await new Promise((r) => setTimeout(r, 1200));
+    painted.source.model = real;
+    return { waiting: waiting === null, groups: painted.object3d.children.filter((c) => c.name === 'painted-props').length, counts: painted.forest?.counts };
+  }, setup.forestFolder);
+  console.log('painted props: stale forest race', JSON.stringify(race), 'dense forest had', forest.models, '+', forest.impostors);
+  check('painted props: a forest asked for again while its models load leaves only the newest', race.waiting && race.groups === 1 && race.counts && race.counts.models + race.counts.impostors < (forest.models + forest.impostors) / 4, JSON.stringify(race));
+
+  await page.evaluate(async ({ f, s }) => { const t = window.boardTest; const loaded = await t.backgrounds.load(f); await t.backgrounds.save(f, s, loaded.layers); t.board.forgetBackground(f); }, { f: setup.forestFolder, s: setup.forestSettings });
+
   // The most it is asked to draw: about 3 000 near and 20 000 far.
   await show(setup.denseFolder);
   await page.waitForFunction(() => { const f = window.boardTest.board.painted.forest; return f && f.counts.impostors > 1000; }, null, { timeout: 60000 });
@@ -6282,6 +6340,21 @@ feature('painted props', async ({ page, shot }) => {
   await wait(500);
   const away = await page.evaluate(() => { const { board } = window.boardTest; return { forest: board.painted.forest, inScene: board.painted.object3d.parent !== null }; });
   check('painted props: another ground mode takes the forest away', away.forest === null && !away.inScene, JSON.stringify(away));
+  // Review: the pictures' render targets live as long as the board and go with it (their textures and framebuffers are freed).
+  const freed = await page.evaluate(() => {
+    const { board } = window.boardTest, r = board.renderer;
+    const pictures = [...board.painted.pictures.values()];
+    const log = { textures: 0, targets: 0 };
+    for (const picture of pictures) {
+      picture.addEventListener('dispose', () => { log.textures++; });
+      picture.userData.target.addEventListener('dispose', () => { log.targets++; });
+    }
+    const before = r.info.memory.textures;
+    board.dispose();
+    return { pictures: pictures.length, ...log, texturesBefore: before, texturesAfter: r.info.memory.textures };
+  });
+  console.log('painted props: board dispose', JSON.stringify(freed));
+  check('painted props: disposing the board frees every impostor picture and its target', freed.pictures >= 2 && freed.textures === freed.pictures && freed.targets === freed.pictures, JSON.stringify(freed));
 });
 
 feature('player shapes and ground', async ({ page, shot }) => {

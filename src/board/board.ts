@@ -1943,7 +1943,6 @@ export class Board {
   private impostorOf(model: LoadedMini): THREE.Texture {
     const renderer = this.renderer;
     const span = impostorSpan(model);
-    const target = new THREE.WebGLRenderTarget(256, 256, { samples: 4, depthBuffer: true, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter });
     const stage = new THREE.Scene();
     const copy = cloneSkinned(model.scene);
     copy.scale.setScalar(1);
@@ -1951,15 +1950,46 @@ export class Board {
     const camera = new THREE.OrthographicCamera(-span / 2, span / 2, span, 0, 0.01, span * 20);
     camera.position.set(0, 0, span * 5);
     const previousTarget = renderer.getRenderTarget(), previousColor = renderer.getClearColor(new THREE.Color()), previousAlpha = renderer.getClearAlpha();
-    renderer.setRenderTarget(target);
-    renderer.setClearColor(0x000000, 0);
-    renderer.clear();
-    renderer.render(stage, camera);
-    renderer.setRenderTarget(previousTarget);
-    renderer.setClearColor(previousColor, previousAlpha);
-    const texture = target.texture;
+    let target: THREE.WebGLRenderTarget | null = null;
+    try {
+      // A first small look finds the model's average colour; the clear colour is that (fully clear), so the soft edge of the
+      // picture, mixed down the mipmaps, fades to the model's own colour and not to black.
+      const probe = new THREE.WebGLRenderTarget(32, 32, { depthBuffer: true });
+      const average = new THREE.Color(0, 0, 0);
+      try {
+        renderer.setRenderTarget(probe);
+        renderer.setClearColor(0x000000, 0);
+        renderer.clear();
+        renderer.render(stage, camera);
+        const pixels = new Uint8Array(32 * 32 * 4);
+        renderer.readRenderTargetPixels(probe, 0, 0, 32, 32, pixels);
+        let covered = 0, r = 0, g = 0, b = 0;
+        for (let i = 0; i < pixels.length; i += 4) {
+          if (pixels[i + 3] < 128) continue;
+          covered++;
+          r += pixels[i]; g += pixels[i + 1]; b += pixels[i + 2];
+        }
+        if (covered > 0) average.setRGB(r / covered / 255, g / covered / 255, b / covered / 255, THREE.LinearSRGBColorSpace);
+      } finally {
+        probe.dispose();
+      }
+      target = new THREE.WebGLRenderTarget(256, 256, { samples: 4, depthBuffer: true, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter });
+      renderer.setRenderTarget(target);
+      renderer.setClearColor(average, 0);
+      renderer.clear();
+      renderer.render(stage, camera);
+    } catch (error) {
+      target?.dispose();
+      throw error;
+    } finally {
+      renderer.setRenderTarget(previousTarget);
+      renderer.setClearColor(previousColor, previousAlpha);
+    }
+    const made = target as THREE.WebGLRenderTarget;
+    const texture = made.texture;
+    texture.userData.target = made;
     const free = texture.dispose.bind(texture);
-    texture.dispose = (): void => { free(); target.dispose(); };
+    texture.dispose = (): void => { free(); made.dispose(); };
     return texture;
   }
 
