@@ -6458,6 +6458,29 @@ feature('player painted props', async ({ page, shot }) => {
   check('player painted props: no page errors', pageErrors.length === 0, JSON.stringify(pageErrors));
 }, PLAYER_URL);
 
+feature('player painted props late', async ({ page }) => {
+  // The props picture does not come with the others: the painted ground is drawn without a forest within moments (it is not
+  // blanked for as long as the file stalls), and the forest stands once the picture arrives.
+  const pageErrors = [];
+  page.on('pageerror', (error) => pageErrors.push(String(error)));
+  const t0 = Date.now();
+  await page.evaluate(() => {
+    const t = window.playerTest;
+    t.hold(t.PROPS);
+    t.handle.setExtras({ ...t.extras, ground: { mode: 'painted', noise: 'rolling', strength: 0.5, fog: 80, margin: 0, tile: 2, water: { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 }, painted: t.paintedProps } });
+  });
+  await page.waitForFunction(() => window.playerTest.board.groundPlane.object3d.material.customProgramCacheKey?.() === 'tabletop-painted-ground', null, { timeout: 15000 }).catch(() => {});
+  const ms = Date.now() - t0;
+  const without = await page.evaluate(() => { const { board } = window.playerTest; return { key: board.groundPlane.object3d.material.customProgramCacheKey?.(), forest: board.painted.forest !== null }; });
+  console.log('player painted props late: the ground stood after', ms, 'ms without the props picture');
+  check('player painted props late: the painted ground is drawn without the props picture that has not come, and has no forest', without.key === 'tabletop-painted-ground' && !without.forest, JSON.stringify({ ...without, ms }));
+  await page.evaluate(() => window.playerTest.deliver());
+  await page.waitForFunction(() => window.playerTest.board.painted.forest !== null, null, { timeout: 30000 }).catch(() => {});
+  const after = await page.evaluate(() => { const f = window.playerTest.board.painted.forest; return f ? { ...f.counts } : null; });
+  check('player painted props late: once the props picture arrives the forest is built', !!after && after.models > 0, JSON.stringify(after));
+  check('player painted props late: no page errors', pageErrors.length === 0, JSON.stringify(pageErrors));
+}, PLAYER_URL);
+
 feature('loading veil', async ({ page, shot }) => {
   // A board whose files take a while: the board blurred behind a bar and the time left, which go once all is in.
   await page.evaluate(() => {

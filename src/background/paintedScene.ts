@@ -17,6 +17,7 @@ import type { LoadedMini } from '../library';
 import { scatterProps } from './propScatter';
 import { PropForest } from './propForest';
 import { PROP_FILL } from '../board/propSize';
+import { settlesWithin, STALL_MS } from '../board/loadProgress';
 
 /** Where the map lies and how the ground is set, as the painted ground needs them. */
 export interface PaintedArea {
@@ -75,6 +76,8 @@ export class PaintedScene {
   forestMs = 0;
   /** Which forest is wanted: a forest whose models were still loading when this moved on is dropped. */
   private forestJob = 0;
+  /** What the forest standing (or loading) was made for: the background, its read and the map; null when there is none. */
+  private forestKey: string | null = null;
   /** A flat picture of each model, by path, kept for the board's life: a forest drawn again does not make them again. */
   private readonly pictures = new Map<string, THREE.Texture>();
   private readonly forestWarned = new Set<string>();
@@ -93,7 +96,7 @@ export class PaintedScene {
       impostor?(model: LoadedMini): THREE.Texture;
     },
     private readonly changed: () => void,
-    private readonly options: { keepOnlyCurrent?: () => boolean } = {},
+    private readonly options: { keepOnlyCurrent?: () => boolean; modelStallMs?: number } = {},
   ) {
     this.object3d.name = 'painted-liquids';
   }
@@ -125,9 +128,11 @@ export class PaintedScene {
     }
     // The tile's width is not in the key: it reaches the shader through its uniform.
     const key = JSON.stringify([ref, read.serial, area.width, area.height, area.cell, area.margin, area.reach ?? null]);
+    // The props do not depend on how far the plane runs (the fog): a change of reach alone keeps them.
+    const forestKey = JSON.stringify([ref, read.serial, area.width, area.height, area.cell, area.margin]);
     this.cell.value = area.cell;
     this.tile.value = area.cell * area.tile;
-    if (this.built?.key !== key) this.build(key, ref, read, area);
+    if (this.built?.key !== key) this.build(key, forestKey, ref, read, area);
     return this.built?.look ?? null;
   }
 
@@ -165,14 +170,17 @@ export class PaintedScene {
     for (const surface of this.liquids.values()) surface.tick(seconds);
   }
 
-  /** Puts away what is drawn (the background stays read). */
-  clear(): void {
+  /** Puts away what is drawn (the background stays read). With `keepForest` the props stay (or go on loading): the ground is drawn again under them. */
+  clear(keepForest = false): void {
     for (const surface of this.liquids.values()) surface.dispose();
     this.liquids.clear();
-    // A forest still waiting for its models is out of date now.
-    this.forestJob++;
-    this.forest?.dispose();
-    this.forest = null;
+    if (!keepForest) {
+      // A forest still waiting for its models is out of date now.
+      this.forestJob++;
+      this.forest?.dispose();
+      this.forest = null;
+      this.forestKey = null;
+    }
     this.built?.material.dispose();
     this.built?.splat.dispose();
     this.built = null;
@@ -227,8 +235,9 @@ export class PaintedScene {
     return { background, slots, serial: ++this.serial };
   }
 
-  private build(key: string, ref: string, read: Read, area: PaintedArea): void {
-    this.clear();
+  private build(key: string, forestKey: string, ref: string, read: Read, area: PaintedArea): void {
+    const sameForest = this.forestKey === forestKey;
+    this.clear(sameForest);
     const { settings, layers } = read.background;
     const frame = backgroundFrame(area.width, area.height, area.cell, layers.size);
     // The usable board (map and extra board) stays level; materials and liquids are painted on all but the map itself.
@@ -252,6 +261,12 @@ export class PaintedScene {
       this.object3d.add(surface.object3d);
       this.liquids.set(kind, surface);
     }
+    // Only a new forest is made: one standing (or loading) for the same background and map stays as it is.
+    if (sameForest) {
+      if (this.forest) this.object3d.add(this.forest.object3d);
+      return;
+    }
+    this.forestKey = forestKey;
     void this.grow(this.forestJob, ref, read, frame, map, area.cell, look);
   }
 
@@ -265,9 +280,11 @@ export class PaintedScene {
     const paths = [...new Set(settings.props.flatMap((brush) => brush.props))];
     if (!load || paths.length === 0 || !this.source.impostor) return;
     const models = new Map<string, LoadedMini>();
+    // A model that does not come in time (a player's board waits for Connect to send it) counts as failed: the rest of the forest is built.
+    const stall = this.options.modelStallMs ?? STALL_MS;
     await Promise.all(paths.map(async (path) => {
       try {
-        const model = await load(path);
+        const model = await settlesWithin(load(path), stall);
         if (model) models.set(path, model);
       } catch { /* a model that cannot be read is left out */ }
     }));
@@ -291,13 +308,18 @@ export class PaintedScene {
     const makePicture = this.source.impostor;
     if (!makePicture) return;
     const started = performance.now();
+    // Each brush picks only among the models that are there (a brush keeps its place; one left with none places nothing):
+    // the pick is the same whether the missing model is listed or not, and a missing one costs no density.
+    const brushes = settings.props.map((brush) => ({ ...brush, props: brush.props.filter((path) => models.has(path)) }));
     // Every model is drawn to the same width (as the gallery's props are), so a brush with any model loaded has that footprint.
-    const placements = scatterProps(layers, settings, frame, map, (brush) => (settings.props[brush]?.props.some((path) => models.has(path)) ? PROP_FILL : 0));
+    const placements = scatterProps(layers, { ...settings, props: brushes }, frame, map, (brush) => (brushes[brush]?.props.length ? PROP_FILL : 0));
+    // Nothing to stand (no props painted, or none of the brushes' models came): no forest.
+    if (placements.length === 0) return;
     // A flat picture for each model a far prop uses.
     const pictures = new Map<string, THREE.Texture>();
     for (const placement of placements) {
       if (!placement.far) continue;
-      const path = settings.props[placement.brush]?.props[placement.prop];
+      const path = brushes[placement.brush]?.props[placement.prop];
       const model = path === undefined ? undefined : models.get(path);
       if (path === undefined || !model || pictures.has(path)) continue;
       let picture = this.pictures.get(path);
@@ -306,7 +328,7 @@ export class PaintedScene {
       }
       pictures.set(path, picture);
     }
-    const forest = new PropForest(models, placements, settings.props, look.height, cell, pictures);
+    const forest = new PropForest(models, placements, brushes, look.height, cell, pictures);
     this.forestMs = performance.now() - started;
     this.forest = forest;
     this.object3d.add(forest.object3d);

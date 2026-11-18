@@ -74,7 +74,7 @@ test('a material with its texture strengthened tells Connect how; one left as ma
 test('a painted ground tells players where its layers are, its settings and its materials; without settings it says nothing of them', () => {
   const board = data();
   board.setGround('m.atlasmap', { mode: 'painted', background: 'atlas-vtt/assets/backgrounds/Moor', noise: 'dunes', strength: 0.4, fog: 60, margin: 8, tile: 3 } as never);
-  const settings = { ...DEFAULT_BACKGROUND, name: 'Moor', materials: ['mat/wood', 'mat/gone'] };
+  const settings = { ...DEFAULT_BACKGROUND, name: 'Moor', materials: ['mat/wood', 'mat/gone'], props: [{ name: 'Pines', props: ['props/tree.glb'], density: 10, scale: 1 }] };
   const known = (folder: string) => (folder === 'atlas-vtt/assets/backgrounds/Moor' ? settings : null);
   const look = boardLookFor(board, materials, 'm.atlasmap', [], undefined, null, extras(), undefined, known);
   assert.deepEqual(look.ground?.painted, {
@@ -82,6 +82,11 @@ test('a painted ground tells players where its layers are, its settings and its 
     props: 'atlas-vtt/assets/backgrounds/Moor/props.png',
     settings, materials: ['mat/wood', ''],
   });
+  // With no brush there is nothing to scatter: the props picture is not sent, so players do not wait for it.
+  const bare = { ...settings, props: [] };
+  const without = boardLookFor(board, materials, 'm.atlasmap', [], undefined, null, extras(), undefined, (folder) => (folder === 'atlas-vtt/assets/backgrounds/Moor' ? bare : null));
+  assert.equal('props' in (without.ground?.painted ?? {}), false);
+  assert.equal(without.ground?.painted?.terrain, 'atlas-vtt/assets/backgrounds/Moor/terrain.png');
   assert.ok(look.materials.some((material) => material.id === 'mat/wood'));
   assert.equal(look.ground?.mode, 'painted');
   const unread = lookOf(board);

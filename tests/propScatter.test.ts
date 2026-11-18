@@ -138,6 +138,30 @@ test('a dense forest over half a 2048 picture is capped, spread and fast', () =>
   assert.ok(ms < 1500, `took ${ms} ms`);
 });
 
+test('a 100-square map (a picture 1 500 squares across) with density 200 over half of it is capped, spread and fast', () => {
+  const size = 2048;
+  const big: BackgroundFrame = { cx: 750, cy: 750, extent: 1500, size };
+  const layers = emptyLayers(size);
+  for (let j = 0; j < size; j++) for (let i = 0; i < size / 2; i++) layers.props[j * size + i] = 1;
+  const map = { x0: 700, y0: 700, x1: 800, y1: 800 };
+  const t0 = performance.now();
+  const out = scatterProps(layers, settingsOf(brush(200)), big, map, one);
+  const ms = performance.now() - t0;
+  console.log(`huge forest: ${out.length} props in ${ms.toFixed(0)} ms`);
+  const near = out.filter((p) => !p.far), far = out.filter((p) => p.far);
+  assert.ok(near.length <= MAX_MODELS && far.length <= MAX_IMPOSTORS);
+  assert.ok(near.length > MAX_MODELS * 0.9 && far.length > MAX_IMPOSTORS * 0.9);
+  // Spread: four equal quadrants of the painted area that lie wholly far (x under 375), each within 25 % of the mean.
+  const quadrants = [0, 0, 0, 0];
+  for (const p of far) if (p.x < 375) quadrants[(p.x < 187.5 ? 0 : 1) + (p.y < 750 ? 0 : 2)]++;
+  const mean = quadrants.reduce((a, b) => a + b, 0) / 4;
+  assert.ok(mean > 1000);
+  for (const q of quadrants) assert.ok(Math.abs(q - mean) <= mean * 0.25, `quadrants ${quadrants.join(', ')}`);
+  assert.ok(ms < 1500, `took ${ms} ms`);
+  // The same input gives the same list.
+  assert.deepEqual(scatterProps(layers, settingsOf(brush(200)), big, map, one).slice(0, 50), out.slice(0, 50));
+});
+
 /** A square of `cells` by `cells` cells with its top-left cell at (i0, j0). */
 function square(layers: ReturnType<typeof emptyLayers>, i0: number, j0: number, cells: number): void {
   for (let j = j0; j < j0 + cells; j++) for (let i = i0; i < i0 + cells; i++) layers.props[j * 512 + i] = 1;

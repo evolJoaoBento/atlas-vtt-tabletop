@@ -115,7 +115,7 @@ export function groundLook(ground: GroundSettings, painted: { folder: string; se
   return {
     mode: ground.mode, ...(ground.material ? { material: ground.material } : {}), noise: ground.noise, strength: ground.strength, fog: ground.fog, margin: ground.margin, tile: ground.tile,
     water: { ...ground.water }, lava: { ...ground.lava }, acid: { ...ground.acid },
-    ...(painted ? { painted: { terrain: `${painted.folder}/terrain.png`, material: `${painted.folder}/material.png`, height: `${painted.folder}/height.png`, props: `${painted.folder}/props.png`, settings: painted.settings, materials: [...painted.materials] } } : {}),
+    ...(painted ? { painted: { terrain: `${painted.folder}/terrain.png`, material: `${painted.folder}/material.png`, height: `${painted.folder}/height.png`, ...(painted.settings.props.length > 0 ? { props: `${painted.folder}/props.png` } : {}), settings: painted.settings, materials: [...painted.materials] } } : {}),
   };
 }
 

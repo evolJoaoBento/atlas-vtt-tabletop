@@ -190,6 +190,8 @@ const RESTORE_PATIENCE_MS = 8000;
 const IMAGE_PATIENCE_MS = 4000;
 /** A frame longer than this is a tab that was asleep: the live camera does not take it as time passed. */
 const LIVE_STEP_MS = 250;
+/** How long a painted ground waits for its props picture once its other pictures are in, in milliseconds. */
+const PROPS_GRACE_MS = 3000;
 
 /** Later options win, but one set to `undefined` does not override an earlier value. */
 function mergeOptions(first: PlayerCutsceneOptions, later: PlayerCutsceneOptions): PlayerCutsceneOptions {
@@ -952,19 +954,27 @@ class PlayerBoard implements PlayerBoardHandle {
         const block = look()?.painted;
         if (!block || paintedRef(block) !== ref) return null;
         const ids = [block.terrain, block.material, block.height];
-        // The props picture comes too where the GM sent one (an older Tabletop sends none: no forest).
+        // The props picture is sent where the GM painted a brush (an older Tabletop sends none: no forest). It is waited for
+        // apart: the ground does not wait on it for long, and a forest comes later if it does.
         const propsId = block.props;
+        const propsIn = propsId ? settlesWithin(this.arrival(propsId, () => this.host.image(propsId) !== null).then(() => true), STALL_MS) : Promise.resolve(null);
         // A picture that never comes leaves the horizon plane (the next draw asks again) rather than a read pending for ever.
-        const came = await settlesWithin(Promise.all([...ids, ...(propsId ? [propsId] : [])].map((asset) => this.arrival(asset, () => this.host.image(asset) !== null))), STALL_MS);
+        const came = await settlesWithin(Promise.all(ids.map((asset) => this.arrival(asset, () => this.host.image(asset) !== null))), STALL_MS);
         const now = look()?.painted;
         if (came === null || !now || paintedRef(now) !== ref) return null;
+        let propsHere = false;
+        if (propsId) {
+          propsHere = (await settlesWithin(propsIn, PROPS_GRACE_MS)) === true;
+          // It comes after the ground is drawn: the background is read again, now with its props.
+          if (!propsHere) void propsIn.then((late) => { if (late === true && !this.disposed && paintedRef(look()?.painted ?? block) === ref) this.board.forgetBackground(ref); });
+        }
         const layer = async (asset: string): Promise<Uint8Array | null> => {
           const url = this.host.image(asset);
           if (!url) return null;
           try { return await decodeLayer(await (await fetch(url)).arrayBuffer(), BACKGROUND_SIZE); } catch { return null; }
         };
         const [terrain, material, height] = await Promise.all(ids.map(layer));
-        const props = propsId ? await layer(propsId) : null;
+        const props = propsId && propsHere ? await layer(propsId) : null;
         const fresh = emptyLayers(BACKGROUND_SIZE);
         return {
           // The brushes' models are asset ids: the board's `readMini` (above) loads them as it loads minis.

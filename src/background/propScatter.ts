@@ -48,6 +48,8 @@ const CLUMP_WEIGHT = 0.65, FINE_WEIGHT = 0.35;
  */
 const KEEP_SCALE = GRID_STEP * GRID_STEP * 1.045, KEEP_BASE = 0.1, KEEP_GAIN = 1.8;
 const SALT_ANGLE = 9, SALT_FINE = 10;
+/** Over the caps, about this many times the cap are made before the even thinning trims them. */
+const CAP_MARGIN = 1.5;
 
 /** Two octaves of noise, made contrasty with a smoothstep, from 0 (a clearing) to 1 (a thick patch); x and y are in even spacings. */
 function clumpiness(x: number, y: number, brush: number): number {
@@ -130,8 +132,13 @@ export function scatterProps(
   };
 
   const near: Candidate[] = [], far: Candidate[] = [];
-  const add = (brush: number, ix: number, iy: number, x: number, y: number, scale: number): void => {
+  /** A candidate whose cap hash is not under its class's limit is never made: with a huge forest, millions would be. */
+  const limit = { near: 1, far: 1 };
+  const isFar = (x: number, y: number): boolean => Math.hypot(x - frame.cx, y - frame.cy) > farFrom;
+  const add = (brush: number, ix: number, iy: number, x: number, y: number, scale: number, limited = false): void => {
     const b = brushes[brush];
+    const keep = hash(ix, iy, brush, SALT_CAP);
+    if (limited && keep >= (isFar(x, y) ? limit.far : limit.near)) return;
     const prop: ScatteredProp = {
       brush,
       prop: Math.min(b.props.length - 1, Math.floor(hash(ix, iy, brush, SALT_PROP) * b.props.length)),
@@ -139,9 +146,9 @@ export function scatterProps(
       y,
       turn: hash(ix, iy, brush, SALT_TURN) * Math.PI * 2,
       scale: scale * (0.85 + 0.3 * hash(ix, iy, brush, SALT_SCALE)),
-      far: Math.hypot(x - frame.cx, y - frame.cy) > farFrom,
+      far: isFar(x, y),
     };
-    (prop.far ? far : near).push({ prop, keep: hash(ix, iy, brush, SALT_CAP) });
+    (prop.far ? far : near).push({ prop, keep });
   };
 
   /** One prop for the spot whose `count` cells are in the stack: at its middle, or at the allowed cell nearest the middle. */
@@ -166,6 +173,8 @@ export function scatterProps(
   const stack = new Int32Array(n);
   const box = brushes.map(() => ({ i0: size, j0: size, i1: -1, j1: -1 }));
   const bigSpots: { brush: number; start: number; hit: boolean }[] = [];
+  /** How many cells each brush's big spots cover, near the middle and far from it (to guess how many props the grids will give). */
+  const bigNear = brushes.map(() => 0), bigFar = brushes.map(() => 0);
   for (let start = 0; start < n; start++) {
     const v = value(start);
     if (v === 0 || seen[start]) continue;
@@ -193,6 +202,7 @@ export function scatterProps(
       for (let s = 0; s < count; s++) {
         const k = stack[s], i = k % size, j = (k - i) / size;
         spotOf[k] = id;
+        if (isFar(left + (i + 0.5) * cellSize, top + (j + 0.5) * cellSize)) bigFar[brush]++; else bigNear[brush]++;
         if (i < bb.i0) bb.i0 = i;
         if (i > bb.i1) bb.i1 = i;
         if (j < bb.j0) bb.j0 = j;
@@ -201,8 +211,9 @@ export function scatterProps(
     }
   }
 
-  // Big spots: one jittered grid per brush over its whole painted box, so neighbouring spots share it.
-  brushes.forEach((b, brush) => {
+  // Big spots: one jittered grid per brush over its whole painted box, so neighbouring spots share it. `walk` visits every
+  // grid point that stands (and marks its spot as hit), handing it to `visit`.
+  const walk = (visit: (brush: number, ix: number, iy: number, x: number, y: number, scale: number) => void): void => brushes.forEach((b, brush) => {
     const bb = box[brush];
     if (bb.i1 < 0 || !(b.density > 0)) return;
     // The brush's even spacing; the grid is finer (OVERSAMPLE) and thinned by the clump noise, so the mean density holds.
@@ -221,17 +232,37 @@ export function scatterProps(
       const u = (ix + 0.5 + (hash(ix, iy, brush, SALT_JITTER_X) - 0.5) * JITTER) * spacing;
       const v = (iy + 0.5 + (hash(ix, iy, brush, SALT_JITTER_Y) - 0.5) * JITTER) * spacing;
       const x = u * cos - v * sin, y = u * sin + v * cos;
-      // Clumps and clearings: keep the point with a chance that follows the slow noise at its place.
-      const chance = KEEP_SCALE * (KEEP_BASE + KEEP_GAIN * clumpiness(x / even, y / even, brush));
-      if (hash(ix, iy, brush, SALT_KEEP) >= chance) continue;
+      // Where it would stand is looked at first (cheap): the noise is only worked out for points on painted ground.
       if (x < left || y < top || x >= left + frame.extent || y >= top + frame.extent) continue;
       const k = pixelAt(frame, x, y);
       const spot = spotOf[k];
       if (spot === 0 || bigSpots[spot - 1].brush !== brush || !allowed(k, x, y)) continue;
+      // Clumps and clearings: keep the point with a chance that follows the slow noise at its place.
+      const chance = KEEP_SCALE * (KEEP_BASE + KEEP_GAIN * clumpiness(x / even, y / even, brush));
+      if (hash(ix, iy, brush, SALT_KEEP) >= chance) continue;
       bigSpots[spot - 1].hit = true;
-      add(brush, ix, iy, x, y, b.scale);
+      visit(brush, ix, iy, x, y, b.scale);
     }
   });
+  // A rough count of what the grids will give (painted area x density, the thinning averaging out). Over the caps, only
+  // the points whose cap hash can survive are made, so allocations stay near the caps whatever the forest's size.
+  let nearExpected = 0, farExpected = 0;
+  brushes.forEach((b, brush) => {
+    const perCell = cellSize * cellSize * b.density / 100;
+    nearExpected += bigNear[brush] * perCell;
+    farExpected += bigFar[brush] * perCell;
+  });
+  // A margin, so the share kept is over the cap and the even thinning below trims it exactly.
+  limit.near = Math.min(1, CAP_MARGIN * MAX_MODELS / Math.max(1, nearExpected));
+  limit.far = Math.min(1, CAP_MARGIN * MAX_IMPOSTORS / Math.max(1, farExpected));
+  walk((brush, ix, iy, x, y, scale) => add(brush, ix, iy, x, y, scale, true));
+  // The estimate was too low (a thick, clumpy forest): so few were made that the cap is not reached. Made again, all of them.
+  if ((limit.near < 1 && near.length < MAX_MODELS) || (limit.far < 1 && far.length < MAX_IMPOSTORS)) {
+    near.length = 0;
+    far.length = 0;
+    limit.near = limit.far = 1;
+    walk((brush, ix, iy, x, y, scale) => add(brush, ix, iy, x, y, scale, true));
+  }
 
   // Every spot gets at least one prop: a big spot the grid missed gets one at its middle.
   if (bigSpots.some((s) => !s.hit)) {
