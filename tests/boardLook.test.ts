@@ -79,6 +79,7 @@ test('a painted ground tells players where its layers are, its settings and its 
   const look = boardLookFor(board, materials, 'm.atlasmap', [], undefined, null, extras(), undefined, known);
   assert.deepEqual(look.ground?.painted, {
     terrain: 'atlas-vtt/assets/backgrounds/Moor/terrain.png', material: 'atlas-vtt/assets/backgrounds/Moor/material.png', height: 'atlas-vtt/assets/backgrounds/Moor/height.png',
+    props: 'atlas-vtt/assets/backgrounds/Moor/props.png',
     settings, materials: ['mat/wood', ''],
   });
   assert.ok(look.materials.some((material) => material.id === 'mat/wood'));

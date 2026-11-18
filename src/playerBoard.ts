@@ -11,7 +11,7 @@ import { DIE_COLOURS } from './dice/diceLook';
 import { parseMini, type LoadedMini } from './library';
 import { Board, type BoardHost } from './board/board';
 import type { AugmentedView, RoomPlace } from './board/augmented';
-import { boardFromScene, paintedRef, type PlayerSceneLike, type SceneBoard } from './board/sceneAdapter';
+import { backgroundSettingsFromWire, boardFromScene, paintedRef, type PlayerSceneLike, type SceneBoard } from './board/sceneAdapter';
 import { leaner, QUALITY, withLooks, type LayerLook, type MemoryMode, type Quality, type QualityPreset, type WallEdges } from './board/quality';
 import type { Sky } from './board/look';
 import { NO_FLIP } from './board/walls';
@@ -21,7 +21,7 @@ import { materialFromUrls, type LoadedMaterial } from './materials';
 import { readGround } from './board/ground';
 import { settlesWithin, STALL_MS } from './board/loadProgress';
 import { decodeLayer } from './background/backgroundCodec';
-import { BACKGROUND_SIZE, emptyLayers, readBackgroundSettings, type LoadedBackground } from './background/backgroundData';
+import { BACKGROUND_SIZE, emptyLayers, type LoadedBackground } from './background/backgroundData';
 import type { BoardCamera, BoardCutscene, BoardExtras, PlayerCutsceneHandle, PlayerCutsceneOptions, PlayerDiceRequest, PlayerDiceResult } from './connectContract';
 import { readBoardCutscene } from './cutscene/broadcast';
 import { PlayerCutsceneState, type PlayerCutsceneView } from './cutscene/playerCutscene';
@@ -952,8 +952,10 @@ class PlayerBoard implements PlayerBoardHandle {
         const block = look()?.painted;
         if (!block || paintedRef(block) !== ref) return null;
         const ids = [block.terrain, block.material, block.height];
+        // The props picture comes too where the GM sent one (an older Tabletop sends none: no forest).
+        const propsId = block.props;
         // A picture that never comes leaves the horizon plane (the next draw asks again) rather than a read pending for ever.
-        const came = await settlesWithin(Promise.all(ids.map((asset) => this.arrival(asset, () => this.host.image(asset) !== null))), STALL_MS);
+        const came = await settlesWithin(Promise.all([...ids, ...(propsId ? [propsId] : [])].map((asset) => this.arrival(asset, () => this.host.image(asset) !== null))), STALL_MS);
         const now = look()?.painted;
         if (came === null || !now || paintedRef(now) !== ref) return null;
         const layer = async (asset: string): Promise<Uint8Array | null> => {
@@ -962,10 +964,12 @@ class PlayerBoard implements PlayerBoardHandle {
           try { return await decodeLayer(await (await fetch(url)).arrayBuffer(), BACKGROUND_SIZE); } catch { return null; }
         };
         const [terrain, material, height] = await Promise.all(ids.map(layer));
+        const props = propsId ? await layer(propsId) : null;
         const fresh = emptyLayers(BACKGROUND_SIZE);
         return {
-          settings: readBackgroundSettings({ ...block.settings, materials: [] }),
-          layers: { size: BACKGROUND_SIZE, terrain: terrain ?? fresh.terrain, material: material ?? fresh.material, height: height ?? fresh.height, props: fresh.props },
+          // The brushes' models are asset ids: the board's `readMini` (above) loads them as it loads minis.
+          settings: backgroundSettingsFromWire(block),
+          layers: { size: BACKGROUND_SIZE, terrain: terrain ?? fresh.terrain, material: material ?? fresh.material, height: height ?? fresh.height, props: props ?? fresh.props },
           materials: block.materials.map((id) => (id === '' ? null : id)),
         };
       },

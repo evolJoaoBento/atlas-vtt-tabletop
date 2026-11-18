@@ -168,7 +168,7 @@ export interface BoardGroundLook {
    * JSON) and its material folders by slot ('' where the folder is gone; the others are ids of the look's `materials`).
    * Absent while the GM's side has not read the background yet.
    */
-  readonly painted?: { terrain: string; material: string; height: string; settings: unknown; materials: string[] };
+  readonly painted?: { terrain: string; material: string; height: string; settings: unknown; materials: string[]; /** The props picture's path; the brushes' models are in `settings.props`. */ props?: string };
 }
 
 /** What players do on a map, for the GM's board: a ping, new points of a laser, or an instantaneous spell. */

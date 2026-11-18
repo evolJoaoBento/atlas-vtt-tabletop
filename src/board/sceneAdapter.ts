@@ -8,6 +8,7 @@
 import type { BoardExtras, BoardGround, BoardPainted, BoardLayerRecord, BoardMaterialRecord, BoardPropRecord, BoardShapeRecord } from '../connectContract';
 import type { ShapePoint, TerrainShape } from './terrainShapes';
 import { readGround, type GroundSettings } from './ground';
+import { MAX_BRUSHES, MAX_BRUSH_PROPS, readBackgroundSettings, type BackgroundSettings, type PropBrush } from '../background/backgroundData';
 import type { ElevationLayerData } from './elevationLayer';
 import type { CollectionRules, ConditionDefinition } from './conditions';
 import type { FogOperation } from './fog';
@@ -106,11 +107,30 @@ export function groundFromWire(ground: BoardGround | undefined): GroundSettings 
  * settings gives a new ref, and two backgrounds that share one picture do not share their reads.
  */
 export function paintedRef(painted: BoardPainted): string {
+  // The settings carry the prop brushes; the props picture joins the ref, so painting props alone refreshes players.
   const text = JSON.stringify([painted.settings, painted.materials]);
   // FNV-1a: short, and the same on every machine.
   let hash = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193);
-  return `${painted.terrain}|${painted.material}|${painted.height}|${(hash >>> 0).toString(36)}`;
+  return `${painted.terrain}|${painted.material}|${painted.height}|${painted.props ?? ''}|${(hash >>> 0).toString(36)}`;
+}
+
+/**
+ * A wire background's settings as the board reads them. The saved-settings reader keeps only `.glb` paths, so the brushes
+ * (whose models are asset ids here) are read apart: numbers held to their ranges, at most six brushes of four models.
+ */
+export function backgroundSettingsFromWire(painted: BoardPainted): BackgroundSettings {
+  const read = readBackgroundSettings({ ...painted.settings, props: [], materials: [] });
+  const brushes = (painted.settings.props ?? []).slice(0, MAX_BRUSHES).map((brush, index): PropBrush => {
+    const clamp = (n: unknown, fallback: number, low: number, high: number): number => (typeof n === 'number' && Number.isFinite(n) ? Math.min(high, Math.max(low, n)) : fallback);
+    return {
+      name: typeof brush.name === 'string' && brush.name.trim() ? brush.name.trim().slice(0, 60) : `Props ${index + 1}`,
+      props: (Array.isArray(brush.props) ? brush.props : []).filter((id): id is string => typeof id === 'string' && id !== '').slice(0, MAX_BRUSH_PROPS),
+      density: clamp(brush.density, 10, 0.1, 200),
+      scale: clamp(brush.scale, 1, 0.1, 20),
+    };
+  });
+  return { ...read, props: brushes };
 }
 
 /** The painted background the wire's ground carries (pictures by asset id, materials by id), or null for none. */

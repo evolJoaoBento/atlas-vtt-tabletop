@@ -6,7 +6,7 @@ import { BoardData, readBoardData } from '../src/board/boardData';
 import type { BoardMap } from '../src/board/mapModel';
 import { layersFor } from '../src/boardLayers';
 import type { MaterialInfo } from '../src/boardLook';
-import { groundFromWire, layersFromExtras, paintedFromWire, paintedRef, shapesFromWire } from '../src/board/sceneAdapter';
+import { backgroundSettingsFromWire, groundFromWire, layersFromExtras, paintedFromWire, paintedRef, shapesFromWire } from '../src/board/sceneAdapter';
 import type { BoardExtras } from '../src/connectContract';
 
 const materials = { info: (folder: string): MaterialInfo | null => (folder === 'mat/brick' ? { scale: 2, maps: { color: 'mat/brick/c.jpg' } } : null) };
@@ -122,4 +122,27 @@ test('two painted backgrounds that share a terrain picture, or differ only in se
     { ...painted, materials: ['MAT2', ''] },
   ].map(paintedRef);
   assert.equal(new Set([paintedRef(painted), ...other]).size, 5);
+});
+
+test('a props picture or a brush change alone gives a painted background a new ref', () => {
+  const liquid = { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 };
+  const settings = { patterns: [], height: { low: -2, high: 6 }, liquids: { water: liquid, lava: liquid, acid: liquid } };
+  const painted = { terrain: 'TERRAIN', material: 'MATERIAL', height: 'HEIGHT', props: 'PROPS', materials: [], settings: { ...settings, props: [{ name: 'Pines', props: ['PINE'], density: 10, scale: 1 }] } };
+  const other = [
+    { ...painted, props: 'PROPS2' },
+    { ...painted, props: undefined },
+    { ...painted, settings: { ...painted.settings, props: [{ name: 'Pines', props: ['PINE', 'OAK'], density: 10, scale: 1 }] } },
+    { ...painted, settings: { ...painted.settings, props: [{ name: 'Pines', props: ['PINE'], density: 11, scale: 1 }] } },
+  ].map(paintedRef);
+  assert.equal(new Set([paintedRef(painted), ...other]).size, 5);
+});
+
+test('a painted background from the wire reads its brushes with their models as asset ids, clamped', () => {
+  const liquid = { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 };
+  const brushes = [{ name: 'Pines', props: ['A'.repeat(43), 'B'.repeat(43)], density: 10, scale: 1 }, { name: 'None', props: [], density: 5, scale: 2 }];
+  const settings = backgroundSettingsFromWire({ terrain: 'T', material: 'M', height: 'H', materials: ['MAT'], settings: { patterns: [], height: { low: -2, high: 6 }, liquids: { water: liquid, lava: liquid, acid: liquid }, props: brushes } });
+  assert.deepEqual(settings.props, brushes);
+  assert.deepEqual(settings.materials, []);
+  const old = backgroundSettingsFromWire({ terrain: 'T', material: 'M', height: 'H', materials: [], settings: { patterns: [], height: { low: -2, high: 6 }, liquids: { water: liquid, lava: liquid, acid: liquid } } });
+  assert.deepEqual(old.props, []);
 });

@@ -28,6 +28,16 @@ async function heroGlb(): Promise<ArrayBuffer> {
   return exportGlb(root);
 }
 
+async function treeGlb(): Promise<ArrayBuffer> {
+  const root = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.6, 8), new THREE.MeshStandardMaterial({ color: 0x5a3a1a }));
+  trunk.position.y = 0.3;
+  const crown = new THREE.Mesh(new THREE.ConeGeometry(0.45, 1.6, 10), new THREE.MeshStandardMaterial({ color: 0x1f6b2a }));
+  crown.position.y = 1.4;
+  root.add(trunk, crown);
+  return exportGlb(root);
+}
+
 function drawn(width: number, height: number, draw: (context: CanvasRenderingContext2D) => void): string {
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -155,7 +165,23 @@ async function main(): Promise<void> {
     ...PAINTED, materials: [TEX, ''],
     settings: { patterns: [], height: { low: -2, high: 6 }, liquids: { water: { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 }, lava: { kind: 'flow', amount: 0.35, direction: 90, tint: '#ff5a1f', clarity: 0, style: 'crust' }, acid: { kind: 'ripples', amount: 0.45, direction: 90, tint: '#8bd630', clarity: 0.35 } } },
   };
-  Object.assign(window, { playerTest: { handle, board, record, project, deliver, scene, extras, files, late, hold, spawn, setSpellNotes, painted, MAP, MAP2, ready: true } });
+  // The same background with a forest on its right: a props picture (brush 1 over a band of cells) and one tree model, both held as files by asset id.
+  const forest = emptyLayers();
+  for (let y = Math.floor(layers.size / 2 - 8 * per); y <= Math.ceil(layers.size / 2 + 8 * per); y++) {
+    for (let x = Math.floor(layers.size / 2 + 12 * per); x <= Math.ceil(layers.size / 2 + 18 * per); x++) forest.props[y * layers.size + x] = 1;
+  }
+  const PROPS = 'S'.repeat(43);
+  const TREE = 'V'.repeat(43);
+  files.set(PROPS, URL.createObjectURL(new Blob([await encodeLayer(forest.props, layers.size, document)], { type: 'image/png' })));
+  files.set(TREE, await treeGlb());
+  // A thinner band for a props-only change: the forest must be built again from it.
+  const thin = emptyLayers();
+  for (let y = Math.floor(layers.size / 2 - 8 * per); y <= Math.ceil(layers.size / 2 + 8 * per); y++) {
+    for (let x = Math.floor(layers.size / 2 + 12 * per); x <= Math.ceil(layers.size / 2 + 14 * per); x++) thin.props[y * layers.size + x] = 1;
+  }
+  files.set('W'.repeat(43), URL.createObjectURL(new Blob([await encodeLayer(thin.props, layers.size, document)], { type: 'image/png' })));
+  const paintedProps = { ...painted, props: PROPS, settings: { ...painted.settings, props: [{ name: 'Pines', props: [TREE], density: 4, scale: 1 }] } };
+  Object.assign(window, { playerTest: { handle, board, record, project, deliver, scene, extras, files, late, hold, spawn, setSpellNotes, painted, paintedProps, PROPS, MAP, MAP2, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

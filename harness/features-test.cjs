@@ -6435,6 +6435,29 @@ feature('player painted ground', async ({ page, shot }) => {
   check('player painted ground: no page errors', pageErrors.length === 0, JSON.stringify(pageErrors));
 }, PLAYER_URL);
 
+feature('player painted props', async ({ page, shot }) => {
+  // Connect sends the props picture and a brush whose model is an asset id: the player's board builds the forest, and a props-only change builds it again.
+  const pageErrors = [];
+  page.on('pageerror', (error) => pageErrors.push(String(error)));
+  await page.evaluate(() => {
+    const t = window.playerTest;
+    t.handle.setExtras({ ...t.extras, ground: { mode: 'painted', noise: 'rolling', strength: 0.5, fog: 80, margin: 0, tile: 2, water: { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 }, painted: t.paintedProps } });
+  });
+  await page.waitForFunction(() => window.playerTest.board.painted.forest !== null, null, { timeout: 60000 }).catch(() => {});
+  await wait(500);
+  const first = await page.evaluate(() => { const f = window.playerTest.board.painted.forest; return f ? { ...f.counts } : null; });
+  check('player painted props: the forest is built from asset ids (models above zero)', !!first && first.models > 0, JSON.stringify(first));
+  await page.evaluate(() => { const { board } = window.playerTest; board.camera.goal.pitch = 0.5; board.wake(true); });
+  await wait(1200);
+  await shot('player-painted-props');
+  // Only the props picture changes: the ref changes, so the forest is built again.
+  const before = await page.evaluate(() => { window.__forest = window.playerTest.board.painted.forest; const t = window.playerTest; t.handle.setExtras({ ...t.extras, ground: { mode: 'painted', noise: 'rolling', strength: 0.5, fog: 80, margin: 0, tile: 2, water: { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 }, painted: { ...t.paintedProps, props: 'W'.repeat(43) } } }); return true; });
+  await page.waitForFunction(() => { const f = window.playerTest.board.painted.forest; return f && f !== window.__forest; }, null, { timeout: 60000 }).catch(() => {});
+  const second = await page.evaluate(() => { const f = window.playerTest.board.painted.forest; return { rebuilt: !!f && f !== window.__forest, counts: f ? { ...f.counts } : null }; });
+  check('player painted props: a props-only change builds the forest again', before && second.rebuilt && second.counts.models > 0, JSON.stringify(second));
+  check('player painted props: no page errors', pageErrors.length === 0, JSON.stringify(pageErrors));
+}, PLAYER_URL);
+
 feature('loading veil', async ({ page, shot }) => {
   // A board whose files take a while: the board blurred behind a bar and the time left, which go once all is in.
   await page.evaluate(() => {
