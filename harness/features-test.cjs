@@ -5961,6 +5961,21 @@ feature('painted ground', async ({ page, shot }) => {
   // Re-applying the same ground does not build again (a cached look): time a refresh with the ground changed by the margin.
   const timing = await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { ...groundState.value, margin: 1 }; const t = performance.now(); board.refresh(); const dt = performance.now() - t; groundState.value = { ...groundState.value, margin: 0 }; board.refresh(); return dt; });
   console.log('painted ground: a refresh that rebuilds the heights and splat took', Math.round(timing), 'ms');
+  // A wide extra board (30 squares, past where the lava and water are painted) still shows them: painting covers all but
+  // the map itself, and the sheets lie level with the map's floor so they show over the level extra board.
+  const wide = await page.evaluate(async () => {
+    const { board, groundState } = window.boardTest;
+    groundState.value = { ...groundState.value, margin: 30 };
+    board.refresh();
+    await new Promise((r) => setTimeout(r, 800));
+    const liquids = [...board.paintedLiquids.keys()].sort();
+    const heights = [...board.paintedLiquids.values()].map((sheet) => sheet.object3d.position.y);
+    groundState.value = { ...groundState.value, margin: 0 };
+    board.refresh();
+    return { liquids, heights };
+  });
+  check('painted ground: on a wide extra board the painted liquids still show, level with the map floor', wide.liquids.join() === 'lava,water' && wide.heights.every((y) => y === 0), JSON.stringify(wide));
+  await wait(800);
   // The camera pulled back, looking at the ground just past the board.
   await page.keyboard.press('Escape');
   await page.evaluate(() => { const { board } = window.boardTest; board.camera.goal.pitch = 0.75; board.camera.goal.distance *= 1.7; board.wake(true); });

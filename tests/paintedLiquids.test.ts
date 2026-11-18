@@ -83,3 +83,13 @@ test('liquid painted only under the board has no mask', () => {
   paint(layers, LAVA, 110, 110, 140, 140); // squares 43 to 55
   assert.equal(liquidMask(layers, frame, CELL, 'lava', flat), null);
 });
+
+test('the sheet runs about a square under the bank round the painted liquid, so its shore shows no gap, and no farther', () => {
+  const layers = emptyLayers(SIZE);
+  paint(layers, LAVA, 200, 200, 230, 230); // squares about 78.1 to 89.8
+  const mask = liquidMask(layers, frame, CELL, 'lava', flat)!;
+  assert.equal(wetAt(mask, 77.5, 85), true, 'half a square past the painted edge');
+  assert.equal(wetAt(mask, 90.4, 85), true, 'half a square past the far edge');
+  assert.equal(wetAt(mask, 76, 85), false, 'two squares past it');
+  assert.equal(wetAt(mask, 92, 85), false);
+});

@@ -22,6 +22,17 @@ export interface BackgroundFrame {
 export const LIQUID_BED = 2.5;
 /** How far, in squares, the farthest points mixed in to soften a border lie from the point asked about. */
 const BLEND = 6;
+/**
+ * Shores. The liquid's sheet runs `BANK_REACH` squares past the painted shore, over a shelf of land lying just under its
+ * surface (`SHELF`), so what shows is the sheet's own soft edge: never a ledge floating over lower ground, never the
+ * ground's coarse grid cutting the surface. A little past the sheet's edge (`SHELF_REACH`) the land eases to its own
+ * height over `SHORE_EASE` squares, up to higher ground or down to lower, smoothly either way. Under the liquid the bed
+ * starts at the shelf and deepens to `LIQUID_BED` over `SHORE_EASE` squares.
+ */
+export const BANK_REACH = 1;
+const SHELF_REACH = 1.5;
+const SHELF = -0.05;
+const SHORE_EASE = 6;
 
 type Rect = { x0: number; y0: number; x1: number; y1: number };
 
@@ -117,6 +128,80 @@ const RINGS: readonly (readonly [number, number])[] = (() => {
 })();
 const COUNT = new Float64Array(TERRAINS.length), PAINTED = new Float64Array(TERRAINS.length);
 
+/** Whether a kind of ground (its place in `TERRAINS`) is a liquid. */
+const LIQUID_KINDS = new Set(['water', 'lava', 'acid']);
+const IS_LIQUID = TERRAINS.map((t) => LIQUID_KINDS.has(t.id));
+const isLiquidCell = (stored: number): boolean => IS_LIQUID[terrainIndex(stored)] === true;
+
+/** Each picture's shore field, made once per terrain layer. */
+const SHORES = new WeakMap<Uint8Array, Float32Array>();
+
+/**
+ * How far each cell of the picture lies from the shore, in cells: positive on land (the way to the nearest liquid),
+ * negative in a liquid (the way to the nearest land); `Infinity` on land in a picture with no liquid (and minus that
+ * in one with no land). Two passes of a chamfer distance, so it costs a few times the picture's size, once.
+ */
+export function shoreField(layers: BackgroundLayers): Float32Array {
+  const known = SHORES.get(layers.terrain);
+  if (known && known.length === layers.size * layers.size) return known;
+  const { size, terrain } = layers;
+  const n = size * size;
+  const liquid = new Uint8Array(n);
+  for (let k = 0; k < n; k++) liquid[k] = isLiquidCell(terrain[k]) ? 1 : 0;
+  // Distance to the nearest cell of the other side, worked out for land and for liquid at once.
+  const dist = new Float32Array(n).fill(Infinity);
+  for (let j = 0; j < size; j++) for (let i = 0; i < size; i++) {
+    const k = j * size + i, me = liquid[k];
+    if ((i > 0 && liquid[k - 1] !== me) || (i < size - 1 && liquid[k + 1] !== me) || (j > 0 && liquid[k - size] !== me) || (j < size - 1 && liquid[k + size] !== me)) dist[k] = 0.5;
+  }
+  const D = Math.SQRT2;
+  for (let j = 0; j < size; j++) for (let i = 0; i < size; i++) {
+    const k = j * size + i;
+    let d = dist[k];
+    if (i > 0) d = Math.min(d, dist[k - 1] + 1);
+    if (j > 0) {
+      d = Math.min(d, dist[k - size] + 1);
+      if (i > 0) d = Math.min(d, dist[k - size - 1] + D);
+      if (i < size - 1) d = Math.min(d, dist[k - size + 1] + D);
+    }
+    dist[k] = d;
+  }
+  for (let j = size - 1; j >= 0; j--) for (let i = size - 1; i >= 0; i--) {
+    const k = j * size + i;
+    let d = dist[k];
+    if (i < size - 1) d = Math.min(d, dist[k + 1] + 1);
+    if (j < size - 1) {
+      d = Math.min(d, dist[k + size] + 1);
+      if (i < size - 1) d = Math.min(d, dist[k + size + 1] + D);
+      if (i > 0) d = Math.min(d, dist[k + size - 1] + D);
+    }
+    dist[k] = d;
+  }
+  for (let k = 0; k < n; k++) if (liquid[k]) dist[k] = -dist[k];
+  SHORES.set(layers.terrain, dist);
+  return dist;
+}
+
+/** The shore field at square (x, y), in squares, read smoothly between cells (past the picture's edge its edge continues). */
+function shoreAt(field: Float32Array, frame: BackgroundFrame, x: number, y: number): number {
+  const { size, extent } = frame;
+  const fx = (x - (frame.cx - extent / 2)) / extent * size - 0.5, fy = (y - (frame.cy - extent / 2)) / extent * size - 0.5;
+  const clamp = (v: number): number => Math.min(size - 1, Math.max(0, v));
+  const x0 = Math.floor(clamp(fx)), y0 = Math.floor(clamp(fy));
+  const x1 = Math.min(size - 1, x0 + 1), y1 = Math.min(size - 1, y0 + 1);
+  const tx = clamp(fx) - x0, ty = clamp(fy) - y0;
+  const a = field[y0 * size + x0], b = field[y0 * size + x1], c = field[y1 * size + x0], d = field[y1 * size + x1];
+  // A cell far from any shore (infinite) is read as it is: no mixing with finite neighbours.
+  if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(c) || !Number.isFinite(d)) return field[(tx < 0.5 ? y0 : y1) * size + (tx < 0.5 ? x0 : x1)] * extent / size;
+  const v = (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
+  return v * extent / size;
+}
+
+const smooth = (from: number, to: number, v: number): number => {
+  const t = Math.min(1, Math.max(0, (v - from) / (to - from)));
+  return t * t * (3 - 2 * t);
+};
+
 /**
  * The ground's height at (x, y), in squares from the map's top-left corner. Borders between kinds are softened: the
  * kinds of ground found at the point and round it (within `BLEND` squares) are mixed in as many parts as they are
@@ -128,16 +213,31 @@ export function backgroundHeight(x: number, y: number, settings: BackgroundSetti
   const d = Math.hypot(dx, dy);
   if (d <= 0) return 0;
   const t = Math.min(1, d / EASE_SQUARES), ease = t * t * (3 - 2 * t);
+  // How far the shore is: under a liquid its bed deepens away from the shore; on land, near a liquid, a low bank.
+  const shore = shoreAt(shoreField(layers), frame, x, y);
+  if (shore < 0) return (SHELF - (LIQUID_BED + SHELF) * smooth(0, SHORE_EASE, -shore)) * Math.max(ease, shelfEase(shore));
+  // The land: the kinds of land at the point and round it, mixed in as many parts as they are found (liquids left out).
   COUNT.fill(0);
   PAINTED.fill(0);
+  let found = 0;
   for (const [ox, oy] of RINGS) {
     const at = pixelAt(frame, x + ox, y + oy), kind = terrainIndex(layers.terrain[at]);
+    if (IS_LIQUID[kind]) continue;
     COUNT[kind]++;
     PAINTED[kind] += layers.height[at] / 255;
+    found++;
   }
-  let sum = 0;
+  let land = 0;
   for (let k = 0; k < COUNT.length; k++) {
-    if (COUNT[k] > 0) sum += typeHeight(TERRAINS[k].id, x, y, settings, PAINTED[k] / COUNT[k]) * COUNT[k];
+    if (COUNT[k] > 0) land += typeHeight(TERRAINS[k].id, x, y, settings, PAINTED[k] / COUNT[k]) * COUNT[k];
   }
-  return sum / RINGS.length * ease;
+  land = found > 0 ? land / found : SHELF;
+  // Near the shore the land comes to the shelf, up from lower ground or down from higher, smoothly either way. The board's
+  // own ease (level ground at its edge) does not lift the shelf: the shelf stays under the sheet.
+  const toShelf = 1 - smooth(SHELF_REACH, SHELF_REACH + SHORE_EASE, shore);
+  const own = land * ease;
+  return own + (SHELF - own) * toShelf;
 }
+
+/** Near the shore the bed keeps its shelf even by the board, so the sheet there lies over it as everywhere else. */
+const shelfEase = (shore: number): number => 1 - smooth(0, 1, -shore);

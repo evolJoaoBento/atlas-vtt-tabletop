@@ -4,7 +4,7 @@
  */
 
 import { TERRAINS, type BackgroundLayers } from './backgroundData';
-import type { BackgroundFrame } from './terrainHeight';
+import { BANK_REACH, type BackgroundFrame } from './terrainHeight';
 import { WaterMask, type LiquidKind } from '../board/water';
 
 /**
@@ -33,6 +33,24 @@ export function liquidMask(
     const picture = Math.floor((squareAt(t, of, from) - (centre - frame.extent / 2)) / frame.extent * size);
     return Math.min(size - 1, Math.max(0, picture));
   };
+  // The sheet runs `BANK_REACH` squares under the bank round it, so the shore shows no gap and no floating edge: the
+  // cells of this liquid, grown by that many squares (a square's worth of cells along a row, then down a column).
+  const grow = Math.max(1, Math.round(BANK_REACH * size / frame.extent));
+  const wet = new Uint8Array(size * size), rows = new Uint8Array(size * size);
+  for (let k = 0; k < wet.length; k++) if (layers.terrain[k] === index) wet[k] = 1;
+  for (let j = 0; j < size; j++) {
+    for (let i = 0; i < size; i++) {
+      if (!wet[j * size + i]) continue;
+      for (let d = Math.max(0, i - grow); d <= Math.min(size - 1, i + grow); d++) rows[j * size + d] = 1;
+    }
+  }
+  wet.fill(0);
+  for (let j = 0; j < size; j++) {
+    for (let i = 0; i < size; i++) {
+      if (!rows[j * size + i]) continue;
+      for (let d = Math.max(0, j - grow); d <= Math.min(size - 1, j + grow); d++) wet[d * size + i] = 1;
+    }
+  }
   const column = new Int32Array(mask.width), across = new Float64Array(mask.width);
   for (let t = 0; t < mask.width; t++) { column[t] = cellAt(t, mask.width, left, frame.cx); across[t] = squareAt(t, mask.width, left); }
   let any = false;
@@ -40,7 +58,7 @@ export function liquidMask(
     const row = cellAt(ty, mask.height, top, frame.cy) * size, y = squareAt(ty, mask.height, top);
     const insideY = y >= flat.y0 && y <= flat.y1;
     for (let tx = 0; tx < mask.width; tx++) {
-      if (layers.terrain[row + column[tx]] !== index) continue;
+      if (!wet[row + column[tx]]) continue;
       if (insideY && across[tx] >= flat.x0 && across[tx] <= flat.x1) continue;
       mask.data[ty * mask.width + tx] = 255;
       any = true;

@@ -201,21 +201,24 @@ export class PaintedScene {
     this.clear();
     const { settings, layers } = read.background;
     const frame = backgroundFrame(area.width, area.height, area.cell, layers.size);
+    // The usable board (map and extra board) stays level; materials and liquids are painted on all but the map itself.
     const flat = { x0: -area.margin, y0: -area.margin, x1: area.width / area.cell + area.margin, y1: area.height / area.cell + area.margin };
+    const map = { x0: 0, y0: 0, x1: area.width / area.cell, y1: area.height / area.cell };
     const side = frame.extent * area.cell;
     this.area.set(area.width / 2 - side / 2, area.height / 2 - side / 2, side);
-    const splat = splatTexture(layers, frame, flat);
+    const splat = splatTexture(layers, frame, map);
     const material = paintedGroundMaterial(splat, read.slots, this.cell, { area: this.area, tile: this.tile });
     const look: PaintedLook = { height: (x, y) => backgroundHeight(x, y, settings, layers, frame, flat), material, key };
     this.built = { key, ref, look, splat, material };
     // The liquid sheets run as far as the plane does, even past the picture (its edge liquid goes on outward).
     const sheet = Math.max(side, 2 * (area.reach ?? 0));
     for (const kind of LIQUID_KINDS) {
-      const mask = liquidMask(layers, frame, area.cell, kind, flat, area.reach);
+      const mask = liquidMask(layers, frame, area.cell, kind, map, area.reach);
       if (!mask) continue;
       const surface = new WaterSurface(mask, sheet, sheet, area.cell, settings.liquids[kind], kind);
-      // Laid like the sea plane: centred on the map, a tenth of a square down, so the beds the ground sinks to lie under it.
-      surface.object3d.position.set(area.width / 2, -area.cell * 0.1, area.height / 2);
+      // Centred on the map, level with the map's floor: over the level extra board it is a shallow sheet on the ground
+      // (which lies a hair under the map), past it the beds the ground sinks to lie under it. It is never under the map.
+      surface.object3d.position.set(area.width / 2, 0, area.height / 2);
       this.object3d.add(surface.object3d);
       this.liquids.set(kind, surface);
     }

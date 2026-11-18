@@ -102,3 +102,46 @@ test('every custom shape gives finite heights, and a missing pattern is flat', (
   assert.equal(typeHeight('custom3', 10, 10, settings(), 0.5), 0);
   assert.equal(typeHeight('plains', 10, 10, settings(), 0.5), 0);
 });
+
+// ── Shores: the liquid lies in a bed; land that would dip under it rises to a low bank, land above it stays an edge ──
+/** A picture split down the middle: `left` on the left half, `right` on the right half; the frame puts square 0 in its middle. */
+function split(left: TerrainId, right: TerrainId, rightHeight = 128): { layers: ReturnType<typeof emptyLayers>; frame: { cx: number; cy: number; extent: number; size: number } } {
+  const layers = emptyLayers(SIZE);
+  for (let j = 0; j < SIZE; j++) for (let i = 0; i < SIZE; i++) {
+    layers.terrain[j * SIZE + i] = indexOf(i < SIZE / 2 ? left : right);
+    layers.height[j * SIZE + i] = i < SIZE / 2 ? 128 : rightHeight;
+  }
+  // 256 squares across, square 0 at the border between the halves (pixel 128 starts at square 0).
+  return { layers, frame: { cx: 0, cy: 0, extent: SIZE, size: SIZE } };
+}
+// Far from any board: the board is nowhere near these points.
+const far = { x0: -2000, y0: -2000, x1: -1990, y1: -1990 };
+
+test('shore: land lower than the water comes up to a shelf just under its surface by the shore, then eases down to its own height', () => {
+  // Painted topography at its lowest (-2 squares) beside water: the sheet's edge must not float over it.
+  const { layers, frame } = split('water', 'topography', 0);
+  const s = settings();
+  for (const x of [0.25, 0.5, 1, 1.4]) {
+    const h = backgroundHeight(x, 0, s, layers, frame, far);
+    assert.ok(h < 0 && h > -0.2, `land ${x} sq from the shore lies just under the water's surface (${h})`);
+  }
+  assert.ok(Math.abs(backgroundHeight(30, 0, s, layers, frame, far) - -2) < 1e-6);
+  const shallow = backgroundHeight(-0.5, 0, s, layers, frame, far), deep = backgroundHeight(-30, 0, s, layers, frame, far);
+  assert.ok(shallow < 0 && shallow > -1, `shallow at the shore (${shallow})`);
+  assert.ok(Math.abs(deep - -LIQUID_BED) < 1e-6, `full depth away from it (${deep})`);
+  let worst = 0;
+  for (let x = -10; x < 12; x += 0.25) worst = Math.max(worst, Math.abs(backgroundHeight(x + 0.25, 0, s, layers, frame, far) - backgroundHeight(x, 0, s, layers, frame, far)));
+  assert.ok(worst < 1, `smooth all round (worst step ${worst})`);
+});
+
+test('shore: land higher than the water slopes down smoothly to the shelf at the waterline, no cliff', () => {
+  const { layers, frame } = split('water', 'topography', 255);
+  const s = settings();
+  const heights = [0.5, 1, 2, 3, 4, 6, 8].map((x) => backgroundHeight(x, 0, s, layers, frame, far));
+  for (let k = 1; k < heights.length; k++) assert.ok(heights[k] >= heights[k - 1] - 1e-9, `rises away from the shore: ${heights.join(', ')}`);
+  assert.ok(heights[0] < 0 && heights[0] > -0.2, `the shelf just under the water at the shore (${heights[0]})`);
+  assert.ok(Math.abs(backgroundHeight(30, 0, s, layers, frame, far) - 6) < 1e-6);
+  let worst = 0;
+  for (let x = -4; x < 10; x += 0.25) worst = Math.max(worst, Math.abs(backgroundHeight(x + 0.25, 0, s, layers, frame, far) - backgroundHeight(x, 0, s, layers, frame, far)));
+  assert.ok(worst < 1, `smooth all round (worst step ${worst})`);
+});
