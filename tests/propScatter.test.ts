@@ -121,8 +121,55 @@ test('a dense forest over half a 2048 picture is capped, spread and fast', () =>
   const near = out.filter((p) => !p.far), far = out.filter((p) => p.far);
   assert.ok(near.length <= MAX_MODELS && far.length <= MAX_IMPOSTORS);
   assert.ok(near.length > MAX_MODELS * 0.9 && far.length > MAX_IMPOSTORS * 0.9);
-  // Spread: props in both halves of the painted area.
-  assert.ok(far.some((p) => p.y < 175) && far.some((p) => p.y > 525));
-  assert.ok(far.some((p) => p.x < 90) && far.some((p) => p.x > 260));
+  // Spread: four equal quadrants of the painted area that lie wholly far (x under 150), each within 25 % of the mean.
+  const quadrants = [0, 0, 0, 0];
+  for (const p of far) if (p.x < 150) quadrants[(p.x < 75 ? 0 : 1) + (p.y < 350 ? 0 : 2)]++;
+  const mean = quadrants.reduce((a, b) => a + b, 0) / 4;
+  assert.ok(mean > 1000);
+  for (const q of quadrants) assert.ok(Math.abs(q - mean) <= mean * 0.25, `quadrants ${quadrants.join(', ')}`);
   assert.ok(ms < 1500, `took ${ms} ms`);
+});
+
+/** A square of `cells` by `cells` cells with its top-left cell at (i0, j0). */
+function square(layers: ReturnType<typeof emptyLayers>, i0: number, j0: number, cells: number): void {
+  for (let j = j0; j < j0 + cells; j++) for (let i = i0; i < i0 + cells; i++) layers.props[j * 512 + i] = 1;
+}
+
+test('a spot just under the footprint area is one prop at its middle', () => {
+  const layers = layersFor();
+  square(layers, 100, 100, 7); // area 12.25 < 4 * 4
+  const out = scatterProps(layers, settingsOf(brush(200)), frame, NO_MAP, () => 4);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].x, 51.75);
+  assert.equal(out[0].y, 51.75);
+});
+
+test('a spot just over with no grid point still gets one prop at its middle', () => {
+  const layers = layersFor();
+  square(layers, 100, 100, 8); // area 16, not under 4 * 4
+  const out = scatterProps(layers, settingsOf(brush(0.1)), frame, NO_MAP, () => 4);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].x, 52);
+  assert.equal(out[0].y, 52);
+});
+
+test('a spot just over at high density has grid props only, no extra centroid prop', () => {
+  const layers = layersFor();
+  square(layers, 100, 100, 8);
+  const out = scatterProps(layers, settingsOf(brush(200)), frame, NO_MAP, () => 4);
+  assert.ok(out.length > 5);
+  assert.ok(out.every((p) => p.x !== 52 || p.y !== 52));
+});
+
+test('a small spot whose middle is water puts its one prop on a dry cell of the spot', () => {
+  const layers = layersFor();
+  square(layers, 100, 100, 7);
+  for (let j = 100; j < 107; j++) for (let i = 100; i < 105; i++) layers.terrain[j * 512 + i] = WATER;
+  const out = scatterProps(layers, settingsOf(brush(20)), frame, NO_MAP, () => 4);
+  assert.equal(out.length, 1);
+  assert.ok(out[0].x >= 105 * 0.5 && out[0].x < 107 * 0.5 && out[0].y >= 50 && out[0].y < 53.5);
+});
+
+test('with no usable brush nothing is placed', () => {
+  assert.deepEqual(scatterProps(layersFor(), settingsOf(brush(20)), frame, NO_MAP, () => 0), []);
 });

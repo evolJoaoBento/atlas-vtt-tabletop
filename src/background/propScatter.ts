@@ -55,11 +55,13 @@ const LIQUID = (() => {
   return table;
 })();
 
-/** Keeps the candidates of one kind within `cap`: over it, those whose hash is under `cap / count`, trimmed to the cap. */
+/** Keeps the candidates of one kind within `cap`: over it, the `cap` with the lowest hash, so the thinning is even everywhere. */
 function capped(list: Candidate[], cap: number): ScatteredProp[] {
   if (list.length <= cap) return list.map((c) => c.prop);
-  const limit = cap / list.length;
-  const kept = list.filter((c) => c.keep < limit).map((c) => c.prop);
+  const keeps = Float64Array.from(list, (c) => c.keep).sort();
+  const limit = keeps[cap - 1];
+  const kept = list.filter((c) => c.keep <= limit).map((c) => c.prop);
+  // Equal hashes at the limit could leave a few over.
   return kept.length > cap ? kept.slice(0, cap) : kept;
 }
 
@@ -89,6 +91,7 @@ export function scatterProps(
     const f = footprint(i);
     return b.props.length > 0 && Number.isFinite(f) && f > 0;
   });
+  if (!usable.includes(true)) return [];
   const value = (k: number): number => {
     const v = layers.props[k];
     return v >= 1 && v <= brushes.length && usable[v - 1] ? v : 0;
@@ -109,52 +112,55 @@ export function scatterProps(
     (prop.far ? far : near).push({ prop, keep: hash(ix, iy, brush, SALT_CAP) });
   };
 
-  // Label the spots: 4-connected cells of one brush. `grid` keeps the brush of each cell that belongs to a big spot.
-  const grid = new Uint8Array(n);
+  /** One prop for the spot whose `count` cells are in the stack: at its middle, or at the allowed cell nearest the middle. */
+  const placeAtMiddle = (brush: number, start: number, count: number, sumI: number, sumJ: number): void => {
+    const mx = left + (sumI / count + 0.5) * cellSize, my = top + (sumJ / count + 0.5) * cellSize;
+    const si = start % size, sj = (start - si) / size;
+    if (allowed(pixelAt(frame, mx, my), mx, my)) { add(brush, si, sj, mx, my, brushes[brush].scale); return; }
+    let best = -1, bestD = Infinity, bx = 0, by = 0;
+    for (let s = 0; s < count; s++) {
+      const k = stack[s], i = k % size, j = (k - i) / size;
+      const x = left + (i + 0.5) * cellSize, y = top + (j + 0.5) * cellSize;
+      if (!allowed(k, x, y)) continue;
+      const d = (x - mx) ** 2 + (y - my) ** 2;
+      if (d < bestD) { bestD = d; best = k; bx = x; by = y; }
+    }
+    if (best >= 0) add(brush, si, sj, bx, by, brushes[brush].scale);
+  };
+
+  // Label the spots: 4-connected cells of one brush. `spotOf` holds, for each cell of a big spot, that spot's number (from 1).
+  const spotOf = new Int32Array(n);
   const seen = new Uint8Array(n);
   const stack = new Int32Array(n);
   const box = brushes.map(() => ({ i0: size, j0: size, i1: -1, j1: -1 }));
+  const bigSpots: { brush: number; start: number; hit: boolean }[] = [];
   for (let start = 0; start < n; start++) {
     const v = value(start);
     if (v === 0 || seen[start]) continue;
     // Flood out from `start`; the stack ends up holding every cell of the spot.
-    let count = 0, top2 = 0, sumI = 0, sumJ = 0;
-    stack[top2++] = start;
+    let visited = 0, queued = 0, sumI = 0, sumJ = 0;
+    stack[queued++] = start;
     seen[start] = 1;
-    while (count < top2) {
-      const k = stack[count++];
+    while (visited < queued) {
+      const k = stack[visited++];
       const i = k % size, j = (k - i) / size;
       sumI += i;
       sumJ += j;
-      if (i > 0 && !seen[k - 1] && layers.props[k - 1] === v) { seen[k - 1] = 1; stack[top2++] = k - 1; }
-      if (i < size - 1 && !seen[k + 1] && layers.props[k + 1] === v) { seen[k + 1] = 1; stack[top2++] = k + 1; }
-      if (j > 0 && !seen[k - size] && layers.props[k - size] === v) { seen[k - size] = 1; stack[top2++] = k - size; }
-      if (j < size - 1 && !seen[k + size] && layers.props[k + size] === v) { seen[k + size] = 1; stack[top2++] = k + size; }
+      if (i > 0 && !seen[k - 1] && layers.props[k - 1] === v) { seen[k - 1] = 1; stack[queued++] = k - 1; }
+      if (i < size - 1 && !seen[k + 1] && layers.props[k + 1] === v) { seen[k + 1] = 1; stack[queued++] = k + 1; }
+      if (j > 0 && !seen[k - size] && layers.props[k - size] === v) { seen[k - size] = 1; stack[queued++] = k - size; }
+      if (j < size - 1 && !seen[k + size] && layers.props[k + size] === v) { seen[k + size] = 1; stack[queued++] = k + size; }
     }
-    const brush = v - 1, b = brushes[brush];
+    const count = visited, brush = v - 1, b = brushes[brush];
     const reach = footprint(brush) * b.scale;
     if (count * cellSize * cellSize < reach * reach) {
-      // A small spot: one prop at its middle, or at the cell nearest the middle that may hold one.
-      const mx = left + (sumI / count + 0.5) * cellSize, my = top + (sumJ / count + 0.5) * cellSize;
-      const middle = pixelAt(frame, mx, my);
-      const si = start % size, sj = (start - si) / size;
-      if (allowed(middle, mx, my)) add(brush, si, sj, mx, my, b.scale);
-      else {
-        let best = -1, bestD = Infinity, bx = 0, by = 0;
-        for (let s = 0; s < count; s++) {
-          const k = stack[s], i = k % size, j = (k - i) / size;
-          const x = left + (i + 0.5) * cellSize, y = top + (j + 0.5) * cellSize;
-          if (!allowed(k, x, y)) continue;
-          const d = (x - mx) ** 2 + (y - my) ** 2;
-          if (d < bestD) { bestD = d; best = k; bx = x; by = y; }
-        }
-        if (best >= 0) add(brush, si, sj, bx, by, b.scale);
-      }
+      placeAtMiddle(brush, start, count, sumI, sumJ);
     } else {
-      const bb = box[brush];
+      bigSpots.push({ brush, start, hit: false });
+      const id = bigSpots.length, bb = box[brush];
       for (let s = 0; s < count; s++) {
         const k = stack[s], i = k % size, j = (k - i) / size;
-        grid[k] = v;
+        spotOf[k] = id;
         if (i < bb.i0) bb.i0 = i;
         if (i > bb.i1) bb.i1 = i;
         if (j < bb.j0) bb.j0 = j;
@@ -174,10 +180,35 @@ export function scatterProps(
       const x = (ix + hash(ix, iy, brush, SALT_JITTER_X)) * spacing, y = (iy + hash(ix, iy, brush, SALT_JITTER_Y)) * spacing;
       if (x < left || y < top || x >= left + frame.extent || y >= top + frame.extent) continue;
       const k = pixelAt(frame, x, y);
-      if (grid[k] !== brush + 1 || !allowed(k, x, y)) continue;
+      const spot = spotOf[k];
+      if (spot === 0 || bigSpots[spot - 1].brush !== brush || !allowed(k, x, y)) continue;
+      bigSpots[spot - 1].hit = true;
       add(brush, ix, iy, x, y, b.scale);
     }
   });
+
+  // Every spot gets at least one prop: a big spot the grid missed gets one at its middle.
+  if (bigSpots.some((s) => !s.hit)) {
+    seen.fill(0);
+    bigSpots.forEach((spot, index) => {
+      if (spot.hit) return;
+      const id = index + 1;
+      let visited = 0, queued = 0, sumI = 0, sumJ = 0;
+      stack[queued++] = spot.start;
+      seen[spot.start] = 1;
+      while (visited < queued) {
+        const k = stack[visited++];
+        const i = k % size, j = (k - i) / size;
+        sumI += i;
+        sumJ += j;
+        if (i > 0 && !seen[k - 1] && spotOf[k - 1] === id) { seen[k - 1] = 1; stack[queued++] = k - 1; }
+        if (i < size - 1 && !seen[k + 1] && spotOf[k + 1] === id) { seen[k + 1] = 1; stack[queued++] = k + 1; }
+        if (j > 0 && !seen[k - size] && spotOf[k - size] === id) { seen[k - size] = 1; stack[queued++] = k - size; }
+        if (j < size - 1 && !seen[k + size] && spotOf[k + size] === id) { seen[k + size] = 1; stack[queued++] = k + size; }
+      }
+      placeAtMiddle(spot.brush, spot.start, visited, sumI, sumJ);
+    });
+  }
 
   return [...capped(near, MAX_MODELS), ...capped(far, MAX_IMPOSTORS)];
 }
