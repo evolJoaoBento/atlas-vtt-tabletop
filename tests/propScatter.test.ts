@@ -37,7 +37,15 @@ test('a 20x20-square forest at density 20 has about 80 props', () => {
   const layers = layersFor();
   paint(layers, frame, 40, 40, 60, 60, 1);
   const out = scatterProps(layers, settingsOf(brush(20)), frame, NO_MAP, one);
-  assert.ok(out.length > 60 && out.length < 100, `got ${out.length}`);
+  // One small patch sees only a couple of clumps, so it may be thick or thin; patches in 8 places average out to the density.
+  assert.ok(out.length > 30 && out.length < 150, `got ${out.length}`);
+  let total = 0;
+  for (let k = 0; k < 8; k++) {
+    const patch = layersFor();
+    paint(patch, frame, 20 + k * 25, 30 + (k % 3) * 60, 40 + k * 25, 50 + (k % 3) * 60, 1);
+    total += scatterProps(patch, settingsOf(brush(20)), frame, NO_MAP, one).length;
+  }
+  assert.ok(total / 8 > 60 && total / 8 < 100, `mean ${total / 8}`);
   for (const p of out) assert.ok(p.x >= 40 && p.x < 60 && p.y >= 40 && p.y < 60);
   for (const p of out) assert.ok(p.turn >= 0 && p.turn < Math.PI * 2 && p.scale >= 0.85 && p.scale <= 1.15 && p.prop === 0);
 });
@@ -213,6 +221,6 @@ test('a big forest is natural: uneven spacing, clumps and clearings, and the bru
   const cm = counts.reduce((a, b) => a + b, 0) / counts.length;
   const cv = counts.reduce((a, b) => a + (b - cm) ** 2, 0) / counts.length;
   console.log(`block counts mean ${cm.toFixed(2)} variance ${cv.toFixed(2)}`);
-  assert.ok(cv > cm, `variance ${cv} vs mean ${cm}`);
+  assert.ok(cv > cm * 1.6, `variance ${cv} vs mean ${cm}`);
   assert.deepEqual(out, scatterProps(layers, settingsOf(brush(20)), f, NO_MAP, one));
 });

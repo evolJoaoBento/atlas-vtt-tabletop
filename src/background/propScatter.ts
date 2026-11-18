@@ -39,9 +39,22 @@ const GRID_STEP = 0.8;
 /** How far, in grid cells, a point may stray from its cell's middle (a total range of 1.6 cells). */
 const JITTER = 1.6;
 /** How big a clump or clearing is, in times the brush's even spacing. */
-const CLUMP_FEATURE = 6;
-/** A point is kept with chance `KEEP_SCALE * (KEEP_BASE + KEEP_GAIN * noise)`: the scale undoes the finer grid, the rest averages 1. */
-const KEEP_SCALE = GRID_STEP * GRID_STEP, KEEP_BASE = 0.35, KEEP_GAIN = 1.3;
+const CLUMP_FEATURE = 6, FINE_FEATURE = 2;
+/** How much the big and the small swell count in the noise. */
+const CLUMP_WEIGHT = 0.65, FINE_WEIGHT = 0.35;
+/**
+ * A point is kept with chance `KEEP_SCALE * (KEEP_BASE + KEEP_GAIN * clumpiness)`. The scale undoes the finer grid (and was
+ * tuned by measuring the big test forest); the base and gain leave real clearings (near 0) and thick patches (capped at 1).
+ */
+const KEEP_SCALE = GRID_STEP * GRID_STEP * 1.045, KEEP_BASE = 0.1, KEEP_GAIN = 1.8;
+const SALT_ANGLE = 9, SALT_FINE = 10;
+
+/** Two octaves of noise, made contrasty with a smoothstep, from 0 (a clearing) to 1 (a thick patch); x and y are in even spacings. */
+function clumpiness(x: number, y: number, brush: number): number {
+  const n = CLUMP_WEIGHT * valueNoise(x / CLUMP_FEATURE, y / CLUMP_FEATURE, brush) + FINE_WEIGHT * valueNoise(x / FINE_FEATURE, y / FINE_FEATURE, brush + SALT_FINE * 8);
+  const t = Math.min(1, Math.max(0, (n - 0.25) / 0.5));
+  return t * t * (3 - 2 * t);
+}
 
 /** Smooth noise from 0 to 1 that changes slowly over one unit of (x, y); the same for the same brush. */
 function valueNoise(x: number, y: number, brush: number): number {
@@ -193,15 +206,23 @@ export function scatterProps(
     const bb = box[brush];
     if (bb.i1 < 0 || !(b.density > 0)) return;
     // The brush's even spacing; the grid is finer (OVERSAMPLE) and thinned by the clump noise, so the mean density holds.
-    const even = 10 / Math.sqrt(b.density), spacing = even * GRID_STEP, feature = even * CLUMP_FEATURE;
-    // A point may stray up to 0.8 cells, so the cells just outside the painted box are visited too.
-    const gx0 = Math.floor((left + bb.i0 * cellSize) / spacing) - 1, gx1 = Math.floor((left + (bb.i1 + 1) * cellSize) / spacing) + 1;
-    const gy0 = Math.floor((top + bb.j0 * cellSize) / spacing) - 1, gy1 = Math.floor((top + (bb.j1 + 1) * cellSize) / spacing) + 1;
+    const even = 10 / Math.sqrt(b.density), spacing = even * GRID_STEP;
+    // The grid is turned by an angle of its own (0 to 90 degrees) so no brush shows rows.
+    const angle = hash(brush, 0, 0, SALT_ANGLE) * Math.PI / 2, cos = Math.cos(angle), sin = Math.sin(angle);
+    // The painted box seen from the turned grid: the bounds of its four corners. A point may stray up to 0.8 cells, so a ring more is visited.
+    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+    for (const x of [left + bb.i0 * cellSize, left + (bb.i1 + 1) * cellSize]) for (const y of [top + bb.j0 * cellSize, top + (bb.j1 + 1) * cellSize]) {
+      const u = x * cos + y * sin, v = -x * sin + y * cos;
+      u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
+    }
+    const gx0 = Math.floor(u0 / spacing) - 1, gx1 = Math.floor(u1 / spacing) + 1;
+    const gy0 = Math.floor(v0 / spacing) - 1, gy1 = Math.floor(v1 / spacing) + 1;
     for (let iy = gy0; iy <= gy1; iy++) for (let ix = gx0; ix <= gx1; ix++) {
-      const x = (ix + 0.5 + (hash(ix, iy, brush, SALT_JITTER_X) - 0.5) * JITTER) * spacing;
-      const y = (iy + 0.5 + (hash(ix, iy, brush, SALT_JITTER_Y) - 0.5) * JITTER) * spacing;
+      const u = (ix + 0.5 + (hash(ix, iy, brush, SALT_JITTER_X) - 0.5) * JITTER) * spacing;
+      const v = (iy + 0.5 + (hash(ix, iy, brush, SALT_JITTER_Y) - 0.5) * JITTER) * spacing;
+      const x = u * cos - v * sin, y = u * sin + v * cos;
       // Clumps and clearings: keep the point with a chance that follows the slow noise at its place.
-      const chance = KEEP_SCALE * (KEEP_BASE + KEEP_GAIN * valueNoise(x / feature, y / feature, brush));
+      const chance = KEEP_SCALE * (KEEP_BASE + KEEP_GAIN * clumpiness(x / even, y / even, brush));
       if (hash(ix, iy, brush, SALT_KEEP) >= chance) continue;
       if (x < left || y < top || x >= left + frame.extent || y >= top + frame.extent) continue;
       const k = pixelAt(frame, x, y);
