@@ -16,8 +16,8 @@ where prop brushes scatter their props; the board draws thousands of them cheapl
 - A painted spot smaller than one prop at its scale gets exactly one prop, at the spot's middle.
 - Props may stand anywhere but on the map itself (the extra board too; they are decorative, minis pass through).
 - Players see them too (Connect).
-- Performance: each model is loaded once and repeated (instancing); props on the outer half of the background area
-  are drawn as flat pictures of the model (impostors).
+- Performance: each model is loaded once and repeated (instancing); props on the outer two thirds of the background
+  area are drawn as flat pictures of the model (impostors). (2026-11-18: the user moved the line in from the outer half.)
 
 ## Goals
 
@@ -30,8 +30,9 @@ where prop brushes scatter their props; the board draws thousands of them cheapl
    get props on a jittered grid with spacing `10 / sqrt(density)` squares, each a random prop of the brush, a random
    turn and a size within ±15 % of the scale. No prop on the map itself, none on a liquid. Positions in squares, the
    ground's height from the painted heights. The same picture always gives the same props.
-3. Drawing: props within the inner half of the background area (from the map's middle, half the picture's half-width)
-   are the models themselves, instanced: one `InstancedMesh` per mesh of each model. Props on the outer half are
+3. Drawing: props within the inner third of the background area (from the map's middle, a third of the picture's
+   half-width) are the models themselves, instanced: one `InstancedMesh` per mesh of each model. Props on the outer two
+   thirds are
    impostors: two crossed quads with a picture of the model rendered once from the side (alpha-tested). Caps: 6 000
    models and 60 000 impostors per board, thinned evenly (deterministically) when a background asks for more.
    Instanced props receive shadows and do not cast them (cost).

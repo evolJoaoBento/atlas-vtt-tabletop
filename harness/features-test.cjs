@@ -6176,8 +6176,10 @@ feature('painted props', async ({ page, shot }) => {
     // Everywhere, thick: the cost of the most the board is asked to draw.
     const dense = emptyLayers();
     dense.props.fill(1);
-    const near = Math.PI * (frame.extent / 4) ** 2, far = frame.extent ** 2 - near;
-    const densityDense = Math.min(200, Math.max(0.1, 100 * 20000 / far));
+    // Models within a sixth of the picture across from the middle (propScatter's FAR_FROM), flat pictures beyond.
+    const near = Math.PI * (frame.extent / 6) ** 2, far = frame.extent ** 2 - near;
+    // Thick enough for about 3 000 models near and at least 20 000 pictures far (the smaller inner area sets it now).
+    const densityDense = Math.min(200, Math.max(0.1, 100 * 20000 / far, 100 * 3000 / near));
     const denseFolder = await test.backgrounds.create('Dense test');
     await test.backgrounds.save(denseFolder, { ...DEFAULT_BACKGROUND, name: 'Dense test', props: [brush('Dense', ['props/tree.glb', 'props/rock.glb'], densityDense)] }, dense);
     return { forestFolder, dotFolder, denseFolder, forestSettings, extent: frame.extent, densityDense, nearSquares: near, farSquares: far };

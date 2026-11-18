@@ -11,6 +11,11 @@ import { pixelAt, type BackgroundFrame } from './terrainHeight';
 export const MAX_MODELS = 6000;
 /** Most props that may stand far from the map, drawn as flat impostors. */
 export const MAX_IMPOSTORS = 60000;
+/**
+ * Where models give way to flat impostors, as a share of the picture's width from the map's middle: a sixth, so the
+ * inner third of the picture's half-width is models and the outer two thirds are flat pictures only.
+ */
+export const FAR_FROM = 1 / 6;
 
 /** A square area of the map, in squares: its top-left and bottom-right corners. */
 type Rect = { x0: number; y0: number; x1: number; y1: number };
@@ -118,7 +123,7 @@ export function scatterProps(
   const left = frame.cx - frame.extent / 2, top = frame.cy - frame.extent / 2;
   const onMap = (x: number, y: number): boolean => x >= map.x0 && x <= map.x1 && y >= map.y0 && y <= map.y1;
   const allowed = (k: number, x: number, y: number): boolean => !LIQUID[layers.terrain[k]] && !onMap(x, y);
-  const farFrom = frame.extent / 4;
+  const farFrom = frame.extent * FAR_FROM;
 
   // Which brushes can place anything at all.
   const usable: boolean[] = brushes.map((b, i) => {

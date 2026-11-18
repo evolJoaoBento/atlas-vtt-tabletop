@@ -88,9 +88,12 @@ test('far is by distance from the middle', () => {
   const layers = layersFor();
   paint(layers, frame, 120, 120, 136, 136, 1);
   paint(layers, frame, 10, 10, 26, 26, 1);
+  // A ring between a sixth and a quarter of the picture across: flat pictures now (the inner third of the half-width is models).
+  paint(layers, frame, 128 + 48, 120, 128 + 60, 136, 1);
   const out = scatterProps(layers, settingsOf(brush(20)), frame, NO_MAP, one);
   assert.ok(out.some((p) => !p.far) && out.some((p) => p.far));
-  for (const p of out) assert.equal(p.far, Math.hypot(p.x - 128, p.y - 128) > 64);
+  assert.ok(out.some((p) => p.far && Math.hypot(p.x - 128, p.y - 128) < 64), 'some flat pictures inside the old quarter line');
+  for (const p of out) assert.equal(p.far, Math.hypot(p.x - 128, p.y - 128) > 256 / 6);
 });
 
 test('a brush with no known props, an unknown value or no props places nothing', () => {
