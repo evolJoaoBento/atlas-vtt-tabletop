@@ -7,7 +7,8 @@
  */
 import type { BoardExtras, BoardGround, BoardPainted, BoardLayerRecord, BoardMaterialRecord, BoardPropRecord, BoardShapeRecord } from '../connectContract';
 import type { ShapePoint, TerrainShape } from './terrainShapes';
-import { readGround, type GroundSettings } from './ground';import type { ElevationLayerData } from './elevationLayer';
+import { readGround, type GroundSettings } from './ground';
+import type { ElevationLayerData } from './elevationLayer';
 import type { CollectionRules, ConditionDefinition } from './conditions';
 import type { FogOperation } from './fog';
 import { readInitiative, DEFAULT_INITIATIVE_RULES } from './initiative';
