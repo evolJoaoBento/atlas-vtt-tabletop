@@ -7,6 +7,9 @@
 import { LAVA_STYLES, LIQUID_DEFAULTS, LIQUID_KINDS, LIQUID_NAMES, LIQUID_TINTS, MOTION_LABELS, WATER_MOTION_KINDS, readWaterMotion, type LavaStyle, type LiquidKind, type WaterMotion, type WaterMotionKind } from '../board/water';
 import { MAX_PATTERNS, type BackgroundSettings, type CustomPattern, type PatternShape } from './backgroundData';
 
+/** The terrain number of the first custom pattern (Custom 1); the others follow it. */
+const CUSTOM_TERRAIN_FIRST = 5;
+
 const SHAPES: readonly { value: PatternShape; label: string }[] = [
   { value: 'smooth', label: 'Smooth' },
   { value: 'ridged', label: 'Ridged' },
@@ -67,7 +70,7 @@ function rangeInput(row: HTMLElement, value: number, step: number, set: (value: 
 }
 
 /** Builds the column inside `root`. `settings()` gives the live settings; `changed` is called after every edit. */
-export function buildSettingsPanel(root: HTMLElement, settings: () => BackgroundSettings, changed: () => void): SettingsPanel {
+export function buildSettingsPanel(root: HTMLElement, settings: () => BackgroundSettings, changed: () => void, clearIndex: (layer: 'terrain', value: number) => void = () => undefined): SettingsPanel {
   const section = (title: string): HTMLElement => {
     const box = make(root, 'section', 'atlas-tabletop-bg-section');
     make(box, 'h4', 'atlas-tabletop-bg-section__title', title);
@@ -85,7 +88,8 @@ export function buildSettingsPanel(root: HTMLElement, settings: () => Background
       if (index === s.patterns.length - 1) {
         const remove = make(head, 'button', 'atlas-tabletop-bg-small', 'Remove');
         remove.type = 'button';
-        remove.addEventListener('click', () => { s.patterns.pop(); changed(); render(); });
+        // What was painted with the pattern goes back to plains, so a pattern added later does not take it over.
+        remove.addEventListener('click', () => { s.patterns.pop(); clearIndex('terrain', CUSTOM_TERRAIN_FIRST + index); changed(); render(); });
       }
       const name = make(field(card, 'Name'), 'input');
       name.type = 'text';

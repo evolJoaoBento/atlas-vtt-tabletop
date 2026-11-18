@@ -29,6 +29,8 @@ export interface PropBrushPanelHost {
   /** The chosen brush, 1 to 6, or 0 when there is none. */
   selected(): number;
   select(brush: number): void;
+  /** Turns every cell painted with this brush number into no brush (one undo step); called just before the brush is removed. */
+  clear(brush: number): void;
   /** A setting changed but the list of brushes stayed the same (a name, a number, a prop): nothing has to be redrawn. */
   edited(): void;
   /** Brushes were added or removed, so the editor redraws the palette and the picture. */
@@ -118,6 +120,7 @@ export function renderPropBrushPanel(box: HTMLElement, host: PropBrushPanelHost)
     remove.type = 'button';
     remove.dataset.bgAction = 'remove-brush';
     remove.addEventListener('click', () => {
+      host.clear(chosen);
       brushes.pop();
       host.select(brushes.length);
       host.restructured();

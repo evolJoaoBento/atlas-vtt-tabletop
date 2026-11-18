@@ -162,7 +162,7 @@ export class BackgroundEditor {
     this.heightGroup = heightGroup;
     this.heightLabel = heightLabel;
     this.statusEl = statusEl;
-    this.panel = buildSettingsPanel(right, () => this.config, () => this.settingsChanged());
+    this.panel = buildSettingsPanel(right, () => this.config, () => this.settingsChanged(), (layer, value) => this.clearIndex(layer, value));
     this.bindCanvas();
     this.root.addEventListener('keydown', (event) => this.onKey(event));
     this.resize = new ResizeObserver(() => this.resized());
@@ -395,6 +395,18 @@ export class BackgroundEditor {
     this.syncUi();
   }
 
+  /** Sets every pixel of `layer` that holds `value` to 0 (plains / no brush), as one undo step of that layer. */
+  private clearIndex(layer: 'terrain' | 'props', value: number): void {
+    const layers = this.background;
+    const history = this.histories?.[layer];
+    if (!layers || !history || this.stroke) return;
+    const data = layers[layer];
+    history.begin(data);
+    for (let i = 0; i < data.length; i++) if (data[i] === value) data[i] = 0;
+    const box = history.commit(data);
+    if (box) { this.shade(box); this.markDirty(); }
+  }
+
   /** Brushes were added or removed: the picture shows what is painted with the ones that remain. */
   private brushesChanged(): void {
     this.markDirty();
@@ -436,6 +448,7 @@ export class BackgroundEditor {
         props: () => this.host.props(),
         selected: () => this.brush,
         select: (brush) => { this.brush = brush; this.renderPalette(); },
+        clear: (brush) => this.clearIndex('props', brush),
         edited: () => { this.markDirty(); this.syncUi(); },
         restructured: () => this.brushesChanged(),
       });

@@ -2545,7 +2545,18 @@ feature('background editor props', async ({ page, shot }) => {
   const ed = (fn, arg) => page.evaluate(fn, arg);
   const until = async (fn, arg, tries = 60) => { for (let i = 0; i < tries; i++) { if (await page.evaluate(fn, arg)) return true; await wait(100); } return false; };
   const at = (x, y) => page.evaluate(([x, y]) => window.boardTest.backgroundEditor.clientOf(x, y), [x, y]);
+  /** Waits until the canvas has the same size and picture position for a few checks in a row (the palette above it changes height). */
+  const settled = async () => {
+    let same = 0, last = '';
+    for (let i = 0; i < 60 && same < 4; i++) {
+      const now = await page.evaluate(() => { const r = document.querySelector('.atlas-tabletop-bg-canvas').getBoundingClientRect(); const v = window.boardTest.backgroundEditor.view; return [r.width, r.height, v.scale, v.x, v.y].join(); });
+      same = now === last ? same + 1 : 0;
+      last = now;
+      await wait(50);
+    }
+  };
   const drag = async (points) => {
+    await settled();
     const screen = [];
     for (const [x, y] of points) screen.push(await at(x, y));
     await page.mouse.move(screen[0].x, screen[0].y);
@@ -2594,7 +2605,6 @@ feature('background editor props', async ({ page, shot }) => {
   await drag([[700, 1300], [1000, 1300]]);
   check('background editor props: painting writes the brush number into the props layer', (await pixel('props', 850, 1300)) === 1 && (await pixel('props', 850, 900)) === 0, JSON.stringify(await pixel('props', 850, 1300)));
   await page.locator('[data-bg-propbrush="2"]').click();
-  await wait(250); // the card above the canvas changes height, so the canvas is resized and the picture fitted again
   await drag([[1300, 1500], [1500, 1500]]);
   check('background editor props: brush 2 writes 2', (await pixel('props', 1400, 1500)) === 2);
   await page.locator('[data-bg-tool="eraser"]').click();
@@ -2607,13 +2617,42 @@ feature('background editor props', async ({ page, shot }) => {
   await page.locator('[data-bg-action="redo"]').click();
   check('background editor props: Redo puts it back', (await pixel('props', 1400, 1500)) === 2);
 
-  // Removing the last brush: its painted cells read as no brush (the numbers stay in the layer).
+  // Fill on the props layer: brush 1 pours over the open ground and stops at nothing (the strokes are open lines).
+  await page.locator('[data-bg-propbrush="1"]').click();
+  await page.locator('[data-bg-tool="fill"]').click();
+  await settled();
+  const spot = await at(500, 500);
+  await page.mouse.click(spot.x, spot.y);
+  check('background editor props: Fill pours the brush number over the open ground', (await pixel('props', 500, 500)) === 1 && (await pixel('props', 1400, 1500)) === 2, JSON.stringify([await pixel('props', 500, 500), await pixel('props', 1400, 1500)]));
+  await page.locator('[data-bg-action="undo"]').click();
+  check('background editor props: Undo takes the fill back', (await pixel('props', 500, 500)) === 0 && (await pixel('props', 1400, 1500)) === 2);
+
+  // Removing the last brush clears what was painted with it (one undo step); a brush added later starts clean.
   await page.locator('[data-bg-propbrush="2"]').click();
   await page.locator('[data-bg-action="remove-brush"]').click();
   check('background editor props: Remove drops the last brush', await ed(() => window.boardTest.backgroundEditor.settings.props.length === 1));
+  check('background editor props: Remove clears the cells painted with that brush', (await pixel('props', 1400, 1500)) === 0 && (await pixel('props', 850, 1300)) === 1);
+  await page.locator('[data-bg-action="add-brush"]').click();
+  check('background editor props: a new brush 2 does not take over old cells', (await pixel('props', 1400, 1500)) === 0 && await ed(() => window.boardTest.backgroundEditor.layers.props.every((v) => v <= 1)));
+  // At most six brushes.
+  for (let i = 0; i < 4; i++) await page.locator('[data-bg-action="add-brush"]').click({ force: true }).catch(() => {});
+  const six = await ed(() => ({ n: window.boardTest.backgroundEditor.settings.props.length, off: document.querySelector('[data-bg-action="add-brush"]').disabled }));
+  check('background editor props: Add brush is disabled at six brushes', six.n === 6 && six.off, JSON.stringify(six));
+  await page.locator('[data-bg-action="add-brush"]').click({ force: true, timeout: 1000 }).catch(() => {});
+  check('background editor props: still six brushes after trying a seventh', await ed(() => window.boardTest.backgroundEditor.settings.props.length === 6));
+  for (let i = 0; i < 5; i++) await page.locator('[data-bg-action="remove-brush"]').click();
+  check('background editor props: back to one brush', await ed(() => window.boardTest.backgroundEditor.settings.props.length === 1));
 
+  // Four props in a brush: every picker is reachable, and the dash removes one.
   await page.locator('[data-bg-propbrush="1"]').click();
+  for (const [slot, path] of [[1, 'props/crate.glb'], [2, 'props/tree.glb'], [3, 'props/rock.glb']]) await page.locator(`[data-bg-brush-prop="${slot}"]`).selectOption(path);
+  const four = await ed(() => { const pickers = document.querySelectorAll('[data-bg-brush-prop]'); const pal = document.querySelector('.atlas-tabletop-bg-palette'); pickers[pickers.length - 1].scrollIntoView(); const box = pickers[pickers.length - 1].getBoundingClientRect(); const p = pal.getBoundingClientRect(); return { props: window.boardTest.backgroundEditor.settings.props[0].props.length, pickers: pickers.length, inside: box.top >= p.top - 1 && box.bottom <= p.bottom + 1 }; });
+  check('background editor props: four props fit a brush, with no fifth picker, all reachable', four.props === 4 && four.pickers === 4 && four.inside, JSON.stringify(four));
+  await page.locator('[data-bg-brush-prop="0"]').evaluate((el) => el.scrollIntoView());
+  await settled();
   await shot('background-editor-props');
+  await page.locator('[data-bg-brush-prop="3"]').selectOption('');
+  check('background editor props: the dash removes a prop', await ed(() => JSON.stringify(window.boardTest.backgroundEditor.settings.props[0].props) === '["props/barrel.glb","props/crate.glb","props/tree.glb"]' && document.querySelectorAll('[data-bg-brush-prop]').length === 4));
 
   await page.locator('[data-bg-action="save"]').click();
   check('background editor props: Save clears the changed mark', await until(() => !window.boardTest.backgroundEditor.dirty));
@@ -2624,6 +2663,20 @@ feature('background editor props', async ({ page, shot }) => {
   check('background editor props: reopened, the painted pixels are still there', reread.p === 1, JSON.stringify(reread.p));
   await page.locator('[data-bg-layer="props"]').click();
   check('background editor props: reopened, the brush shows in the palette', await ed(() => document.querySelectorAll('[data-bg-propbrush]').length === 1 && document.querySelector('[data-bg-brush-density]').value === '25'));
+
+  // The same for custom patterns: removing the last one turns its painted terrain back into plains.
+  await page.locator('[data-bg-action="add-pattern"]').click();
+  await page.locator('[data-bg-layer="terrain"]').click();
+  await page.locator('[data-bg-terrain="custom1"]').click();
+  await page.locator('[data-bg-tool="brush"]').click();
+  await drag([[600, 600], [800, 600]]);
+  check('background editor props: a custom pattern can be painted (terrain 5)', (await pixel('terrain', 700, 600)) === 5);
+  await page.locator('.atlas-tabletop-bg-pattern button', { hasText: 'Remove' }).click();
+  check('background editor props: removing the pattern turns its terrain back to plains', (await pixel('terrain', 700, 600)) === 0);
+  await page.locator('[data-bg-action="add-pattern"]').click();
+  check('background editor props: a new pattern does not take over the old terrain', (await pixel('terrain', 700, 600)) === 0);
+  await page.locator('[data-bg-action="undo"]').click();
+  check('background editor props: Undo takes the clearing back as one step', (await pixel('terrain', 700, 600)) === 5);
   await ed(() => window.boardTest.closeBackgroundEditor());
 });
 
