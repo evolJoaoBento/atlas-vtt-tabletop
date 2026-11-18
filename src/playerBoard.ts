@@ -11,7 +11,7 @@ import { DIE_COLOURS } from './dice/diceLook';
 import { parseMini, type LoadedMini } from './library';
 import { Board, type BoardHost } from './board/board';
 import type { AugmentedView, RoomPlace } from './board/augmented';
-import { backgroundSettingsFromWire, boardFromScene, paintedRef, type PlayerSceneLike, type SceneBoard } from './board/sceneAdapter';
+import { boardFromScene, paintedRef, type PlayerSceneLike, type SceneBoard } from './board/sceneAdapter';
 import { leaner, QUALITY, withLooks, type LayerLook, type MemoryMode, type Quality, type QualityPreset, type WallEdges } from './board/quality';
 import type { Sky } from './board/look';
 import { NO_FLIP } from './board/walls';
@@ -21,7 +21,7 @@ import { materialFromUrls, type LoadedMaterial } from './materials';
 import { readGround } from './board/ground';
 import { settlesWithin, STALL_MS } from './board/loadProgress';
 import { decodeLayer } from './background/backgroundCodec';
-import { BACKGROUND_SIZE, emptyLayers, type LoadedBackground } from './background/backgroundData';
+import { BACKGROUND_SIZE, emptyLayers, isWireModel, readBackgroundSettings, type LoadedBackground } from './background/backgroundData';
 import type { BoardCamera, BoardCutscene, BoardExtras, PlayerCutsceneHandle, PlayerCutsceneOptions, PlayerDiceRequest, PlayerDiceResult } from './connectContract';
 import { readBoardCutscene } from './cutscene/broadcast';
 import { PlayerCutsceneState, type PlayerCutsceneView } from './cutscene/playerCutscene';
@@ -968,7 +968,7 @@ class PlayerBoard implements PlayerBoardHandle {
         const fresh = emptyLayers(BACKGROUND_SIZE);
         return {
           // The brushes' models are asset ids: the board's `readMini` (above) loads them as it loads minis.
-          settings: backgroundSettingsFromWire(block),
+          settings: readBackgroundSettings({ ...block.settings, materials: [] }, isWireModel),
           layers: { size: BACKGROUND_SIZE, terrain: terrain ?? fresh.terrain, material: material ?? fresh.material, height: height ?? fresh.height, props: props ?? fresh.props },
           materials: block.materials.map((id) => (id === '' ? null : id)),
         };

@@ -112,11 +112,21 @@ function readPattern(raw: unknown): CustomPattern {
   };
 }
 
-function readBrush(raw: unknown, index: number): PropBrush {
+/** What a vault brush may name: a `.glb` path. */
+function isVaultModel(path: string): boolean {
+  return path !== '' && path.toLowerCase().endsWith('.glb');
+}
+
+/** What a brush on the wire may name: a model's asset id (any non-empty text of up to 200 letters). */
+export function isWireModel(id: string): boolean {
+  return id !== '' && id.length <= 200;
+}
+
+function readBrush(raw: unknown, index: number, model: (path: string) => boolean): PropBrush {
   const value = typeof raw === 'object' && raw !== null ? raw as Record<string, unknown> : {};
   const name = typeof value.name === 'string' ? value.name.trim().slice(0, 60) : '';
   const paths = Array.isArray(value.props)
-    ? value.props.filter((p): p is string => typeof p === 'string' && p !== '' && p.toLowerCase().endsWith('.glb'))
+    ? value.props.filter((p): p is string => typeof p === 'string' && model(p))
     : [];
   return {
     name: name || `Props ${index + 1}`,
@@ -126,8 +136,11 @@ function readBrush(raw: unknown, index: number): PropBrush {
   };
 }
 
-/** Reads saved background settings, forgiving anything missing or wrong: values are clamped, extras dropped, a reversed height range swapped. */
-export function readBackgroundSettings(raw: unknown): BackgroundSettings {
+/**
+ * Reads saved background settings, forgiving anything missing or wrong: values are clamped, extras dropped, a reversed height range swapped.
+ * `model` says which texts a brush may name as a model: a vault `.glb` path (the default), or, on a player's board, an asset id (`isWireModel`).
+ */
+export function readBackgroundSettings(raw: unknown, model: (path: string) => boolean = isVaultModel): BackgroundSettings {
   const value = typeof raw === 'object' && raw !== null ? raw as Record<string, unknown> : {};
   const patterns = Array.isArray(value.patterns) ? value.patterns.slice(0, MAX_PATTERNS).map(readPattern) : [];
   const materials = Array.isArray(value.materials)
@@ -139,7 +152,7 @@ export function readBackgroundSettings(raw: unknown): BackgroundSettings {
   const liquids = typeof value.liquids === 'object' && value.liquids !== null ? value.liquids as Record<string, unknown> : {};
   const read = {} as Record<LiquidKind, WaterMotion>;
   for (const kind of LIQUID_KINDS) read[kind] = readWaterMotion(liquids[kind], LIQUID_DEFAULTS[kind]);
-  const props = Array.isArray(value.props) ? value.props.slice(0, MAX_BRUSHES).map(readBrush) : [];
+  const props = Array.isArray(value.props) ? value.props.slice(0, MAX_BRUSHES).map((brush, index) => readBrush(brush, index, model)) : [];
   return { v: 1, name: readName(value.name), patterns, materials, height: { low: Math.min(a, b), high: Math.max(a, b) }, liquids: read, props };
 }
 

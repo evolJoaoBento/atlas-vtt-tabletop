@@ -6,7 +6,8 @@ import { BoardData, readBoardData } from '../src/board/boardData';
 import type { BoardMap } from '../src/board/mapModel';
 import { layersFor } from '../src/boardLayers';
 import type { MaterialInfo } from '../src/boardLook';
-import { backgroundSettingsFromWire, groundFromWire, layersFromExtras, paintedFromWire, paintedRef, shapesFromWire } from '../src/board/sceneAdapter';
+import { isWireModel, readBackgroundSettings, type BackgroundSettings } from '../src/background/backgroundData';
+import { groundFromWire, layersFromExtras, paintedFromWire, paintedRef, shapesFromWire } from '../src/board/sceneAdapter';
 import type { BoardExtras } from '../src/connectContract';
 
 const materials = { info: (folder: string): MaterialInfo | null => (folder === 'mat/brick' ? { scale: 2, maps: { color: 'mat/brick/c.jpg' } } : null) };
@@ -137,12 +138,25 @@ test('a props picture or a brush change alone gives a painted background a new r
   assert.equal(new Set([paintedRef(painted), ...other]).size, 5);
 });
 
-test('a painted background from the wire reads its brushes with their models as asset ids, clamped', () => {
-  const liquid = { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 };
-  const brushes = [{ name: 'Pines', props: ['A'.repeat(43), 'B'.repeat(43)], density: 10, scale: 1 }, { name: 'None', props: [], density: 5, scale: 2 }];
-  const settings = backgroundSettingsFromWire({ terrain: 'T', material: 'M', height: 'H', materials: ['MAT'], settings: { patterns: [], height: { low: -2, high: 6 }, liquids: { water: liquid, lava: liquid, acid: liquid }, props: brushes } });
-  assert.deepEqual(settings.props, brushes);
-  assert.deepEqual(settings.materials, []);
-  const old = backgroundSettingsFromWire({ terrain: 'T', material: 'M', height: 'H', materials: [], settings: { patterns: [], height: { low: -2, high: 6 }, liquids: { water: liquid, lava: liquid, acid: liquid } } });
-  assert.deepEqual(old.props, []);
+test('the player reads brushes from the wire with the one tolerant reader: models as asset ids, clamped, nothing thrown', () => {
+  const id = (c: string): string => c.repeat(43);
+  const read = (props: unknown, extra: object = {}): BackgroundSettings => readBackgroundSettings({ ...extra, props, materials: [] }, isWireModel);
+  const good = [{ name: 'Pines', props: [id('A'), id('B')], density: 10, scale: 1 }, { name: 'None', props: [], density: 5, scale: 2 }];
+  assert.deepEqual(read(good).props, good);
+  assert.deepEqual(read(good).materials, []);
+  assert.deepEqual(readBackgroundSettings({}, isWireModel).props, []);
+  // A vault path is no asset id of the wire's, and an asset id is no vault path: each reader keeps its own.
+  assert.deepEqual(readBackgroundSettings({ props: [{ props: ['a/tree.glb', id('A')] }] }).props[0]!.props, ['a/tree.glb']);
+  assert.deepEqual(read([{ props: ['a/tree.glb', id('A')] }]).props[0]!.props, ['a/tree.glb', id('A')]);
+  // Out-of-range and non-finite numbers are clamped or fall back.
+  assert.deepEqual(read([{ density: 9999, scale: -3 }, { density: -1, scale: 99 }, { density: NaN, scale: Infinity }, { density: 'x', scale: null }]).props.map((b) => [b.density, b.scale]), [[200, 0.1], [0.1, 20], [10, 1], [10, 1]]);
+  // Ids: empty, duplicate, wrong-typed and over-long are dropped; at most four stay.
+  assert.deepEqual(read([{ props: ['', id('A'), id('A'), 7, null, 'x'.repeat(201), id('B'), id('C'), id('D'), id('E')] }]).props[0]!.props, [id('A'), id('B'), id('C'), id('D')]);
+  // More than six brushes keep six; a null or wrong-typed brush reads as an empty one; a non-array list is none; nothing throws.
+  const many = Array.from({ length: 9 }, (_, n) => ({ name: `B${n}`, props: [id('A')], density: 1, scale: 1 }));
+  assert.equal(read(many).props.length, 6);
+  const odd = read([null, 7, 'x', { props: 'nope' }, { props: null }]).props;
+  assert.equal(odd.length, 5);
+  assert.ok(odd.every((brush) => brush.props.length === 0 && brush.density === 10 && brush.scale === 1));
+  for (const bad of [null, undefined, 'x', 5, {}, { length: 3 }]) assert.deepEqual(read(bad).props, []);
 });
