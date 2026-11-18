@@ -12,7 +12,7 @@ export const PLAIN_GROUND = 0x5d6b45;
 /** Grid lines across, each way. */
 const SEGMENTS = 220;
 /** How far under the map's floor it lies, in world units (so the map never fights it for the same depth). */
-const SINK = 1;
+export const SINK = 1;
 
 export interface GroundArea {
   /** The map's size, in world units (its pixels). */

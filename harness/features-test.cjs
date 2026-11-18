@@ -6145,6 +6145,145 @@ feature('painted ground', async ({ page, shot }) => {
   await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2, water: { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 } }; board.refresh(); });
 });
 
+feature('painted props', async ({ page, shot }) => {
+  // The props of a painted background: models standing near the map (instanced), flat crossed impostors far out.
+  const pageErrors = [];
+  page.on('pageerror', (error) => pageErrors.push(String(error)));
+  const setup = await page.evaluate(async () => {
+    const test = window.boardTest;
+    await test.backgroundsReady();
+    const { emptyLayers, DEFAULT_BACKGROUND, backgroundFrame } = test.backgroundKit;
+    const { board } = test;
+    const cell = board.map.grid.size;
+    const frame = backgroundFrame(board.size.width, board.size.height, cell);
+    const size = emptyLayers().size, per = size / frame.extent;
+    // The cells from (x0, y0) to (x1, y1) squares from the map's middle get the brush `value`.
+    const paint = (layers, x0, y0, x1, y1, value) => {
+      for (let y = Math.max(0, Math.floor(size / 2 + y0 * per)); y < Math.min(size, Math.ceil(size / 2 + y1 * per)); y++) for (let x = Math.max(0, Math.floor(size / 2 + x0 * per)); x < Math.min(size, Math.ceil(size / 2 + x1 * per)); x++) layers.props[y * size + x] = value;
+    };
+    const brush = (name, props, density) => ({ name, props, density, scale: 1 });
+    // A forest on a band below the map, from edge to edge of the picture: it crosses the near and the far half.
+    const forest = emptyLayers();
+    paint(forest, -frame.extent / 2, 9, frame.extent / 2, 21, 1);
+    const forestFolder = await test.backgrounds.create('Forest test');
+    const forestSettings = { ...DEFAULT_BACKGROUND, name: 'Forest test', props: [brush('Forest', ['props/tree.glb', 'props/rock.glb'], 25)] };
+    await test.backgrounds.save(forestFolder, forestSettings, forest);
+    // One painted dot, a single picture cell.
+    const dot = emptyLayers();
+    dot.props[(size / 2 + Math.round(12 * per)) * size + size / 2 - Math.round(6 * per)] = 1;
+    const dotFolder = await test.backgrounds.create('Dot test');
+    await test.backgrounds.save(dotFolder, { ...DEFAULT_BACKGROUND, name: 'Dot test', props: [brush('Dot', ['props/tree.glb'], 10)] }, dot);
+    // Everywhere, thick: the cost of the most the board is asked to draw.
+    const dense = emptyLayers();
+    dense.props.fill(1);
+    const near = Math.PI * (frame.extent / 4) ** 2, far = frame.extent ** 2 - near;
+    const densityDense = Math.min(200, Math.max(0.1, 100 * 20000 / far));
+    const denseFolder = await test.backgrounds.create('Dense test');
+    await test.backgrounds.save(denseFolder, { ...DEFAULT_BACKGROUND, name: 'Dense test', props: [brush('Dense', ['props/tree.glb', 'props/rock.glb'], densityDense)] }, dense);
+    return { forestFolder, dotFolder, denseFolder, forestSettings, extent: frame.extent, densityDense, nearSquares: near, farSquares: far };
+  });
+  console.log('painted props: picture', Math.round(setup.extent), 'squares across, dense density', setup.densityDense.toFixed(1));
+  await wait(300);
+  const show = (folder) => page.evaluate((f) => { const { board, groundState } = window.boardTest; groundState.value = { ...groundState.value, mode: 'painted', background: f, fog: 80, margin: 0 }; board.refresh(); }, folder);
+  /** Waits for a forest that is not `not`, and says what it holds. */
+  const forestOf = (not) => page.waitForFunction((was) => { const forest = window.boardTest.board.painted.forest; return forest && forest !== was ? true : false; }, not ?? null, { timeout: 60000 });
+  const counts = () => page.evaluate(() => { const { board } = window.boardTest; const f = board.painted.forest; return f ? { ...f.counts, ms: board.painted.forestMs, inScene: board.painted.object3d.parent === board.scene, children: f.object3d.children.length } : null; });
+
+  // The one-cell dot: one prop.
+  await show(setup.dotFolder);
+  await forestOf();
+  await wait(300);
+  const dot = await counts();
+  check('painted props: a one-cell dot gives one prop', dot && dot.models === 1 && dot.impostors === 0, JSON.stringify(dot));
+
+  // The forest across both halves.
+  await show(setup.forestFolder);
+  await page.waitForFunction(() => { const f = window.boardTest.board.painted.forest; return f && f.counts.impostors > 0; }, null, { timeout: 60000 });
+  await wait(600);
+  const forest = await counts();
+  console.log('painted props: forest', JSON.stringify(forest));
+  check('painted props: the forest builds, models near and impostors far, in the scene', forest && forest.models > 0 && forest.impostors > 0 && forest.inScene && forest.children > 0, JSON.stringify(forest));
+
+  // Where they stand: on the ground (height under each near prop matches the plane), sized like gallery props.
+  const stand = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    const cell = board.map.grid.size, group = board.painted.forest.object3d;
+    const { Matrix4, Vector3, Raycaster } = window.boardTest;
+    const m = new Matrix4(), low = new Vector3(), ray = new Raycaster();
+    const plane = board.groundPlane.object3d;
+    // For each part of a model: how far its lowest point stands over the ground, over a sample of its copies (in squares).
+    const parts = [];
+    group.traverse((node) => {
+      if (!node.isInstancedMesh || node.material.alphaTest > 0) return;
+      node.geometry.computeBoundingBox();
+      let lowest = Infinity, highest = -Infinity, count = 0;
+      for (let i = 0; i < node.count; i += Math.max(1, Math.floor(node.count / 25))) {
+        node.getMatrixAt(i, m);
+        low.set(0, node.geometry.boundingBox.min.y, 0).applyMatrix4(m).applyMatrix4(group.matrixWorld);
+        ray.set(new Vector3(low.x, 5000, low.z), new Vector3(0, -1, 0));
+        const hit = ray.intersectObject(plane)[0];
+        if (!hit) continue;
+        count++;
+        lowest = Math.min(lowest, (low.y - hit.point.y) / cell);
+        highest = Math.max(highest, (low.y - hit.point.y) / cell);
+      }
+      parts.push({ count, lowest: +lowest.toFixed(3), highest: +highest.toFixed(3) });
+    });
+    return { parts };
+  });
+  // The foot of a trunk or a rock stands on the plane (a leaf cone floats above its trunk); nothing sinks into it.
+  check('painted props: near props stand on the ground (feet within a hair of the plane, none sunk)', stand.parts.length >= 3 && stand.parts.every((p) => p.count > 5 && p.lowest > -0.1) && stand.parts.filter((p) => p.highest < 0.1).length >= 2, JSON.stringify(stand));
+
+  // Re-saving frees the old instances: the renderer's geometries and textures do not grow over three re-saves.
+  const memory = [];
+  for (let n = 0; n < 4; n++) {
+    const was = await page.evaluate(() => window.boardTest.board.painted.forest);
+    await page.evaluate(async (f) => { const t = window.boardTest; const loaded = await t.backgrounds.load(f); await t.backgrounds.save(f, loaded.settings, loaded.layers); t.board.forgetBackground(f); }, setup.forestFolder);
+    await page.waitForFunction(() => window.boardTest.board.painted.forest !== null, null, { timeout: 60000 });
+    await wait(900);
+    memory.push(await page.evaluate(() => { const { board } = window.boardTest; board.wake(true); const m = board.renderer.info.memory; return { geometries: m.geometries, textures: m.textures }; }));
+  }
+  console.log('painted props: renderer memory after each re-save', JSON.stringify(memory));
+  check('painted props: re-saving three times does not grow the renderer geometries or textures', memory[3].geometries <= memory[0].geometries && memory[3].textures <= memory[0].textures, JSON.stringify(memory));
+
+  // A brush whose model is gone: the others are drawn, nothing throws.
+  await page.evaluate(async (f) => { const t = window.boardTest; const loaded = await t.backgrounds.load(f); await t.backgrounds.save(f, { ...loaded.settings, props: [{ name: 'Lost', props: ['props/gone.glb', 'props/tree.glb'], density: 25, scale: 1 }] }, loaded.layers); t.board.forgetBackground(f); }, setup.forestFolder);
+  await wait(1500);
+  const lost = await counts();
+  check('painted props: a brush with a model that is gone still draws the others, no error', lost && lost.models > 0 && pageErrors.length === 0, JSON.stringify({ lost, pageErrors }));
+  await page.evaluate(async (f) => { const t = window.boardTest; const loaded = await t.backgrounds.load(f); await t.backgrounds.save(f, { ...loaded.settings, props: [{ name: 'Nothing', props: ['props/gone.glb'], density: 25, scale: 1 }] }, loaded.layers); t.board.forgetBackground(f); }, setup.forestFolder);
+  await wait(1500);
+  const none = await counts();
+  check('painted props: a brush whose only model is gone draws nothing and the ground stays', (!none || none.models + none.impostors === 0) && pageErrors.length === 0, JSON.stringify({ none, pageErrors }));
+  await page.evaluate(async ({ f, s }) => { const t = window.boardTest; const loaded = await t.backgrounds.load(f); await t.backgrounds.save(f, s, loaded.layers); t.board.forgetBackground(f); }, { f: setup.forestFolder, s: setup.forestSettings });
+
+  // The most it is asked to draw: about 3 000 near and 20 000 far.
+  await show(setup.denseFolder);
+  await page.waitForFunction(() => { const f = window.boardTest.board.painted.forest; return f && f.counts.impostors > 1000; }, null, { timeout: 60000 });
+  await wait(600);
+  const dense = await counts();
+  console.log('painted props: dense forest', JSON.stringify(dense), 'built in', Math.round(dense.ms), 'ms');
+  check('painted props: thousands near and tens of thousands far build in under 1.5 s', dense.models >= 2000 && dense.impostors >= 12000 && dense.ms < 1500, JSON.stringify(dense));
+
+  // The forest for the picture: pulled back over the band.
+  await show(setup.forestFolder);
+  await page.waitForFunction(() => { const f = window.boardTest.board.painted.forest; return f && f.counts.impostors > 0 && f.counts.models > 0; }, null, { timeout: 60000 });
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { const { board } = window.boardTest; board.camera.goal.pitch = 0.6; board.camera.goal.distance *= 2.2; board.wake(true); });
+  await wait(2500);
+  await shot('painted-props');
+  // Out where the far props are: the camera over the forest's edge, looking along the band (impostors ahead, models near the lens).
+  await page.evaluate(() => { const { board } = window.boardTest; const cell = board.map.grid.size; board.camera.goal.target = { x: board.size.width / 2 + 80 * cell, y: 0, z: board.size.height / 2 + 15 * cell }; board.camera.goal.yaw = Math.PI / 2; board.camera.goal.pitch = 0.3; board.camera.goal.distance = 40 * cell; board.wake(true); });
+  await wait(2500);
+  await shot('painted-props-far');
+  check('painted props: no page errors', pageErrors.length === 0, JSON.stringify(pageErrors));
+  // Another mode takes the forest away.
+  await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2, water: { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 } }; board.refresh(); });
+  await wait(500);
+  const away = await page.evaluate(() => { const { board } = window.boardTest; return { forest: board.painted.forest, inScene: board.painted.object3d.parent !== null }; });
+  check('painted props: another ground mode takes the forest away', away.forest === null && !away.inScene, JSON.stringify(away));
+});
+
 feature('player shapes and ground', async ({ page, shot }) => {
   // Connect sends the GM's raised shapes and ground: a player's board draws the shapes, stands on them, and lays the plane.
   await page.evaluate(() => {

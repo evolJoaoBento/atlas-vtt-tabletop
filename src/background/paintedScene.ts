@@ -13,6 +13,9 @@ import type { LoadedBackground } from './backgroundData';
 import { paintedGroundMaterial, splatTexture } from './paintedGround';
 import { liquidMask } from './paintedLiquids';
 import { backgroundFrame, backgroundHeight } from './terrainHeight';
+import type { LoadedMini } from '../library';
+import { scatterProps } from './propScatter';
+import { PROP_FILL, PropForest } from './propForest';
 
 /** Where the map lies and how the ground is set, as the painted ground needs them. */
 export interface PaintedArea {
@@ -65,14 +68,28 @@ export class PaintedScene {
   /** Slots of a read that was forgotten while its look was still drawn: put away when the look is replaced. */
   private retired: (THREE.MeshStandardMaterial | null)[] = [];
   private serial = 0;
+  /** The props standing on the plane now (none while the models load, or when the background paints none). */
+  forest: PropForest | null = null;
+  /** How long the last forest took to place and build, in milliseconds (the models already loaded). */
+  forestMs = 0;
+  /** Which forest is wanted: a forest whose models were still loading when this moved on is dropped. */
+  private forestJob = 0;
+  /** A flat picture of each model, by path, kept for the board's life: a forest drawn again does not make them again. */
+  private readonly pictures = new Map<string, THREE.Texture>();
 
   /**
    * `background` and `material` read from the host; `changed` is called when a background has come in (the board
    * draws the ground again). `keepOnlyCurrent`: only the background shown stays read (a player's board, where an
-   * old one is never shown again), asked at each draw.
+   * old one is never shown again), asked at each draw. `model` loads a prop's model (the board keeps it loaded) and
+   * `impostor` takes a flat picture of one; without them no props are drawn.
    */
   constructor(
-    private readonly source: { background(ref: string): Promise<LoadedBackground | null>; material(path: string): Promise<LoadedMaterial | null> },
+    private readonly source: {
+      background(ref: string): Promise<LoadedBackground | null>;
+      material(path: string): Promise<LoadedMaterial | null>;
+      model?(path: string): Promise<LoadedMini | null>;
+      impostor?(model: LoadedMini): THREE.Texture;
+    },
     private readonly changed: () => void,
     private readonly options: { keepOnlyCurrent?: () => boolean } = {},
   ) {
@@ -82,6 +99,11 @@ export class PaintedScene {
   /** Whether any liquid sheet is drawn (they move, so the board asks for frames). */
   get moving(): boolean {
     return this.liquids.size > 0;
+  }
+
+  /** Whether the group has anything to show (a liquid sheet or the props): the board puts it in the scene then. */
+  get hasContent(): boolean {
+    return this.liquids.size > 0 || this.forest !== null;
   }
 
   /**
@@ -145,6 +167,10 @@ export class PaintedScene {
   clear(): void {
     for (const surface of this.liquids.values()) surface.dispose();
     this.liquids.clear();
+    // A forest still waiting for its models is out of date now.
+    this.forestJob++;
+    this.forest?.dispose();
+    this.forest = null;
     this.built?.material.dispose();
     this.built?.splat.dispose();
     this.built = null;
@@ -158,6 +184,8 @@ export class PaintedScene {
     this.clear();
     for (const read of this.reads.values()) for (const slot of read.slots) slot?.dispose();
     this.reads.clear();
+    for (const picture of this.pictures.values()) picture.dispose();
+    this.pictures.clear();
   }
 
   private start(ref: string): void {
@@ -222,5 +250,46 @@ export class PaintedScene {
       this.object3d.add(surface.object3d);
       this.liquids.set(kind, surface);
     }
+    void this.grow(this.forestJob, read, frame, map, area.cell, look);
+  }
+
+  /**
+   * Stands the background's props on the plane: loads the models of every brush, places the props, builds the forest.
+   * A forest asked for again (or put away) while the models load is dropped. Models that cannot be read are left out.
+   */
+  private async grow(job: number, read: Read, frame: ReturnType<typeof backgroundFrame>, map: { x0: number; y0: number; x1: number; y1: number }, cell: number, look: PaintedLook): Promise<void> {
+    const { settings, layers } = read.background;
+    const load = this.source.model;
+    const paths = [...new Set(settings.props.flatMap((brush) => brush.props))];
+    if (!load || paths.length === 0 || !this.source.impostor) return;
+    const models = new Map<string, LoadedMini>();
+    await Promise.all(paths.map(async (path) => {
+      try {
+        const model = await load(path);
+        if (model) models.set(path, model);
+      } catch { /* a model that cannot be read is left out */ }
+    }));
+    if (this.gone || job !== this.forestJob) return;
+    const started = performance.now();
+    // Every model is drawn to the same width (as the gallery's props are), so a brush with any model loaded has that footprint.
+    const placements = scatterProps(layers, settings, frame, map, (brush) => (settings.props[brush]?.props.some((path) => models.has(path)) ? PROP_FILL : 0));
+    // A flat picture for each model a far prop uses.
+    const pictures = new Map<string, THREE.Texture>();
+    for (const placement of placements) {
+      if (!placement.far) continue;
+      const path = settings.props[placement.brush]?.props[placement.prop];
+      const model = path === undefined ? undefined : models.get(path);
+      if (path === undefined || !model || pictures.has(path)) continue;
+      let picture = this.pictures.get(path);
+      if (!picture) {
+        try { picture = this.source.impostor(model); this.pictures.set(path, picture); } catch { continue; }
+      }
+      pictures.set(path, picture);
+    }
+    const forest = new PropForest(models, placements, settings.props, look.height, cell, pictures);
+    this.forestMs = performance.now() - started;
+    this.forest = forest;
+    this.object3d.add(forest.object3d);
+    this.changed();
   }
 }

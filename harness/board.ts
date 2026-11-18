@@ -97,7 +97,28 @@ async function barrelGlb(): Promise<ArrayBuffer> {
   return exportGlb(root);
 }
 
-function drawn(width: number, height: number, draw: (context: CanvasRenderingContext2D) => void): string {
+/** A tree: a brown trunk and a green cone of leaves, taller than it is wide (for the painted props). */
+async function treeGlb(): Promise<ArrayBuffer> {
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.6, 10), new THREE.MeshStandardMaterial({ color: 0x6b4a2b }));
+  trunk.position.y = 0.3;
+  const leaves = new THREE.Mesh(new THREE.ConeGeometry(0.45, 1.6, 14), new THREE.MeshStandardMaterial({ color: 0x2f7a3a }));
+  leaves.position.y = 1.2;
+  const root = new THREE.Group();
+  root.add(trunk, leaves);
+  return exportGlb(root);
+}
+
+/** A low grey boulder. */
+async function rockGlb(): Promise<ArrayBuffer> {
+  const rock = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 8), new THREE.MeshStandardMaterial({ color: 0x8a8a90 }));
+  rock.scale.set(1, 0.6, 0.8);
+  rock.position.y = 0.3;
+  const root = new THREE.Group();
+  root.add(rock);
+  return exportGlb(root);
+}
+
+function drawn(width: number, height: number, draw:(context: CanvasRenderingContext2D) => void): string {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -233,6 +254,8 @@ async function main(): Promise<void> {
   setLanguage(new URLSearchParams(location.search).get('lang'));
   const hero: LoadedMini = await parseMini(await heroGlb());
   const barrel: LoadedMini = await parseMini(await barrelGlb());
+  const tree: LoadedMini = await parseMini(await treeGlb());
+  const rock: LoadedMini = await parseMini(await rockGlb());
   const images: Record<string, string> = { 'bg.png': background, 'red.png': face('#b03030'), 'green.png': face('#3a8a3a'), 'balcony.png': balcony };
   const snapping = { tokens: true, props: true };
   const props: PropPlacement[] = [{ id: 'barrel', glb: 'props/barrel.glb', x: 910, y: 805, rotation: 0, scale: 1 }];
@@ -425,7 +448,11 @@ async function main(): Promise<void> {
       context.fillRect(0, 0, 512, 512);
       return { bitmap: await createImageBitmap(canvas), width: 65535, height: 65535 };
     },
-    readMini: async (path) => (path.includes('barrel') ? barrel : hero),
+    readMini: async (path) => {
+      // Painted props: a tree, a rock, and a file that is gone.
+      if (path.includes('gone')) throw new Error('the file is gone');
+      return path.includes('barrel') ? barrel : path.includes('tree') ? tree : path.includes('rock') ? rock : hero;
+    },
     placement: (id) => (id === 'hero' || id === 'fallen' ? { mini: 'minis/hero.glb', scale: 1, turn: 0, ...(heroBase === 'none' ? {} : { base: heroBase }) } : null),
     style: (id) => (id === 'gob' ? 'standee' : 'disc'),
     props: () => props,
@@ -923,7 +950,7 @@ async function main(): Promise<void> {
     await editor.open(folder);
     return editor;
   };
-  Object.assign(window, { boardTest: { backgrounds, backgroundFiles, backgroundsReady, backgroundKit: { DEFAULT_BACKGROUND, emptyLayers, TERRAINS, backgroundFrame }, openBackgroundEditor, closeBackgroundEditor, backgroundEditor: null, studio: cutsceneHarness, api: { cutscene: channel },Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
+  Object.assign(window, { boardTest: { backgrounds, backgroundFiles, backgroundsReady, backgroundKit: { DEFAULT_BACKGROUND, emptyLayers, TERRAINS, backgroundFrame }, openBackgroundEditor, closeBackgroundEditor, backgroundEditor: null, studio: cutsceneHarness, api: { cutscene: channel },Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, Matrix4: THREE.Matrix4, Quaternion: THREE.Quaternion, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

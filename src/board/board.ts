@@ -60,6 +60,8 @@ import { DEFAULT_GROUND, fogRange, planeReach, readGround, type GroundSettings }
 import { GroundPlane } from './groundPlane';
 import { SeaPlane } from './seaPlane';
 import { PaintedScene } from '../background/paintedScene';
+import { impostorSpan } from '../background/propForest';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { LoadedBackground } from '../background/backgroundData';
 import { ShapesView } from './shapeView';
 import { shapeHeightAt, type TerrainShape } from './terrainShapes';
@@ -783,6 +785,8 @@ export class Board {
     {
       background: (ref) => this.loads.track(this.host.readBackground?.(ref) ?? Promise.resolve(null), 2),
       material: (path) => this.loads.track(this.host.readMaterial(path), 2),
+      model: (path) => this.model(path),
+      impostor: (model) => this.impostorOf(model),
     },
     () => { if (!this.disposed) this.applyGround(); },
     // A player's board (the host cannot choose backgrounds) shows one background at a time: it keeps only that one read.
@@ -1628,7 +1632,7 @@ export class Board {
       // Always under the scene's first level, whichever level is shown (the shown one stands at 0, those below it under).
       this.groundPlane.object3d.position.y = lowest;
     } else this.groundPlane.object3d.removeFromParent();
-    if (paintedLook && this.painted.liquids.size > 0) {
+    if (paintedLook && this.painted.hasContent) {
       if (!this.painted.object3d.parent) this.scene.add(this.painted.object3d);
       this.painted.object3d.position.y = lowest;
     } else this.painted.object3d.removeFromParent();
@@ -1930,6 +1934,33 @@ export class Board {
       entry.piece.setMini(model, model ? placement : null);
       this.wake(true);
     });
+  }
+
+  /**
+   * A flat picture of a model, seen from the side on a transparent ground, for the far painted props. Drawn once into
+   * its own target (the lights are flat: the scene lights it again when the card is drawn); disposing the texture frees the target.
+   */
+  private impostorOf(model: LoadedMini): THREE.Texture {
+    const renderer = this.renderer;
+    const span = impostorSpan(model);
+    const target = new THREE.WebGLRenderTarget(256, 256, { samples: 4, depthBuffer: true, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter });
+    const stage = new THREE.Scene();
+    const copy = cloneSkinned(model.scene);
+    copy.scale.setScalar(1);
+    stage.add(copy, new THREE.AmbientLight(0xffffff, Math.PI));
+    const camera = new THREE.OrthographicCamera(-span / 2, span / 2, span, 0, 0.01, span * 20);
+    camera.position.set(0, 0, span * 5);
+    const previousTarget = renderer.getRenderTarget(), previousColor = renderer.getClearColor(new THREE.Color()), previousAlpha = renderer.getClearAlpha();
+    renderer.setRenderTarget(target);
+    renderer.setClearColor(0x000000, 0);
+    renderer.clear();
+    renderer.render(stage, camera);
+    renderer.setRenderTarget(previousTarget);
+    renderer.setClearColor(previousColor, previousAlpha);
+    const texture = target.texture;
+    const free = texture.dispose.bind(texture);
+    texture.dispose = (): void => { free(); target.dispose(); };
+    return texture;
   }
 
   private model(path: string): Promise<LoadedMini | null> {

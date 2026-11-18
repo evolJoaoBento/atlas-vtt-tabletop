@@ -19,6 +19,7 @@ import type { TokenStyle, PropPlacement } from './boardData';
 import { hexCenter, ringDiameter, tokenDiameter } from './geometry';
 import { isDowned, type BoardGrid, type BoardIcon, type BoardInk, type BoardPin, type BoardText, type BoardToken } from './mapModel';
 import { fillTriangles, inkTriangles } from './ink';
+import { PROP_FILL } from '../background/propForest';
 import type { ResourceDefinition } from './resources';
 import { mapIconSvg } from './mapIcons';
 import { pinShownName } from './pinIcons';
@@ -76,8 +77,6 @@ const PIN_PX = 40;
 const TITLE_PX = 22;
 /** How far a pin floats over the board, in grid cells. */
 const PIN_LIFT = 0.6;
-/** A prop at scale 1 fills this share of a cell. */
-const PROP_FILL = 0.9;
 
 const EDGE_COLOR = 0x2b2118;
 /**
