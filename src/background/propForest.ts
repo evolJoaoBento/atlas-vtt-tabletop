@@ -23,6 +23,23 @@ export function impostorSpan(model: LoadedMini): number {
   return Math.max(model.footprint, model.height) * 1.05;
 }
 
+/** The mean of the colours of the model's materials (textures ignored; mid grey when it has none), in linear colour. */
+export function averageColor(model: LoadedMini): THREE.Color {
+  const sum = new THREE.Color(0, 0, 0);
+  let count = 0;
+  model.scene.traverse((node) => {
+    const mesh = node as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+      const color = (material as THREE.MeshStandardMaterial).color;
+      if (!color) continue;
+      sum.add(color);
+      count++;
+    }
+  });
+  return count > 0 ? sum.multiplyScalar(1 / count) : new THREE.Color(0.5, 0.5, 0.5);
+}
+
 /** Two crossed upright cards, each one unit wide and tall, standing on y = 0 and centred on x = z = 0. */
 function crossedCards(): THREE.BufferGeometry {
   const position = new Float32Array([

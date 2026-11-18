@@ -6276,16 +6276,44 @@ feature('painted props', async ({ page, shot }) => {
     const model = await board.model('props/tree.glb');
     const before = { textures: r.info.memory.textures, alpha: r.getClearAlpha(), target: r.getRenderTarget() };
     const render = r.render;
-    // The first draw (the small probe) goes through; the second (the picture itself) fails.
-    let calls = 0;
-    r.render = (...args) => { if (++calls === 2) throw new Error('render failed'); return render.apply(r, args); };
+    // The picture's own scene is marked, and drawing a marked scene fails (whatever else the renderer draws goes through).
+    const marked = { ...model, scene: model.scene.clone() };
+    marked.scene.userData.failPicture = true;
+    r.render = (scene, ...args) => { if (scene.children.some((child) => child.userData && child.userData.failPicture)) throw new Error('render failed'); return render.call(r, scene, ...args); };
     let threw = false;
-    try { board.impostorOf(model); } catch { threw = true; }
+    try { board.impostorOf(marked); } catch { threw = true; }
     r.render = render;
     return { threw, textures: r.info.memory.textures - before.textures, alpha: r.getClearAlpha() === before.alpha, target: r.getRenderTarget() === before.target };
   });
   console.log('painted props: a failed picture left', JSON.stringify(failed));
-  // What one picture costs once the shaders are warm (it reads a few pixels back to find the model's average colour).
+  // The soft edge of a picture is the model's colour, not black: a clear texel next to the silhouette (read back here only).
+  const edge = await page.evaluate(async () => {
+    const { board } = window.boardTest, r = board.renderer;
+    const model = await board.model('props/tree.glb');
+    const sum = [0, 0, 0]; let n = 0;
+    model.scene.traverse((node) => { if (node.isMesh) { sum[0] += node.material.color.r; sum[1] += node.material.color.g; sum[2] += node.material.color.b; n++; } });
+    const expected = sum.map((v) => v / n * 255);
+    const texture = board.impostorOf(model), target = texture.userData.target;
+    const pixels = new Uint8Array(256 * 256 * 4);
+    r.readRenderTargetPixels(target, 0, 0, 256, 256, pixels);
+    const at = (x, y) => (y * 256 + x) * 4;
+    let found = 0, worst = 0, black = 0;
+    for (let y = 3; y < 253; y++) for (let x = 3; x < 253; x++) {
+      const i = at(x, y);
+      if (pixels[i + 3] !== 0) continue;
+      let near = false;
+      for (let d = 1; d <= 2 && !near; d++) near = pixels[at(x + d, y) + 3] > 128 || pixels[at(x - d, y) + 3] > 128 || pixels[at(x, y + d) + 3] > 128 || pixels[at(x, y - d) + 3] > 128;
+      if (!near) continue;
+      found++;
+      worst = Math.max(worst, Math.abs(pixels[i] - expected[0]), Math.abs(pixels[i + 1] - expected[1]), Math.abs(pixels[i + 2] - expected[2]));
+      if (pixels[i] + pixels[i + 1] + pixels[i + 2] < 30) black++;
+    }
+    texture.dispose();
+    return { found, worst: Math.round(worst), black, expected: expected.map(Math.round) };
+  });
+  console.log('painted props: edge texels', JSON.stringify(edge));
+  check('painted props: a clear texel beside the silhouette holds the model\'s average colour, not black', edge.found > 20 && edge.worst <= 12 && edge.black === 0, JSON.stringify(edge));
+  // What one picture costs once the shaders are warm.
   const warm = await page.evaluate(async () => {
     const { board } = window.boardTest, model = await board.model('props/tree.glb');
     const times = [];
@@ -6299,14 +6327,19 @@ feature('painted props', async ({ page, shot }) => {
   const race = await page.evaluate(async (f) => {
     const t = window.boardTest, painted = t.board.painted, real = painted.source.model;
     const sparse = (await t.backgrounds.load(f));
-    let open; const gate = new Promise((r) => { open = r; });
-    painted.source.model = (p) => gate.then(() => real(p));
-    const again = async (density) => { await t.backgrounds.save(f, { ...sparse.settings, props: [{ name: 'Forest', props: ['props/tree.glb'], density, scale: 1 }] }, sparse.layers); t.board.forgetBackground(f); await new Promise((r) => setTimeout(r, 700)); };
-    await again(25);
-    await again(2);
+    const until = async (what) => { for (let n = 0; n < 600 && !what(); n++) await new Promise((r) => setTimeout(r, 50)); };
+    let open, asked = 0; const gate = new Promise((r) => { open = r; });
+    painted.source.model = (p) => { asked++; return gate.then(() => real(p)); };
+    // Each re-save is waited for until its models are being asked for (the forest is then waiting on the gate).
+    const again = async (density, askedBy) => { await t.backgrounds.save(f, { ...sparse.settings, props: [{ name: 'Forest', props: ['props/tree.glb'], density, scale: 1 }] }, sparse.layers); t.board.forgetBackground(f); await until(() => asked >= askedBy); };
+    await again(25, 1);
+    await again(2, 2);
     const waiting = painted.forest;
     open();
-    await new Promise((r) => setTimeout(r, 1200));
+    await until(() => painted.forest !== null);
+    // The older forest's answer lands in the same burst as the newer one: let the queue run before looking.
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
     painted.source.model = real;
     return { waiting: waiting === null, groups: painted.object3d.children.filter((c) => c.name === 'painted-props').length, counts: painted.forest?.counts };
   }, setup.forestFolder);

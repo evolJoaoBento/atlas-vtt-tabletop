@@ -280,7 +280,9 @@ export class PaintedScene {
         this.forestWarned.add(ref);
         console.warn(`Painted background "${ref}": its props could not be drawn: ${error instanceof Error ? error.message : String(error)}`);
       }
+      return;
     }
+    this.changed();
   }
 
   /** Places the props with the models that loaded and stands them on the plane. */
@@ -308,6 +310,5 @@ export class PaintedScene {
     this.forestMs = performance.now() - started;
     this.forest = forest;
     this.object3d.add(forest.object3d);
-    this.changed();
   }
 }
