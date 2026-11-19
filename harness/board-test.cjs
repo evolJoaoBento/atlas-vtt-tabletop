@@ -1784,7 +1784,7 @@ server.listen(0, async () => {
     {
       await page.evaluate(() => window.boardTest.boardDice.picker.close());
       const sheetButton = page.locator('.atlas-tabletop-extensions button[aria-label="Stat sheet"]');
-      check('the toolbar has a Stat sheet button after the Dice log button', await sheetButton.count() === 1 && await page.evaluate(() => document.querySelector('.atlas-tabletop-dice-log-menu').nextElementSibling === document.querySelector('.atlas-tabletop-sheet-menu')));
+      check('the toolbar has a Stat sheet button after the Dice button', await sheetButton.count() === 1 && await page.evaluate(() => document.querySelector('.atlas-tabletop-dice-menu').nextElementSibling === document.querySelector('.atlas-tabletop-sheet-menu')));
       const drawer = page.locator('.atlas-tabletop-sheet');
       await page.evaluate(() => window.boardTest.board.select(null));
       await sheetButton.click();
@@ -1853,8 +1853,9 @@ server.listen(0, async () => {
     // Atlas view shows as a card over the board and first in the log; the Log button opens the panel and shuts the picker.
     {
       await page.evaluate(() => window.boardTest.boardDice.picker.close());
-      const logButton = page.locator('.atlas-tabletop-extensions button[aria-label="Dice log"]');
-      check('the toolbar has a Dice log button next to the Dice button', await logButton.count() === 1 && await page.evaluate(() => document.querySelector('.atlas-tabletop-dice-menu').nextElementSibling === document.querySelector('.atlas-tabletop-dice-log-menu')));
+      const diceButton = page.locator('.atlas-tabletop-extensions button[aria-label="Dice"]');
+      const logButton = page.locator('.atlas-tabletop-dice-picker button[aria-label="Dice log"]');
+      check('the Dice log button sits inside the dice tray, not standalone on the toolbar', await logButton.count() === 1 && await page.locator('.atlas-tabletop-dice-log-menu').count() === 0);
       // The picker's rolls of 25 and 26 were heard: the oldest is the 2d6.
       const heard = await page.evaluate(() => window.boardTest.boardDice.log.entries.map((entry) => entry.formula));
       check('the log heard the rolls the picker threw, newest first', heard.length >= 2 && heard[heard.length - 1] === '2d6' && heard.every((formula) => formula !== ''), heard);
@@ -1868,17 +1869,21 @@ server.listen(0, async () => {
       const card = await page.evaluate(() => { const c = [...document.querySelectorAll('.atlas-tabletop-dice-card')].find((candidate) => candidate.textContent.includes('Anna')); return c && { text: c.textContent, crit: c.classList.contains('is-crit-success'), shown: !!c.offsetParent }; });
       await page.screenshot({ path: `${shots}/board-27a-dice-toast.png` });
       check('a roll on the map shows as a card over the board: roller, ability, total, critical', card && card.shown && card.crit && card.text.includes('Anna') && card.text.includes('Longsword') && card.text.includes('25'), card);
+      await diceButton.click();
+      await wait(150);
       await logButton.click();
       await wait(250);
       const log = page.locator('.atlas-tabletop-dice-log');
-      check('the Log button opens the log, newest roll first', await log.isVisible() && await page.evaluate(() => document.querySelector('.atlas-tabletop-dice-log__entry').textContent.includes('Anna')));
+      check('the Log button in the dice tray opens the log and shuts the picker, newest roll first', await log.isVisible() && !(await page.locator('.atlas-tabletop-dice-picker').isVisible()) && await page.evaluate(() => document.querySelector('.atlas-tabletop-dice-log__entry').textContent.includes('Anna')));
       await page.screenshot({ path: `${shots}/board-27b-dice-log.png` });
-      await page.locator('.atlas-tabletop-extensions button[aria-label="Dice"]').click();
+      await diceButton.click();
       await wait(200);
-      check('opening Dice shuts the log, and the log button follows', !(await log.isVisible()) && await page.locator('.atlas-tabletop-dice-picker').isVisible());
+      check('clicking Dice while the log is open shuts the log', !(await log.isVisible()));
+      await diceButton.click();
+      await wait(150);
       await logButton.click();
       await wait(200);
-      check('opening the log shuts the picker', await log.isVisible() && !(await page.locator('.atlas-tabletop-dice-picker').isVisible()));
+      check('opening the log from the tray shuts the picker', await log.isVisible() && !(await page.locator('.atlas-tabletop-dice-picker').isVisible()));
       await page.keyboard.press('Escape');
       await wait(150);
       check('Escape closes the log', !(await log.isVisible()));

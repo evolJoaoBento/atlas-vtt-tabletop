@@ -129,10 +129,14 @@ export interface DicePickerOptions {
   picture?(die: DieType): string | null;
   /** The tray opened or closed (the toolbar's button follows). */
   onOpenChange?(open: boolean): void;
+  /** Opens the board's dice log from the button in the tray. */
+  onOpenLog?(): void;
 }
 
 /** Lucide's `dices` (ISC): the toolbar's Dice button. */
 export const DICES_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="12" height="12" x="2" y="10" rx="2" ry="2"/><path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3l-5-4.92a2.24 2.24 0 0 0-3 0L10 6"/><path d="M6 18h.01"/><path d="M10 14h.01"/><path d="M15 6h.01"/><path d="M18 9h.01"/></svg>';
+/** Lucide's `scroll-text` (ISC): the Dice log button inside the tray. */
+const LOG_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></svg>';
 /** Lucide's `minus` and `plus` (ISC). */
 const MINUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/></svg>';
 const PLUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>';
@@ -238,6 +242,14 @@ export class DicePicker {
       this.change(emptyPick());
     }, 'Roll');
     this.clear = button('btn btn--outline btn--sm', actions, 'Clear', () => this.change(emptyPick()), 'Clear');
+    if (this.opts.onOpenLog) {
+      const log = button('btn btn--outline btn--icon atlas-tabletop-dice-tray-log', actions, 'Dice log', () => {
+        this.close();
+        this.opts.onOpenLog?.();
+      });
+      log.title = 'Dice log';
+      setSvg(log, LOG_SVG);
+    }
 
     // Presses and keys here are not the board's: no camera drag, no camera keys.
     this.panel.addEventListener('pointerdown', (event) => event.stopPropagation());

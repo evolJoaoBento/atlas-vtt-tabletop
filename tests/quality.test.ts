@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { EDGE_SHARE, QUALITY, ResolutionGovernor, readEdges, readLayerLook, readQuality, withLooks } from '../src/board/quality';
+import { EDGE_SHARE, MAX_SEE_THROUGH_SIZE, MIN_SEE_THROUGH_SIZE, QUALITY, ResolutionGovernor, readEdges, readLayerLook, readQuality, readSeeThroughSize, withLooks } from '../src/board/quality';
 
 test('quality presets go from cheap to sharp, and carry no sight settings (sight follows Atlas)', () => {
   assert.deepEqual(QUALITY.low, { maxPixelRatio: 1, minPixelRatio: 0.6, antialias: false, shadowMapSize: 1024, miniShadows: 'blob', lightShadows: 0, displaceCuts: 0, tiltShift: false, occlusion: false, painted: false, sky: 'dusk', edges: 'soft', seeThrough: false, seeThroughSize: 1.2, layerLook: 'solid', layerTick: 2 });
@@ -64,4 +64,13 @@ test('the look of an upper layer is read back as stored, and anything else is so
   for (const look of ['solid', 'faded', 'transparent'] as const) assert.equal(readLayerLook(look), look);
   for (const bad of [undefined, null, 'hidden', 3]) assert.equal(readLayerLook(bad), 'solid');
   assert.equal(withLooks(QUALITY.medium, { tiltShift: false, occlusion: false, painted: false, sky: 'dusk', layerLook: 'faded' }).layerLook, 'faded');
+});
+
+test('see-through window size clamps between 0.5 and 8 squares', () => {
+  assert.equal(MIN_SEE_THROUGH_SIZE, 0.5);
+  assert.equal(MAX_SEE_THROUGH_SIZE, 8);
+  assert.equal(readSeeThroughSize(0.1), 0.5);
+  assert.equal(readSeeThroughSize(6.5), 6.5);
+  assert.equal(readSeeThroughSize(12), 8);
+  assert.equal(readSeeThroughSize(undefined), 1.2);
 });

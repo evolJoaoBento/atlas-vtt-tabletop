@@ -796,7 +796,9 @@ feature('memory on reload', async ({ page, shot }) => {
 
 // ── Item 6: a Fate roll and a labelled roll in the dice log, and a Fate roll thrown from a formula ──────────────────
 feature('fate and labels', async ({ page, shot }) => {
-  await page.getByRole('button', { name: 'Dice log' }).click();
+  await page.getByRole('button', { name: 'Dice', exact: true }).click();
+  await wait(150);
+  await page.locator('.atlas-tabletop-dice-picker button[aria-label="Dice log"]').click();
   await wait(300);
   // A Fate roll, as Atlas logs it (`dF` dice reading -1, 0 or +1) with a labelled group beside it.
   await page.evaluate(() => window.boardTest.atlasBus.emit('dice-rolled', {
@@ -851,7 +853,9 @@ feature('set-aside dice', async ({ page, shot }) => {
   const done = await read();
   const dim = done.filter((die) => die.opacity < 1).map((die) => die.id);
   check('7 the lowest die (the 1) is dimmed once the roll is complete, the three kept dice stay solid', dim.length === 1 && dim[0] === ids[1] && done.filter((die) => die.opacity === 1).length === 3, JSON.stringify(done));
-  await page.getByRole('button', { name: 'Dice log' }).click();
+  await page.getByRole('button', { name: 'Dice', exact: true }).click();
+  await wait(150);
+  await page.locator('.atlas-tabletop-dice-picker button[aria-label="Dice log"]').click();
   await wait(300);
   const logged = await page.evaluate(() => ({ entries: document.querySelectorAll('.atlas-tabletop-dice-log__entry').length, chips: [...document.querySelectorAll('.atlas-tabletop-dice-log__entry:first-child .atlas-tabletop-dice-log__die')].map((c) => `${c.textContent}${c.classList.contains('is-dropped') ? '(dropped)' : ''}`) }));
   check('7 the log entry of the same roll strikes through the same die', logged.chips.join(' ').includes('1(dropped)') && logged.chips.filter((c) => c.includes('dropped')).length === 1, JSON.stringify(logged));
@@ -6688,10 +6692,16 @@ feature('visibility bar', async ({ page, shot }) => {
   };
   const gOut = await dragHandleTo(g0.proj.pxPerSquare * 2.5);
   const gIn = await dragHandleTo(g0.proj.pxPerSquare * 1.1);
-  const gMax = await dragHandleTo(g0.proj.pxPerSquare * 7);
+  // Zoom out briefly so the 8-square ring's right handle fits inside the 1000 px viewport while testing clamping.
+  await page.evaluate(() => { const { board } = window.boardTest; board.camera.goal.distance = 1350; board.camera.snap(); board.wake(true); });
+  await wait(200);
+  const gWide = await ringGeom();
+  const gMax = await dragHandleTo(gWide.proj.pxPerSquare * 10);
   const gMin = await dragHandleTo(4);
+  await page.evaluate(() => { const { board } = window.boardTest; board.camera.goal.distance = 620; board.camera.snap(); board.wake(true); });
+  await wait(200);
   const isTenth = (n) => Math.abs(n * 10 - Math.round(n * 10)) < 1e-6;
-  check('visibility bar: dragging the ring edge outward and inward changes seeThroughSize in 0.1 steps and clamps to 0.5-4', gOut.size > g0.size && gOut.size <= 4 && isTenth(gOut.size) && gIn.size < gOut.size && gIn.size >= 0.5 && isTenth(gIn.size) && gMax.size === 4 && gMin.size === 0.5 && gOut.readout.includes(gOut.size.toFixed(1)) && gOut.tooltip.includes(gOut.size.toFixed(1)), JSON.stringify({ start: g0.size, out: gOut.size, in: gIn.size, max: gMax.size, min: gMin.size, readout: gOut.readout, tooltip: gOut.tooltip }));
+  check('visibility bar: dragging the ring edge outward and inward changes seeThroughSize in 0.1 steps and clamps to 0.5-8', gOut.size > g0.size && gOut.size <= 8 && isTenth(gOut.size) && gIn.size < gOut.size && gIn.size >= 0.5 && isTenth(gIn.size) && gMax.size === 8 && gMin.size === 0.5 && gOut.readout.includes(gOut.size.toFixed(1)) && gOut.tooltip.includes(gOut.size.toFixed(1)), JSON.stringify({ start: g0.size, out: gOut.size, in: gIn.size, max: gMax.size, min: gMin.size, readout: gOut.readout, tooltip: gOut.tooltip }));
 
   const boardAfterDrag = await page.evaluate(() => {
     const { board } = window.boardTest;
@@ -6775,6 +6785,22 @@ feature('visibility bar', async ({ page, shot }) => {
   await page.click('.atlas-tabletop-view-bar [data-visibility="see-through-size"]');
   await settled();
   await shot('visibility-ring-light');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+
+  // 7. Dice log button lives inside the dice tray (not standalone on the toolbar) and opens the log cleanly.
+  await page.evaluate(() => { document.body.classList.remove('theme-light'); });
+  const toolbarLogCount = await page.locator('.atlas-tabletop-toolbar > .atlas-tabletop-extensions > .atlas-tabletop-dice-log-menu').count();
+  await page.click('.atlas-tabletop-extensions button[aria-label="Dice"]');
+  await wait(250);
+  const trayLogBtn = page.locator('.atlas-tabletop-dice-picker button[aria-label="Dice log"]');
+  const trayHasLog = await trayLogBtn.isVisible();
+  await shot('dice-tray-log');
+  await trayLogBtn.click();
+  await wait(200);
+  const logOpened = await page.locator('.atlas-tabletop-dice-log').isVisible();
+  const trayClosed = !(await page.locator('.atlas-tabletop-dice-picker').isVisible());
+  check('dice tray: Dice log button sits inside the dice tray (not on the toolbar) and switches to the log', toolbarLogCount === 0 && trayHasLog && logOpened && trayClosed, JSON.stringify({ toolbarLogCount, trayHasLog, logOpened, trayClosed }));
   await page.keyboard.press('Escape');
 });
 

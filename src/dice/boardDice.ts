@@ -77,11 +77,18 @@ export class BoardDice {
   constructor(private readonly deps: BoardDiceDeps) {
     const { board, container } = deps;
     const doc = container.ownerDocument;
-    // The button is drawn before the picker exists: until then the picker is closed.
+    // The button is drawn before the picker exists: until then the picker and log are closed.
     const anchor = board.diceButton({
-      isOpen: () => this.picker?.isOpen === true,
-      toggle: () => (this.picker.isOpen ? this.picker.close() : this.picker.open()),
-      close: () => this.picker.close(),
+      isOpen: () => this.picker?.isOpen === true || this.log?.isOpen === true,
+      toggle: () => {
+        if (this.log?.isOpen) { this.log.close(); return; }
+        if (this.picker.isOpen) this.picker.close();
+        else this.picker.open();
+      },
+      close: () => {
+        this.picker?.close();
+        this.log?.close();
+      },
     });
     this.previews = new DicePreviews(doc, () => this.picker?.refreshPictures());
     this.picker = new DicePicker(anchor ?? container, {
@@ -89,6 +96,7 @@ export class BoardDice {
       colors: () => [...DIE_COLOURS],
       rules: () => this.rules(),
       picture: (die) => this.previews.url(die),
+      onOpenLog: () => this.log.open(),
       onOpenChange: (open) => {
         // The dice's pictures, of the pack chosen now.
         const pack = deps.pack();
@@ -100,13 +108,8 @@ export class BoardDice {
         board.refreshToolbar();
       },
     });
-    // The log button beside it; every roll Atlas logs on the map shows in the log and as a card over the board.
-    const logAnchor = board.diceLogButton({
-      isOpen: () => this.log?.isOpen === true,
-      toggle: () => this.log.toggle(),
-      close: () => this.log.close(),
-    });
-    this.log = new DiceLogPanel(logAnchor ?? container, { toastParent: container, onOpenChange: () => board.refreshToolbar() });
+    // The log opens from inside the dice tray (and Atlas's command palette), anchored above the Dice button.
+    this.log = new DiceLogPanel(anchor ?? container, { toastParent: container, onOpenChange: () => board.refreshToolbar() });
     this.listen();
     // The selected token's sheet, after the log; it follows the selection.
     if (deps.sheetOf) {
@@ -172,6 +175,7 @@ export class BoardDice {
 
   /** Opens or shuts the dice log (Atlas's command palette: Open dice log). */
   setLogOpen(open: boolean): void {
+    if (open) this.picker?.close();
     if ((this.log?.isOpen === true) !== open) this.log?.toggle();
   }
 

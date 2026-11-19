@@ -80,7 +80,7 @@ export function leaner(preset: QualityPreset, mode: MemoryMode): QualityPreset {
 
 export const DEFAULT_SEE_THROUGH_SIZE = 1.2;
 export const MIN_SEE_THROUGH_SIZE = 0.5;
-export const MAX_SEE_THROUGH_SIZE = 4;
+export const MAX_SEE_THROUGH_SIZE = 8;
 
 /** A stored see-through width, kept within what the slider offers. */
 export function readSeeThroughSize(value: unknown): number {
