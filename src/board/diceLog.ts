@@ -85,6 +85,14 @@ export interface DiceLogOptions {
   toastParent?: HTMLElement;
   /** The panel opened or closed (the toolbar's button follows). */
   onOpenChange?(open: boolean): void;
+  /** True when mounted inside a tab of the stat sheet drawer instead of its own dropdown. */
+  embedded?: boolean;
+  /** Tab host controlling open/close when embedded inside the stat sheet drawer. */
+  host?: {
+    isOpen(): boolean;
+    open(): void;
+    close(): void;
+  };
 }
 
 /** A die at its highest face reads as max, at 1 as min (as Atlas's log marks them). */
@@ -117,33 +125,38 @@ export class DiceLogPanel {
       into.appendChild(made);
       return made;
     };
-    this.panel = el('div', 'atlas-dropdown-content atlas-dropdown-content--top atlas-tabletop-dice-log', parent);
-    this.panel.hidden = true;
-    this.panel.setAttribute('role', 'dialog');
-    this.panel.setAttribute('aria-label', 'Dice log');
-    const section = el('div', 'atlas-dropdown-section', this.panel);
-    el('span', 'atlas-dropdown-label', section, 'Dice log');
+    const embedded = options.embedded === true;
+    this.panel = el('div', embedded ? 'atlas-tabletop-dice-log atlas-tabletop-dice-log--embedded' : 'atlas-dropdown-content atlas-dropdown-content--top atlas-tabletop-dice-log', parent);
+    this.panel.hidden = !embedded;
+    if (!embedded) {
+      this.panel.setAttribute('role', 'dialog');
+      this.panel.setAttribute('aria-label', 'Dice log');
+    }
+    const section = embedded ? this.panel : el('div', 'atlas-dropdown-section', this.panel);
+    if (!embedded) el('span', 'atlas-dropdown-label', section, 'Dice log');
     this.empty = el('p', 'atlas-tabletop-dice-log__empty', section, 'No rolls yet');
     this.body = el('ol', 'atlas-tabletop-dice-log__list', section);
     this.body.setAttribute('aria-label', 'Rolls');
-    // Presses and keys here are not the board's: no camera drag, no camera keys; Escape closes it.
-    this.panel.addEventListener('pointerdown', (event) => event.stopPropagation());
-    this.panel.addEventListener('keydown', (event) => { if (event.key === 'Escape') this.close(); event.stopPropagation(); });
-    // Escape closes it from the button that opened it too.
     this.escape = (event) => {
       if (event.key !== 'Escape' || !this.isOpen) return;
       event.preventDefault();
       event.stopPropagation();
       this.close();
     };
-    parent.addEventListener('keydown', this.escape);
+    if (!embedded) {
+      // Presses and keys here are not the board's: no camera drag, no camera keys; Escape closes it.
+      this.panel.addEventListener('pointerdown', (event) => event.stopPropagation());
+      this.panel.addEventListener('keydown', (event) => { if (event.key === 'Escape') this.close(); event.stopPropagation(); });
+      // Escape closes it from the button that opened it too.
+      parent.addEventListener('keydown', this.escape);
+    }
     this.toasts = el('div', 'atlas-tabletop-dice-toasts', options.toastParent ?? parent);
     this.toasts.hidden = true;
     this.toasts.setAttribute('aria-live', 'polite');
   }
 
   get isOpen(): boolean {
-    return !this.panel.hidden;
+    return this.options.host ? this.options.host.isOpen() : !this.panel.hidden;
   }
 
   /** The entries, newest first. */
@@ -170,13 +183,25 @@ export class DiceLogPanel {
   }
 
   open(): void {
-    if (this.isOpen || this.disposed) return;
+    if (this.disposed) return;
+    if (this.options.host) {
+      this.options.host.open();
+      this.options.onOpenChange?.(true);
+      return;
+    }
+    if (this.isOpen) return;
     this.panel.hidden = false;
     this.parent.ownerDocument.addEventListener('pointerdown', this.onOutside, true);
     this.options.onOpenChange?.(true);
   }
 
   close(): void {
+    if (this.options.host) {
+      if (!this.isOpen) return;
+      this.options.host.close();
+      this.options.onOpenChange?.(false);
+      return;
+    }
     if (!this.isOpen) return;
     this.panel.hidden = true;
     this.parent.ownerDocument.removeEventListener('pointerdown', this.onOutside, true);
@@ -187,7 +212,7 @@ export class DiceLogPanel {
     if (this.disposed) return;
     this.close();
     this.disposed = true;
-    this.parent.removeEventListener('keydown', this.escape);
+    if (!this.options.embedded) this.parent.removeEventListener('keydown', this.escape);
     const win = this.parent.ownerDocument.defaultView ?? window;
     for (const timer of this.timers) win.clearTimeout(timer);
     this.timers.clear();

@@ -77,17 +77,17 @@ export class BoardDice {
   constructor(private readonly deps: BoardDiceDeps) {
     const { board, container } = deps;
     const doc = container.ownerDocument;
-    // The button is drawn before the picker exists: until then the picker and log are closed.
+    // The button is drawn before the picker exists: until then the picker is closed.
     const anchor = board.diceButton({
-      isOpen: () => this.picker?.isOpen === true || this.log?.isOpen === true,
+      isOpen: () => this.picker?.isOpen === true || (!this.sheet && this.log?.isOpen === true),
       toggle: () => {
-        if (this.log?.isOpen) { this.log.close(); return; }
+        if (!this.sheet && this.log?.isOpen) { this.log.close(); return; }
         if (this.picker.isOpen) this.picker.close();
         else this.picker.open();
       },
       close: () => {
         this.picker?.close();
-        this.log?.close();
+        if (!this.sheet) this.log?.close();
       },
     });
     this.previews = new DicePreviews(doc, () => this.picker?.refreshPictures());
@@ -108,14 +108,15 @@ export class BoardDice {
         board.refreshToolbar();
       },
     });
-    // The log opens from inside the dice tray (and Atlas's command palette), anchored above the Dice button.
-    this.log = new DiceLogPanel(anchor ?? container, { toastParent: container, onOpenChange: () => board.refreshToolbar() });
-    this.listen();
-    // The selected token's sheet, after the log; it follows the selection.
+    // The selected token's sheet drawer (its button lives in the Visibility bar) also hosts the Dice log tab.
     if (deps.sheetOf) {
       const sheetAnchor = board.sheetButton({
         isOpen: () => this.sheet?.isOpen === true,
-        toggle: () => this.sheet?.toggle(),
+        toggle: () => {
+          if (!this.sheet) return;
+          if (this.sheet.isOpen && this.sheet.activeTab === 'sheet') this.sheet.close();
+          else this.sheet.openTab('sheet');
+        },
         // Other panels closing the end-slot panels leave a pinned sheet where it is.
         close: () => this.sheet?.closeUnlessPinned(),
       });
@@ -128,10 +129,28 @@ export class BoardDice {
             if (open) this.readSheet();
             board.refreshToolbar();
           },
+          onTabChange: (tab) => {
+            if (tab === 'sheet') this.readSheet();
+            board.refreshToolbar();
+          },
         });
         this.stops.push(board.onSelect(() => this.readSheet()));
       }
     }
+    // The dice log lives on the Stat sheet card's second tab (or falls back to a dropdown if the board has no sheet drawer).
+    this.log = this.sheet
+      ? new DiceLogPanel(this.sheet.logSlot, {
+        toastParent: container,
+        embedded: true,
+        host: {
+          isOpen: () => this.sheet?.isOpen === true && this.sheet.activeTab === 'log',
+          open: () => this.sheet?.openTab('log'),
+          close: () => { if (this.sheet?.isOpen && this.sheet.activeTab === 'log') this.sheet.close(); },
+        },
+        onOpenChange: () => board.refreshToolbar(),
+      })
+      : new DiceLogPanel(anchor ?? container, { toastParent: container, onOpenChange: () => board.refreshToolbar() });
+    this.listen();
     // What the roll waits on, as a line over the board, and the throw it asks for (an explosion has no die to click).
     this.prompt = new DicePrompt(container, () => this.controller?.throwPending(GENTLE), () => this.clearTable());
     // A press on a die at rest (Ctrl: every die at rest, bundled): carried under the pointer, and thrown when let go,

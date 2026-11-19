@@ -275,7 +275,9 @@ export class BoardToolbar {
   private readonly viewSep1: HTMLElement;
   private readonly layerGroup: HTMLElement;
   private readonly viewSep2: HTMLElement;
+  private readonly panelGroup: HTMLElement;
   private readonly initiativeButton: HTMLButtonElement;
+  private readonly sheetButton: HTMLButtonElement;
   private readonly seeThroughRing: SeeThroughRing;
   private readonly viewTooltip: AtlasTooltip;
   private sizeMode = false;
@@ -350,7 +352,7 @@ export class BoardToolbar {
   private readonly endSlot: HTMLElement;
   private dice: EndButton | null = null;
   private diceLog: EndButton | null = null;
-  private sheet: EndButton | null = null;
+  private sheetHandlers: DiceButton | null = null;
   /** The cutscenes button and the live toggle, in the end slot after the dice buttons. */
   private cinema: { handlers: CinemaButtons; anchor: HTMLElement; live: HTMLButtonElement } | null = null;
   private readonly onOutside = (event: PointerEvent): void => {
@@ -905,8 +907,9 @@ export class BoardToolbar {
     }
     this.viewSep2 = el('div', 'atlas-tabletop-view-bar__sep', this.viewPanel);
     this.viewSep2.setAttribute('aria-hidden', 'true');
-    // Group 3: initiative tracker toggle.
-    this.initiativeButton = toolIn(this.viewPanel, INITIATIVE_SVG, () => {
+    // Group 3: board side panels (initiative tracker and stat sheet).
+    this.panelGroup = el('div', 'atlas-tool-group', this.viewPanel);
+    this.initiativeButton = toolIn(this.panelGroup, INITIATIVE_SVG, () => {
       this.actions.toggleInitiative();
       this.syncViewBar();
     });
@@ -916,6 +919,19 @@ export class BoardToolbar {
       label: 'Initiative tracker',
       shortcut: 'I',
     }));
+    this.sheetButton = toolIn(this.panelGroup, SHEET_SVG, () => {
+      this.dice?.handlers.close();
+      this.diceLog?.handlers.close();
+      this.sheetHandlers?.toggle();
+      this.refresh();
+    });
+    this.sheetButton.setAttribute('aria-label', 'Stat sheet');
+    this.sheetButton.dataset.visibility = 'sheet';
+    this.viewTooltip.attach(this.sheetButton.parentElement!, () => ({
+      label: 'Stat sheet',
+      subtitle: 'Selected token\'s sheet and dice log',
+    }));
+    this.sheetButton.closest<HTMLElement>('.atlas-tool-button')?.toggleAttribute('hidden', true);
     this.seeThroughRing = new SeeThroughRing(container, {
       circle: () => this.actions.seeThroughCircle?.() ?? null,
       enabled: () => this.actions.seeThrough?.() === true,
@@ -1292,12 +1308,12 @@ export class BoardToolbar {
   }
 
   get isOpen(): boolean {
-    return !this.panel.hidden || !this.viewPanel.hidden || !this.groundPanel.hidden || !this.laserPanel.hidden || !this.lightingPanel.hidden || !this.moreMenu.hidden || this.ends().some((end) => end.handlers.isOpen());
+    return !this.panel.hidden || !this.viewPanel.hidden || !this.groundPanel.hidden || !this.laserPanel.hidden || !this.lightingPanel.hidden || !this.moreMenu.hidden || this.ends().some((end) => end.handlers.isOpen()) || this.sheetHandlers?.isOpen() === true;
   }
 
-  /** The end slot's buttons there now: Dice, its log and the stat sheet. */
+  /** The end slot's buttons there now: Dice (and Dice log if mounted standalone). */
   private ends(): EndButton[] {
-    return [this.dice, this.diceLog, this.sheet].filter((end): end is EndButton => end !== null);
+    return [this.dice, this.diceLog].filter((end): end is EndButton => end !== null);
   }
 
   /**
@@ -1321,13 +1337,19 @@ export class BoardToolbar {
     return this.diceLog.anchor;
   }
 
-  /** Puts the stat sheet's button after the dice log's (or the Dice button's); null takes it away. */
+  /** Wires the Stat sheet button in the Visibility bar; null hides it. */
   setSheet(handlers: DiceButton | null): HTMLElement | null {
-    this.sheet?.anchor.remove();
-    this.sheet = null;
-    if (!handlers) return null;
-    this.sheet = this.endButton('Stat sheet', SHEET_SVG, handlers, 'atlas-tabletop-sheet-menu', () => this.diceLog?.anchor ?? this.dice?.anchor ?? null);
-    return this.sheet.anchor;
+    this.sheetHandlers = handlers;
+    this.sheetButton.closest<HTMLElement>('.atlas-tool-button')?.toggleAttribute('hidden', handlers === null);
+    if (handlers) {
+      const open = handlers.isOpen();
+      this.sheetButton.classList.toggle('is-active', open);
+      this.sheetButton.setAttribute('aria-pressed', String(open));
+    } else {
+      this.sheetButton.classList.remove('is-active');
+      this.sheetButton.setAttribute('aria-pressed', 'false');
+    }
+    return handlers ? this.viewPanel : null;
   }
 
   /**
@@ -1365,7 +1387,7 @@ export class BoardToolbar {
     };
     const live = make('Players follow my camera', LIVE_SVG, () => handlers.toggleLive());
     this.cinema = { handlers, anchor, live };
-    const beside = (this.sheet ?? this.diceLog ?? this.dice)?.anchor ?? null;
+    const beside = (this.diceLog ?? this.dice)?.anchor ?? null;
     if (beside) beside.after(anchor);
     else this.endSlot.prepend(anchor);
     this.refresh();
@@ -1455,6 +1477,7 @@ export class BoardToolbar {
       this.closeTemplate();
       this.closeLighting();
       for (const other of this.ends()) if (other !== made) other.handlers.close();
+      this.sheetHandlers?.close();
       handlers.toggle();
       this.refresh();
     });
@@ -1471,6 +1494,7 @@ export class BoardToolbar {
 
   closeDice(): void {
     for (const end of this.ends()) end.handlers.close();
+    this.sheetHandlers?.close();
   }
 
   /** Shows the laser's options above the toolbar. */
@@ -1716,7 +1740,7 @@ export class BoardToolbar {
     this.closeMeasure();
     this.closeTemplate();
     this.closeMore();
-    this.closeDice();
+    for (const end of this.ends()) end.handlers.close();
     this.viewPanel.hidden = false;
     this.viewButton.classList.add('is-active');
     this.viewButton.setAttribute('aria-expanded', 'true');
@@ -1797,6 +1821,12 @@ export class BoardToolbar {
     const initiativeOpen = this.actions.initiativeOpen();
     this.initiativeButton.classList.toggle('is-active', initiativeOpen);
     this.initiativeButton.setAttribute('aria-pressed', String(initiativeOpen));
+
+    const hasSheet = this.sheetHandlers !== null;
+    this.sheetButton.closest<HTMLElement>('.atlas-tool-button')?.toggleAttribute('hidden', !hasSheet);
+    const sheetOpen = this.sheetHandlers?.isOpen() === true;
+    this.sheetButton.classList.toggle('is-active', sheetOpen);
+    this.sheetButton.setAttribute('aria-pressed', String(sheetOpen));
 
     this.viewSep1.hidden = this.seeThroughGroup.hidden || this.layerGroup.hidden;
     this.viewSep2.hidden = this.seeThroughGroup.hidden && this.layerGroup.hidden;

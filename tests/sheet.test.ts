@@ -354,3 +354,19 @@ test('a card still drawing for the token before never replaces the one shown now
   assert.equal(t.parent.find('atlas-tabletop-sheet__name')[0]!.textContent, 'Second');
   assert.equal(t.cardBox().find('atlas-statblock').length, 1);
 });
+
+test('the Dice log tab hides the sheet body and restores the creature title when switching back', () => {
+  const t = drawer();
+  t.drawer.show(ANNA);
+  t.drawer.openTab('log');
+  assert.equal(t.drawer.isOpen, true);
+  assert.equal(t.drawer.activeTab, 'log');
+  assert.equal(t.parent.find('atlas-tabletop-sheet__name')[0]!.textContent, 'Dice log');
+  assert.equal(t.parent.find('atlas-tabletop-sheet__log')[0]!.hidden, false);
+  assert.equal(t.parent.find('atlas-tabletop-sheet__body')[0]!.hidden, true);
+  t.drawer.setTab('sheet');
+  assert.equal(t.drawer.activeTab, 'sheet');
+  assert.equal(t.parent.find('atlas-tabletop-sheet__name')[0]!.textContent, 'Anna');
+  assert.equal(t.parent.find('atlas-tabletop-sheet__log')[0]!.hidden, true);
+  assert.equal(t.parent.find('atlas-tabletop-sheet__body')[0]!.hidden, false);
+});

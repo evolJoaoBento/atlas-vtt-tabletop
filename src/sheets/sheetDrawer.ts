@@ -13,10 +13,13 @@ import {
   type AdvantageSide, type PlayerSheet, type SheetBonus, type SheetRollRef,
 } from '../../packages/atlas-host/src/sheets/sheets';
 
+export type SheetTab = 'sheet' | 'log';
+
 export interface SheetDrawerOptions {
   /** A roll on the sheet: its formula, what the log calls it and the side it is rolled with, if any. */
   onRoll(formula: string, label: string, advantage?: AdvantageSide): void;
   onOpenChange?(open: boolean): void;
+  onTabChange?(tab: SheetTab): void;
   /** The drawer starts pinned; and it is told when the pin is changed by hand, to keep it. */
   pinned?: boolean;
   onPinChange?(pinned: boolean): void;
@@ -33,14 +36,20 @@ const PIN_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 export class SheetDrawer {
   /** Pinned, the drawer stays open when another panel opens (and lies under it); unpinned, it closes then. */
   private pinned = false;
+  private tab: SheetTab = 'sheet';
+  private sheetTitle = 'Stat sheet';
   private readonly pinButton: HTMLButtonElement;
   private readonly root: HTMLElement;
   private readonly title: HTMLElement;
+  private readonly tabButtons = new Map<SheetTab, HTMLButtonElement>();
   private readonly noticeLine: HTMLElement;
   private readonly body: HTMLElement;
   /** Atlas's own card of the stat block, drawn here when this Atlas has one; the text sheet shows when it has not. */
   private readonly cardBox: HTMLElement;
+  /** Tab panel hosting the embedded dice log. */
+  readonly logSlot: HTMLElement;
   private card: { host: CardHost; stop: () => void } | null = null;
+  private cardDrawing = false;
   private drawing = 0;
   private sheet: PlayerSheet | null = null;
   private disposed = false;
@@ -48,6 +57,7 @@ export class SheetDrawer {
   constructor(private readonly parent: HTMLElement, private readonly options: SheetDrawerOptions) {
     this.root = this.el('div', 'atlas-tabletop-sheet', parent);
     this.root.hidden = true;
+    this.root.tabIndex = -1;
     this.root.setAttribute('role', 'dialog');
     this.root.setAttribute('aria-label', 'Stat sheet');
     const head = this.el('div', 'atlas-tabletop-sheet__head', this.root);
@@ -67,12 +77,28 @@ export class SheetDrawer {
     // A fixed icon of this file's, never note text.
     setSvg(close, CLOSE_SVG);
     close.addEventListener('click', () => this.close());
+
+    const tabs = this.el('div', 'atlas-segmented atlas-segmented--fit atlas-tabletop-sheet__tabs', this.root);
+    tabs.setAttribute('role', 'tablist');
+    tabs.setAttribute('aria-label', 'Stat sheet and dice log');
+    for (const [id, label] of [['sheet', 'Stat sheet'], ['log', 'Dice log']] as const) {
+      const btn = this.el('button', 'btn btn--ghost btn--sm atlas-segmented__option atlas-tabletop-sheet__tab', tabs, label);
+      btn.type = 'button';
+      btn.setAttribute('data-tab', id);
+      btn.setAttribute('role', 'tab');
+      btn.addEventListener('click', () => this.setTab(id));
+      this.tabButtons.set(id, btn);
+    }
+
     this.noticeLine = this.el('p', 'atlas-tabletop-sheet__notice', this.root);
     this.noticeLine.setAttribute('role', 'status');
     this.noticeLine.hidden = true;
     this.body = this.el('div', 'atlas-tabletop-sheet__body', this.root);
     this.cardBox = this.el('div', 'atlas-tabletop-sheet__card', this.root);
     this.cardBox.hidden = true;
+    this.logSlot = this.el('div', 'atlas-tabletop-sheet__log', this.root);
+    this.logSlot.setAttribute('role', 'tabpanel');
+    this.logSlot.hidden = true;
     // The board under the drawer must not take its presses, wheel or keys; Escape closes it.
     for (const type of ['pointerdown', 'pointerup', 'wheel', 'contextmenu', 'dblclick']) {
       this.root.addEventListener(type, (event) => event.stopPropagation());
@@ -81,6 +107,7 @@ export class SheetDrawer {
       event.stopPropagation();
       if (event.key === 'Escape') this.close();
     });
+    this.applyTab();
     this.show(null);
   }
 
@@ -90,6 +117,40 @@ export class SheetDrawer {
 
   get isPinned(): boolean {
     return this.pinned;
+  }
+
+  get activeTab(): SheetTab {
+    return this.tab;
+  }
+
+  /** Switches between the Stat sheet tab and the Dice log tab. */
+  setTab(tab: SheetTab): void {
+    if (this.tab === tab) return;
+    this.tab = tab;
+    this.applyTab();
+    this.options.onTabChange?.(tab);
+  }
+
+  /** Opens the drawer directly on `tab`. */
+  openTab(tab: SheetTab): void {
+    this.setTab(tab);
+    if (this.isOpen) this.root.focus({ preventScroll: true });
+    else this.open();
+  }
+
+  private applyTab(): void {
+    for (const [id, btn] of this.tabButtons) {
+      const active = id === this.tab;
+      btn.classList.toggle('atlas-active', active);
+      btn.setAttribute('aria-selected', String(active));
+    }
+    this.title.textContent = this.tab === 'log' ? 'Dice log' : this.sheetTitle;
+    const onSheet = this.tab === 'sheet';
+    this.logSlot.hidden = onSheet;
+    this.noticeLine.hidden = !onSheet || !this.noticeLine.textContent;
+    const hasCard = this.card !== null || this.cardDrawing;
+    this.cardBox.hidden = !onSheet || !hasCard;
+    this.body.hidden = !onSheet || this.card !== null;
   }
 
   /** Pins the drawer (it stays while other panels open, under them) or lets it go (they close it). */
@@ -116,9 +177,10 @@ export class SheetDrawer {
     this.dropCard();
     this.sheet = sheet;
     this.notice(null);
-    this.title.textContent = sheet?.name ?? card?.name ?? 'Stat sheet';
+    this.sheetTitle = sheet?.name ?? card?.name ?? 'Stat sheet';
+    if (this.tab === 'sheet') this.title.textContent = this.sheetTitle;
     this.cardBox.hidden = true;
-    this.body.hidden = false;
+    this.body.hidden = this.tab !== 'sheet';
     if (!card) {
       this.body.replaceChildren(...this.text(sheet));
       return;
@@ -128,13 +190,16 @@ export class SheetDrawer {
     // Drawn in place but unseen (Atlas picks the card's columns from the width it has), on a stage of its own, so a card
     // still drawing for the token before never lands in this one's place.
     const stage = this.el('div', 'atlas-tabletop-sheet__stage', this.cardBox);
+    this.cardDrawing = true;
     this.cardBox.className = 'atlas-tabletop-sheet__card is-drawing';
-    this.cardBox.hidden = false;
+    this.cardBox.hidden = this.tab !== 'sheet';
     void drawCard(card, stage, this.options.settle).catch(() => false).then((drawn) => {
       // Another token was shown, or the drawer went, meanwhile.
       if (drawing !== this.drawing || this.disposed) { card.dispose(); return; }
+      this.cardDrawing = false;
       if (!drawn) {
         card.dispose();
+        this.cardBox.className = 'atlas-tabletop-sheet__card';
         this.cardBox.hidden = true;
         this.cardBox.replaceChildren();
         this.body.replaceChildren(...this.text(sheet));
@@ -142,6 +207,7 @@ export class SheetDrawer {
       }
       this.cardBox.className = 'atlas-tabletop-sheet__card';
       this.card = { host: card, stop: routeCardRolls(this.cardBox, (formula, label, side) => this.cardRoll(formula, label, side)) };
+      this.cardBox.hidden = this.tab !== 'sheet';
       this.body.hidden = true;
     });
   }
@@ -154,9 +220,11 @@ export class SheetDrawer {
   /** Lets go of the card drawn now and any still being drawn. */
   private dropCard(): void {
     this.drawing += 1;
+    this.cardDrawing = false;
     this.card?.stop();
     this.card?.host.dispose();
     this.card = null;
+    this.cardBox.className = 'atlas-tabletop-sheet__card';
     this.cardBox.replaceChildren();
     this.cardBox.hidden = true;
   }
@@ -174,7 +242,7 @@ export class SheetDrawer {
   /** A short line under the sheet's name; null takes it away. */
   notice(text: string | null): void {
     this.noticeLine.textContent = text ?? '';
-    this.noticeLine.hidden = text === null;
+    this.noticeLine.hidden = text === null || this.tab !== 'sheet';
   }
 
   toggle(): void {
@@ -185,6 +253,8 @@ export class SheetDrawer {
   open(): void {
     if (this.isOpen || this.disposed) return;
     this.root.hidden = false;
+    this.applyTab();
+    this.root.focus({ preventScroll: true });
     this.options.onOpenChange?.(true);
   }
 

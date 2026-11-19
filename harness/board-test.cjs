@@ -1783,16 +1783,24 @@ server.listen(0, async () => {
     // ability clicked is thrown with the board's dice and logged as the hero's; a roll the dice cannot throw rolls nothing.
     {
       await page.evaluate(() => window.boardTest.boardDice.picker.close());
-      const sheetButton = page.locator('.atlas-tabletop-extensions button[aria-label="Stat sheet"]');
-      check('the toolbar has a Stat sheet button after the Dice button', await sheetButton.count() === 1 && await page.evaluate(() => document.querySelector('.atlas-tabletop-dice-menu').nextElementSibling === document.querySelector('.atlas-tabletop-sheet-menu')));
+      const openView = async () => {
+        if (await page.locator('.atlas-tabletop-view-bar').isHidden()) {
+          await page.locator('button[aria-label="Visibility"]').click();
+          await wait(100);
+        }
+      };
+      const sheetButton = page.locator('.atlas-tabletop-view-bar button[aria-label="Stat sheet"]');
+      check('the Visibility bar has a Stat sheet button (none standalone on the main toolbar)', await sheetButton.count() === 1 && await page.locator('.atlas-tabletop-sheet-menu').count() === 0);
       const drawer = page.locator('.atlas-tabletop-sheet');
       await page.evaluate(() => window.boardTest.board.select(null));
+      await openView();
       await sheetButton.click();
       await wait(200);
       check('with no token selected the drawer says to select one', await drawer.isVisible() && (await drawer.textContent()).includes('Select a token with a stat block'));
       await page.evaluate(() => window.boardTest.board.select('hero'));
       await wait(300);
-      const shown = await page.evaluate(() => ({ text: document.querySelector('.atlas-tabletop-sheet').textContent, imgs: document.querySelectorAll('.atlas-tabletop-sheet img').length, xss: window.sheetXss ?? null, active: document.querySelector('.atlas-tabletop-extensions button[aria-label="Stat sheet"]').classList.contains('is-active') }));
+      await openView();
+      const shown = await page.evaluate(() => ({ text: document.querySelector('.atlas-tabletop-sheet').textContent, imgs: document.querySelectorAll('.atlas-tabletop-sheet img').length, xss: window.sheetXss ?? null, active: document.querySelector('.atlas-tabletop-view-bar button[aria-label="Stat sheet"]').classList.contains('is-active') }));
       check('selecting the hero shows its sheet, its note text as text', shown.text.includes('Hero') && shown.text.includes('Longsword') && shown.text.includes('STR') && shown.text.includes('<img') && shown.imgs === 0 && shown.xss === null && shown.active, shown);
       await page.screenshot({ path: `${shots}/board-26b1-sheet-drawer.png` });
       // A roll the dice cannot throw (a subtracted die): a notice, nothing thrown, nothing logged.
@@ -1837,6 +1845,7 @@ server.listen(0, async () => {
       await page.locator('.atlas-tabletop-extensions button[aria-label="Dice"]').click();
       await wait(150);
       check('opening Dice shuts the drawer', !(await drawer.isVisible()) && await page.locator('.atlas-tabletop-dice-picker').isVisible());
+      await openView();
       await sheetButton.click();
       await wait(250);
       check('opening the drawer shuts the picker', await drawer.isVisible() && !(await page.locator('.atlas-tabletop-dice-picker').isVisible()));
@@ -1844,6 +1853,7 @@ server.listen(0, async () => {
       await wait(300);
       check('a token without a stat block empties the drawer', (await drawer.textContent()).includes('Select a token with a stat block') && await drawer.locator('.atlas-tabletop-sheet__roll').count() === 0);
       await page.evaluate(() => window.boardTest.board.select(null));
+      await openView();
       await sheetButton.click();
       await wait(150);
       check('the button closes the drawer', !(await drawer.isVisible()));
@@ -1878,9 +1888,7 @@ server.listen(0, async () => {
       await page.screenshot({ path: `${shots}/board-27b-dice-log.png` });
       await diceButton.click();
       await wait(200);
-      check('clicking Dice while the log is open shuts the log', !(await log.isVisible()));
-      await diceButton.click();
-      await wait(150);
+      check('clicking Dice while the log is open shuts the log and opens the picker', !(await log.isVisible()) && await page.locator('.atlas-tabletop-dice-picker').isVisible());
       await logButton.click();
       await wait(200);
       check('opening the log from the tray shuts the picker', await log.isVisible() && !(await page.locator('.atlas-tabletop-dice-picker').isVisible()));

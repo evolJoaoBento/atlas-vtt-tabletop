@@ -516,7 +516,7 @@ feature('narrow toolbar', async ({ page, shot }) => {
   await paneWidth(1000);
   await wait(300);
   const wide = await bar();
-  check('36 wide pane: every button is on the bar', wide.buttons.includes('Dice') && wide.buttons.includes('Stat sheet') && !wide.buttons.includes('More tools'), JSON.stringify(wide.buttons));
+  check('36 wide pane: every button is on the bar', wide.buttons.includes('Dice') && wide.buttons.includes('Visibility') && !wide.buttons.includes('More tools'), JSON.stringify(wide.buttons));
   await paneWidth(330);
   await wait(600);
   const narrow = await bar();
@@ -865,7 +865,11 @@ feature('set-aside dice', async ({ page, shot }) => {
 // ── Sheet rolls: laid for a manual throw, or thrown at once (the tick in Board settings) ───────────────────────────
 feature('auto roll', async ({ page, shot }) => {
   const settings = page.locator('button[aria-label="Board settings"]').first();
-  const sheetButton = page.locator('button[aria-label="Stat sheet"]');
+  const openSheet = async () => {
+    await page.locator('button[aria-label="Visibility"]').click();
+    await wait(100);
+    await page.locator('.atlas-tabletop-view-bar button[aria-label="Stat sheet"]').click();
+  };
   const drawer = page.locator('.atlas-tabletop-sheet');
   const state = () => page.evaluate(() => ({ dice: window.boardTest.board.dice.object3d.children.length, busy: window.boardTest.board.dice.busy }));
   const clear = () => page.evaluate(() => window.boardTest.boardDice.clearTable?.());
@@ -875,7 +879,7 @@ feature('auto roll', async ({ page, shot }) => {
   await shot('auto-roll-setting');
   await settings.click();
   await page.evaluate(() => window.boardTest.board.select('hero'));
-  await sheetButton.click();
+  await openSheet();
   await wait(400);
   const attack = page.locator('.atlas-tabletop-sheet__roll', { hasText: 'Attack: +5' });
   await attack.click();
@@ -908,7 +912,7 @@ feature('auto roll', async ({ page, shot }) => {
   await shot('auto-roll-ticked');
   await settings.click();
   await page.evaluate(() => document.querySelectorAll('.atlas-statblock-preview-window').forEach((node) => node.remove()));
-  await sheetButton.click();
+  await openSheet();
   await wait(300);
   await attack.click();
   await wait(150);
@@ -942,7 +946,9 @@ feature('sheet pin', async ({ page, shot }) => {
   const settings = page.locator('button[aria-label="Board settings"]').first();
   const drawer = page.locator('.atlas-tabletop-sheet');
   await page.evaluate(() => window.boardTest.board.select('hero'));
-  await page.locator('button[aria-label="Stat sheet"]').click();
+  await page.locator('button[aria-label="Visibility"]').click();
+  await wait(100);
+  await page.locator('.atlas-tabletop-view-bar button[aria-label="Stat sheet"]').click();
   await wait(400);
   const pin = drawer.locator('.atlas-tabletop-sheet__pin');
   check('pin: the drawer has a Pin button, not pinned', (await pin.count()) === 1 && (await pin.getAttribute('aria-pressed')) === 'false' && (await pin.getAttribute('aria-label')) === 'Pin');
@@ -976,7 +982,9 @@ feature('pin kept across reloads', async ({ page, shot }) => {
   const drawer = page.locator('.atlas-tabletop-sheet');
   const open = async () => {
     await page.evaluate(() => window.boardTest.board.select('hero'));
-    await page.locator('button[aria-label="Stat sheet"]').click();
+    await page.locator('button[aria-label="Visibility"]').click();
+    await wait(100);
+    await page.locator('.atlas-tabletop-view-bar button[aria-label="Stat sheet"]').click();
     await wait(400);
   };
   await open();
@@ -6559,7 +6567,7 @@ feature('visibility bar', async ({ page, shot }) => {
       noObsidianTip: bar ? getComputedStyle(bar).getPropertyValue('--no-tooltip').trim() === 'true' : false,
     };
   });
-  check('visibility bar: opens as a horizontal icon-only bar above the main toolbar with no old panel labels', barInfo.shown && barInfo.role === 'toolbar' && barInfo.aria === 'Visibility' && barInfo.horizontal && barInfo.aboveMain && !barInfo.oldText && barInfo.count === 6 && barInfo.seps === 2 && barInfo.allNoText && barInfo.allAriaNoNativeTitle && barInfo.noObsidianTip, JSON.stringify(barInfo));
+  check('visibility bar: opens as a horizontal icon-only bar above the main toolbar with no old panel labels', barInfo.shown && barInfo.role === 'toolbar' && barInfo.aria === 'Visibility' && barInfo.horizontal && barInfo.aboveMain && !barInfo.oldText && barInfo.count === 7 && barInfo.seps === 2 && barInfo.allNoText && barInfo.allAriaNoNativeTitle && barInfo.noObsidianTip, JSON.stringify(barInfo));
   await shot('visibility-bar');
 
   // 1b. Hovering buttons shows Atlas-styled tooltip above the bar (label, subtitle, shortcut keycap).
@@ -6788,9 +6796,19 @@ feature('visibility bar', async ({ page, shot }) => {
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
 
-  // 7. Dice log button lives inside the dice tray (not standalone on the toolbar) and opens the log cleanly.
+  // 7. Stat sheet button lives in the Visibility bar, and Dice log opens on a tab inside the Stat sheet card.
   await page.evaluate(() => { document.body.classList.remove('theme-light'); });
   const toolbarLogCount = await page.locator('.atlas-tabletop-toolbar > .atlas-tabletop-extensions > .atlas-tabletop-dice-log-menu').count();
+  const toolbarSheetCount = await page.locator('.atlas-tabletop-toolbar > .atlas-tabletop-extensions > .atlas-tabletop-sheet-menu').count();
+  await page.click('button[aria-label="Visibility"]');
+  await wait(150);
+  await page.click('.atlas-tabletop-view-bar [data-visibility="sheet"]');
+  await wait(200);
+  const sheetOpened = await page.evaluate(() => ({
+    open: !document.querySelector('.atlas-tabletop-sheet')?.hidden,
+    tab: document.querySelector('.atlas-tabletop-sheet__tab.atlas-active')?.dataset.tab,
+    btnActive: document.querySelector('.atlas-tabletop-view-bar [data-visibility="sheet"]')?.classList.contains('is-active'),
+  }));
   await page.click('.atlas-tabletop-extensions button[aria-label="Dice"]');
   await wait(250);
   const trayLogBtn = page.locator('.atlas-tabletop-dice-picker button[aria-label="Dice log"]');
@@ -6798,9 +6816,14 @@ feature('visibility bar', async ({ page, shot }) => {
   await shot('dice-tray-log');
   await trayLogBtn.click();
   await wait(200);
-  const logOpened = await page.locator('.atlas-tabletop-dice-log').isVisible();
-  const trayClosed = !(await page.locator('.atlas-tabletop-dice-picker').isVisible());
-  check('dice tray: Dice log button sits inside the dice tray (not on the toolbar) and switches to the log', toolbarLogCount === 0 && trayHasLog && logOpened && trayClosed, JSON.stringify({ toolbarLogCount, trayHasLog, logOpened, trayClosed }));
+  const logTabState = await page.evaluate(() => ({
+    sheetOpen: !document.querySelector('.atlas-tabletop-sheet')?.hidden,
+    tab: document.querySelector('.atlas-tabletop-sheet__tab.atlas-active')?.dataset.tab,
+    logVisible: document.querySelector('.atlas-tabletop-sheet .atlas-tabletop-dice-log')?.offsetParent !== null,
+    trayClosed: document.querySelector('.atlas-tabletop-dice-picker')?.hidden === true,
+  }));
+  await shot('sheet-dice-log-tab');
+  check('dice tray & visibility bar: Stat sheet is in Visibility bar and Dice log opens on a tab of the Stat sheet card', toolbarLogCount === 0 && toolbarSheetCount === 0 && sheetOpened.open && sheetOpened.tab === 'sheet' && sheetOpened.btnActive && trayHasLog && logTabState.sheetOpen && logTabState.tab === 'log' && logTabState.logVisible && logTabState.trayClosed, JSON.stringify({ toolbarLogCount, toolbarSheetCount, sheetOpened, trayHasLog, logTabState }));
   await page.keyboard.press('Escape');
 });
 

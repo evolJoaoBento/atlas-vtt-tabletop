@@ -1825,6 +1825,8 @@ body.atlas-tabletop-player-window .view-header {
 
 /* The GM's dice log, opened from the Log button beside Dice: Atlas's dropdown above the button, the rolls newest first. */
 .atlas-tabletop-atlas .atlas-tabletop-dice-log { right: -8px; width: 320px; cursor: default; }
+.atlas-tabletop-dice-log--embedded { display: flex; flex-direction: column; flex: 1; min-height: 0; width: 100%; }
+.atlas-tabletop-dice-log--embedded .atlas-tabletop-dice-log__list { max-height: none; overflow-y: visible; }
 .atlas-tabletop-dice-log__list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow-y: auto; }
 .atlas-tabletop-dice-log__empty { margin: 0; padding: 16px 4px; text-align: center; color: var(--text-muted); font-size: var(--font-ui-small); }
 .atlas-tabletop-dice-log__empty[hidden] { display: none; }
@@ -1889,6 +1891,36 @@ body.atlas-tabletop-player-window .view-header {
 .atlas-tabletop-sheet__head { display: flex; align-items: center; gap: 8px; padding: 10px 10px 6px 14px; }
 .atlas-tabletop-sheet__name { flex: 1; min-width: 0; margin: 0; font-size: var(--font-ui-large); overflow-wrap: anywhere; }
 .atlas-tabletop-sheet__close svg { width: 16px; height: 16px; }
+.atlas-tabletop-sheet__tabs {
+  display: flex;
+  gap: 2px;
+  margin: 0 12px 8px;
+  padding: 2px;
+  flex-shrink: 0;
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+}
+.atlas-tabletop-sheet__tab {
+  flex: 1;
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: calc(var(--radius-m) - 2px);
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-medium, 500);
+  cursor: pointer;
+}
+.atlas-tabletop-sheet__tab:hover { color: var(--text-normal); }
+.atlas-tabletop-sheet__tab.atlas-active {
+  background: var(--background-primary);
+  color: var(--text-normal);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+}
+.atlas-tabletop-sheet__log { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; padding: 0 14px 14px; }
+.atlas-tabletop-sheet__log[hidden] { display: none; }
 .atlas-tabletop-sheet__notice { margin: 0 14px 6px; padding: 6px 8px; border-radius: var(--radius-s); background: color-mix(in oklch, var(--text-error) 14%, transparent); color: var(--text-error); }
 .atlas-tabletop-sheet__notice[hidden] { display: none; }
 .atlas-tabletop-sheet__body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 14px 14px; user-select: text; }
