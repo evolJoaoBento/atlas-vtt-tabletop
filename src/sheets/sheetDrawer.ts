@@ -33,6 +33,12 @@ const CLOSE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 /** Lucide's `pin` (ISC): the drawer's pin button. */
 const PIN_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>';
 
+/** Lucide's `notebook-text` (ISC): the Stat sheet tab icon. */
+const SHEET_TAB_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h4"/><path d="M2 10h4"/><path d="M2 14h4"/><path d="M2 18h4"/><rect width="16" height="20" x="4" y="2" rx="2"/><path d="M9.5 8h5"/><path d="M9.5 12H16"/><path d="M9.5 16H14"/></svg>';
+
+/** Lucide's `dices` (ISC): the Dice log tab icon (matching Atlas's DiceRollLog). */
+const LOG_TAB_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="12" height="12" x="2" y="10" rx="2" ry="2"/><path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3l-5-4.92a2.24 2.24 0 0 0-3 0L10 6"/><path d="M6 18h.01"/><path d="M10 14h.01"/><path d="M15 6h.01"/><path d="M18 9h.01"/></svg>';
+
 export class SheetDrawer {
   /** Pinned, the drawer stays open when another panel opens (and lies under it); unpinned, it closes then. */
   private pinned = false;
@@ -61,8 +67,27 @@ export class SheetDrawer {
     this.root.setAttribute('role', 'dialog');
     this.root.setAttribute('aria-label', 'Stat sheet');
     const head = this.el('div', 'atlas-tabletop-sheet__head', this.root);
-    this.title = this.el('h3', 'atlas-tabletop-sheet__name', head, 'Stat sheet');
-    this.pinButton = this.el('button', 'clickable-icon atlas-tabletop-sheet__pin', head);
+    const tabs = this.el('div', 'atlas-tabletop-sheet__tabs', head);
+    tabs.setAttribute('role', 'tablist');
+    tabs.setAttribute('aria-label', 'Stat sheet and dice log');
+    for (const [id, label, icon] of [
+      ['sheet', 'Stat sheet', SHEET_TAB_SVG],
+      ['log', 'Dice log', LOG_TAB_SVG],
+    ] as const) {
+      const btn = this.el('button', 'atlas-tabletop-sheet__tab', tabs);
+      btn.type = 'button';
+      btn.setAttribute('data-tab', id);
+      btn.setAttribute('role', 'tab');
+      const iconEl = this.el('span', 'atlas-tabletop-sheet__tab-icon', btn);
+      iconEl.setAttribute('aria-hidden', 'true');
+      setSvg(iconEl, icon);
+      this.el('span', 'atlas-tabletop-sheet__tab-label', btn, label);
+      btn.addEventListener('click', () => this.setTab(id));
+      this.tabButtons.set(id, btn);
+    }
+
+    const actions = this.el('div', 'atlas-tabletop-sheet__actions', head);
+    this.pinButton = this.el('button', 'clickable-icon atlas-tabletop-sheet__pin', actions);
     this.pinButton.type = 'button';
     setSvg(this.pinButton, PIN_SVG);
     this.pinButton.addEventListener('click', () => {
@@ -70,7 +95,7 @@ export class SheetDrawer {
       this.options.onPinChange?.(this.pinned);
     });
     this.setPinned(options.pinned === true);
-    const close = this.el('button', 'clickable-icon atlas-tabletop-sheet__close', head);
+    const close = this.el('button', 'clickable-icon atlas-tabletop-sheet__close', actions);
     close.type = 'button';
     close.setAttribute('aria-label', 'Close');
     close.title = 'Close';
@@ -78,18 +103,7 @@ export class SheetDrawer {
     setSvg(close, CLOSE_SVG);
     close.addEventListener('click', () => this.close());
 
-    const tabs = this.el('div', 'atlas-segmented atlas-segmented--fit atlas-tabletop-sheet__tabs', this.root);
-    tabs.setAttribute('role', 'tablist');
-    tabs.setAttribute('aria-label', 'Stat sheet and dice log');
-    for (const [id, label] of [['sheet', 'Stat sheet'], ['log', 'Dice log']] as const) {
-      const btn = this.el('button', 'btn btn--ghost btn--sm atlas-segmented__option atlas-tabletop-sheet__tab', tabs, label);
-      btn.type = 'button';
-      btn.setAttribute('data-tab', id);
-      btn.setAttribute('role', 'tab');
-      btn.addEventListener('click', () => this.setTab(id));
-      this.tabButtons.set(id, btn);
-    }
-
+    this.title = this.el('h3', 'atlas-tabletop-sheet__name', this.root, 'Stat sheet');
     this.noticeLine = this.el('p', 'atlas-tabletop-sheet__notice', this.root);
     this.noticeLine.setAttribute('role', 'status');
     this.noticeLine.hidden = true;
@@ -138,14 +152,20 @@ export class SheetDrawer {
     else this.open();
   }
 
+  private hasSheet(): boolean {
+    return this.sheet !== null || this.card !== null || this.cardDrawing;
+  }
+
   private applyTab(): void {
     for (const [id, btn] of this.tabButtons) {
       const active = id === this.tab;
       btn.classList.toggle('atlas-active', active);
       btn.setAttribute('aria-selected', String(active));
     }
-    this.title.textContent = this.tab === 'log' ? 'Dice log' : this.sheetTitle;
     const onSheet = this.tab === 'sheet';
+    this.root.setAttribute('aria-label', onSheet ? 'Stat sheet' : 'Dice log');
+    this.title.textContent = this.sheetTitle;
+    this.title.hidden = !onSheet || !this.hasSheet();
     this.logSlot.hidden = onSheet;
     this.noticeLine.hidden = !onSheet || !this.noticeLine.textContent;
     const hasCard = this.card !== null || this.cardDrawing;
@@ -178,11 +198,9 @@ export class SheetDrawer {
     this.sheet = sheet;
     this.notice(null);
     this.sheetTitle = sheet?.name ?? card?.name ?? 'Stat sheet';
-    if (this.tab === 'sheet') this.title.textContent = this.sheetTitle;
-    this.cardBox.hidden = true;
-    this.body.hidden = this.tab !== 'sheet';
     if (!card) {
       this.body.replaceChildren(...this.text(sheet));
+      this.applyTab();
       return;
     }
     const drawing = ++this.drawing;
@@ -192,7 +210,7 @@ export class SheetDrawer {
     const stage = this.el('div', 'atlas-tabletop-sheet__stage', this.cardBox);
     this.cardDrawing = true;
     this.cardBox.className = 'atlas-tabletop-sheet__card is-drawing';
-    this.cardBox.hidden = this.tab !== 'sheet';
+    this.applyTab();
     void drawCard(card, stage, this.options.settle).catch(() => false).then((drawn) => {
       // Another token was shown, or the drawer went, meanwhile.
       if (drawing !== this.drawing || this.disposed) { card.dispose(); return; }
@@ -200,15 +218,14 @@ export class SheetDrawer {
       if (!drawn) {
         card.dispose();
         this.cardBox.className = 'atlas-tabletop-sheet__card';
-        this.cardBox.hidden = true;
         this.cardBox.replaceChildren();
         this.body.replaceChildren(...this.text(sheet));
+        this.applyTab();
         return;
       }
       this.cardBox.className = 'atlas-tabletop-sheet__card';
       this.card = { host: card, stop: routeCardRolls(this.cardBox, (formula, label, side) => this.cardRoll(formula, label, side)) };
-      this.cardBox.hidden = this.tab !== 'sheet';
-      this.body.hidden = true;
+      this.applyTab();
     });
   }
 
