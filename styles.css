@@ -373,6 +373,136 @@
   padding: 8px;
 }
 
+/* The Visibility icon bar, above the main toolbar, in Atlas's own toolbar look. */
+.atlas-tabletop-view-bar {
+  order: 1;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.atlas-tabletop-atlas .atlas-vtt-toolbar.atlas-tabletop-view-bar[hidden],
+.atlas-tabletop-atlas .atlas-tabletop-view-bar .atlas-tool-group[hidden],
+.atlas-tabletop-view-bar__sep[hidden] {
+  display: none;
+}
+
+.atlas-tabletop-view-bar__sep {
+  width: 1px;
+  height: 24px;
+  background: var(--divider-color, var(--background-modifier-border));
+  flex-shrink: 0;
+}
+
+.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-tabletop-view-bar .atlas-tool-group > .atlas-tool-button:nth-child(1 of :not([hidden])) button.btn {
+  border-top-left-radius: var(--atlas-bar-start-radius, var(--radius-m));
+  border-bottom-left-radius: var(--atlas-bar-start-radius, var(--radius-m));
+}
+
+.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-tabletop-view-bar .atlas-tool-group > .atlas-tool-button:nth-last-child(1 of :not([hidden])) button.btn {
+  border-top-right-radius: var(--atlas-bar-end-radius, var(--radius-m));
+  border-bottom-right-radius: var(--atlas-bar-end-radius, var(--radius-m));
+}
+
+.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-tabletop-view-bar .atlas-tabletop-tool-button:disabled,
+.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-tabletop-view-bar .atlas-tabletop-tool-button:disabled:hover {
+  opacity: 0.35;
+  cursor: default;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+/* On-board resize ring for the see-through walls window, over the canvas and under the toolbar. */
+.atlas-tabletop-seethrough-ring {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.atlas-tabletop-seethrough-ring[hidden] {
+  display: none;
+}
+
+.atlas-tabletop-seethrough-ring__svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.atlas-tabletop-seethrough-ring__circle {
+  fill: color-mix(in oklch, var(--interactive-accent) 12%, transparent);
+  stroke: var(--interactive-accent);
+  stroke-width: 2;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.atlas-tabletop-seethrough-ring.is-dimmed .atlas-tabletop-seethrough-ring__circle {
+  stroke-dasharray: 6 5;
+  opacity: 0.65;
+}
+
+.atlas-tabletop-seethrough-ring__hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 18;
+  pointer-events: stroke;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.atlas-tabletop-seethrough-ring__handle {
+  fill: var(--background-primary);
+  stroke: var(--interactive-accent);
+  stroke-width: 2;
+  pointer-events: all;
+  cursor: ew-resize;
+  touch-action: none;
+  transition: stroke-width 0.12s ease;
+}
+
+.atlas-tabletop-seethrough-ring.is-dimmed .atlas-tabletop-seethrough-ring__handle {
+  opacity: 0.75;
+}
+
+.atlas-tabletop-seethrough-ring.is-dragging .atlas-tabletop-seethrough-ring__handle {
+  stroke-width: 3;
+}
+
+.atlas-tabletop-seethrough-ring__readout {
+  position: absolute;
+  transform: translateY(-50%);
+  padding: 3px 8px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  border: 1.5px solid color-mix(in oklch, var(--mono-100, var(--text-normal)) 18%, transparent);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-s, var(--shadow-l));
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+
+.atlas-tabletop-seethrough-ring__readout.is-left {
+  transform: translate(-100%, -50%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .atlas-tabletop-atlas .atlas-vtt-toolbar.atlas-tabletop-view-bar button.btn,
+  .atlas-tabletop-seethrough-ring__circle,
+  .atlas-tabletop-seethrough-ring__handle {
+    transition: none;
+  }
+  .atlas-tabletop-atlas .atlas-vtt-toolbar.atlas-tabletop-view-bar button.btn:active {
+    transform: none;
+  }
+}
+
 
 
 

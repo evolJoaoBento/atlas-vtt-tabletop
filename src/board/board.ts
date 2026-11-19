@@ -91,6 +91,7 @@ import { materialWith, type MaterialDefaults } from '../materialDefaults';
 import { aboutElement, rulesWords } from './spellPicker';
 import { difficultGround } from './spellView';
 import { BoardToolbar, type AtlasToolButton, type CinemaButtons, type DiceButton, type ToolbarActions, UNPAINT } from './toolbar';
+import type { SeeThroughCircle } from './seeThroughRing';
 import { pinTitle } from './pinIcons';
 import { insideFog, pinsShown, playerSees } from './playerView';
 import { instanceBadgeNumbers } from './levels';
@@ -961,6 +962,7 @@ export class Board {
       wallEdges: () => this.quality.edges,
       seeThrough: () => this.quality.seeThrough,
       seeThroughSize: () => this.quality.seeThroughSize,
+      seeThroughCircle: () => this.seeThroughCircle(),
       ...(this.host.setSeeThroughSize && { setSeeThroughSize: (squares: number) => this.host.setSeeThroughSize?.(squares) }),
       layerLook: () => this.quality.layerLook,
       ...(this.host.setLayerLook && { setLayerLook: (look: LayerLook) => this.host.setLayerLook?.(look) }),
@@ -2606,6 +2608,7 @@ export class Board {
       if (turning) busy = true;
     }
     this.applyView();
+    this.toolbar.syncOverlay();
     this.spellTick();
     const viewHeight = this.renderer.domElement.clientHeight || 1;
     const context: PoseContext = {
@@ -2802,6 +2805,31 @@ export class Board {
     this.cutaway.pivot.value.set(target.x, target.y, target.z);
     this.cutaway.radius.value = (this.map?.grid.size ?? 50) * this.quality.seeThroughSize;
     this.cutaway.strength.value = this.quality.seeThrough ? 1 : 0;
+  }
+
+  /** Projects the see-through window at the camera's pivot to CSS pixels relative to the canvas, or null in views without a cut. */
+  seeThroughCircle(): SeeThroughCircle | null {
+    if (this.room !== null || this.augmented !== null || this.eye !== null) return null;
+    const rect = this.canvas.getBoundingClientRect();
+    if (!(rect.width > 0 && rect.height > 0)) return null;
+    this.applyView();
+    const target = this.camera.pose.target;
+    const pivot = new THREE.Vector3(target.x, target.y, target.z);
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.view.quaternion);
+    if (pivot.clone().sub(this.view.position).dot(forward) <= 0) return null;
+    const right = new THREE.Vector3().setFromMatrixColumn(this.view.matrixWorld, 0).normalize();
+    const gridSize = this.map?.grid.size ?? 50;
+    const project = (world: THREE.Vector3): { x: number; y: number } => {
+      const ndc = world.clone().project(this.view);
+      return { x: (ndc.x * 0.5 + 0.5) * rect.width, y: (-ndc.y * 0.5 + 0.5) * rect.height };
+    };
+    const center = project(pivot);
+    const edge = project(pivot.clone().addScaledVector(right, gridSize * this.quality.seeThroughSize));
+    const oneSquare = project(pivot.clone().addScaledVector(right, gridSize));
+    const radius = Math.hypot(edge.x - center.x, edge.y - center.y);
+    const pxPerSquare = Math.hypot(oneSquare.x - center.x, oneSquare.y - center.y);
+    if (!Number.isFinite(radius) || !(pxPerSquare > 0)) return null;
+    return { x: center.x, y: center.y, radius, pxPerSquare };
   }
 
   private ray(clientX: number, clientY: number): void {
@@ -3466,7 +3494,7 @@ export class Board {
       if (key === 'v' && this.audience === 'gm' && !event.ctrlKey && !event.metaKey && !event.altKey) { this.setLaser(!this.laserOn); return; }
       if (key === 'escape' && this.group.size > 0) { this.clearGroup(); return; }
       if (key === 'escape' && this.selectedId !== null) { this.select(null); return; }
-      if (key === 'escape' && this.toolbar.isOpen) { this.toolbar.close(); this.toolbar.closeDice(); return; }
+      if (key === 'escape' && this.toolbar.isOpen) { this.toolbar.close(); this.toolbar.closeView(); this.toolbar.closeGround(); this.toolbar.closeDice(); return; }
       if (key === 'home') { this.frameMap(); event.preventDefault(); return; }
       // Up and down arrows while carrying a token take it to the layer above or below (shown, not yet the one played).
       if ((key === 'arrowup' || key === 'arrowdown' || key === 'pageup' || key === 'pagedown') && this.press?.kind === 'token' && this.audience === 'gm' && this.layerViews.size > 0) {
@@ -5482,6 +5510,7 @@ export class Board {
       this.rulePanel?.dismiss();
       // The GM's toolbar back, after the eyes.
       if (this.audience === 'gm') this.toolbar.setHidden(false);
+      this.toolbar.refresh();
       this.view.near = this.baseNear;
       this.view.updateProjectionMatrix();
       this.wake(true);
@@ -5494,6 +5523,7 @@ export class Board {
     this.caster ??= this.makeCaster();
     this.caster.show(true);
     if (this.audience === 'gm') this.toolbar.setHidden(true);
+    this.toolbar.refresh();
     // Close by, the walls must not be clipped away.
     this.view.near = Math.max(0.5, (this.map?.grid.size ?? 50) * 0.02);
     this.view.updateProjectionMatrix();
@@ -5585,6 +5615,7 @@ export class Board {
       this.paintDaylight();
     }
     if (this.arTexture) this.scene.background = this.arTexture;
+    if ((view !== null) !== was) this.toolbar.refresh();
     this.wake(!view || !was);
   }
 
@@ -5605,6 +5636,7 @@ export class Board {
     const rig = new THREE.Group();
     rig.matrixAutoUpdate = false;
     this.room = { session, rig, onFrame, far: this.view.far };
+    this.toolbar.refresh();
     try {
       const xr = this.renderer.xr;
       xr.enabled = true;
@@ -5709,6 +5741,7 @@ export class Board {
     const room = this.room;
     if (!room) return;
     this.room = null;
+    this.toolbar.refresh();
     this.renderer.setAnimationLoop(null);
     this.renderer.xr.enabled = false;
     room.rig.remove(this.view);

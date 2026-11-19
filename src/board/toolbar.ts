@@ -14,7 +14,8 @@ import { atlasMeasureIcon, atlasToolIcon, historyIcon, modeIcon, waterIcon } fro
 import { LAVA_STYLES, LIQUID_KINDS, LIQUID_NAMES, LIQUID_TINTS, MOTION_LABELS, WATER_MOTION_KINDS, type LavaStyle, type WaterMotionKind } from './water';
 import { DICES_SVG } from '../dice/dicePicker';
 import type { LightingChoice } from './look';
-import { DEFAULT_EDGES, DEFAULT_SEE_THROUGH_SIZE, MAX_SEE_THROUGH_SIZE, MIN_SEE_THROUGH_SIZE, readSeeThroughSize, DEFAULT_LAYER_LOOK, type LayerLook, type WallEdges } from './quality';
+import { DEFAULT_EDGES, DEFAULT_SEE_THROUGH_SIZE, readSeeThroughSize, DEFAULT_LAYER_LOOK, type LayerLook, type WallEdges } from './quality';
+import { SeeThroughRing, type SeeThroughCircle } from './seeThroughRing';
 import { t } from '../i18n';
 import { LASER_COLORS, LASER_COLOR_HINT, LASER_SIZE_MAX, LASER_SIZE_MIN, type LaserSettings } from './laser';
 
@@ -74,6 +75,8 @@ export interface ToolbarActions {
   setSnap?(kind: 'tokens' | 'props', on: boolean): void;
   seeThroughSize?(): number;
   setSeeThroughSize?(squares: number): void;
+  /** Screen position and radius of the see-through window at the pivot (in canvas CSS px), or null in views without a cut. */
+  seeThroughCircle?(): SeeThroughCircle | null;
   /** How the image of an elevation layer is drawn; absent where it is not the GM's to choose. */
   layerLook?(): LayerLook;
   setLayerLook?(look: LayerLook): void;
@@ -227,6 +230,13 @@ const TEMPLATE_SHAPES = [
   ['cone', 'Cone', lucide('<path d="M13.73 4a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>')],
 ] as const;
 const ERASER_SVG = lucide('<path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/>');
+/** Lucide icons (ISC) for the Visibility icon bar: scan-eye, circle-dashed, layers, blend, eye-off, list-ordered. */
+const SEE_THROUGH_SVG = lucide('<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="1"/><path d="M18.944 12.33a1 1 0 0 0 0-.66 7.5 7.5 0 0 0-13.888 0 1 1 0 0 0 0 .66 7.5 7.5 0 0 0 13.888 0"/>');
+const WINDOW_SIZE_SVG = lucide('<path d="M10.1 2.182a10 10 0 0 1 3.8 0"/><path d="M13.9 21.818a10 10 0 0 1-3.8 0"/><path d="M17.609 3.721a10 10 0 0 1 2.69 2.7"/><path d="M2.182 13.9a10 10 0 0 1 0-3.8"/><path d="M20.279 17.609a10 10 0 0 1-2.7 2.69"/><path d="M21.818 10.1a10 10 0 0 1 0 3.8"/><path d="M3.721 6.391a10 10 0 0 1 2.7-2.69"/><path d="M6.391 20.279a10 10 0 0 1-2.69-2.7"/>');
+const LAYERS_SOLID_SVG = lucide('<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/>');
+const LAYERS_FADED_SVG = lucide('<circle cx="9" cy="9" r="7"/><circle cx="15" cy="15" r="7"/>');
+const LAYERS_HIDDEN_SVG = lucide('<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>');
+const INITIATIVE_SVG = lucide('<path d="M10 12h11"/><path d="M10 18h11"/><path d="M10 6h11"/><path d="M4 10h2"/><path d="M4 6h1v4"/><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/>');
 
 function lucide2(body: string): string {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
@@ -255,9 +265,20 @@ export class BoardToolbar {
   private readonly fitWatch: ResizeObserver;
   private readonly panel: HTMLElement;
   private readonly button: HTMLButtonElement;
-  /** The Visibility panel: what shows through walls, of the layers above, behind walls, and the initiative tracker. */
+  /** The Visibility icon bar above the main toolbar: see-through walls, window size, upper layers, initiative tracker. */
   private readonly viewPanel: HTMLElement;
   private readonly viewButton: HTMLButtonElement;
+  private readonly seeThroughGroup: HTMLElement;
+  private readonly seeThroughButton: HTMLButtonElement;
+  private readonly seeThroughSizeButton: HTMLButtonElement;
+  private readonly viewSep1: HTMLElement;
+  private readonly layerGroup: HTMLElement;
+  private readonly viewSep2: HTMLElement;
+  private readonly initiativeButton: HTMLButtonElement;
+  private readonly seeThroughRing: SeeThroughRing;
+  private sizeMode = false;
+  /** Tracks a pointerdown on the canvas during size mode so camera orbit/pan drags keep the bar open. */
+  private outsideCanvas: { pointerId: number; x: number; y: number } | null = null;
   /** The Ground button and its panel: the map's background, kept per map (absent without `setGround`). */
   private readonly groundButton: HTMLButtonElement;
   private readonly groundPanel: HTMLElement;
@@ -314,13 +335,9 @@ export class BoardToolbar {
   private readonly sizeValue: HTMLElement;
   private readonly heightInput: HTMLInputElement;
   private readonly thicknessInput: HTMLInputElement;
-  private readonly seeThroughToggle: HTMLInputElement;
   private readonly snapToggles: { kind: 'tokens' | 'props'; input: HTMLInputElement }[] = [];
-  private readonly seeThroughSizeInput: HTMLInputElement;
-  private readonly seeThroughSizeValue: HTMLElement;
   private readonly edgeButtons: Array<{ value: WallEdges; button: HTMLButtonElement }> = [];
   private readonly layerButtons: Array<{ value: LayerLook; button: HTMLButtonElement }> = [];
-  private readonly initiativeToggle: HTMLInputElement;
   private readonly ambientInput: HTMLInputElement;
   private readonly ambientValue: HTMLElement;
   private readonly tintInput: HTMLInputElement;
@@ -337,7 +354,13 @@ export class BoardToolbar {
   private readonly onOutside = (event: PointerEvent): void => {
     const target = event.target as Node;
     if (!this.panel.contains(target) && !this.button.contains(target)) this.close();
-    if (!this.viewPanel.contains(target) && !this.viewButton.contains(target)) this.closeView();
+    if (!this.viewPanel.contains(target) && !this.viewButton.contains(target) && !this.seeThroughRing.contains(target)) {
+      if (this.sizeMode && (target as Element | null)?.tagName === 'CANVAS') {
+        this.trackOutsideCanvas(event);
+      } else {
+        this.closeView();
+      }
+    }
     if (!this.groundPanel.contains(target) && !this.groundButton.contains(target)) this.closeGround();
     if (!this.laserPanel.contains(target) && !this.laserMenuButton.contains(target)) this.closeLaser();
     if (!this.templatePanel.contains(target) && !this.templateMenuButton.contains(target)) this.closeTemplate();
@@ -345,6 +368,41 @@ export class BoardToolbar {
     if (!this.paintPanel.contains(target) && !this.paintMenuButton.contains(target)) this.closePaint();
     if (!this.waterPanel.contains(target) && !this.waterMenuButton.contains(target)) this.closeWater();
     if (!this.moreMenu.contains(target) && !this.moreButton.contains(target)) this.closeMore();
+  };
+  private readonly onOutsideMove = (event: PointerEvent): void => {
+    const start = this.outsideCanvas;
+    if (!start || event.pointerId !== start.pointerId) return;
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5) this.cancelOutsideCanvas();
+  };
+  private readonly onOutsideUp = (event: PointerEvent): void => {
+    const start = this.outsideCanvas;
+    if (!start || event.pointerId !== start.pointerId) return;
+    this.cancelOutsideCanvas();
+    if (event.type === 'pointerup') this.closeView();
+  };
+  private readonly onSizeKey = (event: KeyboardEvent): void => {
+    if (!this.sizeMode) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.setSizeMode(false);
+      return;
+    }
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    const target = event.target as HTMLElement | null;
+    if (target && target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    let direction = 0;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowUp') direction = 1;
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') direction = -1;
+    else return;
+    event.preventDefault();
+    event.stopPropagation();
+    const step = event.shiftKey ? 0.5 : 0.1;
+    const current = this.actions.seeThroughSize?.() ?? DEFAULT_SEE_THROUGH_SIZE;
+    const next = readSeeThroughSize(Math.round((current + direction * step) * 10) / 10);
+    this.actions.setSeeThroughSize?.(next);
+    this.updateSizeTooltip();
+    this.seeThroughRing.sync();
   };
 
   constructor(container: HTMLElement, private readonly actions: ToolbarActions) {
@@ -510,7 +568,7 @@ export class BoardToolbar {
       made.addEventListener('click', () => { this.actions.selectMeasure?.(shape); this.closeMeasure(); this.refresh(); });
     }
     this.measureMenuButton.addEventListener('click', () => {
-      if (this.measurePanel.hidden) { this.measurePanel.hidden = false; this.measureMenuButton.classList.add('atlas-is-active'); this.measureMenuButton.setAttribute('aria-expanded', 'true'); }
+      if (this.measurePanel.hidden) { this.closeView(); this.measurePanel.hidden = false; this.measureMenuButton.classList.add('atlas-is-active'); this.measureMenuButton.setAttribute('aria-expanded', 'true'); }
       else this.closeMeasure();
     });
     this.measureGroup.style.display = this.actions.selectMeasure ? '' : 'none';
@@ -641,7 +699,7 @@ export class BoardToolbar {
     this.liquidUi = { modes: modeLabels, motions: motionNames, motionLabel, tintLabel, tintGrid, tintsOf: 'water', clarityRow: clarity.row, makeTints };
     this.waterInputs = { brush: brush.input, amount: amount.input, direction: direction.input, directionRow: direction.row, clarity: clarity.input, tint: waterTint, tints };
     this.waterMenuButton.addEventListener('click', () => {
-      if (this.waterPanel.hidden) { this.waterPanel.hidden = false; this.waterMenuButton.classList.add('atlas-is-active'); this.waterMenuButton.setAttribute('aria-expanded', 'true'); this.row.ownerDocument.addEventListener('pointerdown', this.onOutside, true); this.refresh(); }
+      if (this.waterPanel.hidden) { this.closeView(); this.waterPanel.hidden = false; this.waterMenuButton.classList.add('atlas-is-active'); this.waterMenuButton.setAttribute('aria-expanded', 'true'); this.row.ownerDocument.addEventListener('pointerdown', this.onOutside, true); this.refresh(); }
       else this.closeWater();
     });
     this.waterGroup.style.display = this.actions.setWaterTool ? '' : 'none';
@@ -793,13 +851,64 @@ export class BoardToolbar {
     this.groundPanel.setAttribute('role', 'dialog');
     this.groundPanel.setAttribute('aria-label', 'Ground');
     el('div', 'atlas-tabletop-palette__title', this.groundPanel, 'Ground');
-    this.viewPanel = el('div', 'atlas-tabletop-palette', this.row);
+    this.viewPanel = el('div', 'atlas-vtt-toolbar atlas-tabletop-view-bar', this.row);
     this.viewPanel.hidden = true;
-    this.viewPanel.setAttribute('role', 'dialog');
+    this.viewPanel.setAttribute('role', 'toolbar');
     this.viewPanel.setAttribute('aria-label', 'Visibility');
-    el('div', 'atlas-tabletop-palette__title', this.viewPanel, 'Visibility');
-    const seen = el('div', 'atlas-tabletop-palette__section', this.viewPanel);
-    el('div', 'atlas-tabletop-palette__heading', seen, 'What shows');
+    // Group 1: see-through walls toggle and on-board window-size ring.
+    this.seeThroughGroup = el('div', 'atlas-tool-group', this.viewPanel);
+    this.seeThroughButton = toolIn(this.seeThroughGroup, SEE_THROUGH_SVG, () => {
+      this.actions.setSeeThrough?.(!(this.actions.seeThrough?.() ?? false));
+      this.syncViewBar();
+    });
+    const seeThroughTip = 'See-through walls: walls between the camera and what you look at fade out';
+    this.seeThroughButton.setAttribute('aria-label', seeThroughTip);
+    this.seeThroughButton.title = seeThroughTip;
+    this.seeThroughButton.dataset.visibility = 'see-through';
+    this.seeThroughSizeButton = toolIn(this.seeThroughGroup, WINDOW_SIZE_SVG, () => {
+      this.setSizeMode(!this.sizeMode);
+    });
+    this.seeThroughSizeButton.dataset.visibility = 'see-through-size';
+    this.viewSep1 = el('div', 'atlas-tabletop-view-bar__sep', this.viewPanel);
+    this.viewSep1.setAttribute('aria-hidden', 'true');
+    // Group 2: upper layers look (solid, faded, hidden).
+    this.layerGroup = el('div', 'atlas-tool-group', this.viewPanel);
+    this.layerGroup.setAttribute('role', 'group');
+    this.layerGroup.setAttribute('aria-label', 'Upper layers');
+    for (const [value, svg, label] of [
+      ['solid', LAYERS_SOLID_SVG, 'Upper layers: solid'],
+      ['faded', LAYERS_FADED_SVG, 'Upper layers: faded (half see-through)'],
+      ['transparent', LAYERS_HIDDEN_SVG, 'Upper layers: hidden'],
+    ] as const) {
+      const button = toolIn(this.layerGroup, svg, () => {
+        this.actions.setLayerLook?.(value);
+        this.showLayerLook(value);
+      });
+      button.setAttribute('aria-label', label);
+      button.title = label;
+      button.dataset.layerLook = value;
+      this.layerButtons.push({ value, button });
+    }
+    this.viewSep2 = el('div', 'atlas-tabletop-view-bar__sep', this.viewPanel);
+    this.viewSep2.setAttribute('aria-hidden', 'true');
+    // Group 3: initiative tracker toggle.
+    this.initiativeButton = toolIn(this.viewPanel, INITIATIVE_SVG, () => {
+      this.actions.toggleInitiative();
+      this.syncViewBar();
+    });
+    this.initiativeButton.setAttribute('aria-label', 'Initiative tracker (I)');
+    this.initiativeButton.title = 'Initiative tracker (I)';
+    this.initiativeButton.dataset.visibility = 'initiative';
+    this.seeThroughRing = new SeeThroughRing(container, {
+      circle: () => this.actions.seeThroughCircle?.() ?? null,
+      enabled: () => this.actions.seeThrough?.() === true,
+      size: () => this.actions.seeThroughSize?.() ?? DEFAULT_SEE_THROUGH_SIZE,
+      setSize: (squares) => {
+        this.actions.setSeeThroughSize?.(squares);
+        this.updateSizeTooltip();
+      },
+      onClose: () => this.setSizeMode(false),
+    });
     const fog = el('div', 'atlas-tabletop-palette__section', this.panel);
     el('div', 'atlas-tabletop-palette__heading', fog, 'Walls and fog: size and shape');
     const field = el('label', 'atlas-tabletop-palette__field', fog);
@@ -983,52 +1092,7 @@ export class BoardToolbar {
       this.edgeButtons.push({ value, button });
     }
     edges.title = 'Sharp is a plain box; Soft rounds the edges a little so they catch the light; Rounded is more pillowy. Walls are drawn with more triangles when rounded.';
-    const through = el('label', 'atlas-tabletop-palette__field', seen);
-    this.seeThroughToggle = el('input', 'atlas-tabletop-palette__check', through);
-    this.seeThroughToggle.type = 'checkbox';
-    el('span', 'atlas-tabletop-palette__label', through, 'See-through walls');
-    through.title = 'Walls between the camera and the point it turns around fade out, so they never hide what you are looking at.';
-    this.seeThroughToggle.addEventListener('change', () => this.actions.setSeeThrough?.(this.seeThroughToggle.checked));
-    const sizeField = el('label', 'atlas-tabletop-palette__field', seen);
-    el('span', 'atlas-tabletop-palette__label', sizeField, 'Window size');
-    this.seeThroughSizeInput = el('input', 'atlas-tabletop-palette__range', sizeField);
-    this.seeThroughSizeInput.type = 'range';
-    this.seeThroughSizeInput.min = String(MIN_SEE_THROUGH_SIZE);
-    this.seeThroughSizeInput.max = String(MAX_SEE_THROUGH_SIZE);
-    this.seeThroughSizeInput.step = '0.1';
-    this.seeThroughSizeInput.setAttribute('aria-label', 'How wide the see-through window is, in grid squares');
-    this.seeThroughSizeValue = el('span', 'atlas-tabletop-palette__unit', sizeField, '');
-    this.seeThroughSizeInput.addEventListener('input', () => {
-      const squares = readSeeThroughSize(Number(this.seeThroughSizeInput.value));
-      this.seeThroughSizeValue.textContent = `${squares.toFixed(1)} sq`;
-      this.actions.setSeeThroughSize?.(squares);
-    });
-    const layers = el('div', 'atlas-tabletop-palette__field', seen);
-    el('span', 'atlas-tabletop-palette__label', layers, 'Upper layers');
-    const layerChoices = el('span', 'atlas-tabletop-palette__choices', layers);
-    layerChoices.setAttribute('role', 'group');
-    layerChoices.setAttribute('aria-label', 'How the floor image of a map stacked above another is drawn');
-    for (const [value, label] of [['solid', 'Solid'], ['faded', 'Faded'], ['transparent', 'Hidden']] as const) {
-      const button = el('button', 'atlas-tabletop-palette__choice', layerChoices, label);
-      button.type = 'button';
-      button.addEventListener('click', () => {
-        this.actions.setLayerLook?.(value);
-        this.showLayerLook(value);
-      });
-      this.layerButtons.push({ value, button });
-    }
-    layers.title = 'Maps stacked above another (set in the file menu of a map): Solid draws them whole, Faded half see-through (their walls, props and minis too), Hidden not at all. Transparent parts of the image always show what is below.';
     el('div', 'atlas-tabletop-palette__hint', fog, 'Walls without a height of their own stand this many grid squares tall, and so does the fog painted in Atlas (0 lays the fog flat on the map).');
-    // Atlas's command palette shows or hides its initiative tracker; so does this, and its I key.
-    const initiative = el('div', 'atlas-tabletop-palette__section', this.viewPanel);
-    el('div', 'atlas-tabletop-palette__heading', initiative, 'Initiative tracker');
-    const toggle = el('label', 'atlas-tabletop-palette__field', initiative);
-    this.initiativeToggle = el('input', 'atlas-tabletop-palette__check', toggle);
-    this.initiativeToggle.type = 'checkbox';
-    el('span', 'atlas-tabletop-palette__label', toggle, 'Show initiative tracker (I)');
-    this.initiativeToggle.addEventListener('change', () => {
-      if (this.initiativeToggle.checked !== this.actions.initiativeOpen()) this.actions.toggleInitiative();
-    });
     const dice = el('div', 'atlas-tabletop-palette__section', this.panel);
     el('div', 'atlas-tabletop-palette__heading', dice, t('dice.heading'));
     const auto = el('label', 'atlas-tabletop-palette__field', dice);
@@ -1131,6 +1195,7 @@ export class BoardToolbar {
     show(this.groundButton.closest<HTMLElement>('.atlas-tool-button'), editing);
     if (!playing) { this.closeTemplate(); this.closeMeasure(); this.closeDice(); }
     if (!editing) { this.close(); this.closeGround(); this.closeWater(); this.closePaint(); this.closeLighting(); }
+    if (cinematic) this.closeView();
     const painting = this.actions.painting?.() ?? null;
     if (painting) this.lastPaint = painting;
     this.paintButton.classList.toggle('is-active', painting !== null);
@@ -1199,6 +1264,13 @@ export class BoardToolbar {
       const check = entry.querySelector('.atlas-dropdown-menu-item__check')!;
       setSvg(check, chosen ? CHECK_SVG.replace('class="atlas-swatch-check"', 'class="atlas-dropdown-menu-item__tick"') : '');
       entry.setAttribute('aria-checked', String(chosen));
+    }
+    if (!this.viewPanel.hidden || this.sizeMode) {
+      this.syncViewBar();
+    } else if (this.actions.setSeeThroughSize !== undefined && this.actions.seeThroughCircle !== undefined) {
+      const canCut = this.actions.seeThroughCircle() !== null;
+      this.seeThroughSizeButton.disabled = !canCut;
+      this.updateSizeTooltip(!canCut);
     }
   }
 
@@ -1361,6 +1433,7 @@ export class BoardToolbar {
     const made: EndButton = { handlers, anchor, button };
     button.addEventListener('click', () => {
       this.close();
+      this.closeView();
       this.closeLaser();
       this.closeTemplate();
       this.closeLighting();
@@ -1386,6 +1459,7 @@ export class BoardToolbar {
   /** Shows the laser's options above the toolbar. */
   openLaser(): void {
     this.close();
+    this.closeView();
     this.closeDice();
     this.showLaser();
     this.laserPanel.hidden = false;
@@ -1395,6 +1469,7 @@ export class BoardToolbar {
   }
 
   openTemplate(): void {
+    this.closeView();
     this.closeLaser();
     this.closeDice();
     this.templatePanel.hidden = false;
@@ -1427,6 +1502,7 @@ export class BoardToolbar {
 
   openMore(): void {
     this.close();
+    this.closeView();
     this.closeDice();
     this.closeLaser();
     this.closeLighting();
@@ -1446,6 +1522,7 @@ export class BoardToolbar {
   /** Shows the lighting choices above the toolbar. */
   openLighting(): void {
     this.close();
+    this.closeView();
     this.closeLaser();
     this.closeTemplate();
     this.closeDice();
@@ -1476,6 +1553,7 @@ export class BoardToolbar {
   /** The paint tool's materials, as the library has them now: each a card; and taking a wall's material off. */
   openPaint(): void {
     this.close();
+    this.closeView();
     this.closeLaser();
     this.closeLighting();
     this.closeWater();
@@ -1553,7 +1631,7 @@ export class BoardToolbar {
     this.laserPanel.hidden = true;
     this.laserMenuButton.classList.remove('atlas-is-active');
     this.laserMenuButton.setAttribute('aria-expanded', 'false');
-    if (this.panel.hidden) this.row.ownerDocument.removeEventListener('pointerdown', this.onOutside, true);
+    this.dropOutsideIfClosed();
   }
 
   /** The options as the laser is set now: the chosen swatch ticked, the size. */
@@ -1579,7 +1657,7 @@ export class BoardToolbar {
     this.row.hidden = hidden;
     // The row lays itself out as flex, which `hidden` alone does not undo.
     this.row.style.display = hidden ? 'none' : '';
-    if (hidden) this.close();
+    if (hidden) { this.close(); this.closeView(); }
   }
 
   /** Marks the chosen wall edges in the settings. */
@@ -1610,24 +1688,125 @@ export class BoardToolbar {
     this.heightInput.select();
   }
 
-  /** Shows the Visibility panel above the toolbar. */
+  /** Shows the Visibility icon bar above the toolbar. */
   openView(): void {
     this.close();
     this.closeGround();
     this.closeLaser();
+    this.closeLighting();
+    this.closePaint();
+    this.closeWater();
+    this.closeMeasure();
+    this.closeTemplate();
+    this.closeMore();
     this.closeDice();
-    this.fill();
     this.viewPanel.hidden = false;
     this.viewButton.classList.add('is-active');
     this.viewButton.setAttribute('aria-expanded', 'true');
+    this.syncViewBar();
     this.row.ownerDocument.addEventListener('pointerdown', this.onOutside, true);
   }
 
   closeView(): void {
+    this.setSizeMode(false);
+    this.cancelOutsideCanvas();
     if (this.viewPanel.hidden) return;
     this.viewPanel.hidden = true;
     this.viewButton.classList.remove('is-active');
     this.viewButton.setAttribute('aria-expanded', 'false');
+    this.dropOutsideIfClosed();
+  }
+
+  /** Keeps the on-board see-through resize ring aligned with the camera's pivot while size mode is active. */
+  syncOverlay(): void {
+    if (!this.sizeMode) return;
+    this.seeThroughRing.sync();
+  }
+
+  /** Starts or ends on-board window-size mode (the draggable circle on the canvas). */
+  private setSizeMode(on: boolean): void {
+    const doc = this.row.ownerDocument;
+    if (on) {
+      if (this.actions.setSeeThroughSize === undefined || this.actions.seeThroughCircle === undefined) return;
+      if (!this.seeThroughRing.setOpen(true)) return;
+      this.sizeMode = true;
+      doc.addEventListener('keydown', this.onSizeKey, true);
+    } else {
+      if (!this.sizeMode && !this.seeThroughRing.isOpen) return;
+      this.sizeMode = false;
+      this.seeThroughRing.setOpen(false);
+      doc.removeEventListener('keydown', this.onSizeKey, true);
+      this.cancelOutsideCanvas();
+    }
+    this.seeThroughSizeButton.classList.toggle('is-active', this.sizeMode);
+    this.seeThroughSizeButton.setAttribute('aria-pressed', String(this.sizeMode));
+    this.updateSizeTooltip();
+  }
+
+  private updateSizeTooltip(unavailable = this.seeThroughSizeButton.disabled): void {
+    const squares = readSeeThroughSize(this.actions.seeThroughSize?.() ?? DEFAULT_SEE_THROUGH_SIZE);
+    const label = unavailable
+      ? `Window size: ${squares.toFixed(1)} squares (unavailable in first-person or AR view)`
+      : `Window size: ${squares.toFixed(1)} squares — drag the circle's edge on the board (shown at the pivot)`;
+    this.seeThroughSizeButton.setAttribute('aria-label', label);
+    this.seeThroughSizeButton.title = label;
+  }
+
+  /** Refreshes the Visibility bar's buttons and groups from the board's current actions and camera view. */
+  private syncViewBar(): void {
+    const hasSeeThrough = this.actions.setSeeThrough !== undefined;
+    const seeThroughWrapper = this.seeThroughButton.closest<HTMLElement>('.atlas-tool-button');
+    seeThroughWrapper?.toggleAttribute('hidden', !hasSeeThrough);
+    const seeThroughOn = this.actions.seeThrough?.() === true;
+    this.seeThroughButton.classList.toggle('is-active', seeThroughOn);
+    this.seeThroughButton.setAttribute('aria-pressed', String(seeThroughOn));
+
+    const hasSize = this.actions.setSeeThroughSize !== undefined && this.actions.seeThroughCircle !== undefined;
+    const sizeWrapper = this.seeThroughSizeButton.closest<HTMLElement>('.atlas-tool-button');
+    sizeWrapper?.toggleAttribute('hidden', !hasSize);
+    const canCut = hasSize && this.actions.seeThroughCircle?.() !== null;
+    if (!canCut && this.sizeMode) this.setSizeMode(false);
+    this.seeThroughSizeButton.disabled = !canCut;
+    this.seeThroughSizeButton.classList.toggle('is-active', this.sizeMode);
+    this.seeThroughSizeButton.setAttribute('aria-pressed', String(this.sizeMode));
+    this.updateSizeTooltip(!canCut);
+    this.seeThroughGroup.hidden = !hasSeeThrough && !hasSize;
+
+    const hasLayers = this.actions.setLayerLook !== undefined;
+    this.layerGroup.hidden = !hasLayers;
+    this.showLayerLook(this.actions.layerLook?.() ?? DEFAULT_LAYER_LOOK);
+
+    const initiativeOpen = this.actions.initiativeOpen();
+    this.initiativeButton.classList.toggle('is-active', initiativeOpen);
+    this.initiativeButton.setAttribute('aria-pressed', String(initiativeOpen));
+
+    this.viewSep1.hidden = this.seeThroughGroup.hidden || this.layerGroup.hidden;
+    this.viewSep2.hidden = this.seeThroughGroup.hidden && this.layerGroup.hidden;
+    if (this.sizeMode) this.seeThroughRing.sync();
+  }
+
+  private trackOutsideCanvas(event: PointerEvent): void {
+    this.cancelOutsideCanvas();
+    this.outsideCanvas = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    const doc = this.row.ownerDocument;
+    doc.addEventListener('pointermove', this.onOutsideMove, true);
+    doc.addEventListener('pointerup', this.onOutsideUp, true);
+    doc.addEventListener('pointercancel', this.onOutsideUp, true);
+  }
+
+  private cancelOutsideCanvas(): void {
+    if (!this.outsideCanvas) return;
+    this.outsideCanvas = null;
+    const doc = this.row.ownerDocument;
+    doc.removeEventListener('pointermove', this.onOutsideMove, true);
+    doc.removeEventListener('pointerup', this.onOutsideUp, true);
+    doc.removeEventListener('pointercancel', this.onOutsideUp, true);
+  }
+
+  private dropOutsideIfClosed(): void {
+    if (this.panel.hidden && this.viewPanel.hidden && this.groundPanel.hidden && this.laserPanel.hidden && this.lightingPanel.hidden && this.paintPanel.hidden && this.waterPanel.hidden && this.templatePanel.hidden && this.moreMenu.hidden) {
+      this.row.ownerDocument.removeEventListener('pointerdown', this.onOutside, true);
+    }
   }
 
   /** Shows the Ground panel above the toolbar: the map's background, as it is set now. */
@@ -1736,18 +1915,9 @@ export class BoardToolbar {
     this.thicknessInput.value = String(this.actions.wallThickness());
     this.thicknessInput.removeAttribute('aria-invalid');
     this.showEdges(this.actions.wallEdges?.() ?? DEFAULT_EDGES);
-    this.seeThroughToggle.checked = this.actions.seeThrough?.() ?? false;
     const snap = this.actions.snap?.() ?? { tokens: true, props: true };
     for (const { kind, input } of this.snapToggles) { input.checked = snap[kind]; input.closest('.atlas-tabletop-palette__section')?.toggleAttribute('hidden', this.actions.setSnap === undefined); }
-    this.seeThroughToggle.closest('.atlas-tabletop-palette__field')?.toggleAttribute('hidden', this.actions.setSeeThrough === undefined);
-    const squares = this.actions.seeThroughSize?.() ?? DEFAULT_SEE_THROUGH_SIZE;
-    this.seeThroughSizeInput.value = String(squares);
-    this.seeThroughSizeValue.textContent = `${squares.toFixed(1)} sq`;
-    this.seeThroughSizeInput.closest('.atlas-tabletop-palette__field')?.toggleAttribute('hidden', this.actions.setSeeThroughSize === undefined);
     this.edgeButtons[0]?.button.closest('.atlas-tabletop-palette__field')?.toggleAttribute('hidden', this.actions.setWallEdges === undefined);
-    this.showLayerLook(this.actions.layerLook?.() ?? DEFAULT_LAYER_LOOK);
-    this.layerButtons[0]?.button.closest('.atlas-tabletop-palette__field')?.toggleAttribute('hidden', this.actions.setLayerLook === undefined);
-    this.initiativeToggle.checked = this.actions.initiativeOpen();
     this.autoRollToggle.checked = this.actions.autoRoll();
   }
 
@@ -1756,7 +1926,7 @@ export class BoardToolbar {
     this.panel.hidden = true;
     this.button.classList.remove('is-active');
     this.button.setAttribute('aria-expanded', 'false');
-    if (this.laserPanel.hidden) this.row.ownerDocument.removeEventListener('pointerdown', this.onOutside, true);
+    this.dropOutsideIfClosed();
   }
 
   dispose(): void {
@@ -1764,6 +1934,8 @@ export class BoardToolbar {
     this.closeView();
     this.closeGround();
     this.closeLaser();
+    this.row.ownerDocument.removeEventListener('pointerdown', this.onOutside, true);
+    this.seeThroughRing.dispose();
     this.setDice(null);
     this.setDiceLog(null);
     this.setSheet(null);

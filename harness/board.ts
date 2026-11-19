@@ -15,7 +15,7 @@ import { UndoHistory, type UndoStep } from '../src/board/undoHistory';
 import { LIQUID_DEFAULTS, LIQUID_KINDS, readWaterMotion, WaterMask, type LiquidKind, type SavedWaterMask, type WaterMotion } from '../src/board/water';
 import { maskOutlines, readLiquids, strokeLiquids, waterSourceOf, type LiquidMasks, type WaterArea, type WaterSource } from '../src/board/liquids';
 import { emptyRules } from '../src/board/conditions';
-import { QUALITY } from '../src/board/quality';
+import { QUALITY, readSeeThroughSize } from '../src/board/quality';
 import { lookOf } from '../src/board/look';
 import { renderBoardCard } from '../src/boardCard';
 import { setLanguage } from '../src/i18n';
@@ -566,6 +566,9 @@ async function main(): Promise<void> {
     setAutoRoll: (on) => keep({ autoRoll: on }),
     setTiltShift: (on) => { board.setQuality({ ...board.quality, tiltShift: on }); },
     setOcclusion: (on) => { board.setQuality({ ...board.quality, occlusion: on }); },
+    setSeeThrough: (on) => { board.setQuality({ ...board.quality, seeThrough: on }); },
+    setSeeThroughSize: (squares) => { board.setQuality({ ...board.quality, seeThroughSize: readSeeThroughSize(squares) }); },
+    setLayerLook: (look) => { board.setQuality({ ...board.quality, layerLook: look }); },
     setLighting: (choice) => { const { painted, sky } = lookOf(choice, 'dusk'); board.setQuality({ ...QUALITY.medium, painted, sky }); },
     initiativeOpen: () => panel.isOpen,
     toggleInitiative: () => panel.setOpen(!panel.isOpen),
@@ -669,7 +672,7 @@ async function main(): Promise<void> {
   // The tab's keys: I shows or hides the tracker; the arrows step the turns while it shows a running fight.
   container.addEventListener('keydown', (event) => {
     if (menu?.isOpen || event.ctrlKey || event.metaKey || event.altKey || (event.target as HTMLElement).tagName === 'INPUT') return;
-    if (event.key.toLowerCase() === 'i') panel.setOpen(!panel.isOpen);
+    if (event.key.toLowerCase() === 'i') { panel.setOpen(!panel.isOpen); board.refreshToolbar(); }
     else if (panel.isOpen && shownMap().initiative.isActive && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
       act({ type: event.key === 'ArrowUp' ? 'previous' : 'next' });
       panel.press(event.key === 'ArrowUp' ? 'prev' : 'next');

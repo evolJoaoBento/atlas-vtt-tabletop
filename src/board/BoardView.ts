@@ -2300,7 +2300,10 @@ export class BoardView extends ItemView {
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
     let handled = false;
     if (event.key.toLowerCase() === 'i') {
-      if (!event.repeat) panel.setOpen(!panel.isOpen);
+      if (!event.repeat) {
+        panel.setOpen(!panel.isOpen);
+        this.board?.refreshToolbar();
+      }
       handled = true;
     } else if (panel.isOpen && (event.key === 'ArrowUp' || event.key === 'ArrowDown') && this.liveInitiative().isActive) {
       const previous = event.key === 'ArrowUp';
