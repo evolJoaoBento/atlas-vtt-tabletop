@@ -373,11 +373,17 @@
   padding: 8px;
 }
 
-/* The Visibility icon bar, above the main toolbar, in Atlas's own toolbar look. */
-.atlas-tabletop-view-bar {
+/* The Visibility icon bar, above the main toolbar, in Atlas's secondary tool bar look (`DrawToolBar` / `.atlas-tool-bar`). */
+.atlas-tabletop-atlas .atlas-vtt-toolbar.atlas-tabletop-view-bar {
   order: 1;
   max-width: 100%;
   box-sizing: border-box;
+  gap: 4px;
+  padding: 4px;
+  --atlas-panel-inner-radius: 14px;
+  border-radius: 15.5px;
+  --atlas-bar-control-radius: clamp(0px, calc(var(--atlas-panel-inner-radius, 15.5px) - 4px), 16px);
+  --no-tooltip: true;
 }
 
 .atlas-tabletop-atlas .atlas-vtt-toolbar.atlas-tabletop-view-bar[hidden],
@@ -386,30 +392,124 @@
   display: none;
 }
 
+.atlas-tabletop-atlas .atlas-tabletop-view-bar .atlas-tool-group {
+  background: transparent;
+  gap: 4px;
+  border-radius: var(--atlas-bar-control-radius, 10px);
+}
+
 .atlas-tabletop-view-bar__sep {
   width: 1px;
-  height: 24px;
+  height: 18px;
+  margin-inline: 2px;
   background: var(--divider-color, var(--background-modifier-border));
   flex-shrink: 0;
 }
 
-.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-tabletop-view-bar .atlas-tool-group > .atlas-tool-button:nth-child(1 of :not([hidden])) button.btn {
-  border-top-left-radius: var(--atlas-bar-start-radius, var(--radius-m));
-  border-bottom-left-radius: var(--atlas-bar-start-radius, var(--radius-m));
+.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-vtt-toolbar.atlas-tabletop-view-bar .atlas-tool-button > span > button.btn--icon,
+.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-vtt-toolbar.atlas-tabletop-view-bar .atlas-tool-group > .atlas-tool-button > span > button.btn--icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--atlas-bar-control-radius, 10px);
 }
 
-.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-tabletop-view-bar .atlas-tool-group > .atlas-tool-button:nth-last-child(1 of :not([hidden])) button.btn {
-  border-top-right-radius: var(--atlas-bar-end-radius, var(--radius-m));
-  border-bottom-right-radius: var(--atlas-bar-end-radius, var(--radius-m));
-}
-
-.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-tabletop-view-bar .atlas-tabletop-tool-button:disabled,
-.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-tabletop-view-bar .atlas-tabletop-tool-button:disabled:hover {
+.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-vtt-toolbar.atlas-tabletop-view-bar .atlas-tabletop-tool-button:disabled,
+.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-vtt-toolbar.atlas-tabletop-view-bar .atlas-tabletop-tool-button:disabled:hover {
   opacity: 0.35;
   cursor: default;
   background: transparent;
   color: var(--text-muted);
 }
+
+/* Atlas's hover tooltip (`tooltip.css` / `ToolButton.tsx`), copied so it looks identical with or without Atlas's styles. */
+.tooltip-content.atlas-tabletop-atlas-tooltip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 100000;
+  overflow: hidden;
+  border-radius: 15.5px;
+  border: 1.5px solid color-mix(in oklch, var(--mono-100, var(--text-normal)) 18%, transparent);
+  background-color: var(--background-primary);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: 8px;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--text-normal);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.1);
+  will-change: transform, opacity;
+  pointer-events: none;
+  animation: atlas-tabletop-tip-fade-in 120ms cubic-bezier(0.23, 1, 0.32, 1), atlas-tabletop-tip-zoom-in 120ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.tooltip-content.atlas-tabletop-atlas-tooltip[hidden] {
+  display: none;
+}
+
+.tooltip-content.atlas-tabletop-atlas-tooltip[data-side="top"] {
+  animation: atlas-tabletop-tip-fade-in 120ms cubic-bezier(0.23, 1, 0.32, 1), atlas-tabletop-tip-zoom-in 120ms cubic-bezier(0.23, 1, 0.32, 1), atlas-tabletop-tip-slide-up 120ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.tooltip-content.atlas-tabletop-atlas-tooltip[data-side="bottom"] {
+  animation: atlas-tabletop-tip-fade-in 120ms cubic-bezier(0.23, 1, 0.32, 1), atlas-tabletop-tip-zoom-in 120ms cubic-bezier(0.23, 1, 0.32, 1), atlas-tabletop-tip-slide-down 120ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.tooltip-content.atlas-tabletop-atlas-tooltip[data-state="closed"],
+.tooltip-content.atlas-tabletop-atlas-tooltip[data-side][data-state="closed"] {
+  animation: atlas-tabletop-tip-fade-out 100ms cubic-bezier(0.23, 1, 0.32, 1), atlas-tabletop-tip-zoom-out 100ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.atlas-tabletop-atlas-tooltip .tooltip-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.atlas-tabletop-atlas-tooltip .tooltip-label {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.atlas-tabletop-atlas-tooltip .tooltip-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background-color: var(--background-primary);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  font-family: inherit;
+  line-height: 1;
+  color: var(--text-muted);
+}
+
+.atlas-tabletop-atlas-tooltip .tooltip-kbd[hidden],
+.atlas-tabletop-atlas-tooltip .tooltip-subtitle[hidden] {
+  display: none;
+}
+
+.atlas-tabletop-atlas-tooltip .tooltip-subtitle {
+  display: block;
+  margin-top: 4px;
+  max-width: 260px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  font-weight: 400;
+  white-space: normal;
+  text-wrap: balance;
+}
+
+@keyframes atlas-tabletop-tip-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes atlas-tabletop-tip-fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes atlas-tabletop-tip-zoom-in { from { transform: scale(0.96); } to { transform: scale(1); } }
+@keyframes atlas-tabletop-tip-zoom-out { from { transform: scale(1); } to { transform: scale(0.96); } }
+@keyframes atlas-tabletop-tip-slide-up { from { transform: translateY(4px); } to { transform: translateY(0); } }
+@keyframes atlas-tabletop-tip-slide-down { from { transform: translateY(-4px); } to { transform: translateY(0); } }
 
 /* On-board resize ring for the see-through walls window, over the canvas and under the toolbar. */
 .atlas-tabletop-seethrough-ring {
@@ -500,6 +600,13 @@
   }
   .atlas-tabletop-atlas .atlas-vtt-toolbar.atlas-tabletop-view-bar button.btn:active {
     transform: none;
+  }
+  .tooltip-content.atlas-tabletop-atlas-tooltip,
+  .tooltip-content.atlas-tabletop-atlas-tooltip[data-side] {
+    animation: atlas-tabletop-tip-fade-in 120ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .tooltip-content.atlas-tabletop-atlas-tooltip[data-side][data-state="closed"] {
+    animation: atlas-tabletop-tip-fade-out 100ms cubic-bezier(0.23, 1, 0.32, 1);
   }
 }
 

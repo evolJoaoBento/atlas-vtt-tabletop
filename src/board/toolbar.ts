@@ -16,6 +16,7 @@ import { DICES_SVG } from '../dice/dicePicker';
 import type { LightingChoice } from './look';
 import { DEFAULT_EDGES, DEFAULT_SEE_THROUGH_SIZE, readSeeThroughSize, DEFAULT_LAYER_LOOK, type LayerLook, type WallEdges } from './quality';
 import { SeeThroughRing, type SeeThroughCircle } from './seeThroughRing';
+import { AtlasTooltip } from './atlasTooltip';
 import { t } from '../i18n';
 import { LASER_COLORS, LASER_COLOR_HINT, LASER_SIZE_MAX, LASER_SIZE_MIN, type LaserSettings } from './laser';
 
@@ -276,6 +277,7 @@ export class BoardToolbar {
   private readonly viewSep2: HTMLElement;
   private readonly initiativeButton: HTMLButtonElement;
   private readonly seeThroughRing: SeeThroughRing;
+  private readonly viewTooltip: AtlasTooltip;
   private sizeMode = false;
   /** Tracks a pointerdown on the canvas during size mode so camera orbit/pan drags keep the bar open. */
   private outsideCanvas: { pointerId: number; x: number; y: number } | null = null;
@@ -833,8 +835,12 @@ export class BoardToolbar {
     this.button = tool(WALL_SVG, () => (this.panel.hidden ? this.open() : this.close()));
     this.viewButton = tool(modeIcon('view'), () => (this.viewPanel.hidden ? this.openView() : this.closeView()));
     this.viewButton.setAttribute('aria-label', 'Visibility');
-    this.viewButton.title = 'Visibility: see-through walls, upper layers, initiative tracker';
     this.viewButton.setAttribute('aria-expanded', 'false');
+    this.viewTooltip = new AtlasTooltip(container);
+    this.viewTooltip.attach(this.viewButton.parentElement!, () => ({
+      label: 'Visibility',
+      subtitle: 'See-through walls, upper layers, initiative tracker',
+    }));
     // Atlas's end slot, where Connect puts its buttons as it does in Atlas's own toolbar; Atlas's styles apply inside it.
     this.endSlot = el('div', 'atlas-toolbar-end atlas-vtt-plugin atlas-tabletop-extensions', bar);
     this.button.setAttribute('aria-label', 'Board settings');
@@ -851,7 +857,7 @@ export class BoardToolbar {
     this.groundPanel.setAttribute('role', 'dialog');
     this.groundPanel.setAttribute('aria-label', 'Ground');
     el('div', 'atlas-tabletop-palette__title', this.groundPanel, 'Ground');
-    this.viewPanel = el('div', 'atlas-vtt-toolbar atlas-tabletop-view-bar', this.row);
+    this.viewPanel = el('div', 'atlas-vtt-toolbar atlas-tool-bar atlas-tabletop-view-bar', this.row);
     this.viewPanel.hidden = true;
     this.viewPanel.setAttribute('role', 'toolbar');
     this.viewPanel.setAttribute('aria-label', 'Visibility');
@@ -861,32 +867,40 @@ export class BoardToolbar {
       this.actions.setSeeThrough?.(!(this.actions.seeThrough?.() ?? false));
       this.syncViewBar();
     });
-    const seeThroughTip = 'See-through walls: walls between the camera and what you look at fade out';
-    this.seeThroughButton.setAttribute('aria-label', seeThroughTip);
-    this.seeThroughButton.title = seeThroughTip;
+    this.seeThroughButton.setAttribute('aria-label', 'See-through walls: walls between the camera and what you look at fade out');
     this.seeThroughButton.dataset.visibility = 'see-through';
+    this.viewTooltip.attach(this.seeThroughButton.parentElement!, () => ({
+      label: 'See-through walls',
+      subtitle: 'Walls between the camera and pivot fade out',
+    }));
     this.seeThroughSizeButton = toolIn(this.seeThroughGroup, WINDOW_SIZE_SVG, () => {
       this.setSizeMode(!this.sizeMode);
     });
     this.seeThroughSizeButton.dataset.visibility = 'see-through-size';
+    this.viewTooltip.attach(this.seeThroughSizeButton.parentElement!, () => {
+      const squares = readSeeThroughSize(this.actions.seeThroughSize?.() ?? DEFAULT_SEE_THROUGH_SIZE);
+      return this.seeThroughSizeButton.disabled
+        ? { label: 'Window size', subtitle: 'Unavailable in first-person or AR view' }
+        : { label: 'Window size', subtitle: `${squares.toFixed(1)} squares · Drag ring edge on board (at pivot)` };
+    });
     this.viewSep1 = el('div', 'atlas-tabletop-view-bar__sep', this.viewPanel);
     this.viewSep1.setAttribute('aria-hidden', 'true');
     // Group 2: upper layers look (solid, faded, hidden).
     this.layerGroup = el('div', 'atlas-tool-group', this.viewPanel);
     this.layerGroup.setAttribute('role', 'group');
     this.layerGroup.setAttribute('aria-label', 'Upper layers');
-    for (const [value, svg, label] of [
-      ['solid', LAYERS_SOLID_SVG, 'Upper layers: solid'],
-      ['faded', LAYERS_FADED_SVG, 'Upper layers: faded (half see-through)'],
-      ['transparent', LAYERS_HIDDEN_SVG, 'Upper layers: hidden'],
+    for (const [value, svg, label, subtitle] of [
+      ['solid', LAYERS_SOLID_SVG, 'Upper layers: solid', undefined],
+      ['faded', LAYERS_FADED_SVG, 'Upper layers: faded', 'Half see-through'],
+      ['transparent', LAYERS_HIDDEN_SVG, 'Upper layers: hidden', undefined],
     ] as const) {
       const button = toolIn(this.layerGroup, svg, () => {
         this.actions.setLayerLook?.(value);
         this.showLayerLook(value);
       });
-      button.setAttribute('aria-label', label);
-      button.title = label;
+      button.setAttribute('aria-label', subtitle ? `${label} (${subtitle.toLowerCase()})` : label);
       button.dataset.layerLook = value;
+      this.viewTooltip.attach(button.parentElement!, () => ({ label, ...(subtitle ? { subtitle } : {}) }));
       this.layerButtons.push({ value, button });
     }
     this.viewSep2 = el('div', 'atlas-tabletop-view-bar__sep', this.viewPanel);
@@ -897,8 +911,11 @@ export class BoardToolbar {
       this.syncViewBar();
     });
     this.initiativeButton.setAttribute('aria-label', 'Initiative tracker (I)');
-    this.initiativeButton.title = 'Initiative tracker (I)';
     this.initiativeButton.dataset.visibility = 'initiative';
+    this.viewTooltip.attach(this.initiativeButton.parentElement!, () => ({
+      label: 'Initiative tracker',
+      shortcut: 'I',
+    }));
     this.seeThroughRing = new SeeThroughRing(container, {
       circle: () => this.actions.seeThroughCircle?.() ?? null,
       enabled: () => this.actions.seeThrough?.() === true,
@@ -1710,6 +1727,7 @@ export class BoardToolbar {
   closeView(): void {
     this.setSizeMode(false);
     this.cancelOutsideCanvas();
+    this.viewTooltip.hide();
     if (this.viewPanel.hidden) return;
     this.viewPanel.hidden = true;
     this.viewButton.classList.remove('is-active');
@@ -1749,7 +1767,7 @@ export class BoardToolbar {
       ? `Window size: ${squares.toFixed(1)} squares (unavailable in first-person or AR view)`
       : `Window size: ${squares.toFixed(1)} squares — drag the circle's edge on the board (shown at the pivot)`;
     this.seeThroughSizeButton.setAttribute('aria-label', label);
-    this.seeThroughSizeButton.title = label;
+    this.viewTooltip.refresh();
   }
 
   /** Refreshes the Visibility bar's buttons and groups from the board's current actions and camera view. */
@@ -1936,6 +1954,7 @@ export class BoardToolbar {
     this.closeLaser();
     this.row.ownerDocument.removeEventListener('pointerdown', this.onOutside, true);
     this.seeThroughRing.dispose();
+    this.viewTooltip.dispose();
     this.setDice(null);
     this.setDiceLog(null);
     this.setSheet(null);

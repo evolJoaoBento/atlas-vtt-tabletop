@@ -6551,11 +6551,43 @@ feature('visibility bar', async ({ page, shot }) => {
       count: buttons.length,
       seps: seps.length,
       allNoText: buttons.every((b) => b.textContent.trim() === ''),
-      allHaveTipAndAria: buttons.every((b) => Boolean(b.title?.trim()) && Boolean(b.getAttribute('aria-label')?.trim())),
+      allAriaNoNativeTitle: buttons.every((b) => Boolean(b.getAttribute('aria-label')?.trim()) && !b.hasAttribute('title')),
+      noObsidianTip: bar ? getComputedStyle(bar).getPropertyValue('--no-tooltip').trim() === 'true' : false,
     };
   });
-  check('visibility bar: opens as a horizontal icon-only bar above the main toolbar with no old panel labels', barInfo.shown && barInfo.role === 'toolbar' && barInfo.aria === 'Visibility' && barInfo.horizontal && barInfo.aboveMain && !barInfo.oldText && barInfo.count === 6 && barInfo.seps === 2 && barInfo.allNoText && barInfo.allHaveTipAndAria, JSON.stringify(barInfo));
+  check('visibility bar: opens as a horizontal icon-only bar above the main toolbar with no old panel labels', barInfo.shown && barInfo.role === 'toolbar' && barInfo.aria === 'Visibility' && barInfo.horizontal && barInfo.aboveMain && !barInfo.oldText && barInfo.count === 6 && barInfo.seps === 2 && barInfo.allNoText && barInfo.allAriaNoNativeTitle && barInfo.noObsidianTip, JSON.stringify(barInfo));
   await shot('visibility-bar');
+
+  // 1b. Hovering buttons shows Atlas-styled tooltip above the bar (label, subtitle, shortcut keycap).
+  await page.hover('.atlas-tabletop-view-bar [data-visibility="see-through"]');
+  await wait(380);
+  await settled();
+  const hoverSee = await page.evaluate(() => {
+    const tip = document.querySelector('.tooltip-content.atlas-tabletop-atlas-tooltip');
+    const bar = document.querySelector('.atlas-tabletop-view-bar');
+    const tr = tip?.getBoundingClientRect();
+    const br = bar?.getBoundingClientRect();
+    return {
+      shown: !!tip && !tip.hidden && tip.dataset.state === 'open',
+      aboveBar: !!tr && !!br && tr.bottom <= br.top,
+      label: tip?.querySelector('.tooltip-label')?.textContent ?? '',
+      subtitle: tip?.querySelector('.tooltip-subtitle')?.textContent ?? '',
+    };
+  });
+  await shot('visibility-bar-tooltip');
+  await page.hover('.atlas-tabletop-view-bar [data-visibility="initiative"]');
+  await wait(120);
+  const hoverInit = await page.evaluate(() => {
+    const tip = document.querySelector('.tooltip-content.atlas-tabletop-atlas-tooltip');
+    return {
+      shown: !!tip && !tip.hidden,
+      label: tip?.querySelector('.tooltip-label')?.textContent ?? '',
+      kbd: tip?.querySelector('.tooltip-kbd')?.textContent ?? '',
+    };
+  });
+  check('visibility bar: hover shows Atlas-styled tooltip above the bar with label, subtitle and shortcut keycap', hoverSee.shown && hoverSee.aboveBar && hoverSee.label === 'See-through walls' && hoverSee.subtitle.length > 0 && hoverInit.shown && hoverInit.label === 'Initiative tracker' && hoverInit.kbd === 'I', JSON.stringify({ hoverSee, hoverInit }));
+  await page.mouse.move(10, 10);
+  await wait(150);
 
   // 2. Button 1 flips board.quality.seeThrough and is-active / aria-pressed follow.
   const seeState = () => page.evaluate(() => {
@@ -6628,7 +6660,7 @@ feature('visibility bar', async ({ page, shot }) => {
       cx: Number(c?.getAttribute('cx')), cy: Number(c?.getAttribute('cy')), r: Number(c?.getAttribute('r')),
       hx: Number(handle?.getAttribute('cx')), hy: Number(handle?.getAttribute('cy')),
       readout,
-      tooltip: btn?.title ?? '',
+      tooltip: btn?.getAttribute('aria-label') ?? '',
       proj,
       canvas: { left: canvas.left, top: canvas.top, width: canvas.width, height: canvas.height },
       size: window.boardTest.board.quality.seeThroughSize,
@@ -6735,6 +6767,9 @@ feature('visibility bar', async ({ page, shot }) => {
     board.setQuality({ ...board.quality, seeThrough: true, seeThroughSize: 2.0 });
     board.wake(true);
   });
+  await settled();
+  await page.hover('.atlas-tabletop-view-bar [data-visibility="see-through-size"]');
+  await wait(380);
   await settled();
   await shot('visibility-bar-light');
   await page.click('.atlas-tabletop-view-bar [data-visibility="see-through-size"]');
