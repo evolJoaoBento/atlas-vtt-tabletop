@@ -7377,14 +7377,15 @@ feature('measure menu and behaviour', async ({ page, shot }) => {
 feature('shortcut help on the board', async ({ page, shot }) => {
   // Atlas's own shortcut help (copied), as the board's ? key opens it: Atlas's shortcuts the board has, with the keys the
   // board takes (a camera letter with Shift), then the board's own keys; Atlas's 2D map tools left out.
-  // Atlas 0.17's keyboard shortcuts bar: its own bar beside the main toolbar, on its right, one circle-help button.
+  // Atlas 0.17's keyboard shortcuts bar: its own bar in the board's bottom-right corner, one circle-help button.
   const barSpot = await page.evaluate(() => {
     const help = document.querySelector('.atlas-tabletop-help-bar');
     const main = document.querySelector('.atlas-tabletop-toolbar');
     const h = help?.getBoundingClientRect(), m = main?.getBoundingClientRect();
-    return help && !help.hidden && h && m ? { right: h.left >= m.right - 1, sameRow: Math.abs((h.top + h.bottom) / 2 - (m.top + m.bottom) / 2) < 4, buttons: help.querySelectorAll('button').length, label: help.querySelector('button')?.getAttribute('aria-label') } : null;
+    const row = document.querySelector('.atlas-tabletop-toolbar-row')?.getBoundingClientRect();
+    return help && !help.hidden && h && m && row ? { right: h.left >= m.right - 1 && Math.abs(h.right - row.right) < 2, sameRow: Math.abs(h.bottom - m.bottom) < 2, buttons: help.querySelectorAll('button').length, label: help.querySelector('button')?.getAttribute('aria-label') } : null;
   });
-  check('shortcut help: a keyboard shortcuts bar stands beside the toolbar on its right, with one button', barSpot !== null && barSpot.right && barSpot.sameRow && barSpot.buttons === 1 && barSpot.label === 'Keyboard shortcuts', JSON.stringify(barSpot));
+  check('shortcut help: a keyboard shortcuts bar stands in the bottom-right corner, level with the toolbar, with one button', barSpot !== null && barSpot.right && barSpot.sameRow && barSpot.buttons === 1 && barSpot.label === 'Keyboard shortcuts', JSON.stringify(barSpot));
   await shot('shortcut-help-button');
   await page.click('.atlas-tabletop-help-bar button');
   await page.waitForSelector('.atlas-hotkey-help-card', { timeout: 5000 });

@@ -287,7 +287,7 @@ export function readWallThickness(text: string): number | null {
 export class BoardToolbar {
   private readonly row: HTMLElement;
   private readonly bar: HTMLElement;
-  /** Atlas 0.17's keyboard shortcuts bar, beside the main toolbar on its right (hidden until `setHelp`). */
+  /** Atlas 0.17's keyboard shortcuts bar, in the board's bottom-right corner (hidden until `setHelp`). */
   private readonly helpBar: HTMLElement;
   private readonly helpButton: HTMLButtonElement;
   private help: ToolbarHelp | null = null;
@@ -2137,10 +2137,11 @@ export class BoardToolbar {
    * moves into the More tools menu. The Move group never leaves.
    */
   fit(): void {
-    // The keyboard shortcuts bar stands beside the toolbar: its room is not the toolbar's. Where even the smallest
-    // toolbar would not fit beside it, the bar steps aside (its key, ?, still opens the help).
+    // The keyboard shortcuts bar stands in the board's bottom-right corner while the toolbar stays centred: the toolbar
+    // keeps clear of it on both sides. Where even the smallest toolbar would not fit so, the bar steps aside (its key,
+    // ?, still opens the help).
     this.helpBar.classList.remove('is-squeezed');
-    if (!this.fitBar(this.helpBar.hidden ? 0 : this.helpBar.getBoundingClientRect().width + 8) && !this.helpBar.hidden) {
+    if (!this.fitBar(this.helpBar.hidden ? 0 : 2 * (this.helpBar.getBoundingClientRect().width + 8)) && !this.helpBar.hidden) {
       this.helpBar.classList.add('is-squeezed');
       this.fitBar(0);
     }
