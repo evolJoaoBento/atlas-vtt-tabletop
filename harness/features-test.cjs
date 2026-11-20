@@ -7374,6 +7374,32 @@ feature('measure menu and behaviour', async ({ page, shot }) => {
   await page.keyboard.press('Escape');
 });
 
+feature('shortcut help on the board', async ({ page, shot }) => {
+  // Atlas's own shortcut help (copied), as the board's ? key opens it: Atlas's shortcuts the board has, with the keys the
+  // board takes (a camera letter with Shift), then the board's own keys; Atlas's 2D map tools left out.
+  await page.evaluate(() => window.boardTest.hotkeyHelp.toggle());
+  await page.waitForSelector('.atlas-hotkey-help-card', { timeout: 5000 });
+  await page.waitForTimeout(300);
+  const seen = await page.evaluate(() => {
+    const card = document.querySelector('.atlas-hotkey-help-card');
+    const rows = [...card.querySelectorAll('dl > div')].map((row) => [row.querySelector('dt')?.textContent ?? '', row.querySelector('kbd')?.textContent ?? '']);
+    const headings = [...card.querySelectorAll('h3')].map((h) => h.textContent);
+    const atlasRows = [...card.querySelectorAll('section:not([data-tabletop-keys]) dl > div')].map((row) => (row.querySelector('dt')?.textContent ?? '').toLowerCase());
+    return { rows, atlasRows, headings, title: card.querySelector('h2')?.textContent ?? '' };
+  });
+  await shot('shortcut-help');
+  const find = (text) => seen.rows.find(([label]) => label.toLowerCase().includes(text));
+  check("shortcut help: Atlas's help window opens on the board, with its title", seen.title.length > 0 && seen.rows.length > 10, JSON.stringify(seen.title));
+  check("shortcut help: the asset manager is listed with the board's key (Shift + A)", (find('asset')?.[1] ?? '') === 'Shift + A', JSON.stringify(find('asset')));
+  check("shortcut help: Atlas's 2D map tools are not listed", !seen.atlasRows.some((label) => /fog|draw|erase|text tool|pin|wall|sound/.test(label)), JSON.stringify(seen.atlasRows));
+  check("shortcut help: the board's own keys follow, camera and eyes included",
+    seen.headings.includes('Tabletop: camera') && seen.headings.includes("Tabletop: through a token's eyes") && (find('move the camera')?.[1] ?? '') === 'W A S D / Arrow keys', JSON.stringify(seen.headings));
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  const closed = await page.evaluate(() => document.querySelector('.atlas-hotkey-help-card') === null && !window.boardTest.hotkeyHelp.isOpen());
+  check('shortcut help: Escape closes it', closed);
+});
+
 feature('atlas shortcuts on the board', async ({ page }) => {
   // What Atlas's map shortcuts call on the board (the keys themselves are matched in tests/boardHotkeys.test.ts and
   // routed by BoardAtlasTools in Obsidian): fit token, level up/down, select all, delete, and keys the board keeps.

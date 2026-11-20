@@ -1,0 +1,50 @@
+// Atlas source: src/app/keyboard/HotkeyHelp.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// @ts-nocheck
+import React, { useId, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { CloseButton } from '../packages/components/primitives/CloseButton';
+import type { SettingsService } from '../../shims/settingsService';
+import { useAtlasSettings } from './useMapHotkeys';
+import { availableHotkeys, DEFAULT_MAP_HOTKEYS, formatHotkey } from './mapHotkeys';
+import { useDialogFocus } from '../onboarding/useDialogFocus';
+import type { BoardHotkeyHelp } from '../../shims/boardHotkeyHelp';
+import { t } from '../../shims/i18n';
+import { portalHost } from '../../shims/portalHost';
+
+export function HotkeyHelp({ settings: explicit, onClose, isPlayerView = false, board }: { settings?: SettingsService | undefined; onClose: () => void; isPlayerView?: boolean; board?: BoardHotkeyHelp }): React.JSX.Element {
+  const settings = useAtlasSettings(explicit);
+  const bindings = settings?.getHotkeys() ?? DEFAULT_MAP_HOTKEYS;
+  const ref = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  useDialogFocus(ref, onClose);
+  const actions = availableHotkeys(isPlayerView, (feature) => settings?.isExperimentalOn(feature) ?? false).filter(action => board?.shows(action.id) ?? true);
+  return createPortal(<div className="atlas-vtt-plugin atlas-vtt-root atlas-hotkey-help" onClick={onClose}>
+    <div ref={ref} className="atlas-hotkey-help-card" role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={e => e.stopPropagation()}>
+      <div className="atlas-hotkey-help-header">
+        <h2 id={titleId}>{t('hotkey.title')}</h2>
+        <CloseButton onClick={onClose} aria-label={t('hotkey.close')} />
+      </div>
+      <p>{t('hotkey.intro')}</p>
+      <div className="atlas-hotkey-help-list">
+        {Array.from(new Set(actions.map(action => action.group))).map(group => <section key={group}>
+          <h3>{group}</h3>
+          <dl>{actions.filter(action => action.group === group).map(action => <div key={action.id}><dt>{action.label}</dt><dd><kbd>{formatHotkey(board ? board.binding(action.id, bindings[action.id]) : bindings[action.id])}</kbd></dd></div>)}</dl>
+        </section>)}
+        {board?.sections}
+        <section>
+          <h3>{t('hotkey.navigation')}</h3>
+          <dl>
+            <div><dt>{t('hotkey.moveAlignment')}</dt><dd><kbd>{t('hotkey.arrowKeys')}</kbd></dd></div>
+            <div><dt>{t('hotkey.fineAlignment')}</dt><dd><kbd>{t('hotkey.shiftArrows')}</kbd></dd></div>
+            <div><dt>{t('hotkey.previewStatblock')}</dt><dd><kbd>Ctrl/Cmd</kbd> {t('hotkey.hover')}</dd></div>
+            <div><dt>{t('hotkey.dragCopy')}</dt><dd><kbd>Alt/Option</kbd> {t('hotkey.drag')}</dd></div>
+            <div><dt>{t('hotkey.openBoth')}</dt><dd><kbd>Shift + Enter</kbd></dd></div>
+            <div><dt>{t('hotkey.waypoint')}</dt><dd><kbd>Space</kbd> {t('hotkey.whileDragging')}</dd></div>
+            <div><dt>{t('hotkey.closeDialog')}</dt><dd><kbd>Escape</kbd></dd></div>
+            <div><dt>{t('hotkey.navigateMenus')}</dt><dd><kbd>Tab</kbd> / <kbd>{t('hotkey.arrowKeys')}</kbd></dd></div>
+          </dl>
+        </section>
+      </div>
+    </div>
+  </div>, portalHost());
+}

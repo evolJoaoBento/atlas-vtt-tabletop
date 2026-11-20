@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DEFAULT_MAP_HOTKEYS, type MapHotkeyId } from '../src/atlasPort/app/keyboard/mapHotkeys';
-import { boardBinding, boardHotkeyAction, nextBoardMeasureMode } from '../src/board/boardHotkeys';
+import { BOARD_OWN_KEYS, boardBinding, boardHotkeyAction, nextBoardMeasureMode, worksOnBoard } from '../src/board/boardHotkeys';
 
 const key = (init: Partial<KeyboardEvent> & { key: string }) =>
   ({ shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, repeat: false, isComposing: false, ...init }) as KeyboardEvent;
@@ -17,6 +17,7 @@ test('a camera letter takes Shift on the board, every other binding stays as Atl
 
 test("Atlas's default keys reach their board actions", () => {
   const cases: Array<[Partial<KeyboardEvent> & { key: string }, string]> = [
+    [{ key: '?', shiftKey: true, code: 'Slash' }, 'help'],
     [{ key: 'm' }, 'measure'],
     [{ key: 'r' }, 'diceTray'],
     [{ key: 'Enter' }, 'diceLog'],
@@ -56,4 +57,14 @@ test("the Measure key steps through the modes in the bar's order, passing over R
   assert.equal(nextBoardMeasureMode('line', true), 'ranges');
   assert.equal(nextBoardMeasureMode('ranges', true), 'ruler');
   assert.equal(nextBoardMeasureMode('line', false), 'ruler');
+});
+
+test("the shortcut help lists Atlas's shortcuts the board has, not its 2D map tools or what the board lacks", () => {
+  for (const id of ['help', 'palette', 'assets', 'measure', 'diceTray', 'fitToken', 'levelUp', 'selectAll', 'delete', 'initiative', 'nextTurn']) assert.ok(worksOnBoard(id), id);
+  for (const id of ['fog', 'draw', 'erase', 'text', 'pin', 'wall', 'audio', 'gmView', 'lightingPeek', 'copy', 'paste', 'duplicate', 'widget1', 'increase']) assert.ok(!worksOnBoard(id), id);
+});
+
+test("the board's own keys name the camera and the eyes", () => {
+  const all = BOARD_OWN_KEYS.flatMap((group) => group.keys.map((entry) => entry.keys));
+  assert.ok(all.includes('W A S D / Arrow keys') && all.includes('Q / E') && all.includes('F'));
 });

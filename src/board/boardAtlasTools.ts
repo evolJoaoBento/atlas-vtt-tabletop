@@ -12,6 +12,7 @@ import { formatHotkey } from '../atlasPort/app/keyboard/mapHotkeys';
 import { LootWindow } from '../loot/LootWindow';
 import type { PaletteHost } from '../palette/paletteHost';
 import { PaletteWindow } from '../palette/PaletteWindow';
+import { HotkeyHelpWindow } from './HotkeyHelpWindow';
 import { atlasPlayToolButtons, boardKey, type AtlasToolId } from './atlasTools';
 import { boardBinding, boardHotkeyAction, nextBoardMeasureMode } from './boardHotkeys';
 import { isMeasureShape } from './measureOptions';
@@ -38,6 +39,7 @@ export class BoardAtlasTools {
   readonly loot: LootWindow;
   readonly assets: AssetWindow;
   readonly palette: PaletteWindow;
+  readonly help: HotkeyHelpWindow;
   private readonly stopKeys: () => void;
 
   constructor(private readonly deps: BoardAtlasToolsDeps) {
@@ -64,6 +66,7 @@ export class BoardAtlasTools {
       ...deps.palette,
       setLootRollerOpen: (open) => (open ? this.loot.open() : this.loot.close()),
     }, () => this.deps.board()?.refreshToolbar());
+    this.help = new HotkeyHelpWindow(deps.container, deps.app);
   }
 
   /** The board's toolbar buttons for Atlas's tools, in the GM's Atlas layout. */
@@ -116,6 +119,7 @@ export class BoardAtlasTools {
     const action = boardHotkeyAction(event, (id) => this.bridge.hotkey(id));
     switch (action) {
       case null: return false;
+      case 'help': this.help.toggle(); return true;
       case 'measure': return this.measureKey(board);
       case 'diceTray': return board.goToToolbar('dice');
       case 'diceLog': return board.goToToolbar('dice-log');
@@ -163,5 +167,6 @@ export class BoardAtlasTools {
     this.loot.dispose();
     this.assets.dispose();
     this.palette.dispose();
+    this.help.dispose();
   }
 }

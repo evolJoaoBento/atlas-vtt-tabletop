@@ -28,6 +28,8 @@ export const PORT_ENTRIES = [
   'react/components/randomTables/RandomTablesPanel.tsx',
   'packages/components/asset-manager/AssetManager.tsx',
   'react/components/CommandPalette.tsx',
+  // Atlas's shortcut help (its `help` key), with the board's keys added by a patch below.
+  'keyboard/HotkeyHelp.tsx',
 ];
 
 /** Atlas file → Tabletop stand-in (relative to src/atlasPort/shims), for imports the copies must not follow. */
@@ -118,6 +120,33 @@ export const PATCHES = [
     file: 'react/components/CommandPalette.tsx',
     find: "import { customizeToolbarCommand } from './command-palette/customizeToolbarCommand';",
     replace: "import { customizeToolbarCommand } from './command-palette/customizeToolbarCommand';\nimport { tabletopCommands } from '@shims/tabletopCommands';",
+  },
+  // Atlas's shortcut help on the board (`board`, src/atlasPort/shims/boardHotkeyHelp.ts): only the shortcuts the board
+  // has, with the keys the board takes (a camera letter with Shift), and the board's own keys as a section of their own.
+  {
+    file: 'keyboard/HotkeyHelp.tsx',
+    find: "import { useDialogFocus } from '../onboarding/useDialogFocus';",
+    replace: "import { useDialogFocus } from '../onboarding/useDialogFocus';\nimport type { BoardHotkeyHelp } from '@shims/boardHotkeyHelp';",
+  },
+  {
+    file: 'keyboard/HotkeyHelp.tsx',
+    find: "export function HotkeyHelp({ settings: explicit, onClose, isPlayerView = false }: { settings?: SettingsService | undefined; onClose: () => void; isPlayerView?: boolean }): React.JSX.Element {",
+    replace: "export function HotkeyHelp({ settings: explicit, onClose, isPlayerView = false, board }: { settings?: SettingsService | undefined; onClose: () => void; isPlayerView?: boolean; board?: BoardHotkeyHelp }): React.JSX.Element {",
+  },
+  {
+    file: 'keyboard/HotkeyHelp.tsx',
+    find: "  const actions = availableHotkeys(isPlayerView, (feature) => settings?.isExperimentalOn(feature) ?? false);",
+    replace: "  const actions = availableHotkeys(isPlayerView, (feature) => settings?.isExperimentalOn(feature) ?? false).filter(action => board?.shows(action.id) ?? true);",
+  },
+  {
+    file: 'keyboard/HotkeyHelp.tsx',
+    find: "<kbd>{formatHotkey(bindings[action.id])}</kbd>",
+    replace: "<kbd>{formatHotkey(board ? board.binding(action.id, bindings[action.id]) : bindings[action.id])}</kbd>",
+  },
+  {
+    file: 'keyboard/HotkeyHelp.tsx',
+    find: "</section>)}",
+    replace: "</section>)}\n        {board?.sections}",
   },
 ];
 // (Until Atlas 0.12 three more patches swapped the palette's OverlayScroll for a plain div; Atlas 0.15's own palette
