@@ -707,11 +707,14 @@ export class BoardView extends ItemView {
       undo: () => this.travel('undo'), redo: () => this.travel('redo'),
       palette: {
         selectTool: (tool) => {
-          if (tool === 'move') return;
-          if (tool === 'measure') { this.board?.toolbarActions().selectMeasure?.('line'); return; }
+          if (tool === 'move') { this.board?.goToToolbar('move'); return; }
+          if (tool === 'measure') { this.board?.goToToolbar('measure'); return; }
           openInAtlas();
         },
-        setDiceLogOpen: (open) => this.dice?.setLogOpen(open),
+        setDiceLogOpen: (open) => {
+          if (open && this.board?.toolbarActions().mode?.() !== 'play') this.board?.toolbarActions().setMode?.('play');
+          this.dice?.setLogOpen(open);
+        },
         initiativeOpen: () => this.initiative?.isOpen ?? false,
         setInitiativeOpen: (open) => this.initiative?.setOpen(open),
         openSceneBrowser: () => { const found = atlasView(); if (found?.view.openSceneBrowser) found.view.openSceneBrowser(); else new Notice('Tabletop: open another scene in Atlas.'); },
@@ -721,7 +724,7 @@ export class BoardView extends ItemView {
         togglePlayerFreeze: () => this.board?.setPlayerFrozen(!(this.board?.playerFrozen ?? false)),
         presentInAtlas: () => { if (!this.path || !new AtlasBridge(this.app).runInAtlas(this.path, 'atlas-vtt:send-map-to-player-view', this.leaf)) new Notice('Tabletop: Atlas could not show this scene to players.'); },
         openInAtlas,
-        tabletopCommands: () => { const board = this.board; return board ? tabletopCommands(board.toolbarActions(), () => board.refreshToolbar()) : []; },
+        tabletopCommands: () => { const board = this.board; return board ? tabletopCommands(board.toolbarActions(), () => board.refreshToolbar(), board.toolbarCommandHost()) : []; },
       },
       spawn: {
         centre: () => this.board?.viewCentre() ?? { x: 0, y: 0 },

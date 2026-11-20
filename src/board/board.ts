@@ -90,6 +90,7 @@ import { SpellRulePanel } from './spellRulePanel';
 import { materialWith, type MaterialDefaults } from '../materialDefaults';
 import { aboutElement, rulesWords } from './spellPicker';
 import { difficultGround } from './spellView';
+import type { ToolbarCommandHost } from '../palette/tabletopCommands';
 import { BoardToolbar, type AtlasToolButton, type CinemaButtons, type DiceButton, type ToolbarActions, UNPAINT } from './toolbar';
 import type { SeeThroughCircle } from './seeThroughRing';
 import { pinTitle } from './pinIcons';
@@ -5460,6 +5461,19 @@ export class Board {
     return this.toolbar.boardActions;
   }
 
+  /** Toolbar command host for Atlas's command palette: reads available buttons and switches mode before opening them. */
+  toolbarCommandHost(): ToolbarCommandHost {
+    return {
+      state: () => this.toolbar.toolbarState(),
+      goTo: (id) => this.toolbar.goTo(id),
+    };
+  }
+
+  /** Switches mode if needed and opens or activates the toolbar button `id`. */
+  goToToolbar(id: string): boolean {
+    return this.toolbar.goTo(id);
+  }
+
   /** A token is being dragged (Space then drops a ruler waypoint). */
   get carryingToken(): boolean {
     return this.press?.kind === 'token';
@@ -6946,13 +6960,17 @@ export class Board {
     if (this.painting !== null) this.paintWith(null);
   }
 
-  /** Play, Edit or Cinematic: the toolbar's tools of that mode; leaving Edit puts its tools (paint, water, handles) away. */
+  /** Play, Edit or Cinematic: the toolbar's tools of that mode; leaving Edit or Play puts its tools away. */
   private setMode(mode: 'play' | 'edit' | 'cinematic'): void {
     this.host.setBoardMode?.(mode);
     if (mode !== 'edit') {
       this.stopPainting();
       if (this.waterTool) { this.waterTool = null; this.showBrush(); }
       this.hideHandles();
+    }
+    if (mode !== 'play' && this.tools.tool !== 'move') {
+      this.tools.select('move');
+      this.toolsChanged();
     }
     this.toolbar.refresh();
     this.toolbar.fit();

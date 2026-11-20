@@ -19,6 +19,7 @@ import { SeeThroughRing, type SeeThroughCircle } from './seeThroughRing';
 import { AtlasTooltip } from './atlasTooltip';
 import { t } from '../i18n';
 import { LASER_COLORS, LASER_COLOR_HINT, LASER_SIZE_MAX, LASER_SIZE_MIN, type LaserSettings } from './laser';
+import { TOOLBAR_BUTTONS, targetModeFor, type ToolbarButtonId, type ToolbarButtonState } from './toolbarButtons';
 
 /** One of Atlas's toolbar tools on the board (src/board/atlasTools.ts decides which and in what order). */
 export interface AtlasToolButton {
@@ -265,6 +266,7 @@ export class BoardToolbar {
   private readonly fitOrder: HTMLElement[] = [];
   private readonly fitWatch: ResizeObserver;
   private lastMode: BoardMode | null | undefined = undefined;
+  private readonly registeredButtons = new Map<ToolbarButtonId, HTMLButtonElement>();
   private readonly panel: HTMLElement;
   private readonly button: HTMLButtonElement;
   /** The Visibility icon bar above the main toolbar: see-through walls, window size, upper layers, initiative tracker. */
@@ -374,6 +376,7 @@ export class BoardToolbar {
     }
     if (!this.groundPanel.contains(target) && !this.groundButton.contains(target)) this.closeGround();
     if (!this.laserPanel.contains(target) && !this.laserMenuButton.contains(target)) this.closeLaser();
+    if (!this.measurePanel.contains(target) && !this.measureMenuButton.contains(target)) this.closeMeasure();
     if (!this.templatePanel.contains(target) && !this.templateMenuButton.contains(target)) this.closeTemplate();
     if (!this.lightingPanel.contains(target) && !this.lightingButton.contains(target)) this.closeLighting();
     if (!this.paintPanel.contains(target) && !this.paintMenuButton.contains(target)) this.closePaint();
@@ -456,31 +459,31 @@ export class BoardToolbar {
     // click on it keeps that tool; the chevron opens the group's menu above it.
     // Atlas's undo/redo bar, first on the bar (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y).
     this.historyGroup = el('div', 'atlas-tool-group atlas-tabletop-history', bar);
-    this.undoButton = toolIn(this.historyGroup, historyIcon('undo'), () => this.actions.undo?.());
-    this.undoButton.setAttribute('aria-label', 'Undo');
+    this.undoButton = this.registerButton('undo', toolIn(this.historyGroup, historyIcon('undo'), () => this.actions.undo?.()));
+    this.undoButton.setAttribute('aria-label', TOOLBAR_BUTTONS.undo.label);
     this.undoButton.title = 'Undo (Ctrl/Cmd + Z)';
-    this.redoButton = toolIn(this.historyGroup, historyIcon('redo'), () => this.actions.redo?.());
-    this.redoButton.setAttribute('aria-label', 'Redo');
+    this.redoButton = this.registerButton('redo', toolIn(this.historyGroup, historyIcon('redo'), () => this.actions.redo?.()));
+    this.redoButton.setAttribute('aria-label', TOOLBAR_BUTTONS.redo.label);
     this.redoButton.title = 'Redo (Ctrl/Cmd + Shift + Z or Ctrl/Cmd + Y)';
     this.historyGroup.style.display = this.actions.undo ? '' : 'none';
     // The board's modes: Play (the game's tools) and Edit (walls, water, materials, the board's settings).
     this.modeGroup = el('div', 'atlas-tool-group atlas-tabletop-modes', bar);
     for (const [mode, label] of [['play', 'Play mode'], ['edit', 'Edit mode'], ['cinematic', 'Cinematic mode']] as const) {
-      const button = toolIn(this.modeGroup, modeIcon(mode), () => { if (this.actions.mode?.() !== mode) this.actions.setMode?.(mode); });
+      const button = this.registerButton(`mode-${mode}`, toolIn(this.modeGroup, modeIcon(mode), () => { if (this.actions.mode?.() !== mode) this.actions.setMode?.(mode); }));
       button.setAttribute('aria-label', label);
       button.title = mode === 'play' ? 'Play mode: the game\'s tools' : mode === 'edit' ? 'Edit mode: wall paint, water, and wall heights by Ctrl + drag' : 'Cinematic mode: make and run cutscenes';
       button.dataset.mode = mode;
       this.modeButtons.push({ mode, button });
     }
     const laserGroup = el('div', 'atlas-tool-group', bar);
-    this.laserButton = toolIn(laserGroup, HAND_SVG, () => this.actions.selectTool(this.actions.laserOn() ? 'laser' : 'move'));
+    this.laserButton = this.registerButton('move', toolIn(laserGroup, HAND_SVG, () => this.actions.selectTool(this.actions.laserOn() ? 'laser' : 'move')));
     const menu = el('div', 'atlas-dropdown-menu', laserGroup);
-    this.laserMenuButton = el('button', 'btn btn--ghost btn--icon atlas-dropdown-trigger btn--toolbar', menu);
+    this.laserMenuButton = this.registerButton('move-options', el('button', 'btn btn--ghost btn--icon atlas-dropdown-trigger btn--toolbar', menu));
     this.laserMenuButton.type = 'button';
     setSvg(this.laserMenuButton, CHEVRON_SVG);
-    this.laserMenuButton.setAttribute('aria-label', 'Move options');
+    this.laserMenuButton.setAttribute('aria-label', TOOLBAR_BUTTONS['move-options'].label);
     this.laserMenuButton.setAttribute('aria-expanded', 'false');
-    this.laserMenuButton.title = 'Move options';
+    this.laserMenuButton.title = TOOLBAR_BUTTONS['move-options'].label;
     this.laserMenuButton.addEventListener('click', () => (this.laserPanel.hidden ? this.openLaser() : this.closeLaser()));
 
     // Atlas's laser options (`LaserPointerOptions`): the colour swatches with their hint, and the size slider.
@@ -566,15 +569,15 @@ export class BoardToolbar {
     // Connect's Template tool, as its player toolbar has it: the tool, and a chevron to its shapes and to clearing them.
     // Atlas's Measure tool group: the ruler (a drag measures, nothing is kept) and its shapes, the GM's.
     this.measureGroup = el('div', 'atlas-tool-group', bar);
-    this.measureButton = toolIn(this.measureGroup, atlasMeasureIcon('tool'), () => this.actions.selectMeasure?.(this.actions.measureOn?.() ? null : this.actions.measureShape?.() ?? 'line'));
-    this.measureButton.setAttribute('aria-label', 'Measure');
-    this.measureButton.title = 'Measure';
+    this.measureButton = this.registerButton('measure', toolIn(this.measureGroup, atlasMeasureIcon('tool'), () => this.actions.selectMeasure?.(this.actions.measureOn?.() ? null : this.actions.measureShape?.() ?? 'line')));
+    this.measureButton.setAttribute('aria-label', TOOLBAR_BUTTONS.measure.label);
+    this.measureButton.title = TOOLBAR_BUTTONS.measure.label;
     const measureMenu = el('div', 'atlas-dropdown-menu', this.measureGroup);
-    this.measureMenuButton = el('button', 'btn btn--ghost btn--icon atlas-dropdown-trigger btn--toolbar', measureMenu);
+    this.measureMenuButton = this.registerButton('measure-options', el('button', 'btn btn--ghost btn--icon atlas-dropdown-trigger btn--toolbar', measureMenu));
     this.measureMenuButton.type = 'button';
     setSvg(this.measureMenuButton, CHEVRON_SVG);
-    this.measureMenuButton.setAttribute('aria-label', 'Measure options');
-    this.measureMenuButton.title = 'Measure options';
+    this.measureMenuButton.setAttribute('aria-label', TOOLBAR_BUTTONS['measure-options'].label);
+    this.measureMenuButton.title = TOOLBAR_BUTTONS['measure-options'].label;
     this.measurePanel = el('div', 'atlas-dropdown-content atlas-dropdown-content--top atlas-dropdown-content--left atlas-tabletop-measure-options', measureMenu);
     this.measurePanel.hidden = true;
     const measureShapes = el('div', 'atlas-dropdown-section', this.measurePanel);
@@ -587,15 +590,12 @@ export class BoardToolbar {
       el('span', '', made, label);
       made.addEventListener('click', () => { this.actions.selectMeasure?.(shape); this.closeMeasure(); this.refresh(); });
     }
-    this.measureMenuButton.addEventListener('click', () => {
-      if (this.measurePanel.hidden) { this.closeView(); this.measurePanel.hidden = false; this.measureMenuButton.classList.add('atlas-is-active'); this.measureMenuButton.setAttribute('aria-expanded', 'true'); }
-      else this.closeMeasure();
-    });
+    this.measureMenuButton.addEventListener('click', () => (this.measurePanel.hidden ? this.openMeasure() : this.closeMeasure()));
     this.measureGroup.style.display = this.actions.selectMeasure ? '' : 'none';
     this.viewTooltip = new AtlasTooltip(container);
     // The water brush: single button on the main toolbar; while active, Fog-style horizontal bars float above the toolbar.
     this.waterGroup = el('div', 'atlas-tool-group', bar);
-    this.waterButton = toolIn(this.waterGroup, waterIcon('tool'), () => {
+    this.waterButton = this.registerButton('water', toolIn(this.waterGroup, waterIcon('tool'), () => {
       if (this.actions.waterTool?.()) {
         this.actions.setWaterTool?.(null);
         this.closeWater();
@@ -612,8 +612,8 @@ export class BoardToolbar {
         this.actions.setWaterTool?.(this.lastWaterMode);
       }
       this.refresh();
-    });
-    this.waterButton.setAttribute('aria-label', 'Water');
+    }));
+    this.waterButton.setAttribute('aria-label', TOOLBAR_BUTTONS.water.label);
     this.waterButton.setAttribute('aria-expanded', 'false');
     this.viewTooltip.attach(this.waterButton.parentElement!, () => {
       const liquid = this.actions.liquid?.() ?? 'water';
@@ -822,40 +822,40 @@ export class BoardToolbar {
     // Wall paint: a click paints the wall under it with the material chosen (Shift: the whole wall), until Esc or a right-click.
     // The Shapes tool: corners on the level's floor, each at its own height (roofs, hills).
     this.shapeGroup = el('div', 'atlas-tool-group', bar);
-    this.shapeButton = toolIn(this.shapeGroup, SHAPES_SVG, () => { this.actions.setShapeTool?.(this.actions.shapeTool?.() !== true); this.refresh(); });
-    this.shapeButton.setAttribute('aria-label', 'Shapes');
+    this.shapeButton = this.registerButton('shapes', toolIn(this.shapeGroup, SHAPES_SVG, () => { this.actions.setShapeTool?.(this.actions.shapeTool?.() !== true); this.refresh(); }));
+    this.shapeButton.setAttribute('aria-label', TOOLBAR_BUTTONS.shapes.label);
     this.shapeButton.title = 'Shapes: draw roofs and hills corner by corner, each corner at its own height';
     this.shapeGroup.style.display = this.actions.setShapeTool ? '' : 'none';
     this.paintGroup = el('div', 'atlas-tool-group', bar);
-    this.paintButton = toolIn(this.paintGroup, modeIcon('paint'), () => {
+    this.paintButton = this.registerButton('paint', toolIn(this.paintGroup, modeIcon('paint'), () => {
       if (this.actions.painting?.()) this.actions.setPainting?.(null);
       else if (this.lastPaint) this.actions.setPainting?.(this.lastPaint);
       else this.openPaint();
       this.refresh();
-    });
-    this.paintButton.setAttribute('aria-label', 'Paint walls');
+    }));
+    this.paintButton.setAttribute('aria-label', TOOLBAR_BUTTONS.paint.label);
     this.paintButton.title = 'Paint walls with a material (Esc or right-click stops)';
     const paintMenu = el('div', 'atlas-dropdown-menu', this.paintGroup);
-    this.paintMenuButton = el('button', 'btn btn--ghost btn--icon atlas-dropdown-trigger btn--toolbar', paintMenu);
+    this.paintMenuButton = this.registerButton('paint-options', el('button', 'btn btn--ghost btn--icon atlas-dropdown-trigger btn--toolbar', paintMenu));
     this.paintMenuButton.type = 'button';
     setSvg(this.paintMenuButton, CHEVRON_SVG);
-    this.paintMenuButton.setAttribute('aria-label', 'Materials');
-    this.paintMenuButton.title = 'Materials';
+    this.paintMenuButton.setAttribute('aria-label', TOOLBAR_BUTTONS['paint-options'].label);
+    this.paintMenuButton.title = TOOLBAR_BUTTONS['paint-options'].label;
     this.paintPanel = el('div', 'atlas-dropdown-content atlas-dropdown-content--top atlas-dropdown-content--left atlas-tabletop-paint-options', paintMenu);
     this.paintPanel.hidden = true;
     this.paintMenuButton.addEventListener('click', () => (this.paintPanel.hidden ? this.openPaint() : this.closePaint()));
     this.paintPanel.addEventListener('keydown', (event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); this.closePaint(); } });
     this.paintGroup.style.display = this.actions.setPainting ? '' : 'none';
     this.templateGroup = el('div', 'atlas-tool-group', bar);
-    this.templateButton = toolIn(this.templateGroup, TEMPLATE_SVG, () => this.actions.selectTemplate(this.actions.templateOn() ? null : this.actions.templateShape()));
-    this.templateButton.setAttribute('aria-label', 'Template');
+    this.templateButton = this.registerButton('template', toolIn(this.templateGroup, TEMPLATE_SVG, () => this.actions.selectTemplate(this.actions.templateOn() ? null : this.actions.templateShape())));
+    this.templateButton.setAttribute('aria-label', TOOLBAR_BUTTONS.template.label);
     this.templateButton.title = 'Template (players see it)';
     const templateMenu = el('div', 'atlas-dropdown-menu', this.templateGroup);
-    this.templateMenuButton = el('button', 'btn btn--ghost btn--icon atlas-dropdown-trigger btn--toolbar', templateMenu);
+    this.templateMenuButton = this.registerButton('template-options', el('button', 'btn btn--ghost btn--icon atlas-dropdown-trigger btn--toolbar', templateMenu));
     this.templateMenuButton.type = 'button';
     setSvg(this.templateMenuButton, CHEVRON_SVG);
-    this.templateMenuButton.setAttribute('aria-label', 'Template options');
-    this.templateMenuButton.title = 'Template options';
+    this.templateMenuButton.setAttribute('aria-label', TOOLBAR_BUTTONS['template-options'].label);
+    this.templateMenuButton.title = TOOLBAR_BUTTONS['template-options'].label;
     this.templatePanel = el('div', 'atlas-dropdown-content atlas-dropdown-content--top atlas-dropdown-content--left atlas-tabletop-template-options', templateMenu);
     this.templatePanel.hidden = true;
     const shapes = el('div', 'atlas-dropdown-section', this.templatePanel);
@@ -873,7 +873,7 @@ export class BoardToolbar {
     this.templateMenuButton.addEventListener('click', () => (this.templatePanel.hidden ? this.openTemplate() : this.closeTemplate()));
     // The board's lighting, chosen here: the classic look or the painted one under a dusk, day or night sky.
     this.lightingGroup = el('div', 'atlas-dropdown-menu', bar);
-    this.lightingButton = toolIn(this.lightingGroup, LIGHTING_ICONS.classic, () => (this.lightingPanel.hidden ? this.openLighting() : this.closeLighting()));
+    this.lightingButton = this.registerButton('lighting', toolIn(this.lightingGroup, LIGHTING_ICONS.classic, () => (this.lightingPanel.hidden ? this.openLighting() : this.closeLighting())));
     this.lightingButton.setAttribute('aria-expanded', 'false');
     this.lightingPanel = el('div', 'atlas-dropdown-content atlas-dropdown-content--top atlas-dropdown-content--left atlas-tabletop-lighting-options', this.lightingGroup);
     this.lightingPanel.hidden = true;
@@ -941,14 +941,14 @@ export class BoardToolbar {
       if (event.key === 'Escape') { event.preventDefault(); this.closeLighting(); }
     });
     // Players are shown scenes with the eye on Atlas's scene tabs over the board: no player view or freeze button here.
-    this.groundButton = tool(GROUND_SVG, () => (this.groundPanel.hidden ? this.openGround() : this.closeGround()));
-    this.groundButton.setAttribute('aria-label', 'Ground');
+    this.groundButton = this.registerButton('ground', tool(GROUND_SVG, () => (this.groundPanel.hidden ? this.openGround() : this.closeGround())));
+    this.groundButton.setAttribute('aria-label', TOOLBAR_BUTTONS.ground.label);
     this.groundButton.title = 'Ground: the map board, or a plane or water to the horizon; fog and extra board';
     this.groundButton.setAttribute('aria-expanded', 'false');
     if (!this.actions.setGround) (this.groundButton.closest('.atlas-tool-button') as HTMLElement).style.display = 'none';
-    this.button = tool(WALL_SVG, () => (this.panel.hidden ? this.open() : this.close()));
-    this.viewButton = tool(modeIcon('view'), () => (this.viewPanel.hidden ? this.openView() : this.closeView()));
-    this.viewButton.setAttribute('aria-label', 'Visibility');
+    this.button = this.registerButton('board-settings', tool(WALL_SVG, () => (this.panel.hidden ? this.open() : this.close())));
+    this.viewButton = this.registerButton('visibility', tool(modeIcon('view'), () => (this.viewPanel.hidden ? this.openView() : this.closeView())));
+    this.viewButton.setAttribute('aria-label', TOOLBAR_BUTTONS.visibility.label);
     this.viewButton.setAttribute('aria-expanded', 'false');
     this.viewTooltip.attach(this.viewButton.parentElement!, () => ({
       label: 'Visibility',
@@ -956,8 +956,8 @@ export class BoardToolbar {
     }));
     // Atlas's end slot, where Connect puts its buttons as it does in Atlas's own toolbar; Atlas's styles apply inside it.
     this.endSlot = el('div', 'atlas-toolbar-end atlas-vtt-plugin atlas-tabletop-extensions', bar);
-    this.button.setAttribute('aria-label', 'Board settings');
-    this.button.title = 'Board settings';
+    this.button.setAttribute('aria-label', TOOLBAR_BUTTONS['board-settings'].label);
+    this.button.title = TOOLBAR_BUTTONS['board-settings'].label;
     this.button.setAttribute('aria-expanded', 'false');
 
     this.panel = el('div', 'atlas-tabletop-palette', this.row);
@@ -976,19 +976,19 @@ export class BoardToolbar {
     this.viewPanel.setAttribute('aria-label', 'Visibility');
     // Group 1: see-through walls toggle and on-board window-size ring.
     this.seeThroughGroup = el('div', 'atlas-tool-group', this.viewPanel);
-    this.seeThroughButton = toolIn(this.seeThroughGroup, SEE_THROUGH_SVG, () => {
+    this.seeThroughButton = this.registerButton('see-through', toolIn(this.seeThroughGroup, SEE_THROUGH_SVG, () => {
       this.actions.setSeeThrough?.(!(this.actions.seeThrough?.() ?? false));
       this.syncViewBar();
-    });
+    }));
     this.seeThroughButton.setAttribute('aria-label', 'See-through walls: walls between the camera and what you look at fade out');
     this.seeThroughButton.dataset.visibility = 'see-through';
     this.viewTooltip.attach(this.seeThroughButton.parentElement!, () => ({
       label: 'See-through walls',
       subtitle: 'Walls between the camera and pivot fade out',
     }));
-    this.seeThroughSizeButton = toolIn(this.seeThroughGroup, WINDOW_SIZE_SVG, () => {
+    this.seeThroughSizeButton = this.registerButton('see-through-size', toolIn(this.seeThroughGroup, WINDOW_SIZE_SVG, () => {
       this.setSizeMode(!this.sizeMode);
-    });
+    }));
     this.seeThroughSizeButton.dataset.visibility = 'see-through-size';
     this.viewTooltip.attach(this.seeThroughSizeButton.parentElement!, () => {
       const squares = readSeeThroughSize(this.actions.seeThroughSize?.() ?? DEFAULT_SEE_THROUGH_SIZE);
@@ -1007,10 +1007,10 @@ export class BoardToolbar {
       ['faded', LAYERS_FADED_SVG, 'Upper layers: faded', 'Half see-through'],
       ['transparent', LAYERS_HIDDEN_SVG, 'Upper layers: hidden', undefined],
     ] as const) {
-      const button = toolIn(this.layerGroup, svg, () => {
+      const button = this.registerButton(`layers-${value}`, toolIn(this.layerGroup, svg, () => {
         this.actions.setLayerLook?.(value);
         this.showLayerLook(value);
-      });
+      }));
       button.setAttribute('aria-label', subtitle ? `${label} (${subtitle.toLowerCase()})` : label);
       button.dataset.layerLook = value;
       this.viewTooltip.attach(button.parentElement!, () => ({ label, ...(subtitle ? { subtitle } : {}) }));
@@ -1020,22 +1020,22 @@ export class BoardToolbar {
     this.viewSep2.setAttribute('aria-hidden', 'true');
     // Group 3: board side panels (initiative tracker and stat sheet).
     this.panelGroup = el('div', 'atlas-tool-group', this.viewPanel);
-    this.initiativeButton = toolIn(this.panelGroup, INITIATIVE_SVG, () => {
+    this.initiativeButton = this.registerButton('initiative', toolIn(this.panelGroup, INITIATIVE_SVG, () => {
       this.actions.toggleInitiative();
       this.syncViewBar();
-    });
+    }));
     this.initiativeButton.setAttribute('aria-label', 'Initiative tracker (I)');
     this.initiativeButton.dataset.visibility = 'initiative';
     this.viewTooltip.attach(this.initiativeButton.parentElement!, () => ({
       label: 'Initiative tracker',
       shortcut: 'I',
     }));
-    this.sheetButton = toolIn(this.panelGroup, SHEET_SVG, () => {
+    this.sheetButton = this.registerButton('sheet', toolIn(this.panelGroup, SHEET_SVG, () => {
       this.dice?.handlers.close();
       this.diceLog?.handlers.close();
       this.sheetHandlers?.toggle();
       this.refresh();
-    });
+    }));
     this.sheetButton.setAttribute('aria-label', 'Stat sheet');
     this.sheetButton.dataset.visibility = 'sheet';
     this.viewTooltip.attach(this.sheetButton.parentElement!, () => ({
@@ -1273,7 +1273,7 @@ export class BoardToolbar {
     // Atlas's "More tools": when the pane is too narrow for the bar, the tools farthest from the Move group go into this
     // menu, one by one, and come back as the pane widens.
     this.moreGroup = el('div', 'atlas-dropdown-menu atlas-tabletop-more', bar);
-    this.moreButton = toolIn(this.moreGroup, MORE_SVG, () => (this.moreMenu.hidden ? this.openMore() : this.closeMore()));
+    this.moreButton = this.registerButton('more', toolIn(this.moreGroup, MORE_SVG, () => (this.moreMenu.hidden ? this.openMore() : this.closeMore())));
     this.moreButton.setAttribute('aria-label', t('toolbar.more'));
     this.moreButton.setAttribute('aria-expanded', 'false');
     this.moreButton.title = t('toolbar.more');
@@ -1415,6 +1415,7 @@ export class BoardToolbar {
     this.dice = null;
     if (!handlers) return null;
     this.dice = this.endButton('Dice', DICES_SVG, handlers, 'atlas-tabletop-dice-menu', null);
+    this.registerButton('dice', this.dice.button);
     return this.dice.anchor;
   }
 
@@ -1424,6 +1425,7 @@ export class BoardToolbar {
     this.diceLog = null;
     if (!handlers) return null;
     this.diceLog = this.endButton('Dice log', LOG_SVG, handlers, 'atlas-tabletop-dice-log-menu', () => this.dice?.anchor ?? null);
+    this.registerButton('dice-log', this.diceLog.button);
     return this.diceLog.anchor;
   }
 
@@ -1475,7 +1477,7 @@ export class BoardToolbar {
       anchor.appendChild(wrapper);
       return button;
     };
-    const live = make('Players follow my camera', LIVE_SVG, () => handlers.toggleLive());
+    const live = this.registerButton('cinema-live', make('Players follow my camera', LIVE_SVG, () => handlers.toggleLive()));
     this.cinema = { handlers, anchor, live };
     const beside = (this.diceLog ?? this.dice)?.anchor ?? null;
     if (beside) beside.after(anchor);
@@ -1498,6 +1500,233 @@ export class BoardToolbar {
   /** What the toolbar's controls do (Atlas's command palette offers the same, src/palette/tabletopCommands.ts). */
   get boardActions(): ToolbarActions {
     return this.actions;
+  }
+
+  /** Registers a toolbar button against `TOOLBAR_BUTTONS` so DOM, `goTo`, and palette stay in lockstep. */
+  private registerButton(id: ToolbarButtonId, button: HTMLButtonElement): HTMLButtonElement {
+    button.dataset.toolbarId = id;
+    this.registeredButtons.set(id, button);
+    return button;
+  }
+
+  /** Foreign buttons added into the end slot by other plugins (e.g. Connect). */
+  private extraEndSlotButtons(): Array<{ id: string; label: string; button: HTMLButtonElement }> {
+    const out: Array<{ id: string; label: string; button: HTMLButtonElement }> = [];
+    let index = 0;
+    for (const button of this.endSlot.querySelectorAll<HTMLButtonElement>('button')) {
+      if (button.dataset.toolbarId) continue;
+      if (button.hidden || button.style.display === 'none' || button.disabled) continue;
+      const label = (button.getAttribute('aria-label') || button.title || button.textContent || '').trim();
+      if (!label) continue;
+      out.push({ id: `end-slot:${index++}:${label}`, label, button });
+    }
+    return out;
+  }
+
+  /** Live toolbar state read by `toolbarButtonEntries` to list every available toolbar button in the command palette. */
+  toolbarState(): ToolbarButtonState {
+    const atlasEntries = this.commandButton ? [...this.atlasButtons, this.commandButton] : this.atlasButtons;
+    return {
+      actions: this.actions,
+      hasDice: this.dice !== null,
+      hasDiceLog: this.diceLog !== null,
+      hasSheet: this.sheetHandlers !== null,
+      sheetOpen: this.sheetHandlers?.isOpen() === true,
+      hasCinema: this.cinema !== null,
+      cinemaLive: this.cinema !== null && this.actions.hosting() && this.cinema.handlers.live(),
+      hasMore: !this.moreGroup.hidden,
+      atlasTools: atlasEntries.map(({ tool }) => ({
+        id: tool.id,
+        label: tool.label,
+        enabled: tool.enabled(),
+        active: tool.active(),
+      })),
+      extraEndButtons: this.extraEndSlotButtons().map(({ id, label }) => ({ id, label })),
+    };
+  }
+
+  /**
+   * Jumps to a toolbar button by registry id: switches board mode first when the button belongs to another mode,
+   * lets `refresh()` close the old mode's panels, then activates or opens the target button's tool/panel/toggle.
+   */
+  goTo(id: string): boolean {
+    if (id.startsWith('end-slot:')) {
+      const targetMode = targetModeFor(['play'], this.actions.mode?.() ?? null);
+      if (targetMode !== null) {
+        this.actions.setMode?.(targetMode);
+        this.refresh();
+      }
+      const found = this.extraEndSlotButtons().find((entry) => entry.id === id);
+      if (!found) return false;
+      found.button.click();
+      this.refresh();
+      return true;
+    }
+    if (!Object.hasOwn(TOOLBAR_BUTTONS, id)) return false;
+    const buttonId = id as ToolbarButtonId;
+    const spec = TOOLBAR_BUTTONS[buttonId];
+    if (!spec.available(this.toolbarState())) return false;
+    const targetMode = targetModeFor(spec.modes, this.actions.mode?.() ?? null);
+    if (targetMode !== null) {
+      this.actions.setMode?.(targetMode);
+      this.refresh();
+    }
+    switch (buttonId) {
+      case 'undo':
+        this.actions.undo?.();
+        break;
+      case 'redo':
+        this.actions.redo?.();
+        break;
+      case 'mode-play':
+        if (this.actions.mode?.() !== 'play') this.actions.setMode?.('play');
+        break;
+      case 'mode-edit':
+        if (this.actions.mode?.() !== 'edit') this.actions.setMode?.('edit');
+        break;
+      case 'mode-cinematic':
+        if (this.cinema && this.actions.mode?.() !== 'cinematic') this.actions.setMode?.('cinematic');
+        break;
+      case 'move':
+        this.actions.selectTool('move');
+        break;
+      case 'laser':
+        this.actions.selectTool('laser');
+        break;
+      case 'move-options':
+        this.openLaser();
+        break;
+      case 'measure':
+        this.close();
+        this.closeGround();
+        this.closeView();
+        this.closeLaser();
+        this.closeLighting();
+        this.closePaint();
+        this.closeTemplate();
+        this.closeDice();
+        this.closeMore();
+        if (!this.actions.measureOn?.()) this.actions.selectMeasure?.(this.actions.measureShape?.() ?? 'line');
+        break;
+      case 'measure-options':
+        this.openMeasure();
+        break;
+      case 'template':
+        if (this.actions.hosting() && !this.actions.templateOn()) this.actions.selectTemplate(this.actions.templateShape());
+        break;
+      case 'template-options':
+        if (this.actions.hosting()) this.openTemplate();
+        break;
+      case 'water':
+        this.close();
+        this.closeGround();
+        this.closeView();
+        this.closeLaser();
+        this.closeLighting();
+        this.closePaint();
+        this.closeMeasure();
+        this.closeTemplate();
+        this.closeMore();
+        if (!this.actions.waterTool?.()) this.actions.setWaterTool?.(this.lastWaterMode);
+        break;
+      case 'shapes':
+        if (this.actions.shapeTool?.() !== true) this.actions.setShapeTool?.(true);
+        break;
+      case 'paint':
+        if (!this.actions.painting?.()) {
+          if (this.lastPaint) this.actions.setPainting?.(this.lastPaint);
+          else this.openPaint();
+        }
+        break;
+      case 'paint-options':
+        this.openPaint();
+        break;
+      case 'lighting':
+        if (this.actions.canLight()) this.openLighting();
+        break;
+      case 'ground':
+        if (this.actions.setGround) this.openGround();
+        break;
+      case 'board-settings':
+        this.open();
+        break;
+      case 'visibility':
+        this.openView();
+        break;
+      case 'see-through':
+        this.actions.setSeeThrough?.(!(this.actions.seeThrough?.() ?? false));
+        break;
+      case 'see-through-size':
+        this.openView();
+        this.setSizeMode(true);
+        break;
+      case 'layers-solid':
+        this.actions.setLayerLook?.('solid');
+        break;
+      case 'layers-faded':
+        this.actions.setLayerLook?.('faded');
+        break;
+      case 'layers-transparent':
+        this.actions.setLayerLook?.('transparent');
+        break;
+      case 'initiative':
+        this.actions.toggleInitiative();
+        break;
+      case 'sheet':
+        if (this.sheetHandlers) {
+          this.dice?.handlers.close();
+          this.diceLog?.handlers.close();
+          this.sheetHandlers.toggle();
+        }
+        break;
+      case 'dice':
+        if (this.dice) {
+          this.close();
+          this.closeView();
+          this.closeLaser();
+          this.closeTemplate();
+          this.closeLighting();
+          this.closeMeasure();
+          this.diceLog?.handlers.close();
+          this.sheetHandlers?.close();
+          if (!this.dice.handlers.isOpen()) this.dice.handlers.toggle();
+        }
+        break;
+      case 'dice-log':
+        if (this.diceLog) {
+          this.close();
+          this.closeView();
+          this.closeLaser();
+          this.closeTemplate();
+          this.closeLighting();
+          this.closeMeasure();
+          this.dice?.handlers.close();
+          this.sheetHandlers?.close();
+          if (!this.diceLog.handlers.isOpen()) this.diceLog.handlers.toggle();
+        }
+        break;
+      case 'cinema-live':
+        if (this.cinema && this.actions.hosting()) {
+          this.closeDice();
+          this.cinema.handlers.toggleLive();
+        }
+        break;
+      case 'atlas-loot':
+      case 'atlas-assets': {
+        const toolId = buttonId === 'atlas-loot' ? 'loot' : 'assets';
+        const found = this.atlasButtons.find((entry) => entry.tool.id === toolId);
+        if (found && found.tool.enabled()) found.tool.run();
+        break;
+      }
+      case 'atlas-palette':
+        // The palette closes itself when the command runs; nothing else to open.
+        break;
+      case 'more':
+        if (!this.moreGroup.hidden) this.openMore();
+        break;
+    }
+    this.refresh();
+    return true;
   }
 
   /** Atlas's Play-mode toolbar tools (random tables, asset manager), in their group before the end slot. */
@@ -1523,7 +1752,7 @@ export class BoardToolbar {
       const wrapper = parent.createDiv({ cls: extraClass ? `atlas-tool-button ${extraClass}` : 'atlas-tool-button' });
       const span = wrapper.createSpan();
       span.setCssStyles({ display: 'inline-flex' });
-      const button = span.createEl('button', { cls: 'btn btn--toolbar btn--icon atlas-tabletop-tool-button' });
+      const button = this.registerButton(`atlas-${tool.id}`, span.createEl('button', { cls: 'btn btn--toolbar btn--icon atlas-tabletop-tool-button' }));
       button.type = 'button';
       button.dataset.atlasTool = tool.id;
       setSvg(button, atlasToolIcon(tool.id));
@@ -1861,11 +2090,28 @@ export class BoardToolbar {
     this.viewTooltip.hide();
   }
 
+  openMeasure(): void {
+    this.close();
+    this.closeView();
+    this.closeGround();
+    this.closeLaser();
+    this.closeLighting();
+    this.closePaint();
+    this.closeTemplate();
+    this.closeDice();
+    this.closeMore();
+    this.measurePanel.hidden = false;
+    this.measureMenuButton.classList.add('atlas-is-active');
+    this.measureMenuButton.setAttribute('aria-expanded', 'true');
+    this.row.ownerDocument.addEventListener('pointerdown', this.onOutside, true);
+  }
+
   closeMeasure(): void {
     if (this.measurePanel.hidden) return;
     this.measurePanel.hidden = true;
     this.measureMenuButton.classList.remove('atlas-is-active');
     this.measureMenuButton.setAttribute('aria-expanded', 'false');
+    this.dropOutsideIfClosed();
   }
 
   closeTemplate(): void {
@@ -2062,7 +2308,7 @@ export class BoardToolbar {
   }
 
   private dropOutsideIfClosed(): void {
-    if (this.panel.hidden && this.viewPanel.hidden && this.groundPanel.hidden && this.laserPanel.hidden && this.lightingPanel.hidden && this.paintPanel.hidden && this.openWaterPopoverName === null && this.templatePanel.hidden && this.moreMenu.hidden) {
+    if (this.panel.hidden && this.viewPanel.hidden && this.groundPanel.hidden && this.laserPanel.hidden && this.measurePanel.hidden && this.lightingPanel.hidden && this.paintPanel.hidden && this.openWaterPopoverName === null && this.templatePanel.hidden && this.moreMenu.hidden) {
       this.row.ownerDocument.removeEventListener('pointerdown', this.onOutside, true);
     }
   }

@@ -1,16 +1,27 @@
-// Tabletop's entries in the copied command palette (added by the patch in scripts/atlasPortList.mjs): Tabletop's lighting
-// and board settings (src/palette/tabletopCommands.ts), drawn as Atlas's own entries with lucide icons, in the Settings tab.
-import { BrickWall, Dices, Eye, Focus, Lamp, Layers, Moon, ScanEye, Settings2, SquareStack, Sun, Sunset, Swords } from 'lucide-react';
+// Tabletop's entries in the copied command palette (added by the patch in scripts/atlasPortList.mjs): every toolbar
+// button and Tabletop's lighting and board settings (src/palette/tabletopCommands.ts), drawn as Atlas's own entries
+// with lucide icons, in the Settings tab.
+import {
+  Blend, BrickWall, CircleDashed, Clapperboard, Command, Dices, Ellipsis, Eye, EyeOff, Flashlight, Focus, Globe,
+  Hammer, Hand, Image as ImageIcon, Lamp, Layers, ListOrdered, Moon, Mountain, NotebookText, PaintRoller, Plug, Radio,
+  Redo2, Ruler, ScanEye, ScrollText, Settings2, Shapes, SlidersHorizontal, SquareStack, Sun, Sunset, Swords, Undo2, Waves,
+} from 'lucide-react';
+import { CoinIcon } from '../app/react/components/CoinIcon';
 import { paletteHost } from '../../palette/paletteHost';
 import type { TabletopCommand } from '../../palette/tabletopCommands';
+import type { ToolbarCommandIcon } from '../../board/toolbarButtons';
 
-const ICONS = {
+const ICONS: Readonly<Record<ToolbarCommandIcon, React.ComponentType>> = {
   sun: Sun, sunset: Sunset, moon: Moon, lamp: Lamp, blur: Focus, shadow: SquareStack, bricks: BrickWall,
-  eye: Eye, layers: Layers, sight: ScanEye, swords: Swords, dice: Dices, settings: Settings2,
-} as const;
+  eye: Eye, 'eye-off': EyeOff, layers: Layers, blend: Blend, sight: ScanEye, 'circle-dashed': CircleDashed,
+  swords: Swords, hammer: Hammer, clapperboard: Clapperboard, dice: Dices, scroll: ScrollText, notebook: NotebookText,
+  'list-ordered': ListOrdered, settings: Settings2, undo: Undo2, redo: Redo2, hand: Hand, flashlight: Flashlight,
+  sliders: SlidersHorizontal, ruler: Ruler, shapes: Shapes, waves: Waves, mountain: Mountain, 'paint-roller': PaintRoller,
+  ground: Globe, radio: Radio, coin: CoinIcon, image: ImageIcon, command: Command, ellipsis: Ellipsis, plug: Plug,
+};
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-function option(command: TabletopCommand): any {
+function option(command: TabletopCommand, onClose: () => void): any {
   const Icon = ICONS[command.icon];
   return {
     id: command.id,
@@ -19,11 +30,18 @@ function option(command: TabletopCommand): any {
     keywords: command.keywords,
     section: 'settings',
     ...(command.submenu
-      ? { hasSubmenu: true, submenu: command.submenu.map(option) }
-      : { action: command.run, isToggle: command.active !== undefined, isActive: command.active === true }),
+      ? { hasSubmenu: true, submenu: command.submenu.map((child) => option(child, onClose)) }
+      : {
+          action: () => {
+            onClose();
+            command.run?.();
+          },
+          isToggle: command.active !== undefined,
+          isActive: command.active === true,
+        }),
   };
 }
 
-export function tabletopCommands(_onClose: () => void): any[] {
-  return (paletteHost()?.tabletopCommands?.() ?? []).map(option);
+export function tabletopCommands(onClose: () => void): any[] {
+  return (paletteHost()?.tabletopCommands?.() ?? []).map((command) => option(command, onClose));
 }
