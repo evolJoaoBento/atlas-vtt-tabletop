@@ -12,7 +12,7 @@ import { formatHotkey } from '../atlasPort/app/keyboard/mapHotkeys';
 import { LootWindow } from '../loot/LootWindow';
 import type { PaletteHost } from '../palette/paletteHost';
 import { PaletteWindow } from '../palette/PaletteWindow';
-import { atlasToolButtons, boardAssetsBinding, boardKey, type AtlasToolId } from './atlasTools';
+import { atlasPlayToolButtons, boardAssetsBinding, boardKey, type AtlasToolId } from './atlasTools';
 import type { Board } from './board';
 import type { AtlasToolButton } from './toolbar';
 import type { TokenWriter } from './tokenWriter';
@@ -72,7 +72,8 @@ export class BoardAtlasTools {
       const key = id === 'loot' ? this.bridge.hotkey('lootRoller') : id === 'assets' ? boardAssetsBinding(this.bridge.hotkey('assets')) : this.bridge.hotkey('palette');
       return key ? formatHotkey(key) : null;
     };
-    const tools: AtlasToolButton[] = atlasToolButtons(layout).map((id) => ({
+    const ids: AtlasToolId[] = [...atlasPlayToolButtons(layout), 'palette'];
+    const tools: AtlasToolButton[] = ids.map((id) => ({
       id, label: label[id], shortcut: shortcut(id),
       enabled: () => id !== 'assets' || this.assets.available(),
       active: () => (id === 'loot' ? this.loot.isOpen() : id === 'assets' ? this.assets.isOpen() : this.palette.isOpen()),

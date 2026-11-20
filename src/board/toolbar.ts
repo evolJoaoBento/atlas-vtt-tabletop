@@ -264,6 +264,7 @@ export class BoardToolbar {
   private readonly moreMenu: HTMLElement;
   private readonly fitOrder: HTMLElement[] = [];
   private readonly fitWatch: ResizeObserver;
+  private lastMode: BoardMode | null | undefined = undefined;
   private readonly panel: HTMLElement;
   private readonly button: HTMLButtonElement;
   /** The Visibility icon bar above the main toolbar: see-through walls, window size, upper layers, initiative tracker. */
@@ -1390,6 +1391,10 @@ export class BoardToolbar {
       this.seeThroughSizeButton.disabled = !canCut;
       this.updateSizeTooltip(!canCut);
     }
+    if (mode !== this.lastMode) {
+      this.lastMode = mode;
+      this.fit();
+    }
   }
 
   get isOpen(): boolean {
@@ -1495,13 +1500,18 @@ export class BoardToolbar {
     return this.actions;
   }
 
-  /** Atlas's toolbar tools on the board (random tables, asset manager, command palette), in their group before the end slot. */
+  /** Atlas's Play-mode toolbar tools (random tables, asset manager), in their group before the end slot. */
   private atlasGroup: HTMLElement | null = null;
   private atlasButtons: Array<{ tool: AtlasToolButton; button: HTMLButtonElement }> = [];
+  /** Atlas's command palette button: always rightmost (after More tools), shown in every mode and never overflowed. */
+  private commandSlot: HTMLElement | null = null;
+  private commandButton: { tool: AtlasToolButton; button: HTMLButtonElement } | null = null;
 
-  /** Shows these Atlas tools (in this order), replacing the ones shown; an empty list takes the group away. */
+  /** Shows these Atlas tools: random tables and asset manager in Play mode, command palette rightmost in every mode. */
   setAtlasTools(tools: readonly AtlasToolButton[]): void {
     const doc = this.row.ownerDocument;
+    const groupTools = tools.filter((tool) => tool.id !== 'palette');
+    const paletteTool = tools.find((tool) => tool.id === 'palette') ?? null;
     if (!this.atlasGroup) {
       this.atlasGroup = doc.win.createDiv();
       this.atlasGroup.className = 'atlas-tabletop-atlas-tools';
@@ -1509,9 +1519,8 @@ export class BoardToolbar {
       this.bar.insertBefore(this.atlasGroup, this.endSlot);
       this.fitOrder.splice(this.fitOrder.indexOf(this.endSlot), 0, this.atlasGroup);
     }
-    this.atlasGroup.empty();
-    this.atlasButtons = tools.map((tool) => {
-      const wrapper = this.atlasGroup!.createDiv({ cls: 'atlas-tool-button' });
+    const makeAtlasButton = (parent: HTMLElement, tool: AtlasToolButton, extraClass = ''): { tool: AtlasToolButton; button: HTMLButtonElement } => {
+      const wrapper = parent.createDiv({ cls: extraClass ? `atlas-tool-button ${extraClass}` : 'atlas-tool-button' });
       const span = wrapper.createSpan();
       span.setCssStyles({ display: 'inline-flex' });
       const button = span.createEl('button', { cls: 'btn btn--toolbar btn--icon atlas-tabletop-tool-button' });
@@ -1520,14 +1529,26 @@ export class BoardToolbar {
       setSvg(button, atlasToolIcon(tool.id));
       button.addEventListener('click', () => { if (tool.enabled()) tool.run(); this.refresh(); });
       return { tool, button };
-    });
-    this.atlasGroup.hidden = tools.length === 0;
+    };
+    this.atlasGroup.empty();
+    this.atlasButtons = groupTools.map((tool) => makeAtlasButton(this.atlasGroup!, tool));
+    this.atlasGroup.hidden = groupTools.length === 0;
+    this.commandSlot?.remove();
+    this.commandSlot = null;
+    this.commandButton = null;
+    if (paletteTool) {
+      const made = makeAtlasButton(this.bar, paletteTool, 'atlas-tabletop-command');
+      this.commandSlot = made.button.closest('.atlas-tool-button') as HTMLElement;
+      this.commandButton = made;
+    }
     this.refresh();
+    this.fit();
   }
 
   /** Shows which Atlas tool is open, and which need Atlas. */
   private refreshAtlasTools(): void {
-    for (const { tool, button } of this.atlasButtons) {
+    const entries = this.commandButton ? [...this.atlasButtons, this.commandButton] : this.atlasButtons;
+    for (const { tool, button } of entries) {
       const enabled = tool.enabled();
       const label = enabled ? tool.label : `${tool.label} (${t('atlasTools.needsAtlas')})`;
       button.disabled = !enabled;

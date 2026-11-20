@@ -15,6 +15,11 @@ export function atlasToolButtons(layout: { order: readonly string[]; hidden: Rea
   return layout.order.filter((id): id is AtlasToolId => (TOOLS as readonly string[]).includes(id) && !layout.hidden.has(id));
 }
 
+/** The Play-mode Atlas tools (random tables and asset manager), in the GM's Atlas order, minus those hidden there. */
+export function atlasPlayToolButtons(layout: { order: readonly string[]; hidden: ReadonlySet<string> }): Array<'loot' | 'assets'> {
+  return atlasToolButtons(layout).filter((id): id is 'loot' | 'assets' => id !== 'palette');
+}
+
 export interface BoardKeyState {
   /** A token is being carried (Space then drops a ruler waypoint). */
   carrying: boolean;

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { atlasNewerThanChecked, atlasToolButtons, boardKey } from '../src/board/atlasTools';
+import { atlasNewerThanChecked, atlasPlayToolButtons, atlasToolButtons, boardKey } from '../src/board/atlasTools';
 
 const key = (init: Partial<KeyboardEvent> & { key: string }) => ({ shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, repeat: false, ...init }) as KeyboardEvent;
 const DEFAULTS = { lootRoller: 'l', assets: 'a', palette: 'Space' };
@@ -9,6 +9,12 @@ const idle = { carrying: false, typing: false, hotkeys: DEFAULTS };
 test("atlasToolButtons keeps Atlas's order and drops what the GM hid", () => {
   assert.deepEqual(atlasToolButtons({ order: ['move', 'dice', 'loot', 'assets', 'palette'], hidden: new Set() }), ['loot', 'assets', 'palette']);
   assert.deepEqual(atlasToolButtons({ order: ['palette', 'assets', 'loot'], hidden: new Set(['assets']) }), ['palette', 'loot']);
+});
+
+test('atlasPlayToolButtons keeps only loot and assets in Atlas order (palette lives in its own rightmost slot)', () => {
+  assert.deepEqual(atlasPlayToolButtons({ order: ['move', 'loot', 'assets', 'palette'], hidden: new Set() }), ['loot', 'assets']);
+  assert.deepEqual(atlasPlayToolButtons({ order: ['palette', 'assets', 'loot'], hidden: new Set(['palette']) }), ['assets', 'loot']);
+  assert.deepEqual(atlasPlayToolButtons({ order: ['assets', 'loot'], hidden: new Set(['assets']) }), ['loot']);
 });
 
 test('Space opens the palette, but not while a token is carried', () => {
