@@ -9,6 +9,7 @@ import type { App, WorkspaceLeaf } from 'obsidian';
 import { isAtlasView, mapViews, tabViewOf } from './atlas';
 import { isMovementSpeed, parseMovementRules, readDragDistance, type DragDistance, type MovementRules } from '../packages/atlas-shared/src/index';
 import { readToolbarLayout, resolveToolbarLayout, type ToolbarLayout } from './atlasPort/toolbarLayout';
+import { DEFAULT_MAP_HOTKEYS, type MapHotkeyId } from './atlasPort/app/keyboard/mapHotkeys';
 
 /** Atlas's asset manager tabs (its global window also takes these). */
 export type AssetTab = 'scenes' | 'maps' | 'encounters' | 'tokens' | 'party';
@@ -39,12 +40,8 @@ export interface AtlasSettingsService {
   [member: string]: unknown;
 }
 
-/** Atlas's map hotkeys for shared tools, and their defaults (`keyboard/mapHotkeys.ts`). */
-export type SharedHotkey = 'lootRoller' | 'assets' | 'palette' | 'undo' | 'redo' | 'redoAlt' | 'measure' | 'measureKeep' | 'gmView';
-const DEFAULT_HOTKEYS: Record<SharedHotkey, string> = {
-  lootRoller: 'l', assets: 'a', palette: 'Space', undo: 'Mod+z', redo: 'Mod+Shift+z', redoAlt: 'Mod+y',
-  measure: 'm', measureKeep: 'k', gmView: 'd',
-};
+/** One of Atlas's map hotkeys (`keyboard/mapHotkeys.ts`, copied in `atlasPort`); its default is Atlas's own. */
+export type SharedHotkey = MapHotkeyId;
 
 interface AtlasPlugin {
   settingsService?: unknown;
@@ -125,7 +122,7 @@ export class AtlasBridge {
     let keys: Record<string, string> = {};
     try { keys = typeof settings?.getHotkeys === 'function' ? settings.getHotkeys() ?? {} : {}; } catch { keys = {}; }
     const key = keys[id];
-    return typeof key === 'string' && key !== '' ? key : DEFAULT_HOTKEYS[id];
+    return typeof key === 'string' && key !== '' ? key : DEFAULT_MAP_HOTKEYS[id] ?? null;
   }
 
   /** Atlas's laser pointer as the GM set it (its colour and size, for every map); null without Atlas, or one that has none. */

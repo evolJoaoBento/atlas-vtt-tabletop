@@ -7374,6 +7374,54 @@ feature('measure menu and behaviour', async ({ page, shot }) => {
   await page.keyboard.press('Escape');
 });
 
+feature('atlas shortcuts on the board', async ({ page }) => {
+  // What Atlas's map shortcuts call on the board (the keys themselves are matched in tests/boardHotkeys.test.ts and
+  // routed by BoardAtlasTools in Obsidian): fit token, level up/down, select all, delete, and keys the board keeps.
+  const result = await page.evaluate(() => {
+    const { board, record } = window.boardTest;
+    const key = (init) => new KeyboardEvent('keydown', init);
+    const ownsIdle = ['Enter', 'Delete', 'PageUp', ' '].map((k) => board.ownsKey(key({ key: k })));
+    // Fit token: the camera turns round the selected token.
+    const ids = [...board.tokens.keys()];
+    const first = ids[0];
+    board.select(first);
+    const framed = board.frameToken();
+    board.camera.snap();
+    const at = board.tokens.get(first).at;
+    const target = board.camera.pose.target;
+    const onToken = Math.hypot(target.x - at.x, target.z - at.y) < 1;
+    board.select(null);
+    const noneSelected = board.frameToken();
+    // Levels: the next shown scene up and down the stack, a hidden one passed over, none past the top.
+    const before = record.sceneTabs.length;
+    board.setLayerMenu([
+      { path: 'cellar', name: 'Cellar', elevation: -10, active: false },
+      { path: 'ground', name: 'Ground', elevation: 0, active: true },
+      { path: 'upper', name: 'Upper', elevation: 10, active: false },
+    ]);
+    const up = board.stepLevel(1);
+    const down = board.stepLevel(-1);
+    board.setLayerMenu([{ path: 'ground', name: 'Ground', elevation: 0, active: false }, { path: 'upper', name: 'Upper', elevation: 10, active: true }]);
+    const pastTop = board.stepLevel(1);
+    const switched = record.sceneTabs.slice(before);
+    board.setLayerMenu(null);
+    // Select all, then delete: every token of the shown scene leaves the map in one call.
+    const removedBefore = record.removed.length;
+    const all = board.selectAll();
+    const groupSize = board.group.size;
+    const deleted = board.deleteSelection();
+    const removed = record.removed.slice(removedBefore);
+    const nothingLeft = board.deleteSelection();
+    return { ownsIdle, framed, onToken, noneSelected, up, down, pastTop, switched, all, groupSize, tokenCount: ids.length, deleted, removed, nothingLeft };
+  });
+  check('board shortcuts: the board keeps no key for itself while idle', result.ownsIdle.every((owned) => owned === false), JSON.stringify(result.ownsIdle));
+  check('board shortcuts: Fit token frames the selected token, and does nothing without one', result.framed && result.onToken && !result.noneSelected, JSON.stringify(result));
+  check('board shortcuts: level up and down show the next scene of the stack; none past the top',
+    result.up && result.down && !result.pastTop && JSON.stringify(result.switched) === JSON.stringify([['layer', 'upper'], ['layer', 'cellar']]), JSON.stringify(result));
+  check('board shortcuts: Select all selects every token, Delete removes them all at once, then has nothing to remove',
+    result.all && result.groupSize === result.tokenCount && result.deleted && result.removed.length === result.tokenCount && !result.nothingLeft, JSON.stringify(result));
+});
+
 /** What every feature depends on beside the bundle: this file outside the features, the page, the styles, the runner. */
 function globalHash() {
   let rest = fs.readFileSync(__filename, 'utf8');

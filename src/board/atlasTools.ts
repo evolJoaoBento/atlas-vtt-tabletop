@@ -1,10 +1,11 @@
 /**
  * Atlas's toolbar tools on the board (random tables, asset manager, command palette): which show, in what order, and the
  * keys that open them. Pure. The order and what is hidden are the GM's Atlas toolbar layout; the keys are Atlas's own
- * (its defaults or the GM's rebinding), matched the way Atlas matches them (`matchesHotkey`). On the board the asset
- * manager's key takes Shift (Shift+A by default), since W/A/S/D move the camera there.
+ * (its defaults or the GM's rebinding), matched the way Atlas matches them (`matchesHotkey`). On the board a key that
+ * is one of the camera's letters takes Shift (`boardBinding`): the asset manager's is Shift+A by default.
  */
 import { matchesHotkey } from '../atlasPort/app/keyboard/mapHotkeys';
+import { boardBinding } from './boardHotkeys';
 import { ATLAS_CHECKED_VERSION } from '../parity';
 
 export type AtlasToolId = 'loot' | 'assets' | 'palette';
@@ -29,11 +30,6 @@ export interface BoardKeyState {
   hotkeys: { lootRoller: string | null; assets: string | null; palette: string | null };
 }
 
-/** The board's binding of the asset manager: Atlas's, with Shift added to a plain letter. */
-export function boardAssetsBinding(binding: string | null): string | null {
-  if (!binding) return null;
-  return /^[a-z]$/.test(binding) ? `Shift+${binding}` : binding;
-}
 
 /** Which Atlas tool a key opens on the board, or null. */
 export function boardKey(event: KeyboardEvent, state: BoardKeyState): AtlasToolId | null {
@@ -41,7 +37,7 @@ export function boardKey(event: KeyboardEvent, state: BoardKeyState): AtlasToolI
   const { lootRoller, assets, palette } = state.hotkeys;
   if (palette && matchesHotkey(event, palette)) return state.carrying && palette === 'Space' ? null : 'palette';
   if (lootRoller && matchesHotkey(event, lootRoller)) return 'loot';
-  const boardAssets = boardAssetsBinding(assets);
+  const boardAssets = boardBinding(assets);
   if (boardAssets && matchesHotkey(event, boardAssets)) return 'assets';
   return null;
 }

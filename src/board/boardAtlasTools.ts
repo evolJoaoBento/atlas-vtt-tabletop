@@ -12,7 +12,9 @@ import { formatHotkey } from '../atlasPort/app/keyboard/mapHotkeys';
 import { LootWindow } from '../loot/LootWindow';
 import type { PaletteHost } from '../palette/paletteHost';
 import { PaletteWindow } from '../palette/PaletteWindow';
-import { atlasPlayToolButtons, boardAssetsBinding, boardKey, type AtlasToolId } from './atlasTools';
+import { atlasPlayToolButtons, boardKey, type AtlasToolId } from './atlasTools';
+import { boardBinding, boardHotkeyAction, nextBoardMeasureMode } from './boardHotkeys';
+import { isMeasureShape } from './measureOptions';
 import type { Board } from './board';
 import type { AtlasToolButton } from './toolbar';
 import type { TokenWriter } from './tokenWriter';
@@ -69,7 +71,7 @@ export class BoardAtlasTools {
     const layout = this.bridge.toolbarLayout();
     const label: Record<AtlasToolId, string> = { loot: at('toolbar.lootRoller'), assets: at('toolbar.assetManager'), palette: at('toolbar.commandPalette') };
     const shortcut = (id: AtlasToolId): string | null => {
-      const key = id === 'loot' ? this.bridge.hotkey('lootRoller') : id === 'assets' ? boardAssetsBinding(this.bridge.hotkey('assets')) : this.bridge.hotkey('palette');
+      const key = id === 'loot' ? this.bridge.hotkey('lootRoller') : id === 'assets' ? boardBinding(this.bridge.hotkey('assets')) : this.bridge.hotkey('palette');
       return key ? formatHotkey(key) : null;
     };
     const ids: AtlasToolId[] = [...atlasPlayToolButtons(layout), 'palette'];
@@ -100,8 +102,54 @@ export class BoardAtlasTools {
       carrying, typing: false,
       hotkeys: { lootRoller: this.bridge.hotkey('lootRoller'), assets: this.bridge.hotkey('assets'), palette: this.bridge.hotkey('palette') },
     });
-    if (!id) return false;
-    this.run(id);
+    if (id) { this.run(id); return true; }
+    return this.boardAction(event);
+  }
+
+  /**
+   * The rest of Atlas's map shortcuts that the board has something for (`boardHotkeys.ts`): true when the key did it.
+   * A key the board itself uses now (the Shapes tool, the eyes, a token being carried) is left to the board.
+   */
+  private boardAction(event: KeyboardEvent): boolean {
+    const board = this.deps.board();
+    if (!board || board.ownsKey(event)) return false;
+    const action = boardHotkeyAction(event, (id) => this.bridge.hotkey(id));
+    switch (action) {
+      case null: return false;
+      case 'measure': return this.measureKey(board);
+      case 'diceTray': return board.goToToolbar('dice');
+      case 'diceLog': return board.goToToolbar('dice-log');
+      case 'sceneSwitcher': this.deps.palette.openSceneBrowser(); return true;
+      case 'dashboard': return this.inAtlas('atlas-vtt:open-dashboard');
+      case 'nextMood': return this.inAtlas('atlas-vtt:sound-next-mood');
+      case 'silence': return this.inAtlas('atlas-vtt:sound-silence');
+      case 'fitMap': board.frameMap(); return true;
+      case 'fitToken': return board.frameToken();
+      case 'levelUp': return board.stepLevel(1);
+      case 'levelDown': return board.stepLevel(-1);
+      case 'selectAll': return board.selectAll();
+      case 'delete': return board.deleteSelection();
+    }
+  }
+
+  /** Atlas's Measure key: chooses the tool (in Play mode, switching to it), or, while chosen, steps to its next mode. */
+  private measureKey(board: Board): boolean {
+    const actions = board.toolbarActions();
+    if (!actions.measureOn?.()) return board.goToToolbar('measure');
+    const options = actions.measureOptions?.();
+    if (!options) return false;
+    const ranges = actions.rangesUnavailable !== undefined && actions.rangesUnavailable() === null;
+    const next = nextBoardMeasureMode(options.mode, ranges);
+    if (isMeasureShape(next)) actions.selectMeasure?.(next);
+    else actions.setMeasureOptions?.({ mode: next });
+    board.refreshToolbar();
+    return true;
+  }
+
+  /** Runs one of Atlas's own commands on this scene's Atlas view (the dashboard, the sound desk). */
+  private inAtlas(command: string): boolean {
+    const path = this.deps.mapPath();
+    if (!path || !this.bridge.runInAtlas(path, command, this.deps.leaf)) new Notice('Tabletop: this needs the scene open in Atlas.');
     return true;
   }
 

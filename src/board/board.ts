@@ -2511,7 +2511,7 @@ export class Board {
 
   /** The stack's scenes for the height ruler down the right of the board; fewer than two hide it. */
   /** The height ruler's pills, as last given. */
-  private layerMenuItems: ReadonlyArray<{ path: string; name: string }> = [];
+  private layerMenuItems: ReadonlyArray<{ path: string; name: string; elevation: number; active: boolean }> = [];
 
   setLayerMenu(items: ReadonlyArray<{ path: string; name: string; elevation: number; active: boolean }> | null): void {
     this.layerMenuItems = items ?? [];
@@ -5561,6 +5561,68 @@ export class Board {
   /** Switches mode if needed and opens or activates the toolbar button `id`. */
   goToToolbar(id: string): boolean {
     return this.toolbar.goTo(id);
+  }
+
+  /**
+   * Whether the board itself has a use for this key now, before Atlas's shortcuts: the Shapes tool (Enter, Delete,
+   * Backspace), the view through a token's eyes, or a token being carried (Space, the arrows and Page Up/Down).
+   */
+  ownsKey(event: KeyboardEvent): boolean {
+    if (this.eye) return true;
+    if (this.shapeEditor?.active === true && ['Enter', 'Delete', 'Backspace'].includes(event.key)) return true;
+    return this.press?.kind === 'token' && ['PageUp', 'PageDown', 'ArrowUp', 'ArrowDown', ' '].includes(event.key);
+  }
+
+  /** Atlas's Fit token key: the camera frames the selected token (the selection's first). False without one. */
+  frameToken(): boolean {
+    const id = this.selectedId ?? this.group.values().next().value ?? null;
+    const entry = id === null ? undefined : this.tokens.get(id);
+    if (!entry || !this.allows('camera')) return false;
+    const cell = this.map?.grid.size ?? 50;
+    this.camera.frame({ x: entry.at.x, y: 0, z: entry.at.y }, cell * Math.max(2, entry.token.size * 2));
+    this.wake();
+    return true;
+  }
+
+  /**
+   * Atlas's level keys: shows the scene of the stack next above (1) or below (-1) the one shown, passing over those the GM
+   * hid. False when there is none that way.
+   */
+  stepLevel(direction: 1 | -1): boolean {
+    const items = [...this.layerMenuItems].sort((a, b) => a.elevation - b.elevation);
+    const at = items.findIndex((item) => item.active);
+    if (at < 0 || !this.host.switchLayer) return false;
+    for (let index = at + direction; index >= 0 && index < items.length; index += direction) {
+      const item = items[index]!;
+      if (this.host.layerHidden?.(item.path) === true) continue;
+      this.host.switchLayer(item.path);
+      return true;
+    }
+    return false;
+  }
+
+  /** Atlas's Select all key: every token of the shown scene is selected (the GM's). False when there are fewer than two. */
+  selectAll(): boolean {
+    if (this.audience !== 'gm' || this.tokens.size === 0) return false;
+    if (this.tokens.size === 1) { this.select(this.tokens.keys().next().value ?? null); return true; }
+    this.select(null);
+    this.group.clear();
+    for (const id of this.tokens.keys()) this.group.add(id);
+    this.drawGroup();
+    this.wake();
+    return true;
+  }
+
+  /** Atlas's Delete key: the selected tokens leave the map (the GM's, one undo step). False with nothing selected. */
+  deleteSelection(): boolean {
+    if (this.audience !== 'gm' || !this.host.removeTokens) return false;
+    const picked = this.group.size > 0 ? [...this.group] : this.selectedId !== null ? [this.selectedId] : [];
+    const ids = picked.filter((id) => this.tokens.has(id));
+    if (ids.length === 0) return false;
+    this.clearGroup();
+    this.select(null);
+    this.host.removeTokens(ids);
+    return true;
   }
 
   /** A token (or ruler measurement) is being dragged (Space then drops a waypoint). */

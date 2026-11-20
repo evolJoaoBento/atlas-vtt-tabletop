@@ -39,7 +39,9 @@ test('a key rebound in Atlas wins', () => {
   const hotkeys = { lootRoller: 'g', assets: 'b', palette: 'Mod+k' };
   assert.equal(boardKey(key({ key: 'g' }), { ...idle, hotkeys }), 'loot');
   assert.equal(boardKey(key({ key: 'l' }), { ...idle, hotkeys }), null);
-  assert.equal(boardKey(key({ key: 'B', shiftKey: true }), { ...idle, hotkeys }), 'assets');
+  // B moves no camera, so it is Atlas's key as it is; only the camera's letters take Shift.
+  assert.equal(boardKey(key({ key: 'b' }), { ...idle, hotkeys }), 'assets');
+  assert.equal(boardKey(key({ key: 'B', shiftKey: true }), { ...idle, hotkeys }), null);
   assert.equal(boardKey(key({ key: 'k', ctrlKey: true }), { ...idle, hotkeys }), 'palette');
 });
 
