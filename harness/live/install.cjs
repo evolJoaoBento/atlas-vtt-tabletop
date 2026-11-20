@@ -4,7 +4,7 @@
 const fs = require('fs'), path = require('path');
 const vault = process.argv[2] || 'C:/Users/joaoo/fusion-gate-vault';
 const tabletop = path.resolve(__dirname, '..', '..');
-const connect = process.env.CONNECT_REPO || 'C:/Users/joaoo/2075/atlas-vtt-connect-cutscenes-wt';
+const connect = process.env.CONNECT_REPO || 'C:/Users/joaoo/2075-code/atlas-vtt-connect';
 if (!/fusion-gate-vault/.test(vault)) throw new Error(`${vault} is not the throwaway vault`);
 const plugins = path.join(vault, '.obsidian', 'plugins');
 const copies = [

@@ -1,8 +1,8 @@
-// Copies the built plugin into the 2075 vault's plugin folder (its own folder: no other plugin's files are touched).
+// Copies the built plugin into the 2075 vault's plugin folder (the vault is ../../2075: code lives in 2075-code, out of the vault) (its own folder: no other plugin's files are touched).
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-const vault = resolve(process.env.ATLAS_VAULT ?? '..');
+const vault = resolve(process.env.ATLAS_VAULT ?? '../../2075');
 const target = join(vault, '.obsidian', 'plugins', 'tabletop-for-atlas');
 if (!existsSync(join(vault, '.obsidian'))) throw new Error(`No .obsidian folder in ${vault}; set ATLAS_VAULT.`);
 mkdirSync(target, { recursive: true });

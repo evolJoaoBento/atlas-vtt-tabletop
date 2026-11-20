@@ -14,7 +14,7 @@ fs.mkdirSync(OUT, { recursive: true });
 const fixtures = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures.json'), 'utf8'));
 // The builds under test: their versions and the fusion step their wire carries (re-run in later phases).
 const TABLETOP_VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8')).version;
-const CONNECT_VERSION = JSON.parse(fs.readFileSync(path.join(process.env.CONNECT_REPO || 'C:/Users/joaoo/2075/atlas-vtt-connect-cutscenes-wt', 'manifest.json'), 'utf8')).version;
+const CONNECT_VERSION = JSON.parse(fs.readFileSync(path.join(process.env.CONNECT_REPO || 'C:/Users/joaoo/2075-code/atlas-vtt-connect', 'manifest.json'), 'utf8')).version;
 const FUSION = Number(/export const FUSION_PROTOCOL = (\d+)/.exec(fs.readFileSync(path.join(ROOT, 'src/connectWire.ts'), 'utf8'))[1]);
 const only = process.argv[2] ? new Set(process.argv[2].split(',').map(Number)) : null;
 

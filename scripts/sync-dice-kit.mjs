@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
-const repo = resolve(process.env.DICE_REPO ?? '../.obsidian/plugins/atlas-physical-dice');
+const repo = resolve(process.env.DICE_REPO ?? '../../2075/.obsidian/plugins/atlas-physical-dice');
 const out = resolve('src/dice/kit');
 const kitDir = `${repo}/kit`;
 const packDir = `${repo}/dice/Texture-Pack-Default`;
