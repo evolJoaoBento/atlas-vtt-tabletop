@@ -111,6 +111,8 @@ import { LightRig } from './lightRig';
 import { DarknessLayer } from './darkness';
 import { BoardMarks } from './marks';
 import { PlayerToolState, type TemplateChange, type TemplateMark, type TemplateShape, type ToolAction } from './playerTools';
+import { DEFAULT_MEASURE_TOOL, isMeasureShape, type MeasureToolOptions } from './measureOptions';
+import type { MeasureChange } from './boardMeasures';
 import type { FogOperation } from './fog';
 import { isWindow, NO_FLIP, segmentFrame, wholeWall, windowSpan, type BoardLight, type BoardWall, type DoorFlip, type WindowSpan } from './walls';
 import { MINI_DRAG_TYPE, MINI_TEXT_PREFIX } from '../assignments';
@@ -292,6 +294,17 @@ export interface BoardHost {
   movement?(): { rules: MovementRules; speedOf(tokenId: string): number | null } | null;
   /** When a dragged token shows its distance (Atlas 0.15's setting); without it, always. */
   dragDistance?(): DragDistance;
+  setDragDistance?(choice: DragDistance): void;
+  /** The GM's Measure tool choices (persisted across boards); defaults to `DEFAULT_MEASURE_TOOL`. */
+  measureTool?(): MeasureToolOptions;
+  setMeasureTool?(changes: Partial<MeasureToolOptions>): void;
+  /** Writes a kept measurement or clears the kept measurements of the shown level. */
+  measureAction?(change: MeasureChange): void;
+  /** Opens the collection's Measurement rules (Grid settings) in Atlas when reachable. */
+  openMeasureRules?(): void;
+  canOpenMeasureRules?(): boolean;
+  /** Atlas's formatted hotkey labels for Measure and Keep. */
+  measureHotkeys?(): { measure: string | null; measureKeep: string | null; gmView: string | null };
   /** How tall the map's fog stands, in grid squares; and saving a new height. */
   fogHeight(): number;
   setFogHeight(height: number): void;
@@ -1035,11 +1048,28 @@ export class Board {
       measureOn: () => this.tools.tool === 'measure',
       measureShape: () => this.tools.shape,
       selectMeasure: (shape) => {
-        if (shape !== null) { this.waterTool = null; this.stopPainting(); }
+        if (shape !== null) {
+          this.waterTool = null;
+          this.stopPainting();
+          this.setMeasureOptions({ mode: shape });
+        }
         if (shape === null) this.tools.select('move');
         else this.tools.selectShape(shape);
         this.toolsChanged();
       },
+      measureOptions: () => this.measureOptions(),
+      setMeasureOptions: (changes) => this.setMeasureOptions(changes),
+      clearMeasures: () => { this.host.measureAction?.({ clear: true }); },
+      hasKeptMeasures: () => (this.map?.measures.length ?? 0) > 0 || this.tools.shown.length > 0,
+      hasLevels: () => (this.map?.levels.length ?? 0) > 1,
+      dragDistance: () => this.host.dragDistance?.() ?? 'always',
+      setDragDistance: (choice) => { this.host.setDragDistance?.(choice); this.toolbar.refresh(); },
+      ...(this.host.openMeasureRules && {
+        openMeasureRules: () => this.host.openMeasureRules?.(),
+        ...(this.host.canOpenMeasureRules && { canOpenMeasureRules: () => this.host.canOpenMeasureRules?.() === true }),
+      }),
+      measureShortcut: () => this.host.measureHotkeys?.().measure ?? 'M',
+      measureKeepShortcut: () => this.host.measureHotkeys?.().measureKeep ?? 'K',
       templateOn: () => this.tools.tool === 'template',
       templateShape: () => this.tools.templateShape,
       clearTemplates: () => { this.act([{ type: 'template', change: { clear: true } }]); },
@@ -3491,6 +3521,11 @@ export class Board {
       // A player's tools are Connect's: Escape goes back to Move, as in its 2D view.
       if (this.audience === 'gm' && key === 'escape' && this.waterTool) { this.waterTool = null; this.showBrush(); this.toolbar.refresh(); return; }
       if (this.audience === 'gm' && key === 'escape' && this.tools.tool === 'measure') { this.tools.select('move'); this.toolsChanged(); return; }
+      if (this.audience === 'gm' && key === 'k' && this.tools.tool === 'measure' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        this.setMeasureOptions({ keep: !this.measureOptions().keep });
+        return;
+      }
       if (this.audience === 'player' && key === 'escape' && this.tools.tool !== 'move') { this.tools.select('move'); this.toolsChanged(); return; }
       if (key === 'v' && this.audience === 'gm' && !event.ctrlKey && !event.metaKey && !event.altKey) { this.setLaser(!this.laserOn); return; }
       if (key === 'escape' && this.group.size > 0) { this.clearGroup(); return; }
@@ -3507,6 +3542,12 @@ export class Board {
       if (key === ' ' && this.press?.kind === 'token') {
         event.preventDefault();
         if (!event.repeat) this.addWaypoint();
+        return;
+      }
+      // Space while dragging a ruler measure drops a waypoint.
+      if (key === ' ' && this.press?.kind === 'tool' && this.tools.tool === 'measure' && this.tools.shape === 'ruler') {
+        event.preventDefault();
+        if (!event.repeat && this.tools.addWaypoint()) this.showToolOverlay();
         return;
       }
       // Atlas's toolbar tools (random tables, asset manager, command palette) by Atlas's keys, the GM's only.
@@ -3930,13 +3971,22 @@ export class Board {
   private showToolOverlay(): void {
     const { measure, draft } = this.tools.overlay();
     const map = this.map;
-    // A measure from one token to another counts the height between them, as Atlas's ruler does (`rulerRise`); an area counts none.
-    const ends = measure ? [measure.start, measure.end] : [];
-    const rise = measure && map && measure.shape === 'line' ? riseBetweenEnds(ends, (point) => this.heightAt(point), this.host.measurement()) : 0;
-    const label = measure && map ? this.distanceLabel(ends, rise) : '';
-    this.marks.setOverlay(measure ? { ...measure, label, color: accent(this.container), cell: map?.grid.size ?? 70 } : null, 
+    const cell = map?.grid.size ?? 70;
+    const opts = this.measureOptions();
+    // A ruler from one token to another counts the height between them, as Atlas's ruler does (`rulerRise`); an area counts none.
+    const points = measure ? [measure.start, ...(measure.waypoints ?? []), measure.end] : [];
+    const rise = measure && map && measure.shape === 'ruler' ? riseBetweenEnds(points, (point) => this.heightAt(point), this.host.measurement()) : 0;
+    const label = measure && map ? this.distanceLabel(points, rise) : '';
+    const measureColor = opts.color ?? accent(this.container);
+    this.marks.setOverlay(
+      measure
+        ? { ...measure, label, color: measureColor, cell, ...(measure.shape === 'line' ? { width: opts.lineWidth * cell } : {}) }
+        : null,
       // Drawn as the measure it becomes: a line one cell wide.
-      draft ? { ...draft, color: this.host.ownColor?.() ?? '#ffcc33', ...(draft.shape === 'line' ? { width: map?.grid.size ?? 70 } : {}) } : null, this.tools.coneAngle, this.lastPose?.pixel ?? 0.002);
+      draft ? { ...draft, color: this.host.ownColor?.() ?? '#ffcc33', ...(draft.shape === 'line' ? { width: cell } : {}) } : null,
+      this.tools.coneAngle,
+      this.lastPose?.pixel ?? 0.002,
+    );
     this.wake();
   }
 
@@ -3953,6 +4003,7 @@ export class Board {
     this.tools.receiveTemplates(list);
     this.marks.setTemplates(list, this.tools.coneAngle);
     this.host.toolsChanged?.();
+    if (this.audience === 'gm') this.toolbar.refresh();
     this.wake();
   }
 
@@ -4208,9 +4259,29 @@ export class Board {
     }
     if (press.kind === 'tool') {
       const at = this.boardPoint(x, y);
+      const pendingMeasure = at && press.moved && this.audience === 'gm' && this.tools.tool === 'measure' ? this.tools.overlay().measure : null;
       const actions = at ? this.tools.up(at, this.now(), press.moved) : (this.tools.cancel(), []);
       for (const action of actions) if (action.type === 'laser') this.marks.laser('self', action.points, true, action.color || (this.host.ownColor?.() ?? '#ff0059'), this.clock);
       this.act(actions);
+      if (pendingMeasure && at) {
+        const opts = this.measureOptions();
+        if (opts.keep) {
+          const cell = this.map?.grid.size ?? 70;
+          const points = pendingMeasure.shape === 'ruler'
+            ? [pendingMeasure.start, ...(pendingMeasure.waypoints ?? []), at]
+            : [pendingMeasure.start, at];
+          this.host.measureAction?.({
+            add: {
+              shape: pendingMeasure.shape,
+              points,
+              ...(pendingMeasure.shape === 'line' ? { width: opts.lineWidth * cell } : {}),
+              ...(opts.color ? { color: opts.color } : {}),
+              ...(!opts.players ? { hidden: true as const } : {}),
+              ...(pendingMeasure.shape !== 'ruler' && opts.effect ? { effect: opts.effect } : {}),
+            },
+          });
+        }
+      }
       this.showToolOverlay();
       return;
     }
@@ -4790,6 +4861,24 @@ export class Board {
   }
 
   /** The player view opened or closed somewhere: the toolbar's buttons follow. */
+  /** Fallback Measure tool choices when the host does not persist them (e.g. player board or unit tests). */
+  private localMeasureTool: MeasureToolOptions = { ...DEFAULT_MEASURE_TOOL };
+
+  private measureOptions(): MeasureToolOptions {
+    return this.host.measureTool?.() ?? this.localMeasureTool;
+  }
+
+  private setMeasureOptions(changes: Partial<MeasureToolOptions>): void {
+    const next = { ...this.measureOptions(), ...changes };
+    this.localMeasureTool = next;
+    this.host.setMeasureTool?.(changes);
+    if (changes.mode && isMeasureShape(changes.mode)) {
+      this.tools.shape = changes.mode;
+    }
+    this.toolbar.refresh();
+  }
+
+  /** Shows the board's toolbar, as its actions stand now (a player view opened or closed, the undo history changed). */
   refreshToolbar(): void {
     this.toolbar.refresh();
   }
@@ -5474,9 +5563,9 @@ export class Board {
     return this.toolbar.goTo(id);
   }
 
-  /** A token is being dragged (Space then drops a ruler waypoint). */
+  /** A token (or ruler measurement) is being dragged (Space then drops a waypoint). */
   get carryingToken(): boolean {
-    return this.press?.kind === 'token';
+    return this.press?.kind === 'token' || (this.press?.kind === 'tool' && this.tools.tool === 'measure' && this.tools.shape === 'ruler');
   }
 
   /** Shows Atlas's toolbar tools on the board's toolbar (the GM's; src/board/atlasTools.ts). */

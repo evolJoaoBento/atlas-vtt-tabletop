@@ -8,13 +8,14 @@
  * a circle around its first point, a cone from it, a square from the middle of its near side, a line as wide as it says.
  */
 import { DEFAULT_CONE_END, shapedArea, type ShapedArea } from '../../packages/atlas-shared/src/index';
+import { MAX_RULER_POINTS, type MeasureShapeKind } from '../atlasPort/app/measure/measureTypes';
 import type { Spell, SpellAbout } from './spells';
 import type { SpellRules } from './spellRules';
 
 type Point = { x: number; y: number };
 
 export type PlayerTool = 'move' | 'measure' | 'template' | 'laser' | 'ping';
-export type MeasureShape = 'line' | 'circle' | 'cone';
+export type MeasureShape = MeasureShapeKind;
 export type TemplateShape = 'line' | 'circle' | 'square' | 'cone';
 
 export interface TemplateMark {
@@ -84,7 +85,7 @@ export function templateHit(template: Shaped, point: Point, slack: number, coneA
 
 export class PlayerToolState {
   tool: PlayerTool = 'move';
-  shape: MeasureShape = 'line';
+  shape: MeasureShape = 'ruler';
   templateShape: TemplateShape = 'circle';
   laserColor = '';
   coneAngle = Math.PI / 2;
@@ -93,16 +94,19 @@ export class PlayerToolState {
   private templates: TemplateMark[] = [];
   private self: string | null = null;
   private drag: { start: Point; end: Point } | null = null;
+  private waypoints: Point[] = [];
   private stroke: { points: Point[]; dt: number[]; last: number; flushed: number } | null = null;
 
   select(tool: PlayerTool): void {
     this.tool = tool === this.tool && tool !== 'move' ? 'move' : tool;
     this.drag = null;
+    this.waypoints = [];
   }
 
   selectShape(shape: MeasureShape): void {
     this.shape = shape;
     this.tool = 'measure';
+    this.waypoints = [];
   }
 
   selectTemplateShape(shape: TemplateShape): void {
@@ -149,7 +153,18 @@ export class PlayerToolState {
       this.stroke = { points: [{ ...point }], dt: [0], last: now, flushed: now };
       return;
     }
+    this.waypoints = [];
     this.drag = { start: { ...point }, end: { ...point } };
+  }
+
+  /** Drops a waypoint at the current ruler end; false when not dragging a ruler or at the point limit. */
+  addWaypoint(): boolean {
+    if (this.tool !== 'measure' || this.shape !== 'ruler' || !this.drag) return false;
+    if (this.waypoints.length + 2 >= MAX_RULER_POINTS) return false;
+    const prev = this.waypoints.at(-1) ?? this.drag.start;
+    if (Math.hypot(this.drag.end.x - prev.x, this.drag.end.y - prev.y) < 1) return false;
+    this.waypoints.push({ ...this.drag.end });
+    return true;
   }
 
   move(point: Point, now: number): ToolAction[] {
@@ -176,6 +191,7 @@ export class PlayerToolState {
     }
     const drag = this.drag;
     this.drag = null;
+    this.waypoints = [];
     if (!drag) return [];
     if (this.tool === 'ping') return moved ? [] : [{ type: 'ping', x: point.x, y: point.y }];
     if (this.tool === 'template') {
@@ -190,14 +206,17 @@ export class PlayerToolState {
 
   cancel(): void {
     this.drag = null;
+    this.waypoints = [];
     this.stroke = null;
   }
 
   /** What the board draws of the gesture under way. */
-  overlay(): { measure: { shape: MeasureShape; start: Point; end: Point } | null; draft: { shape: TemplateShape; start: Point; end: Point } | null } {
+  overlay(): { measure: { shape: MeasureShape; start: Point; end: Point; waypoints?: Point[] } | null; draft: { shape: TemplateShape; start: Point; end: Point } | null } {
     const drag = this.drag;
     return {
-      measure: drag && this.tool === 'measure' ? { shape: this.shape, start: drag.start, end: drag.end } : null,
+      measure: drag && this.tool === 'measure'
+        ? { shape: this.shape, start: drag.start, end: drag.end, ...(this.waypoints.length > 0 ? { waypoints: this.waypoints.map((point) => ({ ...point })) } : {}) }
+        : null,
       draft: drag && this.tool === 'template' ? { shape: this.templateShape, start: drag.start, end: drag.end } : null,
     };
   }

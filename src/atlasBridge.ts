@@ -32,14 +32,19 @@ export interface AtlasSettingsService {
   getHotkeys?(): Record<string, string>;
   getLaserPointerSettings?(): unknown;
   setLaserPointerSettings?(changes: Record<string, unknown>): void;
+  getDragDistance?(): unknown;
+  setDragDistance?(choice: DragDistance): void;
   getDiceVolume?(): unknown;
   onChange?(listener: () => void): () => void;
   [member: string]: unknown;
 }
 
-/** Atlas's map hotkeys for the three shared tools, and their defaults (`keyboard/mapHotkeys.ts` @ 0.12.0). */
-export type SharedHotkey = 'lootRoller' | 'assets' | 'palette' | 'undo' | 'redo' | 'redoAlt';
-const DEFAULT_HOTKEYS: Record<SharedHotkey, string> = { lootRoller: 'l', assets: 'a', palette: 'Space', undo: 'Mod+z', redo: 'Mod+Shift+z', redoAlt: 'Mod+y' };
+/** Atlas's map hotkeys for shared tools, and their defaults (`keyboard/mapHotkeys.ts`). */
+export type SharedHotkey = 'lootRoller' | 'assets' | 'palette' | 'undo' | 'redo' | 'redoAlt' | 'measure' | 'measureKeep' | 'gmView';
+const DEFAULT_HOTKEYS: Record<SharedHotkey, string> = {
+  lootRoller: 'l', assets: 'a', palette: 'Space', undo: 'Mod+z', redo: 'Mod+Shift+z', redoAlt: 'Mod+y',
+  measure: 'm', measureKeep: 'k', gmView: 'd',
+};
 
 interface AtlasPlugin {
   settingsService?: unknown;
@@ -141,10 +146,18 @@ export class AtlasBridge {
 
   /** When a dragged token shows its distance (Atlas 0.15's setting: always, only in a fight, never); `always` without Atlas. */
   dragDistance(): DragDistance {
-    const settings = this.settings() as { getDragDistance?: () => unknown } | null;
+    const settings = this.settings();
     let choice: unknown = undefined;
     try { choice = typeof settings?.getDragDistance === 'function' ? settings.getDragDistance() : undefined; } catch { choice = undefined; }
     return readDragDistance(choice);
+  }
+
+  /** Changes when a dragged token shows its distance in Atlas; false when Atlas is not there to keep it. */
+  setDragDistance(choice: DragDistance): boolean {
+    const settings = this.settings();
+    if (typeof settings?.setDragDistance !== 'function') return false;
+    try { settings.setDragDistance(choice); } catch { return false; }
+    return true;
   }
 
   /**

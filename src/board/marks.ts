@@ -31,6 +31,7 @@ function flat(points: readonly Point[], closed: boolean): THREE.BufferGeometry {
  * `width` is one), open for a thin line and for an area without a size.
  */
 export function shapeOutline(shape: TemplateShape | MeasureShape, start: Point, end: Point, coneAngle: number, width?: number): { points: Point[]; closed: boolean } {
+  if (shape === 'ruler') return { points: [start, end], closed: false };
   const area = templateArea({ shape, start, end, ...(width !== undefined ? { width } : {}) }, coneAngle);
   const ring = area?.rings[0] as readonly Point[] | undefined;
   if (!ring) return { points: [start, end], closed: false };
@@ -69,10 +70,15 @@ export class BoardMarks {
   }
 
   /** The measure or template being dragged, with the measure's distance; nulls clear it. */
-  setOverlay(measure: { shape: MeasureShape; start: Point; end: Point; label: string; color?: string; cell?: number } | null, draft: { shape: TemplateShape; start: Point; end: Point; color: string; width?: number } | null, coneAngle: number, pixel: number): void {
+  setOverlay(
+    measure: { shape: MeasureShape; start: Point; end: Point; waypoints?: readonly Point[]; width?: number; label: string; color?: string; cell?: number } | null,
+    draft: { shape: TemplateShape; start: Point; end: Point; color: string; width?: number } | null,
+    coneAngle: number,
+    pixel: number,
+  ): void {
     clear(this.overlay);
     if (measure) {
-      this.overlay.add(this.measureShape(measure.shape, measure.start, measure.end, measure.color ?? MEASURE_COLOR, coneAngle, measure.cell ?? 70));
+      this.overlay.add(this.measureShape(measure.shape, measure.start, measure.end, measure.color ?? MEASURE_COLOR, coneAngle, measure.cell ?? 70, measure.waypoints, measure.width));
       const plate = plateTexture(measure.label, 24);
       const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: plate.texture, sizeAttenuation: false, transparent: true, depthTest: false }));
       // As the board's ruler labels: 22 screen pixels tall, whatever the distance.
@@ -154,13 +160,24 @@ export class BoardMarks {
   }
 
   /**
-   * A measurement as Atlas draws one, in the theme's accent: an even wash inside the area, its outline as a thick strip
-   * over a dark edge (as the token drag ruler), a ring where it starts and a dot where it ends.
+   * A measurement as Atlas draws one, in the chosen colour (or theme's accent): an even wash inside an area, its
+   * outline as a thick strip over a dark edge (as the token drag ruler), a ring where it starts, dots at waypoints
+   * (for a ruler) and a dot where it ends.
    */
-  private measureShape(shape: MeasureShape, start: Point, end: Point, color: string, coneAngle: number, cell: number): THREE.Group {
+  private measureShape(
+    shape: MeasureShape,
+    start: Point,
+    end: Point,
+    color: string,
+    coneAngle: number,
+    cell: number,
+    waypoints?: readonly Point[],
+    width?: number,
+  ): THREE.Group {
     const group = new THREE.Group();
-    const { points, closed } = shapeOutline(shape, start, end, coneAngle);
-    const path = shape === 'line' ? [start, end] : points;
+    const areaWidth = shape === 'line' ? (width ?? cell) : undefined;
+    const { points, closed } = shapeOutline(shape, start, end, coneAngle, areaWidth);
+    const path = shape === 'ruler' ? [start, ...(waypoints ?? []), end] : points;
     const segments: number[] = [];
     for (let i = 1; i < path.length; i++) segments.push(path[i - 1].x, path[i - 1].y, path[i].x, path[i].y);
     if (closed && path.length > 2) segments.push(path[path.length - 1].x, path[path.length - 1].y, path[0].x, path[0].y);
@@ -181,11 +198,20 @@ export class BoardMarks {
     }
     const ring = new THREE.Mesh(new THREE.RingGeometry(cell * 0.1, cell * 0.17, 32).rotateX(-Math.PI / 2), flatMaterial(color, 0.95));
     ring.position.set(start.x, LIFT + 0.4, start.y);
+    ring.renderOrder = 11;
+    group.add(ring);
+    if (shape === 'ruler' && waypoints) {
+      for (const wp of waypoints) {
+        const mark = new THREE.Mesh(new THREE.CircleGeometry(cell * 0.12, 20).rotateX(-Math.PI / 2), flatMaterial(color, 0.95));
+        mark.position.set(wp.x, LIFT + 0.4, wp.y);
+        mark.renderOrder = 11;
+        group.add(mark);
+      }
+    }
     const dot = new THREE.Mesh(new THREE.CircleGeometry(cell * 0.14, 24).rotateX(-Math.PI / 2), flatMaterial(color, 0.95));
     dot.position.set(end.x, LIFT + 0.4, end.y);
-    ring.renderOrder = 11;
     dot.renderOrder = 11;
-    group.add(ring, dot);
+    group.add(dot);
     return group;
   }
 

@@ -10,7 +10,12 @@
 import { FOG_MIN, GROUND_NOISES, MAX_MARGIN, MAX_TILE, type GroundMode, type GroundSettings } from './ground';
 import type { LiquidKind, WaterMotion } from './water';
 import { setSvg } from '../svg';
-import { atlasMeasureIcon, atlasToolIcon, historyIcon, modeIcon, waterIcon } from './atlasToolIcons';
+import { atlasMeasureControlIcon, atlasMeasureEffectIcon, atlasMeasureIcon, atlasToolIcon, historyIcon, modeIcon, waterIcon } from './atlasToolIcons';
+import {
+  DEFAULT_MEASURE_TOOL, MEASURE_COLOR_SWATCHES, MEASURE_EFFECTS, MEASURE_MODES, colourWithEffect, isMeasureShape,
+  measureColorOfSwatch, swatchOfMeasureColor, type MeasureEffect, type MeasureMode, type MeasureShapeKind, type MeasureToolOptions,
+} from './measureOptions';
+import type { DragDistance } from '../../packages/atlas-shared/src/index';
 import { LAVA_STYLES, LIQUID_KINDS, LIQUID_NAMES, LIQUID_TINTS, MOTION_LABELS, WATER_MOTION_KINDS, type LavaStyle, type WaterMotionKind } from './water';
 import { DICES_SVG } from '../dice/dicePicker';
 import type { LightingChoice } from './look';
@@ -109,10 +114,22 @@ export interface ToolbarActions {
   /** The liquid the brush paints (water, lava, acid); its motion is `waterMotion`'s. */
   liquid?(): LiquidKind;
   setLiquid?(liquid: LiquidKind): void;
-  /** The GM's Measure tool (Atlas's): on, its shape, and choosing one (null goes back to Move). */
+  /** The GM's Measure tool (Atlas's): on, its shape/options, choosing a shape (null goes back to Move), clearing kept measures, drag distance and rules. */
   measureOn?(): boolean;
-  measureShape?(): 'line' | 'circle' | 'cone';
-  selectMeasure?(shape: 'line' | 'circle' | 'cone' | null): void;
+  measureShape?(): MeasureShapeKind;
+  selectMeasure?(shape: MeasureShapeKind | null): void;
+  measureOptions?(): MeasureToolOptions;
+  setMeasureOptions?(changes: Partial<MeasureToolOptions>): void;
+  clearMeasures?(): void;
+  hasKeptMeasures?(): boolean;
+  hasLevels?(): boolean;
+  dragDistance?(): DragDistance;
+  setDragDistance?(choice: DragDistance): void;
+  openMeasureRules?(): void;
+  canOpenMeasureRules?(): boolean;
+  rangesUnavailable?(): string | null;
+  measureShortcut?(): string | null;
+  measureKeepShortcut?(): string | null;
   templateOn(): boolean;
   templateShape(): string;
   /** Turns the Template tool on with a shape, or off with null. */
@@ -329,6 +346,19 @@ export class BoardToolbar {
   private readonly measureButton: HTMLButtonElement;
   private readonly measureMenuButton: HTMLButtonElement;
   private readonly measurePanel: HTMLElement;
+  private readonly measureDragButtons: Array<{ value: DragDistance; button: HTMLButtonElement }> = [];
+  private readonly measureRulesButton: HTMLButtonElement;
+  /** Atlas's two horizontal Measure bars above the main toolbar: modes on the left, Keep/Players/Look/Clear on the right. */
+  private readonly measureBarsPanel: HTMLElement;
+  private readonly measureModeButtons: Array<{ mode: MeasureMode; button: HTMLButtonElement }> = [];
+  private readonly measureKeepButton: HTMLButtonElement;
+  private readonly measurePlayersButton: HTMLButtonElement;
+  private readonly measureLookTrigger: HTMLButtonElement;
+  private readonly measureLookPanel: HTMLElement;
+  private readonly measureLookSwatches: HTMLButtonElement[] = [];
+  private readonly measureEffectButtons: Array<{ effect: MeasureEffect | null; button: HTMLButtonElement }> = [];
+  private readonly measureClearButton: HTMLButtonElement;
+  private measureLookOpen = false;
   private readonly templateMenuButton: HTMLButtonElement;
   private readonly templatePanel: HTMLElement;
   private readonly autoRollToggle: HTMLInputElement;
@@ -384,6 +414,9 @@ export class BoardToolbar {
       const pop = this.waterPopovers[this.openWaterPopoverName];
       if (!pop.panel.contains(target) && !pop.trigger.contains(target)) this.closeWaterPopovers();
     }
+    if (this.measureLookOpen && !this.measureLookPanel.contains(target) && !this.measureLookTrigger.contains(target)) {
+      this.closeMeasureLook();
+    }
     if (!this.moreMenu.contains(target) && !this.moreButton.contains(target)) this.closeMore();
   };
   private readonly onWaterKey = (event: KeyboardEvent): void => {
@@ -391,6 +424,12 @@ export class BoardToolbar {
     event.preventDefault();
     event.stopPropagation();
     this.closeWaterPopovers();
+  };
+  private readonly onMeasureKey = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' || !this.measureLookOpen) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.closeMeasureLook();
   };
   private readonly onOutsideMove = (event: PointerEvent): void => {
     const start = this.outsideCanvas;
@@ -567,32 +606,225 @@ export class BoardToolbar {
       if (event.key === 'Escape') { event.preventDefault(); this.closeLaser(); }
     });
     // Connect's Template tool, as its player toolbar has it: the tool, and a chevron to its shapes and to clearing them.
-    // Atlas's Measure tool group: the ruler (a drag measures, nothing is kept) and its shapes, the GM's.
+    this.viewTooltip = new AtlasTooltip(container);
+    // Atlas's Measure tool group (`MeasureToolGroup.tsx`): face shows the active mode, chevron opens drag distance & rules.
     this.measureGroup = el('div', 'atlas-tool-group', bar);
-    this.measureButton = this.registerButton('measure', toolIn(this.measureGroup, atlasMeasureIcon('tool'), () => this.actions.selectMeasure?.(this.actions.measureOn?.() ? null : this.actions.measureShape?.() ?? 'line')));
+    this.measureButton = this.registerButton('measure', toolIn(this.measureGroup, atlasMeasureIcon('ruler'), () => {
+      if (this.actions.measureOn?.()) {
+        this.actions.selectMeasure?.(null);
+        this.closeMeasureLook();
+      } else {
+        this.close();
+        this.closeGround();
+        this.closeView();
+        this.closeLaser();
+        this.closeLighting();
+        this.closePaint();
+        this.closeMeasure();
+        this.closeTemplate();
+        this.closeDice();
+        this.closeMore();
+        const mode = this.measureOptions().mode;
+        this.actions.selectMeasure?.(isMeasureShape(mode) ? mode : 'ruler');
+      }
+      this.refresh();
+    }));
     this.measureButton.setAttribute('aria-label', TOOLBAR_BUTTONS.measure.label);
-    this.measureButton.title = TOOLBAR_BUTTONS.measure.label;
+    this.viewTooltip.attach(this.measureButton.parentElement!, () => {
+      const shortcut = this.actions.measureShortcut?.();
+      return { label: TOOLBAR_BUTTONS.measure.label, ...(shortcut ? { shortcut } : {}) };
+    });
     const measureMenu = el('div', 'atlas-dropdown-menu', this.measureGroup);
     this.measureMenuButton = this.registerButton('measure-options', el('button', 'btn btn--ghost btn--icon atlas-dropdown-trigger btn--toolbar', measureMenu));
     this.measureMenuButton.type = 'button';
     setSvg(this.measureMenuButton, CHEVRON_SVG);
-    this.measureMenuButton.setAttribute('aria-label', TOOLBAR_BUTTONS['measure-options'].label);
-    this.measureMenuButton.title = TOOLBAR_BUTTONS['measure-options'].label;
+    this.measureMenuButton.setAttribute('aria-label', t('toolbar.measureOptions'));
+    this.measureMenuButton.setAttribute('aria-expanded', 'false');
+    this.viewTooltip.attach(this.measureMenuButton, () => ({ label: t('toolbar.measureOptions') }));
     this.measurePanel = el('div', 'atlas-dropdown-content atlas-dropdown-content--top atlas-dropdown-content--left atlas-tabletop-measure-options', measureMenu);
     this.measurePanel.hidden = true;
-    const measureShapes = el('div', 'atlas-dropdown-section', this.measurePanel);
-    for (const [shape, label] of [['line', 'Line'], ['circle', 'Circle'], ['cone', 'Cone']] as const) {
-      const made = el('button', 'btn btn--ghost btn--sm atlas-dropdown-menu-item', measureShapes);
-      made.type = 'button';
-      made.dataset.shape = shape;
-      el('span', 'atlas-dropdown-menu-item__check', made);
-      setSvg(made, atlasMeasureIcon(shape), true);
-      el('span', '', made, label);
-      made.addEventListener('click', () => { this.actions.selectMeasure?.(shape); this.closeMeasure(); this.refresh(); });
+    const dragSection = el('div', 'atlas-dropdown-section', this.measurePanel);
+    const dragStack = el('div', 'atlas-dropdown-stack', dragSection);
+    el('span', 'atlas-dropdown-label', dragStack, t('toolbar.dragDistance'));
+    const dragControl = el('div', 'atlas-segmented', dragStack);
+    dragControl.setAttribute('role', 'radiogroup');
+    dragControl.setAttribute('aria-label', t('toolbar.dragDistance'));
+    for (const [value, label] of [
+      ['always', t('toolbar.dragDistanceAlways')],
+      ['combat', t('toolbar.dragDistanceCombat')],
+      ['never', t('toolbar.dragDistanceNever')],
+    ] as const) {
+      const choice = el('button', 'btn btn--ghost atlas-segmented__option', dragControl, label);
+      choice.type = 'button';
+      choice.setAttribute('role', 'radio');
+      choice.dataset.dragDistance = value;
+      choice.addEventListener('click', () => {
+        this.actions.setDragDistance?.(value);
+        this.refresh();
+      });
+      this.measureDragButtons.push({ value, button: choice });
     }
+    const rulesSection = el('div', 'atlas-dropdown-section', this.measurePanel);
+    this.measureRulesButton = el('button', 'btn btn--ghost btn--sm atlas-dropdown-menu-item', rulesSection);
+    this.measureRulesButton.type = 'button';
+    this.measureRulesButton.dataset.measureAction = 'rules';
+    setSvg(this.measureRulesButton, atlasMeasureControlIcon('rules'), true);
+    el('span', '', this.measureRulesButton, t('toolbar.measureRules'));
+    this.measureRulesButton.addEventListener('click', () => {
+      if (this.measureRulesButton.disabled) return;
+      this.actions.openMeasureRules?.();
+      this.closeMeasure();
+    });
+    this.measurePanel.addEventListener('keydown', (event) => {
+      event.stopPropagation();
+      if (event.key === 'Escape') { event.preventDefault(); this.closeMeasure(); }
+    });
     this.measureMenuButton.addEventListener('click', () => (this.measurePanel.hidden ? this.openMeasure() : this.closeMeasure()));
     this.measureGroup.style.display = this.actions.selectMeasure ? '' : 'none';
-    this.viewTooltip = new AtlasTooltip(container);
+
+    // Atlas's two horizontal Measure bars above the main toolbar (`MeasureToolBar.tsx`).
+    this.measureBarsPanel = el('div', 'atlas-tool-bars atlas-tabletop-measure-bars', this.row);
+    this.measureBarsPanel.hidden = true;
+    const measureModesBar = el('div', 'atlas-vtt-toolbar atlas-tool-bar atlas-tool-bar--modes atlas-tabletop-measure-bar', this.measureBarsPanel);
+    measureModesBar.setAttribute('role', 'toolbar');
+    measureModesBar.setAttribute('aria-label', t('toolbar.measureModes'));
+    const measureModeLabel: Record<MeasureMode, string> = {
+      ruler: t('toolbar.ruler'),
+      circle: t('toolbar.circle'),
+      cone: t('toolbar.cone'),
+      square: t('measure.shape.square'),
+      line: t('measure.shape.line'),
+      ranges: t('toolbar.ranges'),
+    };
+    for (const mode of MEASURE_MODES) {
+      const made = toolIn(measureModesBar, atlasMeasureIcon(mode), () => {
+        if (made.disabled || !isMeasureShape(mode)) return;
+        this.actions.setMeasureOptions?.({ mode });
+        this.actions.selectMeasure?.(mode);
+        this.refresh();
+      });
+      made.dataset.measureMode = mode;
+      made.setAttribute('aria-label', measureModeLabel[mode]);
+      this.viewTooltip.attach(made.parentElement!, () => {
+        if (mode !== 'ranges') return { label: measureModeLabel[mode] };
+        const why = this.actions.rangesUnavailable?.() ?? t('toolbar.rangesNoRules');
+        return { label: measureModeLabel[mode], subtitle: why ?? t('toolbar.rangesTip') };
+      });
+      this.measureModeButtons.push({ mode, button: made });
+    }
+    const measureToolsBar = el('div', 'atlas-vtt-toolbar atlas-tool-bar atlas-tool-bar--tools atlas-tabletop-measure-bar', this.measureBarsPanel);
+    measureToolsBar.setAttribute('role', 'toolbar');
+    measureToolsBar.setAttribute('aria-label', t('toolbar.measureChoices'));
+    this.measureKeepButton = toolIn(measureToolsBar, atlasMeasureControlIcon('pin'), () => {
+      this.actions.setMeasureOptions?.({ keep: !this.measureOptions().keep });
+      this.refresh();
+    });
+    this.measureKeepButton.classList.add('atlas-tool-bar__choice');
+    this.measureKeepButton.dataset.measureChoice = 'keep';
+    this.measureKeepButton.setAttribute('aria-label', t('toolbar.measureKeep'));
+    this.viewTooltip.attach(this.measureKeepButton.parentElement!, () => {
+      const shortcut = this.actions.measureKeepShortcut?.();
+      return { label: t('toolbar.measureKeep'), subtitle: t('toolbar.measureKeepTip'), ...(shortcut ? { shortcut } : {}) };
+    });
+    this.measurePlayersButton = toolIn(measureToolsBar, atlasMeasureControlIcon('eye'), () => {
+      this.actions.setMeasureOptions?.({ players: !this.measureOptions().players });
+      this.refresh();
+    });
+    this.measurePlayersButton.classList.add('atlas-tool-bar__choice');
+    this.measurePlayersButton.dataset.measureChoice = 'players';
+    this.measurePlayersButton.setAttribute('aria-label', t('toolbar.measurePlayers'));
+    this.viewTooltip.attach(this.measurePlayersButton.parentElement!, () => ({ label: t('toolbar.measurePlayers') }));
+
+    // Look popover: colour swatches (accent first, map colours without black) + effect chips.
+    const lookMenu = el('div', 'atlas-dropdown-menu atlas-tabletop-measure-look-anchor', measureToolsBar);
+    const lookWrap = el('div', 'atlas-tool-button', lookMenu);
+    const lookSpan = el('span', '', lookWrap);
+    lookSpan.setCssStyles({ display: 'inline-flex' });
+    this.measureLookTrigger = el('button', 'btn btn--ghost btn--icon btn--toolbar atlas-tabletop-tool-button', lookSpan);
+    this.measureLookTrigger.type = 'button';
+    this.measureLookTrigger.dataset.measureChoice = 'look';
+    this.measureLookTrigger.setAttribute('aria-label', t('measure.look'));
+    this.measureLookTrigger.setAttribute('aria-expanded', 'false');
+    this.measureLookTrigger.addEventListener('click', () => this.toggleMeasureLook());
+    this.viewTooltip.attach(lookSpan, () => ({ label: t('measure.look') }));
+    this.measureLookPanel = el('div', 'atlas-dropdown-content atlas-dropdown-content--top atlas-tabletop-measure-look-popover', lookMenu);
+    this.measureLookPanel.hidden = true;
+    this.measureLookPanel.addEventListener('pointerdown', (event) => event.stopPropagation());
+    this.measureLookPanel.addEventListener('keydown', (event) => {
+      event.stopPropagation();
+      if (event.key === 'Escape') { event.preventDefault(); this.closeMeasureLook(); }
+    });
+    const lookSection = el('div', 'atlas-dropdown-section', this.measureLookPanel);
+    const colorSwatches = el('div', 'atlas-dropdown-swatches', lookSection);
+    colorSwatches.setAttribute('role', 'group');
+    colorSwatches.setAttribute('aria-label', t('toolbar.colour'));
+    el('span', 'atlas-dropdown-swatches__label', colorSwatches, t('toolbar.colour'));
+    const colorGrid = el('div', 'atlas-swatch-grid', colorSwatches);
+    for (const swatch of MEASURE_COLOR_SWATCHES) {
+      const label = t(swatch.labelKey);
+      const made = el('button', 'atlas-swatch', colorGrid);
+      made.type = 'button';
+      made.style.backgroundColor = swatch.value;
+      made.dataset.swatch = swatch.value;
+      made.setAttribute('aria-label', label);
+      this.viewTooltip.attach(made, () => ({ label }));
+      made.addEventListener('click', () => {
+        this.actions.setMeasureOptions?.({ color: measureColorOfSwatch(swatch.value) });
+        this.closeMeasureLook();
+        this.refresh();
+      });
+      this.measureLookSwatches.push(made);
+    }
+    const effectSwatches = el('div', 'atlas-dropdown-swatches', lookSection);
+    el('span', 'atlas-dropdown-swatches__label', effectSwatches, t('measure.effect'));
+    const effectGrid = el('div', 'atlas-light-popover__kinds atlas-light-popover__kinds--square', effectSwatches);
+    effectGrid.setAttribute('role', 'group');
+    effectGrid.setAttribute('aria-label', t('measure.effect'));
+    const effectNames: Record<MeasureEffect, string> = {
+      fire: t('measure.effect.fire'),
+      frost: t('measure.effect.frost'),
+      lightning: t('measure.effect.lightning'),
+      mist: t('measure.effect.mist'),
+      radiance: t('measure.effect.radiance'),
+      shadow: t('measure.effect.shadow'),
+    };
+    for (const effect of [null, ...MEASURE_EFFECTS] as const) {
+      const name = effect ? effectNames[effect] : t('measure.effect.none');
+      const made = el('button', 'atlas-light-kind', effectGrid);
+      made.type = 'button';
+      made.dataset.measureEffect = effect ?? 'none';
+      made.setAttribute('aria-label', name);
+      setSvg(made, atlasMeasureEffectIcon(effect ?? 'none'));
+      this.viewTooltip.attach(made, () => ({ label: name }));
+      made.addEventListener('click', () => {
+        const current = this.measureOptions();
+        if (effect === null) {
+          this.actions.setMeasureOptions?.({ effect: null });
+        } else {
+          this.actions.setMeasureOptions?.({ effect, color: colourWithEffect(current.color, current.effect, effect) });
+        }
+        // Selecting an effect leaves the Look dropdown open so the user can adjust the colour.
+        this.refresh();
+      });
+      this.measureEffectButtons.push({ effect, button: made });
+    }
+
+    this.measureClearButton = toolIn(measureToolsBar, atlasMeasureControlIcon('trash'), () => {
+      if (this.measureClearButton.disabled) return;
+      this.actions.clearMeasures?.();
+      this.refresh();
+    });
+    this.measureClearButton.dataset.measureChoice = 'clear';
+    this.measureClearButton.setAttribute('aria-label', t('toolbar.measureClear'));
+    this.viewTooltip.attach(this.measureClearButton.parentElement!, () => {
+      const anyKept = this.actions.hasKeptMeasures?.() === true;
+      const levelled = this.actions.hasLevels?.() === true;
+      const subtitle = anyKept
+        ? (levelled ? t('toolbar.measureClearTip') : t('toolbar.measureClearAllTip'))
+        : (levelled ? t('toolbar.measureNothingKeptOnLevel') : t('toolbar.measureNothingKept'));
+      return { label: t('toolbar.measureClear'), subtitle };
+    });
+
     // The water brush: single button on the main toolbar; while active, Fog-style horizontal bars float above the toolbar.
     this.waterGroup = el('div', 'atlas-tool-group', bar);
     this.waterButton = this.registerButton('water', toolIn(this.waterGroup, waterIcon('tool'), () => {
@@ -1288,7 +1520,7 @@ export class BoardToolbar {
     this.fitWatch = new (doc.defaultView ?? window).ResizeObserver(() => this.fit());
     this.fitWatch.observe(container);
     // Presses on the bar and the panel are not the board's: no camera drag, no deselecting.
-    for (const part of [bar, this.panel, this.viewPanel, this.groundPanel, this.waterPanel]) part.addEventListener('pointerdown', (event) => event.stopPropagation());
+    for (const part of [bar, this.panel, this.viewPanel, this.groundPanel, this.waterPanel, this.measureBarsPanel]) part.addEventListener('pointerdown', (event) => event.stopPropagation());
     this.refresh();
   }
 
@@ -1349,13 +1581,7 @@ export class BoardToolbar {
     this.undoButton.disabled = this.actions.canUndo?.() !== true;
     this.redoButton.disabled = this.actions.canRedo?.() !== true;
     this.syncWaterBar();
-    const measureOn = this.actions.measureOn?.() === true;
-    this.measureButton.classList.toggle('is-active', measureOn);
-    this.measureButton.setAttribute('aria-pressed', String(measureOn));
-    for (const choice of this.measurePanel.querySelectorAll<HTMLElement>('[data-shape]')) {
-      const check = choice.querySelector('.atlas-dropdown-menu-item__check')!;
-      setSvg(check, choice.dataset.shape === this.actions.measureShape?.() ? CHECK_SVG.replace('class="atlas-swatch-check"', 'class="atlas-dropdown-menu-item__tick"') : '');
-    }
+    this.syncMeasureBar();
     const canLight = this.actions.canLight();
     this.lightingGroup.style.display = canLight ? '' : 'none';
     if (!canLight) this.closeLighting();
@@ -1603,10 +1829,14 @@ export class BoardToolbar {
         this.closeLaser();
         this.closeLighting();
         this.closePaint();
+        this.closeMeasure();
         this.closeTemplate();
         this.closeDice();
         this.closeMore();
-        if (!this.actions.measureOn?.()) this.actions.selectMeasure?.(this.actions.measureShape?.() ?? 'line');
+        if (!this.actions.measureOn?.()) {
+          const nextMode = this.measureOptions().mode;
+          this.actions.selectMeasure?.(isMeasureShape(nextMode) ? nextMode : 'ruler');
+        }
         break;
       case 'measure-options':
         this.openMeasure();
@@ -2090,6 +2320,124 @@ export class BoardToolbar {
     this.viewTooltip.hide();
   }
 
+  /** Current Measure tool options (with `DEFAULT_MEASURE_TOOL` fallback). */
+  private measureOptions(): MeasureToolOptions {
+    const base = this.actions.measureOptions?.();
+    if (base) return base;
+    return { ...DEFAULT_MEASURE_TOOL, mode: this.actions.measureShape?.() ?? DEFAULT_MEASURE_TOOL.mode };
+  }
+
+  /** Opens or closes the Measure bar's Look dropdown (colours and effects). */
+  private toggleMeasureLook(): void {
+    if (this.measureLookOpen) {
+      this.closeMeasureLook();
+      return;
+    }
+    this.viewTooltip.hide();
+    this.measureLookPanel.hidden = false;
+    this.measureLookTrigger.classList.add('atlas-is-active');
+    this.measureLookTrigger.setAttribute('aria-expanded', 'true');
+    this.measureLookOpen = true;
+    this.syncMeasureBar();
+    const doc = this.row.ownerDocument;
+    doc.addEventListener('pointerdown', this.onOutside, true);
+    doc.addEventListener('keydown', this.onMeasureKey, true);
+  }
+
+  /** Closes the Measure bar's Look dropdown, keeping the horizontal Measure bars open. */
+  private closeMeasureLook(): void {
+    if (!this.measureLookOpen) return;
+    this.measureLookPanel.hidden = true;
+    this.measureLookTrigger.classList.remove('atlas-is-active');
+    this.measureLookTrigger.setAttribute('aria-expanded', 'false');
+    this.measureLookOpen = false;
+    this.row.ownerDocument.removeEventListener('keydown', this.onMeasureKey, true);
+    this.dropOutsideIfClosed();
+  }
+
+  /** Syncs the Measure toolbar face, chevron dropdown, and two horizontal bars with current state. */
+  private syncMeasureBar(): void {
+    const mode = this.actions.mode?.() ?? null;
+    const playing = mode === null || mode === 'play';
+    const measureOn = this.actions.measureOn?.() === true;
+    const opts = this.measureOptions();
+    const activeMode: MeasureMode = isMeasureShape(opts.mode) ? opts.mode : 'ruler';
+
+    // Toolbar face shows the active mode's icon and pressed state.
+    setSvg(this.measureButton, atlasMeasureIcon(activeMode));
+    this.measureButton.classList.toggle('is-active', measureOn);
+    this.measureButton.setAttribute('aria-pressed', String(measureOn));
+
+    // Chevron dropdown: drag distance segmented control + Measurement rules.
+    const drag = this.actions.dragDistance?.() ?? 'always';
+    for (const { value, button } of this.measureDragButtons) {
+      const chosen = value === drag;
+      button.classList.toggle('atlas-active', chosen);
+      button.setAttribute('aria-checked', String(chosen));
+    }
+    const canRules = this.actions.openMeasureRules !== undefined && this.actions.canOpenMeasureRules?.() !== false;
+    this.measureRulesButton.disabled = !canRules;
+    if (canRules) this.measureRulesButton.removeAttribute('title');
+    else this.measureRulesButton.title = t('toolbar.measureRulesAtlasOnly');
+
+    // Horizontal bars above toolbar while Measure is chosen and no modal panel covers them.
+    const showBar = playing && measureOn
+      && this.viewPanel.hidden && this.panel.hidden && this.groundPanel.hidden
+      && this.paintPanel.hidden && this.lightingPanel.hidden;
+    if (!showBar) {
+      this.closeMeasureLook();
+      if (!this.measureBarsPanel.hidden) this.viewTooltip.hide();
+    }
+    this.measureBarsPanel.hidden = !showBar;
+    this.measureButton.setAttribute('aria-expanded', String(showBar));
+
+    // Bar 1: modes in Atlas order.
+    const rangesWhy = this.actions.rangesUnavailable?.() ?? t('toolbar.rangesNoRules');
+    for (const { mode: one, button } of this.measureModeButtons) {
+      const unavailable = one === 'ranges' && rangesWhy !== null;
+      const active = !unavailable && one === activeMode;
+      button.disabled = unavailable;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', String(active));
+    }
+
+    // Bar 2: Keep, Players see it, Look (dot or effect glyph), Clear.
+    this.measureKeepButton.classList.toggle('is-active', opts.keep);
+    this.measureKeepButton.setAttribute('aria-pressed', String(opts.keep));
+    setSvg(this.measurePlayersButton, atlasMeasureControlIcon(opts.players ? 'eye' : 'eyeOff'));
+    this.measurePlayersButton.classList.toggle('is-active', opts.players);
+    this.measurePlayersButton.setAttribute('aria-pressed', String(opts.players));
+
+    const swatchColor = swatchOfMeasureColor(opts.color);
+    this.measureLookTrigger.replaceChildren();
+    if (opts.effect) {
+      setSvg(this.measureLookTrigger, atlasMeasureEffectIcon(opts.effect));
+      const svg = this.measureLookTrigger.querySelector('svg');
+      if (svg) svg.style.color = swatchColor;
+    } else {
+      const dot = this.measureLookTrigger.ownerDocument.createElement('span');
+      dot.className = 'atlas-tool-bar__dot';
+      dot.style.backgroundColor = swatchColor;
+      this.measureLookTrigger.appendChild(dot);
+    }
+    for (const swatch of this.measureLookSwatches) {
+      const chosen = swatch.dataset.swatch?.toLowerCase() === swatchColor.toLowerCase();
+      swatch.classList.toggle('atlas-swatch--active', chosen);
+      swatch.setAttribute('aria-pressed', String(chosen));
+      setSvg(swatch, chosen ? CHECK_SVG : '');
+    }
+    const effectGrid = this.measureLookPanel.querySelector<HTMLElement>('.atlas-light-popover__kinds');
+    if (effectGrid) effectGrid.style.setProperty('--atlas-light-tint', swatchColor);
+    for (const { effect, button } of this.measureEffectButtons) {
+      const chosen = effect === opts.effect;
+      button.setAttribute('aria-pressed', String(chosen));
+    }
+
+    const anyKept = this.actions.hasKeptMeasures?.() === true;
+    this.measureClearButton.disabled = !anyKept;
+    this.viewTooltip.refresh();
+  }
+
   openMeasure(): void {
     this.close();
     this.closeView();
@@ -2100,6 +2448,8 @@ export class BoardToolbar {
     this.closeTemplate();
     this.closeDice();
     this.closeMore();
+    this.closeMeasureLook();
+    this.syncMeasureBar();
     this.measurePanel.hidden = false;
     this.measureMenuButton.classList.add('atlas-is-active');
     this.measureMenuButton.setAttribute('aria-expanded', 'true');
@@ -2200,6 +2550,7 @@ export class BoardToolbar {
     this.viewButton.classList.add('is-active');
     this.viewButton.setAttribute('aria-expanded', 'true');
     this.syncViewBar();
+    this.syncMeasureBar();
     this.row.ownerDocument.addEventListener('pointerdown', this.onOutside, true);
   }
 
@@ -2212,6 +2563,7 @@ export class BoardToolbar {
     this.viewButton.classList.remove('is-active');
     this.viewButton.setAttribute('aria-expanded', 'false');
     this.syncWaterBar();
+    this.syncMeasureBar();
     this.dropOutsideIfClosed();
   }
 
@@ -2308,7 +2660,7 @@ export class BoardToolbar {
   }
 
   private dropOutsideIfClosed(): void {
-    if (this.panel.hidden && this.viewPanel.hidden && this.groundPanel.hidden && this.laserPanel.hidden && this.measurePanel.hidden && this.lightingPanel.hidden && this.paintPanel.hidden && this.openWaterPopoverName === null && this.templatePanel.hidden && this.moreMenu.hidden) {
+    if (this.panel.hidden && this.viewPanel.hidden && this.groundPanel.hidden && this.laserPanel.hidden && this.measurePanel.hidden && this.lightingPanel.hidden && this.paintPanel.hidden && this.openWaterPopoverName === null && !this.measureLookOpen && this.templatePanel.hidden && this.moreMenu.hidden) {
       this.row.ownerDocument.removeEventListener('pointerdown', this.onOutside, true);
     }
   }
@@ -2440,10 +2792,13 @@ export class BoardToolbar {
     this.close();
     this.closeView();
     this.closeWater();
+    this.closeMeasure();
+    this.closeMeasureLook();
     this.closeGround();
     this.closeLaser();
     this.row.ownerDocument.removeEventListener('pointerdown', this.onOutside, true);
     this.row.ownerDocument.removeEventListener('keydown', this.onWaterKey, true);
+    this.row.ownerDocument.removeEventListener('keydown', this.onMeasureKey, true);
     this.seeThroughRing.dispose();
     this.viewTooltip.dispose();
     this.setDice(null);

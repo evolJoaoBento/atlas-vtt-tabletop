@@ -173,7 +173,7 @@ export const TOOLBAR_BUTTONS: Readonly<Record<ToolbarButtonId, ToolbarButtonSpec
     available: ({ actions }) => actions.selectMeasure !== undefined,
   },
   'measure-options': {
-    id: 'measure-options', label: 'Measure options', icon: 'sliders', modes: ['play'],
+    id: 'measure-options', label: t('toolbar.measureOptions'), icon: 'sliders', modes: ['play'],
     keywords: ['measure', 'tool', 'options', 'drag', 'distance', 'rules'],
     available: ({ actions }) => actions.selectMeasure !== undefined,
   },

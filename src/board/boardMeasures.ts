@@ -13,6 +13,8 @@
  * its players (a hidden measure, one that started on a token they did not or do not see) is marked the GM's alone.
  */
 import { measureKind, measureToSpell, readExtra, spellToMeasure, type MeasureRecord } from '../../packages/atlas-host/src/spellMeasure';
+import type { MeasureEffect } from '../atlasPort/app/measure/measureEffects';
+import type { MeasureShapeKind } from '../atlasPort/app/measure/measureTypes';
 import type { SpellChange, TemplateChange, TemplateMark } from './playerTools';
 import { readSpellRules } from './spellRules';
 import { isInstantaneous, readSpell, readSpellAbout, type CastSpell } from './spells';
@@ -185,4 +187,40 @@ export function templateWrite(change: TemplateChange, measures: readonly BoardMe
   }
   if ('remove' in change) return { remove: measures.filter(({ id, record }) => id === change.remove && readExtra(record)?.kind === 'template').map(({ id }) => id) };
   return { remove: gmOwned(measures, 'template') };
+}
+
+/** A change from the GM's Measure tool: keep one measurement on the map, or clear all kept measurements on the shown level. */
+export type MeasureChange =
+  | {
+      add: {
+        shape: MeasureShapeKind;
+        points: ReadonlyArray<Place>;
+        width?: number;
+        color?: string;
+        hidden?: true;
+        effect?: MeasureEffect;
+      };
+    }
+  | { clear: true };
+
+/**
+ * What the GM's Measure tool writes to Atlas's kept measures: an Atlas measure record (colour, hidden, effect for
+ * areas, width for lines, level when levelled), or removing every kept measure of the shown level in one undo step.
+ */
+export function measureWrite(change: MeasureChange, measures: readonly BoardMeasure[], level: string | null): MeasureWrite {
+  if ('add' in change) {
+    const { shape, points, width, color, hidden, effect } = change.add;
+    return {
+      add: {
+        shape,
+        points: points.map((point) => ({ x: point.x, y: point.y })),
+        ...(shape === 'line' && typeof width === 'number' && width > 0 ? { width } : {}),
+        ...(color ? { color } : {}),
+        ...(hidden === true ? { hidden: true } : {}),
+        ...(shape !== 'ruler' && effect ? { effect } : {}),
+        ...onLevel(level),
+      },
+    };
+  }
+  return { remove: measures.map(({ id }) => id) };
 }

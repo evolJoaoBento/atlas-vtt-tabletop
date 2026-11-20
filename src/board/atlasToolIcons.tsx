@@ -3,20 +3,62 @@
  * Atlas's own coin mark (copied) and lucide-react at Atlas's version, rendered once to SVG markup for the board's toolbar.
  */
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Brush, Circle, Clapperboard, Command, Droplets, Eraser, Eye, Flame, FlaskConical, Hammer, ImageIcon, MoreHorizontal, PaintBucket, PaintRoller, Redo2, Ruler, Swords, Triangle, Undo2, Waves } from 'lucide-react';
+import {
+  Ban, Brush, Circle, Clapperboard, CloudFog, Command, Droplets, Eraser, Eye, EyeOff, Flame, FlaskConical, Hammer,
+  ImageIcon, Moon, MoreHorizontal, PaintBucket, PaintRoller, Pin, Redo2, Ruler, Slash, SlidersHorizontal, Snowflake,
+  Square, Sun, Swords, Target, Trash2, Triangle, Undo2, Waves, Zap,
+} from 'lucide-react';
 import { CoinIcon } from '../atlasPort/app/react/components/CoinIcon';
+import type { MeasureEffect } from '../atlasPort/app/measure/measureEffects';
+import type { MeasureMode } from '../atlasPort/app/measure/measureTypes';
 import type { AtlasToolId } from './atlasTools';
 
 let icons: Record<AtlasToolId, string> | null = null;
 
-/** Atlas's Measure tool group's icons (`MeasureToolGroup.tsx`): its face and its three shapes. */
-let measure: Record<'tool' | 'line' | 'circle' | 'cone', string> | null = null;
-export function atlasMeasureIcon(id: 'tool' | 'line' | 'circle' | 'cone'): string {
+/** Atlas's Measure tool modes (`measureToolChoices.ts`): Ruler, Circle, Cone, Square, Line, Ranges. */
+export type MeasureIconId = 'tool' | MeasureMode;
+let measure: Record<MeasureIconId, string> | null = null;
+export function atlasMeasureIcon(id: MeasureIconId): string {
   measure ??= {
-    tool: renderToStaticMarkup(<Ruler />), line: renderToStaticMarkup(<Ruler />),
-    circle: renderToStaticMarkup(<Circle />), cone: renderToStaticMarkup(<Triangle />),
+    tool: renderToStaticMarkup(<Ruler />),
+    ruler: renderToStaticMarkup(<Ruler />),
+    circle: renderToStaticMarkup(<Circle />),
+    cone: renderToStaticMarkup(<Triangle />),
+    square: renderToStaticMarkup(<Square />),
+    line: renderToStaticMarkup(<Slash />),
+    ranges: renderToStaticMarkup(<Target />),
   };
   return measure[id];
+}
+
+/** Atlas's Measure bar controls (`MeasureToolBar.tsx` and `MeasureToolGroup.tsx`). */
+export type MeasureControlIconId = 'pin' | 'eye' | 'eyeOff' | 'trash' | 'rules';
+let measureControl: Record<MeasureControlIconId, string> | null = null;
+export function atlasMeasureControlIcon(id: MeasureControlIconId): string {
+  measureControl ??= {
+    pin: renderToStaticMarkup(<Pin />),
+    eye: renderToStaticMarkup(<Eye />),
+    eyeOff: renderToStaticMarkup(<EyeOff />),
+    trash: renderToStaticMarkup(<Trash2 />),
+    rules: renderToStaticMarkup(<SlidersHorizontal />),
+  };
+  return measureControl[id];
+}
+
+/** Atlas's Measure effect glyphs (`MeasureEffectChips.tsx`): None plus the six effects. */
+export type MeasureEffectIconId = 'none' | MeasureEffect;
+let measureEffect: Record<MeasureEffectIconId, string> | null = null;
+export function atlasMeasureEffectIcon(id: MeasureEffectIconId): string {
+  measureEffect ??= {
+    none: renderToStaticMarkup(<Ban className="atlas-light-glyph" aria-hidden="true" />),
+    fire: renderToStaticMarkup(<Flame className="atlas-light-glyph" aria-hidden="true" />),
+    frost: renderToStaticMarkup(<Snowflake className="atlas-light-glyph" aria-hidden="true" />),
+    lightning: renderToStaticMarkup(<Zap className="atlas-light-glyph" aria-hidden="true" />),
+    mist: renderToStaticMarkup(<CloudFog className="atlas-light-glyph" aria-hidden="true" />),
+    radiance: renderToStaticMarkup(<Sun className="atlas-light-glyph" aria-hidden="true" />),
+    shadow: renderToStaticMarkup(<Moon className="atlas-light-glyph" aria-hidden="true" />),
+  };
+  return measureEffect[id];
 }
 
 /** The water brush's icons (lucide, as Atlas's FogToolBar): its face, liquids, brush modes and more menu. */

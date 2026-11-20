@@ -546,6 +546,152 @@
   padding: 6px 2px 0;
 }
 
+/* Atlas's Measure tool bars (`MeasureToolBar.tsx`) and Look / Options dropdowns (`MeasureToolGroup.tsx`). */
+.atlas-tabletop-atlas .atlas-tabletop-measure-bars {
+  order: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 8px;
+  max-width: 100%;
+  pointer-events: none;
+}
+
+.atlas-tabletop-atlas .atlas-tabletop-measure-bars[hidden] {
+  display: none;
+}
+
+.atlas-tabletop-atlas .atlas-vtt-toolbar.atlas-tabletop-measure-bar {
+  box-sizing: border-box;
+  gap: 4px;
+  padding: 4px;
+  pointer-events: auto;
+  --atlas-panel-inner-radius: 14px;
+  border-radius: 15.5px;
+  --atlas-bar-control-radius: clamp(0px, calc(var(--atlas-panel-inner-radius, 15.5px) - 4px), 16px);
+  --no-tooltip: true;
+}
+
+.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-vtt-toolbar.atlas-tabletop-measure-bar .atlas-tool-button > span > button.btn--icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--atlas-bar-control-radius, 10px);
+}
+
+.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-vtt-toolbar.atlas-tabletop-measure-bar button.btn.atlas-tool-bar__choice.is-active {
+  background: var(--background-modifier-active-hover) !important;
+  color: var(--text-accent) !important;
+}
+
+.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-vtt-toolbar.atlas-tabletop-measure-bar button.btn.atlas-tool-bar__choice.is-active:hover {
+  background: var(--background-modifier-active-hover) !important;
+  color: var(--text-accent-hover, var(--text-accent)) !important;
+}
+
+.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-vtt-toolbar.atlas-tabletop-measure-bar .atlas-tabletop-tool-button:disabled,
+.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-vtt-toolbar.atlas-tabletop-measure-bar .atlas-tabletop-tool-button:disabled:hover {
+  opacity: 0.35;
+  cursor: default;
+  background: transparent;
+}
+
+.atlas-tabletop-measure-bar .atlas-tool-bar__dot {
+  display: block;
+  flex: none;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in oklch, var(--mono-100, var(--text-normal)) 18%, transparent);
+}
+
+.atlas-tabletop-measure-look-anchor {
+  position: relative;
+}
+
+.atlas-tabletop-measure-look-popover {
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 244px;
+}
+
+.atlas-tabletop-measure-look-popover .atlas-dropdown-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.atlas-tabletop-measure-options {
+  min-width: 230px;
+}
+
+.atlas-tabletop-measure-options .atlas-dropdown-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px;
+}
+
+.atlas-tabletop-measure-options .atlas-segmented {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--background-secondary);
+}
+
+.atlas-tabletop-measure-options .atlas-segmented__option {
+  flex: 1 1 0;
+  height: 26px;
+  padding: 0 8px;
+  font-size: var(--font-ui-smaller, 12px);
+  border-radius: 6px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.atlas-tabletop-measure-options .atlas-segmented__option.atlas-active {
+  background: var(--background-primary);
+  color: var(--text-normal);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+}
+
+.atlas-tabletop-measure-look-popover .atlas-light-popover__kinds {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.atlas-tabletop-measure-look-popover .atlas-light-kind {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.atlas-tabletop-measure-look-popover .atlas-light-kind:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.atlas-tabletop-measure-look-popover .atlas-light-kind[aria-pressed="true"] {
+  border-color: var(--interactive-accent);
+  color: var(--atlas-light-tint, var(--interactive-accent));
+  background: var(--background-modifier-active-hover);
+}
+
+.atlas-tabletop-measure-look-popover .atlas-light-kind svg {
+  width: 15px;
+  height: 15px;
+}
+
 /* Atlas's hover tooltip (`tooltip.css` / `ToolButton.tsx`), copied so it looks identical with or without Atlas's styles. */
 .tooltip-content.atlas-tabletop-atlas-tooltip {
   position: absolute;

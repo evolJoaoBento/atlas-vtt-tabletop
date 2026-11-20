@@ -45,6 +45,8 @@ const MEMBERS = [
   ['setSceneLighting', 'tokenWriter.ts (the light level and its colour)'],
   ['getLaserPointerSettings', 'atlasBridge.ts (settings service)'],
   ['setLaserPointerSettings', 'atlasBridge.ts (settings service)'],
+  ['getDragDistance', 'atlasBridge.ts (settings service)'],
+  ['setDragDistance', 'atlasBridge.ts (settings service)'],
   ['getDiceVolume', 'atlasBridge.ts (settings service)'],
   ['isExperimentalOn', 'shims/settingsService.ts (settings service, for the copied hotkeys and statblock counters)'],
   ['atlas-vtt:collection-settings-changed', 'BoardView.ts (workspace event: a collection\'s settings were saved)'],

@@ -19,6 +19,7 @@ import { setLanguage } from './src/i18n';
 import { BOARD_PROTOCOL_ACTION, boardLink, DEFAULT_SNAPSHOT_FOLDER, latestSnapshot, parseBoardBlock, readBoardLink, snapshotPath } from './src/boardLinks';
 import { renderBoardCard } from './src/boardCard';
 import { resolveLaser, type LaserSettings } from './src/board/laser';
+import { readMeasureToolOptions, type MeasureToolOptions } from './src/board/measureOptions';
 import { writeBackup } from './src/backups';
 import { StackMigration } from './src/stackMigration';
 import { StackMoveModal } from './src/stackMoveModal';
@@ -115,6 +116,8 @@ interface TabletopSettings {
   soundsFolder?: string;
   /** The material each kind of wall wears when none is painted on it (the gallery's Defaults); none unless set. */
   materialDefaults?: MaterialDefaults;
+  /** The GM's Measure tool choices (mode, keep, players, colour, line width, effect). */
+  measureTool?: Partial<MeasureToolOptions>;
 }
 
 const DEFAULT_SETTINGS: TabletopSettings = { folder: DEFAULT_MINIS_FOLDER, propsFolder: DEFAULT_PROPS_FOLDER, materialsFolder: DEFAULT_MATERIALS_FOLDER, quality: DEFAULT_QUALITY, dice: DEFAULT_DICE_SETTINGS, sound: DEFAULT_SOUND_SETTINGS, cinematic: DEFAULT_CINEMATIC_SETTINGS };
@@ -404,6 +407,12 @@ export default class TabletopPlugin extends Plugin {
       laser: () => resolveLaser(new AtlasBridge(this.app).laser() ?? undefined),
       setLaser: (changes) => {
         if (!new AtlasBridge(this.app).setLaser(changes)) new Notice('Tabletop: the laser is kept in Atlas, which is not enabled.');
+      },
+      measureTool: () => readMeasureToolOptions(this.settings.measureTool),
+      setMeasureTool: (changes) => {
+        this.settings.measureTool = readMeasureToolOptions({ ...readMeasureToolOptions(this.settings.measureTool), ...changes });
+        this.save();
+        for (const view of this.boards()) view.refreshToolbar();
       },
       focused: (view) => { this.lastBoard = view; },
       togglePlayerView: (view) => { void this.togglePlayerView(view); },
@@ -722,9 +731,12 @@ export default class TabletopPlugin extends Plugin {
     return { ...this.settings.sound, groups: { ...this.settings.sound.groups, dice: true }, diceVolume: new AtlasBridge(this.app).diceVolume() };
   }
 
-  /** Atlas's settings changed (its dice volume, its laser): the engines and the boards' toolbars follow. */
+  /** Atlas's settings changed (its dice volume, its laser, drag distance): the engines and the boards' toolbars follow. */
   private atlasSettingsChanged(): void {
-    for (const view of this.boards()) view.refreshSound();
+    for (const view of this.boards()) {
+      view.refreshSound();
+      view.refreshToolbar();
+    }
     for (const listener of [...this.soundListeners]) listener();
   }
 

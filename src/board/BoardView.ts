@@ -28,7 +28,9 @@ import type { LoadedMini, MiniLibrary } from '../library';
 import type { MaterialLibrary } from '../materials';
 import { Board, GM_SPELL_OWNER, type BoardHost } from './board';
 import { isInstantaneous, readCastSpells, type CastSpell, type SpellAsk } from './spells';
-import { castsOfMeasures, marksOfMeasures, spellWrite, templateWrite, type MeasureWrite } from './boardMeasures';
+import { castsOfMeasures, marksOfMeasures, measureWrite, spellWrite, templateWrite, type MeasureChange, type MeasureWrite } from './boardMeasures';
+import { DEFAULT_MEASURE_TOOL, type MeasureToolOptions } from './measureOptions';
+import { formatHotkey } from '../atlasPort/app/keyboard/mapHotkeys';
 import type { SpellBook } from './spellPicker';
 import type { SpellChange, TemplateChange } from './playerTools';
 import { isVideoPath } from './textures';
@@ -168,6 +170,9 @@ export interface BoardServices {
   /** The laser's colour and size, kept for every map; and saving a change. */
   laser(): LaserSettings;
   setLaser(changes: Partial<LaserSettings>): void;
+  /** The GM's Measure tool choices, kept for every board. */
+  measureTool?(): MeasureToolOptions;
+  setMeasureTool?(changes: Partial<MeasureToolOptions>): void;
   /** Chooses the board's lighting, for every board. */
   setLighting?(choice: LightingChoice): void;
   setTiltShift?(on: boolean): void;
@@ -1576,6 +1581,24 @@ export class BoardView extends ItemView {
         };
       },
       dragDistance: () => new AtlasBridge(this.app).dragDistance(),
+      setDragDistance: (choice) => {
+        if (!new AtlasBridge(this.app).setDragDistance(choice)) new Notice('Tabletop: drag distance is kept in Atlas, which is not enabled.');
+        this.board?.refreshToolbar();
+      },
+      measureTool: () => this.services.measureTool?.() ?? DEFAULT_MEASURE_TOOL,
+      setMeasureTool: (changes) => this.services.setMeasureTool?.(changes),
+      measureAction: (change) => {
+        const path = this.path;
+        if (path) this.gmMeasure(path, change);
+      },
+      measureHotkeys: () => {
+        const bridge = new AtlasBridge(this.app);
+        const fmt = (id: 'measure' | 'measureKeep' | 'gmView'): string | null => {
+          const key = bridge.hotkey(id);
+          return key ? formatHotkey(key) : null;
+        };
+        return { measure: fmt('measure'), measureKeep: fmt('measureKeep'), gmView: fmt('gmView') };
+      },
       fogHeight: () => boardData.fogHeight(mapPath()),
       // Saved with Tabletop's data; the board follows through `refresh`, as for a style change.
       setFogHeight: (height) => boardData.setFogHeight(mapPath(), height),
@@ -2447,6 +2470,14 @@ export class BoardView extends ItemView {
    */
   private gmTemplate(path: string, change: TemplateChange): void {
     this.writeMeasures(path, templateWrite(change, this.map?.measures ?? [], this.map?.level ?? null), 'template');
+  }
+
+  /**
+   * The GM's Measure tool: keeps a measurement (with colour, visibility, effect, width) or clears every kept
+   * measurement of the shown level in one step of Atlas's history.
+   */
+  private gmMeasure(path: string, change: MeasureChange): void {
+    this.writeMeasures(path, measureWrite(change, this.map?.measures ?? [], this.map?.level ?? null), 'measure');
   }
 
   private writeMeasures(path: string, write: MeasureWrite, what: string): void {
