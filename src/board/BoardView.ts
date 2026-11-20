@@ -307,8 +307,13 @@ export class BoardView extends ItemView {
       this.playerWindow = null;
       this.retitle();
       // A cutscene being made stays open over the new scene: `read` tells the studio, which gives the new board its driver.
-      await this.read();
-      if (lent && this.lent === lent && this.board) this.showPlayer(lent);
+      const reading = this.read().then(() => {
+        if (lent && this.lent === lent && this.board) this.showPlayer(lent);
+      });
+      // Obsidian restoring its layout at startup waits for every view's state: the board loads behind it instead. A
+      // long load there (a cold disk) opens Obsidian's slow-start dialog, whose closing can fail Obsidian's whole start.
+      if (this.app.workspace.layoutReady) await reading;
+      else reading.catch((error) => console.warn('Tabletop: the 3D board could not load:', error));
     }
     await super.setState(state, result);
   }
