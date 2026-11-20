@@ -91,7 +91,7 @@ import { materialWith, type MaterialDefaults } from '../materialDefaults';
 import { aboutElement, rulesWords } from './spellPicker';
 import { difficultGround } from './spellView';
 import type { ToolbarCommandHost } from '../palette/tabletopCommands';
-import { BoardToolbar, type AtlasToolButton, type CinemaButtons, type DiceButton, type ToolbarActions, UNPAINT } from './toolbar';
+import { BoardToolbar, type AtlasToolButton, type CinemaButtons, type DiceButton, type ToolbarActions, type ToolbarHelp, UNPAINT } from './toolbar';
 import type { SeeThroughCircle } from './seeThroughRing';
 import { pinTitle } from './pinIcons';
 import { insideFog, pinsShown, playerSees } from './playerView';
@@ -5633,6 +5633,11 @@ export class Board {
   /** Shows Atlas's toolbar tools on the board's toolbar (the GM's; src/board/atlasTools.ts). */
   setAtlasTools(tools: readonly AtlasToolButton[]): void {
     if (this.audience === 'gm') this.toolbar.setAtlasTools(tools);
+  }
+
+  /** Atlas's keyboard shortcuts button in its bar beside the toolbar (the GM's); null takes it away. */
+  setHelp(help: ToolbarHelp | null): void {
+    if (this.audience === 'gm') this.toolbar.setHelp(help);
   }
 
   /** The point of the map the camera looks at (the centre of the view), in map pixels. */

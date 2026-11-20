@@ -4,7 +4,7 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
-  Ban, Brush, Circle, Clapperboard, CloudFog, Command, Droplets, Eraser, Eye, EyeOff, Flame, FlaskConical, Hammer,
+  Ban, Brush, Circle, CircleHelp, Clapperboard, CloudFog, Command, Droplets, Eraser, Eye, EyeOff, Flame, FlaskConical, Hammer,
   ImageIcon, Moon, MoreHorizontal, PaintBucket, PaintRoller, Pin, Redo2, Ruler, Slash, SlidersHorizontal, Snowflake,
   Square, Sun, Swords, Target, Trash2, Triangle, Undo2, Waves, Zap,
 } from 'lucide-react';
@@ -90,6 +90,13 @@ let history: Record<'undo' | 'redo', string> | null = null;
 export function historyIcon(id: 'undo' | 'redo'): string {
   history ??= { undo: renderToStaticMarkup(<Undo2 />), redo: renderToStaticMarkup(<Redo2 />) };
   return history[id];
+}
+
+/** Atlas 0.17's keyboard shortcuts button (its bar beside the toolbar): lucide's `circle-help`. */
+let help: string | null = null;
+export function helpIcon(): string {
+  help ??= renderToStaticMarkup(<CircleHelp />);
+  return help;
 }
 
 export function atlasToolIcon(id: AtlasToolId): string {

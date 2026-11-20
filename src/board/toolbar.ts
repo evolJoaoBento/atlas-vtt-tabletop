@@ -10,7 +10,7 @@
 import { FOG_MIN, GROUND_NOISES, MAX_MARGIN, MAX_TILE, type GroundMode, type GroundSettings } from './ground';
 import type { LiquidKind, WaterMotion } from './water';
 import { setSvg } from '../svg';
-import { atlasMeasureControlIcon, atlasMeasureEffectIcon, atlasMeasureIcon, atlasToolIcon, historyIcon, modeIcon, waterIcon } from './atlasToolIcons';
+import { atlasMeasureControlIcon, atlasMeasureEffectIcon, atlasMeasureIcon, atlasToolIcon, helpIcon, historyIcon, modeIcon, waterIcon } from './atlasToolIcons';
 import {
   DEFAULT_MEASURE_TOOL, MEASURE_COLOR_SWATCHES, MEASURE_EFFECTS, MEASURE_MODES, colourWithEffect, isMeasureShape,
   measureColorOfSwatch, swatchOfMeasureColor, type MeasureEffect, type MeasureMode, type MeasureShapeKind, type MeasureToolOptions,
@@ -38,6 +38,17 @@ export interface AtlasToolButton {
   /** Its window is open. */
   active(): boolean;
   run(): void;
+}
+
+/** Atlas 0.17's keyboard shortcuts button on the board: Atlas's shortcut help (`HotkeyHelpWindow`). */
+export interface ToolbarHelp {
+  /** Atlas's own name for it ("Keyboard shortcuts"). */
+  label: string;
+  /** Its key on the board, as shown ("?"). */
+  shortcut: string | null;
+  /** The help is open. */
+  active(): boolean;
+  open(): void;
 }
 
 /**
@@ -276,6 +287,10 @@ export function readWallThickness(text: string): number | null {
 export class BoardToolbar {
   private readonly row: HTMLElement;
   private readonly bar: HTMLElement;
+  /** Atlas 0.17's keyboard shortcuts bar, beside the main toolbar on its right (hidden until `setHelp`). */
+  private readonly helpBar: HTMLElement;
+  private readonly helpButton: HTMLButtonElement;
+  private help: ToolbarHelp | null = null;
   /** Atlas's "More tools": the tools that do not fit a narrow pane move into its menu, in this order of leaving. */
   private readonly moreGroup: HTMLElement;
   private readonly moreButton: HTMLButtonElement;
@@ -479,7 +494,9 @@ export class BoardToolbar {
 
     // Atlas's own class names under a root of Tabletop's: its look is copied in styles.css, without needing its styles.
     this.row = el('div', 'atlas-tabletop-toolbar-row atlas-tabletop-atlas', container);
-    const bar = el('div', 'atlas-vtt-toolbar atlas-main-toolbar atlas-tabletop-toolbar', this.row);
+    // The main toolbar and, as in Atlas 0.17's bottom row, the bars beside it (the keyboard shortcuts bar at its end).
+    const line = el('div', 'atlas-tabletop-bar-line', this.row);
+    const bar = el('div', 'atlas-vtt-toolbar atlas-main-toolbar atlas-tabletop-toolbar', line);
     this.bar = bar;
     bar.setAttribute('role', 'toolbar');
     // Atlas's ToolButton: a wrapper, a span, and the button itself (a toolbar icon button).
@@ -493,6 +510,9 @@ export class BoardToolbar {
       made.addEventListener('click', onClick);
       return made;
     };
+    this.helpBar = el('div', 'atlas-vtt-toolbar atlas-hotkey-help-bar atlas-tabletop-help-bar', line);
+    this.helpBar.hidden = true;
+    this.helpButton = toolIn(this.helpBar, helpIcon(), () => this.help?.open());
     const tool = (svg: string, onClick: () => void): HTMLButtonElement => toolIn(bar, svg, onClick);
     // Atlas's Move/Select group: its face is the tool in use (the hand, or the flashlight while the laser is on), and a
     // click on it keeps that tool; the chevron opens the group's menu above it.
@@ -1520,13 +1540,14 @@ export class BoardToolbar {
     this.fitWatch = new (doc.defaultView ?? window).ResizeObserver(() => this.fit());
     this.fitWatch.observe(container);
     // Presses on the bar and the panel are not the board's: no camera drag, no deselecting.
-    for (const part of [bar, this.panel, this.viewPanel, this.groundPanel, this.waterPanel, this.measureBarsPanel]) part.addEventListener('pointerdown', (event) => event.stopPropagation());
+    for (const part of [bar, this.helpBar, this.panel, this.viewPanel, this.groundPanel, this.waterPanel, this.measureBarsPanel]) part.addEventListener('pointerdown', (event) => event.stopPropagation());
     this.refresh();
   }
 
   /** Shows the player view's state: open or not, its camera frozen or not (the freeze button only while it is open). */
   refresh(): void {
     this.refreshAtlasTools();
+    this.refreshHelp();
     this.refreshCinema();
     // Connect's Template tool, while it hosts: the shapes show with the tool on.
     const hosting = this.actions.hosting();
@@ -1967,6 +1988,28 @@ export class BoardToolbar {
   private commandButton: { tool: AtlasToolButton; button: HTMLButtonElement } | null = null;
 
   /** Shows these Atlas tools: random tables and asset manager in Play mode, command palette rightmost in every mode. */
+  /**
+   * Atlas 0.17's keyboard shortcuts button, in its own bar beside the toolbar: what it opens, its name and key. Null takes
+   * the bar away (a board without Atlas's shortcut help).
+   */
+  setHelp(help: ToolbarHelp | null): void {
+    const first = this.help === null && help !== null;
+    this.help = help;
+    this.helpBar.hidden = help === null;
+    if (help) {
+      this.helpButton.setAttribute('aria-label', help.label);
+      if (first) this.viewTooltip.attach(this.helpButton.parentElement!, () => ({ label: this.help?.label ?? '', ...(this.help?.shortcut ? { shortcut: this.help.shortcut } : {}) }));
+    }
+    this.refreshHelp();
+    this.fit();
+  }
+
+  private refreshHelp(): void {
+    const on = this.help?.active() === true;
+    this.helpButton.classList.toggle('is-active', on);
+    this.helpButton.setAttribute('aria-pressed', String(on));
+  }
+
   setAtlasTools(tools: readonly AtlasToolButton[]): void {
     const doc = this.row.ownerDocument;
     const groupTools = tools.filter((tool) => tool.id !== 'palette');
@@ -2094,8 +2137,19 @@ export class BoardToolbar {
    * moves into the More tools menu. The Move group never leaves.
    */
   fit(): void {
-    const room = Math.max(0, this.row.parentElement?.clientWidth ?? 0) - 32;
-    if (room <= 0) return;
+    // The keyboard shortcuts bar stands beside the toolbar: its room is not the toolbar's. Where even the smallest
+    // toolbar would not fit beside it, the bar steps aside (its key, ?, still opens the help).
+    this.helpBar.classList.remove('is-squeezed');
+    if (!this.fitBar(this.helpBar.hidden ? 0 : this.helpBar.getBoundingClientRect().width + 8) && !this.helpBar.hidden) {
+      this.helpBar.classList.add('is-squeezed');
+      this.fitBar(0);
+    }
+  }
+
+  /** Moves the tools farthest from Move into "More tools" until the bar fits beside `beside` px; false if it cannot. */
+  private fitBar(beside: number): boolean {
+    const room = Math.max(0, this.row.parentElement?.clientWidth ?? 0) - 32 - beside;
+    if (room <= 0) return true;
     const wasOpen = !this.moreMenu.hidden;
     for (const item of this.fitOrder) this.bar.insertBefore(item, this.moreGroup);
     this.moreGroup.hidden = true;
@@ -2109,6 +2163,7 @@ export class BoardToolbar {
     if (moved === 0) this.closeMore();
     else if (wasOpen) this.moreMenu.hidden = false;
     this.moreGroup.hidden = moved === 0;
+    return this.bar.getBoundingClientRect().width <= room;
   }
 
   openMore(): void {

@@ -7377,15 +7377,28 @@ feature('measure menu and behaviour', async ({ page, shot }) => {
 feature('shortcut help on the board', async ({ page, shot }) => {
   // Atlas's own shortcut help (copied), as the board's ? key opens it: Atlas's shortcuts the board has, with the keys the
   // board takes (a camera letter with Shift), then the board's own keys; Atlas's 2D map tools left out.
-  await page.evaluate(() => window.boardTest.hotkeyHelp.toggle());
+  // Atlas 0.17's keyboard shortcuts bar: its own bar beside the main toolbar, on its right, one circle-help button.
+  const barSpot = await page.evaluate(() => {
+    const help = document.querySelector('.atlas-tabletop-help-bar');
+    const main = document.querySelector('.atlas-tabletop-toolbar');
+    const h = help?.getBoundingClientRect(), m = main?.getBoundingClientRect();
+    return help && !help.hidden && h && m ? { right: h.left >= m.right - 1, sameRow: Math.abs((h.top + h.bottom) / 2 - (m.top + m.bottom) / 2) < 4, buttons: help.querySelectorAll('button').length, label: help.querySelector('button')?.getAttribute('aria-label') } : null;
+  });
+  check('shortcut help: a keyboard shortcuts bar stands beside the toolbar on its right, with one button', barSpot !== null && barSpot.right && barSpot.sameRow && barSpot.buttons === 1 && barSpot.label === 'Keyboard shortcuts', JSON.stringify(barSpot));
+  await shot('shortcut-help-button');
+  await page.click('.atlas-tabletop-help-bar button');
   await page.waitForSelector('.atlas-hotkey-help-card', { timeout: 5000 });
+  const pressed = await page.evaluate(() => document.querySelector('.atlas-tabletop-help-bar button')?.getAttribute('aria-pressed'));
+  check('shortcut help: the button opens it and shows as pressed', pressed === 'true', String(pressed));
   await page.waitForTimeout(300);
   const seen = await page.evaluate(() => {
     const card = document.querySelector('.atlas-hotkey-help-card');
     const rows = [...card.querySelectorAll('dl > div')].map((row) => [row.querySelector('dt')?.textContent ?? '', row.querySelector('kbd')?.textContent ?? '']);
     const headings = [...card.querySelectorAll('h3')].map((h) => h.textContent);
     const atlasRows = [...card.querySelectorAll('section:not([data-tabletop-keys]) dl > div')].map((row) => (row.querySelector('dt')?.textContent ?? '').toLowerCase());
-    return { rows, atlasRows, headings, title: card.querySelector('h2')?.textContent ?? '' };
+    const lefts = new Set([...card.querySelectorAll('.atlas-hotkey-help-list > section')].map((section) => Math.round(section.getBoundingClientRect().left)));
+    const split = [...card.querySelectorAll('.atlas-hotkey-help-list > section')].some((section) => section.getClientRects().length > 1);
+    return { rows, atlasRows, headings, columns: lefts.size, split, title: card.querySelector('h2')?.textContent ?? '' };
   });
   await shot('shortcut-help');
   const find = (text) => seen.rows.find(([label]) => label.toLowerCase().includes(text));
@@ -7394,9 +7407,10 @@ feature('shortcut help on the board', async ({ page, shot }) => {
   check("shortcut help: Atlas's 2D map tools are not listed", !seen.atlasRows.some((label) => /fog|draw|erase|text tool|pin|wall|sound/.test(label)), JSON.stringify(seen.atlasRows));
   check("shortcut help: the board's own keys follow, camera and eyes included",
     seen.headings.includes('Tabletop: camera') && seen.headings.includes("Tabletop: through a token's eyes") && (find('move the camera')?.[1] ?? '') === 'W A S D / Arrow keys', JSON.stringify(seen.headings));
+  check('shortcut help: the sections are spread over balanced columns, none split', seen.columns >= 2 && !seen.split, JSON.stringify({ columns: seen.columns, split: seen.split }));
   await page.keyboard.press('Escape');
   await page.waitForTimeout(200);
-  const closed = await page.evaluate(() => document.querySelector('.atlas-hotkey-help-card') === null && !window.boardTest.hotkeyHelp.isOpen());
+  const closed = await page.evaluate(() => document.querySelector('.atlas-hotkey-help-card') === null && !window.boardTest.hotkeyHelp.isOpen() && document.querySelector('.atlas-tabletop-help-bar button')?.getAttribute('aria-pressed') === 'false');
   check('shortcut help: Escape closes it', closed);
 });
 

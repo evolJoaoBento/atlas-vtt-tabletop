@@ -66,7 +66,7 @@ export class BoardAtlasTools {
       ...deps.palette,
       setLootRollerOpen: (open) => (open ? this.loot.open() : this.loot.close()),
     }, () => this.deps.board()?.refreshToolbar());
-    this.help = new HotkeyHelpWindow(deps.container, deps.app);
+    this.help = new HotkeyHelpWindow(deps.container, deps.app, () => this.deps.board()?.refreshToolbar());
   }
 
   /** The board's toolbar buttons for Atlas's tools, in the GM's Atlas layout. */
@@ -85,6 +85,12 @@ export class BoardAtlasTools {
       run: () => this.run(id),
     }));
     board.setAtlasTools(tools);
+    const help = this.bridge.hotkey('help');
+    board.setHelp({
+      label: at('hotkey.help'), shortcut: help ? formatHotkey(help) : null,
+      active: () => this.help.isOpen(),
+      open: () => this.help.toggle(),
+    });
   }
 
   run(id: AtlasToolId): void {

@@ -20,8 +20,8 @@ export const BOARD_HELP: BoardHotkeyHelp = {
       <dl>
         {group.keys.map((entry) => (
           <div key={entry.does}>
-            <dt>{entry.does}</dt>
-            <dd><kbd>{entry.keys}</kbd>{entry.when ? ` ${entry.when}` : ''}</dd>
+            <dt>{entry.does}{entry.when ? <span className="atlas-tabletop-key-when">{entry.when}</span> : null}</dt>
+            <dd><kbd>{entry.keys}</kbd></dd>
           </div>
         ))}
       </dl>
@@ -35,7 +35,7 @@ export class HotkeyHelpWindow {
   private open_ = false;
 
   /** Atlas's key bindings come through `app` (the copies' settings stand-in reads Atlas's own; its defaults without Atlas). */
-  constructor(host: HTMLElement, private readonly app: App) {
+  constructor(host: HTMLElement, private readonly app: App, private readonly onChange?: () => void) {
     this.el = host.ownerDocument.createElement('div');
     this.el.className = 'atlas-vtt-plugin atlas-tabletop-atlas-ui';
     host.appendChild(this.el);
@@ -49,12 +49,14 @@ export class HotkeyHelpWindow {
   toggle(): void {
     this.open_ = !this.open_;
     this.render();
+    this.onChange?.();
   }
 
   close(): void {
     if (!this.open_) return;
     this.open_ = false;
     this.render();
+    this.onChange?.();
   }
 
   dispose(): void {

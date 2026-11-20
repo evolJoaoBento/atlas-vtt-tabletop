@@ -10,6 +10,7 @@ export const ATLAS_TEXT_KEYS = [
   'hotkey.assets',
   'hotkey.palette',
   'hotkey.lootRoller',
+  'hotkey.help',
   'toolbar.lootRoller',
   'toolbar.assetManager',
   'toolbar.commandPalette',

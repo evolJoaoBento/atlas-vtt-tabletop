@@ -883,7 +883,8 @@ async function main(): Promise<void> {
     tabletopCommands: () => tabletopCommands(board.toolbarActions(), () => board.refreshToolbar(), board.toolbarCommandHost()),
   };
   const palette = new PaletteWindow(container, lootApp as never, paletteHost, () => board.refreshToolbar());
-  const hotkeyHelp = new HotkeyHelpWindow(container, lootApp as never);
+  const hotkeyHelp = new HotkeyHelpWindow(container, lootApp as never, () => board.refreshToolbar());
+  board.setHelp({ label: 'Keyboard shortcuts', shortcut: '?', active: () => hotkeyHelp.isOpen(), open: () => hotkeyHelp.toggle() });
   // Attach Atlas's toolbar tools (Random tables & Asset manager in Play mode; Command Palette rightmost in every mode).
   const runAtlasTool = (id: 'loot' | 'assets' | 'palette'): void => {
     if (id === 'loot') loot.toggle();
