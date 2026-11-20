@@ -3,7 +3,7 @@
  * Atlas's own coin mark (copied) and lucide-react at Atlas's version, rendered once to SVG markup for the board's toolbar.
  */
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Brush, Circle, Clapperboard, Command, Eraser, Eye, Hammer, ImageIcon, PaintBucket, PaintRoller, Redo2, Ruler, Swords, Triangle, Undo2, Waves } from 'lucide-react';
+import { Brush, Circle, Clapperboard, Command, Droplets, Eraser, Eye, Flame, FlaskConical, Hammer, ImageIcon, MoreHorizontal, PaintBucket, PaintRoller, Redo2, Ruler, Swords, Triangle, Undo2, Waves } from 'lucide-react';
 import { CoinIcon } from '../atlasPort/app/react/components/CoinIcon';
 import type { AtlasToolId } from './atlasTools';
 
@@ -19,10 +19,20 @@ export function atlasMeasureIcon(id: 'tool' | 'line' | 'circle' | 'cone'): strin
   return measure[id];
 }
 
-/** The water brush's icons (lucide, as Atlas's other tools): its face, painting and erasing. */
-let water: Record<'tool' | 'paint' | 'erase' | 'fill', string> | null = null;
-export function waterIcon(id: 'tool' | 'paint' | 'erase' | 'fill'): string {
-  water ??= { tool: renderToStaticMarkup(<Waves />), paint: renderToStaticMarkup(<Brush />), erase: renderToStaticMarkup(<Eraser />), fill: renderToStaticMarkup(<PaintBucket />) };
+/** The water brush's icons (lucide, as Atlas's FogToolBar): its face, liquids, brush modes and more menu. */
+export type WaterIconId = 'tool' | 'paint' | 'erase' | 'fill' | 'water' | 'lava' | 'acid' | 'more';
+let water: Record<WaterIconId, string> | null = null;
+export function waterIcon(id: WaterIconId): string {
+  water ??= {
+    tool: renderToStaticMarkup(<Waves />),
+    paint: renderToStaticMarkup(<Brush />),
+    erase: renderToStaticMarkup(<Eraser />),
+    fill: renderToStaticMarkup(<PaintBucket />),
+    water: renderToStaticMarkup(<Droplets />),
+    lava: renderToStaticMarkup(<Flame />),
+    acid: renderToStaticMarkup(<FlaskConical />),
+    more: renderToStaticMarkup(<MoreHorizontal />),
+  };
   return water[id];
 }
 

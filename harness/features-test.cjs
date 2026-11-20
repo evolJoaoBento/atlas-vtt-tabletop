@@ -2142,12 +2142,14 @@ feature('water', async ({ page, shot }) => {
   check('the water keeps moving (the board keeps drawing frames)', frames[1] > frames[0], JSON.stringify(frames));
   check('the tint and clarity are the ones set', await page.evaluate(() => { const water = window.boardTest.board.water; return water.currentMotion.tint === '#1fa3a8' && Math.abs(water.uniforms.uWaterClarity.value - 0.7) < 1e-6; }));
   check('the water is see-through (refracts the ground under it)', await page.evaluate(() => window.boardTest.board.water.object3d.material.transmission > 0));
-  await page.locator('.atlas-tabletop-toolbar button[aria-label="Water options"]').click();
-  check('the water menu has the tint and clarity', (await page.locator('.atlas-tabletop-water-options .atlas-swatch').count()) >= 6 && (await page.locator('.atlas-tabletop-water-options input[aria-label="Clarity"]').count()) === 1);
+  check('the water bar floats above the toolbar without a chevron menu', (await page.locator('.atlas-tabletop-water-bars').isVisible()) && (await page.locator('.atlas-tabletop-toolbar button[aria-label="Water options"]').count()) === 0);
+  await shot('water-bar');
+  await page.locator('.atlas-tabletop-water-bars [data-water-popover="tint"]').click();
+  check('the water tint popover has the tint and clarity', (await page.locator('.atlas-tabletop-water-options .atlas-swatch').count()) >= 6 && (await page.locator('.atlas-tabletop-water-options input[aria-label="Clarity"]').count()) === 1);
   await page.locator('.atlas-tabletop-water-options .atlas-swatch[aria-label="Swamp"]').click();
   check('a tint swatch tints all the map\'s water', await page.evaluate(() => window.boardTest.board.water.currentMotion.tint === '#4f5a2c'));
   await shot('water-menu');
-  await page.locator('.atlas-tabletop-toolbar button[aria-label="Water options"]').click();
+  await page.locator('.atlas-tabletop-water-bars [data-water-popover="tint"]').click();
   await page.evaluate(() => window.boardTest.board.toolbarActions().setWaterMotion({ kind: 'flow', amount: 0.8, direction: 90, tint: '#1fa3a8', clarity: 0.7 }));
   await wait(300);
   await shot('water');
@@ -2210,15 +2212,18 @@ feature('water', async ({ page, shot }) => {
   await page.keyboard.up('Shift');
   check('Shift with the eraser chosen leaves it the eraser', (await page.evaluate(() => window.boardTest.board.toolbarActions().waterTool())) === 'erase');
   await page.evaluate(() => window.boardTest.board.toolbarActions().setWaterTool(null));
-  await page.locator('.atlas-tabletop-toolbar button[aria-label="Water options"]').click();
-  const opened = await page.locator('.atlas-tabletop-water-options').isVisible();
+  await page.locator('.atlas-tabletop-toolbar button[aria-label="Water"]').click();
+  await page.locator('.atlas-tabletop-water-bars [data-water-popover="brush"]').click();
+  const opened = await page.locator('.atlas-tabletop-water-popover--brush').isVisible();
   await page.mouse.click(canvas.x + canvas.width * 0.85, canvas.y + canvas.height * 0.15);
   await wait(100);
-  const stillOpen = await page.locator('.atlas-tabletop-water-options').isVisible();
-  check('a click outside the water menu closes it', opened && !stillOpen, JSON.stringify({ opened, stillOpen }));
+  const stillOpen = await page.locator('.atlas-tabletop-water-popover--brush').isVisible();
+  const barStillOpen = await page.locator('.atlas-tabletop-water-bars').isVisible();
+  check('a click outside closes the popover while keeping the Fog-style water bar open', opened && !stillOpen && barStillOpen, JSON.stringify({ opened, stillOpen, barStillOpen }));
+  await page.locator('.atlas-tabletop-toolbar button[aria-label="Water"]').click();
   // The bucket: fills the area of like colour joined to the click, as far as the sensitivity lets it.
   const wetCount = () => page.evaluate(() => { const water = window.boardTest.board.water; if (!water) return 0; let n = 0; for (const v of water.mask.data) if (v) n++; return n; });
-  check('the water menu has the bucket and its sensitivity', (await page.locator('.atlas-tabletop-water-options [data-water="fill"]').count()) === 1 && (await page.locator('.atlas-tabletop-water-options input[aria-label="Fill sensitivity"]').count()) === 1);
+  check('the water bar has the bucket and its sensitivity', (await page.locator('.atlas-tabletop-water-options [data-water="fill"]').count()) === 1 && (await page.locator('.atlas-tabletop-water-options input[aria-label="Fill sensitivity"]').count()) === 1);
   await page.evaluate(() => { const actions = window.boardTest.board.toolbarActions(); actions.setWaterTool('fill'); actions.setWaterFill(8); });
   await page.mouse.click(x, y);
   await wait(200);
@@ -2288,23 +2293,24 @@ feature('lava and acid', async ({ page, shot }) => {
   const canvas = await page.locator('canvas').first().boundingBox();
   const [x, y] = [canvas.x + canvas.width * 0.42, canvas.y + canvas.height * 0.62];
   const drag = async (fromX, toX) => { await page.mouse.move(fromX, y); await page.mouse.down(); await page.mouse.move(toX, y + 10, { steps: 12 }); await page.mouse.up(); await wait(250); };
-  // The menu: a liquid picker; the modes, motions and presets named for the liquid chosen.
-  await page.locator('.atlas-tabletop-toolbar button[aria-label="Water options"]').click();
+  // The bar: a liquid picker; the modes, motions and presets named for the liquid chosen.
+  await page.locator('.atlas-tabletop-toolbar button[aria-label^="Water"]').click();
   await page.locator('.atlas-tabletop-water-options [data-liquid="lava"]').click();
+  await page.locator('.atlas-tabletop-water-bars [data-water-popover="tint"]').click();
   await wait(100);
   const menu = await page.evaluate(() => {
     const panel = document.querySelector('.atlas-tabletop-water-options');
     return {
       liquids: [...panel.querySelectorAll('[data-liquid]')].map((b) => b.dataset.liquid),
-      paint: panel.querySelector('[data-water="paint"]').textContent.trim(), still: panel.querySelector('[data-motion="still"]').textContent.trim(),
+      paint: panel.querySelector('[data-water="paint"]').getAttribute('aria-label'), still: panel.querySelector('[data-motion="still"]').textContent.trim(),
       swatches: [...panel.querySelectorAll('.atlas-swatch')].map((b) => b.getAttribute('aria-label')),
       clarity: panel.querySelector('input[aria-label="Clarity"]').disabled, chosen: window.boardTest.board.toolbarActions().liquid(),
     };
   });
-  check('lava and acid: the brush menu picks water, lava or acid, and names itself for the one picked', menu.liquids.join() === 'water,lava,acid' && menu.chosen === 'lava' && menu.paint === 'Paint lava' && menu.still === 'Still', JSON.stringify(menu));
-  check("lava and acid: lava's own tint presets, and no clarity for lava (shown off, the menu keeps its shape)", menu.swatches.includes('Molten') && menu.swatches.includes('Sulfur blue') && !menu.swatches.includes('Lake') && menu.clarity === true, JSON.stringify(menu));
+  check('lava and acid: the brush bar picks water, lava or acid, and names itself for the one picked', menu.liquids.join() === 'water,lava,acid' && menu.chosen === 'lava' && menu.paint === 'Paint lava' && menu.still === 'Still', JSON.stringify(menu));
+  check("lava and acid: lava's own tint presets, and no clarity for lava (shown off, the popover keeps its shape)", menu.swatches.includes('Molten') && menu.swatches.includes('Sulfur blue') && !menu.swatches.includes('Lake') && menu.clarity === true, JSON.stringify(menu));
   await shot('lava-menu');
-  await page.locator('.atlas-tabletop-toolbar button[aria-label^="Water options"]').click();
+  await page.locator('.atlas-tabletop-toolbar button[aria-label^="Water"]').click();
   // Painting lava: its own sheet, opaque, glowing, in its own motion.
   await page.evaluate(() => { const actions = window.boardTest.board.toolbarActions(); actions.setWaterTool('paint'); actions.setWaterBrush(1.5); actions.setWaterMotion({ kind: 'flow', amount: 0.4, direction: 90, tint: '#ff5a1f', clarity: 0 }); });
   await drag(x, x + 220);
@@ -2359,21 +2365,23 @@ feature('lava types', async ({ page, shot }) => {
   await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(x + 260, y + 10, { steps: 12 }); await page.mouse.up();
   await wait(300);
   await page.evaluate(() => window.boardTest.board.toolbarActions().setWaterTool(null));
-  // The menu: the lava's kinds, only while the brush paints lava.
-  await page.locator('.atlas-tabletop-toolbar button[aria-label^="Water options"]').click();
+  // The motion popover: the lava's kinds, only while the brush paints lava.
+  await page.locator('.atlas-tabletop-toolbar button[aria-label^="Water"]').click();
+  await page.locator('.atlas-tabletop-water-bars [data-water-popover="motion"]').click();
   const menu = await page.evaluate(() => { const section = document.querySelector('.atlas-tabletop-lava-styles'); return { shown: section.getBoundingClientRect().height > 0, kinds: [...section.querySelectorAll('[data-lava-style]')].map((b) => b.dataset.lavaStyle) }; });
-  check('lava types: the brush menu offers the kinds of lava', menu.shown && menu.kinds.join() === 'crust,ropey,rubble,lake,magma', JSON.stringify(menu));
+  check('lava types: the motion popover offers the kinds of lava', menu.shown && menu.kinds.join() === 'crust,ropey,rubble,lake,magma', JSON.stringify(menu));
   await page.locator('.atlas-tabletop-water-options [data-lava-style="lake"]').click();
   await wait(100);
   const picked = await page.evaluate(() => { const sheet = window.boardTest.board.liquids.get('lava'); return { style: sheet.currentMotion.style, uniform: sheet.uniforms.uLavaStyle.value }; });
   check('lava types: picking one makes the painted lava that kind', picked.style === 'lake' && picked.uniform === 3, JSON.stringify(picked));
-  // The menu is taller than the window with the lava's kinds in it: it scrolls, its top never off the window.
-  const menuBox = await page.evaluate(() => { const r = document.querySelector('.atlas-tabletop-water-options').getBoundingClientRect(); return { top: r.top, bottom: r.bottom, vh: innerHeight }; });
-  check('lava types: the brush menu stays inside the window (it scrolls)', menuBox.top >= 0 && menuBox.bottom <= menuBox.vh, JSON.stringify(menuBox));
+  // The popover stays inside the window (it scrolls if needed), its top never off the window.
+  const menuBox = await page.evaluate(() => { const r = document.querySelector('.atlas-tabletop-water-popover--motion').getBoundingClientRect(); return { top: r.top, bottom: r.bottom, vh: innerHeight }; });
+  check('lava types: the motion popover stays inside the window (it scrolls)', menuBox.top >= 0 && menuBox.bottom <= menuBox.vh, JSON.stringify(menuBox));
+  await shot('lava-motion-menu');
   await page.locator('.atlas-tabletop-water-options [data-liquid="water"]').click();
   await wait(100);
   check('lava types: the kinds are put away while the brush paints water', await page.evaluate(() => document.querySelector('.atlas-tabletop-lava-styles').getBoundingClientRect().height === 0));
-  await page.locator('.atlas-tabletop-toolbar button[aria-label^="Water options"]').click();
+  await page.locator('.atlas-tabletop-toolbar button[aria-label^="Water"]').click();
   // Each kind, close up.
   await page.evaluate(() => { const { board } = window.boardTest; window.typesPose = [JSON.parse(JSON.stringify(board.camera.pose)), JSON.parse(JSON.stringify(board.camera.goal))]; const m = board.liquids.get('lava').mask; let sx = 0, sy = 0, n = 0; for (let j = 0; j < m.height; j++) for (let i = 0; i < m.width; i++) if (m.data[j * m.width + i]) { sx += i; sy += j; n++; } for (const pose of [board.camera.pose, board.camera.goal]) { pose.target.x = (sx / n) * m.texel; pose.target.z = (sy / n) * m.texel; pose.distance = 480; pose.pitch = 0.9; } board.camera.snap(); board.wake(true); });
   for (const style of ['crust', 'ropey', 'rubble', 'lake', 'magma']) {
@@ -6753,8 +6761,11 @@ feature('visibility bar', async ({ page, shot }) => {
   check('visibility bar: first-person view ends size mode and disables window size', inEyes.ringHidden && inEyes.disabled, JSON.stringify(inEyes));
 
   // 6a. Narrow board width (~400 px): bar fits without clipping.
-  await page.evaluate(() => { document.getElementById('board').style.width = '400px'; });
-  await wait(400);
+  await page.evaluate(() => {
+    document.getElementById('board').style.width = '400px';
+    window.boardTest.board.toolbar.fit();
+  });
+  await wait(200);
   const viewHiddenInMore = await page.evaluate(() => document.querySelector('button[aria-label="Visibility"]')?.offsetParent === null);
   if (viewHiddenInMore) {
     await page.click('button[aria-label="More tools"]');
