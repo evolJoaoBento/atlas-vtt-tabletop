@@ -57,7 +57,12 @@ export class PaletteWindow {
   private readonly store: any;
   private open_ = false;
 
-  constructor(host: HTMLElement, private readonly app: App, private readonly palette: PaletteHost) {
+  constructor(
+    host: HTMLElement,
+    private readonly app: App,
+    private readonly palette: PaletteHost,
+    private readonly onStateChange?: () => void,
+  ) {
     this.el = host.ownerDocument.createElement('div');
     this.el.className = 'atlas-vtt-plugin atlas-tabletop-atlas-ui';
     host.appendChild(this.el);
@@ -75,12 +80,14 @@ export class PaletteWindow {
     this.store.refresh();
     this.open_ = true;
     this.render();
+    this.onStateChange?.();
   }
 
   close(): void {
     if (!this.open_) return;
     this.open_ = false;
     this.render();
+    this.onStateChange?.();
   }
 
   toggle(): void {

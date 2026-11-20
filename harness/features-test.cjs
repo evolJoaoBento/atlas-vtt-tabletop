@@ -1795,11 +1795,11 @@ feature('token height', async ({ page, shot }) => {
       board.showToolOverlay();
       board.tools.cancel();
     };
-    measureOf('line', { x: 245, y: 245 }, { x: 385, y: 245 });
-    measureOf('line', { x: 245, y: 315 }, { x: 385, y: 315 });
+    measureOf('ruler', { x: 245, y: 245 }, { x: 385, y: 245 });
+    measureOf('ruler', { x: 245, y: 315 }, { x: 385, y: 315 });
     measureOf('circle', { x: 245, y: 245 }, { x: 385, y: 245 });
     board.marks.setOverlay = set;
-    board.toolbarActions().selectMeasure('line');
+    board.toolbarActions().selectMeasure('ruler');
     return seen;
   });
   // Equidistant: the longer of 2 across and 3 up.
@@ -6835,6 +6835,542 @@ feature('visibility bar', async ({ page, shot }) => {
   }));
   await shot('sheet-dice-log-tab');
   check('dice tray & visibility bar: Stat sheet is in Visibility bar and Dice log opens on a tab of the Stat sheet card', toolbarLogCount === 0 && toolbarSheetCount === 0 && sheetOpened.open && sheetOpened.tab === 'sheet' && sheetOpened.btnActive && trayHasLog && logTabState.sheetOpen && logTabState.tab === 'log' && logTabState.logVisible && logTabState.trayClosed, JSON.stringify({ toolbarLogCount, toolbarSheetCount, sheetOpened, trayHasLog, logTabState }));
+  await page.keyboard.press('Escape');
+});
+
+// ── Spec 2 Job A: Command button rightmost in Play, Edit and Cinematic, never overflows, hotkey in all modes ──
+feature('command button', async ({ page, shot }) => {
+  const LIGHT_VARS = ':root{--background-primary:#ffffff;--background-secondary:#f6f6f6;--background-modifier-hover:rgba(0,0,0,.05);--background-modifier-active-hover:rgba(124,92,255,.14);--text-normal:#222222;--text-muted:#5c5c5c;--text-faint:#ababab;--background-modifier-border:#e0e0e0;--divider-color:#e0e0e0;--background-secondary-alt:#fcfcfc;--shadow-l:0 8px 24px rgba(0,0,0,.15)} body{background:#e8e8e8}';
+  const setLight = async (on) => {
+    await page.evaluate(({ on, css }) => {
+      let tag = document.getElementById('spec2-light');
+      if (on) {
+        if (!tag) { tag = document.createElement('style'); tag.id = 'spec2-light'; tag.textContent = css; document.head.appendChild(tag); }
+        document.body.classList.add('theme-light');
+      } else {
+        tag?.remove();
+        document.body.classList.remove('theme-light');
+      }
+    }, { on, css: LIGHT_VARS });
+    await wait(150);
+  };
+  await page.evaluate(() => {
+    const { modes, setHosting, board } = window.boardTest;
+    setHosting(true);
+    modes.on = true;
+    modes.mode = 'play';
+    board.refreshToolbar();
+  });
+  await wait(200);
+
+  const rightmostInfo = () => page.evaluate(() => {
+    const bar = document.querySelector('.atlas-tabletop-toolbar');
+    const children = [...bar.children].filter((el) => el.offsetParent !== null);
+    const buttons = [...bar.querySelectorAll('button')].filter((b) => b.offsetParent !== null && !b.closest('.atlas-dropdown-content'));
+    const cmd = bar.querySelector('button[data-atlas-tool="palette"]');
+    const cmdRect = cmd?.getBoundingClientRect();
+    const others = buttons.filter((b) => b !== cmd).map((b) => b.getBoundingClientRect().right);
+    const maxOtherRight = others.length ? Math.max(...others) : -Infinity;
+    const more = bar.querySelector('button[aria-label="More tools"]');
+    const moreRect = more && more.offsetParent !== null ? more.getBoundingClientRect() : null;
+    return {
+      visible: !!cmd && cmd.offsetParent !== null,
+      lastChildIsCmd: children.at(-1)?.classList.contains('atlas-tabletop-command') === true,
+      cmdRightPastAll: !!cmdRect && cmdRect.right >= maxOtherRight - 0.5,
+      cmdRightPastMore: !moreRect || (!!cmdRect && cmdRect.right > moreRect.right),
+      inMore: !!cmd?.closest('.atlas-tabletop-more-menu'),
+      moreVisible: !!moreRect,
+    };
+  });
+
+  // Play mode.
+  const playInfo = await rightmostInfo();
+  check('command button: visible and rightmost in Play mode', playInfo.visible && playInfo.lastChildIsCmd && playInfo.cmdRightPastAll, JSON.stringify(playInfo));
+
+  // Click opens palette; Escape closes.
+  const palWin = page.locator('.atlas-tabletop-atlas-ui .atlas-command-palette-window');
+  await page.click('button[data-atlas-tool="palette"]');
+  await palWin.waitFor({ timeout: 5000 });
+  await wait(120);
+  check('command button: click opens command palette', (await palWin.count()) === 1);
+  await page.keyboard.press('Escape');
+  await palWin.waitFor({ state: 'detached', timeout: 3000 }).catch(() => {});
+  check('command button: Escape closes palette', (await palWin.count()) === 0);
+
+  // Space hotkey opens palette in Play mode.
+  await page.mouse.click(500, 300);
+  await page.keyboard.press('Space');
+  await palWin.waitFor({ timeout: 5000 }).catch(() => {});
+  check('command button: Space opens palette in Play mode', (await palWin.count()) === 1);
+  await page.keyboard.press('Escape');
+  await palWin.waitFor({ state: 'detached', timeout: 3000 }).catch(() => {});
+
+  // Edit mode + dark & light screenshots.
+  await page.click('[aria-label="Edit mode"]');
+  await wait(250);
+  const editInfo = await rightmostInfo();
+  check('command button: visible and rightmost in Edit mode', editInfo.visible && editInfo.lastChildIsCmd && editInfo.cmdRightPastAll, JSON.stringify(editInfo));
+  await shot('command-button-edit');
+  await setLight(true);
+  await shot('command-button-edit-light');
+  await setLight(false);
+  await page.mouse.click(500, 300);
+  await page.keyboard.press('Space');
+  await palWin.waitFor({ timeout: 5000 }).catch(() => {});
+  check('command button: Space opens palette in Edit mode', (await palWin.count()) === 1);
+  await page.keyboard.press('Escape');
+  await palWin.waitFor({ state: 'detached', timeout: 3000 }).catch(() => {});
+
+  // Narrow width (~500px): other tools overflow into More, command button stays rightmost on the bar.
+  await page.evaluate(() => { document.getElementById('board').style.width = '500px'; });
+  await wait(500);
+  const narrowInfo = await rightmostInfo();
+  check('command button: stays rightmost on bar at 500px width while other tools overflow into More', narrowInfo.visible && narrowInfo.moreVisible && !narrowInfo.inMore && narrowInfo.lastChildIsCmd && narrowInfo.cmdRightPastMore && narrowInfo.cmdRightPastAll, JSON.stringify(narrowInfo));
+  await page.evaluate(() => { document.getElementById('board').style.width = ''; });
+  await wait(400);
+
+  // Cinematic mode + dark & light screenshots + Space hotkey.
+  await page.click('[aria-label="Cinematic mode"]');
+  await page.waitForFunction(() => window.boardTest.studio.studio.state === 'gallery' && window.boardTest.board.cinema.aspect !== null && window.boardTest.board.cinema.black === 0, null, { timeout: 8000 });
+  await wait(250);
+  const cinInfo = await rightmostInfo();
+  check('command button: visible and rightmost in Cinematic mode', cinInfo.visible && cinInfo.lastChildIsCmd && cinInfo.cmdRightPastAll, JSON.stringify(cinInfo));
+  await shot('command-button-cinematic');
+  await setLight(true);
+  await shot('command-button-cinematic-light');
+  await setLight(false);
+  await page.mouse.click(500, 300);
+  await page.keyboard.press('Space');
+  await palWin.waitFor({ timeout: 5000 }).catch(() => {});
+  check('command button: Space opens palette in Cinematic mode', (await palWin.count()) === 1);
+  await page.keyboard.press('Escape');
+  await palWin.waitFor({ state: 'detached', timeout: 3000 }).catch(() => {});
+  await page.click('[aria-label="Play mode"]');
+  await page.waitForFunction(() => window.boardTest.studio.studio.state === 'idle', null, { timeout: 8000 });
+});
+
+// ── Spec 2 Job B: Every toolbar button in registry & palette + mode switching on run ──
+feature('toolbar commands and mode switching', async ({ page, shot }) => {
+  const LIGHT_VARS = ':root{--background-primary:#ffffff;--background-secondary:#f6f6f6;--background-modifier-hover:rgba(0,0,0,.05);--background-modifier-active-hover:rgba(124,92,255,.14);--text-normal:#222222;--text-muted:#5c5c5c;--text-faint:#ababab;--background-modifier-border:#e0e0e0;--divider-color:#e0e0e0;--background-secondary-alt:#fcfcfc;--shadow-l:0 8px 24px rgba(0,0,0,.15)} body{background:#e8e8e8}';
+  const setLight = async (on) => {
+    await page.evaluate(({ on, css }) => {
+      let tag = document.getElementById('spec2-light');
+      if (on) {
+        if (!tag) { tag = document.createElement('style'); tag.id = 'spec2-light'; tag.textContent = css; document.head.appendChild(tag); }
+        document.body.classList.add('theme-light');
+      } else {
+        tag?.remove();
+        document.body.classList.remove('theme-light');
+      }
+    }, { on, css: LIGHT_VARS });
+    await wait(150);
+  };
+
+  await page.evaluate(() => {
+    const { modes, setHosting, board } = window.boardTest;
+    setHosting(true);
+    modes.on = true;
+    modes.mode = 'play';
+    // Inject a Connect-style button into the end slot to verify dynamic end-slot registration.
+    const slot = document.querySelector('.atlas-tabletop-extensions');
+    const connectBtn = document.createElement('button');
+    connectBtn.type = 'button';
+    connectBtn.className = 'btn btn--toolbar btn--icon';
+    connectBtn.setAttribute('aria-label', 'Connect session');
+    connectBtn.dataset.connectTest = '1';
+    connectBtn.addEventListener('click', () => { window.__connectClicked = (window.__connectClicked || 0) + 1; });
+    slot.appendChild(connectBtn);
+    board.refreshToolbar();
+  });
+  await wait(200);
+
+  // 1. Collect every visible toolbar button across Play, Edit, Visibility bar, and Cinematic, and verify registry + palette coverage.
+  const collectVisibleButtons = () => page.evaluate(() => {
+    const roots = [document.querySelector('.atlas-tabletop-toolbar'), document.querySelector('.atlas-tabletop-view-bar')].filter(Boolean);
+    const found = [];
+    for (const root of roots) {
+      for (const btn of root.querySelectorAll('button')) {
+        if (btn.offsetParent === null || btn.closest('.atlas-dropdown-content')) continue;
+        const aria = btn.getAttribute('aria-label') || '';
+        found.push({ aria, toolbarId: btn.dataset.toolbarId || null, isConnect: btn.dataset.connectTest === '1' });
+      }
+    }
+    return found;
+  });
+
+  const allDomButtons = new Map();
+  for (const mode of ['play', 'edit']) {
+    await page.evaluate((m) => { window.boardTest.host.setBoardMode(m); window.boardTest.board.refreshToolbar(); }, mode);
+    await wait(150);
+    await page.click('button[aria-label="Visibility"]');
+    await wait(150);
+    for (const b of await collectVisibleButtons()) allDomButtons.set(b.aria, b);
+    await page.click('button[aria-label="Visibility"]');
+    await wait(100);
+  }
+  const missingId = [...allDomButtons.values()].filter((b) => !b.toolbarId && !b.isConnect);
+  check('registry vs DOM: every toolbar and visibility button is registered', missingId.length === 0 && allDomButtons.size >= 18, JSON.stringify({ count: allDomButtons.size, missingId }));
+
+  // Check every DOM button is searchable in the command palette by its name.
+  const searchNames = [...allDomButtons.keys()].map((aria) => aria.split(':')[0].replace(/\s*\([^)]*\)\s*$/, '').trim());
+  const paletteMatch = await page.evaluate((names) => {
+    const { board } = window.boardTest;
+    const cmds = board.toolbarCommandHost().state();
+    // Read through palette's tabletopCommands.
+    const entries = window.boardTest.palette.palette.tabletopCommands();
+    const missing = [];
+    for (const name of names) {
+      const q = name.toLowerCase();
+      const ok = entries.some((e) => [e.label, ...(e.keywords ?? [])].some((text) => text.toLowerCase().includes(q)));
+      if (!ok) missing.push(name);
+    }
+    return { total: names.length, missing, hasConnect: entries.some((e) => e.label.includes('Connect session')) };
+  }, searchNames);
+  check('registry vs palette: every DOM toolbar button has a palette entry reachable by typing its name', paletteMatch.missing.length === 0 && paletteMatch.hasConnect, JSON.stringify(paletteMatch));
+
+  // Unavailable buttons have no entry (Template hidden when not hosting).
+  await page.evaluate(() => window.boardTest.setHosting(false));
+  const noHostTemplate = await page.evaluate(() => window.boardTest.palette.palette.tabletopCommands().some((e) => e.id === 'tabletop-toolbar-template'));
+  check('unavailable buttons have no palette entry (Template while not hosting)', noHostTemplate === false);
+  await page.evaluate(() => window.boardTest.setHosting(true));
+
+  // Helper: open palette, type query, click matching Tabletop command item, verify palette closes.
+  const runPaletteEntry = async (query, expectedLabel) => {
+    await page.evaluate(() => window.boardTest.palette.open());
+    const win = page.locator('.atlas-tabletop-atlas-ui .atlas-command-palette-window');
+    await win.waitFor({ timeout: 5000 });
+    await wait(120);
+    await page.locator('.atlas-command-palette-search input, .atlas-command-palette-input').first().fill(query);
+    await wait(150);
+    const items = page.locator('.atlas-command-item');
+    const count = await items.count();
+    let clicked = null;
+    const want = expectedLabel.toLowerCase();
+    for (let i = 0; i < count; i++) {
+      const label = (await items.nth(i).locator('.atlas-command-item-label').innerText()).trim();
+      if (label.toLowerCase() === want) {
+        clicked = label;
+        await items.nth(i).click();
+        break;
+      }
+    }
+    await win.waitFor({ state: 'detached', timeout: 3000 }).catch(() => {});
+    await wait(100);
+    const closed = (await win.count()) === 0;
+    return { clicked, closed };
+  };
+
+  // Mode switching checks across modes:
+  // Play -> Water (Edit mode) + screenshot command-switch-mode in dark & light.
+  await page.evaluate(() => { window.boardTest.host.setBoardMode('play'); window.boardTest.board.refreshToolbar(); });
+  await wait(150);
+  const waterRun = await runPaletteEntry('Water', 'Water · Edit mode');
+  const waterState = await page.evaluate(() => ({
+    mode: window.boardTest.host.boardMode(),
+    waterBarOpen: !document.querySelector('.atlas-tabletop-water-bars')?.hidden,
+    waterActive: window.boardTest.board.toolbarActions().waterTool() !== null,
+    activeToolbarIds: [...document.querySelectorAll('.atlas-tabletop-toolbar button.is-active')].map((b) => b.dataset.toolbarId),
+  }));
+  check('mode switch Play -> Water switches to Edit mode and keeps water bars open after palette closes', waterRun.closed && waterRun.clicked === 'Water · Edit mode' && waterState.mode === 'edit' && waterState.waterBarOpen && waterState.waterActive && waterState.activeToolbarIds.includes('mode-edit') && waterState.activeToolbarIds.includes('water') && !waterState.activeToolbarIds.includes('mode-play'), JSON.stringify({ waterRun, waterState }));
+  await shot('command-switch-mode');
+  await setLight(true);
+  await shot('command-switch-mode-light');
+  await setLight(false);
+
+  // Edit -> Measure (Play mode).
+  const measureRun = await runPaletteEntry('Measure', 'Measure · Play mode');
+  const measureState = await page.evaluate(() => ({
+    mode: window.boardTest.host.boardMode(),
+    measureBarsOpen: !document.querySelector('.atlas-tabletop-measure-bars')?.hidden,
+    measureOn: window.boardTest.board.toolbarActions().measureOn(),
+  }));
+  check('mode switch Edit -> Measure switches to Play mode and keeps measure bars open', measureRun.closed && measureRun.clicked === 'Measure · Play mode' && measureState.mode === 'play' && measureState.measureBarsOpen && measureState.measureOn, JSON.stringify({ measureRun, measureState }));
+
+  // Play -> Paint walls (Edit mode), Lighting (Edit mode), Ground (Edit mode), Board settings (Edit mode).
+  for (const [query, match, checkFn, desc] of [
+    ['Paint walls', 'Paint walls · Edit mode', () => window.boardTest.host.boardMode() === 'edit' && (!document.querySelector('.atlas-tabletop-paint-options')?.hidden || window.boardTest.board.isPainting), 'Play -> Paint walls'],
+    ['Lighting', 'Lighting', () => window.boardTest.host.boardMode() === 'edit' && !document.querySelector('.atlas-tabletop-lighting-options')?.hidden, 'Edit -> Lighting (same mode, no mode change)'],
+    ['Ground', 'Ground', () => window.boardTest.host.boardMode() === 'edit' && !document.querySelector('.atlas-tabletop-ground-panel')?.hidden, 'Edit -> Ground (same mode)'],
+    ['Board settings', 'Board settings', () => window.boardTest.host.boardMode() === 'edit' && !document.querySelector('.atlas-tabletop-palette:not(.atlas-tabletop-ground-panel)')?.hidden, 'Edit -> Board settings'],
+  ]) {
+    const res = await runPaletteEntry(query, match);
+    const ok = await page.evaluate(checkFn);
+    check(`palette command ${desc} opens and stays open`, res.closed && !!res.clicked && ok, JSON.stringify({ res, ok, mode: await page.evaluate(() => window.boardTest.host.boardMode()) }));
+  }
+
+  // From Play -> Ground & Board settings & Lighting switch mode from Play to Edit.
+  for (const [query, match, sel] of [
+    ['Lighting', 'Lighting · Edit mode', '.atlas-tabletop-lighting-options'],
+    ['Ground', 'Ground · Edit mode', '.atlas-tabletop-ground-panel'],
+    ['Board settings', 'Board settings · Edit mode', '.atlas-tabletop-palette:not(.atlas-tabletop-ground-panel)'],
+  ]) {
+    await page.evaluate(() => { window.boardTest.host.setBoardMode('play'); window.boardTest.board.refreshToolbar(); });
+    await wait(120);
+    const res = await runPaletteEntry(query, match);
+    const st = await page.evaluate((s) => ({ mode: window.boardTest.host.boardMode(), open: !document.querySelector(s)?.hidden }), sel);
+    check(`mode switch Play -> ${query} switches to Edit and opens panel`, res.closed && st.mode === 'edit' && st.open, JSON.stringify({ res, st }));
+  }
+
+  // Edit -> Template (Play mode) & Dice tray (Play mode) & Visibility (current mode, no change).
+  const visSame = await runPaletteEntry('Visibility', 'Visibility');
+  const visState = await page.evaluate(() => ({ mode: window.boardTest.host.boardMode(), open: !document.querySelector('.atlas-tabletop-view-bar')?.hidden }));
+  check('same-mode entry Visibility opens without mode change', visSame.closed && visSame.clicked === 'Visibility' && visState.mode === 'edit' && visState.open, JSON.stringify({ visSame, visState }));
+
+  const tplRun = await runPaletteEntry('Template', 'Template · Play mode');
+  const tplState = await page.evaluate(() => ({ mode: window.boardTest.host.boardMode(), on: window.boardTest.board.toolbarActions().templateOn() }));
+  check('mode switch Edit -> Template switches to Play and turns Template on', tplRun.closed && tplState.mode === 'play' && tplState.on, JSON.stringify({ tplRun, tplState }));
+
+  await page.evaluate(() => { window.boardTest.host.setBoardMode('edit'); window.boardTest.board.refreshToolbar(); });
+  await wait(120);
+  const diceRun = await runPaletteEntry('Dice tray', 'Dice tray · Play mode');
+  const diceState = await page.evaluate(() => ({ mode: window.boardTest.host.boardMode(), open: !document.querySelector('.atlas-tabletop-dice-picker')?.hidden }));
+  check('mode switch Edit -> Dice tray switches to Play and opens dice tray', diceRun.closed && diceState.mode === 'play' && diceState.open, JSON.stringify({ diceRun, diceState }));
+
+  // Edit -> Players follow my camera switches to Play mode and enables live; Play -> Cinematic mode enters Cinematic.
+  await page.evaluate(() => { window.boardTest.host.setBoardMode('edit'); window.boardTest.board.refreshToolbar(); });
+  await wait(120);
+  const liveRun = await runPaletteEntry('Players follow my camera', 'Players follow my camera · Play mode');
+  const liveState = await page.evaluate(() => ({ mode: window.boardTest.host.boardMode(), live: window.boardTest.studio.studio.live }));
+  check('mode switch Edit -> Players follow my camera switches to Play and enables live', liveRun.closed && liveState.mode === 'play' && liveState.live, JSON.stringify({ liveRun, liveState }));
+  // Turn live back off cleanly before entering Cinematic mode via the palette.
+  await page.evaluate(() => { window.boardTest.studio.studio.endRun(); window.boardTest.board.refreshToolbar(); });
+  await wait(150);
+  const cinModeRun = await runPaletteEntry('Cinematic mode', 'Cinematic mode');
+  await page.waitForFunction(() => window.boardTest.studio.studio.state === 'gallery', null, { timeout: 8000 });
+  const cinState = await page.evaluate(() => ({ mode: window.boardTest.host.boardMode(), state: window.boardTest.studio.studio.state }));
+  check('palette command Cinematic mode enters Cinematic mode', cinModeRun.closed && cinState.mode === 'cinematic' && cinState.state === 'gallery', JSON.stringify({ cinModeRun, cinState }));
+
+  // From Cinematic -> Visibility switches back to Play and opens Visibility bar.
+  const fromCin = await runPaletteEntry('Visibility', 'Visibility · Play mode');
+  await page.waitForFunction(() => window.boardTest.studio.studio.state === 'idle', null, { timeout: 8000 });
+  const afterCin = await page.evaluate(() => ({ mode: window.boardTest.host.boardMode(), open: !document.querySelector('.atlas-tabletop-view-bar')?.hidden }));
+  check('mode switch Cinematic -> Visibility switches to Play and opens Visibility bar', fromCin.closed && afterCin.mode === 'play' && afterCin.open, JSON.stringify({ fromCin, afterCin }));
+  await page.evaluate(() => { document.querySelector('[data-connect-test="1"]')?.remove(); });
+});
+
+// ── Spec 2 Job C: Atlas Measure menu, two horizontal bars, Look dropdown, Keep/Players/Clear+Undo, drag distance ──
+feature('measure menu and behaviour', async ({ page, shot }) => {
+  const LIGHT_VARS = ':root{--background-primary:#ffffff;--background-secondary:#f6f6f6;--background-modifier-hover:rgba(0,0,0,.05);--background-modifier-active-hover:rgba(124,92,255,.14);--text-normal:#222222;--text-muted:#5c5c5c;--text-faint:#ababab;--background-modifier-border:#e0e0e0;--divider-color:#e0e0e0;--background-secondary-alt:#fcfcfc;--shadow-l:0 8px 24px rgba(0,0,0,.15)} body{background:#e8e8e8}';
+  const setLight = async (on) => {
+    await page.evaluate(({ on, css }) => {
+      let tag = document.getElementById('spec2-light');
+      if (on) {
+        if (!tag) { tag = document.createElement('style'); tag.id = 'spec2-light'; tag.textContent = css; document.head.appendChild(tag); }
+        document.body.classList.add('theme-light');
+      } else {
+        tag?.remove();
+        document.body.classList.remove('theme-light');
+      }
+    }, { on, css: LIGHT_VARS });
+    await wait(150);
+  };
+
+  await page.evaluate(() => {
+    const { modes, board, clearKeptMeasures } = window.boardTest;
+    clearKeptMeasures();
+    modes.on = true;
+    modes.mode = 'play';
+    board.refreshToolbar();
+  });
+  await wait(150);
+
+  // 1. Choosing Measure opens two bars above toolbar with Atlas's 6 modes + Keep/Players/Look/Clear.
+  await page.click('button[aria-label="Measure"]');
+  await wait(200);
+  const barsInfo = await page.evaluate(() => {
+    const wrap = document.querySelector('.atlas-tabletop-measure-bars');
+    const modesBar = wrap?.querySelector('.atlas-tool-bar--modes');
+    const toolsBar = wrap?.querySelector('.atlas-tool-bar--tools');
+    const modes = [...(modesBar?.querySelectorAll('button') ?? [])].map((b) => ({
+      mode: b.dataset.measureMode, label: b.getAttribute('aria-label'), pressed: b.getAttribute('aria-pressed'), disabled: b.disabled,
+    }));
+    const tools = [...(toolsBar?.querySelectorAll('button[data-measure-choice]') ?? [])].map((b) => ({
+      choice: b.dataset.measureChoice, label: b.getAttribute('aria-label'), pressed: b.getAttribute('aria-pressed'), disabled: b.disabled,
+    }));
+    return { shown: !!wrap && !wrap.hidden, modes, tools };
+  });
+  check(
+    'measure bars: 6 modes in Atlas order and 4 choices on bar 2 with Clear disabled when empty',
+    barsInfo.shown
+      && JSON.stringify(barsInfo.modes.map((m) => m.label)) === '["Ruler","Circle","Cone","Square","Line","Ranges"]'
+      && barsInfo.modes[0].pressed === 'true'
+      && barsInfo.modes[5].disabled === true
+      && JSON.stringify(barsInfo.tools.map((t) => t.label)) === '["Keep","Players see it","Look","Clear"]'
+      && barsInfo.tools[3].disabled === true,
+    JSON.stringify(barsInfo),
+  );
+  await shot('measure-bars');
+  await setLight(true);
+  await shot('measure-bars-light');
+  await setLight(false);
+
+  // 2. Look opens colour swatches (accent first, no black) and 7 effect chips; effect keeps Look open, colour closes it.
+  await page.click('.atlas-tabletop-measure-bars [data-measure-choice="look"]');
+  await wait(200);
+  const lookInfo = await page.evaluate(() => {
+    const pop = document.querySelector('.atlas-tabletop-measure-look-popover');
+    const swatches = [...(pop?.querySelectorAll('.atlas-swatch') ?? [])].map((b) => b.dataset.swatch);
+    const effects = [...(pop?.querySelectorAll('[data-measure-effect]') ?? [])].map((b) => b.getAttribute('aria-label'));
+    return { open: !!pop && !pop.hidden, swatches, effects };
+  });
+  check(
+    'measure look: accent first, no black swatch, 7 effect chips (None + 6 effects)',
+    lookInfo.open
+      && lookInfo.swatches[0] === 'var(--interactive-accent)'
+      && !lookInfo.swatches.includes('#000000')
+      && JSON.stringify(lookInfo.effects) === '["None","Fire","Frost","Lightning","Mist","Radiance","Shadow"]',
+    JSON.stringify(lookInfo),
+  );
+  await page.click('.atlas-tabletop-measure-look-popover [data-measure-effect="fire"]');
+  await wait(150);
+  const afterEffect = await page.evaluate(() => ({
+    open: !document.querySelector('.atlas-tabletop-measure-look-popover')?.hidden,
+    tool: window.boardTest.measureTool(),
+  }));
+  check('measure look: picking Fire sets effect + default orange colour and leaves Look open', afterEffect.open && afterEffect.tool.effect === 'fire' && afterEffect.tool.color === '#ec7500', JSON.stringify(afterEffect));
+  await shot('measure-look');
+  await setLight(true);
+  await shot('measure-look-light');
+  await setLight(false);
+  await page.click('.atlas-tabletop-measure-look-popover .atlas-swatch[data-swatch="#08b94e"]');
+  await wait(150);
+  const afterColor = await page.evaluate(() => ({
+    open: !document.querySelector('.atlas-tabletop-measure-look-popover')?.hidden,
+    tool: window.boardTest.measureTool(),
+  }));
+  check('measure look: picking a colour updates colour and closes Look', !afterColor.open && afterColor.tool.color === '#08b94e', JSON.stringify(afterColor));
+
+  // 3. Chevron menu ("Measure Tool Options") has drag-distance segmented control (3 options) and "Measurement rules…".
+  await page.click('button[aria-label="Measure Tool Options"]');
+  await wait(150);
+  const menuInfo = await page.evaluate(() => {
+    const panel = document.querySelector('.atlas-tabletop-measure-options');
+    const opts = [...(panel?.querySelectorAll('.atlas-segmented__option') ?? [])].map((b) => ({
+      value: b.dataset.dragDistance, label: b.textContent.trim(), checked: b.getAttribute('aria-checked'),
+    }));
+    const rules = panel?.querySelector('[data-measure-action="rules"]');
+    return {
+      open: !!panel && !panel.hidden,
+      opts,
+      rulesLabel: rules?.textContent?.trim(),
+      rulesDisabled: rules?.disabled,
+    };
+  });
+  check(
+    'measure options menu: segmented control has Always / In combat / Never and Measurement rules…',
+    menuInfo.open
+      && JSON.stringify(menuInfo.opts.map((o) => o.label)) === '["Always","In combat","Never"]'
+      && menuInfo.opts[0].checked === 'true'
+      && menuInfo.rulesLabel === 'Measurement rules…',
+    JSON.stringify(menuInfo),
+  );
+  // Switch drag distance to Never via menu and verify token drag shows no ruler, then back to Always.
+  await page.click('.atlas-tabletop-measure-options [data-drag-distance="never"]');
+  await wait(120);
+  await page.keyboard.press('Escape');
+  await page.click('button[aria-label="Measure"]'); // leave measure tool to drag token
+  await wait(120);
+  const dragToken = async () => {
+    const from = await page.evaluate(() => { const e = window.boardTest.board.tokens.get('gob2'); return window.boardTest.project(e.at.x, e.at.y, 0); });
+    const to = await page.evaluate(() => window.boardTest.project(875 - 210, 385, 0));
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 6; i++) { await page.mouse.move(from.x + ((to.x - from.x) * i) / 6, from.y); await wait(20); }
+    await wait(80);
+    const hasRuler = await page.evaluate(() => window.boardTest.board.rulerState !== null);
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+    await wait(150);
+    await page.evaluate(async () => { const { board } = window.boardTest; await board.load({ ...board.map, tokens: board.map.tokens.map((t) => (t.id === 'gob2' ? { ...t, x: 875, y: 385 } : t)) }); });
+    await wait(250);
+    return hasRuler;
+  };
+  const rulerNever = await dragToken();
+  await page.click('button[aria-label="Measure Tool Options"]');
+  await wait(120);
+  await page.click('.atlas-tabletop-measure-options [data-drag-distance="always"]');
+  await wait(120);
+  await page.keyboard.press('Escape');
+  const rulerAlways = await dragToken();
+  check('measure options: drag-distance segmented control toggles token drag ruler', rulerNever === false && rulerAlways === true, JSON.stringify({ rulerNever, rulerAlways }));
+
+  // 4. Every drawable mode draws; Keep off keeps nothing; Keep on keeps it; Players off marks hidden/gmOnly; Clear + Undo restores all.
+  await page.click('button[aria-label="Measure"]');
+  await wait(150);
+  const canvas = await page.locator('canvas').first().boundingBox();
+  const dragShape = async (mode, dx, dy, withSpace = false) => {
+    await page.click(`.atlas-tabletop-measure-bars [data-measure-mode="${mode}"]`);
+    await wait(80);
+    const sx = canvas.x + canvas.width * 0.45;
+    const sy = canvas.y + canvas.height * 0.45;
+    await page.mouse.move(sx, sy);
+    await page.mouse.down();
+    await page.mouse.move(sx + dx * 0.5, sy + dy * 0.5, { steps: 4 });
+    if (withSpace) { await page.keyboard.press('Space'); await wait(40); }
+    await page.mouse.move(sx + dx, sy + dy, { steps: 4 });
+    await wait(60);
+    const overlayDrawn = await page.evaluate(() => window.boardTest.board.marks.overlay.children.length > 0);
+    await page.mouse.up();
+    await wait(100);
+    return overlayDrawn;
+  };
+
+  // Keep off: draw all 5 modes (including Square & Ruler with waypoint), nothing kept.
+  const drawnAll = [];
+  for (const [m, sp] of [['ruler', true], ['circle', false], ['cone', false], ['square', false], ['line', false]]) {
+    drawnAll.push(await dragShape(m, 90, 40, sp));
+  }
+  const keptOffCount = await page.evaluate(() => window.boardTest.keptMeasures().length);
+  check('measure behaviour: all 5 shapes draw (Square & Ruler waypoint included) and Keep off keeps nothing', drawnAll.every(Boolean) && keptOffCount === 0, JSON.stringify({ drawnAll, keptOffCount }));
+
+  // Keep on: draw Square (visible to players) and Line (Players see it OFF -> hidden / gmOnly).
+  await page.click('.atlas-tabletop-measure-bars [data-measure-choice="keep"]');
+  await wait(80);
+  await dragShape('square', 90, 30);
+  await page.click('.atlas-tabletop-measure-bars [data-measure-choice="players"]'); // turn Players see it OFF
+  await wait(80);
+  await dragShape('line', 100, -20);
+  const keptState = await page.evaluate(() => {
+    const kept = window.boardTest.keptMeasures();
+    const marks = window.boardTest.board.tools.shown;
+    const clearDisabled = document.querySelector('.atlas-tabletop-measure-bars [data-measure-choice="clear"]')?.disabled;
+    return {
+      count: kept.length,
+      shapes: kept.map((m) => m.record.shape),
+      hiddenFlags: kept.map((m) => m.record.hidden === true),
+      effects: kept.map((m) => m.record.effect ?? null),
+      gmOnlyFlags: marks.map((m) => m.gmOnly === true),
+      clearDisabled,
+    };
+  });
+  check(
+    'measure behaviour: Keep on stores Square & wide Line; Players off keeps hidden from players; Clear enables',
+    keptState.count === 2
+      && JSON.stringify(keptState.shapes) === '["square","line"]'
+      && JSON.stringify(keptState.hiddenFlags) === '[false,true]'
+      && JSON.stringify(keptState.gmOnlyFlags) === '[false,true]'
+      && keptState.clearDisabled === false,
+    JSON.stringify(keptState),
+  );
+
+  // Clear removes both in one undo step, and Undo brings both back.
+  await page.click('.atlas-tabletop-measure-bars [data-measure-choice="clear"]');
+  await wait(150);
+  const afterClear = await page.evaluate(() => ({
+    count: window.boardTest.keptMeasures().length,
+    clearDisabled: document.querySelector('.atlas-tabletop-measure-bars [data-measure-choice="clear"]')?.disabled,
+  }));
+  await page.click('button[aria-label="Undo"]');
+  await wait(150);
+  const afterUndo = await page.evaluate(() => ({
+    count: window.boardTest.keptMeasures().length,
+    shapes: window.boardTest.keptMeasures().map((m) => m.record.shape),
+  }));
+  check(
+    'measure behaviour: Clear removes all kept measurements in one undo step and Undo restores them',
+    afterClear.count === 0 && afterClear.clearDisabled === true && afterUndo.count === 2 && JSON.stringify(afterUndo.shapes) === '["square","line"]',
+    JSON.stringify({ afterClear, afterUndo }),
+  );
   await page.keyboard.press('Escape');
 });
 

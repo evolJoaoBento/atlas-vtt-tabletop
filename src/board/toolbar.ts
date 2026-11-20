@@ -1979,17 +1979,22 @@ export class BoardToolbar {
       this.fitOrder.splice(this.fitOrder.indexOf(this.endSlot), 0, this.atlasGroup);
     }
     const makeAtlasButton = (parent: HTMLElement, tool: AtlasToolButton, extraClass = ''): { tool: AtlasToolButton; button: HTMLButtonElement } => {
-      const wrapper = parent.createDiv({ cls: extraClass ? `atlas-tool-button ${extraClass}` : 'atlas-tool-button' });
-      const span = wrapper.createSpan();
+      const wrapper = doc.win.createDiv();
+      wrapper.className = extraClass ? `atlas-tool-button ${extraClass}` : 'atlas-tool-button';
+      const span = doc.win.createSpan();
       span.setCssStyles({ display: 'inline-flex' });
-      const button = this.registerButton(`atlas-${tool.id}`, span.createEl('button', { cls: 'btn btn--toolbar btn--icon atlas-tabletop-tool-button' }));
+      const button = this.registerButton(`atlas-${tool.id}`, doc.win.createEl('button'));
+      button.className = 'btn btn--toolbar btn--icon atlas-tabletop-tool-button';
       button.type = 'button';
       button.dataset.atlasTool = tool.id;
       setSvg(button, atlasToolIcon(tool.id));
       button.addEventListener('click', () => { if (tool.enabled()) tool.run(); this.refresh(); });
+      span.appendChild(button);
+      wrapper.appendChild(span);
+      parent.appendChild(wrapper);
       return { tool, button };
     };
-    this.atlasGroup.empty();
+    this.atlasGroup.replaceChildren();
     this.atlasButtons = groupTools.map((tool) => makeAtlasButton(this.atlasGroup!, tool));
     this.atlasGroup.hidden = groupTools.length === 0;
     this.commandSlot?.remove();

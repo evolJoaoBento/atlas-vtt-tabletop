@@ -141,15 +141,22 @@ test('toolbarButtonEntries suffixes the mode when switching modes and hides unav
   assert.equal(hostIds.has('end-slot:connect'), true);
 });
 
-test('in Edit mode Play tools show Play mode suffix and Cinematic tools show Cinematic mode suffix', () => {
+test('in Edit mode Play tools show Play mode suffix, and in Cinematic mode live stays in Cinematic', () => {
   const inEdit = toolbarButtonEntries(makeState({}, { mode: () => 'edit', hosting: () => true }));
   const byId = new Map(inEdit.map((entry) => [entry.id, entry]));
   assert.equal(byId.get('measure')?.label, 'Measure · Play mode');
   assert.equal(byId.get('measure')?.switchTo, 'play');
   assert.equal(byId.get('water')?.label, 'Water');
   assert.equal(byId.get('water')?.switchTo, null);
-  assert.equal(byId.get('cinema-live')?.label, 'Players follow my camera · Cinematic mode');
-  assert.equal(byId.get('cinema-live')?.switchTo, 'cinematic');
+  assert.equal(byId.get('cinema-live')?.label, 'Players follow my camera · Play mode');
+  assert.equal(byId.get('cinema-live')?.switchTo, 'play');
+
+  const inCinematic = toolbarButtonEntries(makeState({}, { mode: () => 'cinematic', hosting: () => true }));
+  const cinById = new Map(inCinematic.map((entry) => [entry.id, entry]));
+  assert.equal(cinById.get('cinema-live')?.label, 'Players follow my camera');
+  assert.equal(cinById.get('cinema-live')?.switchTo, null);
+  assert.equal(cinById.get('visibility')?.label, 'Visibility · Play mode');
+  assert.equal(cinById.get('visibility')?.switchTo, 'play');
 });
 
 test('every toolbar button created in toolbar.ts is registered in TOOLBAR_BUTTON_IDS and vice versa', () => {

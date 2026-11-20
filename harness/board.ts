@@ -50,6 +50,10 @@ import { AssetWindow } from '../src/assets/AssetWindow';
 import { HOST_BAR_LABELS, hostBar, mapName } from '../src/board/hostBar';
 import { PaletteWindow } from '../src/palette/PaletteWindow';
 import type { PaletteHost } from '../src/palette/paletteHost';
+import { tabletopCommands } from '../src/palette/tabletopCommands';
+import { boardKey } from '../src/board/atlasTools';
+import { marksOfMeasures, measureWrite, type BoardMeasure, type MeasureChange } from '../src/board/boardMeasures';
+import { DEFAULT_MEASURE_TOOL, readMeasureToolOptions, type MeasureToolOptions } from '../src/board/measureOptions';
 import type { BoardSpawnHost } from '../src/assets/boardTarget';
 import { TokenWriter } from '../src/board/tokenWriter';
 import { readSpellNote } from '../src/board/spellNotes';
@@ -293,6 +297,40 @@ async function main(): Promise<void> {
   // Atlas 0.15's movement steps and drag-distance choice, as a feature sets them (none, and always, by default).
   let movement: { rules: { steps: Array<{ name: string; multiple: number; color: string }>; countPerTurn: boolean }; speeds: Record<string, number> } | null = null;
   let dragDistance: 'always' | 'combat' | 'never' = 'always';
+  let measureTool: MeasureToolOptions = { ...DEFAULT_MEASURE_TOOL };
+  let keptMeasures: BoardMeasure[] = [];
+  let nextMeasureId = 1;
+  const syncKeptMeasures = (): void => {
+    const shown = (board as unknown as { map: BoardMap }).map;
+    shown.measures = keptMeasures;
+    const tokens = new Map(shown.tokens.map((entry) => [entry.id, entry]));
+    board.receiveTemplates(marksOfMeasures(keptMeasures, {
+      cell: shown.grid.size,
+      accent: '#7c5cff',
+      tokenAt: (id) => { const found = tokens.get(id); return found ? { x: found.x, y: found.y } : null; },
+      unseen: (id) => tokens.get(id)?.hidden !== false,
+    }));
+  };
+  const applyMeasureChange = (change: MeasureChange): void => {
+    const write = measureWrite(change, keptMeasures, null);
+    const before = keptMeasures.map((entry) => structuredClone(entry));
+    if ('add' in write) {
+      const id = `m_${nextMeasureId++}`;
+      keptMeasures = [...keptMeasures, { id, record: { id, kind: 'measure', ...(write.add as Record<string, unknown>) } as never }];
+    } else {
+      const drop = new Set(write.remove);
+      if (drop.size === 0) return;
+      keptMeasures = keptMeasures.filter((entry) => !drop.has(entry.id));
+    }
+    const after = keptMeasures.map((entry) => structuredClone(entry));
+    syncKeptMeasures();
+    history.push({
+      paths: [waterPath],
+      label: 'add' in write ? 'measure' : 'clear measures',
+      undo: () => { keptMeasures = before.map((entry) => structuredClone(entry)); syncKeptMeasures(); return true; },
+      redo: () => { keptMeasures = after.map((entry) => structuredClone(entry)); syncKeptMeasures(); return true; },
+    });
+  };
   /** Tokens a Connect player controls (what the GM board asks Connect). */
   const controlled = new Set<string>();
   let wallThickness = 0.12;
@@ -479,7 +517,6 @@ async function main(): Promise<void> {
     liftProp: (id, lift) => { record.propLifts.push([id, lift]); },
     snapProps: () => snapping.props,
     setMovement: (value: typeof movement) => { movement = value; },
-    setDragDistance: (value: typeof dragDistance) => { dragDistance = value; },
     setSnap: (kind, on) => { snapping[kind] = on; if (kind === 'tokens') ((board as unknown as { map: BoardMap }).map.grid as { snap: boolean }).snap = on; },
     addProp: (glb, x, y, look) => { record.added.push([glb, x, y, look]); },
     openNote: (path) => { record.notes.push(path); },
@@ -535,6 +572,11 @@ async function main(): Promise<void> {
     measurement: () => ({ mode: 'metric', unitType: 'feet', unitDistance: 5, diagonalRule: 'equidistant', bands: [] }),
     movement: () => (movement ? { rules: movement.rules, speedOf: (id: string) => movement?.speeds[id] ?? null } : null),
     dragDistance: () => dragDistance,
+    setDragDistance: (value) => { dragDistance = value; board.refreshToolbar(); },
+    measureTool: () => measureTool,
+    setMeasureTool: (changes) => { measureTool = readMeasureToolOptions({ ...measureTool, ...changes }); board.refreshToolbar(); },
+    measureAction: (change) => applyMeasureChange(change),
+    measureHotkeys: () => ({ measure: 'M', measureKeep: 'K', gmView: 'D' }),
     warn: (message) => { if (!record.warnings.includes(message)) record.warnings.push(message); },
     // A popup window stands in for Obsidian's pop-out: same process, another document.
     switchLayer: (path) => { record.sceneTabs.push(['layer', path]); },
@@ -829,13 +871,39 @@ async function main(): Promise<void> {
   // Atlas's command palette over the board: what each entry asks of the board is recorded.
   const paletteCalls: string[] = [];
   const paletteHost: PaletteHost = {
-    selectTool: (tool) => paletteCalls.push(`tool:${tool}`), setDiceLogOpen: (open) => paletteCalls.push(`diceLog:${open}`),
-    setLootRollerOpen: (open) => { paletteCalls.push(`loot:${open}`); if (open) loot.open(); }, initiativeOpen: () => false,
-    setInitiativeOpen: (open) => paletteCalls.push(`initiative:${open}`), openSceneBrowser: () => paletteCalls.push('sceneBrowser'),
+    selectTool: (tool) => { paletteCalls.push(`tool:${tool}`); if (tool === 'move' || tool === 'measure') board.goToToolbar(tool); },
+    setDiceLogOpen: (open) => { paletteCalls.push(`diceLog:${open}`); if (open) boardDice.setLogOpen(true); },
+    setLootRollerOpen: (open) => { paletteCalls.push(`loot:${open}`); if (open) loot.open(); },
+    initiativeOpen: () => panel.isOpen,
+    setInitiativeOpen: (open) => { paletteCalls.push(`initiative:${open}`); panel.setOpen(open); },
+    openSceneBrowser: () => paletteCalls.push('sceneBrowser'),
     playerViewOpen: () => false, togglePlayerView: () => paletteCalls.push('playerView'), playerFrozen: () => false,
     togglePlayerFreeze: () => paletteCalls.push('freeze'), presentInAtlas: () => paletteCalls.push('present'), openInAtlas: (page) => paletteCalls.push(`atlas:${page ?? ''}`),
+    tabletopCommands: () => tabletopCommands(board.toolbarActions(), () => board.refreshToolbar(), board.toolbarCommandHost()),
   };
-  const palette = new PaletteWindow(container, lootApp as never, paletteHost);
+  const palette = new PaletteWindow(container, lootApp as never, paletteHost, () => board.refreshToolbar());
+  // Attach Atlas's toolbar tools (Random tables & Asset manager in Play mode; Command Palette rightmost in every mode).
+  const runAtlasTool = (id: 'loot' | 'assets' | 'palette'): void => {
+    if (id === 'loot') loot.toggle();
+    else if (id === 'assets') assets.toggle();
+    else palette.toggle();
+    board.refreshToolbar();
+  };
+  board.setAtlasTools([
+    { id: 'loot', label: 'Random tables', shortcut: 'L', enabled: () => true, active: () => loot.isOpen(), run: () => runAtlasTool('loot') },
+    { id: 'assets', label: 'Asset manager', shortcut: 'Shift+A', enabled: () => true, active: () => assets.isOpen(), run: () => runAtlasTool('assets') },
+    { id: 'palette', label: 'Command Palette', shortcut: 'Space', enabled: () => true, active: () => palette.isOpen(), run: () => runAtlasTool('palette') },
+  ]);
+  window.addEventListener('keydown', (event) => {
+    if (event.defaultPrevented) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest?.('input, textarea, select, [contenteditable=""], [contenteditable="true"], .atlas-tabletop-atlas-ui, .modal-container')) return;
+    const id = boardKey(event, { carrying: board.carryingToken, typing: false, hotkeys: { lootRoller: 'l', assets: 'a', palette: 'Space' } });
+    if (!id) return;
+    event.preventDefault();
+    event.stopPropagation();
+    runAtlasTool(id);
+  }, true);
   // Atlas's own Ctrl-hover window, as BoardView routes it: its dice links throw the board's dice for the hovered hero.
   routeAtlasWindowRolls(document, (formula, label, side) => boardDice.cardRoll('hero', formula, label, side));
   // The cutscene studio over the board. Its host keeps cutscenes in memory; `switchMap` loads a second fixture map on the
@@ -953,7 +1021,7 @@ async function main(): Promise<void> {
     await editor.open(folder);
     return editor;
   };
-  Object.assign(window, { boardTest: { backgrounds, backgroundFiles, backgroundsReady, backgroundKit: { DEFAULT_BACKGROUND, emptyLayers, TERRAINS, backgroundFrame }, openBackgroundEditor, closeBackgroundEditor, backgroundEditor: null, studio: cutsceneHarness, api: { cutscene: channel },Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, Matrix4: THREE.Matrix4, Quaternion: THREE.Quaternion, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
+  Object.assign(window, { boardTest: { backgrounds, backgroundFiles, backgroundsReady, backgroundKit: { DEFAULT_BACKGROUND, emptyLayers, TERRAINS, backgroundFrame }, openBackgroundEditor, closeBackgroundEditor, backgroundEditor: null, studio: cutsceneHarness, api: { cutscene: channel },Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, keptMeasures: () => keptMeasures, clearKeptMeasures: () => { keptMeasures = []; syncKeptMeasures(); }, measureTool: () => measureTool, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, Matrix4: THREE.Matrix4, Quaternion: THREE.Quaternion, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

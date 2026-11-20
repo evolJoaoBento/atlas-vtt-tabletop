@@ -61,7 +61,7 @@ export class BoardAtlasTools {
     this.palette = new PaletteWindow(deps.container, deps.app, {
       ...deps.palette,
       setLootRollerOpen: (open) => (open ? this.loot.open() : this.loot.close()),
-    });
+    }, () => this.deps.board()?.refreshToolbar());
   }
 
   /** The board's toolbar buttons for Atlas's tools, in the GM's Atlas layout. */

@@ -290,7 +290,7 @@ export const TOOLBAR_BUTTONS: Readonly<Record<ToolbarButtonId, ToolbarButtonSpec
     available: ({ hasDiceLog }) => hasDiceLog,
   },
   'cinema-live': {
-    id: 'cinema-live', label: 'Players follow my camera', icon: 'radio', modes: ['cinematic', 'play'],
+    id: 'cinema-live', label: 'Players follow my camera', icon: 'radio', modes: ['play', 'cinematic'],
     keywords: ['players', 'follow', 'camera', 'live', 'cinematic', 'cutscene'],
     available: ({ actions, hasCinema }) => hasCinema && actions.hosting(),
     toggle: true,
