@@ -17,6 +17,9 @@ const MAX_SIDE = 2048;
 const HEIGHT = 0.4;
 const PAINT = '#ffffff';
 const ERASE = '#ff4444';
+/** How strong the sheet lies on the map: as fog, and as Atlas's wash over what a shape will reveal (`FogRevealWash`). */
+const SHEET_ALPHA = 0.45;
+const WASH_ALPHA = 0.28;
 
 export class FogPreview {
   private mesh: THREE.Mesh | null = null;
@@ -25,6 +28,7 @@ export class FogPreview {
   private texture: THREE.CanvasTexture | null = null;
   private scale = 1;
   private size = { width: 0, height: 0 };
+  private washed = false;
 
   constructor(private readonly parent: THREE.Object3D, private readonly makeCanvas: () => HTMLCanvasElement) {}
 
@@ -47,6 +51,15 @@ export class FogPreview {
   setErasing(erasing: boolean): void {
     (this.mesh?.material as THREE.MeshBasicMaterial | undefined)?.color.set(erasing ? ERASE : PAINT);
   }
+
+  /** An erasing shape that is no brush shows as Atlas's wash: a light red over the ground it takes the fog from. */
+  setWash(wash: boolean): void {
+    const material = this.mesh?.material as THREE.MeshBasicMaterial | undefined;
+    if (material) material.opacity = wash ? WASH_ALPHA : SHEET_ALPHA;
+    this.washed = wash;
+  }
+
+  get wash(): boolean { return this.washed; }
 
   /** Draws the part of a brush stroke from `from` to `to` (the same point for a tap) with a round brush of `radius`. */
   brush(from: Point, to: Point, radius: number): void {
@@ -114,7 +127,7 @@ export class FogPreview {
     this.canvas = canvas;
     this.context = canvas.getContext('2d');
     this.texture = new THREE.CanvasTexture(canvas);
-    const material = new THREE.MeshBasicMaterial({ map: this.texture, transparent: true, opacity: 0.45, depthTest: false, depthWrite: false });
+    const material = new THREE.MeshBasicMaterial({ map: this.texture, transparent: true, opacity: this.washed ? WASH_ALPHA : SHEET_ALPHA, depthTest: false, depthWrite: false });
     const geometry = new THREE.PlaneGeometry(width, height).rotateX(-Math.PI / 2);
     this.mesh = new THREE.Mesh(geometry, material);
     this.mesh.position.set(width / 2, HEIGHT, height / 2);

@@ -69,6 +69,8 @@ import { EDGE_SHARE, ResolutionGovernor, type LayerLook, type QualityPreset, typ
 import { PostFx, type PostFxLook } from './postFx';
 import { BoardSurface } from './surface';
 import { FogVolume } from './fogVolume';
+import { hasRoomWalls } from '../atlasPort/app/fog/fogRooms';
+import { fogWalls } from './fogWalls';
 import { FogTool, type FogBarActions, type FogHost, type FogOperationInput, type FogSwitchId } from './fogTool';
 import { at as atlasText } from '../atlasPort/atlasText';
 import { LaserBeam } from './laserBeam';
@@ -184,6 +186,8 @@ function errorColor(element: HTMLElement): string {
   return resolved || ERROR_RED;
 }
 const ERROR_RED = '#fb464c';
+/** No walls (the same array each time: the fog's rooms cache on it). */
+const NO_WALLS: readonly BoardWall[] = [];
 
 function accent(element: HTMLElement): string {
   const view = element.ownerDocument.defaultView;
@@ -995,6 +999,12 @@ export class Board {
         fogKey: () => (this.map?.fog ?? []).map((operation) => operation.id).join(','),
         changed: () => this.toolbar?.refresh(),
         wake: () => this.wake(),
+        walls: () => fogWalls(this.map?.walls ?? NO_WALLS),
+        grid: () => (this.map ? { type: this.map.grid.type, size: this.map.grid.size, offsetX: this.map.grid.offsetX, offsetY: this.map.grid.offsetY, snap: this.map.grid.snap } : null),
+        mapRect: () => this.fogMapRect(),
+        notice: (text) => this.host.fog?.notice(text),
+        switchOn: (id) => this.host.fog?.switchOn?.(id) ?? this.fogSwitches[id],
+        accent: () => accent(this.container),
       });
     }
     this.toolbar = new BoardToolbar(container, {
@@ -2968,6 +2978,17 @@ export class Board {
     return true;
   }
 
+  /**
+   * A key of the fog shape under way (Atlas's `FogStrokeKeys`): Enter closes a polygon, Backspace or the map's undo (`undo`) takes its
+   * last corner back; Escape drops the shape. True where the shape took it, which the map's shortcuts then never hear.
+   */
+  fogKey(event: Pick<KeyboardEvent, 'key' | 'repeat'>, undo = false): boolean {
+    const tool = this.fogTool;
+    if (this.audience !== 'gm' || !tool?.on || !tool.drawing) return false;
+    if (event.key === 'Escape') { tool.cancel(); return true; }
+    return tool.key(event.key, event.repeat === true, undo);
+  }
+
   /** Whether the GM's fog tool is on. */
   get fogToolOn(): boolean {
     return this.fogTool?.on === true;
@@ -3019,7 +3040,7 @@ export class Board {
       setShape: (shape) => tool.setShape(shape),
       setBrushSize: (size) => tool.setBrushSize(size),
       cellSize: () => { const size = this.map?.grid.size ?? 0; return Number.isFinite(size) && size > 0 ? size : 0; },
-      hasWalls: () => (this.map?.walls ?? []).some((wall) => wall.blocks === null || wall.blocks === 'sight'),
+      hasWalls: () => hasRoomWalls(fogWalls(this.map?.walls ?? NO_WALLS) as never),
       levelled: () => (this.map?.levels?.length ?? 0) > 1,
       anyFog: () => (this.map?.fog.length ?? 0) > 0,
       offers: () => host.offers(),
@@ -3786,7 +3807,20 @@ export class Board {
       this.showBrush();
       this.toolbar.refresh();
     };
-    const altLost = (): void => { this.fogTool?.setFlipped(false); if (this.shiftErase) altErase(new KeyboardEvent('keyup', { key: 'Alt' })); };
+    const altLost = (): void => { this.fogTool?.setFlipped(false); this.fogTool?.cancel(); if (this.shiftErase) altErase(new KeyboardEvent('keyup', { key: 'Alt' })); };
+    // The fog shape under way: Escape drops it (before anything leaves the tool or clears the selection); Shift, Ctrl and Cmd place its
+    // next corner anew. Enter and Backspace come through the shortcuts (`BoardAtlasTools.key`: `fogKey`), which know the undo key.
+    const fogKeys = (event: KeyboardEvent): void => {
+      const tool = this.fogTool;
+      if (this.audience !== 'gm' || !tool?.on || !tool.drawing) return;
+      const target = event.target as HTMLElement | null;
+      if (target && target.closest('input, textarea, select, [contenteditable="true"], .modal-container') !== null) return;
+      if (event.type === 'keydown' && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); tool.cancel(); return; }
+      if (event.key === 'Shift' || event.key === 'Control' || event.key === 'Meta') tool.rekey({ shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey });
+    };
+    win?.addEventListener('keydown', fogKeys, true);
+    win?.addEventListener('keyup', fogKeys, true);
+    this.stops.push(() => { win?.removeEventListener('keydown', fogKeys, true); win?.removeEventListener('keyup', fogKeys, true); });
     win?.addEventListener('keydown', altErase);
     win?.addEventListener('keyup', altErase);
     win?.addEventListener('blur', altLost);
@@ -3918,7 +3952,7 @@ export class Board {
       return;
     }
     // The GM's fog tool: a drag draws fog (Alt: the other thing). A press on a token is the token's.
-    // A shape with no gesture yet (stage 2) swallows the press: nothing is drawn, and nothing under it is dragged or lifted.
+    // A press of the tool that begins nothing (Cells without a grid) is swallowed too: nothing under it is dragged or lifted.
     if (event.button === 0 && this.fogTool?.on && !this.tokenAt(x, y)) {
       if (this.fogTool.down(x, y, { shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey }, event.altKey)) this.press = { kind: 'fog' };
       return;

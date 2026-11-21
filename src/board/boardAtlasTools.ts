@@ -105,6 +105,8 @@ export class BoardAtlasTools {
   key(event: KeyboardEvent, carrying: boolean): boolean {
     const deps = this.deps;
     const bound = (id: 'undo' | 'redo' | 'redoAlt'): boolean => { const key = this.bridge.hotkey(id); return key !== null && matchesHotkey(event, key, true); };
+    // A fog polygon under way takes Enter, Backspace and the undo key before the undo history does (the undo drops its last corner).
+    if (deps.board()?.fogKey(event, bound('undo')) === true) return true;
     if (deps.undo && bound('undo')) { deps.undo(); return true; }
     if (deps.redo && (bound('redo') || bound('redoAlt'))) { deps.redo(); return true; }
     const id = boardKey(event, {

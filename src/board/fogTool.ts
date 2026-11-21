@@ -11,46 +11,16 @@
  */
 import * as THREE from 'three';
 import { clampBrushSize, DEFAULT_FOG_TOOL, fogStrokeErases, steppedBrushSize, type FogShape, type FogToolId } from '../atlasPort/fogToolChoices';
+import { snapOverride } from '../atlasPort/app/types/toolSwitches';
+import type { FogEnv, FogGesture, FogKeys, FogOperationInput, FogPoint, FogPreviewSpec, FogShapeInput } from './fogGesture';
+import { FogMarksView } from './fogMarks';
 import { FogPreview } from './fogPreview';
+import { CellsGesture, LassoGesture, PolygonGesture, RectangleGesture, RoomGesture, shapePolygons } from './fogShapes';
+import { FogSnapping } from './fogSnapping';
+import type { FogWall } from './fogWalls';
 
 export type { FogShape, FogToolId } from '../atlasPort/fogToolChoices';
-
-export interface FogPoint {
-  x: number;
-  y: number;
-}
-
-/** A fog operation as Atlas's `addFogOperations` takes it (`FogOperationInput`). */
-export type FogOperationInput =
-  | { type: 'brush'; points: FogPoint[]; brushRadius: number; isErasing: boolean }
-  | { type: 'lasso'; points: FogPoint[]; isErasing: boolean; area?: Record<string, never> }
-  | { type: 'rectangle'; x: number; y: number; width: number; height: number; isErasing: boolean; area?: Record<string, never> };
-
-/** A shape a gesture finished, before the tool says whether it erases. */
-export type FogShapeInput = Omit<Extract<FogOperationInput, { type: 'brush' }>, 'isErasing'> | Omit<Extract<FogOperationInput, { type: 'lasso' }>, 'isErasing'> | Omit<Extract<FogOperationInput, { type: 'rectangle' }>, 'isErasing'>;
-
-/** The keys held during a press, as the gesture gets them: Alt is the tool's (it flips painting and erasing). */
-export interface FogKeys {
-  shift: boolean;
-  ctrl: boolean;
-}
-
-/** What a gesture under way shows on the ground. */
-export type FogPreviewSpec =
-  | { kind: 'brush'; points: readonly FogPoint[]; radius: number }
-  | { kind: 'polygons'; polygons: ReadonlyArray<ReadonlyArray<FogPoint>> };
-
-/** One shape's press, drag and release. */
-export interface FogGesture {
-  readonly active: boolean;
-  /** A press at `at` in map pixels; false where this shape does not begin. */
-  down(at: FogPoint, keys: FogKeys, brushRadius: number): boolean;
-  move(at: FogPoint, keys: FogKeys): void;
-  /** The release: what to commit (nothing: an empty list). The gesture is over. */
-  up(at: FogPoint, keys: FogKeys): FogShapeInput[];
-  cancel(): void;
-  preview(): FogPreviewSpec | null;
-}
+export type { FogGesture, FogKeys, FogMarks, FogOperationInput, FogPoint, FogPreviewSpec, FogShapeInput } from './fogGesture';
 
 /** A brush stroke: every point the pointer passes (a tap is one point), with the brush's radius at the press. */
 export class BrushGesture implements FogGesture {
@@ -60,7 +30,7 @@ export class BrushGesture implements FogGesture {
 
   get active(): boolean { return this.drawing; }
 
-  down(at: FogPoint, _keys: FogKeys, brushRadius: number): boolean {
+  down(at: FogPoint, _keys: FogKeys, brushRadius: number, _screen?: FogPoint): boolean {
     this.drawing = true;
     this.radius = brushRadius;
     this.points = [{ x: at.x, y: at.y }];
@@ -91,11 +61,8 @@ export class BrushGesture implements FogGesture {
   preview(): FogPreviewSpec | null {
     return this.drawing ? { kind: 'brush', points: this.points, radius: this.radius } : null;
   }
-}
 
-/** The gesture a shape is drawn with; null for one that has none yet. */
-export function gestureFor(shape: FogShape): FogGesture | null {
-  return shape === 'brush' ? new BrushGesture() : null;
+  marks(): null { return null; }
 }
 
 /** The ring's lines in screen pixels, as Atlas's `FogCursorPreview` draws them: the dark one under the light one. */
@@ -125,6 +92,18 @@ export interface FogToolDeps {
   changed(): void;
   /** Asks for a frame. */
   wake(): void;
+  /** The map's walls as Atlas's segments (`fogWalls`): snapping and rooms read them. */
+  walls(): readonly FogWall[];
+  /** The grid: its cells, and whether its Snap is on; null without one. */
+  grid(): { type: string; size: number; offsetX: number; offsetY: number; snap: boolean } | null;
+  /** The map as the board draws it (for rooms); null while its size is not known. */
+  mapRect(): { x: number; y: number; width: number; height: number } | null;
+  /** Atlas's notice. */
+  notice(text: string): void;
+  /** The tool's Snap or Constrain switch. */
+  switchOn(id: 'fogSnap' | 'fogConstrain'): boolean;
+  /** The theme's accent as a colour (the room's outline, the snap guide). */
+  accent(): string;
 }
 
 export class FogTool {
@@ -134,29 +113,58 @@ export class FogTool {
   private sizeNow: number = DEFAULT_FOG_TOOL.brushSize;
   /** Alt is held: a stroke does the other thing. */
   private flipped = false;
+  /** The gesture under way (a press is down, or a polygon waits for its next corner). */
   private gesture: FogGesture | null = null;
+  /** One gesture per shape, made when first used: a polygon's corners live across presses. */
+  private readonly gestures: Partial<Record<FogShape, FogGesture>> = {};
   private ring: { dark: THREE.Mesh; light: THREE.Mesh } | null = null;
   private ringKey = '';
   private readonly preview: FogPreview;
+  private readonly marks: FogMarksView;
+  private readonly env: FogEnv;
+  /** The preview sheet is begun for the shape under way. */
+  private sheetOn = false;
   /** Where the pointer last was on screen, and over the ground; null once it left the canvas. */
   private pointer: { x: number; y: number } | null = null;
   private pointerAt: FogPoint | null = null;
+  /** The keys held at the last pointer or key event (Shift, Ctrl or Cmd), before the tool's switches read them. */
+  private held: FogKeys = { shift: false, ctrl: false };
   /** The preview of a stroke that was committed stays until the fog drawn holds it (`fogDrawn`), or this timer. */
   private holding: ReturnType<typeof setTimeout> | null = null;
   private heldKey = '';
 
   constructor(private readonly deps: FogToolDeps) {
     this.preview = new FogPreview(deps.parent, () => deps.canvas());
+    this.marks = new FogMarksView(deps.parent, () => deps.accent());
+    const snapping = new FogSnapping({
+      grid: () => { const grid = deps.grid(); return grid && grid.snap && grid.size > 0 ? grid : null; },
+      walls: () => deps.walls(),
+      reach: (at, px) => px * deps.unitsPerPixel(at),
+      guide: (mark) => { this.marks.setGuide(mark, this.pixel()); deps.wake(); },
+    });
+    this.env = {
+      snapping,
+      grid: () => { const grid = deps.grid(); return grid && grid.size > 0 ? grid : null; },
+      walls: () => deps.walls(),
+      mapRect: () => deps.mapRect(),
+      cellSize: () => deps.grid()?.size ?? 0,
+      reach: (at, px) => px * deps.unitsPerPixel(at),
+      notice: (text) => deps.notice(text),
+    };
   }
 
   get on(): boolean { return this.onNow; }
   get mode(): FogToolId { return this.modeNow; }
   get shape(): FogShape { return this.shapeNow; }
   get brushSize(): number { return this.sizeNow; }
-  /** A shape is under way. */
+  /** A shape is under way (a press is down, or a polygon has corners placed). */
   get drawing(): boolean { return this.gesture?.active === true; }
   /** The ring's meshes (for tests): the dark line and the light one. */
   get rings(): { dark: THREE.Mesh; light: THREE.Mesh } | null { return this.ring; }
+  /** The marks' view (for tests). */
+  get markView(): FogMarksView { return this.marks; }
+  /** The preview sheet (for tests). */
+  get sheet(): FogPreview { return this.preview; }
   /** Whether a stroke made now erases: the eraser does, and Alt makes a stroke do the other thing. */
   get erasing(): boolean { return fogStrokeErases(this.modeNow, this.flipped); }
 
@@ -167,6 +175,7 @@ export class FogTool {
     this.onNow = on;
     if (!on) {
       this.cancel();
+      this.clearMarks();
       this.flipped = false;
       this.hideRing();
     } else {
@@ -178,6 +187,7 @@ export class FogTool {
   setMode(mode: FogToolId): void {
     this.modeNow = mode;
     this.refreshRing();
+    this.showMarks();
     this.deps.changed();
   }
 
@@ -189,6 +199,7 @@ export class FogTool {
   setShape(shape: FogShape): void {
     if (shape === this.shapeNow) return;
     this.cancel();
+    this.clearMarks();
     this.shapeNow = shape;
     this.refreshRing();
     this.deps.changed();
@@ -213,73 +224,147 @@ export class FogTool {
     this.flipped = flipped;
     this.refreshRing();
     this.preview.setErasing(this.erasing);
+    this.preview.setWash(this.washes);
+    this.showMarks();
     this.deps.wake();
     this.deps.changed();
   }
 
-  /** A press: begins the shape under the pointer; false where nothing begins (the tool is off, the shape has no gesture yet). */
-  down(clientX: number, clientY: number, keys: FogKeys, alt: boolean): boolean {
+  /** The keys of a press as the shapes read them: Constrain and Snap as the tool's switches say, each turned around while its key is held (Atlas's `placeKeysWith`). */
+  private resolve(held: FogKeys): FogKeys {
+    return { shift: snapOverride(this.deps.switchOn('fogConstrain'), held.shift), ctrl: !snapOverride(this.deps.switchOn('fogSnap'), held.ctrl) };
+  }
+
+  /** The gesture of a shape. */
+  private gestureOf(shape: FogShape): FogGesture {
+    return (this.gestures[shape] ??= shape === 'rectangle' ? new RectangleGesture(this.env)
+      : shape === 'lasso' ? new LassoGesture()
+        : shape === 'polygon' ? new PolygonGesture(this.env)
+          : shape === 'cells' ? new CellsGesture(this.env)
+            : shape === 'room' ? new RoomGesture(this.env)
+              : new BrushGesture());
+  }
+
+  /** An erasing shape that is no brush shows a wash, not fog. */
+  private get washes(): boolean { return this.erasing && this.shapeNow !== 'brush'; }
+
+  /** A press: begins the shape under the pointer, or places the polygon's next corner; false where nothing begins (the tool is off, no cells without a grid). */
+  down(clientX: number, clientY: number, held: FogKeys, alt: boolean): boolean {
     if (!this.onNow) return false;
     const at = this.deps.boardPoint(clientX, clientY);
-    const gesture = gestureFor(this.shapeNow);
+    const gesture = this.gestureOf(this.shapeNow);
     const size = this.deps.mapSize();
-    if (!at || !gesture || !size) return false;
+    if (!at || !size) return false;
     this.setFlipped(alt);
-    if (!gesture.down(at, keys, this.sizeNow)) return false;
+    this.held = held;
+    if (!gesture.down(at, this.resolve(held), this.sizeNow, { x: clientX, y: clientY })) return false;
     this.releaseHold();
     this.gesture = gesture;
     this.pointer = { x: clientX, y: clientY };
     this.pointerAt = at;
-    this.preview.begin(size.width, size.height, this.erasing);
-    this.drawPreview(null);
+    this.settle(gesture, null);
     this.refreshRing();
     return true;
   }
 
-  /** The pointer moved (also while it only hovers): the ring follows it, a shape under way grows. */
-  move(clientX: number, clientY: number, keys: FogKeys, alt: boolean): void {
+  /** The pointer moved (also while it only hovers): the ring follows it, a shape under way grows, a resting one shows its guide. */
+  move(clientX: number, clientY: number, held: FogKeys, alt: boolean): void {
     if (!this.onNow) return;
     this.setFlipped(alt);
+    this.held = held;
     this.pointer = { x: clientX, y: clientY };
     const at = this.deps.boardPoint(clientX, clientY);
     this.pointerAt = at;
-    if (at && this.gesture?.active) {
-      const before = this.previewLast();
-      this.gesture.move(at, keys);
-      this.drawPreview(before);
+    if (at) {
+      const keys = this.resolve(held);
+      const screen = { x: clientX, y: clientY };
+      if (this.gesture?.active) {
+        const before = this.previewLast();
+        this.gesture.move(at, keys, screen);
+        this.drawPreview(before);
+      } else {
+        this.gestureOf(this.shapeNow).hover?.(at, keys, screen);
+      }
+      this.showMarks();
     }
     this.refreshRing();
   }
 
-  /** The release: commits what the shape under way covers. */
-  up(clientX: number, clientY: number, keys: FogKeys, alt: boolean): void {
+  /** The release: commits what the shape under way covers (a polygon waits for its next corner). */
+  up(clientX: number, clientY: number, held: FogKeys, alt: boolean): void {
     const gesture = this.gesture;
     if (!gesture) return;
     this.setFlipped(alt);
+    this.held = held;
     const at = this.deps.boardPoint(clientX, clientY) ?? this.pointerAt;
-    this.gesture = null;
-    const shapes = at ? gesture.up(at, keys) : (gesture.cancel(), []);
-    if (shapes.length === 0) { this.preview.clear(); return; }
+    const shapes = at ? gesture.up(at, this.resolve(held), { x: clientX, y: clientY }) : (gesture.cancel(), []);
+    this.settle(gesture, shapes);
+  }
+
+  /**
+   * A key of a shape under way: Enter closes a polygon, Backspace (or the map's undo, `undo`) takes its last corner back.
+   * True where the shape took it; a key held down repeats and is still the shape's.
+   */
+  key(key: string, repeat: boolean, undo = false): boolean {
+    const gesture = this.gesture;
+    if (!this.onNow || !gesture?.active || !gesture.key) return false;
+    const name = key === 'Enter' ? 'Enter' : key === 'Backspace' || undo ? 'Backspace' : null;
+    if (!name) return false;
+    if (repeat) return true;
+    if (!gesture.key(name)) return false;
+    this.settle(gesture, []);
+    return true;
+  }
+
+  /** Shift, Ctrl or Cmd went down or up: the point under a resting pointer lands as the keys now say. */
+  rekey(held: FogKeys): void {
+    this.held = held;
+    const gesture = this.gesture;
+    if (!this.onNow || !gesture?.active || !gesture.rekey) return;
+    gesture.rekey(this.resolve(held));
+    this.drawPreview(null);
+    this.showMarks();
+  }
+
+  /** What a press, a release or a key left: the shapes it closed are committed, the preview and the marks are drawn anew. */
+  private settle(gesture: FogGesture, released: FogShapeInput[] | null): void {
+    const shapes = [...(released ?? []), ...(gesture.take?.() ?? [])];
+    if (shapes.length > 0) this.commit(shapes);
+    if (!gesture.active) {
+      this.gesture = null;
+      if (shapes.length === 0) this.clearSheet();
+    } else {
+      this.drawPreview(null);
+    }
+    this.showMarks();
+  }
+
+  private commit(shapes: FogShapeInput[]): void {
     const isErasing = this.erasing;
+    // A shape that is no brush shows what it leaves (the polygon's last corner under the pointer was no corner).
+    if (shapes.some((shape) => shape.type !== 'brush')) this.drawSheet(shapes.flatMap(shapePolygons));
     // The preview stays, as it is, until the fog volume holds the stroke (it would flicker off and on again): held before
     // the write, which may be drawn at once.
     this.heldKey = this.deps.fogKey();
+    if (this.holding !== null) clearTimeout(this.holding);
     this.holding = setTimeout(() => this.releaseHold(), 3000);
     this.deps.commit(shapes.map((shape) => ({ ...shape, isErasing }) as FogOperationInput));
   }
 
-  /** Drops the shape under way without committing it. */
+  /** Drops the shape under way without committing it (a polygon's corners too). */
   cancel(): void {
     this.gesture?.cancel();
     this.gesture = null;
     this.releaseHold();
+    this.showMarks();
   }
 
-  /** The pointer left the canvas: the ring goes (a shape under way goes on). */
+  /** The pointer left the canvas: the ring goes (a shape under way goes on), and what a resting pointer showed. */
   leave(): void {
     this.pointer = null;
     this.pointerAt = null;
     this.hideRing();
+    if (!this.gesture) this.clearMarks();
   }
 
   /** The board drew the fog the store holds (or the stroke was not kept): the stroke's preview is no longer needed. */
@@ -292,14 +377,17 @@ export class FogTool {
     this.releaseHold();
   }
 
-  /** Once a frame: the ring keeps its width on screen and its place under a pointer that rests while the camera moves. */
+  /** Once a frame: the ring and the marks keep their width on screen and the ring its place under a pointer that rests while the camera moves. */
   frame(): void {
-    if (this.onNow && this.pointer) this.refreshRing(true);
+    if (!this.onNow) return;
+    if (this.pointer) this.refreshRing(true);
+    this.marks.frame(this.pixel());
   }
 
   dispose(): void {
     this.cancel();
     this.preview.dispose();
+    this.marks.dispose();
     if (this.ring) {
       for (const mesh of [this.ring.dark, this.ring.light]) {
         this.deps.parent.remove(mesh);
@@ -312,7 +400,33 @@ export class FogTool {
 
   private releaseHold(): void {
     if (this.holding !== null) { clearTimeout(this.holding); this.holding = null; }
-    if (!this.drawing) this.preview.clear();
+    if (!this.drawing) this.clearSheet();
+    this.deps.wake();
+  }
+
+  private clearSheet(): void {
+    this.sheetOn = false;
+    this.preview.clear();
+  }
+
+  /** Map units per screen pixel where the pointer is (else at the middle of the map). */
+  private pixel(): number {
+    const size = this.deps.mapSize();
+    const at = this.pointerAt ?? (size ? { x: size.width / 2, y: size.height / 2 } : { x: 0, y: 0 });
+    const px = this.deps.unitsPerPixel(at);
+    return px > 0 && Number.isFinite(px) ? px : 1;
+  }
+
+  /** Shows the lines of the shape under way, or of the one a resting pointer is over. */
+  private showMarks(): void {
+    const gesture = this.gesture ?? (this.onNow ? this.gestureOf(this.shapeNow) : null);
+    this.marks.setMarks(gesture?.marks() ?? null, this.erasing, this.pixel());
+    this.deps.wake();
+  }
+
+  private clearMarks(): void {
+    for (const gesture of Object.values(this.gestures)) gesture?.rest?.();
+    this.marks.clear();
     this.deps.wake();
   }
 
@@ -322,14 +436,34 @@ export class FogTool {
     return spec?.kind === 'brush' ? spec.points[spec.points.length - 1] ?? null : null;
   }
 
+  /** Begins the preview sheet over the map where it is not begun. */
+  private ensureSheet(): boolean {
+    const size = this.deps.mapSize();
+    if (!size) return false;
+    if (!this.sheetOn) {
+      this.preview.begin(size.width, size.height, this.erasing);
+      this.sheetOn = true;
+    }
+    this.preview.setErasing(this.erasing);
+    this.preview.setWash(this.washes);
+    return true;
+  }
+
+  private drawSheet(polygons: ReadonlyArray<ReadonlyArray<FogPoint>>): void {
+    if (!this.ensureSheet()) return;
+    this.preview.polygons(polygons);
+    this.deps.wake();
+  }
+
   private drawPreview(before: FogPoint | null): void {
-    const spec = this.gesture?.preview();
+    const spec: FogPreviewSpec | null | undefined = this.gesture?.preview();
     if (!spec) return;
     if (spec.kind === 'brush') {
+      if (!this.ensureSheet()) return;
       const last = spec.points[spec.points.length - 1];
       if (last) this.preview.brush(before ?? last, last, spec.radius);
     } else {
-      this.preview.polygons(spec.polygons);
+      this.drawSheet(spec.polygons);
     }
     this.deps.wake();
   }
