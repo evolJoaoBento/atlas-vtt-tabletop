@@ -7699,8 +7699,9 @@ feature('fog brush', async ({ page, shot }) => {
   check('fog brush: the ring\'s lines are 4 and 1.5 screen pixels wide', width[0] / width[1] > 2.5 && width[0] / width[1] < 2.8, JSON.stringify(width));
   // A zoom makes the lines wider on the ground and the same on screen.
   await page.evaluate(() => { const { board } = window.boardTest; board.camera.zoom(0.5); board.camera.snap(); board.wake(true); });
-  await wait(400);
-  const nearer = await page.evaluate(() => { const rings = window.boardTest.board.fogTool.rings; const g = rings.light.geometry.parameters; return g.outerRadius - g.innerRadius; });
+  // The ring is drawn again with the frame that settles the camera: waited for, as a loaded machine draws it late.
+  let nearer = width[1];
+  for (let i = 0; i < 20 && nearer >= width[1] * 0.8; i += 1) { await wait(150); nearer = await page.evaluate(() => { const rings = window.boardTest.board.fogTool.rings; const g = rings.light.geometry.parameters; return g.outerRadius - g.innerRadius; }); }
   check('fog brush: the ring keeps its width on screen when the camera moves', nearer < width[1] * 0.8, JSON.stringify([width, nearer]));
   await page.evaluate(() => { const { board } = window.boardTest; board.camera.zoom(2); board.camera.snap(); board.wake(true); });
   await wait(400);
