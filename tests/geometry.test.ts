@@ -72,3 +72,29 @@ test('nearestFootprint grabs the nearest token whose widened ground holds the po
   assert.equal(nearestFootprint({ x: 60, y: 0 }, tokens, 1.5)?.id, 'b');
   assert.equal(nearestFootprint({ x: 50, y: 200 }, tokens, 1.5), null);
 });
+
+test('Atlas 0.18: a Tiny token (0.75) snaps to the quarter of the square cell nearest the pointer', () => {
+  near(snapPoint(grid(), 90, 100, 0.75), 87.5, 87.5);
+  near(snapPoint(grid(), 130, 120, 0.75), 122.5, 122.5);
+  near(snapPoint(grid(), 130, 90, 0.75), 122.5, 87.5);
+  near(snapPoint(grid({ offsetX: 10, offsetY: 20 }), 100, 100, 0.75), 97.5, 107.5);
+  // The centre itself counts as the lower-left quarter, as in Atlas (`<=`).
+  near(snapPoint(grid(), 105, 105, 0.75), 87.5, 87.5);
+});
+
+test('Atlas 0.18: a Small token (0.875) stands at the cell centre; hex grids and an unsnapped map are unchanged', () => {
+  near(snapPoint(grid(), 90, 100, 0.875), 105, 105);
+  near(snapPoint(grid({ type: 'hex-horizontal' }), 100, 71, 0.75), 70 / Math.sqrt(3) * 2.5, 70);
+  near(snapPoint(grid({ snap: false }), 90, 100, 0.75), 90, 100);
+});
+
+test('Atlas 0.18 in the ported sizing: Tiny 0.75 and Small 0.875 in the menu and the statblock map; the ported snap takes the quarter', async () => {
+  const { TOKEN_SIZE_OPTIONS, tokenSizeFromCreatureSize } = await import('../src/atlasPort/app/pixi/token-renderer/tokenSizing');
+  const { snapTokenCenter } = await import('../src/atlasPort/app/grid/gridPlacement');
+  assert.deepEqual(TOKEN_SIZE_OPTIONS.map((option: { size: number }) => option.size), [0.75, 0.875, 1, 1.5, 2, 2.5]);
+  assert.equal(tokenSizeFromCreatureSize('Tiny'), 0.75);
+  assert.equal(tokenSizeFromCreatureSize('Small'), 0.875);
+  const toCell = (p: { x: number; y: number }): { x: number; y: number } => ({ x: Math.floor(p.x / 70) * 70 + 35, y: Math.floor(p.y / 70) * 70 + 35 });
+  near(snapTokenCenter({ x: 100, y: 120 }, 0.75, 'square', 70, toCell), 87.5, 122.5);
+  near(snapTokenCenter({ x: 100, y: 120 }, 0.875, 'square', 70, toCell), 105, 105);
+});

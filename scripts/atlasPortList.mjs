@@ -110,6 +110,24 @@ export const ALLOWED_PACKAGES = [
  * file, so a newer Atlas that moved it is noticed at once.
  */
 export const PATCHES = [
+  // Atlas 0.18's Tiny (0.75) and Small (0.875) token sizes, in the size menu and the statblock size map (0.15: both 1).
+  {
+    file: 'pixi/token-renderer/tokenSizing.ts',
+    find: "  { label: t('token.size.medium'), size: 1 },",
+    replace: "  { label: t('token.size.tiny'), size: 0.75 },\n  { label: t('token.size.small'), size: 0.875 },\n  { label: t('token.size.medium'), size: 1 },",
+  },
+  {
+    file: 'pixi/token-renderer/tokenSizing.ts',
+    find: "{ tiny: 1, small: 1, medium: 1,",
+    replace: "{ tiny: 0.75, small: 0.875, medium: 1,",
+  },
+  // Atlas 0.18's quarter-cell snap for Tiny tokens (the floor, 0.15, snaps them to the cell centre). Once the floor is 0.18
+  // the sync fails on this patch's `find` (Atlas has it): drop it then, with the Tiny/Small patches below.
+  {
+    file: 'grid/gridPlacement.ts',
+    find: "  const shift = tokenCenterShift(gridType, cellSize, tokenSize);\n  const cell = snapToCell(",
+    replace: "  // Atlas 0.18's Tiny rule: on a square grid a token half a cell across or less takes the quarter of the cell nearest the pointer.\n  if (!isHexGridType(gridType) && tokenDiameterInCells(tokenSize) <= 0.5) {\n    const tinyCell = snapToCell(point);\n    return {\n      x: tinyCell.x + (point.x <= tinyCell.x ? -1 : 1) * cellSize / 4,\n      y: tinyCell.y + (point.y <= tinyCell.y ? -1 : 1) * cellSize / 4,\n    };\n  }\n  const shift = tokenCenterShift(gridType, cellSize, tokenSize);\n  const cell = snapToCell(",
+  },
   {
     // Tabletop's own lighting and board settings in the palette's Settings tab, before Atlas's toolbar editor entry.
     file: 'react/components/CommandPalette.tsx',

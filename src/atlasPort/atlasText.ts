@@ -10,7 +10,19 @@ export type PluralMessage = { readonly other: string } & Partial<Record<Exclude<
 export type AtlasMessage = string | PluralMessage;
 export type MessageValues = Readonly<Record<string, string | number>>;
 
-export const ATLAS_TEXT = ATLAS_TEXT_DATA as Readonly<Record<string, Readonly<Partial<Record<AtlasTextKey, AtlasMessage>>>>>;
+/**
+ * Texts of Atlas 0.18 the copies already use, which the synced snapshot (the floor, 0.15) lacks: Tiny and Small in the token
+ * size menu (Atlas 0.18's own wording). A synced text of the same key wins, so a newer sync simply replaces these.
+ */
+const SINCE_0_18: Readonly<Record<string, Readonly<Record<string, AtlasMessage>>>> = {
+  en: { 'token.size.tiny': 'Tiny (0.5×0.5)', 'token.size.small': 'Small (0.75×0.75)' },
+  ru: { 'token.size.tiny': 'Крошечный (0,5×0,5)', 'token.size.small': 'Маленький (0,75×0,75)' },
+  zh: { 'token.size.tiny': '超小型（0.5×0.5）', 'token.size.small': '小型（0.75×0.75）' },
+};
+
+export const ATLAS_TEXT = Object.fromEntries(
+  Object.entries(ATLAS_TEXT_DATA).map(([code, texts]) => [code, { ...SINCE_0_18[code], ...texts }]),
+) as Readonly<Record<string, Readonly<Partial<Record<AtlasTextKey, AtlasMessage>>>>>;
 export const ATLAS_LANGUAGES = Object.keys(ATLAS_TEXT);
 
 const DEFAULT_LOCALE = 'en';

@@ -41,6 +41,14 @@ export function snapTokenCenter(
   cellSize: number,
   snapToCell: (point: Point) => Point,
 ): Point {
+  // Atlas 0.18's Tiny rule: on a square grid a token half a cell across or less takes the quarter of the cell nearest the pointer.
+  if (!isHexGridType(gridType) && tokenDiameterInCells(tokenSize) <= 0.5) {
+    const tinyCell = snapToCell(point);
+    return {
+      x: tinyCell.x + (point.x <= tinyCell.x ? -1 : 1) * cellSize / 4,
+      y: tinyCell.y + (point.y <= tinyCell.y ? -1 : 1) * cellSize / 4,
+    };
+  }
   const shift = tokenCenterShift(gridType, cellSize, tokenSize);
   const cell = snapToCell({ x: point.x - shift.x, y: point.y - shift.y });
   return { x: cell.x + shift.x, y: cell.y + shift.y };

@@ -3,7 +3,7 @@
  * grid, and where a token's labels go around it. Hex grids follow Atlas's convention: `size` is the flat-to-flat width,
  * the circumradius is `size / √3`, and `(offsetX, offsetY)` is the top-left of hex (0, 0)'s bounding box. Pure.
  */
-import { cellCentreAt, snapTokenCenter, type GridGeometry } from '../../packages/atlas-shared/src/index';
+import { cellCentreAt, isHexGridType, snapTokenCenter, type GridGeometry } from '../../packages/atlas-shared/src/index';
 import type { BoardGrid } from './mapModel';
 
 interface Point {
@@ -83,6 +83,12 @@ export function snapPoint(grid: BoardGrid, x: number, y: number, size = 1): Poin
   // Atlas's own rule (`snapTokenCenter`): a token an odd number of cells across is centred on a cell; one an even
   // number across (Large, Gargantuan) stands where its cells meet, so it covers whole cells.
   const geometry: GridGeometry = { type: grid.type, size: grid.size, offsetX: grid.offsetX, offsetY: grid.offsetY };
+  // Atlas 0.18's Tiny rule (the shared copy is older): on a square grid a token half a cell across or less (2 * size - 1
+  // <= 0.5) stands in the quarter of its cell nearest the pointer; a hex grid and the larger sizes snap as before.
+  if (!isHexGridType(grid.type) && 2 * size - 1 <= 0.5) {
+    const cell = cellCentreAt(geometry, { x, y }) as Point;
+    return { x: cell.x + (x <= cell.x ? -1 : 1) * grid.size / 4, y: cell.y + (y <= cell.y ? -1 : 1) * grid.size / 4 };
+  }
   const landed = snapTokenCenter({ x, y }, size, grid.type, grid.size, (point: Point) => cellCentreAt(geometry, point) as Point) as Point;
   return { x: landed.x, y: landed.y };
 }
