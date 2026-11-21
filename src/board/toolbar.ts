@@ -661,11 +661,11 @@ export class BoardToolbar {
     this.measureMenuButton.setAttribute('aria-label', t('toolbar.measureOptions'));
     this.measureMenuButton.setAttribute('aria-expanded', 'false');
     this.viewTooltip.attach(this.measureMenuButton, () => ({ label: t('toolbar.measureOptions') }));
-    this.measurePanel = el('div', 'atlas-dropdown-content atlas-dropdown-content--top atlas-dropdown-content--left atlas-tabletop-measure-options', measureMenu);
+    // Atlas styles its menus' segmented choices (the track, the chosen one's pill) inside its plugin scope only.
+    this.measurePanel = el('div', 'atlas-dropdown-content atlas-dropdown-content--top atlas-dropdown-content--left atlas-vtt-plugin atlas-tabletop-measure-options', measureMenu);
     this.measurePanel.hidden = true;
     const dragSection = el('div', 'atlas-dropdown-section', this.measurePanel);
     const dragStack = el('div', 'atlas-dropdown-stack', dragSection);
-    el('span', 'atlas-dropdown-label', dragStack, t('toolbar.dragDistance'));
     const dragControl = el('div', 'atlas-segmented', dragStack);
     dragControl.setAttribute('role', 'radiogroup');
     dragControl.setAttribute('aria-label', t('toolbar.dragDistance'));
@@ -684,6 +684,9 @@ export class BoardToolbar {
       });
       this.measureDragButtons.push({ value, button: choice });
     }
+    // As Atlas's menu: the choices, then what they are for beneath them.
+    const dragHint = el('p', 'atlas-dropdown-hint', dragStack, t('toolbar.dragDistance'));
+    dragHint.setAttribute('aria-hidden', 'true');
     const rulesSection = el('div', 'atlas-dropdown-section', this.measurePanel);
     this.measureRulesButton = el('button', 'btn btn--ghost btn--sm atlas-dropdown-menu-item', rulesSection);
     this.measureRulesButton.type = 'button';
@@ -1740,6 +1743,8 @@ export class BoardToolbar {
     const hosting = this.actions.hosting();
     const on = hosting && handlers.live();
     (live.closest('.atlas-tool-button') as HTMLElement).style.display = hosting ? '' : 'none';
+    // Its box goes too: an empty box would still take a gap in the end slot, a wider space before the command button.
+    this.cinema.anchor.style.display = hosting ? 'flex' : 'none';
     live.classList.toggle('is-active', on);
     live.setAttribute('aria-pressed', String(on));
   }

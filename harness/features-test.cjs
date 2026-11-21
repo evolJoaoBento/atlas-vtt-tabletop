@@ -540,7 +540,7 @@ feature('narrow toolbar', async ({ page, shot }) => {
 // ── Item 38: readability in Obsidian's light theme ─────────────────────────────────────────────────────────────
 feature('light theme', async ({ page, shot }) => {
   // Obsidian's default light theme variables (the dark ones are the harness's).
-  await page.addStyleTag({ content: ':root{--background-primary:#ffffff;--background-secondary:#f6f6f6;--background-modifier-hover:rgba(0,0,0,.05);--text-normal:#222222;--text-muted:#5c5c5c;--text-faint:#ababab;--background-modifier-border:#e0e0e0;--divider-color:#e0e0e0;--background-secondary-alt:#fcfcfc;--shadow-l:0 8px 24px rgba(0,0,0,.15)} body{background:#e8e8e8}' });
+  await page.addStyleTag({ content: ':root{--mono-100:black;--background-primary:#ffffff;--background-secondary:#f6f6f6;--background-modifier-hover:rgba(0,0,0,.05);--text-normal:#222222;--text-muted:#5c5c5c;--text-faint:#ababab;--background-modifier-border:#e0e0e0;--divider-color:#e0e0e0;--background-secondary-alt:#fcfcfc;--shadow-l:0 8px 24px rgba(0,0,0,.15)} body{background:#e8e8e8}' });
   await page.evaluate(() => document.body.classList.add('theme-light'));
   await wait(300);
   // The contrast of the text of an element against the first opaque background behind it, as the WCAG ratio.
@@ -6784,7 +6784,7 @@ feature('visibility bar', async ({ page, shot }) => {
   await wait(300);
 
   // 6b. Light theme screenshots (bar open and size mode ring).
-  await page.addStyleTag({ content: ':root{--background-primary:#ffffff;--background-secondary:#f6f6f6;--background-modifier-hover:rgba(0,0,0,.05);--text-normal:#222222;--text-muted:#5c5c5c;--text-faint:#ababab;--background-modifier-border:#e0e0e0;--divider-color:#e0e0e0;--background-secondary-alt:#fcfcfc;--shadow-l:0 8px 24px rgba(0,0,0,.15)} body{background:#e8e8e8}' });
+  await page.addStyleTag({ content: ':root{--mono-100:black;--background-primary:#ffffff;--background-secondary:#f6f6f6;--background-modifier-hover:rgba(0,0,0,.05);--text-normal:#222222;--text-muted:#5c5c5c;--text-faint:#ababab;--background-modifier-border:#e0e0e0;--divider-color:#e0e0e0;--background-secondary-alt:#fcfcfc;--shadow-l:0 8px 24px rgba(0,0,0,.15)} body{background:#e8e8e8}' });
   await page.evaluate(() => {
     document.body.classList.add('theme-light');
     const { board } = window.boardTest;
@@ -6840,7 +6840,7 @@ feature('visibility bar', async ({ page, shot }) => {
 
 // ── Spec 2 Job A: Command button rightmost in Play, Edit and Cinematic, never overflows, hotkey in all modes ──
 feature('command button', async ({ page, shot }) => {
-  const LIGHT_VARS = ':root{--background-primary:#ffffff;--background-secondary:#f6f6f6;--background-modifier-hover:rgba(0,0,0,.05);--background-modifier-active-hover:rgba(124,92,255,.14);--text-normal:#222222;--text-muted:#5c5c5c;--text-faint:#ababab;--background-modifier-border:#e0e0e0;--divider-color:#e0e0e0;--background-secondary-alt:#fcfcfc;--shadow-l:0 8px 24px rgba(0,0,0,.15)} body{background:#e8e8e8}';
+  const LIGHT_VARS = ':root{--mono-100:black;--background-primary:#ffffff;--background-secondary:#f6f6f6;--background-modifier-hover:rgba(0,0,0,.05);--background-modifier-active-hover:rgba(124,92,255,.14);--text-normal:#222222;--text-muted:#5c5c5c;--text-faint:#ababab;--background-modifier-border:#e0e0e0;--divider-color:#e0e0e0;--background-secondary-alt:#fcfcfc;--shadow-l:0 8px 24px rgba(0,0,0,.15)} body{background:#e8e8e8}';
   const setLight = async (on) => {
     await page.evaluate(({ on, css }) => {
       let tag = document.getElementById('spec2-light');
@@ -6880,12 +6880,22 @@ feature('command button', async ({ page, shot }) => {
       cmdRightPastMore: !moreRect || (!!cmdRect && cmdRect.right > moreRect.right),
       inMore: !!cmd?.closest('.atlas-tabletop-more-menu'),
       moreVisible: !!moreRect,
+      // Space between the command button and the nearest button left of it: the bar's own 8px gap, no more.
+      gap: cmdRect && others.length ? Math.round(cmdRect.left - Math.max(...others.filter((r) => r <= cmdRect.left + 0.5))) : null,
     };
   });
 
   // Play mode.
   const playInfo = await rightmostInfo();
   check('command button: visible and rightmost in Play mode', playInfo.visible && playInfo.lastChildIsCmd && playInfo.cmdRightPastAll, JSON.stringify(playInfo));
+  check('command button: the usual gap before it in Play mode', playInfo.gap !== null && playInfo.gap <= 9, JSON.stringify(playInfo));
+  // Not hosting: the live toggle is hidden, and its empty box takes no gap either.
+  await page.evaluate(() => { window.boardTest.setHosting(false); window.boardTest.board.refreshToolbar(); });
+  await wait(150);
+  const soloInfo = await rightmostInfo();
+  check('command button: the usual gap before it with no session', soloInfo.gap !== null && soloInfo.gap <= 9, JSON.stringify(soloInfo));
+  await page.evaluate(() => { window.boardTest.setHosting(true); window.boardTest.board.refreshToolbar(); });
+  await wait(150);
 
   // Click opens palette; Escape closes.
   const palWin = page.locator('.atlas-tabletop-atlas-ui .atlas-command-palette-window');
@@ -6910,6 +6920,7 @@ feature('command button', async ({ page, shot }) => {
   await wait(250);
   const editInfo = await rightmostInfo();
   check('command button: visible and rightmost in Edit mode', editInfo.visible && editInfo.lastChildIsCmd && editInfo.cmdRightPastAll, JSON.stringify(editInfo));
+  check('command button: the usual gap before it in Edit mode', editInfo.gap !== null && editInfo.gap <= 9, JSON.stringify(editInfo));
   await shot('command-button-edit');
   await setLight(true);
   await shot('command-button-edit-light');
@@ -6951,7 +6962,7 @@ feature('command button', async ({ page, shot }) => {
 
 // ── Spec 2 Job B: Every toolbar button in registry & palette + mode switching on run ──
 feature('toolbar commands and mode switching', async ({ page, shot }) => {
-  const LIGHT_VARS = ':root{--background-primary:#ffffff;--background-secondary:#f6f6f6;--background-modifier-hover:rgba(0,0,0,.05);--background-modifier-active-hover:rgba(124,92,255,.14);--text-normal:#222222;--text-muted:#5c5c5c;--text-faint:#ababab;--background-modifier-border:#e0e0e0;--divider-color:#e0e0e0;--background-secondary-alt:#fcfcfc;--shadow-l:0 8px 24px rgba(0,0,0,.15)} body{background:#e8e8e8}';
+  const LIGHT_VARS = ':root{--mono-100:black;--background-primary:#ffffff;--background-secondary:#f6f6f6;--background-modifier-hover:rgba(0,0,0,.05);--background-modifier-active-hover:rgba(124,92,255,.14);--text-normal:#222222;--text-muted:#5c5c5c;--text-faint:#ababab;--background-modifier-border:#e0e0e0;--divider-color:#e0e0e0;--background-secondary-alt:#fcfcfc;--shadow-l:0 8px 24px rgba(0,0,0,.15)} body{background:#e8e8e8}';
   const setLight = async (on) => {
     await page.evaluate(({ on, css }) => {
       let tag = document.getElementById('spec2-light');
@@ -7150,7 +7161,7 @@ feature('toolbar commands and mode switching', async ({ page, shot }) => {
 
 // ── Spec 2 Job C: Atlas Measure menu, two horizontal bars, Look dropdown, Keep/Players/Clear+Undo, drag distance ──
 feature('measure menu and behaviour', async ({ page, shot }) => {
-  const LIGHT_VARS = ':root{--background-primary:#ffffff;--background-secondary:#f6f6f6;--background-modifier-hover:rgba(0,0,0,.05);--background-modifier-active-hover:rgba(124,92,255,.14);--text-normal:#222222;--text-muted:#5c5c5c;--text-faint:#ababab;--background-modifier-border:#e0e0e0;--divider-color:#e0e0e0;--background-secondary-alt:#fcfcfc;--shadow-l:0 8px 24px rgba(0,0,0,.15)} body{background:#e8e8e8}';
+  const LIGHT_VARS = ':root{--mono-100:black;--background-primary:#ffffff;--background-secondary:#f6f6f6;--background-modifier-hover:rgba(0,0,0,.05);--background-modifier-active-hover:rgba(124,92,255,.14);--text-normal:#222222;--text-muted:#5c5c5c;--text-faint:#ababab;--background-modifier-border:#e0e0e0;--divider-color:#e0e0e0;--background-secondary-alt:#fcfcfc;--shadow-l:0 8px 24px rgba(0,0,0,.15)} body{background:#e8e8e8}';
   const setLight = async (on) => {
     await page.evaluate(({ on, css }) => {
       let tag = document.getElementById('spec2-light');
@@ -7267,6 +7278,16 @@ feature('measure menu and behaviour', async ({ page, shot }) => {
   // Switch drag distance to Never via menu and verify token drag shows no ruler, then back to Always.
   await page.click('.atlas-tabletop-measure-options [data-drag-distance="never"]');
   await wait(120);
+  // As in Atlas: the chosen option wears Atlas's pill (its shadow), the others none; the hint reads beneath them.
+  await page.mouse.move(5, 5);
+  await wait(80);
+  const pill = await page.evaluate(() => {
+    const opts = [...document.querySelectorAll('.atlas-tabletop-measure-options [data-drag-distance]')];
+    const hint = document.querySelector('.atlas-tabletop-measure-options .atlas-segmented + .atlas-dropdown-hint');
+    return { shadows: opts.map((b) => `${b.dataset.dragDistance}:${getComputedStyle(b).boxShadow !== 'none'}`), hint: hint?.textContent };
+  });
+  await shot('measure-options-chosen');
+  check('measure options: the chosen drag distance shows as chosen, as in Atlas', JSON.stringify(pill.shadows) === '["always:false","combat:false","never:true"]' && pill.hint === 'Distance while moving tokens', JSON.stringify(pill));
   await page.keyboard.press('Escape');
   await page.click('button[aria-label="Measure"]'); // leave measure tool to drag token
   await wait(120);
@@ -7399,7 +7420,9 @@ feature('shortcut help on the board', async ({ page, shot }) => {
     const atlasRows = [...card.querySelectorAll('section:not([data-tabletop-keys]) dl > div')].map((row) => (row.querySelector('dt')?.textContent ?? '').toLowerCase());
     const lefts = new Set([...card.querySelectorAll('.atlas-hotkey-help-list > section')].map((section) => Math.round(section.getBoundingClientRect().left)));
     const split = [...card.querySelectorAll('.atlas-hotkey-help-list > section')].some((section) => section.getClientRects().length > 1);
-    return { rows, atlasRows, headings, columns: lefts.size, split, title: card.querySelector('h2')?.textContent ?? '' };
+    // A row's name keeps its room beside a long key: no name squeezed under 40% of its row.
+    const squeezed = [...card.querySelectorAll('dl > div')].filter((row) => { const dt = row.querySelector('dt'); return dt && dt.getBoundingClientRect().width < 0.4 * row.getBoundingClientRect().width; }).map((row) => row.querySelector('dt').textContent);
+    return { rows, atlasRows, headings, columns: lefts.size, split, squeezed, title: card.querySelector('h2')?.textContent ?? '' };
   });
   await shot('shortcut-help');
   const find = (text) => seen.rows.find(([label]) => label.toLowerCase().includes(text));
@@ -7409,6 +7432,7 @@ feature('shortcut help on the board', async ({ page, shot }) => {
   check("shortcut help: the board's own keys follow, camera and eyes included",
     seen.headings.includes('Tabletop: camera') && seen.headings.includes("Tabletop: through a token's eyes") && (find('move the camera')?.[1] ?? '') === 'W A S D / Arrow keys', JSON.stringify(seen.headings));
   check('shortcut help: the sections are spread over balanced columns, none split', seen.columns >= 2 && !seen.split, JSON.stringify({ columns: seen.columns, split: seen.split }));
+  check('shortcut help: no name is squeezed by a long key beside it', seen.squeezed.length === 0, JSON.stringify(seen.squeezed));
   await page.keyboard.press('Escape');
   await page.waitForTimeout(200);
   const closed = await page.evaluate(() => document.querySelector('.atlas-hotkey-help-card') === null && !window.boardTest.hotkeyHelp.isOpen() && document.querySelector('.atlas-tabletop-help-bar button')?.getAttribute('aria-pressed') === 'false');
