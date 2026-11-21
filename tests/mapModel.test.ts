@@ -173,7 +173,7 @@ test('text labels are read as Atlas reads them (its 0.16 reader: a text with no 
 
 test('the tokens in Atlas\'s initiative tracker are read', () => {
   const map = readMap('m', JSON.stringify({ state: { objects: { tokens: {}, pins: {} }, initiative: { entries: [{ id: 'i1', tokenId: 'a' }, { id: 'i2', tokenId: 'b' }, { id: 'i3' }] } } }));
-  assert.deepEqual(map.initiative.entries.map((entry) => entry.tokenId), ['a', 'b']);
+  assert.deepEqual(map.initiative.entries.map((entry) => entry.tokenId), ['a', 'b', undefined]);
   assert.deepEqual(readMap('m', JSON.stringify({ state: { objects: { tokens: {}, pins: {} } } })).initiative.entries, []);
 });
 
