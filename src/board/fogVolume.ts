@@ -16,9 +16,10 @@
 import * as THREE from 'three';
 import { fogAreas, type FogArea, type FogOperation } from './fog';
 import { cloudFrame, cloudNoise, type CloudFrame } from './fogCloud';
+import { DEFAULT_GM_FOG_OPACITY, readGmFogOpacity } from '../atlasPort/gmFogOpacity';
 
-/** Atlas shows the GM the fog at half strength. */
-const GM_STRENGTH = 0.5;
+/** Atlas shows the GM the fog at half strength unless the GM chose otherwise (its setting `getGmFogOpacity`). */
+const GM_STRENGTH = DEFAULT_GM_FOG_OPACITY;
 /** Just over the board, so the cloud's floor does not flicker with the map. */
 const FLOOR = 0.5;
 /** How far the blur spreads the edge, in grid squares. */
@@ -164,9 +165,25 @@ export class FogVolume {
     this.object3d.add(this.cloud);
   }
 
-  /** Dresses the fog for whose picture is drawn next: the GM sees through it at half strength, players not at all. */
+  /** How strong the GM sees the fog (Atlas's "Fog opacity in GM view", 0.1 to 1); players always see it whole. */
+  private gmStrength = GM_STRENGTH;
+  private viewer: 'gm' | 'player' = 'gm';
+
+  /** Dresses the fog for whose picture is drawn next: the GM sees through it at their chosen strength, players not at all. */
   show(viewer: 'gm' | 'player'): void {
-    this.material.uniforms.uStrength.value = viewer === 'gm' ? GM_STRENGTH : 1;
+    this.viewer = viewer;
+    this.material.uniforms.uStrength.value = viewer === 'gm' ? this.gmStrength : 1;
+  }
+
+  /** Sets the strength the GM sees the fog at (out of range or no number: Atlas's default), now. */
+  setGmStrength(opacity: number | null | undefined): void {
+    this.gmStrength = opacity === null || opacity === undefined ? GM_STRENGTH : readGmFogOpacity(opacity);
+    this.show(this.viewer);
+  }
+
+  /** The strength the GM sees the fog at now. */
+  get gmOpacity(): number {
+    return this.gmStrength;
   }
 
   /** Draws the box's outside faces for a camera at `eye` outside it, its inside faces for one inside. */

@@ -69,6 +69,12 @@ import { EDGE_SHARE, ResolutionGovernor, type LayerLook, type QualityPreset, typ
 import { PostFx, type PostFxLook } from './postFx';
 import { BoardSurface } from './surface';
 import { FogVolume } from './fogVolume';
+import { hasRoomWalls } from '../atlasPort/app/fog/fogRooms';
+import { fogWalls } from './fogWalls';
+import { fogMenuAt, fogMenuEntries } from './fogMenu';
+import type { MenuEntry } from './atlasMenu';
+import { FogTool, type FogBarActions, type FogHost, type FogOperationInput, type FogSwitchId } from './fogTool';
+import { at as atlasText } from '../atlasPort/atlasText';
 import { LaserBeam } from './laserBeam';
 import { LaserTrail, beamWidth, smoothBeam, type LaserSettings } from './laser';
 import { LIQUID_KINDS, WaterMask, type LiquidKind, type SavedWaterMask, type WaterMotion, type WaterMotionKind } from './water';
@@ -114,7 +120,7 @@ import { PlayerToolState, type TemplateChange, type TemplateMark, type TemplateS
 import { DEFAULT_MEASURE_TOOL, isMeasureShape, type MeasureToolOptions } from './measureOptions';
 import type { MeasureChange } from './boardMeasures';
 import type { FogOperation } from './fog';
-import { isWindow, NO_FLIP, segmentFrame, wholeWall, windowSpan, type BoardLight, type BoardWall, type DoorFlip, type WindowSpan } from './walls';
+import { isDoor, isWindow, NO_FLIP, segmentFrame, wholeWall, windowSpan, type BoardLight, type BoardWall, type DoorFlip, type WindowSpan } from './walls';
 import { MINI_DRAG_TYPE, MINI_TEXT_PREFIX } from '../assignments';
 import { augmentedCamera, augmentedProjection, isAugmentedView, roomPlacement, type AugmentedView, type RoomPlace } from './augmented';
 import { ArViewers, isViewerPose, type ViewerPose } from './arViewers';
@@ -182,6 +188,8 @@ function errorColor(element: HTMLElement): string {
   return resolved || ERROR_RED;
 }
 const ERROR_RED = '#fb464c';
+/** No walls (the same array each time: the fog's rooms cache on it). */
+const NO_WALLS: readonly BoardWall[] = [];
 
 function accent(element: HTMLElement): string {
   const view = element.ownerDocument.defaultView;
@@ -306,6 +314,10 @@ export interface BoardHost {
   /** Atlas's formatted hotkey labels for Measure and Keep. */
   measureHotkeys?(): { measure: string | null; measureKeep: string | null; gmView: string | null };
   /** How tall the map's fog stands, in grid squares; and saving a new height. */
+  /** The GM's fog tool (Atlas 0.18's) and its bars, through Atlas's store; absent where the board cannot write fog (a player's, a board with no Atlas). */
+  fog?: FogHost;
+  /** The key of Atlas's fog tool as shown ("F"). */
+  fogHotkey?(): string | null;
   fogHeight(): number;
   setFogHeight(height: number): void;
   /** How thick the walls stand, as a share of a grid square. */
@@ -378,6 +390,8 @@ export interface BoardHost {
   wallMenu(id: string, event: MouseEvent): void;
   /** A pin's right-click menu (the GM's board: Readable by players). Without it a right-click on a pin does nothing of its own. */
   pinMenu?(id: string, event: MouseEvent): void;
+  /** The fog menu (Reveal, Hide, Delete) opened at a right-click, in Atlas's menu style; `onClose` once it has closed, however. */
+  fogMenu?(entries: MenuEntry[], event: MouseEvent, onClose: () => void): void;
   /** The board's ambient light (0–1), and keeping a new level. */
   ambient(): number;
   /** Whether the scene's lighting is on in Atlas: the light level can be set only then. Absent: it can. */
@@ -602,7 +616,9 @@ type Press =
   | { kind: 'laser'; x: number; y: number; moved: boolean }
   /** A Connect player's tool (measure, template, laser, ping) under way. */
   | { kind: 'tool'; x: number; y: number; moved: boolean }
-  | { kind: 'water'; last: { x: number; y: number } };
+  | { kind: 'water'; last: { x: number; y: number } }
+  /** The fog tool's drag under way (`fogTool.ts` keeps it). */
+  | { kind: 'fog' };
 
 /** Numbers the boards, so each has loop keys of its own on the window's shared sound engine. */
 let nextBoardNumber = 0;
@@ -827,7 +843,7 @@ export class Board {
   private brushAt: { x: number; y: number } | null = null;
   /** Ctrl + scroll not yet a whole notch of brush size, in pixels. */
   private brushScroll = 0;
-  /** The water brush is the eraser only while Shift is held: back to the brush when it is let go. */
+  /** The water brush is the eraser only while Alt is held: back to the brush when it is let go. */
   private shiftErase = false;
   private brushTipTimer: ReturnType<typeof setTimeout> | undefined;
   /** The motion the GM chose for this map's liquids, before any is painted too; a liquid without one follows what the map keeps. */
@@ -878,6 +894,14 @@ export class Board {
   private readonly selectListeners = new Set<(id: string | null) => void>();
   private readonly controls: ResourceControls;
   private readonly fog = new FogVolume();
+  /** The GM's fog tool, made with the toolbar (a GM board whose host writes fog); null otherwise. */
+  private fogTool: FogTool | null = null;
+  /** Atlas's fog opacity in the GM's view as last read (undefined: not read yet; null: Atlas has none), kept so a frame does not read the setting. */
+  private gmFogOpacity: number | null | undefined = undefined;
+  /** The fog the toolbar was last brought up to date with (ids of its operations). */
+  private fogShown = '';
+  /** The fog tool's switches where Atlas keeps none (Atlas 0.18's `fogSnap` and `fogConstrain` defaults). */
+  private readonly fogSwitches: Record<FogSwitchId, boolean> = { fogSnap: true, fogConstrain: false };
   /** Atlas's walls and doors, and the materials they are painted with, by key (a folder, or the plain looks). */
   private readonly walls: WallSet;
   private readonly wallMaterials = new Map<string, THREE.MeshStandardMaterial>();
@@ -968,6 +992,25 @@ export class Board {
       prop: (glb) => this.model(glb),
     });
     this.scene.add(this.fog.object3d, this.beam.object3d, this.walls.object3d, this.rig.object3d, this.veilSight.object3d, this.veilPov.object3d);
+    if (this.audience === 'gm' && this.host.fog) {
+      this.fogTool = new FogTool({
+        parent: this.scene,
+        canvas: () => this.container.ownerDocument.createElement('canvas'),
+        boardPoint: (x, y) => this.boardPoint(x, y),
+        unitsPerPixel: (at) => this.unitsPerPixel(at),
+        mapSize: () => (this.mapSizeKnown ? this.mapSize : null),
+        commit: (operations) => this.commitFog(operations),
+        fogKey: () => (this.map?.fog ?? []).map((operation) => operation.id).join(','),
+        changed: () => this.toolbar?.refresh(),
+        wake: () => this.wake(),
+        walls: () => fogWalls(this.map?.walls ?? NO_WALLS),
+        grid: () => (this.map ? { type: this.map.grid.type, size: this.map.grid.size, offsetX: this.map.grid.offsetX, offsetY: this.map.grid.offsetY, snap: this.map.grid.snap } : null),
+        mapRect: () => this.fogMapRect(),
+        notice: (text) => this.host.fog?.notice(text),
+        switchOn: (id) => this.host.fog?.switchOn?.(id) ?? this.fogSwitches[id],
+        accent: () => accent(this.container),
+      });
+    }
     this.toolbar = new BoardToolbar(container, {
       fogHeight: () => this.host.fogHeight(),
       setFogHeight: (height) => this.host.setFogHeight(height),
@@ -985,7 +1028,7 @@ export class Board {
       ...(this.host.setWallEdges && { setWallEdges: (edges: WallEdges) => this.host.setWallEdges?.(edges) }),
       playerViewOpen: () => this.host.playerViewOpen(),
       laserOn: () => this.laserOn,
-      selectTool: (tool) => { this.waterTool = null; this.shapeEditor?.setActive(false); this.showBrush(); this.stopPainting(); this.setLaser(tool === 'laser'); this.toolbar.refresh(); },
+      selectTool: (tool) => { this.fogTool?.setOn(false); this.waterTool = null; this.shapeEditor?.setActive(false); this.showBrush(); this.stopPainting(); this.setLaser(tool === 'laser'); this.toolbar.refresh(); },
       ...(this.audience === 'gm' && {
         mode: () => this.host.boardMode?.() ?? null,
         setMode: (mode: 'play' | 'edit' | 'cinematic') => this.setMode(mode),
@@ -1012,6 +1055,7 @@ export class Board {
         arTableSheets: () => this.arTable?.survey.groups.length ?? null,
         placeArTable: () => this.placeTable(true),
       }),
+      ...(this.fogTool && { fog: this.fogBarActions() }),
       waterTool: () => this.waterTool,
       ...(this.audience === 'gm' && this.host.setGround && {
         ground: () => this.groundSettings(),
@@ -1024,7 +1068,7 @@ export class Board {
       }),
       setWaterTool: (mode) => {
         this.shiftErase = false;
-        if (mode) { this.stopPainting(); this.shapeEditor?.setActive(false); }
+        if (mode) { this.stopPainting(); this.shapeEditor?.setActive(false); this.fogTool?.setOn(false); }
         this.waterTool = mode;
         if (mode && this.tools.tool !== 'move') { this.tools.select('move'); this.toolsChanged(); }
         this.showBrush();
@@ -1049,6 +1093,7 @@ export class Board {
       measureShape: () => this.tools.shape,
       selectMeasure: (shape) => {
         if (shape !== null) {
+          this.fogTool?.setOn(false);
           this.waterTool = null;
           this.stopPainting();
           this.setMeasureOptions({ mode: shape });
@@ -1150,6 +1195,8 @@ export class Board {
     this.showCell(null);
     const first = this.map === null;
     const sameImage = this.map?.background === map.background;
+    // A shape under way belongs to the map and level it was drawn on: another scene, level or image drops it.
+    if (this.map && (this.map.path !== map.path || this.map.level !== map.level || !sameImage)) this.fogTool?.cancel();
     this.map = map;
     // Another of the stack becomes the one played: its layer is put away and the old scene comes back as a layer (kept
     // ready), at once, both easing; the camera glides between them.
@@ -1713,6 +1760,7 @@ export class Board {
     if (on) {
       if (this.host.boardMode?.() !== 'edit') this.setMode('edit');
       if (this.waterTool) { this.waterTool = null; this.showBrush(); }
+      this.fogTool?.setOn(false);
       this.stopPainting();
       if (this.laserOn) this.setLaser(false);
       if (this.tools.tool !== 'move') { this.tools.select('move'); this.toolsChanged(); }
@@ -1771,6 +1819,12 @@ export class Board {
     this.darkness.update((map as { darkness?: FogOperation[] }).darkness ?? []);
     try {
       this.fog.update(map.fog, this.host.fogHeight(), map.grid.size);
+      this.fogTool?.fogDrawn();
+      // Another board of this vault switched the shared mode away from Edit: the tool is put down here too.
+      if (this.fogTool?.on && !this.editing) { this.fogTool.setOn(false); this.toolbar.refresh(); }
+      // The fog tool's bars say whether there is fog to delete: they follow what the map holds.
+      const fogShown = map.fog.map((operation) => operation.id).join(',');
+      if (fogShown !== this.fogShown) { this.fogShown = fogShown; if (this.fogTool) this.toolbar.refresh(); }
     } catch (error) {
       this.host.warn(`Tabletop: cannot show this map's fog of war: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -2639,6 +2693,9 @@ export class Board {
       if (turning) busy = true;
     }
     this.applyView();
+    // The fog brush's ring keeps its width on screen and its place under a still pointer while the camera moves (after the
+    // camera is placed, so the frame that settles it draws the ring settled too).
+    this.fogTool?.frame();
     this.toolbar.syncOverlay();
     this.spellTick();
     const viewHeight = this.renderer.domElement.clientHeight || 1;
@@ -2887,6 +2944,155 @@ export class Board {
     this.camera.pan(-(x - press.lastX) * scale, (y - press.lastY) * scale);
   }
 
+  /** How many map pixels one screen pixel is at `at` on the ground: the camera's distance and its field of view. */
+  private unitsPerPixel(at: { x: number; y: number }): number {
+    const distance = this.view.position.distanceTo(new THREE.Vector3(at.x, 0, at.y));
+    return (2 * distance * Math.tan(THREE.MathUtils.degToRad(this.view.fov) / 2)) / Math.max(1, this.canvas.clientHeight);
+  }
+
+  /** The map as the board draws it, in map pixels, for the fog actions on the whole map (null while its size is not known). */
+  private fogMapRect(): { x: number; y: number; width: number; height: number } | null {
+    const size = this.mapSizeKnown ? this.mapSize : null;
+    return size ? { x: 0, y: 0, width: size.width, height: size.height } : null;
+  }
+
+  /** Takes up the GM's fog tool: Edit mode, the other tools put away, the tool on as `mode` (Atlas's button and key open it as Fog). */
+  private startFog(mode: 'fog' | 'eraser' = 'fog'): void {
+    const tool = this.fogTool;
+    if (!tool || this.audience !== 'gm') return;
+    if (this.host.boardMode?.() !== 'edit') this.setMode('edit');
+    if (this.waterTool) { this.waterTool = null; this.showBrush(); }
+    this.shapeEditor?.setActive(false);
+    this.stopPainting();
+    if (this.laserOn) this.setLaser(false);
+    if (this.tools.tool !== 'move') { this.tools.select('move'); this.toolsChanged(); }
+    tool.setOn(true, mode);
+  }
+
+  /** Atlas's fog key: opens the fog tool, and with it open turns it between Fog and Eraser. False where the board has none. */
+  toggleFogTool(): boolean {
+    const tool = this.fogTool;
+    if (!tool || this.audience !== 'gm') return false;
+    if (tool.on) { tool.toggleMode(); return true; }
+    // Through the toolbar's own way in: the other panels close and Edit mode is taken, as when the button is pressed.
+    return this.toolbar.goTo('fog');
+  }
+
+  /** Atlas's smaller and larger brush keys, while the fog tool is on (`held`: a repeat of the key): true when it sized the brush. */
+  stepFogBrush(direction: 1 | -1, held: boolean): boolean {
+    const tool = this.fogTool;
+    if (!tool?.on) return false;
+    tool.stepBrush(direction, held);
+    return true;
+  }
+
+  /**
+   * A key of the fog shape under way (Atlas's `FogStrokeKeys`): Enter closes a polygon, Backspace or the map's undo (`undo`) takes its
+   * last corner back; Escape drops the shape. True where the shape took it, which the map's shortcuts then never hear.
+   */
+  fogKey(event: Pick<KeyboardEvent, 'key' | 'repeat'>, undo = false): boolean {
+    const tool = this.fogTool;
+    if (this.audience !== 'gm' || !tool?.on || !tool.drawing) return false;
+    if (event.key === 'Escape') { tool.cancel(); return true; }
+    return tool.key(event.key, event.repeat === true, undo);
+  }
+
+  /** Whether the GM's fog tool is on. */
+  get fogToolOn(): boolean {
+    return this.fogTool?.on === true;
+  }
+
+  /** The fog shapes finished by the tool, written to Atlas's store by the host; the stroke's preview goes if they are refused. */
+  private commitFog(operations: FogOperationInput[]): void {
+    const kept = this.host.fog?.add(operations);
+    if (kept instanceof Promise) void kept.then((ok) => { if (ok === false) this.fogTool?.failed(); }, () => this.fogTool?.failed());
+  }
+
+  /**
+   * The fog menu at a right-click released in place (Atlas's `showFogMenu`): while the fog tool is on and no shape is under way,
+   * on fog it offers Reveal and Delete, on revealed open ground Hide and Delete, and the body or ground they act on is outlined
+   * while it is open. False where the fog has no menu there (the click is then the board's own).
+   */
+  private openFogMenu(event: MouseEvent): boolean {
+    const tool = this.fogTool;
+    const host = this.host.fog;
+    if (!tool?.on || !host || !this.host.fogMenu || this.audience !== 'gm' || !this.editing || tool.drawing || !this.map) return false;
+    const point = this.boardPoint(event.clientX, event.clientY);
+    const hit = point ? fogMenuAt(this.map.fog, point) : null;
+    if (!point || !hit) return false;
+    const now = (): ReturnType<typeof fogMenuAt> => (this.map ? fogMenuAt(this.map.fog, point) : null);
+    const quiet = (done: Promise<unknown> | void): void => { if (done instanceof Promise) void done.catch(() => undefined); };
+    const entries = fogMenuEntries(hit, {
+      offers: () => host.offers(),
+      now,
+      reveal: (outlines) => quiet(host.reveal(outlines)),
+      erase: (body) => quiet(host.add([{ type: 'lasso', points: body.map(({ x, y }) => ({ x, y })), isErasing: true }])),
+      hide: (id) => quiet(host.hide(id)),
+      forget: (id) => quiet(host.forget(id)),
+    });
+    if (entries.length === 0) return false;
+    tool.cancel();
+    tool.showTarget(hit.outlines);
+    this.host.fogMenu(entries, event, () => tool.showTarget(null));
+    return true;
+  }
+
+  /** Cover all: hides the whole map; Atlas's own notice where there is none to hide. */
+  private coverFog(): void {
+    const host = this.host.fog;
+    if (!host) return;
+    const done = (ok: boolean): void => { if (!ok) host.notice(atlasText('fog.noMap')); };
+    const covered = host.cover(this.fogMapRect());
+    if (covered instanceof Promise) void covered.then(done, () => undefined); else done(covered);
+  }
+
+  /** Hide all rooms: with Atlas's notice of how many it hid. */
+  private hideFogRooms(): void {
+    const host = this.host.fog;
+    if (!host) return;
+    const done = ({ rooms, hidden }: { rooms: number; hidden: number }): void => {
+      if (hidden > 0) host.notice(atlasText('fog.roomsHidden', { count: hidden }));
+      else host.notice(rooms > 0 ? atlasText('fog.roomsAreHidden') : atlasText('fog.noRooms'));
+    };
+    const result = host.hideRooms(this.fogMapRect());
+    if (result instanceof Promise) void result.then(done, () => undefined); else done(result);
+  }
+
+  /** The GM's Atlas fog opacity changed (or is read again): the fog in the GM's view takes it. */
+  refreshFogOpacity(): void {
+    this.gmFogOpacity = this.host.fog?.gmOpacity?.() ?? null;
+    this.fog.setGmStrength(this.gmFogOpacity);
+    this.wake(true);
+  }
+
+  /** What the fog tool's bars ask of the board. */
+  private fogBarActions(): FogBarActions {
+    const tool = this.fogTool!;
+    const host = this.host.fog!;
+    return {
+      state: () => ({ on: tool.on, mode: tool.mode, shape: tool.shape, brushSize: tool.brushSize }),
+      start: (mode) => this.startFog(mode),
+      stop: () => tool.setOn(false),
+      setMode: (mode) => tool.setMode(mode),
+      setShape: (shape) => tool.setShape(shape),
+      setBrushSize: (size) => tool.setBrushSize(size),
+      cellSize: () => { const size = this.map?.grid.size ?? 0; return Number.isFinite(size) && size > 0 ? size : 0; },
+      hasWalls: () => hasRoomWalls(fogWalls(this.map?.walls ?? NO_WALLS) as never),
+      levelled: () => (this.map?.levels?.length ?? 0) > 1,
+      anyFog: () => (this.map?.fog.length ?? 0) > 0,
+      offers: () => host.offers(),
+      cover: () => this.coverFog(),
+      clear: () => { const kept = host.clear(); if (kept instanceof Promise) void kept.catch(() => undefined); },
+      hideRooms: () => this.hideFogRooms(),
+      gmOpacity: () => host.gmOpacity?.() ?? null,
+      setGmOpacity: (opacity) => { host.setGmOpacity?.(opacity); this.refreshFogOpacity(); },
+      switchOn: (id) => host.switchOn?.(id) ?? this.fogSwitches[id],
+      setSwitch: (id, on) => { if (host.setSwitch?.(id, on) !== true) this.fogSwitches[id] = on; },
+      brushKeys: () => host.brushKeys?.() ?? ', .',
+      hotkey: () => this.host.fogHotkey?.() ?? null,
+    };
+  }
+
   /** The point of the board under the pointer, in map pixels. */
   boardPoint(clientX: number, clientY: number): { x: number; y: number } | null {
     this.ray(clientX, clientY);
@@ -3006,7 +3212,7 @@ export class Board {
    */
   private ctrlHandles(kind: HandleKind | null): void {
     const at = this.pointerAt;
-    if (kind && at && this.audience === 'gm' && this.editing && !this.painting && !this.waterTool && !this.placing) {
+    if (kind && at && this.audience === 'gm' && this.editing && !this.painting && !this.waterTool && this.fogTool?.on !== true && !this.placing) {
       const near = this.handles?.kind === kind ? this.handleAt(at.x, at.y) : null;
       // Over a prop (and no wall handle nearer): its scale dot.
       const prop = !near && kind === 'height' && this.host.scaleProp ? this.propAt(at.x, at.y) : null;
@@ -3471,6 +3677,18 @@ export class Board {
       event.preventDefault();
       this.showName(null);
       if (this.eye) return;
+      // With the fog brush in hand, Ctrl + scroll sizes it too: a notch one step of the keys (Atlas's smaller and larger brush).
+      if (this.fogTool?.on && this.fogTool.shape === 'brush' && (event.ctrlKey || event.metaKey)) {
+        const pixels = event.deltaMode === 1 ? event.deltaY * 33 : event.deltaMode === 2 ? event.deltaY * 800 : event.deltaY;
+        this.brushScroll += pixels;
+        const notches = Math.trunc(this.brushScroll / BRUSH_NOTCH);
+        if (notches !== 0) {
+          this.brushScroll -= notches * BRUSH_NOTCH;
+          for (let i = 0; i < Math.abs(notches); i += 1) this.fogTool.stepBrush(notches < 0 ? 1 : -1, false);
+          this.fogTool.move(event.clientX, event.clientY, { shift: event.shiftKey, ctrl: false }, event.altKey);
+        }
+        return;
+      }
       // With the water brush in hand, Ctrl + scroll sizes the brush instead of zooming: a notch a quarter cell.
       if (this.waterTool && (event.ctrlKey || event.metaKey)) {
         const pixels = event.deltaMode === 1 ? event.deltaY * 33 : event.deltaMode === 2 ? event.deltaY * 800 : event.deltaY;
@@ -3519,6 +3737,10 @@ export class Board {
       if (key === 'escape' && this.laserOn) { this.setLaser(false); return; }
       // Atlas's Move/Select key switches between moving and the laser pointer.
       // A player's tools are Connect's: Escape goes back to Move, as in its 2D view.
+      if (this.audience === 'gm' && key === 'escape' && this.fogTool?.on) {
+        if (this.fogTool.drawing) this.fogTool.cancel(); else this.fogTool.setOn(false);
+        return;
+      }
       if (this.audience === 'gm' && key === 'escape' && this.waterTool) { this.waterTool = null; this.showBrush(); this.toolbar.refresh(); return; }
       if (this.audience === 'gm' && key === 'escape' && this.tools.tool === 'measure') { this.tools.select('move'); this.toolsChanged(); return; }
       if (this.audience === 'gm' && key === 'k' && this.tools.tool === 'measure' && !event.ctrlKey && !event.metaKey && !event.altKey) {
@@ -3603,9 +3825,11 @@ export class Board {
     win?.addEventListener('keydown', escape);
     this.stops.push(() => win?.removeEventListener('keydown', escape));
     win?.addEventListener('keyup', ctrl);
-    // Shift held with the water brush: the eraser, until it is let go.
-    const shift = (event: KeyboardEvent): void => {
-      if (event.key !== 'Shift' || this.audience !== 'gm') return;
+    // Alt held with the water brush: the eraser, until it is let go (as Atlas's Alt turns its fog brush around).
+    const altErase = (event: KeyboardEvent): void => {
+      if (event.key !== 'Alt' || this.audience !== 'gm') return;
+      // Alt held with the fog tool: a stroke does the other thing (also one under way), until it is let go.
+      if (this.fogTool?.on) this.fogTool.setFlipped(event.type === 'keydown');
       if (event.type === 'keydown') {
         if (event.repeat || this.waterTool !== 'paint') return;
         const target = event.target as HTMLElement | null;
@@ -3620,14 +3844,30 @@ export class Board {
       this.showBrush();
       this.toolbar.refresh();
     };
-    const shiftLost = (): void => { if (this.shiftErase) shift(new KeyboardEvent('keyup', { key: 'Shift' })); };
-    win?.addEventListener('keydown', shift);
-    win?.addEventListener('keyup', shift);
-    win?.addEventListener('blur', shiftLost);
-    this.stops.push(() => { win?.removeEventListener('keydown', shift); win?.removeEventListener('keyup', shift); win?.removeEventListener('blur', shiftLost); });
+    const altLost = (): void => { this.fogTool?.setFlipped(false); this.fogTool?.cancel(); if (this.shiftErase) altErase(new KeyboardEvent('keyup', { key: 'Alt' })); };
+    // The fog shape under way: Escape drops it (before anything leaves the tool or clears the selection); Shift, Ctrl and Cmd place its
+    // next corner anew. Enter and Backspace come through the shortcuts (`BoardAtlasTools.key`: `fogKey`), which know the undo key.
+    const fogKeys = (event: KeyboardEvent): void => {
+      const tool = this.fogTool;
+      if (this.audience !== 'gm' || !tool?.on || !tool.drawing) return;
+      // Only the board of the tab that is shown has the key (another tab's polygon does not take the Escape that closes a menu).
+      const leaf = this.container.closest('.workspace-leaf');
+      if (leaf && !leaf.classList.contains('mod-active')) return;
+      const target = event.target as HTMLElement | null;
+      if (target && target.closest('input, textarea, select, [contenteditable="true"], .modal-container') !== null) return;
+      if (event.type === 'keydown' && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); tool.cancel(); return; }
+      if (event.key === 'Shift' || event.key === 'Control' || event.key === 'Meta') tool.rekey({ shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey });
+    };
+    win?.addEventListener('keydown', fogKeys, true);
+    win?.addEventListener('keyup', fogKeys, true);
+    this.stops.push(() => { win?.removeEventListener('keydown', fogKeys, true); win?.removeEventListener('keyup', fogKeys, true); });
+    win?.addEventListener('keydown', altErase);
+    win?.addEventListener('keyup', altErase);
+    win?.addEventListener('blur', altLost);
+    this.stops.push(() => { win?.removeEventListener('keydown', altErase); win?.removeEventListener('keyup', altErase); win?.removeEventListener('blur', altLost); });
     win?.addEventListener('blur', lost);
     this.stops.push(() => { win?.removeEventListener('keydown', ctrl); win?.removeEventListener('keyup', ctrl); win?.removeEventListener('blur', lost); });
-    on('pointerleave', () => { this.pointerAt = null; if (this.press?.kind !== 'height' && this.press?.kind !== 'propScale' && this.press?.kind !== 'propLift') this.ctrlHandles(null); });
+    on('pointerleave', () => { this.fogTool?.leave(); this.pointerAt = null; if (this.press?.kind !== 'height' && this.press?.kind !== 'propScale' && this.press?.kind !== 'propLift') this.ctrlHandles(null); });
     // A material dragged from the gallery: the wall under the pointer is named, and painted where it is dropped. Taken
     // on the whole board (before anything over the canvas, or Obsidian's own drag handling, sees it), and as plain
     // text too, where the custom type does not get through.
@@ -3749,6 +3989,14 @@ export class Board {
     }
     if (this.audience === 'player') {
       this.playerDown(event);
+      return;
+    }
+    // The GM's fog tool: a drag draws fog (Alt: the other thing). A press on a token is the token's.
+    // A press of the tool that begins nothing (Cells without a grid) is swallowed too: nothing under it is dragged or lifted.
+    // The press of a token, a pin, a door or a light's bulb is that object's from any tool (Atlas: they take the press and the fog tool draws nothing).
+    // Only in Edit mode: another board may have switched the shared mode to Play under a tool left on.
+    if (event.button === 0 && this.fogTool?.on && this.editing && !this.tokenAt(x, y) && !this.pinAt(x, y) && !this.doorAt(x, y) && !this.lightAt(x, y)) {
+      if (this.fogTool.down(x, y, { shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey }, event.altKey)) this.press = { kind: 'fog' };
       return;
     }
     // The Shapes tool: a click adds a corner, a corner pressed is dragged (Ctrl: raised).
@@ -4057,6 +4305,8 @@ export class Board {
     const press = this.press;
     if (this.shapeEditor?.move(event.clientX, event.clientY, event.shiftKey)) return;
     if (this.waterTool) { this.brushAt = this.boardPoint(event.clientX, event.clientY); this.showBrush(); }
+    if (this.fogTool?.on) this.fogTool.move(event.clientX, event.clientY, { shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey }, event.altKey);
+    if (press?.kind === 'fog') return;
     if (press?.kind === 'gizmo') {
       this.dragGizmo(press, event.clientX, event.clientY, { shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey, alt: event.altKey });
       return;
@@ -4215,6 +4465,7 @@ export class Board {
     if (this.shapeEditor?.up()) { this.press = null; return; }
     const press = this.press;
     this.press = null;
+    if (press?.kind === 'fog') { this.fogTool?.up(event.clientX, event.clientY, { shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey }, event.altKey); return; }
     // A handle let go: the table's new place is saved.
     if (press?.kind === 'gizmo') {
       if (this.tablePlacing) { const table = this.placedTable(); if (table) this.host.tablePlaced?.(table); }
@@ -4426,6 +4677,10 @@ export class Board {
       return;
     }
     if (press.moved) return;
+    // The fog tool owns a right-click on fog (and on the ground of fog revealed from it), as in Atlas, where only a door's badge and a pin lie
+    // above it; a token stays the token's (the board keeps tokens live under the tool), and a prop, a light or a plain wall give way to the fog.
+    const beaten = press.token !== null || press.pin !== null || this.map?.walls.some((wall) => wall.id === press.door && isDoor(wall)) === true;
+    if (press.button === 2 && !beaten && this.openFogMenu(event)) return;
     if (press.button === 0 && press.door) {
       this.toggleDoor(press.door);
       return;
@@ -4445,6 +4700,8 @@ export class Board {
   private cancel(): void {
     const press = this.press;
     this.press = null;
+    // A second finger or a cancelled pointer: a polygon keeps the corners it has (Atlas's `dropDrag`).
+    if (press?.kind === 'fog') { this.fogTool?.dropPress(); return; }
     if (press?.kind === 'tool') {
       this.tools.cancel();
       this.showToolOverlay();
@@ -5092,6 +5349,8 @@ export class Board {
     for (const piece of this.props.values()) piece.object3d.visible = (gm || revealed || !insideFog(fog, { x: piece.object3d.position.x, y: piece.object3d.position.z })) && (gm || !underBox(this.map?.inks ?? [], { x: piece.object3d.position.x, y: piece.object3d.position.z })) && !this.beyondSight(viewer, `p:${piece.id}`);
     if (this.cellOutline) this.cellOutline.visible = gm;
     if (this.cellLabel) this.cellLabel.visible = gm;
+    if (this.gmFogOpacity === undefined) this.gmFogOpacity = this.host.fog?.gmOpacity?.() ?? null;
+    this.fog.setGmStrength(this.gmFogOpacity);
     this.fog.show(viewer);
     this.walls.show(viewer);
     this.rig.show(viewer);
@@ -7101,6 +7360,7 @@ export class Board {
     if (material) {
       // One tool at a time: painting puts the water brush, the Shapes tool, the ruler and the template away.
       if (this.waterTool) { this.waterTool = null; this.showBrush(); }
+      this.fogTool?.setOn(false);
       this.shapeEditor?.setActive(false);
       if (this.tools.tool !== 'move') { this.tools.select('move'); this.toolsChanged(); }
     }
@@ -7121,6 +7381,7 @@ export class Board {
     this.host.setBoardMode?.(mode);
     if (mode !== 'edit') {
       this.stopPainting();
+      this.fogTool?.setOn(false);
       if (this.waterTool) { this.waterTool = null; this.showBrush(); }
       this.hideHandles();
     }
@@ -7165,6 +7426,7 @@ export class Board {
   /** Turns the laser on (the pointer becomes its dot) or off (its trail fades). */
   setLaser(on: boolean): void {
     if (on === this.laserOn) return;
+    if (on) this.fogTool?.setOn(false);
     this.laserOn = on;
     if (on) this.showCell(null);
     if (!on && this.press?.kind === 'laser') this.press = null;
@@ -7557,6 +7819,7 @@ export class Board {
     for (const material of this.wallMaterials.values()) material.dispose();
     for (const piece of this.props.values()) piece.dispose();
     this.shapeEditor?.dispose();
+    this.fogTool?.dispose();
     this.shapesView.dispose();
     this.groundPlane.dispose();
     this.seaPlane.dispose();

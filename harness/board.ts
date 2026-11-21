@@ -20,6 +20,8 @@ import { lookOf } from '../src/board/look';
 import { renderBoardCard } from '../src/boardCard';
 import { setLanguage } from '../src/i18n';
 import { readMap, type BoardMap, type BoardToken } from '../src/board/mapModel';
+import { readFog } from '../src/board/fog';
+import type { FogHost } from '../src/board/fogTool';
 import { CutsceneStudio, type StudioHost } from '../src/cutscene/studio';
 import { DEFAULT_CINEMATIC_SETTINGS, readCinematicSettings, type CinematicSettings } from '../src/cutscene/cinematicSettings';
 import { levelOfPlace, mapOfPlace, placeAt, type Cutscene } from '../src/cutscene/cutsceneData';
@@ -452,9 +454,80 @@ async function main(): Promise<void> {
     loop(key: string, id: string | null, gain: number) { this.loopKeys.push(key); this.loops.push([key.replace(/^board\d+:/, ''), id, gain]); },
     setListener(listener: unknown, span: number) { this.listeners.push({ listener, span }); },
   };
+  // The map's fog as Atlas keeps it (`state.objects.fog`: a record of operations), written by the fog tool's actions, each one
+  // step of the undo history. `fogOffers` says which of Atlas's fog actions this stand-in has (a feature turns one off, as
+  // Atlas 0.15 has none of cover all and hide rooms).
+  let fogRecord: Record<string, Record<string, unknown>> = Object.fromEntries(map.fog.map((operation) => [operation.id, structuredClone(operation) as unknown as Record<string, unknown>]));
+  let nextFog = 1;
+  const fogOffers = { add: true, clear: true, cover: true, hideRooms: true, reveal: true, hide: true, forget: true };
+  const fogState = { gmOpacity: 0.5 as number | null, rooms: { rooms: 0, hidden: 0 }, switches: { fogSnap: true, fogConstrain: false } as Record<string, boolean>, switchesKept: false, adds: [] as unknown[][], notices: [] as string[], fail: false, menuWrites: [] as string[] };
+  const setFog = (next: Record<string, Record<string, unknown>>): void => {
+    fogRecord = next;
+    (board as unknown as { map: BoardMap }).map.fog = readFog(fogRecord);
+    board.refresh();
+  };
+  const writeFog = (label: string, change: (draft: Record<string, Record<string, unknown>>) => void): void => {
+    const before = structuredClone(fogRecord);
+    const draft = structuredClone(fogRecord);
+    change(draft);
+    setFog(draft);
+    const after = structuredClone(draft);
+    history.push({ paths: [waterPath], label, undo: () => { setFog(before); return true; }, redo: () => { setFog(after); return true; } });
+  };
+  const putFog = (draft: Record<string, Record<string, unknown>>, input: Record<string, unknown>): void => {
+    const id = `fog_${nextFog++}`;
+    draft[id] = { id, kind: 'fog', timestamp: 1_000_000 + nextFog, offsetX: 0, offsetY: 0, ...input };
+  };
+  const fogHost: FogHost = {
+    offers: () => ({ ...fogOffers }),
+    add: async (operations) => {
+      fogState.adds.push(structuredClone(operations));
+      if (fogState.fail) return false;
+      writeFog('fog', (draft) => { for (const operation of operations) putFog(draft, operation as unknown as Record<string, unknown>); });
+      return true;
+    },
+    clear: () => { writeFog('fog removed', (draft) => { for (const id of Object.keys(draft)) delete draft[id]; }); },
+    cover: (rect) => {
+      if (!rect) return false;
+      writeFog('fog', (draft) => putFog(draft, { type: 'rectangle', isErasing: false, ...rect }));
+      return true;
+    },
+    hideRooms: () => fogState.rooms,
+    // Atlas 0.18's store actions of the fog menu, as its fogSlice does them: a revealing lasso with the mark; hiding brings the
+    // fog back (a painting operation after every other); forgetting takes the mark off.
+    reveal: (outlines) => {
+      fogState.menuWrites.push(`reveal ${outlines.length}`);
+      writeFog('fog revealed', (draft) => { for (const outline of outlines) if (outline.length >= 3) putFog(draft, { type: 'lasso', isErasing: true, points: outline.map(({ x, y }) => ({ x, y })), area: {} }); });
+    },
+    hide: (id) => {
+      fogState.menuWrites.push(`hide ${id}`);
+      writeFog('fog hidden', (draft) => {
+        const area = draft[id];
+        if (!area || !('area' in area)) return;
+        const { area: _mark, ...plain } = area;
+        draft[id] = { ...plain, isErasing: false, timestamp: Math.max(...Object.values(draft).map((operation) => operation.timestamp as number)) + 1 };
+      });
+    },
+    forget: (id) => {
+      fogState.menuWrites.push(`forget ${id}`);
+      writeFog('revealed fog forgotten', (draft) => { const area = draft[id]; if (area) delete area.area; });
+    },
+    gmOpacity: () => fogState.gmOpacity,
+    setGmOpacity: (opacity) => { fogState.gmOpacity = opacity; },
+    switchOn: (id) => (fogState.switchesKept ? fogState.switches[id] ?? null : null),
+    setSwitch: (id, on) => { if (!fogState.switchesKept) return false; fogState.switches[id] = on; return true; },
+    brushKeys: () => ', .',
+    notice: (text) => { fogState.notices.push(text); },
+  };
   // The saved painted backgrounds the Painted ground offers, kept fresh for the host's synchronous `backgrounds()`.
   let backgroundList: readonly { folder: string; name: string }[] = [];
   const host: BoardHost = {
+    fog: fogHost,
+    fogHotkey: () => 'F',
+    fogMenu: (entries, event, onClose) => {
+      menu?.close();
+      menu = new AtlasMenu(document, () => entries, { x: event.clientX, y: event.clientY }, (element, name) => { element.dataset.icon = name; }, () => { menu = null; onClose(); });
+    },
     spellBook: () => (spellEntries === null ? null : spellBook),
     water: () => (liquids ? waterSourceOf(readLiquids(liquids), null, { ...(otherLiquids.lava.motion ? { lava: otherLiquids.lava.motion } : {}), ...(otherLiquids.acid.motion ? { acid: otherLiquids.acid.motion } : {}) }) : keptWater()),
     saveWater: (masks) => {
@@ -1024,7 +1097,7 @@ async function main(): Promise<void> {
     await editor.open(folder);
     return editor;
   };
-  Object.assign(window, { boardTest: { hotkeyHelp, backgrounds, backgroundFiles, backgroundsReady, backgroundKit: { DEFAULT_BACKGROUND, emptyLayers, TERRAINS, backgroundFrame }, openBackgroundEditor, closeBackgroundEditor, backgroundEditor: null, studio: cutsceneHarness, api: { cutscene: channel },Board, FreeCamera, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, keptMeasures: () => keptMeasures, clearKeptMeasures: () => { keptMeasures = []; syncKeptMeasures(); }, measureTool: () => measureTool, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, Matrix4: THREE.Matrix4, Quaternion: THREE.Quaternion, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
+  Object.assign(window, { boardTest: { hotkeyHelp, backgrounds, backgroundFiles, backgroundsReady, backgroundKit: { DEFAULT_BACKGROUND, emptyLayers, TERRAINS, backgroundFrame }, openBackgroundEditor, closeBackgroundEditor, backgroundEditor: null, studio: cutsceneHarness, api: { cutscene: channel },Board, FreeCamera, fog: { offers: fogOffers, state: fogState, record: () => fogRecord, reset: () => setFog({}) }, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, keptMeasures: () => keptMeasures, clearKeptMeasures: () => { keptMeasures = []; syncKeptMeasures(); }, measureTool: () => measureTool, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, Matrix4: THREE.Matrix4, Quaternion: THREE.Quaternion, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

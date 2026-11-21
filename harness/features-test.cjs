@@ -19,6 +19,8 @@ const server = http.createServer((req, res) => {
 const results = [];
 const check = (name, ok, detail) => { results.push({ name, ok: !!ok, detail }); };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Moves the pointer over a locator's middle (a disabled control too, which hover would wait on). */
+const window_hover = async (page, locator) => { const box = await locator.boundingBox(); if (box) await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); };
 
 /** Each feature: a name and a function of the page and helpers. */
 const features = [];
@@ -2235,18 +2237,18 @@ feature('water', async ({ page, shot }) => {
   check('the brush outline goes with the brush', await page.evaluate(() => window.boardTest.board.brushRing.visible === false));
   await page.evaluate(() => window.boardTest.board.toolbarActions().setWaterTool('paint'));
   await page.mouse.move(x, y);
-  await page.keyboard.down('Shift');
+  await page.keyboard.down('Alt');
   await wait(100);
   const held = await page.evaluate(() => ({ tool: window.boardTest.board.toolbarActions().waterTool(), color: window.boardTest.board.brushRing.material.color.getHexString() }));
-  await page.keyboard.up('Shift');
+  await page.keyboard.up('Alt');
   await wait(100);
   const let_go = await page.evaluate(() => window.boardTest.board.toolbarActions().waterTool());
-  check('holding Shift with the brush gives the eraser (the red outline)', held.tool === 'erase' && held.color === 'ff5a5a', JSON.stringify(held));
-  check('letting Shift go gives the brush back', let_go === 'paint', String(let_go));
+  check('holding Alt with the brush gives the eraser (the red outline)', held.tool === 'erase' && held.color === 'ff5a5a', JSON.stringify(held));
+  check('letting Alt go gives the brush back', let_go === 'paint', String(let_go));
   await page.evaluate(() => window.boardTest.board.toolbarActions().setWaterTool('erase'));
-  await page.keyboard.down('Shift');
-  await page.keyboard.up('Shift');
-  check('Shift with the eraser chosen leaves it the eraser', (await page.evaluate(() => window.boardTest.board.toolbarActions().waterTool())) === 'erase');
+  await page.keyboard.down('Alt');
+  await page.keyboard.up('Alt');
+  check('Alt with the eraser chosen leaves it the eraser', (await page.evaluate(() => window.boardTest.board.toolbarActions().waterTool())) === 'erase');
   await page.evaluate(() => window.boardTest.board.toolbarActions().setWaterTool(null));
   await page.locator('.atlas-tabletop-toolbar button[aria-label="Water"]').click();
   await page.locator('.atlas-tabletop-water-bars [data-water-popover="brush"]').click();
@@ -7464,7 +7466,9 @@ feature('shortcut help on the board', async ({ page, shot }) => {
   const find = (text) => seen.rows.find(([label]) => label.toLowerCase().includes(text));
   check("shortcut help: Atlas's help window opens on the board, with its title", seen.title.length > 0 && seen.rows.length > 10, JSON.stringify(seen.title));
   check("shortcut help: the asset manager is listed with the board's key (Shift + A)", (find('asset')?.[1] ?? '') === 'Shift + A', JSON.stringify(find('asset')));
-  check("shortcut help: Atlas's 2D map tools are not listed", !seen.atlasRows.some((label) => /fog|draw|erase|text tool|pin|wall|sound page|brush/.test(label)), JSON.stringify(seen.atlasRows));
+  check("shortcut help: Atlas's 2D map tools are not listed (the fog tool and its brush keys are the board's now)", !seen.atlasRows.some((label) => /draw|erase|text tool|pin|wall|sound page/.test(label.replace('smaller drawing or fog brush', '').replace('larger drawing or fog brush', ''))), JSON.stringify(seen.atlasRows));
+  check("shortcut help: the fog tool key and the brush size keys are listed", seen.atlasRows.includes('fog tools') && seen.atlasRows.includes('smaller drawing or fog brush') && seen.atlasRows.includes('larger drawing or fog brush') && (find('fog tools')?.[1] ?? '') === 'F', JSON.stringify(find('fog tools')));
+  check("shortcut help: the fog tool's Alt, Shift, Ctrl/Cmd, Enter, Backspace and Escape are listed among the board's own keys", ['Alt', 'Shift', 'Ctrl/Cmd', 'Enter', 'Backspace / Undo key', 'Escape'].every((keys) => seen.rows.some(([label, key]) => label.startsWith('Fog tool:') && key === keys)), JSON.stringify(seen.rows.filter(([label]) => label.startsWith('Fog tool:'))));
   // Atlas 0.17+ has no experimental switch on Next mood and Silence: the board's two sound keys are listed; the Sound page key (S, a clash with Silence's Shift+S) is not.
   check("shortcut help: Next mood and Silence are listed, the Sound page key is not", seen.atlasRows.includes('next mood') && seen.atlasRows.includes('stop all sound') && !seen.atlasRows.includes('sound page'), JSON.stringify(seen.atlasRows));
   check("shortcut help: the board's own keys follow, camera and eyes included",
@@ -7533,6 +7537,798 @@ function globalHash() {
   // The styles without their comments: a comment changes no page.
   return cache.hashText([rest, cache.hashFiles(files), affected.cssHash('styles.css'), affected.cssHash(path.join(root, 'atlas.css'))].join('\n'));
 }
+
+// ── The GM's fog tool: Atlas 0.18's button and two bars on the board's Edit mode ─────────────────────────────────────
+feature('fog tool bars', async ({ page, shot }) => {
+  const q = (selector) => page.locator(selector);
+  const button = q('.atlas-tabletop-toolbar button[aria-label="Fog Tool"]');
+  check('fog bars: the toolbar has a Fog Tool button', (await button.count()) === 1);
+  const order = await page.evaluate(() => {
+    const group = document.querySelector('.atlas-tabletop-toolbar button[aria-label="Fog Tool"]').closest('.atlas-tool-group');
+    const move = group.previousElementSibling;
+    return { afterMove: !!move && !!move.querySelector('[data-toolbar-id="move"]'), face: group.querySelector('svg')?.getAttribute('class') ?? '' };
+  });
+  check('fog bars: the button stands right after Move/Select, as in Atlas\'s toolbar, with the cloud for its face', order.afterMove && /lucide-cloud\b/.test(order.face), JSON.stringify(order));
+  // Edit mode only.
+  await page.evaluate(() => { const { board, modes } = window.boardTest; modes.on = true; modes.mode = 'play'; board.refreshToolbar(); });
+  const hiddenInPlay = await page.evaluate(() => { const el = document.querySelector('.atlas-tabletop-toolbar button[aria-label="Fog Tool"]'); return el.closest('.atlas-tool-group').classList.contains('atlas-tabletop-off-mode') || el.offsetParent === null; });
+  check('fog bars: the Fog Tool is not in Play mode', hiddenInPlay);
+  await page.evaluate(() => { const { board, modes } = window.boardTest; modes.mode = 'edit'; board.refreshToolbar(); });
+  check('fog bars: it is in Edit mode', await button.isVisible());
+  check('fog bars: the bars are not there while the tool is off', !(await q('.atlas-tabletop-fog-bars').isVisible()));
+  // The tooltip as it shows, waited for (it opens after a delay that a loaded machine stretches).
+  const tip = async () => { for (let i = 0; i < 20; i += 1) { const text = await page.evaluate(() => { const shown = document.querySelector('.atlas-tabletop-atlas-tooltip:not([hidden])'); return shown ? shown.textContent : ''; }); if (text) return text; await page.waitForTimeout(150); } return ''; };
+  await window_hover(page, button);
+  await page.waitForTimeout(600);
+  const buttonTip = await tip();
+  check('fog bars: its tooltip names it with Atlas\'s key', buttonTip.startsWith('Fog Tool') && buttonTip.includes('F'), buttonTip);
+  await button.click();
+  await page.mouse.move(5, 5);
+  await wait(300);
+  check('fog bars: a click opens the two bars above the toolbar', (await q('.atlas-tabletop-fog-bars').isVisible()) && (await q('.atlas-tabletop-fog-bars .atlas-tool-bar').count()) === 2);
+  const names = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-fog-bars .atlas-tool-bar')].map((bar) => bar.getAttribute('aria-label')));
+  check('fog bars: they are Atlas\'s "Fog" and "Fog shapes and actions"', JSON.stringify(names) === '["Fog","Fog shapes and actions"]', JSON.stringify(names));
+  const modes = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-fog-bars [data-fog-mode]')].map((b) => [b.getAttribute('aria-label'), b.classList.contains('is-active')]));
+  check('fog bars: the modes are Fog (chosen) and Eraser', JSON.stringify(modes) === '[["Fog",true],["Eraser",false]]', JSON.stringify(modes));
+  check('fog bars: the button is lit and says the bars are open', await page.evaluate(() => { const b = document.querySelector('.atlas-tabletop-toolbar button[aria-label="Fog Tool"]'); return b.classList.contains('is-active') && b.getAttribute('aria-expanded') === 'true'; }));
+  const shapes = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-fog-bars [data-fog-shape]')].map((b) => [b.dataset.fogShape, b.getAttribute('aria-label'), b.classList.contains('is-active'), b.getAttribute('aria-disabled') === 'true']));
+  check('fog bars: the six shapes in Atlas\'s order, the brush chosen', JSON.stringify(shapes.map((one) => one.slice(0, 3))) === JSON.stringify([['brush', 'Brush', true], ['rectangle', 'Rectangle', false], ['polygon', 'Polygon', false], ['lasso', 'Lasso', false], ['cells', 'Cells', false], ['room', 'Room', false]]), JSON.stringify(shapes));
+  const actions = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-fog-bars [data-fog-action], .atlas-tabletop-fog-bars [data-fog-popover]')].map((b) => b.getAttribute('aria-label') ?? b.dataset.fogAction));
+  check('fog bars: then the brush size, Cover all, Delete all fog and More', JSON.stringify(actions) === '["Brush size","Cover all","Delete all fog","More","rooms"]', JSON.stringify(actions));
+  await shot('fog-bars');
+  // Tooltips: the modes and shapes say what Atlas says.
+  const hoverTip = async (selector) => { await window_hover(page, q(selector)); await page.waitForTimeout(600); const text = await tip(); await page.mouse.move(5, 5); await page.waitForTimeout(300); return text; };
+  const fogTip = await hoverTip('.atlas-tabletop-fog-bars [data-fog-mode="fog"]');
+  check('fog bars: Fog\'s tooltip is Atlas\'s', fogTip === 'FogHold Alt to erase instead. Right-click fog to reveal or delete it', fogTip);
+  const eraserTip = await hoverTip('.atlas-tabletop-fog-bars [data-fog-mode="eraser"]');
+  check('fog bars: Eraser\'s tooltip is Atlas\'s', eraserTip === 'EraserHold Alt to add fog instead', eraserTip);
+  const polygonTip = await hoverTip('.atlas-tabletop-fog-bars [data-fog-shape="polygon"]');
+  check('fog bars: Polygon\'s tooltip is Atlas\'s', polygonTip === 'PolygonClick corners. Enter closes it', polygonTip);
+  // Choosing the eraser changes the button's face and name; a shape is chosen with the others left alone.
+  await q('.atlas-tabletop-fog-bars [data-fog-mode="eraser"]').click();
+  check('fog bars: Eraser turns the toolbar button into Fog Eraser', await page.evaluate(() => { const b = document.querySelector('.atlas-tabletop-toolbar [data-toolbar-id="fog"]'); return b.getAttribute('aria-label') === 'Fog Eraser' && /lucide-eraser\b/.test(b.querySelector('svg').getAttribute('class')) && window.boardTest.board.toolbarActions().fog.state().mode === 'eraser'; }));
+  await q('.atlas-tabletop-fog-bars [data-fog-shape="lasso"]').click();
+  check('fog bars: a shape can be chosen (the others have no gesture yet)', await page.evaluate(() => window.boardTest.board.toolbarActions().fog.state().shape === 'lasso'));
+  await q('.atlas-tabletop-fog-bars [data-fog-shape="brush"]').click();
+  // The disabled states with Atlas's reasons.
+  await page.evaluate(() => { const { board } = window.boardTest; board.map.walls = []; board.map.grid.size = 0; board.refreshToolbar(); });
+  const disabled = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('.atlas-tabletop-fog-bars [data-fog-shape]')].map((b) => [b.dataset.fogShape, b.getAttribute('aria-disabled') === 'true'])));
+  check('fog bars: Cells without a grid and Room without walls are disabled', disabled.cells && disabled.room && !disabled.brush && !disabled.rectangle, JSON.stringify(disabled));
+  check('fog bars: Cells says why', (await hoverTip('.atlas-tabletop-fog-bars [data-fog-shape="cells"]')) === 'CellsThis map has no grid');
+  check('fog bars: Room says why', (await hoverTip('.atlas-tabletop-fog-bars [data-fog-shape="room"]')) === 'RoomThis map has no walls');
+  // The brush size: a dot and a slider 10-200 in cells of the grid.
+  await page.evaluate(() => { const { board } = window.boardTest; board.map.grid.size = 70; board.refreshToolbar(); });
+  await q('.atlas-tabletop-fog-bars [data-fog-popover="size"]').click();
+  const size = await page.evaluate(() => { const input = document.querySelector('.atlas-tabletop-fog-bars input[aria-label="Brush size"]'); return { min: input.min, max: input.max, value: input.value, label: document.querySelector('.atlas-tabletop-fog-popover--size .atlas-dropdown-slider-row__value').textContent }; });
+  check('fog bars: the brush size slider runs 10 to 200, 50 to begin with, in cells of the grid', size.min === '10' && size.max === '200' && size.value === '50' && size.label === '1.4 cells', JSON.stringify(size));
+  await shot('fog-size');
+  await q('.atlas-tabletop-fog-bars input[aria-label="Brush size"]').fill('140');
+  check('fog bars: the slider sets the brush', await page.evaluate(() => window.boardTest.board.toolbarActions().fog.state().brushSize === 140));
+  await q('.atlas-tabletop-fog-bars [data-fog-popover="size"]').click();
+  await q('.atlas-tabletop-fog-bars [data-fog-shape="lasso"]').click();
+  const sizeOff = await page.evaluate(() => document.querySelector('.atlas-tabletop-fog-bars [data-fog-popover="size"]').getAttribute('aria-disabled') === 'true');
+  const sizeTip = await hoverTip('.atlas-tabletop-fog-bars [data-fog-popover="size"]');
+  check('fog bars: the brush size is disabled beside another shape, and says so', sizeOff && sizeTip === 'Brush size, .Only the brush has a size', JSON.stringify([sizeOff, sizeTip]));
+  await q('.atlas-tabletop-fog-bars [data-fog-shape="brush"]').click();
+  // Cover all and Delete all fog.
+  await page.evaluate(() => window.boardTest.fog.reset());
+  const noFog = await page.evaluate(() => document.querySelector('.atlas-tabletop-fog-bars [data-fog-action="delete"]').getAttribute('aria-disabled') === 'true');
+  const noFogTip = await hoverTip('.atlas-tabletop-fog-bars [data-fog-action="delete"]');
+  check('fog bars: Delete all fog is disabled with no fog, and says so', noFog && noFogTip === 'Delete all fogNo fog on this map', JSON.stringify([noFog, noFogTip]));
+  check('fog bars: Cover all\'s tooltip is Atlas\'s', (await hoverTip('.atlas-tabletop-fog-bars [data-fog-action="cover"]')) === 'Cover allHides the whole map');
+  await q('.atlas-tabletop-fog-bars [data-fog-action="cover"]').click();
+  await wait(300);
+  const covered = await page.evaluate(() => { const ops = Object.values(window.boardTest.fog.record()); const size = window.boardTest.board.mapSize; return { ops: ops.length, rect: ops[0] && [ops[0].type, ops[0].x, ops[0].y, ops[0].width, ops[0].height, ops[0].isErasing], size: [size.width, size.height] }; });
+  check('fog bars: Cover all hides the whole map in one rectangle', covered.ops === 1 && JSON.stringify(covered.rect) === JSON.stringify(['rectangle', 0, 0, covered.size[0], covered.size[1], false]), JSON.stringify(covered));
+  await shot('fog-covered');
+  check('fog bars: Delete all fog is there now', await page.evaluate(() => document.querySelector('.atlas-tabletop-fog-bars [data-fog-action="delete"]').getAttribute('aria-disabled') !== 'true'));
+  await q('.atlas-tabletop-fog-bars [data-fog-action="delete"]').click();
+  await wait(300);
+  check('fog bars: Delete all fog takes it all away, with no question asked', await page.evaluate(() => Object.keys(window.boardTest.fog.record()).length === 0));
+  // The More menu.
+  await q('.atlas-tabletop-fog-bars [data-fog-popover="more"]').click();
+  const more = await page.evaluate(() => {
+    const panel = document.querySelector('.atlas-tabletop-fog-popover--more');
+    const input = panel.querySelector('input[aria-label="Fog opacity in GM view"]');
+    return { shown: !panel.hidden, input: input && [input.min, input.max, input.step, input.value], value: panel.querySelector('.atlas-dropdown-slider-row__value').textContent, switches: [...panel.querySelectorAll('[role=switch]')].map((s) => [document.getElementById(s.getAttribute('aria-labelledby')).textContent, s.getAttribute('aria-checked')]), item: panel.querySelector('[data-fog-action="rooms"]').textContent };
+  });
+  check('fog bars: More has the GM fog opacity (10-100 %, 50 to begin with), Snap and Constrain, and Hide all rooms', more.shown && JSON.stringify(more.input) === '["10","100","5","50"]' && more.value === '50%' && JSON.stringify(more.switches) === '[["Snap","true"],["Constrain","false"]]' && more.item === 'Hide all rooms', JSON.stringify(more));
+  await shot('fog-more');
+  await q('.atlas-tabletop-fog-popover--more [role=switch]').first().click();
+  await q('.atlas-tabletop-fog-popover--more [role=switch]').nth(1).click();
+  check('fog bars: Snap and Constrain switch (kept by Tabletop where Atlas keeps no tool switches)', await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-fog-popover--more [role=switch]')].map((s) => s.getAttribute('aria-checked')).join() === 'false,true'));
+  // The opacity slider moves the board's fog strength in the GM's view.
+  await q('.atlas-tabletop-fog-popover--more input[aria-label="Fog opacity in GM view"]').fill('80');
+  const strength = await page.evaluate(() => ({ gm: window.boardTest.fog.state.gmOpacity, fog: window.boardTest.board.fog.material.uniforms.uStrength.value }));
+  check('fog bars: the GM opacity slider sets Atlas\'s setting and the board\'s fog strength in the GM\'s view', strength.gm === 0.8 && strength.fog === 0.8, JSON.stringify(strength));
+  // Hide all rooms and its notices.
+  const notices = async (rooms) => { await page.evaluate((r) => { window.boardTest.fog.state.notices.length = 0; window.boardTest.fog.state.rooms = r; }, rooms); await q('.atlas-tabletop-fog-popover--more [data-fog-action="rooms"]').click(); await wait(150); return page.evaluate(() => [...window.boardTest.fog.state.notices]); };
+  await page.evaluate(() => { const { board } = window.boardTest; board.map.walls = [{ id: 'w', type: 'wall', p1: { x: 0, y: 0 }, p2: { x: 100, y: 0 }, direction: null, closed: true, locked: false, blocks: null, limited: false }]; board.refreshToolbar(); });
+  check('fog bars: Hide all rooms says how many rooms it hid', JSON.stringify(await notices({ rooms: 3, hidden: 2 })) === '["2 rooms hidden"]');
+  await q('.atlas-tabletop-fog-bars [data-fog-popover="more"]').click();
+  check('fog bars: or that every room is hidden already', JSON.stringify(await notices({ rooms: 3, hidden: 0 })) === '["Every room is hidden already"]');
+  await q('.atlas-tabletop-fog-bars [data-fog-popover="more"]').click();
+  check('fog bars: or that there are no rooms', JSON.stringify(await notices({ rooms: 0, hidden: 0 })) === '["No rooms found"]');
+  // An Atlas without cover all and hide rooms (0.15): the controls are disabled, never a crash.
+  await q('.atlas-tabletop-fog-bars [data-fog-popover="more"]').click();
+  await page.evaluate(() => { window.boardTest.fog.offers.cover = false; window.boardTest.fog.offers.hideRooms = false; window.boardTest.fog.state.gmOpacity = null; window.boardTest.board.refreshToolbar(); });
+  await q('.atlas-tabletop-fog-bars [data-fog-popover="more"]').click();
+  const old = await page.evaluate(() => ({ cover: document.querySelector('[data-fog-action="cover"]').getAttribute('aria-disabled'), rooms: document.querySelector('[data-fog-action="rooms"]').disabled, opacity: document.querySelector('.atlas-tabletop-fog-popover--more input[aria-label="Fog opacity in GM view"]').disabled }));
+  check('fog bars: with an older Atlas Cover all, Hide all rooms and the opacity are disabled', old.cover === 'true' && old.rooms === true && old.opacity === true, JSON.stringify(old));
+  const moreOpen = (open) => page.evaluate((open) => { const panel = document.querySelector('.atlas-tabletop-fog-popover--more'); if (panel.hidden === open) document.querySelector('.atlas-tabletop-fog-bars [data-fog-popover="more"]').click(); }, open);
+  await moreOpen(true);
+  const roomsTip = await hoverTip('.atlas-tabletop-fog-popover--more [data-fog-action="rooms"]');
+  await moreOpen(false);
+  check('fog bars: Hide all rooms says why in a tooltip, not a native title', roomsTip === 'This needs a newer Atlas.', roomsTip);
+  await q('.atlas-tabletop-fog-bars [data-fog-popover="more"]').click();
+  check('fog bars: Cover all says it needs a newer Atlas', (await hoverTip('.atlas-tabletop-fog-bars [data-fog-action="cover"]')) === 'Cover allThis needs a newer Atlas.');
+  await page.evaluate(() => { window.boardTest.fog.offers.cover = true; window.boardTest.fog.offers.hideRooms = true; window.boardTest.fog.state.gmOpacity = 0.5; });
+  // The key: opens the tool, again turns it between Fog and Eraser; the tool put down takes its bars away.
+  await page.evaluate(() => window.boardTest.board.toolbarActions().fog.stop());
+  await wait(200);
+  check('fog bars: the tool put down takes the bars away', !(await q('.atlas-tabletop-fog-bars').isVisible()));
+  const withPanel = await page.evaluate(() => { const { board, modes } = window.boardTest; modes.mode = 'edit'; board.refreshToolbar(); board.toolbar.openLighting(); const lit = !board.toolbar.lightingPanel.hidden; board.toggleFogTool(); return { lit, closed: board.toolbar.lightingPanel.hidden, on: board.toolbarActions().fog.state().on }; });
+  await wait(200);
+  check('fog bars: F with another panel open closes it and opens the bars', withPanel.lit && withPanel.closed && withPanel.on && (await q('.atlas-tabletop-fog-bars').isVisible()), JSON.stringify(withPanel));
+  await page.evaluate(() => window.boardTest.board.toolbarActions().fog.stop());
+  const keys = await page.evaluate(() => {
+    const { board, modes } = window.boardTest;
+    modes.mode = 'play';
+    board.refreshToolbar();
+    const out = [];
+    const mode = () => board.toolbarActions().fog.state();
+    out.push(board.toggleFogTool(), mode().on, mode().mode, modes.mode);
+    out.push(board.toggleFogTool(), mode().on, mode().mode);
+    out.push(board.toggleFogTool(), mode().on, mode().mode);
+    return out;
+  });
+  check('fog bars: F opens the tool (switching to Edit), pressed again toggles Fog and Eraser', JSON.stringify(keys) === '[true,true,"fog","edit",true,true,"eraser",true,true,"fog"]', JSON.stringify(keys));
+  check('fog bars: the other tools put the fog tool away (one at a time)', await page.evaluate(() => { const { board } = window.boardTest; const a = board.toolbarActions(); a.setWaterTool('paint'); const afterWater = a.fog.state().on; a.fog.start(); const afterStart = a.waterTool(); a.selectTool('move'); return afterWater === false && afterStart === null && a.fog.state().on === false; }));
+  await shot('fog-closed');
+});
+
+feature('fog brush', async ({ page, shot }) => {
+  await page.evaluate(() => { const { board, modes, fog } = window.boardTest; fog.reset(); modes.on = true; modes.mode = 'edit'; board.toolbarActions().fog.start(); board.toolbarActions().fog.setBrushSize(60); board.camera.snap(); board.wake(true); });
+  const canvas = await page.locator('canvas').first().boundingBox();
+  const [x, y] = [canvas.x + canvas.width * 0.40, canvas.y + canvas.height * 0.55];
+  await page.mouse.move(x, y);
+  await wait(300);
+  const ring = () => page.evaluate(() => { const rings = window.boardTest.board.fogTool.rings; return rings ? { visible: rings.light.visible && rings.dark.visible, light: rings.light.material.color.getHexString(), dark: rings.dark.material.color.getHexString(), lightAlpha: rings.light.material.opacity, darkAlpha: rings.dark.material.opacity, radius: (rings.light.geometry.parameters.outerRadius + rings.light.geometry.parameters.innerRadius) / 2, at: [rings.light.position.x, rings.light.position.z] } : null; });
+  const idle = await ring();
+  check('fog brush: a ring of the brush\'s size follows the pointer on the ground (light line over a dark one)', idle && idle.visible && idle.light === 'ffffff' && idle.dark === '000000' && Math.abs(idle.lightAlpha - 0.95) < 1e-6 && Math.abs(idle.darkAlpha - 0.55) < 1e-6 && Math.abs(idle.radius - 60) < 2, JSON.stringify(idle));
+  const width = await page.evaluate(() => { const rings = window.boardTest.board.fogTool.rings; const g = (m) => m.geometry.parameters; return [g(rings.dark).outerRadius - g(rings.dark).innerRadius, g(rings.light).outerRadius - g(rings.light).innerRadius]; });
+  check('fog brush: the ring\'s lines are 4 and 1.5 screen pixels wide', width[0] / width[1] > 2.5 && width[0] / width[1] < 2.8, JSON.stringify(width));
+  // A zoom makes the lines wider on the ground and the same on screen.
+  await page.evaluate(() => { const { board } = window.boardTest; board.camera.zoom(0.5); board.camera.snap(); board.wake(true); });
+  // The ring is drawn again with the frame that settles the camera: waited for, as a loaded machine draws it late.
+  let nearer = width[1];
+  for (let i = 0; i < 20 && nearer >= width[1] * 0.8; i += 1) { await wait(150); nearer = await page.evaluate(() => { const rings = window.boardTest.board.fogTool.rings; const g = rings.light.geometry.parameters; return g.outerRadius - g.innerRadius; }); }
+  check('fog brush: the ring keeps its width on screen when the camera moves', nearer < width[1] * 0.8, JSON.stringify([width, nearer]));
+  await page.evaluate(() => { const { board } = window.boardTest; board.camera.zoom(2); board.camera.snap(); board.wake(true); });
+  await wait(400);
+  await page.mouse.move(x + 2, y);
+  await shot('fog-ring');
+  // A stroke.
+  await page.mouse.down();
+  await page.mouse.move(x + 120, y + 10, { steps: 10 });
+  await page.mouse.move(x + 200, y - 30, { steps: 8 });
+  const during = await page.evaluate(() => ({ drawing: window.boardTest.board.fogTool.drawing, preview: window.boardTest.board.scene.getObjectByName('fog-preview')?.visible === true }));
+  check('fog brush: the stroke is shown as it is drawn', during.drawing && during.preview, JSON.stringify(during));
+  await shot('fog-stroke');
+  await page.mouse.up();
+  await wait(600);
+  const painted = await page.evaluate(() => Object.values(window.boardTest.fog.record()));
+  check('fog brush: a drag adds one brush operation with its points and radius', painted.length === 1 && painted[0].type === 'brush' && painted[0].brushRadius === 60 && painted[0].points.length > 3 && painted[0].isErasing === false, JSON.stringify(painted).slice(0, 300));
+  const drawn = await page.evaluate(() => ({ areas: window.boardTest.board.fog.areas.length, preview: window.boardTest.board.scene.getObjectByName('fog-preview')?.visible === true }));
+  check('fog brush: the fog volume draws the new fog, and the stroke\'s preview is gone', drawn.areas === 1 && !drawn.preview, JSON.stringify(drawn));
+  await shot('fog-painted');
+  // Alt erases, also in the middle of a stroke.
+  await page.mouse.move(x + 80, y + 10);
+  await page.keyboard.down('Alt');
+  await wait(150);
+  const red = await ring();
+  check('fog brush: Alt turns the ring red (erasing)', red && red.light === 'ff4444', JSON.stringify(red));
+  await page.mouse.down();
+  await page.mouse.move(x + 100, y + 10, { steps: 4 });
+  await page.mouse.up();
+  await page.keyboard.up('Alt');
+  await wait(600);
+  const erased = await page.evaluate(() => Object.values(window.boardTest.fog.record()).map((op) => op.isErasing));
+  check('fog brush: a stroke with Alt held erases', JSON.stringify(erased) === '[false,true]', JSON.stringify(erased));
+  const back = await ring();
+  check('fog brush: letting Alt go gives the white ring back', back && back.light === 'ffffff', JSON.stringify(back));
+  await page.mouse.move(x, y + 90);
+  await page.mouse.down();
+  await page.mouse.move(x + 50, y + 90, { steps: 4 });
+  await page.keyboard.down('Alt');
+  await page.mouse.move(x + 70, y + 90, { steps: 2 });
+  await page.mouse.up();
+  await page.keyboard.up('Alt');
+  await wait(600);
+  const midway = await page.evaluate(() => Object.values(window.boardTest.fog.record()).map((op) => op.isErasing));
+  check('fog brush: Alt pressed in the middle of a stroke turns the whole stroke around', JSON.stringify(midway) === '[false,true,true]', JSON.stringify(midway));
+  // The eraser mode.
+  await page.evaluate(() => window.boardTest.board.toolbarActions().fog.setMode('eraser'));
+  check('fog brush: with the Eraser chosen the ring is red', (await ring()).light === 'ff4444');
+  await page.evaluate(() => window.boardTest.board.toolbarActions().fog.setMode('fog'));
+  // The size keys and Ctrl + scroll.
+  const sizes = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    const fog = board.toolbarActions().fog;
+    fog.setBrushSize(50);
+    const out = [];
+    board.stepFogBrush(1, false); out.push(fog.state().brushSize);
+    board.stepFogBrush(-1, false); out.push(fog.state().brushSize);
+    board.stepFogBrush(1, true); out.push(fog.state().brushSize);
+    fog.setBrushSize(10); board.stepFogBrush(-1, false); out.push(fog.state().brushSize);
+    fog.setBrushSize(11); board.stepFogBrush(-1, true); out.push(fog.state().brushSize);
+    fog.setBrushSize(200); board.stepFogBrush(1, false); out.push(fog.state().brushSize);
+    fog.setBrushSize(12); board.stepFogBrush(1, true); out.push(fog.state().brushSize);
+    fog.setBrushSize(50);
+    return out;
+  });
+  check('fog brush: the size keys step the brush by 15 % (5 % held), at least a pixel, within 10 and 200', JSON.stringify(sizes) === '[57,50,53,10,10,200,13]', JSON.stringify(sizes));
+  await page.mouse.move(x, y);
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, -100);
+  await wait(200);
+  await page.keyboard.up('Control');
+  const wheel = await page.evaluate(() => ({ size: window.boardTest.board.toolbarActions().fog.state().brushSize, ring: (window.boardTest.board.fogTool.rings.light.geometry.parameters.outerRadius + window.boardTest.board.fogTool.rings.light.geometry.parameters.innerRadius) / 2 }));
+  check('fog brush: Ctrl + scroll up makes the brush larger, and the ring follows', wheel.size > 50 && Math.abs(wheel.ring - wheel.size) < 2, JSON.stringify(wheel));
+  // The ring goes with the pointer leaving the canvas, and with the tool.
+  await page.mouse.move(canvas.x + canvas.width / 2, canvas.y - 30);
+  await wait(300);
+  check('fog brush: the ring goes when the pointer leaves the canvas', !(await ring())?.visible);
+  await page.mouse.move(x, y);
+  await wait(200);
+  await page.evaluate(() => window.boardTest.board.toolbarActions().fog.stop());
+  await wait(300);
+  check('fog brush: and with the tool', !(await ring())?.visible);
+  // Undo: the history takes the last stroke back (the harness's step stands for Atlas's).
+  const before = await page.evaluate(() => Object.keys(window.boardTest.fog.record()).length);
+  await page.evaluate(() => window.boardTest.history.undo(['map.atlasmap']));
+  await wait(400);
+  const after = await page.evaluate(() => Object.keys(window.boardTest.fog.record()).length);
+  check('fog brush: a stroke is one step of undo', before === 3 && after === 2, JSON.stringify([before, after]));
+  // Nothing is painted with the tool off.
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 40, y, { steps: 3 });
+  await page.mouse.up();
+  await wait(400);
+  check('fog brush: with the tool off a drag paints nothing', (await page.evaluate(() => Object.keys(window.boardTest.fog.record()).length)) === 2);
+  // Cells with no grid begins nothing: nothing is drawn, nothing under the press is dragged.
+  await page.evaluate(() => { const a = window.boardTest.board.toolbarActions().fog; a.start(); a.setShape('cells'); window.boardTest.board.map.grid.size = 0; });
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 40, y + 5, { steps: 3 });
+  await page.mouse.up();
+  await wait(300);
+  check('fog brush: Cells without a grid draws nothing and starts no drag', await page.evaluate(() => Object.keys(window.boardTest.fog.record()).length === 2 && !window.boardTest.board.fogTool.drawing && window.boardTest.board.press === null));
+  await page.evaluate(() => { window.boardTest.board.map.grid.size = 70; window.boardTest.board.toolbarActions().fog.setShape('brush'); });
+  // A refused write takes the preview away.
+  await page.evaluate(() => { window.boardTest.board.toolbarActions().fog.start(); window.boardTest.fog.state.fail = true; });
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 40, y + 5, { steps: 3 });
+  await page.mouse.up();
+  await wait(600);
+  check('fog brush: a write Atlas refused leaves no preview and no fog', await page.evaluate(() => Object.keys(window.boardTest.fog.record()).length === 2 && window.boardTest.board.scene.getObjectByName('fog-preview')?.visible !== true));
+  await page.evaluate(() => { window.boardTest.fog.state.fail = false; });
+});
+
+feature('fog shapes', async ({ page, shot }) => {
+  const at = (x, y) => page.evaluate(([x, y]) => window.boardTest.project(x, y, 0), [x, y]);
+  const ops = () => page.evaluate(() => Object.values(window.boardTest.fog.record()));
+  const marks = () => page.evaluate(() => { const view = window.boardTest.board.fogTool.markView; return { shown: view.shown, guide: view.guide, accent: view.current?.accent === true, paths: view.current?.paths?.length ?? 0 }; });
+  const tool = (call, arg) => page.evaluate(call, arg);
+  // A clean map: the fixture's walls and fog are gone, a square grid of 70 px, Snap on, and the camera frames the map.
+  await tool(() => {
+    const { board, modes, fog } = window.boardTest;
+    fog.reset();
+    fog.state.adds.length = 0;
+    fog.state.notices.length = 0;
+    board.map.walls = [];
+    board.map.grid.type = 'square';
+    board.map.grid.size = 70;
+    board.map.grid.snap = true;
+    modes.on = true;
+    modes.mode = 'edit';
+    board.toolbarActions().fog.start();
+    board.frameMap();
+    board.camera.snap();
+    board.wake(true);
+  });
+  await wait(500);
+  const drag = async (from, to, options = {}) => {
+    const a = await at(from[0], from[1]);
+    const b = await at(to[0], to[1]);
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.mouse.move((a.x + b.x) / 2, (a.y + b.y) / 2, { steps: 4 });
+    await page.mouse.move(b.x, b.y, { steps: 4 });
+    if (options.pause) await options.pause();
+    await page.mouse.up();
+    await wait(250);
+  };
+  const click = async (x, y) => { const p = await at(x, y); await page.mouse.move(p.x, p.y); await page.mouse.down(); await page.mouse.up(); await wait(60); };
+  const select = (shape) => tool((shape) => { const a = window.boardTest.board.toolbarActions().fog; a.start(); a.setShape(shape); }, shape);
+  const MAP = await tool(() => ({ ...window.boardTest.board.mapSize }));
+  const cx = Math.round(MAP.width / 2 / 70) * 70;
+  const cy = Math.round(MAP.height / 2 / 70) * 70;
+
+  // Rectangle: the first corner snaps to the grid, a drag outlines the shape, the release commits one rectangle op.
+  await select('rectangle');
+  await drag([cx - 100, cy - 90], [cx + 120, cy + 60], { pause: async () => {
+    const during = await marks();
+    check('fog shapes: a rectangle under way is outlined, and shown as the fog it leaves', during.shown.includes('fog-mark-line') && during.shown.includes('fog-mark-casing') && await tool(() => window.boardTest.board.scene.getObjectByName('fog-preview')?.visible === true), JSON.stringify(during));
+    await shot('fog-rectangle');
+  } });
+  let all = await ops();
+  const rect = all[0];
+  check('fog shapes: a rectangle drag commits one rectangle operation with its corners on the grid', all.length === 1 && rect.type === 'rectangle' && rect.isErasing === false && rect.x % 70 === 0 && rect.y % 70 === 0 && rect.width > 0 && rect.height > 0, JSON.stringify(all));
+  // Shift (Constrain) makes a square.
+  await page.keyboard.down('Shift');
+  await drag([cx - 100, cy - 90], [cx + 220, cy + 60]);
+  await page.keyboard.up('Shift');
+  all = await ops();
+  const square = all.find((op) => op.id !== rect.id);
+  check('fog shapes: Shift makes the rectangle a square', square && square.type === 'rectangle' && Math.abs(square.width - square.height) < 1e-6 && square.width > 0, JSON.stringify(square));
+  // Alt flips it to erasing, with the wash over the area and no area mark (Atlas's gesture leaves a plain operation).
+  await page.keyboard.down('Alt');
+  await drag([cx - 100, cy - 90], [cx + 120, cy + 60], { pause: async () => {
+    const wash = await tool(() => { const sheet = window.boardTest.board.fogTool.sheet; return { wash: sheet.wash, opacity: window.boardTest.board.scene.getObjectByName('fog-preview')?.material.opacity, color: window.boardTest.board.scene.getObjectByName('fog-preview')?.material.color.getHexString(), line: window.boardTest.board.fogTool.markView.lineColor.toString(16) }; });
+    check('fog shapes: an erasing shape shows a light red wash and a red outline', wash.wash && Math.abs(wash.opacity - 0.28) < 1e-6 && wash.color === 'ff4444' && wash.line === 'ff4444', JSON.stringify(wash));
+    await shot('fog-wash');
+  } });
+  await page.keyboard.up('Alt');
+  all = await ops();
+  const erase = all[all.length - 1];
+  check('fog shapes: Alt makes the rectangle erase, as a plain operation (no reveal area mark)', erase.isErasing === true && !('area' in erase), JSON.stringify(erase));
+
+  // The snap guide: near a wall's end the corner lands on it; Ctrl places it where the pointer is.
+  await tool(() => { const { board } = window.boardTest; board.map.walls = [{ id: 'g1', type: 'solid', p1: { x: 420, y: 350 }, p2: { x: 700, y: 350 }, direction: null, closed: true, locked: false, blocks: null, limited: false, chain: null }]; board.map.grid.snap = false; board.refreshToolbar(); });
+  const end = await at(420, 350);
+  await page.mouse.move(end.x + 3, end.y + 2);
+  await wait(250);
+  const near = await marks();
+  check('fog shapes: a pointer within 10 screen pixels of a wall end shows the snap guide on it', near.guide && near.guide.point.x === 420 && near.guide.point.y === 350 && near.shown.includes('fog-guide'), JSON.stringify(near));
+  await shot('fog-snap-guide');
+  await page.keyboard.down('Control');
+  await page.mouse.move(end.x + 2, end.y + 3);
+  await wait(250);
+  const freed = await marks();
+  await page.keyboard.up('Control');
+  check('fog shapes: Ctrl places the point freely (no guide)', freed.guide === null, JSON.stringify(freed));
+  await page.mouse.move(end.x + 90, end.y + 90);
+  await wait(250);
+  check('fog shapes: away from walls and grid (Snap off on the grid) there is no guide', (await marks()).guide === null);
+  // The grid point comes before a wall: with the grid's Snap on the guide is on a grid point near the pointer.
+  await tool(() => { window.boardTest.board.map.grid.snap = true; });
+  const grid = await at(cx + 70, cy + 70);
+  await page.mouse.move(grid.x + 3, grid.y + 3);
+  await wait(250);
+  const onGrid = await marks();
+  check('fog shapes: near a grid point the guide shows it', onGrid.guide && onGrid.guide.point.x === cx + 70 && onGrid.guide.point.y === cy + 70, JSON.stringify(onGrid.guide));
+  await tool(() => { window.boardTest.board.map.walls = []; window.boardTest.board.refreshToolbar(); });
+
+  // Lasso: a free drag closed on release; a tap leaves nothing.
+  await tool(() => { window.boardTest.fog.reset(); });
+  await select('lasso');
+  const a = await at(cx - 120, cy - 100);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  await page.mouse.up();
+  await wait(200);
+  check('fog shapes: a lasso tap (fewer than three points) leaves nothing', (await ops()).length === 0);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  for (const [x, y] of [[cx + 40, cy - 130], [cx + 130, cy + 20], [cx - 20, cy + 110]]) { const p = await at(x, y); await page.mouse.move(p.x, p.y, { steps: 4 }); }
+  const lassoDuring = await marks();
+  await shot('fog-lasso');
+  await page.mouse.up();
+  await wait(300);
+  all = await ops();
+  check('fog shapes: a lasso drag is outlined, and closes on release into one lasso operation', lassoDuring.shown.includes('fog-mark-line') && all.length === 1 && all[0].type === 'lasso' && all[0].points.length > 3, JSON.stringify([lassoDuring, all.length, all[0]?.type]));
+
+  // The rest is drawn up in the top right of the map, clear of the fixture's tokens.
+  const bx = 770;
+  const by = 170;
+  // Polygon: click corners; Backspace takes one back, Enter closes; Escape drops the polygon; the first corner and a double click close.
+  await tool(() => { window.boardTest.fog.reset(); window.boardTest.board.map.grid.snap = false; });
+  await select('polygon');
+  const corners = [[bx - 150, by - 100], [bx + 150, by - 100], [bx + 150, by + 100], [bx - 150, by + 100]];
+  for (const [x, y] of corners.slice(0, 3)) await click(x, y);
+  const pending = await tool(() => ({ drawing: window.boardTest.board.fogTool.drawing, press: window.boardTest.board.press, on: window.boardTest.board.fogToolOn }));
+  check('fog shapes: a polygon keeps its corners between clicks, and a click starts no drag', pending.drawing && pending.press === null && pending.on, JSON.stringify(pending));
+  const mid = await at(bx - 70, by + 70);
+  await page.mouse.move(mid.x, mid.y);
+  await wait(200);
+  const polygonMarks = await tool(() => { const m = window.boardTest.board.fogTool.markView.current; return { dots: m?.dots?.length, faint: m?.faint?.length, ring: !!m?.ring }; });
+  check('fog shapes: a polygon shows its corners, the first one ringed, and the faint closing edge', polygonMarks.dots === 3 && polygonMarks.faint === 1 && polygonMarks.ring, JSON.stringify(polygonMarks));
+  await shot('fog-polygon');
+  const back = await tool(() => { const { board } = window.boardTest; const first = board.fogKey({ key: 'Backspace', repeat: false }); return { first, dots: board.fogTool.markView.current?.dots?.length, drawing: board.fogTool.drawing }; });
+  check('fog shapes: Backspace takes the last corner back', back.first && back.dots === 2 && back.drawing, JSON.stringify(back));
+  await click(corners[2][0], corners[2][1] + 3);
+  await click(corners[3][0], corners[3][1]);
+  const entered = await tool(() => window.boardTest.board.fogKey({ key: 'Enter', repeat: false }));
+  await wait(300);
+  all = await ops();
+  check('fog shapes: Enter closes the polygon into one lasso operation of its corners', entered && all.length === 1 && all[0].type === 'lasso' && all[0].points.length === 4 && !(await tool(() => window.boardTest.board.fogTool.drawing)), JSON.stringify(all));
+  // The undo key drops the last corner (the tool is told by the shortcuts, which know the key).
+  await click(corners[0][0], corners[0][1]);
+  await click(corners[1][0], corners[1][1]);
+  const undone = await tool(() => { const { board } = window.boardTest; return [board.fogKey({ key: 'z', repeat: false }, true), board.fogTool.markView.current?.dots?.length, board.fogTool.drawing, board.fogKey({ key: 'z', repeat: false }, true), board.fogTool.drawing]; });
+  check('fog shapes: the undo key takes a corner back instead of undoing fog', JSON.stringify(undone) === '[true,1,true,true,false]' && (await ops()).length === 1, JSON.stringify(undone));
+  // Escape drops the polygon first, and the tool stays on.
+  await click(corners[0][0], corners[0][1]);
+  await click(corners[1][0], corners[1][1]);
+  await page.keyboard.press('Escape');
+  await wait(100);
+  const escaped = await tool(() => ({ drawing: window.boardTest.board.fogTool.drawing, on: window.boardTest.board.fogToolOn }));
+  check('fog shapes: Escape drops the polygon\'s corners and the tool stays on', !escaped.drawing && escaped.on, JSON.stringify(escaped));
+  // Blur drops it too.
+  await click(corners[0][0], corners[0][1]);
+  await tool(() => window.dispatchEvent(new Event('blur')));
+  check('fog shapes: losing the window\'s focus drops the polygon', !(await tool(() => window.boardTest.board.fogTool.drawing)));
+  // A click on the first corner closes it (three corners or more).
+  await tool(() => window.boardTest.fog.reset());
+  for (const [x, y] of corners.slice(0, 3)) await click(x, y);
+  await wait(600);
+  await click(corners[0][0] + 2, corners[0][1] + 2);
+  await wait(300);
+  all = await ops();
+  check('fog shapes: a click on the first corner closes the polygon', all.length === 1 && all[0].points.length === 3, JSON.stringify(all));
+  // A double click closes it too.
+  await tool(() => window.boardTest.fog.reset());
+  for (const [x, y] of corners.slice(0, 3)) await click(x, y);
+  const last = await at(bx - 70, by + 70);
+  await page.mouse.move(last.x, last.y);
+  await page.mouse.down(); await page.mouse.up();
+  await page.mouse.down(); await page.mouse.up();
+  await wait(300);
+  all = await ops();
+  check('fog shapes: a double click closes the polygon', all.length === 1 && all[0].points.length === 4, JSON.stringify(all));
+  // Constrain holds the next edge to an eighth of a turn (the switch, or Shift).
+  await tool(() => window.boardTest.fog.reset());
+  await click(bx - 100, by - 100);
+  await page.keyboard.down('Shift');
+  const slope = await at(bx + 120, by - 70);
+  await page.mouse.move(slope.x, slope.y);
+  await wait(200);
+  const held = await tool(() => { const m = window.boardTest.board.fogTool.markView.current; const points = m?.paths?.[0]?.points ?? []; const a = points[0]; const b = points[points.length - 1]; return { level: Math.abs(a.y - b.y) < 1e-6 || Math.abs(Math.abs(a.x - b.x) - Math.abs(a.y - b.y)) < 1e-6 }; });
+  await page.keyboard.up('Shift');
+  check('fog shapes: Shift holds the polygon\'s next edge level, upright or diagonal', held.level, JSON.stringify(held));
+  await tool(() => window.boardTest.board.fogTool.cancel());
+
+  // Cells: a drag outlines the cells passed and fills them; a square grid's row runs merge into one lasso.
+  await tool(() => { window.boardTest.fog.reset(); window.boardTest.fog.state.adds.length = 0; });
+  await select('cells');
+  const hoverCell = await at(bx + 35, by + 35);
+  await page.mouse.move(hoverCell.x, hoverCell.y);
+  await wait(250);
+  check('fog shapes: Cells outlines the cell under the pointer', (await marks()).shown.includes('fog-mark-line'));
+  await drag([bx + 35, by + 35], [bx + 35 + 140, by + 35], { pause: async () => { await shot('fog-cells'); } });
+  all = await ops();
+  check('fog shapes: a drag over a row of square cells commits one lasso', all.length === 1 && all[0].type === 'lasso' && all[0].points.length === 4, JSON.stringify(all));
+  // Hex: one lasso per hex, in one step.
+  await tool(() => { const { board, fog } = window.boardTest; fog.reset(); fog.state.adds.length = 0; board.map.grid.type = 'hex-vertical'; board.map.grid.size = 70; });
+  await drag([bx, by], [bx + 90, by]);
+  const hexAdds = await tool(() => window.boardTest.fog.state.adds.map((step) => step.length));
+  check('fog shapes: a drag over two neighbouring hexes commits their joint outline (ten corners) as one lasso in one step', hexAdds.length === 1 && hexAdds[0] === 1 && (await ops()).every((op) => op.type === 'lasso' && op.points.length === 10), JSON.stringify([hexAdds, (await ops()).map((op) => op.points?.length)]));
+  await tool(() => { window.boardTest.board.map.grid.type = 'square'; window.boardTest.fog.reset(); });
+  // Without a grid (no cell size) Cells begins nothing and starts no drag.
+  await tool(() => { window.boardTest.board.map.grid.size = 0; });
+  await drag([bx, by], [bx + 140, by]);
+  check('fog shapes: Cells without a grid draws nothing and starts no drag', (await ops()).length === 0 && await tool(() => !window.boardTest.board.fogTool.drawing && window.boardTest.board.press === null));
+  await tool(() => { window.boardTest.board.map.grid.size = 70; });
+
+  // Room: the walls' room is outlined under the pointer, a click fills it, no room says so.
+  await tool(() => {
+    const { board, fog } = window.boardTest;
+    fog.reset();
+    const wall = (id, a, b) => ({ id, type: 'solid', p1: { x: a[0], y: a[1] }, p2: { x: b[0], y: b[1] }, direction: null, closed: true, locked: false, blocks: null, limited: false, chain: null });
+    const x1 = 620, y1 = 60, x2 = 1000, y2 = 250;
+    board.map.walls = [wall('r1', [x1, y1], [x2, y1]), wall('r2', [x2, y1], [x2, y2]), wall('r3', [x2, y2], [x1, y2]), wall('r4', [x1, y2], [x1, y1])];
+    board.refreshToolbar();
+    board.toolbarActions().fog.setShape('room');
+  });
+  await wait(200);
+  const inside = await at(810, 150);
+  await page.mouse.move(inside.x, inside.y);
+  await wait(300);
+  const hover = await marks();
+  check('fog shapes: the room the walls enclose is outlined under the pointer, in the theme\'s accent', hover.shown.includes('fog-mark-line') && hover.accent && hover.paths >= 1, JSON.stringify(hover));
+  await shot('fog-room');
+  await page.mouse.down(); await page.mouse.up();
+  await wait(300);
+  all = await ops();
+  check('fog shapes: a click in the room fills it with one lasso operation', all.length === 1 && all[0].type === 'lasso' && all[0].points.length >= 4, JSON.stringify(all));
+  const outside = await at(60, 60);
+  await tool(() => { window.boardTest.fog.state.notices.length = 0; });
+  await page.mouse.move(outside.x, outside.y);
+  await page.mouse.down(); await page.mouse.up();
+  await wait(300);
+  const said = await tool(() => [...window.boardTest.fog.state.notices]);
+  check('fog shapes: a click where the walls enclose no room says so, and fills nothing', JSON.stringify(said) === '["The walls here do not enclose a room."]' && (await ops()).length === 1, JSON.stringify(said));
+  // A press that moves is no click.
+  await page.mouse.move(inside.x, inside.y);
+  await page.mouse.down();
+  await page.mouse.move(inside.x + 30, inside.y, { steps: 3 });
+  await page.mouse.up();
+  await wait(250);
+  check('fog shapes: a press that moves before the release is no click in a room', (await ops()).length === 1);
+  // Without walls the Room shape is disabled (and an unavailable shape falls back to the brush).
+  await tool(() => { const { board } = window.boardTest; board.map.walls = []; board.refreshToolbar(); });
+  const disabled = await page.evaluate(() => document.querySelector('.atlas-tabletop-fog-bars [data-fog-shape="room"]')?.getAttribute('aria-disabled'));
+  check('fog shapes: Room is disabled without walls', disabled === 'true', String(disabled));
+  await tool(() => { window.boardTest.board.toolbarActions().fog.setShape('brush'); window.boardTest.fog.reset(); });
+});
+
+// ── The fog tool's right-click menu: Reveal / Delete on fog, Hide / Delete on revealed ground ───────────────────────────
+feature('fog menu', async ({ page, shot }) => {
+  const at = (x, y) => page.evaluate(([x, y]) => window.boardTest.project(x, y, 0), [x, y]);
+  const ops = () => page.evaluate(() => Object.values(window.boardTest.fog.record()));
+  const tool = (call, arg) => page.evaluate(call, arg);
+  const menu = () => page.evaluate(() => [...document.querySelectorAll('.atlas-ctx-menu .atlas-ctx-item')].map((row) => [row.textContent, row.classList.contains('atlas-ctx-item--destructive'), row.hasAttribute('data-disabled')]));
+  const target = () => page.evaluate(() => { const view = window.boardTest.board.fogTool.targetView; return { shown: view.shown, accent: view.current?.accent === true, paths: view.current?.paths?.length ?? 0 }; });
+  const writes = () => page.evaluate(() => [...window.boardTest.fog.state.menuWrites]);
+  const rightClick = async (x, y) => {
+    const p = await at(x, y);
+    await page.mouse.move(p.x, p.y);
+    await page.mouse.down({ button: 'right' });
+    await page.mouse.up({ button: 'right' });
+    await wait(300);
+  };
+  const choose = async (label) => { await page.locator('.atlas-ctx-menu .atlas-ctx-item', { hasText: label }).first().click(); await wait(350); };
+  const undo = async () => { await tool(() => window.boardTest.history.undo(['map.atlasmap'])); await wait(350); };
+  // A clean map: no walls, one rectangle of fog from (70, 70) to (630, 490) over two of the fixture's tokens.
+  await tool(async () => {
+    const { board, modes, fog, host } = window.boardTest;
+    fog.reset();
+    fog.state.menuWrites.length = 0;
+    window.__fogMenuWalls = board.map.walls;
+    board.map.walls = [];
+    modes.on = true;
+    modes.mode = 'edit';
+    board.toolbarActions().fog.start();
+    board.toolbarActions().fog.setShape('brush');
+    await host.fog.add([{ type: 'rectangle', x: 70, y: 70, width: 560, height: 420, isErasing: false }]);
+    board.frameMap();
+    board.camera.snap();
+    board.wake(true);
+  });
+  await wait(600);
+  const FOG = [590, 100];
+  check('fog menu: a seeded body of fog', (await ops()).length === 1);
+
+  // On fog: Reveal, then Delete as a destructive row; the body is outlined in the accent while it is open.
+  await rightClick(...FOG);
+  const onFog = await menu();
+  check('fog menu: a right-click on fog opens a menu of Reveal and Delete, Delete destructive', JSON.stringify(onFog) === '[["Reveal",false,false],["Delete",true,false]]', JSON.stringify(onFog));
+  const mark = await target();
+  check('fog menu: the body it acts on is outlined in the theme accent', mark.shown.includes('fog-mark-line') && mark.accent && mark.paths >= 1, JSON.stringify(mark));
+  await shot('fog-menu');
+  await page.keyboard.press('Escape');
+  await wait(250);
+  check('fog menu: Escape closes it, writes nothing, takes the mark off and leaves the tool on', (await menu()).length === 0 && (await target()).shown.length === 0 && (await ops()).length === 1 && (await writes()).length === 0 && await tool(() => window.boardTest.board.fogTool.on));
+
+  // Reveal: the body is taken away and remembered (a lasso that erases, with the area mark), as one step.
+  await rightClick(...FOG);
+  await choose('Reveal');
+  let all = await ops();
+  const lasso = all.find((op) => op.type === 'lasso');
+  check('fog menu: Reveal writes one erasing lasso with the area mark, of the whole body', all.length === 2 && lasso && lasso.isErasing === true && lasso.area && typeof lasso.area === 'object' && lasso.points.length >= 4, JSON.stringify(all.map((op) => [op.type, op.isErasing, op.area])));
+  check('fog menu: choosing closes the menu and the mark', (await menu()).length === 0 && (await target()).shown.length === 0 && JSON.stringify(await writes()) === '["reveal 1"]');
+  check('fog menu: the revealed ground is no longer fog (the board shows it open)', await tool(() => window.boardTest.board.fog.areas.length === 0));
+
+  // On the revealed ground: Hide and Delete, the area outlined.
+  await rightClick(...FOG);
+  const onGround = await menu();
+  check('fog menu: on the revealed ground the menu is Hide and Delete', JSON.stringify(onGround) === '[["Hide",false,false],["Delete",true,false]]', JSON.stringify(onGround));
+  check('fog menu: the revealed fog is outlined in the accent', (await target()).accent && (await target()).shown.includes('fog-mark-line'));
+  await shot('fog-menu-revealed');
+  await choose('Hide');
+  all = await ops();
+  const hidden = all.find((op) => op.type === 'lasso');
+  check('fog menu: Hide brings the fog back as a plain painting lasso, with no mark', hidden && hidden.isErasing === false && !('area' in hidden) && all.length === 2 && (await writes()).at(-1) === `hide ${hidden.id}`, JSON.stringify(all.map((op) => [op.type, op.isErasing, op.area])));
+  check('fog menu: the board draws the hidden fog again (a change of the same operation, not of its id)', (await tool(() => window.boardTest.board.fog.areas.length)) === 1);
+  check('fog menu: the fog is back, and right-clicking it offers Reveal again', await (async () => { await rightClick(...FOG); const items = await menu(); await page.keyboard.press('Escape'); await wait(200); return items[0]?.[0] === 'Reveal'; })());
+  await undo();
+  all = await ops();
+  check('fog menu: undo takes Hide back: the ground is revealed and remembered again, and drawn open', (await tool(() => window.boardTest.board.fog.areas.length)) === 0 && all.length === 2 && all.find((op) => op.type === 'lasso').isErasing === true && 'area' in all.find((op) => op.type === 'lasso'));
+
+  // Delete on revealed ground: forgotten, still revealed.
+  await rightClick(...FOG);
+  await choose('Delete');
+  all = await ops();
+  const forgotten = all.find((op) => op.type === 'lasso');
+  check('fog menu: Delete on revealed ground forgets it: the lasso stays erasing, the mark goes', forgotten && forgotten.isErasing === true && !('area' in forgotten) && (await writes()).at(-1) === `forget ${forgotten.id}`, JSON.stringify(all.map((op) => [op.type, op.isErasing, op.area])));
+  await rightClick(...FOG);
+  check('fog menu: forgotten ground has no menu, and stays drawn open', (await menu()).length === 0 && (await tool(() => window.boardTest.board.fog.areas.length)) === 0);
+  await undo();
+  await undo();
+  check('fog menu: two undos take it back to the fog as painted', (await ops()).length === 1);
+
+  // Delete on fog: the body is erased for good (a plain lasso that erases, no mark).
+  await rightClick(...FOG);
+  await choose('Delete');
+  all = await ops();
+  const erased = all.find((op) => op.type === 'lasso');
+  check('fog menu: Delete on fog erases its body with a plain lasso (no area mark)', all.length === 2 && erased && erased.isErasing === true && !('area' in erased) && erased.points.length >= 4, JSON.stringify(all.map((op) => [op.type, op.isErasing, op.area])));
+  await rightClick(...FOG);
+  check('fog menu: where fog was deleted there is no menu', (await menu()).length === 0);
+  await undo();
+  check('fog menu: undo gives the fog back', (await ops()).length === 1);
+
+  // Only on fog: open ground away from it has no fog menu; a token keeps its own menu, also standing in fog.
+  await rightClick(40, 30);
+  check('fog menu: a right-click on open ground away from fog opens no menu', (await menu()).length === 0);
+  const tokenMenus = await tool(() => window.boardTest.record.menus.length);
+  await rightClick(245, 245);
+  check('fog menu: a right-click on a token in fog is the token menu, not the fog menu', (await tool(() => window.boardTest.record.menus.length)) === tokenMenus + 1 && !(await menu()).some((row) => row[0] === 'Reveal'), JSON.stringify(await menu()));
+  await page.keyboard.press('Escape');
+  await wait(250);
+
+  // Walls in fog: a door keeps its own menu (Atlas: a door's badge lies above fog); a plain wall gives way to the fog; a wall off the fog keeps its menu.
+  await tool(async () => {
+    const { board, fog, host } = window.boardTest;
+    board.map.walls = window.__fogMenuWalls;
+    fog.reset();
+    await host.fog.add([{ type: 'rectangle', x: 500, y: 780, width: 260, height: 260, isErasing: false }]);
+    board.refresh();
+    board.wake(true);
+  });
+  await wait(500);
+  const wallMenus = () => tool(() => [...window.boardTest.record.wallMenus]);
+  await rightClick(560, 840);
+  const door = await wallMenus();
+  check('fog menu: a right-click on a door in fog is the door menu, not the fog menu', door.at(-1) === 'door' && (await menu()).length === 0, JSON.stringify([door, await menu()]));
+  const before = (await wallMenus()).length;
+  await rightClick(665, 910);
+  check('fog menu: a right-click on a plain wall in fog is the fog menu (the wall menu gives way)', (await wallMenus()).length === before && JSON.stringify((await menu()).map((row) => row[0])) === '["Reveal","Delete"]', JSON.stringify([await wallMenus(), await menu()]));
+  await page.keyboard.press('Escape');
+  await wait(250);
+  await rightClick(455, 910);
+  const off = await wallMenus();
+  check('fog menu: a right-click on a wall off the fog, the tool on, is still the wall menu', off.length === before + 1 && off.at(-1) === 'w' && (await menu()).length === 0, JSON.stringify([off, await menu()]));
+  await tool(() => { const { board, fog, host } = window.boardTest; board.map.walls = []; fog.reset(); board.refresh(); return host.fog.add([{ type: 'rectangle', x: 70, y: 70, width: 560, height: 420, isErasing: false }]); });
+  await wait(400);
+
+  // A polygon under way takes no menu: its corners wait.
+  await tool(() => window.boardTest.board.toolbarActions().fog.setShape('polygon'));
+  for (const [x, y] of [[520, 100], [560, 100]]) { const p = await at(x, y); await page.mouse.move(p.x, p.y); await page.mouse.down(); await page.mouse.up(); await wait(120); }
+  await rightClick(...FOG);
+  check('fog menu: while a polygon has corners no fog menu opens, and the polygon waits on', (await menu()).length === 0 && await tool(() => window.boardTest.board.fogTool.drawing), JSON.stringify([await menu(), await tool(() => { const t = window.boardTest.board.fogTool; return [t.drawing, t.on, t.shape, window.boardTest.board.press]; })]));
+  await page.keyboard.press('Escape');
+  await wait(200);
+  await tool(() => window.boardTest.board.toolbarActions().fog.setShape('brush'));
+
+  // An Atlas without the 0.18 actions: the rows it cannot do are left out; no row at all, no menu.
+  await tool(() => { window.boardTest.fog.offers.reveal = false; });
+  await rightClick(...FOG);
+  const old = await menu();
+  check('fog menu: without Reveal in Atlas the menu on fog is Delete alone', JSON.stringify(old) === '[["Delete",true,false]]', JSON.stringify(old));
+  await page.keyboard.press('Escape');
+  await wait(200);
+  await tool(() => { window.boardTest.fog.offers.add = false; });
+  await rightClick(...FOG);
+  check('fog menu: with neither Reveal nor adding, fog has no menu', (await menu()).length === 0);
+  await tool(() => { Object.assign(window.boardTest.fog.offers, { reveal: true, add: true }); });
+  await rightClick(...FOG);
+  await choose('Reveal');
+  await tool(() => { window.boardTest.fog.offers.hide = false; });
+  await rightClick(...FOG);
+  check('fog menu: without Hide in Atlas revealed ground offers Delete alone', JSON.stringify(await menu()) === '[["Delete",true,false]]', JSON.stringify(await menu()));
+  await page.keyboard.press('Escape');
+  await wait(200);
+  await tool(() => { window.boardTest.fog.offers.forget = false; });
+  await rightClick(...FOG);
+  check('fog menu: without Hide and Delete there is no menu on revealed ground', (await menu()).length === 0);
+  await tool(() => { Object.assign(window.boardTest.fog.offers, { hide: true, forget: true }); });
+
+  // The tool off: no fog menu (the board's own right-click is as ever).
+  await tool(() => window.boardTest.board.toolbarActions().fog.stop());
+  await wait(300);
+  await rightClick(...FOG);
+  check('fog menu: with the tool off a right-click on fog opens no menu', (await menu()).length === 0);
+  await tool(() => { window.boardTest.fog.reset(); window.boardTest.fog.state.menuWrites.length = 0; });
+});
+
+// ── Fog review fixes: a pin or door keeps its press, a shape does not outlive its map or the Edit mode, Escape is the active board's, a pinch keeps polygon corners ──
+feature('fog review fixes', async ({ page, shot }) => {
+  const at = (x, y, h = 0) => page.evaluate(([x, y, h]) => window.boardTest.project(x, y, h), [x, y, h]);
+  const ops = () => page.evaluate(() => Object.values(window.boardTest.fog.record()));
+  const tool = (call, arg) => page.evaluate(call, arg);
+  await tool(() => {
+    const { board, modes, fog } = window.boardTest;
+    fog.reset();
+    fog.state.adds.length = 0;
+    board.map.grid.type = 'square';
+    board.map.grid.size = 70;
+    board.map.grid.snap = true;
+    modes.on = true;
+    modes.mode = 'edit';
+    board.toolbarActions().fog.start();
+    board.toolbarActions().fog.setShape('brush');
+    board.frameMap();
+    board.camera.snap();
+    board.wake(true);
+  });
+  await wait(500);
+  // M1: a press on a pin or a door is that object's (Atlas: a pin, door badge or light marker takes the press from any tool; the fog tool draws nothing).
+  const pin = await tool(() => { const b = window.boardTest.board; const target = b.pins[0].hitTarget; const v = new window.boardTest.Vector3(); target.getWorldPosition(v); return window.boardTest.project(v.x, v.z, v.y); });
+  await page.mouse.move(pin.x, pin.y);
+  await page.mouse.down();
+  const onPin = await tool(() => window.boardTest.board.press?.kind ?? null);
+  await page.mouse.up();
+  await wait(400);
+  check('fog review: a left press on a pin is the pin\'s, not a fog stroke', onPin !== 'fog' && (await ops()).length === 0 && !(await tool(() => window.boardTest.board.fogTool.drawing)), JSON.stringify([onPin, await ops()]));
+  const door = await at(1280, 800, 35);
+  const doorHit = await tool(([x, y]) => window.boardTest.board.doorAt(x, y), [door.x, door.y]);
+  if (doorHit) {
+    await page.mouse.move(door.x, door.y);
+    await page.mouse.down();
+    const onDoor = await tool(() => window.boardTest.board.press?.kind ?? null);
+    await page.mouse.up();
+    await wait(400);
+    check('fog review: a left press on a door is the door\'s, not a fog stroke', onDoor !== 'fog' && (await ops()).length === 0, JSON.stringify([onDoor, await ops()]));
+  }
+
+  // M5: another board switches the shared mode to Play: this board's tool paints nothing (and goes off).
+  const plain = await at(300, 300);
+  await tool(() => { window.boardTest.modes.mode = 'play'; });
+  await page.mouse.move(plain.x, plain.y);
+  await page.mouse.down();
+  const inPlay = await tool(() => window.boardTest.board.press?.kind ?? null);
+  await page.mouse.move(plain.x + 40, plain.y + 5, { steps: 3 });
+  await page.mouse.up();
+  await wait(400);
+  check('fog review: with the mode switched to Play (by another board) a drag writes no fog', inPlay !== 'fog' && (await ops()).length === 0, JSON.stringify([inPlay, await ops()]));
+  await tool(() => { window.boardTest.modes.mode = 'edit'; window.boardTest.board.toolbarActions().fog.start(); });
+
+  // M2: a polygon under way is dropped when the map or level changes.
+  await tool(() => window.boardTest.board.toolbarActions().fog.setShape('polygon'));
+  for (const p of [[200, 200], [400, 200], [400, 400]]) {
+    const s = await at(...p);
+    await page.mouse.move(s.x, s.y);
+    await page.mouse.down();
+    await page.mouse.up();
+  }
+  const pending = await tool(() => window.boardTest.board.fogTool.drawing);
+  await tool(async () => { const { board } = window.boardTest; await board.load({ ...board.map, path: 'other-scene.atlasmap' }); });
+  await wait(300);
+  check('fog review: a polygon with corners pending is dropped when another scene loads', pending && !(await tool(() => window.boardTest.board.fogTool.drawing)), JSON.stringify(pending));
+  await tool(async () => { const { board } = window.boardTest; await board.load({ ...board.map, path: 'harness.atlasmap' }); });
+  for (const p of [[200, 200], [400, 200], [400, 400]]) {
+    const s = await at(...p);
+    await page.mouse.move(s.x, s.y);
+    await page.mouse.down();
+    await page.mouse.up();
+  }
+  const pendingAgain = await tool(() => window.boardTest.board.fogTool.drawing);
+  await tool(async () => { const { board } = window.boardTest; await board.load({ ...board.map, level: 'upper-level' }); });
+  await wait(300);
+  check('fog review: and when the level changes', pendingAgain && !(await tool(() => window.boardTest.board.fogTool.drawing)), JSON.stringify(pendingAgain));
+  await tool(async () => { const { board } = window.boardTest; const { level, ...rest } = board.map; await board.load(rest); });
+
+  // M6: Escape pressed while this board's tab is not the active one is not swallowed.
+  for (const p of [[200, 200], [400, 200], [400, 400]]) {
+    const s = await at(...p);
+    await page.mouse.move(s.x, s.y);
+    await page.mouse.down();
+    await page.mouse.up();
+  }
+  await tool(() => { const box = window.boardTest.board.canvas.parentElement.parentElement; box.classList.add('workspace-leaf'); window.__leaf = box; });
+  const escape = () => tool(() => { const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }); document.body.dispatchEvent(event); return event.defaultPrevented; });
+  const swallowed = await escape();
+  const stillDrawing = await tool(() => window.boardTest.board.fogTool.drawing);
+  check('fog review: Escape with the board\'s tab in the background is left alone and keeps the polygon', !swallowed && stillDrawing, JSON.stringify([swallowed, stillDrawing]));
+  await tool(() => window.__leaf.classList.add('mod-active'));
+  const taken = await escape();
+  check('fog review: Escape on the active board still drops the polygon', taken && !(await tool(() => window.boardTest.board.fogTool.drawing)), JSON.stringify(taken));
+  await tool(() => { window.__leaf.classList.remove('workspace-leaf', 'mod-active'); });
+});
 
 server.listen(0, async () => {
   const errors = [];

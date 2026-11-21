@@ -31,6 +31,8 @@ export interface AtlasSceneState {
     /** Atlas's water, lava and acid: outlines with holes. */
     liquids?: Readonly<Record<string, Record<string, unknown>>>;
     mapFeatures?: Readonly<Record<string, Record<string, unknown>>>;
+    /** Atlas's fog of war: each stroke of its fog tool, by id (every level's; each carries its level). */
+    fog?: Readonly<Record<string, Record<string, unknown>>>;
   };
   /** Atlas 0.10's levels (floors) and the one this view shows; an older Atlas has neither. */
   levels?: ReadonlyArray<{ id: string }>;
@@ -91,6 +93,22 @@ export interface AtlasSceneState {
   /** Atlas's liquids: add some (their ids; a level that is full takes no more, and gives no id for those), take one off. There is no update. */
   addLiquids?: (data: ReadonlyArray<Record<string, unknown>>) => string[];
   deleteLiquid?: (id: string) => void;
+  /**
+   * Atlas's fog actions, all on the level the store shows (`viewedLevel`). 0.15 has `addFogOperation` and `clearFog`; the
+   * rest is Atlas 0.17-0.18's: several operations in one step, hiding the whole map, hiding every room.
+   */
+  addFogOperation?: (data: Record<string, unknown>) => string;
+  addFogOperations?: (data: ReadonlyArray<Record<string, unknown>>) => string[];
+  clearFog?: () => void;
+  coverAllFog?: (mapRect: { x: number; y: number; width: number; height: number } | null) => boolean;
+  hideRooms?: (mapRect: { x: number; y: number; width: number; height: number } | null, coverage?: unknown) => { rooms: number; hidden: number };
+  /** Atlas 0.18's fog menu: reveal bodies of fog and remember them, hide such fog again, forget it (false for an id that is none). */
+  revealFogGround?: (outlines: ReadonlyArray<ReadonlyArray<{ x: number; y: number }>>) => void;
+  hideFogArea?: (id: string) => boolean;
+  forgetFogArea?: (id: string) => boolean;
+  /** Atlas 0.18's tool switches (the fog tool's Snap and Constrain): per view, never saved. */
+  toolSwitches?: Partial<Record<string, boolean>>;
+  setToolSwitch?: (id: string, on: boolean) => void;
   /** Changes a placed light's fields; a field given as undefined is removed. */
   updateLight?: (id: string, changes: Record<string, unknown>) => void;
   /** Atlas's placed lights: place one (its id), take one off. */

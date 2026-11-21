@@ -3,7 +3,7 @@ import type { ParityRow } from './types';
 /** Atlas 0.15.0's toolbar catalog (as 0.12.0's) (`toolbarCatalog.ts`), in Atlas's order, then its undo unit (Atlas 0.17 took the undo unit off its toolbar). */
 export const ATLAS_TOOLBAR: readonly ParityRow[] = [
   { id: 'move', status: 'mapped', note: "The board's Move/Select tool (with the laser pointer)." },
-  { id: 'fog', status: 'not-yet', note: 'Fog painting is a later round.' },
+  { id: 'fog', status: 'native', note: "The board's Fog Tool (Edit mode, Atlas's key): Atlas 0.18's bars and fog actions on Atlas's own fog. Brush first; the other shapes follow." },
   { id: 'draw', status: 'not-yet', note: 'Drawing is a later round.' },
   { id: 'text', status: 'not-yet', note: 'Text is a later round. Atlas 0.16 took the tool off its toolbar.', droppedIn: '0.16.0' },
   { id: 'measure', status: 'native', note: "The board's Measure tool (line, circle, cone, in the theme's accent), and the token drag ruler." },

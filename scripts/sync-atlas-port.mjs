@@ -7,11 +7,18 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, posix, relative, resolve } from 'node:path';
 import { build } from 'esbuild';
-import { ALLOWED_PACKAGES, BOUNDARIES, PATCHES, PORT_ENTRIES } from './atlasPortList.mjs';
+import { ALLOWED_PACKAGES, BOUNDARIES, NEWER_ENTRIES, NEWER_OVERRIDES, PATCHES, PORT_ENTRIES } from './atlasPortList.mjs';
 
 const args = process.argv.slice(2);
+// The newer Atlas (default ../atlas-vtt-0.18-ref) the NEWER_ENTRIES come from: files the floor lacks, copied with what they import that the floor lacks too.
+const newerArg = args.find((arg) => arg.startsWith('--newer='));
+const newerRoot = resolve(newerArg ? newerArg.slice(8) : '../atlas-vtt-0.18-ref');
 const dry = args.includes('--dry');
 const root = resolve(args.find((arg) => !arg.startsWith('--')) ?? '../atlas-vtt-0.15-ref');
+const newerApp = join(newerRoot, 'src/app');
+const newerVersion = JSON.parse(readFileSync(join(newerRoot, 'manifest.json'), 'utf8')).version;
+/** Files of the newer Atlas by key: where they are read from, and the version their header names. */
+const newer = new Set();
 const app = join(root, 'src/app');
 if (!existsSync(join(app, 'i18n/languages.ts'))) throw new Error(`No Atlas source at ${root}; pass an Atlas source checkout.`);
 const version = JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf8')).version;
@@ -26,8 +33,8 @@ const isLocal = (spec) => spec.startsWith('.') || spec.startsWith('src/');
 /** A package's name (`@radix-ui/react-slot`, `zustand` for `zustand/vanilla`). */
 const packageOf = (spec) => spec.split('/').slice(0, spec.startsWith('@') ? 2 : 1).join('/');
 
-function resolveAtlas(from, spec) {
-  const base = spec.startsWith('src/') ? resolve(root, spec) : resolve(dirname(from), spec);
+function resolveAtlas(from, spec, base_ = root) {
+  const base = spec.startsWith('src/') ? resolve(base_, spec) : resolve(dirname(from), spec);
   for (const candidate of [base, `${base}.ts`, `${base}.tsx`, `${base}.d.ts`, join(base, 'index.ts'), join(base, 'index.tsx')]) if (/\.tsx?$/.test(candidate) && existsSync(candidate)) return candidate;
   throw new Error(`${relative(app, from)} imports ${spec}, which is not in Atlas's source`);
 }
@@ -49,14 +56,15 @@ const files = new Map();
 const problems = [];
 const packages = new Map();
 const parents = new Map();
-const queue = PORT_ENTRIES.map((entry) => join(app, entry));
+function walk(queue, appDir, atlasRoot, isNewer) {
 while (queue.length > 0) {
   const file = queue.pop();
-  const key = toPosix(relative(app, file));
+  const key = toPosix(relative(appDir, file));
   if (files.has(key)) continue;
-  const source = readFileSync(file, 'utf8');
+  const source = readFileSync(file, 'utf8').replace(/\r\n/g, '\n'); // a Windows checkout may hold CRLF
   files.set(key, source);
-  for (const dynamic of source.matchAll(/\bimport\(\s*['"]([^'"]+)['"]/g)) problems.push(`${key} imports ${dynamic[1]} on demand (make it an entry or a boundary)`);
+  if (isNewer) newer.add(key);
+  for (const dynamic of source.matchAll(/import\(\s*['"]([^'"]+)['"]/g)) problems.push(`${key} imports ${dynamic[1]} on demand (make it an entry or a boundary)`);
   for (const match of source.matchAll(IMPORT)) {
     const spec = match[4];
     if (/\.s?css$/.test(spec)) continue; // Atlas's live styles.css holds every stylesheet already
@@ -69,12 +77,17 @@ while (queue.length > 0) {
     }
     if (/\.(webp|png|jpe?g|svg|glb|wasm|json)$/.test(spec)) { problems.push(`${key} imports the asset ${spec} (needs a boundary)`); continue; }
     if (isTypeOnly(match[2])) continue;
-    const target = toPosix(relative(app, resolveAtlas(file, spec)));
+    const target = toPosix(relative(appDir, resolveAtlas(file, spec, atlasRoot)));
     if (target in BOUNDARIES) continue;
     if (!parents.has(target)) parents.set(target, key);
-    queue.push(join(app, target));
+    queue.push(join(appDir, target));
   }
 }
+}
+walk(PORT_ENTRIES.map((entry) => join(app, entry)), app, root, false);
+// The newer entries: what the floor lacks comes from the newer Atlas; what the floor has stays the floor's.
+for (const key of NEWER_OVERRIDES) files.delete(key);
+walk(NEWER_ENTRIES.map((entry) => join(newerApp, entry)), newerApp, newerRoot, true);
 
 const lines = [...files.values()].reduce((sum, source) => sum + source.split('\n').length, 0);
 console.log(`Atlas ${version}: ${files.size} files, ${lines} lines; packages: ${[...packages.keys()].sort().join(', ') || 'none'}.`);
@@ -94,8 +107,10 @@ if (dry) {
 if (problems.length > 0) throw new Error(`The port reaches past what Tabletop can take:\n  ${[...new Set(problems)].join('\n  ')}`);
 
 // Write the copies, boundary imports pointed at the stand-ins.
-rmSync(OUT, { recursive: true, force: true });
-rmSync('src/atlasPort/utils', { recursive: true, force: true }); // Atlas's src/utils (imports reaching above src/app)
+// --newer-only writes just the files that come from the newer Atlas (NEWER_ENTRIES and what they need) and touches nothing else.
+const newerOnly = args.includes('--newer-only');
+if (!newerOnly) rmSync(OUT, { recursive: true, force: true });
+if (!newerOnly) rmSync('src/atlasPort/utils', { recursive: true, force: true }); // Atlas's src/utils (imports reaching above src/app)
 const textKeys = new Set();
 // Namespaces of keys the copies build at run time (t(`tables.unit.${unit}`)): every key of them is copied.
 const textSpaces = new Set();
@@ -104,11 +119,12 @@ const textSpaces = new Set();
 const textLiterals = new Set();
 const looseTypes = new Set();
 for (const [key, source] of files) {
-  const from = join(app, key);
+  if (newerOnly && !newer.has(key)) continue;
+  const from = join(newer.has(key) ? newerApp : app, key);
   let rewritten = source.replace(IMPORT, (whole, lead, head, quote, spec) => {
     if (/\.s?css$/.test(spec)) return `${lead}// (stylesheet ${spec}: in Atlas's styles.css)`;
     if (!isLocal(spec)) return whole;
-    const target = toPosix(relative(app, resolveAtlas(from, spec)));
+    const target = toPosix(relative(newer.has(key) ? newerApp : app, resolveAtlas(from, spec, newer.has(key) ? newerRoot : root)));
     // Types from a file left out are `any` (shims/atlasTypes.ts).
     const loose = !(target in BOUNDARIES) && !files.has(target) && isTypeOnly(head);
     if (loose) for (const name of typeNamesOf(head)) looseTypes.add(name);
@@ -133,7 +149,12 @@ for (const [key, source] of files) {
   const out = join(OUT, key);
   mkdirSync(dirname(out), { recursive: true });
   // Atlas type-checks its own code; the copies name some of its types loosely (shims/atlasTypes.ts), so they are not checked again.
-  writeFileSync(out, `// Atlas source: src/app/${key} @ ${version} (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).\n// @ts-nocheck\n${rewritten}`);
+  writeFileSync(out, `// Atlas source: src/app/${key} @ ${newer.has(key) ? newerVersion : version} (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).\n// @ts-nocheck\n${rewritten}`);
+}
+
+if (newerOnly) {
+  console.log(`Copied ${newer.size} files of Atlas ${newerVersion} to ${OUT}.`);
+  process.exit(0);
 }
 
 writeFileSync(`${SHIMS}/atlasTypes.ts`, [

@@ -1,0 +1,29 @@
+import { readFileSync, writeFileSync } from 'node:fs';
+// Usage: node scripts/sync-atlas-fog-text.mjs [path to an Atlas 0.18 source checkout] (default ../atlas-vtt-0.18-ref)
+// Writes src/atlasPort/atlasTextFog.ts: the fog tool's texts (and the toolbar words they share) in Tabletop's languages.
+const ref = `${process.argv[2] ?? '../atlas-vtt-0.18-ref'}/src/app/i18n/locales`;
+function load(lang, file) {
+  let src = readFileSync(`${ref}/${lang}/${file}.ts`, 'utf8');
+  src = src.replace(/^import .*$/gm, '').replace(/export const (\w+)(?:: [\w<>, ]+)? =/, 'const $1 =').replace(/\}\s*as const satisfies[^;]*;?/, '}');
+  const name = /const (\w+) =/.exec(src)[1];
+  return new Function(`${src}; return ${name};`)();
+}
+const toolbarKeys = ['toolbar.fogTool', 'toolbar.fogEraser', 'toolbar.brush', 'toolbar.lasso', 'toolbar.rectangle', 'toolbar.snap', 'toolbar.constrain'];
+const out = {};
+const keys = new Set();
+for (const lang of ['en', 'ru', 'zh']) {
+  const fog = load(lang, 'fog'); const toolbar = load(lang, 'toolbar');
+  out[lang] = {};
+  for (const [k, v] of Object.entries(fog)) { out[lang][k] = v; keys.add(k); }
+  for (const k of toolbarKeys) if (toolbar[k] !== undefined) { out[lang][k] = toolbar[k]; keys.add(k); }
+}
+const body = `// Generated from Atlas 0.18's src/app/i18n/locales/{en,ru,zh}/{fog,toolbar}.ts (AGPL-3.0): the fog tool's bars and notices, and the
+// toolbar words they share. The synced snapshot (the floor, 0.15) lacks them; a synced text of the same key wins (atlasText.ts).
+import type { AtlasMessage } from './atlasText';
+
+export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, AtlasMessage>>>> = ${JSON.stringify(out, null, 2)};
+
+export const ATLAS_FOG_TEXT_KEYS = ${JSON.stringify([...keys].sort(), null, 2)} as const;
+`;
+writeFileSync('src/atlasPort/atlasTextFog.ts', body);
+console.log([...keys].length, Object.keys(out.ru).length, Object.keys(out.zh).length);

@@ -48,11 +48,23 @@ const MEMBERS = [
   ['getDragDistance', 'atlasBridge.ts (settings service)'],
   ['setDragDistance', 'atlasBridge.ts (settings service)'],
   ['getDiceVolume', 'atlasBridge.ts (settings service)'],
+  // The fog tool (tokenWriter.ts, atlasBridge.ts): Atlas 0.15 has addFogOperation and clearFog; the rest is 0.17-0.18's (optional).
+  ['addFogOperation', 'tokenWriter.ts (store action)'],
+  ['clearFog', 'tokenWriter.ts (store action)'],
+  ['addFogOperations', 'tokenWriter.ts (store action, 0.17+)'],
+  ['coverAllFog', 'tokenWriter.ts (store action, 0.17+)'],
+  ['hideRooms', 'tokenWriter.ts (store action, 0.17+)'],
+  ['revealFogGround', 'tokenWriter.ts (store action, 0.18: the fog menu Reveal)'],
+  ['hideFogArea', 'tokenWriter.ts (store action, 0.18: the fog menu Hide)'],
+  ['forgetFogArea', 'tokenWriter.ts (store action, 0.18: Delete on revealed fog)'],
+  ['getGmFogOpacity', 'atlasBridge.ts (settings service, 0.17+)'],
+  ['setGmFogOpacity', 'atlasBridge.ts (settings service, 0.17+)'],
+  ['setToolSwitch', 'BoardView.ts (store action, 0.18)'],
   ['isExperimentalOn', 'shims/settingsService.ts (settings service, for the copied hotkeys and statblock counters)'],
   ['atlas-vtt:collection-settings-changed', 'BoardView.ts (workspace event: a collection\'s settings were saved)'],
 ];
 // Members Tabletop reads defensively and that a given Atlas may not have; reported, not failed.
-const OPTIONAL = new Set(['atlas-vtt:send-map-to-player-view', 'this.deps.service']);
+const OPTIONAL = new Set(['atlas-vtt:send-map-to-player-view', 'this.deps.service', 'addFogOperations', 'coverAllFog', 'hideRooms', 'revealFogGround', 'hideFogArea', 'forgetFogArea', 'getGmFogOpacity', 'setGmFogOpacity', 'setToolSwitch']);
 
 let missing = 0;
 for (const [name, where] of MEMBERS) {
