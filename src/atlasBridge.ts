@@ -10,6 +10,7 @@ import { isAtlasView, mapViews, tabViewOf } from './atlas';
 import { isMovementSpeed, parseMovementRules, readDragDistance, type DragDistance, type MovementRules } from '../packages/atlas-shared/src/index';
 import { readToolbarLayout, resolveToolbarLayout, type ToolbarLayout } from './atlasPort/toolbarLayout';
 import { DEFAULT_MAP_HOTKEYS, type MapHotkeyId } from './atlasPort/app/keyboard/mapHotkeys';
+import { readGmFogOpacity } from './atlasPort/gmFogOpacity';
 
 /** Atlas's asset manager tabs (its global window also takes these). */
 export type AssetTab = 'scenes' | 'maps' | 'encounters' | 'tokens' | 'party';
@@ -34,6 +35,9 @@ export interface AtlasSettingsService {
   getLaserPointerSettings?(): unknown;
   setLaserPointerSettings?(changes: Record<string, unknown>): void;
   getDragDistance?(): unknown;
+  /** Atlas 0.17-0.18's fog opacity in the GM's view (0.1 to 1), kept per device. */
+  getGmFogOpacity?(): unknown;
+  setGmFogOpacity?(opacity: number): void;
   setDragDistance?(choice: DragDistance): void;
   getDiceVolume?(): unknown;
   onChange?(listener: () => void): () => void;
@@ -201,6 +205,22 @@ export class AtlasBridge {
     let volume: unknown = 1;
     try { volume = typeof settings?.getDiceVolume === 'function' ? settings.getDiceVolume() : 1; } catch { volume = 1; }
     return typeof volume === 'number' && volume >= 0 && volume <= 1 ? volume : 1;
+  }
+
+  /** How opaque Atlas shows fog to the GM (0.1 to 1, "Fog opacity in GM view"); null without Atlas or in one that has no such setting. */
+  gmFogOpacity(): number | null {
+    const settings = this.settings();
+    let value: unknown = null;
+    try { value = typeof settings?.getGmFogOpacity === 'function' ? settings.getGmFogOpacity() : null; } catch { value = null; }
+    return typeof value === 'number' && Number.isFinite(value) ? readGmFogOpacity(value) : null;
+  }
+
+  /** Sets Atlas's fog opacity in the GM's view; false when Atlas has no such setting. */
+  setGmFogOpacity(opacity: number): boolean {
+    const settings = this.settings();
+    if (typeof settings?.setGmFogOpacity !== 'function') return false;
+    try { settings.setGmFogOpacity(readGmFogOpacity(opacity)); } catch { return false; }
+    return true;
   }
 
   /** Hears every change of Atlas's settings; returns the stop (which does nothing without Atlas). */

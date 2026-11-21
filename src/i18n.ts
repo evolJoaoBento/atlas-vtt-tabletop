@@ -8,6 +8,7 @@
 import { setAtlasLanguage } from './atlasPort/atlasText';
 
 const EN = {
+  'fog.needsNewerAtlas': 'This needs a newer Atlas.',
   'lighting.title': 'Lighting: {mode}',
   'lighting.classic': 'Classic',
   'lighting.dusk': 'Painted: dusk',
