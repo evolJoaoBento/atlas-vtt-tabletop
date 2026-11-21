@@ -180,3 +180,24 @@ export const PATCHES = [
 ];
 // (Until Atlas 0.12 three more patches swapped the palette's OverlayScroll for a plain div; Atlas 0.15's own palette
 // renders the options as that plain scrolling div, so they are gone.)
+
+/**
+ * Atlas files the floor (0.15) lacks, copied from the newer Atlas (`--newer=`, default ../atlas-vtt-0.18-ref) in the same
+ * layout, with what they import that the floor lacks too (what the floor has stays the floor's). Each copy's header names
+ * the newer version. The fog tool's pure logic (snapping, cells, rooms, polygons, strokes) is here.
+ */
+export const NEWER_ENTRIES = [
+  'fog/fogSnap.ts',
+  'fog/fogConstrain.ts',
+  'fog/fogCells.ts',
+  'fog/fogPolygon.ts',
+  'fog/fogRooms.ts',
+  'fog/fogKeyhole.ts',
+  'tools/shapeStroke.ts',
+  'types/toolSwitches.ts',
+  'lighting/exploredEdits.ts',
+  'lighting/polygonClip.ts',
+];
+
+/** Floor files the newer Atlas's version replaces (a superset: it only adds what the fog's room logic needs). */
+export const NEWER_OVERRIDES = ['lighting/polygonClip.ts'];

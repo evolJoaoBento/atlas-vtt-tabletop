@@ -36,6 +36,8 @@ export interface BoardWall {
   limited: boolean;
   /** The segments drawn in one stroke share a chain. */
   chain: string | null;
+  /** On a wall the rooms mode made: the side a room's floor lies on (Atlas's `floor`); the fog tool's rooms read it. */
+  floor?: 'left' | 'right';
   /** What the GM set on it in 3D (`recordExtras.ts`: the record's `tabletop` field); absent or null when nothing. */
   extra?: WallExtra | null;
 }
@@ -120,6 +122,7 @@ function readWall(raw: Raw): BoardWall | null {
     blocks: raw.blocks === 'sight' || raw.blocks === 'light' || raw.blocks === 'movement' ? raw.blocks : null,
     limited: raw.limited === true,
     chain: str(raw.chainId),
+    ...(raw.floor === 'left' || raw.floor === 'right' ? { floor: raw.floor } : {}),
     ...extraOf(raw.tabletop),
   };
 }
