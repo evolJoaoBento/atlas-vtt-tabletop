@@ -3,7 +3,7 @@
  *
  * The board's camera keeps W/A/S/D/Q/E (the user's call, 2026-11-20), so an Atlas binding that is one of those letters
  * works with Shift added on the board (`boardBinding`): Shift+A opens the asset manager. Every other binding is Atlas's
- * as the GM set it. Atlas's tools that live only on its 2D map (fog, draw, erase, text, pin, walls, sound) have no
+ * as the GM set it. Atlas's tools that live only on its 2D map (draw, erase, text, pin, walls, sound) have no
  * action here (docs/BACKLOG.md).
  */
 import { matchesHotkey, type MapHotkeyId } from '../atlasPort/app/keyboard/mapHotkeys';
@@ -22,7 +22,7 @@ export function boardBinding(binding: string | null): string | null {
 /** What an Atlas shortcut does on the board. */
 export type BoardHotkeyAction =
   | 'help' | 'measure' | 'diceTray' | 'diceLog' | 'sceneSwitcher' | 'dashboard' | 'nextMood' | 'silence'
-  | 'fitMap' | 'fitToken' | 'levelUp' | 'levelDown' | 'selectAll' | 'delete';
+  | 'fitMap' | 'fitToken' | 'levelUp' | 'levelDown' | 'selectAll' | 'delete' | 'fog' | 'brushSmaller' | 'brushLarger';
 
 /**
  * Atlas's shortcuts that do something on the board: these here, Atlas's tools the board opens (`atlasTools.ts`), undo and
@@ -33,6 +33,8 @@ const ON_BOARD: ReadonlySet<MapHotkeyId> = new Set<MapHotkeyId>([
   'help', 'palette', 'assets', 'lootRoller', 'undo', 'redo', 'redoAlt', 'cancel', 'move', 'measure', 'measureKeep',
   'initiative', 'previousTurn', 'nextTurn', 'diceTray', 'diceLog', 'sceneSwitcher', 'dashboard', 'nextMood', 'silence',
   'fitMap', 'fitToken', 'levelUp', 'levelDown', 'selectAll', 'delete', 'deleteAlt',
+  // The fog tool (Edit mode): its key, and the keys that size its brush while it is on.
+  'fog', 'drawSmaller', 'drawLarger',
 ]);
 
 /** Whether Atlas's shortcut `id` does something on the board. */
@@ -87,13 +89,17 @@ const ACTION_KEYS: ReadonlyArray<readonly [BoardHotkeyAction, MapHotkeyId]> = [
   ['selectAll', 'selectAll'],
   ['delete', 'delete'],
   ['delete', 'deleteAlt'],
+  ['fog', 'fog'],
+  ['brushSmaller', 'drawSmaller'],
+  ['brushLarger', 'drawLarger'],
 ];
 
 /** The action a key stands for on the board, read with the GM's Atlas bindings (`binding(id)`), or null. */
 export function boardHotkeyAction(event: KeyboardEvent, binding: (id: MapHotkeyId) => string | null): BoardHotkeyAction | null {
   for (const [action, id] of ACTION_KEYS) {
     const key = boardBinding(binding(id));
-    if (key && matchesHotkey(event, key)) return action;
+    // A held brush key goes on sizing the brush (Atlas's `repeats`); every other key acts once.
+    if (key && matchesHotkey(event, key, action === 'brushSmaller' || action === 'brushLarger')) return action;
   }
   return null;
 }

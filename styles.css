@@ -572,6 +572,131 @@
   padding: 6px 2px 0;
 }
 
+/* The fog tool's bars above the main toolbar (Atlas's `FogToolBar`): the same look as the Water painter's. */
+.atlas-tabletop-atlas .atlas-tabletop-fog-bars {
+  order: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 8px;
+  max-width: 100%;
+  pointer-events: none;
+}
+
+.atlas-tabletop-atlas .atlas-tabletop-fog-bars[hidden] {
+  display: none;
+}
+
+.atlas-tabletop-atlas .atlas-vtt-toolbar.atlas-tabletop-fog-bar {
+  box-sizing: border-box;
+  gap: 4px;
+  padding: 4px;
+  pointer-events: auto;
+  --atlas-panel-inner-radius: 14px;
+  border-radius: 15.5px;
+  --atlas-bar-control-radius: clamp(0px, calc(var(--atlas-panel-inner-radius, 15.5px) - 4px), 16px);
+  --no-tooltip: true;
+}
+
+.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-vtt-toolbar.atlas-tabletop-fog-bar .atlas-tool-button > span > button.btn--icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--atlas-bar-control-radius, 10px);
+}
+
+/* Bar 1 (liquids) uses solid accent fill for active; Bar 2 (tools) uses subtle tinted choice fill like Atlas's FogToolBar. */
+.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-vtt-toolbar.atlas-tabletop-fog-bar button.btn.atlas-tool-bar__choice.is-active {
+  background: var(--background-modifier-active-hover) !important;
+  color: var(--text-accent) !important;
+}
+
+.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-vtt-toolbar.atlas-tabletop-fog-bar button.btn.atlas-tool-bar__choice.is-active:hover {
+  background: var(--background-modifier-active-hover) !important;
+  color: var(--text-accent-hover, var(--text-accent)) !important;
+}
+
+.atlas-tabletop-atlas.atlas-tabletop-atlas.atlas-tabletop-atlas .atlas-vtt-toolbar.atlas-tabletop-fog-bar button.btn.atlas-tool-bar__choice.atlas-is-active {
+  background: var(--background-modifier-active-hover) !important;
+  color: var(--text-normal) !important;
+}
+
+.atlas-tabletop-fog-bar .atlas-fog-size-dot {
+  display: block;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.atlas-tabletop-fog-bar .atlas-tool-bar__dot {
+  display: block;
+  flex: none;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in oklch, var(--mono-100, var(--text-normal)) 18%, transparent);
+}
+
+.atlas-tabletop-fog-popover-anchor {
+  position: relative;
+}
+
+.atlas-tabletop-fog-popover {
+  min-width: 224px;
+  max-height: min(440px, calc(100vh - 160px));
+  overflow-y: auto;
+}
+
+.atlas-tabletop-fog-popover--center {
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.atlas-tabletop-fog-popover--motion {
+  min-width: 236px;
+}
+
+.atlas-tabletop-fog-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 10px;
+}
+
+.atlas-tabletop-fog-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.atlas-tabletop-fog-slider .atlas-tabletop-palette__range {
+  width: 100%;
+  accent-color: var(--interactive-accent);
+}
+
+.atlas-tabletop-fog-slider.is-disabled {
+  opacity: 0.45;
+}
+
+.atlas-tabletop-fog-slider__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--font-ui-smaller, 12px);
+}
+
+.atlas-tabletop-fog-slider__value {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller, 12px);
+  font-variant-numeric: tabular-nums;
+}
+
+.atlas-tabletop-fog-tint-row {
+  padding: 6px 2px 0;
+}
+
+
 /* Atlas's Measure tool bars (`MeasureToolBar.tsx`) and Look / Options dropdowns (`MeasureToolGroup.tsx`). */
 .atlas-tabletop-atlas .atlas-tabletop-measure-bars {
   order: 1;
@@ -3141,3 +3266,24 @@ body.atlas-tabletop-player-window .view-header {
 .atlas-tabletop-bg-tints { display: flex; flex-wrap: wrap; gap: 5px; }
 .atlas-tabletop-bg .atlas-tabletop-bg-tint { width: 22px; height: 22px; padding: 0; border-radius: 50%; border: 2px solid transparent; }
 .atlas-tabletop-bg .atlas-tabletop-bg-tint.is-active { border-color: #fff; background-clip: padding-box; }
+
+/* Atlas 0.18's switch, switch row, flush menu item, bar break and disabled tool button, restated under Tabletop's root (Atlas's own are scoped to its plugin root). */
+.atlas-tabletop-atlas .atlas-dropdown-menu-item--flush{grid-template-columns:16px 1fr auto}
+.atlas-tabletop-atlas .atlas-dropdown-toggle-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-inline:var(--atlas-menu-text-inset, 0px)}
+.atlas-tabletop-atlas .atlas-dropdown-toggle-row .atlas-toggle{flex-shrink:0}
+.atlas-tabletop-atlas .atlas-dropdown-toggle-row__label{flex:1 1 auto;min-width:0;overflow-wrap:break-word;-webkit-hyphens:auto;hyphens:auto;font-size:var(--font-ui-small);color:var(--text-normal)}
+.atlas-tabletop-atlas .atlas-dropdown-toggle-row--disabled .atlas-dropdown-toggle-row__label{color:var(--text-faint)}
+.atlas-tabletop-atlas .atlas-tool-bar__break{flex:none;width:0}
+.atlas-tabletop-atlas .atlas-toggle{position:relative;cursor:pointer;border-radius:10px}
+.atlas-tabletop-atlas .atlas-toggle .atlas-toggle__switch{width:var(--atlas-toggle-m-width, 60px);height:var(--atlas-toggle-m-height, 40px)}
+.atlas-tabletop-atlas .atlas-toggle .atlas-toggle__thumb{width:calc(var(--atlas-toggle-m-height, 40px) - 8px);height:calc(var(--atlas-toggle-m-height, 40px) - 8px)}
+.atlas-tabletop-atlas .atlas-toggle .atlas-toggle__thumb--on{transform:translate(calc(var(--atlas-toggle-m-width, 60px) - var(--atlas-toggle-m-height, 40px)))}
+.atlas-tabletop-atlas .atlas-toggle:focus-visible{outline:none;box-shadow:none}
+.atlas-tabletop-atlas .atlas-toggle--disabled{cursor:not-allowed;opacity:.5}
+.atlas-tabletop-atlas .atlas-toggle__switch{display:flex;align-items:center;padding:3px;transition:background-color .2s ease;border:1px solid var(--background-modifier-border);border-radius:inherit}
+.atlas-tabletop-atlas .atlas-toggle__switch--on{background-color:var(--interactive-accent)}
+.atlas-tabletop-atlas .atlas-toggle__switch--off{background-color:var(--background-secondary-alt);border-color:color-mix(in oklch,var(--mono-100) 18%,transparent)}
+.atlas-tabletop-atlas .atlas-toggle__thumb{display:flex;align-items:center;justify-content:center;transition:transform .2s ease;background-color:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:6px;box-shadow:0 1px 2px #00000029}
+.atlas-tabletop-atlas .atlas-toggle__thumb--off{transform:translate(0)}
+.atlas-tabletop-atlas .atlas-toggle__icon{height:18px;width:18px;color:var(--text-normal)}
+.atlas-tabletop-atlas .atlas-tool-button--disabled{opacity:.5;cursor:not-allowed;pointer-events:none}

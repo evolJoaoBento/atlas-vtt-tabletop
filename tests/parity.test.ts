@@ -21,7 +21,7 @@ test('the toolbar table holds Atlas 0.14.0 catalog in order', () => {
   assert.equal(status.loot, 'native');
   assert.equal(status.assets, 'native');
   assert.equal(status.palette, 'native');
-  assert.equal(status.fog, 'not-yet');
+  assert.equal(status.fog, 'native');
   // The Atlas the tables were checked against is the Atlas Tabletop needs.
   // Tabletop supports Atlas from the floor up; the tables are checked against the newest one it knows (0.18.0).
   assert.equal(ATLAS_CHECKED_VERSION, '0.18.0');

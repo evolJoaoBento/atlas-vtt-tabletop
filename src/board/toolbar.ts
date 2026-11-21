@@ -10,7 +10,10 @@
 import { FOG_MIN, GROUND_NOISES, MAX_MARGIN, MAX_TILE, type GroundMode, type GroundSettings } from './ground';
 import type { LiquidKind, WaterMotion } from './water';
 import { setSvg } from '../svg';
-import { atlasMeasureControlIcon, atlasMeasureEffectIcon, atlasMeasureIcon, atlasToolIcon, helpIcon, historyIcon, modeIcon, waterIcon } from './atlasToolIcons';
+import { atlasMeasureControlIcon, atlasMeasureEffectIcon, atlasMeasureIcon, atlasToolIcon, fogIcon, helpIcon, historyIcon, modeIcon, waterIcon } from './atlasToolIcons';
+import { FogToolBars } from './fogToolBar';
+import type { FogBarActions } from './fogTool';
+import { at } from '../atlasPort/atlasText';
 import {
   DEFAULT_MEASURE_TOOL, MEASURE_COLOR_SWATCHES, MEASURE_EFFECTS, MEASURE_MODES, colourWithEffect, isMeasureShape,
   measureColorOfSwatch, swatchOfMeasureColor, type MeasureEffect, type MeasureMode, type MeasureShapeKind, type MeasureToolOptions,
@@ -104,6 +107,8 @@ export interface ToolbarActions {
   arTableSheets?(): number | null;
   /** Starts fine-tuning where the players' AR table lies on the map. */
   placeArTable?(): void;
+  /** The GM's fog tool (Atlas 0.18's: its button and two bars), in Edit mode; absent where the board has no fog tool. */
+  fog?: FogBarActions;
   /** The GM's water brush: painting or erasing (null: off), its radius in grid cells, and how all of the map's water moves. */
   waterTool?(): 'paint' | 'erase' | 'fill' | null;
   setWaterTool?(mode: 'paint' | 'erase' | 'fill' | null): void;
@@ -328,6 +333,11 @@ export class BoardToolbar {
   private readonly undoButton: HTMLButtonElement;
   private readonly redoButton: HTMLButtonElement;
   private readonly waterGroup: HTMLElement;
+  /** The fog tool's button (beside Move, as Atlas places it) and its two bars. */
+  private readonly fogGroup: HTMLElement;
+  private readonly fogButton: HTMLButtonElement;
+  private readonly fogBars: FogToolBars | null;
+  private fogFace = '';
   private readonly modeGroup: HTMLElement;
   private readonly modeButtons: Array<{ mode: BoardMode; button: HTMLButtonElement }> = [];
   private readonly paintGroup: HTMLElement;
@@ -429,6 +439,7 @@ export class BoardToolbar {
       const pop = this.waterPopovers[this.openWaterPopoverName];
       if (!pop.panel.contains(target) && !pop.trigger.contains(target)) this.closeWaterPopovers();
     }
+    this.fogBars?.pressed(target);
     if (this.measureLookOpen && !this.measureLookPanel.contains(target) && !this.measureLookTrigger.contains(target)) {
       this.closeMeasureLook();
     }
@@ -627,6 +638,36 @@ export class BoardToolbar {
     });
     // Connect's Template tool, as its player toolbar has it: the tool, and a chevron to its shapes and to clearing them.
     this.viewTooltip = new AtlasTooltip(container);
+    // Atlas 0.18's fog tool: one button right after Move/Select, as Atlas's toolbar has it; while it is on, two bars float above the toolbar.
+    this.fogGroup = el('div', 'atlas-tool-group atlas-tabletop-fog-group', bar);
+    this.fogButton = this.registerButton('fog', toolIn(this.fogGroup, fogIcon('fog'), () => {
+      const fog = this.actions.fog;
+      if (!fog) return;
+      if (fog.state().on) {
+        fog.stop();
+      } else {
+        this.close();
+        this.closeGround();
+        this.closeView();
+        this.closeLaser();
+        this.closeLighting();
+        this.closePaint();
+        this.closeMeasure();
+        this.closeTemplate();
+        this.closeMore();
+        fog.start();
+      }
+      this.refresh();
+    }));
+    this.fogButton.setAttribute('aria-label', at('toolbar.fogTool'));
+    this.fogButton.setAttribute('aria-expanded', 'false');
+    this.viewTooltip.attach(this.fogButton.parentElement!, () => {
+      const eraser = this.actions.fog?.state().mode === 'eraser';
+      const shortcut = this.actions.fog?.hotkey();
+      return { label: eraser ? at('toolbar.fogEraser') : at('toolbar.fogTool'), ...(shortcut ? { shortcut } : {}) };
+    });
+    this.fogBars = this.actions.fog ? new FogToolBars(this.row, el, this.viewTooltip, this.actions.fog, () => this.refresh(), (open) => { if (open) this.row.ownerDocument.addEventListener('pointerdown', this.onOutside, true); else this.dropOutsideIfClosed(); }) : null;
+    this.fogGroup.style.display = this.actions.fog ? '' : 'none';
     // Atlas's Measure tool group (`MeasureToolGroup.tsx`): face shows the active mode, chevron opens drag distance & rules.
     this.measureGroup = el('div', 'atlas-tool-group', bar);
     this.measureButton = this.registerButton('measure', toolIn(this.measureGroup, atlasMeasureIcon('ruler'), () => {
@@ -1539,11 +1580,11 @@ export class BoardToolbar {
       if (event.key === 'Escape' && !this.moreMenu.hidden) { event.preventDefault(); event.stopPropagation(); this.closeMore(); }
     });
     // Left to right as they stand; they leave from the right.
-    this.fitOrder.push(laserGroup, this.measureGroup, this.waterGroup, this.paintGroup, this.templateGroup, this.lightingGroup, this.groundButton.closest('.atlas-tool-button') as HTMLElement, this.button.closest('.atlas-tool-button') as HTMLElement, this.viewButton.closest('.atlas-tool-button') as HTMLElement, this.endSlot);
+    this.fitOrder.push(laserGroup, this.fogGroup, this.measureGroup, this.waterGroup, this.paintGroup, this.templateGroup, this.lightingGroup, this.groundButton.closest('.atlas-tool-button') as HTMLElement, this.button.closest('.atlas-tool-button') as HTMLElement, this.viewButton.closest('.atlas-tool-button') as HTMLElement, this.endSlot);
     this.fitWatch = new (doc.defaultView ?? window).ResizeObserver(() => this.fit());
     this.fitWatch.observe(container);
     // Presses on the bar and the panel are not the board's: no camera drag, no deselecting.
-    for (const part of [bar, this.helpBar, this.panel, this.viewPanel, this.groundPanel, this.waterPanel, this.measureBarsPanel]) part.addEventListener('pointerdown', (event) => event.stopPropagation());
+    for (const part of [bar, this.helpBar, this.panel, this.viewPanel, this.groundPanel, this.waterPanel, this.measureBarsPanel, ...(this.fogBars ? [this.fogBars.panel] : [])]) part.addEventListener('pointerdown', (event) => event.stopPropagation());
     this.refresh();
   }
 
@@ -1583,6 +1624,7 @@ export class BoardToolbar {
     show(this.endSlot, playing || cinematic);
     show(this.atlasGroup, playing);
     show(this.waterGroup, editing);
+    show(this.fogGroup, editing);
     show(this.lightingGroup, editing);
     show(this.paintGroup, editing);
     show(this.shapeGroup, editing);
@@ -1605,6 +1647,7 @@ export class BoardToolbar {
     this.undoButton.disabled = this.actions.canUndo?.() !== true;
     this.redoButton.disabled = this.actions.canRedo?.() !== true;
     this.syncWaterBar();
+    this.syncFogBar();
     this.syncMeasureBar();
     const canLight = this.actions.canLight();
     this.lightingGroup.style.display = canLight ? '' : 'none';
@@ -1626,7 +1669,7 @@ export class BoardToolbar {
     // The group's face is always the tool in use, as Atlas's is while one of its tools is.
     setSvg(this.laserButton, laser ? LASER_SVG : HAND_SVG);
     // One tool in use at a time, as on Atlas's toolbar: the group is lit unless the Measure tool is.
-    this.laserButton.classList.toggle('is-active', this.actions.measureOn?.() !== true && !this.actions.waterTool?.() && !this.actions.painting?.());
+    this.laserButton.classList.toggle('is-active', this.actions.measureOn?.() !== true && !this.actions.waterTool?.() && !this.actions.painting?.() && this.actions.fog?.state().on !== true);
     this.laserButton.setAttribute('aria-label', laser ? 'Laser Pointer' : 'Move/Select');
     this.laserButton.title = `${laser ? 'Laser Pointer' : 'Move/Select'} (${MOVE_KEY})`;
     for (const [entry, chosen] of [[this.moveItem, !laser], [this.laserItem, laser]] as const) {
@@ -1884,6 +1927,18 @@ export class BoardToolbar {
         this.closeTemplate();
         this.closeMore();
         if (!this.actions.waterTool?.()) this.actions.setWaterTool?.(this.lastWaterMode);
+        break;
+      case 'fog':
+        this.close();
+        this.closeGround();
+        this.closeView();
+        this.closeLaser();
+        this.closeLighting();
+        this.closePaint();
+        this.closeMeasure();
+        this.closeTemplate();
+        this.closeMore();
+        if (this.actions.fog && !this.actions.fog.state().on) this.actions.fog.start();
         break;
       case 'shapes':
         if (this.actions.shapeTool?.() !== true) this.actions.setShapeTool?.(true);
@@ -2378,6 +2433,29 @@ export class BoardToolbar {
     this.viewTooltip.refresh();
   }
 
+  /** Syncs the Fog Tool button (its face is the mode in use) and its two bars with the fog tool. */
+  private syncFogBar(): void {
+    const fog = this.actions.fog;
+    if (!fog || !this.fogBars) return;
+    const state = fog.state();
+    const mode = this.actions.mode?.() ?? null;
+    const editing = mode === null || mode === 'edit';
+    const face = state.mode === 'eraser' ? 'eraser' : 'fog';
+    if (this.fogFace !== face) {
+      this.fogFace = face;
+      setSvg(this.fogButton, fogIcon(face));
+      this.fogButton.setAttribute('aria-label', face === 'eraser' ? at('toolbar.fogEraser') : at('toolbar.fogTool'));
+    }
+    this.fogButton.classList.toggle('is-active', state.on);
+    this.fogButton.setAttribute('aria-pressed', String(state.on));
+    const showBar = editing && state.on
+      && this.viewPanel.hidden && this.panel.hidden && this.groundPanel.hidden
+      && this.paintPanel.hidden && this.lightingPanel.hidden;
+    this.fogBars.show(showBar);
+    this.fogButton.setAttribute('aria-expanded', String(showBar));
+    this.viewTooltip.refresh();
+  }
+
   closeWater(): void {
     this.closeWaterPopovers();
     if (this.waterPanel.hidden) return;
@@ -2726,7 +2804,7 @@ export class BoardToolbar {
   }
 
   private dropOutsideIfClosed(): void {
-    if (this.panel.hidden && this.viewPanel.hidden && this.groundPanel.hidden && this.laserPanel.hidden && this.measurePanel.hidden && this.lightingPanel.hidden && this.paintPanel.hidden && this.openWaterPopoverName === null && !this.measureLookOpen && this.templatePanel.hidden && this.moreMenu.hidden) {
+    if (this.panel.hidden && this.viewPanel.hidden && this.groundPanel.hidden && this.laserPanel.hidden && this.measurePanel.hidden && this.lightingPanel.hidden && this.paintPanel.hidden && this.openWaterPopoverName === null && this.fogBars?.popoverOpen !== true && !this.measureLookOpen && this.templatePanel.hidden && this.moreMenu.hidden) {
       this.row.ownerDocument.removeEventListener('pointerdown', this.onOutside, true);
     }
   }
@@ -2864,6 +2942,7 @@ export class BoardToolbar {
     this.closeLaser();
     this.row.ownerDocument.removeEventListener('pointerdown', this.onOutside, true);
     this.row.ownerDocument.removeEventListener('keydown', this.onWaterKey, true);
+    this.fogBars?.dispose();
     this.row.ownerDocument.removeEventListener('keydown', this.onMeasureKey, true);
     this.seeThroughRing.dispose();
     this.viewTooltip.dispose();

@@ -57,6 +57,7 @@ import { planExtrasMove } from './extrasMigration';
 import { brushGlows, givenUpText, legacyWaterMove, LIQUID_LIMITS, readLiquids, restyledLiquids, strokeLiquids, waterSourceOf, type LiquidMasks, type LiquidMotions, type OutlineReport, type WaterSource } from './liquids';
 import { LIQUID_DEFAULTS, LIQUID_KINDS, readWaterMotion, WaterMask, type LiquidKind, type SavedWaterMask, type WaterMotion } from './water';
 import { MeasureFullError, NotHeldError, type TokenChange } from './tokenWriter';
+import type { FogHost, FogSwitchId } from './fogTool';
 import { HOST_BAR_LABELS, hostBar, mapName } from './hostBar';
 import { migrationWalls, roomsAwaitAtlas, roomWallMoves } from './roomWallMigration';
 import { writeBackup } from '../backups';
@@ -340,6 +341,8 @@ export class BoardView extends ItemView {
     // Atlas saved a collection's settings (its units, its diagonal rule, its conditions): the board reads its rules again.
     this.registerEvent((this.app.workspace as unknown as { on(name: string, callback: () => void): EventRef }).on('atlas-vtt:collection-settings-changed', () => this.reload()));
     this.registerDomEvent(this.contentEl, 'pointerdown', () => { this.services.focused(this); this.followHost(); }, true);
+    // Atlas's "Fog opacity in GM view" changed (here or in Atlas): the fog in the GM's view takes it.
+    this.register(new AtlasBridge(this.app).onSettingsChange(() => this.board?.refreshFogOpacity()));
     const host = this.services.host;
     if (host) {
       // This board needs Atlas's tab while it is open; working on the board (its tab made active, a press on it) brings
@@ -719,6 +722,7 @@ export class BoardView extends ItemView {
         selectTool: (tool) => {
           if (tool === 'move') { this.board?.goToToolbar('move'); return; }
           if (tool === 'measure') { this.board?.goToToolbar('measure'); return; }
+          if (tool === 'fog' && this.board?.goToToolbar('fog') === true) return;
           openInAtlas();
         },
         setDiceLogOpen: (open) => {
@@ -1452,10 +1456,43 @@ export class BoardView extends ItemView {
     return path.startsWith(`${props.folderPath}/`) ? props : this.services.minis;
   }
 
+  /** The fog tool's host: Atlas's fog actions through the writer (on the level the board shows), Atlas's settings and notices. */
+  private fogHost(): FogHost {
+    const { writer } = this.services;
+    const mapPath = (): string => this.path ?? '';
+    const bridge = (): AtlasBridge => new AtlasBridge(this.app);
+    const level = (): string | null => this.map?.level ?? null;
+    const refused = (error: unknown): never => { this.unsaved('fog', error); throw error; };
+    // Atlas 0.18's tool switches live in the store of the view holding the map; Atlas's own defaults where unset.
+    const switches = (): { toolSwitches?: Partial<Record<string, boolean>>; setToolSwitch?: (id: string, on: boolean) => void } | null => {
+      const state = tabViewOf(this.app, mapPath())?.view.atlasStore.getState();
+      return typeof state?.setToolSwitch === 'function' ? state : null;
+    };
+    const defaults: Record<FogSwitchId, boolean> = { fogSnap: true, fogConstrain: false };
+    return {
+      offers: () => writer.fogOffers(mapPath()),
+      add: (operations) => writer.addFog(mapPath(), operations, level()).then(() => true, (error: unknown) => { this.unsaved('fog', error); return false; }),
+      clear: () => writer.clearFog(mapPath(), level()).catch(refused),
+      cover: (rect) => writer.coverAllFog(mapPath(), rect, level()).catch(refused),
+      hideRooms: (rect) => writer.hideRooms(mapPath(), rect, undefined, level()).catch(refused),
+      gmOpacity: () => bridge().gmFogOpacity(),
+      setGmOpacity: (opacity) => { bridge().setGmFogOpacity(opacity); },
+      switchOn: (id) => { const state = switches(); return state ? state.toolSwitches?.[id] ?? defaults[id] : null; },
+      setSwitch: (id, on) => { const state = switches(); if (!state) return false; state.setToolSwitch?.(id, on); return true; },
+      brushKeys: () => {
+        const keys = [bridge().hotkey('drawSmaller'), bridge().hotkey('drawLarger')];
+        return keys.map((key) => (key ? formatHotkey(key) : '')).filter((key) => key !== '').join(' ');
+      },
+      notice: (text) => { new Notice(text); },
+    };
+  }
+
   private host(): BoardHost {
     const { assignments, boardData, writer } = this.services;
     const mapPath = (): string => this.path ?? '';
     return {
+      fog: this.fogHost(),
+      fogHotkey: () => { const key = new AtlasBridge(this.app).hotkey('fog'); return key ? formatHotkey(key) : null; },
       sounds: () => this.soundEngine(),
       controlledByPlayers: (tokenId) => this.services.session?.()?.controllers?.(tokenId)?.some((player) => player.controls) === true,
       spellBook: () => this.services.spellBook?.() ?? null,

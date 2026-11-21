@@ -4,9 +4,9 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
-  Ban, Brush, Circle, CircleHelp, Clapperboard, CloudFog, Command, Droplets, Eraser, Eye, EyeOff, Flame, FlaskConical, Hammer,
-  ImageIcon, Moon, MoreHorizontal, PaintBucket, PaintRoller, Pin, Redo2, Ruler, Slash, SlidersHorizontal, Snowflake,
-  Square, Sun, Swords, Target, Trash2, Triangle, Undo2, Waves, Zap,
+  Ban, Brush, Circle, CircleHelp, Clapperboard, Check, Cloud, CloudFog, CloudOff, Command, DoorOpen, Droplets, Eraser, Eye, EyeOff, Flame, FlaskConical, Grid3x3, Hammer,
+  ImageIcon, Lasso, LayoutGrid, Moon, MoreHorizontal, PaintBucket, PaintRoller, Paintbrush, Pentagon, Pin, Redo2, Ruler, Slash, SlidersHorizontal, Snowflake,
+  Square, Sun, Swords, Target, Trash2, Triangle, Undo2, Waves, X, Zap,
 } from 'lucide-react';
 import { CoinIcon } from '../atlasPort/app/react/components/CoinIcon';
 import type { MeasureEffect } from '../atlasPort/app/measure/measureEffects';
@@ -76,6 +76,29 @@ export function waterIcon(id: WaterIconId): string {
     more: renderToStaticMarkup(<MoreHorizontal />),
   };
   return water[id];
+}
+
+/** The fog tool's icons (lucide, as Atlas's `FogToolBar` and `fogToolChoices.ts` use them): the button's two faces, the shapes, the actions, the menu. */
+export type FogIconId = 'fog' | 'eraser' | 'brush' | 'rectangle' | 'polygon' | 'lasso' | 'cells' | 'room' | 'cover' | 'delete' | 'more' | 'rooms' | 'on' | 'off';
+let fog: Record<FogIconId, string> | null = null;
+export function fogIcon(id: FogIconId): string {
+  fog ??= {
+    fog: renderToStaticMarkup(<Cloud />),
+    eraser: renderToStaticMarkup(<Eraser />),
+    brush: renderToStaticMarkup(<Paintbrush />),
+    rectangle: renderToStaticMarkup(<Square />),
+    polygon: renderToStaticMarkup(<Pentagon />),
+    lasso: renderToStaticMarkup(<Lasso />),
+    cells: renderToStaticMarkup(<Grid3x3 />),
+    room: renderToStaticMarkup(<DoorOpen />),
+    cover: renderToStaticMarkup(<PaintBucket />),
+    delete: renderToStaticMarkup(<CloudOff />),
+    more: renderToStaticMarkup(<MoreHorizontal />),
+    rooms: renderToStaticMarkup(<LayoutGrid />),
+    on: renderToStaticMarkup(<Check className="atlas-toggle__icon" />),
+    off: renderToStaticMarkup(<X className="atlas-toggle__icon" />),
+  };
+  return fog[id];
 }
 
 /** The board's three modes (Play, Edit, Cinematic) and the wall paint tool (painting, taking a material off). */

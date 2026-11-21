@@ -2,7 +2,7 @@
 // button and Tabletop's lighting and board settings (src/palette/tabletopCommands.ts), drawn as Atlas's own entries
 // with lucide icons, in the Settings tab.
 import {
-  Blend, BrickWall, CircleDashed, Clapperboard, Command, Dices, Ellipsis, Eye, EyeOff, Flashlight, Focus, Globe,
+  Blend, BrickWall, CircleDashed, Clapperboard, Cloud, Command, Dices, Ellipsis, Eye, EyeOff, Flashlight, Focus, Globe,
   Hammer, Hand, Image as ImageIcon, Lamp, Layers, ListOrdered, Moon, Mountain, NotebookText, PaintRoller, Plug, Radio,
   Redo2, Ruler, ScanEye, ScrollText, Settings2, Shapes, SlidersHorizontal, SquareStack, Sun, Sunset, Swords, Undo2, Waves,
 } from 'lucide-react';
@@ -17,7 +17,7 @@ const ICONS: Readonly<Record<ToolbarCommandIcon, React.ComponentType>> = {
   swords: Swords, hammer: Hammer, clapperboard: Clapperboard, dice: Dices, scroll: ScrollText, notebook: NotebookText,
   'list-ordered': ListOrdered, settings: Settings2, undo: Undo2, redo: Redo2, hand: Hand, flashlight: Flashlight,
   sliders: SlidersHorizontal, ruler: Ruler, shapes: Shapes, waves: Waves, mountain: Mountain, 'paint-roller': PaintRoller,
-  ground: Globe, radio: Radio, coin: CoinIcon, image: ImageIcon, command: Command, ellipsis: Ellipsis, plug: Plug,
+  cloud: Cloud, ground: Globe, radio: Radio, coin: CoinIcon, image: ImageIcon, command: Command, ellipsis: Ellipsis, plug: Plug,
 };
 
 /* eslint-disable @typescript-eslint/no-explicit-any */

@@ -3,7 +3,7 @@ import type { ParityRow } from './types';
 /** Atlas 0.18.0's command palette entries (0.12.0's, 0.14's lighting pages, 0.17's and 0.18's later ones) (`CommandPalette.tsx` `commandOptions`, sub-page entries included), in order. */
 export const ATLAS_PALETTE: readonly ParityRow[] = [
   { id: 'move-tool', status: 'mapped', note: "The board's Move/Select tool." },
-  { id: 'fog-tool', status: 'not-yet', note: "Fog painting is a later round; the entry opens Atlas's palette." },
+  { id: 'fog-tool', status: 'native', note: "The board's Fog Tool (Edit mode)." },
   { id: 'measure-tool', status: 'native', note: "The board's Measure tool." },
   { id: 'note-pin-tool', status: 'not-yet', note: "Placing note pins is a later round; the entry opens Atlas's palette." },
   { id: 'open-scene-browser', status: 'native', note: "Atlas's scene browser, opened over the board." },

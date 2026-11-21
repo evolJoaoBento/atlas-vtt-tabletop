@@ -19,6 +19,8 @@ const server = http.createServer((req, res) => {
 const results = [];
 const check = (name, ok, detail) => { results.push({ name, ok: !!ok, detail }); };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Moves the pointer over a locator's middle (a disabled control too, which hover would wait on). */
+const window_hover = async (page, locator) => { const box = await locator.boundingBox(); if (box) await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); };
 
 /** Each feature: a name and a function of the page and helpers. */
 const features = [];
@@ -7464,7 +7466,8 @@ feature('shortcut help on the board', async ({ page, shot }) => {
   const find = (text) => seen.rows.find(([label]) => label.toLowerCase().includes(text));
   check("shortcut help: Atlas's help window opens on the board, with its title", seen.title.length > 0 && seen.rows.length > 10, JSON.stringify(seen.title));
   check("shortcut help: the asset manager is listed with the board's key (Shift + A)", (find('asset')?.[1] ?? '') === 'Shift + A', JSON.stringify(find('asset')));
-  check("shortcut help: Atlas's 2D map tools are not listed", !seen.atlasRows.some((label) => /fog|draw|erase|text tool|pin|wall|sound page|brush/.test(label)), JSON.stringify(seen.atlasRows));
+  check("shortcut help: Atlas's 2D map tools are not listed (the fog tool and its brush keys are the board's now)", !seen.atlasRows.some((label) => /draw|erase|text tool|pin|wall|sound page/.test(label.replace('smaller drawing or fog brush', '').replace('larger drawing or fog brush', ''))), JSON.stringify(seen.atlasRows));
+  check("shortcut help: the fog tool key and the brush size keys are listed", seen.atlasRows.includes('fog tools') && seen.atlasRows.includes('smaller drawing or fog brush') && seen.atlasRows.includes('larger drawing or fog brush') && (find('fog tools')?.[1] ?? '') === 'F', JSON.stringify(find('fog tools')));
   // Atlas 0.17+ has no experimental switch on Next mood and Silence: the board's two sound keys are listed; the Sound page key (S, a clash with Silence's Shift+S) is not.
   check("shortcut help: Next mood and Silence are listed, the Sound page key is not", seen.atlasRows.includes('next mood') && seen.atlasRows.includes('stop all sound') && !seen.atlasRows.includes('sound page'), JSON.stringify(seen.atlasRows));
   check("shortcut help: the board's own keys follow, camera and eyes included",
@@ -7533,6 +7536,265 @@ function globalHash() {
   // The styles without their comments: a comment changes no page.
   return cache.hashText([rest, cache.hashFiles(files), affected.cssHash('styles.css'), affected.cssHash(path.join(root, 'atlas.css'))].join('\n'));
 }
+
+// ── The GM's fog tool: Atlas 0.18's button and two bars on the board's Edit mode ─────────────────────────────────────
+feature('fog tool bars', async ({ page, shot }) => {
+  const q = (selector) => page.locator(selector);
+  const button = q('.atlas-tabletop-toolbar button[aria-label="Fog Tool"]');
+  check('fog bars: the toolbar has a Fog Tool button', (await button.count()) === 1);
+  const order = await page.evaluate(() => {
+    const group = document.querySelector('.atlas-tabletop-toolbar button[aria-label="Fog Tool"]').closest('.atlas-tool-group');
+    const move = group.previousElementSibling;
+    return { afterMove: !!move && !!move.querySelector('[data-toolbar-id="move"]'), face: group.querySelector('svg')?.getAttribute('class') ?? '' };
+  });
+  check('fog bars: the button stands right after Move/Select, as in Atlas\'s toolbar, with the cloud for its face', order.afterMove && /lucide-cloud\b/.test(order.face), JSON.stringify(order));
+  // Edit mode only.
+  await page.evaluate(() => { const { board, modes } = window.boardTest; modes.on = true; modes.mode = 'play'; board.refreshToolbar(); });
+  const hiddenInPlay = await page.evaluate(() => { const el = document.querySelector('.atlas-tabletop-toolbar button[aria-label="Fog Tool"]'); return el.closest('.atlas-tool-group').classList.contains('atlas-tabletop-off-mode') || el.offsetParent === null; });
+  check('fog bars: the Fog Tool is not in Play mode', hiddenInPlay);
+  await page.evaluate(() => { const { board, modes } = window.boardTest; modes.mode = 'edit'; board.refreshToolbar(); });
+  check('fog bars: it is in Edit mode', await button.isVisible());
+  check('fog bars: the bars are not there while the tool is off', !(await q('.atlas-tabletop-fog-bars').isVisible()));
+  const tip = async () => page.evaluate(() => { const shown = document.querySelector('.atlas-tabletop-atlas-tooltip:not([hidden])'); return shown ? shown.textContent : ''; });
+  await window_hover(page, button);
+  await page.waitForTimeout(600);
+  const buttonTip = await tip();
+  check('fog bars: its tooltip names it with Atlas\'s key', buttonTip.startsWith('Fog Tool') && buttonTip.includes('F'), buttonTip);
+  await button.click();
+  await page.mouse.move(5, 5);
+  await wait(300);
+  check('fog bars: a click opens the two bars above the toolbar', (await q('.atlas-tabletop-fog-bars').isVisible()) && (await q('.atlas-tabletop-fog-bars .atlas-tool-bar').count()) === 2);
+  const names = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-fog-bars .atlas-tool-bar')].map((bar) => bar.getAttribute('aria-label')));
+  check('fog bars: they are Atlas\'s "Fog" and "Fog shapes and actions"', JSON.stringify(names) === '["Fog","Fog shapes and actions"]', JSON.stringify(names));
+  const modes = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-fog-bars [data-fog-mode]')].map((b) => [b.getAttribute('aria-label'), b.classList.contains('is-active')]));
+  check('fog bars: the modes are Fog (chosen) and Eraser', JSON.stringify(modes) === '[["Fog",true],["Eraser",false]]', JSON.stringify(modes));
+  check('fog bars: the button is lit and says the bars are open', await page.evaluate(() => { const b = document.querySelector('.atlas-tabletop-toolbar button[aria-label="Fog Tool"]'); return b.classList.contains('is-active') && b.getAttribute('aria-expanded') === 'true'; }));
+  const shapes = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-fog-bars [data-fog-shape]')].map((b) => [b.dataset.fogShape, b.getAttribute('aria-label'), b.classList.contains('is-active'), b.getAttribute('aria-disabled') === 'true']));
+  check('fog bars: the six shapes in Atlas\'s order, the brush chosen', JSON.stringify(shapes.map((one) => one.slice(0, 3))) === JSON.stringify([['brush', 'Brush', true], ['rectangle', 'Rectangle', false], ['polygon', 'Polygon', false], ['lasso', 'Lasso', false], ['cells', 'Cells', false], ['room', 'Room', false]]), JSON.stringify(shapes));
+  const actions = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-fog-bars [data-fog-action], .atlas-tabletop-fog-bars [data-fog-popover]')].map((b) => b.getAttribute('aria-label') ?? b.dataset.fogAction));
+  check('fog bars: then the brush size, Cover all, Delete all fog and More', JSON.stringify(actions) === '["Brush size","Cover all","Delete all fog","More","rooms"]', JSON.stringify(actions));
+  await shot('fog-bars');
+  // Tooltips: the modes and shapes say what Atlas says.
+  const hoverTip = async (selector) => { await window_hover(page, q(selector)); await page.waitForTimeout(600); const text = await tip(); await page.mouse.move(5, 5); await page.waitForTimeout(300); return text; };
+  const fogTip = await hoverTip('.atlas-tabletop-fog-bars [data-fog-mode="fog"]');
+  check('fog bars: Fog\'s tooltip is Atlas\'s', fogTip === 'FogHold Alt to erase instead. Right-click fog to reveal or delete it', fogTip);
+  const eraserTip = await hoverTip('.atlas-tabletop-fog-bars [data-fog-mode="eraser"]');
+  check('fog bars: Eraser\'s tooltip is Atlas\'s', eraserTip === 'EraserHold Alt to add fog instead', eraserTip);
+  const polygonTip = await hoverTip('.atlas-tabletop-fog-bars [data-fog-shape="polygon"]');
+  check('fog bars: Polygon\'s tooltip is Atlas\'s', polygonTip === 'PolygonClick corners. Enter closes it', polygonTip);
+  // Choosing the eraser changes the button's face and name; a shape is chosen with the others left alone.
+  await q('.atlas-tabletop-fog-bars [data-fog-mode="eraser"]').click();
+  check('fog bars: Eraser turns the toolbar button into Fog Eraser', await page.evaluate(() => { const b = document.querySelector('.atlas-tabletop-toolbar [data-toolbar-id="fog"]'); return b.getAttribute('aria-label') === 'Fog Eraser' && /lucide-eraser\b/.test(b.querySelector('svg').getAttribute('class')) && window.boardTest.board.toolbarActions().fog.state().mode === 'eraser'; }));
+  await q('.atlas-tabletop-fog-bars [data-fog-shape="lasso"]').click();
+  check('fog bars: a shape can be chosen (the others have no gesture yet)', await page.evaluate(() => window.boardTest.board.toolbarActions().fog.state().shape === 'lasso'));
+  await q('.atlas-tabletop-fog-bars [data-fog-shape="brush"]').click();
+  // The disabled states with Atlas's reasons.
+  await page.evaluate(() => { const { board } = window.boardTest; board.map.walls = []; board.map.grid.size = 0; board.refreshToolbar(); });
+  const disabled = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('.atlas-tabletop-fog-bars [data-fog-shape]')].map((b) => [b.dataset.fogShape, b.getAttribute('aria-disabled') === 'true'])));
+  check('fog bars: Cells without a grid and Room without walls are disabled', disabled.cells && disabled.room && !disabled.brush && !disabled.rectangle, JSON.stringify(disabled));
+  check('fog bars: Cells says why', (await hoverTip('.atlas-tabletop-fog-bars [data-fog-shape="cells"]')) === 'CellsThis map has no grid');
+  check('fog bars: Room says why', (await hoverTip('.atlas-tabletop-fog-bars [data-fog-shape="room"]')) === 'RoomThis map has no walls');
+  // The brush size: a dot and a slider 10-200 in cells of the grid.
+  await page.evaluate(() => { const { board } = window.boardTest; board.map.grid.size = 70; board.refreshToolbar(); });
+  await q('.atlas-tabletop-fog-bars [data-fog-popover="size"]').click();
+  const size = await page.evaluate(() => { const input = document.querySelector('.atlas-tabletop-fog-bars input[aria-label="Brush size"]'); return { min: input.min, max: input.max, value: input.value, label: document.querySelector('.atlas-tabletop-fog-popover--size .atlas-dropdown-slider-row__value').textContent }; });
+  check('fog bars: the brush size slider runs 10 to 200, 50 to begin with, in cells of the grid', size.min === '10' && size.max === '200' && size.value === '50' && size.label === '1.4 cells', JSON.stringify(size));
+  await shot('fog-size');
+  await q('.atlas-tabletop-fog-bars input[aria-label="Brush size"]').fill('140');
+  check('fog bars: the slider sets the brush', await page.evaluate(() => window.boardTest.board.toolbarActions().fog.state().brushSize === 140));
+  await q('.atlas-tabletop-fog-bars [data-fog-popover="size"]').click();
+  await q('.atlas-tabletop-fog-bars [data-fog-shape="lasso"]').click();
+  const sizeOff = await page.evaluate(() => document.querySelector('.atlas-tabletop-fog-bars [data-fog-popover="size"]').getAttribute('aria-disabled') === 'true');
+  const sizeTip = await hoverTip('.atlas-tabletop-fog-bars [data-fog-popover="size"]');
+  check('fog bars: the brush size is disabled beside another shape, and says so', sizeOff && sizeTip === 'Brush size, .Only the brush has a size', JSON.stringify([sizeOff, sizeTip]));
+  await q('.atlas-tabletop-fog-bars [data-fog-shape="brush"]').click();
+  // Cover all and Delete all fog.
+  await page.evaluate(() => window.boardTest.fog.reset());
+  const noFog = await page.evaluate(() => document.querySelector('.atlas-tabletop-fog-bars [data-fog-action="delete"]').getAttribute('aria-disabled') === 'true');
+  const noFogTip = await hoverTip('.atlas-tabletop-fog-bars [data-fog-action="delete"]');
+  check('fog bars: Delete all fog is disabled with no fog, and says so', noFog && noFogTip === 'Delete all fogNo fog on this map', JSON.stringify([noFog, noFogTip]));
+  check('fog bars: Cover all\'s tooltip is Atlas\'s', (await hoverTip('.atlas-tabletop-fog-bars [data-fog-action="cover"]')) === 'Cover allHides the whole map');
+  await q('.atlas-tabletop-fog-bars [data-fog-action="cover"]').click();
+  await wait(300);
+  const covered = await page.evaluate(() => { const ops = Object.values(window.boardTest.fog.record()); const size = window.boardTest.board.mapSize; return { ops: ops.length, rect: ops[0] && [ops[0].type, ops[0].x, ops[0].y, ops[0].width, ops[0].height, ops[0].isErasing], size: [size.width, size.height] }; });
+  check('fog bars: Cover all hides the whole map in one rectangle', covered.ops === 1 && JSON.stringify(covered.rect) === JSON.stringify(['rectangle', 0, 0, covered.size[0], covered.size[1], false]), JSON.stringify(covered));
+  await shot('fog-covered');
+  check('fog bars: Delete all fog is there now', await page.evaluate(() => document.querySelector('.atlas-tabletop-fog-bars [data-fog-action="delete"]').getAttribute('aria-disabled') !== 'true'));
+  await q('.atlas-tabletop-fog-bars [data-fog-action="delete"]').click();
+  await wait(300);
+  check('fog bars: Delete all fog takes it all away, with no question asked', await page.evaluate(() => Object.keys(window.boardTest.fog.record()).length === 0));
+  // The More menu.
+  await q('.atlas-tabletop-fog-bars [data-fog-popover="more"]').click();
+  const more = await page.evaluate(() => {
+    const panel = document.querySelector('.atlas-tabletop-fog-popover--more');
+    const input = panel.querySelector('input[aria-label="Fog opacity in GM view"]');
+    return { shown: !panel.hidden, input: input && [input.min, input.max, input.step, input.value], value: panel.querySelector('.atlas-dropdown-slider-row__value').textContent, switches: [...panel.querySelectorAll('[role=switch]')].map((s) => [document.getElementById(s.getAttribute('aria-labelledby')).textContent, s.getAttribute('aria-checked')]), item: panel.querySelector('[data-fog-action="rooms"]').textContent };
+  });
+  check('fog bars: More has the GM fog opacity (10-100 %, 50 to begin with), Snap and Constrain, and Hide all rooms', more.shown && JSON.stringify(more.input) === '["10","100","5","50"]' && more.value === '50%' && JSON.stringify(more.switches) === '[["Snap","true"],["Constrain","false"]]' && more.item === 'Hide all rooms', JSON.stringify(more));
+  await shot('fog-more');
+  await q('.atlas-tabletop-fog-popover--more [role=switch]').first().click();
+  await q('.atlas-tabletop-fog-popover--more [role=switch]').nth(1).click();
+  check('fog bars: Snap and Constrain switch (kept by Tabletop where Atlas keeps no tool switches)', await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-fog-popover--more [role=switch]')].map((s) => s.getAttribute('aria-checked')).join() === 'false,true'));
+  // The opacity slider moves the board's fog strength in the GM's view.
+  await q('.atlas-tabletop-fog-popover--more input[aria-label="Fog opacity in GM view"]').fill('80');
+  const strength = await page.evaluate(() => ({ gm: window.boardTest.fog.state.gmOpacity, fog: window.boardTest.board.fog.material.uniforms.uStrength.value }));
+  check('fog bars: the GM opacity slider sets Atlas\'s setting and the board\'s fog strength in the GM\'s view', strength.gm === 0.8 && strength.fog === 0.8, JSON.stringify(strength));
+  // Hide all rooms and its notices.
+  const notices = async (rooms) => { await page.evaluate((r) => { window.boardTest.fog.state.notices.length = 0; window.boardTest.fog.state.rooms = r; }, rooms); await q('.atlas-tabletop-fog-popover--more [data-fog-action="rooms"]').click(); await wait(150); return page.evaluate(() => [...window.boardTest.fog.state.notices]); };
+  await page.evaluate(() => { const { board } = window.boardTest; board.map.walls = [{ id: 'w', type: 'wall', p1: { x: 0, y: 0 }, p2: { x: 100, y: 0 }, direction: null, closed: true, locked: false, blocks: null, limited: false }]; board.refreshToolbar(); });
+  check('fog bars: Hide all rooms says how many rooms it hid', JSON.stringify(await notices({ rooms: 3, hidden: 2 })) === '["2 rooms hidden"]');
+  await q('.atlas-tabletop-fog-bars [data-fog-popover="more"]').click();
+  check('fog bars: or that every room is hidden already', JSON.stringify(await notices({ rooms: 3, hidden: 0 })) === '["Every room is hidden already"]');
+  await q('.atlas-tabletop-fog-bars [data-fog-popover="more"]').click();
+  check('fog bars: or that there are no rooms', JSON.stringify(await notices({ rooms: 0, hidden: 0 })) === '["No rooms found"]');
+  // An Atlas without cover all and hide rooms (0.15): the controls are disabled, never a crash.
+  await q('.atlas-tabletop-fog-bars [data-fog-popover="more"]').click();
+  await page.evaluate(() => { window.boardTest.fog.offers.cover = false; window.boardTest.fog.offers.hideRooms = false; window.boardTest.fog.state.gmOpacity = null; window.boardTest.board.refreshToolbar(); });
+  await q('.atlas-tabletop-fog-bars [data-fog-popover="more"]').click();
+  const old = await page.evaluate(() => ({ cover: document.querySelector('[data-fog-action="cover"]').getAttribute('aria-disabled'), rooms: document.querySelector('[data-fog-action="rooms"]').disabled, opacity: document.querySelector('.atlas-tabletop-fog-popover--more input[aria-label="Fog opacity in GM view"]').disabled }));
+  check('fog bars: with an older Atlas Cover all, Hide all rooms and the opacity are disabled', old.cover === 'true' && old.rooms === true && old.opacity === true, JSON.stringify(old));
+  await q('.atlas-tabletop-fog-bars [data-fog-popover="more"]').click();
+  check('fog bars: Cover all says it needs a newer Atlas', (await hoverTip('.atlas-tabletop-fog-bars [data-fog-action="cover"]')) === 'Cover allThis needs a newer Atlas.');
+  await page.evaluate(() => { window.boardTest.fog.offers.cover = true; window.boardTest.fog.offers.hideRooms = true; window.boardTest.fog.state.gmOpacity = 0.5; });
+  // The key: opens the tool, again turns it between Fog and Eraser; the tool put down takes its bars away.
+  await page.evaluate(() => window.boardTest.board.toolbarActions().fog.stop());
+  await wait(200);
+  check('fog bars: the tool put down takes the bars away', !(await q('.atlas-tabletop-fog-bars').isVisible()));
+  const keys = await page.evaluate(() => {
+    const { board, modes } = window.boardTest;
+    modes.mode = 'play';
+    board.refreshToolbar();
+    const out = [];
+    const mode = () => board.toolbarActions().fog.state();
+    out.push(board.toggleFogTool(), mode().on, mode().mode, modes.mode);
+    out.push(board.toggleFogTool(), mode().on, mode().mode);
+    out.push(board.toggleFogTool(), mode().on, mode().mode);
+    return out;
+  });
+  check('fog bars: F opens the tool (switching to Edit), pressed again toggles Fog and Eraser', JSON.stringify(keys) === '[true,true,"fog","edit",true,true,"eraser",true,true,"fog"]', JSON.stringify(keys));
+  check('fog bars: the other tools put the fog tool away (one at a time)', await page.evaluate(() => { const { board } = window.boardTest; const a = board.toolbarActions(); a.setWaterTool('paint'); const afterWater = a.fog.state().on; a.fog.start(); const afterStart = a.waterTool(); a.selectTool('move'); return afterWater === false && afterStart === null && a.fog.state().on === false; }));
+  await shot('fog-closed');
+});
+
+feature('fog brush', async ({ page, shot }) => {
+  await page.evaluate(() => { const { board, modes, fog } = window.boardTest; fog.reset(); modes.on = true; modes.mode = 'edit'; board.toolbarActions().fog.start(); board.toolbarActions().fog.setBrushSize(60); board.camera.snap(); board.wake(true); });
+  const canvas = await page.locator('canvas').first().boundingBox();
+  const [x, y] = [canvas.x + canvas.width * 0.40, canvas.y + canvas.height * 0.55];
+  await page.mouse.move(x, y);
+  await wait(300);
+  const ring = () => page.evaluate(() => { const rings = window.boardTest.board.fogTool.rings; return rings ? { visible: rings.light.visible && rings.dark.visible, light: rings.light.material.color.getHexString(), dark: rings.dark.material.color.getHexString(), lightAlpha: rings.light.material.opacity, darkAlpha: rings.dark.material.opacity, radius: (rings.light.geometry.parameters.outerRadius + rings.light.geometry.parameters.innerRadius) / 2, at: [rings.light.position.x, rings.light.position.z] } : null; });
+  const idle = await ring();
+  check('fog brush: a ring of the brush\'s size follows the pointer on the ground (light line over a dark one)', idle && idle.visible && idle.light === 'ffffff' && idle.dark === '000000' && Math.abs(idle.lightAlpha - 0.95) < 1e-6 && Math.abs(idle.darkAlpha - 0.55) < 1e-6 && Math.abs(idle.radius - 60) < 2, JSON.stringify(idle));
+  const width = await page.evaluate(() => { const rings = window.boardTest.board.fogTool.rings; const g = (m) => m.geometry.parameters; return [g(rings.dark).outerRadius - g(rings.dark).innerRadius, g(rings.light).outerRadius - g(rings.light).innerRadius]; });
+  check('fog brush: the ring\'s lines are 4 and 1.5 screen pixels wide', width[0] / width[1] > 2.5 && width[0] / width[1] < 2.8, JSON.stringify(width));
+  // A zoom makes the lines wider on the ground and the same on screen.
+  await page.evaluate(() => { const { board } = window.boardTest; board.camera.zoom(0.5); board.camera.snap(); board.wake(true); });
+  await wait(400);
+  const nearer = await page.evaluate(() => { const rings = window.boardTest.board.fogTool.rings; const g = rings.light.geometry.parameters; return g.outerRadius - g.innerRadius; });
+  check('fog brush: the ring keeps its width on screen when the camera moves', nearer < width[1] * 0.8, JSON.stringify([width, nearer]));
+  await page.evaluate(() => { const { board } = window.boardTest; board.camera.zoom(2); board.camera.snap(); board.wake(true); });
+  await wait(400);
+  await page.mouse.move(x + 2, y);
+  await shot('fog-ring');
+  // A stroke.
+  await page.mouse.down();
+  await page.mouse.move(x + 120, y + 10, { steps: 10 });
+  await page.mouse.move(x + 200, y - 30, { steps: 8 });
+  const during = await page.evaluate(() => ({ drawing: window.boardTest.board.fogTool.drawing, preview: window.boardTest.board.scene.getObjectByName('fog-preview')?.visible === true }));
+  check('fog brush: the stroke is shown as it is drawn', during.drawing && during.preview, JSON.stringify(during));
+  await shot('fog-stroke');
+  await page.mouse.up();
+  await wait(600);
+  const painted = await page.evaluate(() => Object.values(window.boardTest.fog.record()));
+  check('fog brush: a drag adds one brush operation with its points and radius', painted.length === 1 && painted[0].type === 'brush' && painted[0].brushRadius === 60 && painted[0].points.length > 3 && painted[0].isErasing === false, JSON.stringify(painted).slice(0, 300));
+  const drawn = await page.evaluate(() => ({ areas: window.boardTest.board.fog.areas.length, preview: window.boardTest.board.scene.getObjectByName('fog-preview')?.visible === true }));
+  check('fog brush: the fog volume draws the new fog, and the stroke\'s preview is gone', drawn.areas === 1 && !drawn.preview, JSON.stringify(drawn));
+  await shot('fog-painted');
+  // Alt erases, also in the middle of a stroke.
+  await page.mouse.move(x + 80, y + 10);
+  await page.keyboard.down('Alt');
+  await wait(150);
+  const red = await ring();
+  check('fog brush: Alt turns the ring red (erasing)', red && red.light === 'ff4444', JSON.stringify(red));
+  await page.mouse.down();
+  await page.mouse.move(x + 100, y + 10, { steps: 4 });
+  await page.mouse.up();
+  await page.keyboard.up('Alt');
+  await wait(600);
+  const erased = await page.evaluate(() => Object.values(window.boardTest.fog.record()).map((op) => op.isErasing));
+  check('fog brush: a stroke with Alt held erases', JSON.stringify(erased) === '[false,true]', JSON.stringify(erased));
+  const back = await ring();
+  check('fog brush: letting Alt go gives the white ring back', back && back.light === 'ffffff', JSON.stringify(back));
+  await page.mouse.move(x, y + 90);
+  await page.mouse.down();
+  await page.mouse.move(x + 50, y + 90, { steps: 4 });
+  await page.keyboard.down('Alt');
+  await page.mouse.move(x + 70, y + 90, { steps: 2 });
+  await page.mouse.up();
+  await page.keyboard.up('Alt');
+  await wait(600);
+  const midway = await page.evaluate(() => Object.values(window.boardTest.fog.record()).map((op) => op.isErasing));
+  check('fog brush: Alt pressed in the middle of a stroke turns the whole stroke around', JSON.stringify(midway) === '[false,true,true]', JSON.stringify(midway));
+  // The eraser mode.
+  await page.evaluate(() => window.boardTest.board.toolbarActions().fog.setMode('eraser'));
+  check('fog brush: with the Eraser chosen the ring is red', (await ring()).light === 'ff4444');
+  await page.evaluate(() => window.boardTest.board.toolbarActions().fog.setMode('fog'));
+  // The size keys and Ctrl + scroll.
+  const sizes = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    const fog = board.toolbarActions().fog;
+    fog.setBrushSize(50);
+    const out = [];
+    board.stepFogBrush(1, false); out.push(fog.state().brushSize);
+    board.stepFogBrush(-1, false); out.push(fog.state().brushSize);
+    board.stepFogBrush(1, true); out.push(fog.state().brushSize);
+    fog.setBrushSize(10); board.stepFogBrush(-1, false); out.push(fog.state().brushSize);
+    fog.setBrushSize(11); board.stepFogBrush(-1, true); out.push(fog.state().brushSize);
+    fog.setBrushSize(200); board.stepFogBrush(1, false); out.push(fog.state().brushSize);
+    fog.setBrushSize(12); board.stepFogBrush(1, true); out.push(fog.state().brushSize);
+    fog.setBrushSize(50);
+    return out;
+  });
+  check('fog brush: the size keys step the brush by 15 % (5 % held), at least a pixel, within 10 and 200', JSON.stringify(sizes) === '[57,50,53,10,10,200,13]', JSON.stringify(sizes));
+  await page.mouse.move(x, y);
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, -100);
+  await wait(200);
+  await page.keyboard.up('Control');
+  const wheel = await page.evaluate(() => ({ size: window.boardTest.board.toolbarActions().fog.state().brushSize, ring: (window.boardTest.board.fogTool.rings.light.geometry.parameters.outerRadius + window.boardTest.board.fogTool.rings.light.geometry.parameters.innerRadius) / 2 }));
+  check('fog brush: Ctrl + scroll up makes the brush larger, and the ring follows', wheel.size > 50 && Math.abs(wheel.ring - wheel.size) < 2, JSON.stringify(wheel));
+  // The ring goes with the pointer leaving the canvas, and with the tool.
+  await page.mouse.move(canvas.x + canvas.width / 2, canvas.y - 30);
+  await wait(300);
+  check('fog brush: the ring goes when the pointer leaves the canvas', !(await ring())?.visible);
+  await page.mouse.move(x, y);
+  await wait(200);
+  await page.evaluate(() => window.boardTest.board.toolbarActions().fog.stop());
+  await wait(300);
+  check('fog brush: and with the tool', !(await ring())?.visible);
+  // Undo: the history takes the last stroke back (the harness's step stands for Atlas's).
+  const before = await page.evaluate(() => Object.keys(window.boardTest.fog.record()).length);
+  await page.evaluate(() => window.boardTest.history.undo(['map.atlasmap']));
+  await wait(400);
+  const after = await page.evaluate(() => Object.keys(window.boardTest.fog.record()).length);
+  check('fog brush: a stroke is one step of undo', before === 3 && after === 2, JSON.stringify([before, after]));
+  // Nothing is painted with the tool off.
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 40, y, { steps: 3 });
+  await page.mouse.up();
+  await wait(400);
+  check('fog brush: with the tool off a drag paints nothing', (await page.evaluate(() => Object.keys(window.boardTest.fog.record()).length)) === 2);
+  // A refused write takes the preview away.
+  await page.evaluate(() => { window.boardTest.board.toolbarActions().fog.start(); window.boardTest.fog.state.fail = true; });
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 40, y + 5, { steps: 3 });
+  await page.mouse.up();
+  await wait(600);
+  check('fog brush: a write Atlas refused leaves no preview and no fog', await page.evaluate(() => Object.keys(window.boardTest.fog.record()).length === 2 && window.boardTest.board.scene.getObjectByName('fog-preview')?.visible !== true));
+  await page.evaluate(() => { window.boardTest.fog.state.fail = false; });
+});
 
 server.listen(0, async () => {
   const errors = [];

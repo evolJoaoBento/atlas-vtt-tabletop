@@ -4,6 +4,7 @@
  * palette) read this module, so no button on the toolbar can be missing from the palette. Pure.
  */
 import { t } from '../i18n';
+import { at } from '../atlasPort/atlasText';
 import type { BoardMode, ToolbarActions } from './toolbar';
 import type { LightingChoice } from './look';
 import { LIQUID_NAMES } from './water';
@@ -15,7 +16,7 @@ export type ToolbarCommandIcon =
   | 'swords' | 'hammer' | 'clapperboard' | 'dice' | 'scroll' | 'notebook'
   | 'list-ordered' | 'settings' | 'undo' | 'redo' | 'hand' | 'flashlight'
   | 'sliders' | 'ruler' | 'shapes' | 'waves' | 'mountain' | 'paint-roller'
-  | 'ground' | 'radio' | 'coin' | 'image' | 'command' | 'ellipsis' | 'plug';
+  | 'cloud' | 'ground' | 'radio' | 'coin' | 'image' | 'command' | 'ellipsis' | 'plug';
 
 export const TOOLBAR_BUTTON_IDS = [
   'undo',
@@ -26,6 +27,7 @@ export const TOOLBAR_BUTTON_IDS = [
   'move',
   'laser',
   'move-options',
+  'fog',
   'measure',
   'measure-options',
   'template',
@@ -166,6 +168,14 @@ export const TOOLBAR_BUTTONS: Readonly<Record<ToolbarButtonId, ToolbarButtonSpec
     id: 'move-options', label: 'Move options', icon: 'sliders', modes: ['play', 'edit'],
     keywords: ['move', 'options', 'laser', 'colour', 'color', 'size'],
     available: () => true,
+  },
+  fog: {
+    id: 'fog', label: at('toolbar.fogTool'), icon: 'cloud', modes: ['edit'],
+    keywords: ['fog', 'fog of war', 'cover', 'reveal', 'hide', 'eraser', 'brush', 'rooms'],
+    keywordsOf: ({ actions }) => (actions.fog?.state().mode === 'eraser' ? [at('toolbar.fogEraser')] : []),
+    available: ({ actions }) => actions.fog !== undefined,
+    toggle: true,
+    active: ({ actions }) => actions.fog?.state().on === true,
   },
   measure: {
     id: 'measure', label: 'Measure', icon: 'ruler', modes: ['play'],

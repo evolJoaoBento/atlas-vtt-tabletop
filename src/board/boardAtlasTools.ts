@@ -139,6 +139,9 @@ export class BoardAtlasTools {
       case 'levelDown': return board.stepLevel(-1);
       case 'selectAll': return board.selectAll();
       case 'delete': return board.deleteSelection();
+      case 'fog': return board.toggleFogTool();
+      case 'brushSmaller': return board.stepFogBrush(-1, event.repeat);
+      case 'brushLarger': return board.stepFogBrush(1, event.repeat);
     }
   }
 
