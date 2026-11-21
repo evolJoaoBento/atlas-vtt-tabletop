@@ -899,7 +899,7 @@ export class BoardToolbar {
     toolsBar.setAttribute('aria-label', 'Liquid tools');
     const modeButtons = new Map<string, HTMLButtonElement>();
     for (const [mode, label, tip, shortcut] of [
-      ['paint', 'Paint water', 'Drag on the map to paint', 'Shift to erase'],
+      ['paint', 'Paint water', 'Drag on the map to paint', 'Alt to erase'],
       ['fill', 'Fill water', 'Click an area to fill it · Shift + click dries', undefined],
       ['erase', 'Erase liquids', 'Drag to remove any painted liquid', undefined],
     ] as const) {

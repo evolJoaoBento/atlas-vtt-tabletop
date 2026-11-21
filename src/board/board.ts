@@ -827,7 +827,7 @@ export class Board {
   private brushAt: { x: number; y: number } | null = null;
   /** Ctrl + scroll not yet a whole notch of brush size, in pixels. */
   private brushScroll = 0;
-  /** The water brush is the eraser only while Shift is held: back to the brush when it is let go. */
+  /** The water brush is the eraser only while Alt is held: back to the brush when it is let go. */
   private shiftErase = false;
   private brushTipTimer: ReturnType<typeof setTimeout> | undefined;
   /** The motion the GM chose for this map's liquids, before any is painted too; a liquid without one follows what the map keeps. */
@@ -3603,9 +3603,9 @@ export class Board {
     win?.addEventListener('keydown', escape);
     this.stops.push(() => win?.removeEventListener('keydown', escape));
     win?.addEventListener('keyup', ctrl);
-    // Shift held with the water brush: the eraser, until it is let go.
-    const shift = (event: KeyboardEvent): void => {
-      if (event.key !== 'Shift' || this.audience !== 'gm') return;
+    // Alt held with the water brush: the eraser, until it is let go (as Atlas's Alt turns its fog brush around).
+    const altErase = (event: KeyboardEvent): void => {
+      if (event.key !== 'Alt' || this.audience !== 'gm') return;
       if (event.type === 'keydown') {
         if (event.repeat || this.waterTool !== 'paint') return;
         const target = event.target as HTMLElement | null;
@@ -3620,11 +3620,11 @@ export class Board {
       this.showBrush();
       this.toolbar.refresh();
     };
-    const shiftLost = (): void => { if (this.shiftErase) shift(new KeyboardEvent('keyup', { key: 'Shift' })); };
-    win?.addEventListener('keydown', shift);
-    win?.addEventListener('keyup', shift);
-    win?.addEventListener('blur', shiftLost);
-    this.stops.push(() => { win?.removeEventListener('keydown', shift); win?.removeEventListener('keyup', shift); win?.removeEventListener('blur', shiftLost); });
+    const altLost = (): void => { if (this.shiftErase) altErase(new KeyboardEvent('keyup', { key: 'Alt' })); };
+    win?.addEventListener('keydown', altErase);
+    win?.addEventListener('keyup', altErase);
+    win?.addEventListener('blur', altLost);
+    this.stops.push(() => { win?.removeEventListener('keydown', altErase); win?.removeEventListener('keyup', altErase); win?.removeEventListener('blur', altLost); });
     win?.addEventListener('blur', lost);
     this.stops.push(() => { win?.removeEventListener('keydown', ctrl); win?.removeEventListener('keyup', ctrl); win?.removeEventListener('blur', lost); });
     on('pointerleave', () => { this.pointerAt = null; if (this.press?.kind !== 'height' && this.press?.kind !== 'propScale' && this.press?.kind !== 'propLift') this.ctrlHandles(null); });

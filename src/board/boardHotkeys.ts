@@ -56,7 +56,7 @@ export const BOARD_OWN_KEYS: ReadonlyArray<{ heading: string; keys: ReadonlyArra
       { does: 'Send a carried token up or down a level', keys: '↑ / ↓ or Page Up / Page Down', when: 'while dragging' },
       { does: 'Show wall height handles', keys: 'Ctrl/Cmd', when: 'held over a wall' },
       { does: 'Show wall width handles', keys: 'Alt/Option', when: 'held over a wall' },
-      { does: 'Erase with the water brush', keys: 'Shift', when: 'held' },
+      { does: 'Erase with the water brush', keys: 'Alt', when: 'held' },
       { does: 'Finish a shape', keys: 'Enter', when: 'Shapes tool' },
       { does: "Remove a shape's corner", keys: 'Delete / Backspace', when: 'Shapes tool' },
     ],
