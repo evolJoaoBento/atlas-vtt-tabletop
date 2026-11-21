@@ -1,6 +1,6 @@
 import type { ParityRow } from './types';
 
-/** Atlas 0.15.0's command palette entries (0.12.0's, and 0.14's lighting pages) (`CommandPalette.tsx` `commandOptions`, sub-page entries included), in order. */
+/** Atlas 0.18.0's command palette entries (0.12.0's, 0.14's lighting pages, 0.17's and 0.18's later ones) (`CommandPalette.tsx` `commandOptions`, sub-page entries included), in order. */
 export const ATLAS_PALETTE: readonly ParityRow[] = [
   { id: 'move-tool', status: 'mapped', note: "The board's Move/Select tool." },
   { id: 'fog-tool', status: 'not-yet', note: "Fog painting is a later round; the entry opens Atlas's palette." },
@@ -33,5 +33,11 @@ export const ATLAS_PALETTE: readonly ParityRow[] = [
   { id: 'graphics-all-settings', status: 'atlas', note: "Sub-entry of graphics settings." },
   { id: 'experimental-features', status: 'atlas', note: "Atlas's experimental switches; opened in Atlas." },
   { id: 'experimental-all-features', status: 'atlas', note: 'Sub-entry of experimental features.' },
+  // Atlas 0.17: the DM screen and the sound page (its `s` key is not on the board: Shift+S there is Silence).
+  { id: 'open-dm-screen', status: 'atlas', addedIn: '0.17.0', note: "Atlas's DM screen; opened in Atlas." },
+  { id: 'open-sound-page', status: 'atlas', addedIn: '0.17.0', note: "Atlas's sound page; opened in Atlas. The board has Next mood and Silence." },
+  // Atlas 0.18: positioning a floor under the others, and the table mode.
+  { id: 'position-floor', status: 'atlas', addedIn: '0.18.0', note: "Atlas's floor positioning (it writes the level alignment the board already reads); done in Atlas." },
+  { id: 'table-mode', status: 'atlas', addedIn: '0.18.0', note: "Atlas's table mode (hides Obsidian's chrome while on); Atlas only." },
   { id: 'customize-toolbar', status: 'atlas', note: "Opens Atlas's toolbar editor; the board follows the layout it saves." },
 ];

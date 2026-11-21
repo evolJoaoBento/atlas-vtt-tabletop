@@ -1,6 +1,6 @@
 import type { ParityRow } from './types';
 
-/** Atlas 0.15.0's toolbar catalog (as 0.12.0's) (`toolbarCatalog.ts`), in Atlas's order, then its undo unit. */
+/** Atlas 0.15.0's toolbar catalog (as 0.12.0's) (`toolbarCatalog.ts`), in Atlas's order, then its undo unit (Atlas 0.17 took the undo unit off its toolbar). */
 export const ATLAS_TOOLBAR: readonly ParityRow[] = [
   { id: 'move', status: 'mapped', note: "The board's Move/Select tool (with the laser pointer)." },
   { id: 'fog', status: 'not-yet', note: 'Fog painting is a later round.' },
@@ -14,5 +14,5 @@ export const ATLAS_TOOLBAR: readonly ParityRow[] = [
   { id: 'loot', status: 'native', note: 'Random tables window on the board (src/loot).' },
   { id: 'assets', status: 'native', note: 'Asset manager on the board, spawning onto the board (src/assets).' },
   { id: 'palette', status: 'native', note: 'Command palette on the board (src/palette).' },
-  { id: 'undo', status: 'native', note: "The board's Undo/Redo (Atlas's keys): Atlas's own history for map changes Atlas takes, the file's text otherwise, and Tabletop's own data (water, props, walls, minis, layers) and templates." },
+  { id: 'undo', status: 'native', note: "The board's Undo/Redo (Atlas's keys): Atlas's own history for map changes Atlas takes, the file's text otherwise, and Tabletop's own data (water, props, walls, minis, layers) and templates.", droppedIn: '0.17.0' },
 ];

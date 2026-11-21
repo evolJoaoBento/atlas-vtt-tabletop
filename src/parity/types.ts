@@ -22,4 +22,6 @@ export interface ParityRow {
    * is reported, not failed (`npm run check:atlas`).
    */
   droppedIn?: string;
+  /** The Atlas version that added it: an older build without it is reported, not failed (`npm run check:atlas`). */
+  addedIn?: string;
 }

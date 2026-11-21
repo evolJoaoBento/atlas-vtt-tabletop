@@ -75,10 +75,12 @@ for (const [name, found, rows] of [['toolbar', ids.toolbar, parity.ATLAS_TOOLBAR
   if (found.length === 0) { console.log(`MISSING  ${name}: no ids found in the build (the catalog's shape changed?)`); drift += 1; continue; }
   const { unlisted, gone } = compareIds(found, rows.map((row) => row.id));
   for (const id of unlisted) console.log(`NEW in Atlas: ${id} (${name}): add a row to src/parity`);
+  // A row a newer Atlas added is absent from an older build: reported, not failed.
+  const added = new Map(rows.filter((row) => row.addedIn).map((row) => [row.id, row.addedIn]));
   // A row a newer Atlas dropped stays while the floor has it: reported, not failed.
   const dropped = new Map(rows.filter((row) => row.droppedIn).map((row) => [row.id, row.droppedIn]));
-  for (const id of gone) console.log(dropped.has(id) ? `warn  dropped in Atlas ${dropped.get(id)}: ${id} (${name})` : `GONE from Atlas: ${id} (${name}): drop its row from src/parity`);
-  drift += unlisted.length + gone.filter((id) => !dropped.has(id)).length;
+  for (const id of gone) console.log(dropped.has(id) ? `warn  dropped in Atlas ${dropped.get(id)}: ${id} (${name})` : added.has(id) ? `warn  added in Atlas ${added.get(id)}: ${id} (${name}) is not in this build` : `GONE from Atlas: ${id} (${name}): drop its row from src/parity`);
+  drift += unlisted.length + gone.filter((id) => !dropped.has(id) && !added.has(id)).length;
 }
 console.log(drift === 0 ? `Parity tables match Atlas (checked against ${parity.ATLAS_CHECKED_VERSION})` : `${drift} parity difference(s)`);
 process.exit(missing === 0 && drift === 0 ? 0 : 1);

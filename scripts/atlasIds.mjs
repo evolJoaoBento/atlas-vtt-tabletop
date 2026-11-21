@@ -3,17 +3,18 @@
 
 /** @param {string} source  @returns {{ toolbar: string[], palette: string[], assetTabs: string[] }} */
 export function extractAtlasIds(source) {
-  // Toolbar catalog units: `{id:"loot",label:…,hotkey:"lootRoller",dmOnly:!0,hideable:!0,…}`, the undo unit included.
-  const toolbar = unique([...source.matchAll(/\{id:"([a-zA-Z]+)",label:[^{}]*?,hotkey:"[^"]*",dmOnly:![01],hideable:/g)].map((m) => m[1]));
+  // Atlas 0.17 and earlier write strings with double quotes; 0.18's bundler writes template literals (backticks). Every anchor takes any.
+  // Toolbar catalog units: `{id:"loot",label:…,hotkey:"lootRoller",dmOnly:!0,hideable:!0,…}`, the undo unit included (0.12 to 0.16).
+  const toolbar = unique([...source.matchAll(/\{id:["'`]([a-zA-Z]+)["'`],label:[^{}]*?,hotkey:["'`][^"'`]*["'`],dmOnly:![01],hideable:/g)].map((m) => m[1]));
   // Palette entries: `{id:"open-loot-roller",icon:…` from the first tool entry to the section tabs, then the toolbar editor entry.
-  const start = source.indexOf('{id:"move-tool",icon:');
+  const start = firstIndex(source, ['{id:"move-tool",icon:', "{id:'move-tool',icon:", '{id:`move-tool`,icon:']);
   const end = start < 0 ? -1 : source.indexOf('palette.tab.all', start);
   const entries = start < 0 || end < 0 ? '' : source.slice(start, end);
-  const palette = unique([...entries.matchAll(/\{id:"([a-z0-9-]+)",icon:/g)].map((m) => m[1]));
-  if (palette.length > 0 && /\{id:"customize-toolbar",icon:/.test(source)) palette.push('customize-toolbar');
+  const palette = unique([...entries.matchAll(/\{id:["'`]([a-z0-9-]+)["'`],icon:/g)].map((m) => m[1]));
+  if (palette.length > 0 && /\{id:["'`]customize-toolbar["'`],icon:/.test(source)) palette.push('customize-toolbar');
   // Asset manager tabs: the array of tab ids right before their labels (`am.tab.<id>`).
-  const tabs = /=\[((?:"[a-z]+",?)+)\],\w+=\{scenes:\w+\("am\.tab\.scenes"\)/.exec(source);
-  const assetTabs = tabs ? [...tabs[1].matchAll(/"([a-z]+)"/g)].map((m) => m[1]) : [];
+  const tabs = /=\[((?:["'`][a-z]+["'`],?)+)\],\w+=\{scenes:\w+\(["'`]am\.tab\.scenes["'`]/.exec(source);
+  const assetTabs = tabs ? [...tabs[1].matchAll(/["'`]([a-z]+)["'`]/g)].map((m) => m[1]) : [];
   return { toolbar, palette, assetTabs };
 }
 
@@ -23,3 +24,8 @@ export function compareIds(found, listed) {
 }
 
 function unique(ids) { return [...new Set(ids)]; }
+
+function firstIndex(source, needles) {
+  const found = needles.map((needle) => source.indexOf(needle)).filter((at) => at >= 0);
+  return found.length > 0 ? Math.min(...found) : -1;
+}
