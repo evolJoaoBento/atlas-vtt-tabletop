@@ -7796,15 +7796,15 @@ feature('fog brush', async ({ page, shot }) => {
   await page.mouse.up();
   await wait(400);
   check('fog brush: with the tool off a drag paints nothing', (await page.evaluate(() => Object.keys(window.boardTest.fog.record()).length)) === 2);
-  // A shape with no gesture yet swallows the press: nothing is drawn.
-  await page.evaluate(() => { const a = window.boardTest.board.toolbarActions().fog; a.start(); a.setShape('lasso'); });
+  // Cells with no grid begins nothing: nothing is drawn, nothing under the press is dragged.
+  await page.evaluate(() => { const a = window.boardTest.board.toolbarActions().fog; a.start(); a.setShape('cells'); window.boardTest.board.map.grid.size = 0; });
   await page.mouse.move(x, y);
   await page.mouse.down();
   await page.mouse.move(x + 40, y + 5, { steps: 3 });
   await page.mouse.up();
   await wait(300);
-  check('fog brush: a shape with no gesture yet draws nothing and starts no drag', await page.evaluate(() => Object.keys(window.boardTest.fog.record()).length === 2 && !window.boardTest.board.fogTool.drawing && window.boardTest.board.press === null));
-  await page.evaluate(() => window.boardTest.board.toolbarActions().fog.setShape('brush'));
+  check('fog brush: Cells without a grid draws nothing and starts no drag', await page.evaluate(() => Object.keys(window.boardTest.fog.record()).length === 2 && !window.boardTest.board.fogTool.drawing && window.boardTest.board.press === null));
+  await page.evaluate(() => { window.boardTest.board.map.grid.size = 70; window.boardTest.board.toolbarActions().fog.setShape('brush'); });
   // A refused write takes the preview away.
   await page.evaluate(() => { window.boardTest.board.toolbarActions().fog.start(); window.boardTest.fog.state.fail = true; });
   await page.mouse.move(x, y);
@@ -7814,6 +7814,254 @@ feature('fog brush', async ({ page, shot }) => {
   await wait(600);
   check('fog brush: a write Atlas refused leaves no preview and no fog', await page.evaluate(() => Object.keys(window.boardTest.fog.record()).length === 2 && window.boardTest.board.scene.getObjectByName('fog-preview')?.visible !== true));
   await page.evaluate(() => { window.boardTest.fog.state.fail = false; });
+});
+
+feature('fog shapes', async ({ page, shot }) => {
+  const at = (x, y) => page.evaluate(([x, y]) => window.boardTest.project(x, y, 0), [x, y]);
+  const ops = () => page.evaluate(() => Object.values(window.boardTest.fog.record()));
+  const marks = () => page.evaluate(() => { const view = window.boardTest.board.fogTool.markView; return { shown: view.shown, guide: view.guide, accent: view.current?.accent === true, paths: view.current?.paths?.length ?? 0 }; });
+  const tool = (call, arg) => page.evaluate(call, arg);
+  // A clean map: the fixture's walls and fog are gone, a square grid of 70 px, Snap on, and the camera frames the map.
+  await tool(() => {
+    const { board, modes, fog } = window.boardTest;
+    fog.reset();
+    fog.state.adds.length = 0;
+    fog.state.notices.length = 0;
+    board.map.walls = [];
+    board.map.grid.type = 'square';
+    board.map.grid.size = 70;
+    board.map.grid.snap = true;
+    modes.on = true;
+    modes.mode = 'edit';
+    board.toolbarActions().fog.start();
+    board.frameMap();
+    board.camera.snap();
+    board.wake(true);
+  });
+  await wait(500);
+  const drag = async (from, to, options = {}) => {
+    const a = await at(from[0], from[1]);
+    const b = await at(to[0], to[1]);
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.mouse.move((a.x + b.x) / 2, (a.y + b.y) / 2, { steps: 4 });
+    await page.mouse.move(b.x, b.y, { steps: 4 });
+    if (options.pause) await options.pause();
+    await page.mouse.up();
+    await wait(250);
+  };
+  const click = async (x, y) => { const p = await at(x, y); await page.mouse.move(p.x, p.y); await page.mouse.down(); await page.mouse.up(); await wait(60); };
+  const select = (shape) => tool((shape) => { const a = window.boardTest.board.toolbarActions().fog; a.start(); a.setShape(shape); }, shape);
+  const MAP = await tool(() => ({ ...window.boardTest.board.mapSize }));
+  const cx = Math.round(MAP.width / 2 / 70) * 70;
+  const cy = Math.round(MAP.height / 2 / 70) * 70;
+
+  // Rectangle: the first corner snaps to the grid, a drag outlines the shape, the release commits one rectangle op.
+  await select('rectangle');
+  await drag([cx - 100, cy - 90], [cx + 120, cy + 60], { pause: async () => {
+    const during = await marks();
+    check('fog shapes: a rectangle under way is outlined, and shown as the fog it leaves', during.shown.includes('fog-mark-line') && during.shown.includes('fog-mark-casing') && await tool(() => window.boardTest.board.scene.getObjectByName('fog-preview')?.visible === true), JSON.stringify(during));
+    await shot('fog-rectangle');
+  } });
+  let all = await ops();
+  const rect = all[0];
+  check('fog shapes: a rectangle drag commits one rectangle operation with its corners on the grid', all.length === 1 && rect.type === 'rectangle' && rect.isErasing === false && rect.x % 70 === 0 && rect.y % 70 === 0 && rect.width > 0 && rect.height > 0, JSON.stringify(all));
+  // Shift (Constrain) makes a square.
+  await page.keyboard.down('Shift');
+  await drag([cx - 100, cy - 90], [cx + 220, cy + 60]);
+  await page.keyboard.up('Shift');
+  all = await ops();
+  const square = all.find((op) => op.id !== rect.id);
+  check('fog shapes: Shift makes the rectangle a square', square && square.type === 'rectangle' && Math.abs(square.width - square.height) < 1e-6 && square.width > 0, JSON.stringify(square));
+  // Alt flips it to erasing, with the wash over the area and no area mark (Atlas's gesture leaves a plain operation).
+  await page.keyboard.down('Alt');
+  await drag([cx - 100, cy - 90], [cx + 120, cy + 60], { pause: async () => {
+    const wash = await tool(() => { const sheet = window.boardTest.board.fogTool.sheet; return { wash: sheet.wash, opacity: window.boardTest.board.scene.getObjectByName('fog-preview')?.material.opacity, color: window.boardTest.board.scene.getObjectByName('fog-preview')?.material.color.getHexString(), line: window.boardTest.board.fogTool.markView.lineColor.toString(16) }; });
+    check('fog shapes: an erasing shape shows a light red wash and a red outline', wash.wash && Math.abs(wash.opacity - 0.28) < 1e-6 && wash.color === 'ff4444' && wash.line === 'ff4444', JSON.stringify(wash));
+    await shot('fog-wash');
+  } });
+  await page.keyboard.up('Alt');
+  all = await ops();
+  const erase = all[all.length - 1];
+  check('fog shapes: Alt makes the rectangle erase, as a plain operation (no reveal area mark)', erase.isErasing === true && !('area' in erase), JSON.stringify(erase));
+
+  // The snap guide: near a wall's end the corner lands on it; Ctrl places it where the pointer is.
+  await tool(() => { const { board } = window.boardTest; board.map.walls = [{ id: 'g1', type: 'solid', p1: { x: 420, y: 350 }, p2: { x: 700, y: 350 }, direction: null, closed: true, locked: false, blocks: null, limited: false, chain: null }]; board.map.grid.snap = false; board.refreshToolbar(); });
+  const end = await at(420, 350);
+  await page.mouse.move(end.x + 3, end.y + 2);
+  await wait(250);
+  const near = await marks();
+  check('fog shapes: a pointer within 10 screen pixels of a wall end shows the snap guide on it', near.guide && near.guide.point.x === 420 && near.guide.point.y === 350 && near.shown.includes('fog-guide'), JSON.stringify(near));
+  await shot('fog-snap-guide');
+  await page.keyboard.down('Control');
+  await page.mouse.move(end.x + 2, end.y + 3);
+  await wait(250);
+  const freed = await marks();
+  await page.keyboard.up('Control');
+  check('fog shapes: Ctrl places the point freely (no guide)', freed.guide === null, JSON.stringify(freed));
+  await page.mouse.move(end.x + 90, end.y + 90);
+  await wait(250);
+  check('fog shapes: away from walls and grid (Snap off on the grid) there is no guide', (await marks()).guide === null);
+  // The grid point comes before a wall: with the grid's Snap on the guide is on a grid point near the pointer.
+  await tool(() => { window.boardTest.board.map.grid.snap = true; });
+  const grid = await at(cx + 70, cy + 70);
+  await page.mouse.move(grid.x + 3, grid.y + 3);
+  await wait(250);
+  const onGrid = await marks();
+  check('fog shapes: near a grid point the guide shows it', onGrid.guide && onGrid.guide.point.x === cx + 70 && onGrid.guide.point.y === cy + 70, JSON.stringify(onGrid.guide));
+  await tool(() => { window.boardTest.board.map.walls = []; window.boardTest.board.refreshToolbar(); });
+
+  // Lasso: a free drag closed on release; a tap leaves nothing.
+  await tool(() => { window.boardTest.fog.reset(); });
+  await select('lasso');
+  const a = await at(cx - 120, cy - 100);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  await page.mouse.up();
+  await wait(200);
+  check('fog shapes: a lasso tap (fewer than three points) leaves nothing', (await ops()).length === 0);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  for (const [x, y] of [[cx + 40, cy - 130], [cx + 130, cy + 20], [cx - 20, cy + 110]]) { const p = await at(x, y); await page.mouse.move(p.x, p.y, { steps: 4 }); }
+  const lassoDuring = await marks();
+  await shot('fog-lasso');
+  await page.mouse.up();
+  await wait(300);
+  all = await ops();
+  check('fog shapes: a lasso drag is outlined, and closes on release into one lasso operation', lassoDuring.shown.includes('fog-mark-line') && all.length === 1 && all[0].type === 'lasso' && all[0].points.length > 3, JSON.stringify([lassoDuring, all.length, all[0]?.type]));
+
+  // The rest is drawn up in the top right of the map, clear of the fixture's tokens.
+  const bx = 770;
+  const by = 170;
+  // Polygon: click corners; Backspace takes one back, Enter closes; Escape drops the polygon; the first corner and a double click close.
+  await tool(() => { window.boardTest.fog.reset(); window.boardTest.board.map.grid.snap = false; });
+  await select('polygon');
+  const corners = [[bx - 150, by - 100], [bx + 150, by - 100], [bx + 150, by + 100], [bx - 150, by + 100]];
+  for (const [x, y] of corners.slice(0, 3)) await click(x, y);
+  const pending = await tool(() => ({ drawing: window.boardTest.board.fogTool.drawing, press: window.boardTest.board.press, on: window.boardTest.board.fogToolOn }));
+  check('fog shapes: a polygon keeps its corners between clicks, and a click starts no drag', pending.drawing && pending.press === null && pending.on, JSON.stringify(pending));
+  const mid = await at(bx - 70, by + 70);
+  await page.mouse.move(mid.x, mid.y);
+  await wait(200);
+  const polygonMarks = await tool(() => { const m = window.boardTest.board.fogTool.markView.current; return { dots: m?.dots?.length, faint: m?.faint?.length, ring: !!m?.ring }; });
+  check('fog shapes: a polygon shows its corners, the first one ringed, and the faint closing edge', polygonMarks.dots === 3 && polygonMarks.faint === 1 && polygonMarks.ring, JSON.stringify(polygonMarks));
+  await shot('fog-polygon');
+  const back = await tool(() => { const { board } = window.boardTest; const first = board.fogKey({ key: 'Backspace', repeat: false }); return { first, dots: board.fogTool.markView.current?.dots?.length, drawing: board.fogTool.drawing }; });
+  check('fog shapes: Backspace takes the last corner back', back.first && back.dots === 2 && back.drawing, JSON.stringify(back));
+  await click(corners[2][0], corners[2][1] + 3);
+  await click(corners[3][0], corners[3][1]);
+  const entered = await tool(() => window.boardTest.board.fogKey({ key: 'Enter', repeat: false }));
+  await wait(300);
+  all = await ops();
+  check('fog shapes: Enter closes the polygon into one lasso operation of its corners', entered && all.length === 1 && all[0].type === 'lasso' && all[0].points.length === 4 && !(await tool(() => window.boardTest.board.fogTool.drawing)), JSON.stringify(all));
+  // The undo key drops the last corner (the tool is told by the shortcuts, which know the key).
+  await click(corners[0][0], corners[0][1]);
+  await click(corners[1][0], corners[1][1]);
+  const undone = await tool(() => { const { board } = window.boardTest; return [board.fogKey({ key: 'z', repeat: false }, true), board.fogTool.markView.current?.dots?.length, board.fogTool.drawing, board.fogKey({ key: 'z', repeat: false }, true), board.fogTool.drawing]; });
+  check('fog shapes: the undo key takes a corner back instead of undoing fog', JSON.stringify(undone) === '[true,1,true,true,false]' && (await ops()).length === 1, JSON.stringify(undone));
+  // Escape drops the polygon first, and the tool stays on.
+  await click(corners[0][0], corners[0][1]);
+  await click(corners[1][0], corners[1][1]);
+  await page.keyboard.press('Escape');
+  await wait(100);
+  const escaped = await tool(() => ({ drawing: window.boardTest.board.fogTool.drawing, on: window.boardTest.board.fogToolOn }));
+  check('fog shapes: Escape drops the polygon\'s corners and the tool stays on', !escaped.drawing && escaped.on, JSON.stringify(escaped));
+  // Blur drops it too.
+  await click(corners[0][0], corners[0][1]);
+  await tool(() => window.dispatchEvent(new Event('blur')));
+  check('fog shapes: losing the window\'s focus drops the polygon', !(await tool(() => window.boardTest.board.fogTool.drawing)));
+  // A click on the first corner closes it (three corners or more).
+  await tool(() => window.boardTest.fog.reset());
+  for (const [x, y] of corners.slice(0, 3)) await click(x, y);
+  await wait(600);
+  await click(corners[0][0] + 2, corners[0][1] + 2);
+  await wait(300);
+  all = await ops();
+  check('fog shapes: a click on the first corner closes the polygon', all.length === 1 && all[0].points.length === 3, JSON.stringify(all));
+  // A double click closes it too.
+  await tool(() => window.boardTest.fog.reset());
+  for (const [x, y] of corners.slice(0, 3)) await click(x, y);
+  const last = await at(bx - 70, by + 70);
+  await page.mouse.move(last.x, last.y);
+  await page.mouse.down(); await page.mouse.up();
+  await page.mouse.down(); await page.mouse.up();
+  await wait(300);
+  all = await ops();
+  check('fog shapes: a double click closes the polygon', all.length === 1 && all[0].points.length === 4, JSON.stringify(all));
+  // Constrain holds the next edge to an eighth of a turn (the switch, or Shift).
+  await tool(() => window.boardTest.fog.reset());
+  await click(bx - 100, by - 100);
+  await page.keyboard.down('Shift');
+  const slope = await at(bx + 120, by - 70);
+  await page.mouse.move(slope.x, slope.y);
+  await wait(200);
+  const held = await tool(() => { const m = window.boardTest.board.fogTool.markView.current; const points = m?.paths?.[0]?.points ?? []; const a = points[0]; const b = points[points.length - 1]; return { level: Math.abs(a.y - b.y) < 1e-6 || Math.abs(Math.abs(a.x - b.x) - Math.abs(a.y - b.y)) < 1e-6 }; });
+  await page.keyboard.up('Shift');
+  check('fog shapes: Shift holds the polygon\'s next edge level, upright or diagonal', held.level, JSON.stringify(held));
+  await tool(() => window.boardTest.board.fogTool.cancel());
+
+  // Cells: a drag outlines the cells passed and fills them; a square grid's row runs merge into one lasso.
+  await tool(() => { window.boardTest.fog.reset(); window.boardTest.fog.state.adds.length = 0; });
+  await select('cells');
+  const hoverCell = await at(bx + 35, by + 35);
+  await page.mouse.move(hoverCell.x, hoverCell.y);
+  await wait(250);
+  check('fog shapes: Cells outlines the cell under the pointer', (await marks()).shown.includes('fog-mark-line'));
+  await drag([bx + 35, by + 35], [bx + 35 + 140, by + 35], { pause: async () => { await shot('fog-cells'); } });
+  all = await ops();
+  check('fog shapes: a drag over a row of square cells commits one lasso', all.length === 1 && all[0].type === 'lasso' && all[0].points.length === 4, JSON.stringify(all));
+  // Hex: one lasso per hex, in one step.
+  await tool(() => { const { board, fog } = window.boardTest; fog.reset(); fog.state.adds.length = 0; board.map.grid.type = 'hex-vertical'; board.map.grid.size = 70; });
+  await drag([bx, by], [bx + 90, by]);
+  const hexAdds = await tool(() => window.boardTest.fog.state.adds.map((step) => step.length));
+  check('fog shapes: a drag over two neighbouring hexes commits their joint outline (ten corners) as one lasso in one step', hexAdds.length === 1 && hexAdds[0] === 1 && (await ops()).every((op) => op.type === 'lasso' && op.points.length === 10), JSON.stringify([hexAdds, (await ops()).map((op) => op.points?.length)]));
+  await tool(() => { window.boardTest.board.map.grid.type = 'square'; window.boardTest.fog.reset(); });
+  // Without a grid (no cell size) Cells begins nothing and starts no drag.
+  await tool(() => { window.boardTest.board.map.grid.size = 0; });
+  await drag([bx, by], [bx + 140, by]);
+  check('fog shapes: Cells without a grid draws nothing and starts no drag', (await ops()).length === 0 && await tool(() => !window.boardTest.board.fogTool.drawing && window.boardTest.board.press === null));
+  await tool(() => { window.boardTest.board.map.grid.size = 70; });
+
+  // Room: the walls' room is outlined under the pointer, a click fills it, no room says so.
+  await tool(() => {
+    const { board, fog } = window.boardTest;
+    fog.reset();
+    const wall = (id, a, b) => ({ id, type: 'solid', p1: { x: a[0], y: a[1] }, p2: { x: b[0], y: b[1] }, direction: null, closed: true, locked: false, blocks: null, limited: false, chain: null });
+    const x1 = 620, y1 = 60, x2 = 1000, y2 = 250;
+    board.map.walls = [wall('r1', [x1, y1], [x2, y1]), wall('r2', [x2, y1], [x2, y2]), wall('r3', [x2, y2], [x1, y2]), wall('r4', [x1, y2], [x1, y1])];
+    board.refreshToolbar();
+    board.toolbarActions().fog.setShape('room');
+  });
+  await wait(200);
+  const inside = await at(810, 150);
+  await page.mouse.move(inside.x, inside.y);
+  await wait(300);
+  const hover = await marks();
+  check('fog shapes: the room the walls enclose is outlined under the pointer, in the theme\'s accent', hover.shown.includes('fog-mark-line') && hover.accent && hover.paths >= 1, JSON.stringify(hover));
+  await shot('fog-room');
+  await page.mouse.down(); await page.mouse.up();
+  await wait(300);
+  all = await ops();
+  check('fog shapes: a click in the room fills it with one lasso operation', all.length === 1 && all[0].type === 'lasso' && all[0].points.length >= 4, JSON.stringify(all));
+  const outside = await at(60, 60);
+  await tool(() => { window.boardTest.fog.state.notices.length = 0; });
+  await page.mouse.move(outside.x, outside.y);
+  await page.mouse.down(); await page.mouse.up();
+  await wait(300);
+  const said = await tool(() => [...window.boardTest.fog.state.notices]);
+  check('fog shapes: a click where the walls enclose no room says so, and fills nothing', JSON.stringify(said) === '["The walls here do not enclose a room."]' && (await ops()).length === 1, JSON.stringify(said));
+  // A press that moves is no click.
+  await page.mouse.move(inside.x, inside.y);
+  await page.mouse.down();
+  await page.mouse.move(inside.x + 30, inside.y, { steps: 3 });
+  await page.mouse.up();
+  await wait(250);
+  check('fog shapes: a press that moves before the release is no click in a room', (await ops()).length === 1);
+  // Without walls the Room shape is disabled (and an unavailable shape falls back to the brush).
+  await tool(() => { const { board } = window.boardTest; board.map.walls = []; board.refreshToolbar(); });
+  const disabled = await page.evaluate(() => document.querySelector('.atlas-tabletop-fog-bars [data-fog-shape="room"]')?.getAttribute('aria-disabled'));
+  check('fog shapes: Room is disabled without walls', disabled === 'true', String(disabled));
+  await tool(() => { window.boardTest.board.toolbarActions().fog.setShape('brush'); window.boardTest.fog.reset(); });
 });
 
 server.listen(0, async () => {
