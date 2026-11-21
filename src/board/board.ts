@@ -120,7 +120,7 @@ import { PlayerToolState, type TemplateChange, type TemplateMark, type TemplateS
 import { DEFAULT_MEASURE_TOOL, isMeasureShape, type MeasureToolOptions } from './measureOptions';
 import type { MeasureChange } from './boardMeasures';
 import type { FogOperation } from './fog';
-import { isWindow, NO_FLIP, segmentFrame, wholeWall, windowSpan, type BoardLight, type BoardWall, type DoorFlip, type WindowSpan } from './walls';
+import { isDoor, isWindow, NO_FLIP, segmentFrame, wholeWall, windowSpan, type BoardLight, type BoardWall, type DoorFlip, type WindowSpan } from './walls';
 import { MINI_DRAG_TYPE, MINI_TEXT_PREFIX } from '../assignments';
 import { augmentedCamera, augmentedProjection, isAugmentedView, roomPlacement, type AugmentedView, type RoomPlace } from './augmented';
 import { ArViewers, isViewerPose, type ViewerPose } from './arViewers';
@@ -4668,8 +4668,10 @@ export class Board {
       return;
     }
     if (press.moved) return;
-    // The fog tool owns a right-click on fog (and on the ground of fog revealed from it); a token's menu is still the token's.
-    if (press.button === 2 && !press.token && this.openFogMenu(event)) return;
+    // The fog tool owns a right-click on fog (and on the ground of fog revealed from it), as in Atlas, where only a door's badge and a pin lie
+    // above it; a token stays the token's (the board keeps tokens live under the tool), and a prop, a light or a plain wall give way to the fog.
+    const beaten = press.token !== null || press.pin !== null || this.map?.walls.some((wall) => wall.id === press.door && isDoor(wall)) === true;
+    if (press.button === 2 && !beaten && this.openFogMenu(event)) return;
     if (press.button === 0 && press.door) {
       this.toggleDoor(press.door);
       return;

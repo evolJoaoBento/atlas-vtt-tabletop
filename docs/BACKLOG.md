@@ -2,6 +2,10 @@
 
 Ideas and asks not yet planned. Newest first. Done items leave this list (their commits say what was done).
 
+- **Fog menu under the Move/Select tools** (2026-11-21): Atlas also opens the fog menu (Reveal, Hide, Delete) on a right-click
+  on fog while its Select or Move tool is on; the board offers it only with the fog tool on. Also left out: Atlas's menu rows
+  have no icons in 0.18 (its item renderer ignores `icon`), so neither has the board's.
+
 - **Atlas 0.18 features the board does not show yet** (2026-11-21, survey of 0.18.0): saved rolls and the collection's
   editable dice row in the board's dice tray; Atlas's compact / horizontal initiative layouts and turn banners; the
   soundboard (`S`, left off the board since Shift+S is Silence there); "Forget explored areas"; hold M and drag to

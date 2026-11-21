@@ -8087,6 +8087,7 @@ feature('fog menu', async ({ page, shot }) => {
     const { board, modes, fog, host } = window.boardTest;
     fog.reset();
     fog.state.menuWrites.length = 0;
+    window.__fogMenuWalls = board.map.walls;
     board.map.walls = [];
     modes.on = true;
     modes.mode = 'edit';
@@ -8131,10 +8132,11 @@ feature('fog menu', async ({ page, shot }) => {
   all = await ops();
   const hidden = all.find((op) => op.type === 'lasso');
   check('fog menu: Hide brings the fog back as a plain painting lasso, with no mark', hidden && hidden.isErasing === false && !('area' in hidden) && all.length === 2 && (await writes()).at(-1) === `hide ${hidden.id}`, JSON.stringify(all.map((op) => [op.type, op.isErasing, op.area])));
+  check('fog menu: the board draws the hidden fog again (a change of the same operation, not of its id)', (await tool(() => window.boardTest.board.fog.areas.length)) === 1);
   check('fog menu: the fog is back, and right-clicking it offers Reveal again', await (async () => { await rightClick(...FOG); const items = await menu(); await page.keyboard.press('Escape'); await wait(200); return items[0]?.[0] === 'Reveal'; })());
   await undo();
   all = await ops();
-  check('fog menu: undo takes Hide back: the ground is revealed and remembered again', all.length === 2 && all.find((op) => op.type === 'lasso').isErasing === true && 'area' in all.find((op) => op.type === 'lasso'));
+  check('fog menu: undo takes Hide back: the ground is revealed and remembered again, and drawn open', (await tool(() => window.boardTest.board.fog.areas.length)) === 0 && all.length === 2 && all.find((op) => op.type === 'lasso').isErasing === true && 'area' in all.find((op) => op.type === 'lasso'));
 
   // Delete on revealed ground: forgotten, still revealed.
   await rightClick(...FOG);
@@ -8143,7 +8145,7 @@ feature('fog menu', async ({ page, shot }) => {
   const forgotten = all.find((op) => op.type === 'lasso');
   check('fog menu: Delete on revealed ground forgets it: the lasso stays erasing, the mark goes', forgotten && forgotten.isErasing === true && !('area' in forgotten) && (await writes()).at(-1) === `forget ${forgotten.id}`, JSON.stringify(all.map((op) => [op.type, op.isErasing, op.area])));
   await rightClick(...FOG);
-  check('fog menu: forgotten ground has no menu', (await menu()).length === 0);
+  check('fog menu: forgotten ground has no menu, and stays drawn open', (await menu()).length === 0 && (await tool(() => window.boardTest.board.fog.areas.length)) === 0);
   await undo();
   await undo();
   check('fog menu: two undos take it back to the fog as painted', (await ops()).length === 1);
@@ -8167,6 +8169,31 @@ feature('fog menu', async ({ page, shot }) => {
   check('fog menu: a right-click on a token in fog is the token menu, not the fog menu', (await tool(() => window.boardTest.record.menus.length)) === tokenMenus + 1 && !(await menu()).some((row) => row[0] === 'Reveal'), JSON.stringify(await menu()));
   await page.keyboard.press('Escape');
   await wait(250);
+
+  // Walls in fog: a door keeps its own menu (Atlas: a door's badge lies above fog); a plain wall gives way to the fog; a wall off the fog keeps its menu.
+  await tool(async () => {
+    const { board, fog, host } = window.boardTest;
+    board.map.walls = window.__fogMenuWalls;
+    fog.reset();
+    await host.fog.add([{ type: 'rectangle', x: 500, y: 780, width: 260, height: 260, isErasing: false }]);
+    board.refresh();
+    board.wake(true);
+  });
+  await wait(500);
+  const wallMenus = () => tool(() => [...window.boardTest.record.wallMenus]);
+  await rightClick(560, 840);
+  const door = await wallMenus();
+  check('fog menu: a right-click on a door in fog is the door menu, not the fog menu', door.at(-1) === 'door' && (await menu()).length === 0, JSON.stringify([door, await menu()]));
+  const before = (await wallMenus()).length;
+  await rightClick(665, 910);
+  check('fog menu: a right-click on a plain wall in fog is the fog menu (the wall menu gives way)', (await wallMenus()).length === before && JSON.stringify((await menu()).map((row) => row[0])) === '["Reveal","Delete"]', JSON.stringify([await wallMenus(), await menu()]));
+  await page.keyboard.press('Escape');
+  await wait(250);
+  await rightClick(455, 910);
+  const off = await wallMenus();
+  check('fog menu: a right-click on a wall off the fog, the tool on, is still the wall menu', off.length === before + 1 && off.at(-1) === 'w' && (await menu()).length === 0, JSON.stringify([off, await menu()]));
+  await tool(() => { const { board, fog, host } = window.boardTest; board.map.walls = []; fog.reset(); board.refresh(); return host.fog.add([{ type: 'rectangle', x: 70, y: 70, width: 560, height: 420, isErasing: false }]); });
+  await wait(400);
 
   // A polygon under way takes no menu: its corners wait.
   await tool(() => window.boardTest.board.toolbarActions().fog.setShape('polygon'));
