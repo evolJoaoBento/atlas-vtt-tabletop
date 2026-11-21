@@ -341,8 +341,13 @@ export class BoardView extends ItemView {
     // Atlas saved a collection's settings (its units, its diagonal rule, its conditions): the board reads its rules again.
     this.registerEvent((this.app.workspace as unknown as { on(name: string, callback: () => void): EventRef }).on('atlas-vtt:collection-settings-changed', () => this.reload()));
     this.registerDomEvent(this.contentEl, 'pointerdown', () => { this.services.focused(this); this.followHost(); }, true);
-    // Atlas's "Fog opacity in GM view" changed (here or in Atlas): the fog in the GM's view takes it.
-    this.register(new AtlasBridge(this.app).onSettingsChange(() => this.board?.refreshFogOpacity()));
+    // Atlas's "Fog opacity in GM view" changed (here or in Atlas): the fog in the GM's view takes it. Heard once Atlas has loaded.
+    {
+      const bridge = new AtlasBridge(this.app);
+      let stopSettings = (): void => undefined;
+      this.register(bridge.onLoaded(() => { stopSettings = bridge.onSettingsChange(() => this.board?.refreshFogOpacity()); this.board?.refreshFogOpacity(); }));
+      this.register(() => stopSettings());
+    }
     const host = this.services.host;
     if (host) {
       // This board needs Atlas's tab while it is open; working on the board (its tab made active, a press on it) brings
@@ -1469,6 +1474,8 @@ export class BoardView extends ItemView {
       return typeof state?.setToolSwitch === 'function' ? state : null;
     };
     const defaults: Record<FogSwitchId, boolean> = { fogSnap: true, fogConstrain: false };
+    // Where Atlas has no tool switches the tool keeps its own, per device (this vault on this device, like the board's mode).
+    const deviceKey = (id: FogSwitchId): string => `tabletop-${id}`;
     return {
       offers: () => writer.fogOffers(mapPath()),
       add: (operations) => writer.addFog(mapPath(), operations, level()).then(() => true, (error: unknown) => { this.unsaved('fog', error); return false; }),
@@ -1477,8 +1484,18 @@ export class BoardView extends ItemView {
       hideRooms: (rect) => writer.hideRooms(mapPath(), rect, undefined, level()).catch(refused),
       gmOpacity: () => bridge().gmFogOpacity(),
       setGmOpacity: (opacity) => { bridge().setGmFogOpacity(opacity); },
-      switchOn: (id) => { const state = switches(); return state ? state.toolSwitches?.[id] ?? defaults[id] : null; },
-      setSwitch: (id, on) => { const state = switches(); if (!state) return false; state.setToolSwitch?.(id, on); return true; },
+      switchOn: (id) => {
+        const state = switches();
+        if (state) return state.toolSwitches?.[id] ?? defaults[id];
+        const kept: unknown = this.app.loadLocalStorage(deviceKey(id));
+        return kept === 'on' ? true : kept === 'off' ? false : defaults[id];
+      },
+      setSwitch: (id, on) => {
+        const state = switches();
+        if (state) state.setToolSwitch?.(id, on);
+        else this.app.saveLocalStorage(deviceKey(id), on ? 'on' : 'off');
+        return true;
+      },
       brushKeys: () => {
         const keys = [bridge().hotkey('drawSmaller'), bridge().hotkey('drawLarger')];
         return keys.map((key) => (key ? formatHotkey(key) : '')).filter((key) => key !== '').join(' ');

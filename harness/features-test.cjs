@@ -7653,6 +7653,8 @@ feature('fog tool bars', async ({ page, shot }) => {
   await q('.atlas-tabletop-fog-bars [data-fog-popover="more"]').click();
   const old = await page.evaluate(() => ({ cover: document.querySelector('[data-fog-action="cover"]').getAttribute('aria-disabled'), rooms: document.querySelector('[data-fog-action="rooms"]').disabled, opacity: document.querySelector('.atlas-tabletop-fog-popover--more input[aria-label="Fog opacity in GM view"]').disabled }));
   check('fog bars: with an older Atlas Cover all, Hide all rooms and the opacity are disabled', old.cover === 'true' && old.rooms === true && old.opacity === true, JSON.stringify(old));
+  const roomsTip = await hoverTip('.atlas-tabletop-fog-popover--more [data-fog-action="rooms"]');
+  check('fog bars: Hide all rooms says why in a tooltip, not a native title', roomsTip === 'This needs a newer Atlas.', roomsTip);
   await q('.atlas-tabletop-fog-bars [data-fog-popover="more"]').click();
   check('fog bars: Cover all says it needs a newer Atlas', (await hoverTip('.atlas-tabletop-fog-bars [data-fog-action="cover"]')) === 'Cover allThis needs a newer Atlas.');
   await page.evaluate(() => { window.boardTest.fog.offers.cover = true; window.boardTest.fog.offers.hideRooms = true; window.boardTest.fog.state.gmOpacity = 0.5; });
@@ -7660,6 +7662,10 @@ feature('fog tool bars', async ({ page, shot }) => {
   await page.evaluate(() => window.boardTest.board.toolbarActions().fog.stop());
   await wait(200);
   check('fog bars: the tool put down takes the bars away', !(await q('.atlas-tabletop-fog-bars').isVisible()));
+  const withPanel = await page.evaluate(() => { const { board, modes } = window.boardTest; modes.mode = 'edit'; board.refreshToolbar(); board.toolbar.openLighting(); const lit = !board.toolbar.lightingPanel.hidden; board.toggleFogTool(); return { lit, closed: board.toolbar.lightingPanel.hidden, on: board.toolbarActions().fog.state().on }; });
+  await wait(200);
+  check('fog bars: F with another panel open closes it and opens the bars', withPanel.lit && withPanel.closed && withPanel.on && (await q('.atlas-tabletop-fog-bars').isVisible()), JSON.stringify(withPanel));
+  await page.evaluate(() => window.boardTest.board.toolbarActions().fog.stop());
   const keys = await page.evaluate(() => {
     const { board, modes } = window.boardTest;
     modes.mode = 'play';
@@ -7785,6 +7791,15 @@ feature('fog brush', async ({ page, shot }) => {
   await page.mouse.up();
   await wait(400);
   check('fog brush: with the tool off a drag paints nothing', (await page.evaluate(() => Object.keys(window.boardTest.fog.record()).length)) === 2);
+  // A shape with no gesture yet swallows the press: nothing is drawn.
+  await page.evaluate(() => { const a = window.boardTest.board.toolbarActions().fog; a.start(); a.setShape('lasso'); });
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 40, y + 5, { steps: 3 });
+  await page.mouse.up();
+  await wait(300);
+  check('fog brush: a shape with no gesture yet draws nothing and starts no drag', await page.evaluate(() => Object.keys(window.boardTest.fog.record()).length === 2 && !window.boardTest.board.fogTool.drawing && window.boardTest.board.press === null));
+  await page.evaluate(() => window.boardTest.board.toolbarActions().fog.setShape('brush'));
   // A refused write takes the preview away.
   await page.evaluate(() => { window.boardTest.board.toolbarActions().fog.start(); window.boardTest.fog.state.fail = true; });
   await page.mouse.move(x, y);

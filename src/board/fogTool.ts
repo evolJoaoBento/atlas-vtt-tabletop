@@ -264,7 +264,7 @@ export class FogTool {
     // The preview stays, as it is, until the fog volume holds the stroke (it would flicker off and on again): held before
     // the write, which may be drawn at once.
     this.heldKey = this.deps.fogKey();
-    this.holding = setTimeout(() => this.releaseHold(), 2000);
+    this.holding = setTimeout(() => this.releaseHold(), 3000);
     this.deps.commit(shapes.map((shape) => ({ ...shape, isErasing }) as FogOperationInput));
   }
 

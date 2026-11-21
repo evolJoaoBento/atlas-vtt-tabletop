@@ -888,6 +888,8 @@ export class Board {
   private readonly fog = new FogVolume();
   /** The GM's fog tool, made with the toolbar (a GM board whose host writes fog); null otherwise. */
   private fogTool: FogTool | null = null;
+  /** Atlas's fog opacity in the GM's view as last read (undefined: not read yet; null: Atlas has none), kept so a frame does not read the setting. */
+  private gmFogOpacity: number | null | undefined = undefined;
   /** The fog the toolbar was last brought up to date with (ids of its operations). */
   private fogShown = '';
   /** The fog tool's switches where Atlas keeps none (Atlas 0.18's `fogSnap` and `fogConstrain` defaults). */
@@ -2953,8 +2955,9 @@ export class Board {
   toggleFogTool(): boolean {
     const tool = this.fogTool;
     if (!tool || this.audience !== 'gm') return false;
-    if (tool.on) tool.toggleMode(); else this.startFog('fog');
-    return true;
+    if (tool.on) { tool.toggleMode(); return true; }
+    // Through the toolbar's own way in: the other panels close and Edit mode is taken, as when the button is pressed.
+    return this.toolbar.goTo('fog');
   }
 
   /** Atlas's smaller and larger brush keys, while the fog tool is on (`held`: a repeat of the key): true when it sized the brush. */
@@ -2999,7 +3002,8 @@ export class Board {
 
   /** The GM's Atlas fog opacity changed (or is read again): the fog in the GM's view takes it. */
   refreshFogOpacity(): void {
-    this.fog.setGmStrength(this.host.fog?.gmOpacity?.() ?? null);
+    this.gmFogOpacity = this.host.fog?.gmOpacity?.() ?? null;
+    this.fog.setGmStrength(this.gmFogOpacity);
     this.wake(true);
   }
 
@@ -3914,8 +3918,9 @@ export class Board {
       return;
     }
     // The GM's fog tool: a drag draws fog (Alt: the other thing). A press on a token is the token's.
-    if (event.button === 0 && this.fogTool?.on && !this.tokenAt(x, y) && this.fogTool.down(x, y, { shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey }, event.altKey)) {
-      this.press = { kind: 'fog' };
+    // A shape with no gesture yet (stage 2) swallows the press: nothing is drawn, and nothing under it is dragged or lifted.
+    if (event.button === 0 && this.fogTool?.on && !this.tokenAt(x, y)) {
+      if (this.fogTool.down(x, y, { shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey }, event.altKey)) this.press = { kind: 'fog' };
       return;
     }
     // The Shapes tool: a click adds a corner, a corner pressed is dragged (Ctrl: raised).
@@ -5263,7 +5268,8 @@ export class Board {
     for (const piece of this.props.values()) piece.object3d.visible = (gm || revealed || !insideFog(fog, { x: piece.object3d.position.x, y: piece.object3d.position.z })) && (gm || !underBox(this.map?.inks ?? [], { x: piece.object3d.position.x, y: piece.object3d.position.z })) && !this.beyondSight(viewer, `p:${piece.id}`);
     if (this.cellOutline) this.cellOutline.visible = gm;
     if (this.cellLabel) this.cellLabel.visible = gm;
-    this.fog.setGmStrength(this.host.fog?.gmOpacity?.() ?? null);
+    if (this.gmFogOpacity === undefined) this.gmFogOpacity = this.host.fog?.gmOpacity?.() ?? null;
+    this.fog.setGmStrength(this.gmFogOpacity);
     this.fog.show(viewer);
     this.walls.show(viewer);
     this.rig.show(viewer);

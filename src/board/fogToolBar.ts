@@ -138,6 +138,8 @@ export class FogToolBars {
     this.switchRow(switchSection, 'fogConstrain', at('toolbar.constrain'));
     const roomsSection = el('div', 'atlas-dropdown-section', this.morePanel);
     this.roomsHolder = el('div', '', roomsSection);
+    // Where the row cannot be used it says why, as Atlas's `LabelTooltip` does.
+    this.tooltip.attach(this.roomsHolder, () => ({ label: this.roomsWhy() ?? at('fog.hideRooms') }));
     this.roomsItem = el('button', 'btn btn--ghost btn--sm atlas-dropdown-menu-item atlas-dropdown-menu-item--flush', this.roomsHolder);
     this.roomsItem.type = 'button';
     this.roomsItem.dataset.fogAction = 'rooms';
@@ -338,7 +340,13 @@ export class FogToolBars {
     }
     const rooms = this.actions.hasWalls() && offers.hideRooms;
     this.roomsItem.disabled = !rooms;
-    this.roomsHolder.title = rooms ? '' : (!offers.hideRooms ? t('fog.needsNewerAtlas') : this.actions.levelled() ? at('fog.roomNeedsLevelWalls') : at('fog.roomNeedsWalls'));
+  }
+
+  /** Why Hide all rooms cannot be used now, or null. */
+  private roomsWhy(): string | null {
+    if (!this.actions.offers().hideRooms) return t('fog.needsNewerAtlas');
+    if (!this.actions.hasWalls()) return this.actions.levelled() ? at('fog.roomNeedsLevelWalls') : at('fog.roomNeedsWalls');
+    return null;
   }
 
   dispose(): void {
