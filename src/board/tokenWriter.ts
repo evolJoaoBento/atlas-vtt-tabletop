@@ -79,6 +79,7 @@ function sendToAtlas(state: AtlasSceneState, action: InitiativeAction): boolean 
       if (beside.length > 0) state.deleteTokens?.(beside);
       return true;
     }
+    case 'resetNumbers': return state.resetInitiativeNumbers ? (state.resetInitiativeNumbers(), true) : false;
     case 'edit': return state.updateInitiativeEntry ? (state.updateInitiativeEntry(action.id, action.changes), true) : false;
     case 'remove': {
       if (!state.removeFromInitiative) return false;
@@ -248,8 +249,10 @@ export class TokenWriter {
   }
 
   /** Whether the tracker can do `action` on this map: when Atlas holds it, as Atlas offers it; else it will be asked. */
-  offers(path: string, action: 'reset' | 'sitsOut'): boolean {
+  offers(path: string, action: 'reset' | 'sitsOut' | 'resetNumbers'): boolean {
     const state = this.holder(path)?.atlasStore.getState();
+    // Reset initiative is Atlas 0.18's: hidden until Atlas holds the map and has it.
+    if (action === 'resetNumbers') return typeof state?.resetInitiativeNumbers === 'function';
     if (!state) return true;
     return action === 'reset' ? typeof state.resetInitiative === 'function' : typeof state.setInitiativeSitsOut === 'function';
   }

@@ -49,7 +49,7 @@ import { pinMenuEntries } from './pinMenu';
 import { presentToEntry } from './sessionMenus';
 import { SpellAskModal } from '../spellAskModal';
 import { conditionChange, conditionStep, resetChange, type ConditionFields } from './tokenEdits';
-import { currentEntries, delayedTokens, emptyInitiative, ownModifier, readInitiative, statblockModifier, turnAnnouncement, type InitiativeAction, type InitiativeState } from './initiative';
+import { currentTokenIds, delayedTokens, emptyInitiative, ownModifier, readInitiative, statblockModifier, turnAnnouncement, type InitiativeAction, type InitiativeState } from './initiative';
 import { InitiativePanel, type InitiativePanelHost } from './initiativePanel';
 import { wholeWall, isWindow, mirroredDoor, rotatedDoor, windowSpan, WINDOW_STEP, type DoorFlip } from './walls';
 import { extrasOf, readLightHeight, readWallExtra, type RecordExtras, type WallExtraChange } from './recordExtras';
@@ -2262,14 +2262,14 @@ export class BoardView extends ItemView {
   private showInitiative(): void {
     this.initiative?.render();
     const fight = this.liveInitiative();
-    this.board?.setActiveTokens(currentEntries(fight).map((entry) => entry.tokenId));
+    this.board?.setActiveTokens(currentTokenIds(fight));
     this.board?.setDelayedTokens(delayedTokens(fight));
     // The turn passing flashes a banner; opening the board in the middle of a fight does not.
     const turn = turnAnnouncement(fight);
     if (turn && this.lastTurn !== null && this.lastTurn !== turn.key) this.board?.flashTurn(turn.text);
     this.lastTurn = turn?.key ?? null;
     // The horn goes through the board's own watcher, which also hears the file's tracker, so one turn sounds once.
-    this.board?.hearTurn(turn?.key ?? null, currentEntries(fight).map((entry) => entry.tokenId));
+    this.board?.hearTurn(turn?.key ?? null, currentTokenIds(fight));
   }
 
   /** The turn last announced, to flash the banner only when it changes. */
@@ -2301,6 +2301,7 @@ export class BoardView extends ItemView {
     const live = this.watched?.view.atlasStore.getState();
     const held = live && live.mapPath === this.path ? live.objects.tokens as unknown as Record<string, Record<string, unknown>> : null;
     const defeated = this.liveInitiative().entries.filter((entry) => {
+      if (entry.tokenId === undefined) return false;
       const raw = held?.[entry.tokenId];
       const token = raw ? tokenFromFile(raw) : this.map?.tokens.find((candidate) => candidate.id === entry.tokenId);
       return token !== undefined && isDefeated(token, definitions);

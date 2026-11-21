@@ -75,6 +75,8 @@ export interface AtlasSceneState {
   endCombat?: () => void;
   setInitiativeSitsOut?: (id: string, sitsOut: boolean) => void;
   resetInitiative?: () => void;
+  /** Atlas 0.18: ends the fight, empties every number and keeps everyone in the tracker. */
+  resetInitiativeNumbers?: () => void;
   /** Atlas's doors: open or shut one (a locked one stays shut), lock or unlock one. */
   toggleDoor?: (id: string) => void;
   setDoorLocked?: (id: string, locked: boolean) => void;

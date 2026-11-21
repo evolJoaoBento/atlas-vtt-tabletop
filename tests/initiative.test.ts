@@ -22,7 +22,7 @@ const active = (state: InitiativeState): string | undefined => state.entries.fin
 const dice = (sides: number, ...faces: number[]): (() => number) => { let i = 0; return () => (faces[i++ % faces.length]! - 1) / sides; };
 
 test('the tracker is read as Atlas defaults it, keeping fields Tabletop does not know', () => {
-  const state = readInitiative({ entries: [{ id: 'x', tokenId: 't', extra: 1 }, { id: 'bad' }], round: 2, isActive: true, config: {}, sides: { first: 'players', active: 'opponents' }, other: 'kept' });
+  const state = readInitiative({ entries: [{ id: 'x', tokenId: 't', extra: 1 }, { notAnId: true }], round: 2, isActive: true, config: {}, sides: { first: 'players', active: 'opponents' }, other: 'kept' });
   assert.equal(state.entries.length, 1);
   assert.deepEqual({ ...state.entries[0] }, { id: 'x', tokenId: 't', extra: 1, name: 'Token', initiative: 0, initiativeModifier: 0, imagePath: '', isActive: false, isNPC: true, order: 0 });
   assert.equal(state.round, 2);
@@ -225,4 +225,36 @@ test('the turn announcement names the round and whose turn it is, and changes on
   const held = fight({ entries: [entry('a', 0, { delayed: true }), entry('b', 1)], isActive: true });
   assert.deepEqual(delayedTokens(held), ['t-a']);
   assert.deepEqual(delayedTokens({ ...held, isActive: false }), []);
+});
+
+test('Atlas 0.18: entries without a token (party members, enemies) are kept, so indices equal Atlas indices', async () => {
+  const { currentEntries, currentTokenIds, delayedTokens, turnAnnouncement } = await import('../src/board/initiative');
+  const raw = {
+    entries: [
+      { id: 'a', tokenId: 'tok-a', name: 'Goblin', isActive: false },
+      { id: 'p', partyMemberId: 'pm1', name: 'Mira', imagePath: 'Party/mira.png', isActive: true, isNPC: false },
+      { id: 'e', name: 'Enemy 1', awaitingInitiative: true },
+    ],
+    isActive: true, round: 3, currentIndex: 1,
+  };
+  const state = readInitiative(raw);
+  assert.equal(state.entries.length, 3);
+  assert.equal(state.entries[1]!.tokenId, undefined);
+  assert.equal(state.entries[1]!.partyMemberId, 'pm1');
+  assert.equal(state.entries[1]!.imagePath, 'Party/mira.png');
+  assert.equal(state.entries[2]!.awaitingInitiative, true);
+  // The current one has no token: nothing is highlighted, the announcement names the party member.
+  assert.deepEqual(currentEntries(state).map((one) => one.id), ['p']);
+  assert.deepEqual(currentTokenIds(state), []);
+  assert.match(turnAnnouncement(state)!.text, /^Round 3 · Mira$/);
+  // Without a marked entry, currentIndex indexes the whole list (the party member is the second).
+  const unmarked = readInitiative({ ...raw, entries: raw.entries.map((one) => ({ ...one, isActive: false })) });
+  assert.deepEqual(currentEntries(unmarked).map((one) => one.id), ['p']);
+  // A token's turn still lights its token; a tokenless delayed one has none to mark.
+  const onToken = readInitiative({ ...raw, currentIndex: 0, entries: raw.entries.map((one) => ({ ...one, isActive: one.id === 'a', delayed: one.id === 'e' ? true : undefined })) });
+  assert.deepEqual(currentTokenIds(onToken), ['tok-a']);
+  assert.deepEqual(delayedTokens(onToken), []);
+  // A drag reorders by place in the full list.
+  const moved = applyInitiative(state, { type: 'reorder', from: 2, to: 0 }, () => 0.5);
+  assert.deepEqual(sortedEntries(moved).map((one) => one.id), ['e', 'a', 'p']);
 });

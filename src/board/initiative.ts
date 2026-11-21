@@ -44,7 +44,8 @@ export interface InitiativeRules {
 /** A combatant, as Atlas keeps it; fields Tabletop does not know are kept as they are. */
 export interface InitiativeEntry {
   id: string;
-  tokenId: string;
+  /** Absent on an Atlas 0.18 party member (`partyMemberId`) and on an "Add enemy" entry. */
+  tokenId?: string | undefined;
   name: string;
   initiative: number;
   initiativeModifier: number;
@@ -84,6 +85,8 @@ export type InitiativeAction =
   | { type: 'end' }
   | { type: 'sitsOut'; id: string; sitsOut: boolean }
   | { type: 'reset' }
+  /** Atlas 0.18's "Reset initiative": ends the fight and empties every number, keeping everyone. Atlas only. */
+  | { type: 'resetNumbers' }
   | { type: 'edit'; id: string; changes: Partial<Pick<InitiativeEntry, 'initiative' | 'initiativeModifier' | 'modifierByHand'>> }
   | { type: 'remove'; id: string; defeated?: readonly string[] };
 
@@ -262,15 +265,16 @@ export function emptyInitiative(): InitiativeState {
 
 const num = (value: unknown, fallback: number): number => (typeof value === 'number' && Number.isFinite(value) ? value : fallback);
 
-/** The tracker as a map file holds it, defaulted as Atlas defaults it; entries without an id or a token id are left out. */
+/** The tracker as a map file holds it, defaulted as Atlas defaults it; entries without an id are left out. Entries without a token (Atlas 0.18's party members and enemies) are kept, so
+ * indices equal Atlas's. */
 export function readInitiative(raw: unknown): InitiativeState {
   if (!isObj(raw)) return emptyInitiative();
   const entries = (Array.isArray(raw.entries) ? raw.entries : []).filter(isObj)
-    .filter((entry) => typeof entry.id === 'string' && typeof entry.tokenId === 'string')
+    .filter((entry) => typeof entry.id === 'string')
     .map((entry, index): InitiativeEntry => ({
       ...entry,
       id: entry.id as string,
-      tokenId: entry.tokenId as string,
+      ...(typeof entry.tokenId === 'string' ? { tokenId: entry.tokenId } : {}),
       name: typeof entry.name === 'string' ? entry.name : 'Token',
       initiative: num(entry.initiative, 0),
       initiativeModifier: num(entry.initiativeModifier, 0),
@@ -319,5 +323,10 @@ export function turnAnnouncement(state: InitiativeState): { key: string; text: s
 
 /** The tokens of the combatants holding their turn back, while a fight runs. */
 export function delayedTokens(state: InitiativeState): string[] {
-  return state.isActive ? state.entries.filter((entry) => entry.delayed === true).map((entry) => entry.tokenId) : [];
+  return state.isActive ? state.entries.flatMap((entry) => (entry.delayed === true && entry.tokenId !== undefined ? [entry.tokenId] : [])) : [];
+}
+
+/** The tokens of the combatants whose turn it is: a party member or an enemy without a token has none to light. */
+export function currentTokenIds(state: InitiativeState): string[] {
+  return currentEntries(state).flatMap((entry) => (entry.tokenId === undefined ? [] : [entry.tokenId]));
 }

@@ -26,6 +26,7 @@ export interface InitiativePanelHost {
   /**
    * Whether the token is still on the map, as Atlas holds it (or the file): a combatant whose token was deleted while
    * Atlas's own tracker was closed keeps its entry, which Atlas drops once its tracker shows again; it gets no card.
+   * Asked only of entries that name a token (Atlas 0.18's party members and enemies have none and always get a card).
    */
   hasToken(tokenId: string): boolean;
   tokenSettings(): TokenSettings;
@@ -38,7 +39,7 @@ export interface InitiativePanelHost {
   roll(entryId?: string): void;
   act(action: InitiativeAction): void;
   /** Whether Atlas (when it holds the map) offers the change; always in the file. */
-  offers(action: 'reset' | 'sitsOut'): boolean;
+  offers(action: 'reset' | 'sitsOut' | 'resetNumbers'): boolean;
   setHidden(tokenId: string, hidden: boolean): void;
   setSide(tokenId: string, side: InitiativeSide): void;
   /** Shows the token: the camera goes to it. */
@@ -113,7 +114,7 @@ export class InitiativePanel {
     const bySides = listedBySides(state, rules);
     const entries = sortedEntries(state);
     const tokens = new Map(this.host.tokens().map((token) => [token.id, token]));
-    const shown = entries.filter((entry) => this.host.hasToken(entry.tokenId));
+    const shown = entries.filter((entry) => this.listed(entry));
     const scrollTop = this.panel.querySelector('.tabletop-initiative-tracker__content')?.scrollTop ?? 0;
     this.panel.replaceChildren();
 
@@ -122,6 +123,8 @@ export class InitiativePanel {
     if (!bySides) this.button(controls, 'dices', 'Roll initiative', entries.length === 0, () => this.host.roll());
     if (!state.isActive) this.button(controls, 'swords', 'Start combat', entries.length === 0, () => this.host.act({ type: 'start', rules }));
     else this.button(controls, '', 'End combat', false, () => this.host.act({ type: 'end' }), 'tabletop-initiative-tracker__btn--end').appendChild(this.truce());
+    // Atlas 0.18's "Reset initiative" (numbers emptied, everyone kept): offered only where Atlas has it.
+    if (this.host.offers('resetNumbers')) this.button(controls, 'rotate-ccw', 'Reset initiative', entries.length === 0, () => this.host.act({ type: 'resetNumbers' }));
     if (this.host.offers('reset')) this.button(controls, 'trash-2', 'Clear initiative', entries.length === 0, () => this.host.act({ type: 'reset' }));
 
     const content = this.el('div', 'tabletop-initiative-tracker__content', this.panel);
@@ -129,7 +132,7 @@ export class InitiativePanel {
     if (shown.length === 0) this.el('p', 'tabletop-initiative-tracker__empty', content, 'Right-click a token to add it');
     // `index` is the card's place among all combatants, which is what a drag reorders.
     const card = (entry: InitiativeEntry, index: number, parent: HTMLElement): void => {
-      if (this.host.hasToken(entry.tokenId)) this.card(entry, index, parent, tokens, bySides);
+      if (this.listed(entry)) this.card(entry, index, parent, tokens, bySides);
     };
     if (shown.length > 0 && bySides) {
       // Atlas 0.9 may name sides of its own and order them: the sections follow the fight's order.
@@ -139,7 +142,7 @@ export class InitiativePanel {
         const section = this.el('section', `tabletop-initiative-side${state.sides?.active === side ? ' tabletop-initiative-side--active' : ''}`, content);
         if (state.sides?.active === side) section.setAttribute('aria-current', 'true');
         this.el('h4', 'tabletop-initiative-side__label', section, sideLabel(side, named));
-        entries.forEach((entry, index) => { if (sideOf(tokens.get(entry.tokenId), sides) === side) card(entry, index, section); });
+        entries.forEach((entry, index) => { if (this.sideOfEntry(entry, tokens, sides) === side) card(entry, index, section); });
       }
     } else if (shown.length > 0) {
       entries.forEach((entry, index) => card(entry, index, content));
@@ -164,8 +167,19 @@ export class InitiativePanel {
     }
   }
 
+  /** Whether the entry gets a card: one without a token (a party member, an enemy) always does. */
+  private listed(entry: InitiativeEntry): boolean {
+    return entry.tokenId === undefined || this.host.hasToken(entry.tokenId);
+  }
+
+  /** Atlas's side for an entry: a party member is the players'; a token's own; an enemy without a token the opponents'. */
+  private sideOfEntry(entry: InitiativeEntry, tokens: ReadonlyMap<string, BoardToken>, known: readonly string[]): string {
+    if (entry.partyMemberId !== undefined) return 'players';
+    return sideOf(entry.tokenId === undefined ? undefined : tokens.get(entry.tokenId), known);
+  }
+
   private card(entry: InitiativeEntry, index: number, parent: HTMLElement, tokens: Map<string, BoardToken>, bySides: boolean): void {
-    const token = tokens.get(entry.tokenId);
+    const token = entry.tokenId === undefined ? undefined : tokens.get(entry.tokenId);
     const definitions = this.host.definitions();
     const defeated = token !== undefined && token.kind === 'character' && isDefeated(token, definitions);
     const hidden = token?.hidden === true;
@@ -229,7 +243,11 @@ export class InitiativePanel {
       }
     }
 
-    card.addEventListener('click', () => this.host.showToken(entry.tokenId));
+    // A combatant without a token has none to show.
+    if (entry.tokenId !== undefined) {
+      const tokenId = entry.tokenId;
+      card.addEventListener('click', () => this.host.showToken(tokenId));
+    }
     card.addEventListener('contextmenu', (event) => {
       event.preventDefault();
       this.host.menu(() => this.cardMenu(entry.id, card), { x: event.clientX, y: event.clientY });
@@ -274,7 +292,8 @@ export class InitiativePanel {
     if (!entry) return [];
     const rules = this.host.rules();
     const bySides = listedBySides(state, rules);
-    const token = this.host.tokens().find((candidate) => candidate.id === entry.tokenId);
+    const token = entry.tokenId === undefined ? undefined : this.host.tokens().find((candidate) => candidate.id === entry.tokenId);
+    const tokenId = entry.tokenId;
     const hidden = token?.hidden ?? false;
     // A token on one of the two built-in sides moves to the other; one on a side Atlas 0.9 named is moved in Atlas.
     const own = sideOf(token, fightSides(state, rules));
@@ -286,13 +305,13 @@ export class InitiativePanel {
       item('Move to Back', () => this.host.act({ type: 'back', id: entry.id })),
       ...(bySides
         ? [
-          ...(other ? [item(`Move to ${SIDE_LABELS[other]}`, () => this.host.setSide(entry.tokenId, other))] : []),
+          ...(other && tokenId !== undefined ? [item(`Move to ${SIDE_LABELS[other]}`, () => this.host.setSide(tokenId!, other))] : []),
           ...(state.isActive && this.host.offers('sitsOut')
             ? [item(entry.sitsOut ? 'Act This Round' : 'Sit Out This Round', () => this.host.act({ type: 'sitsOut', id: entry.id, sitsOut: !entry.sitsOut }))]
             : []),
         ]
         : [item('Edit Initiative', () => this.openPopup(entry, card))]),
-      item(hidden ? 'Show to Players' : 'Hide from Players', () => this.host.setHidden(entry.tokenId, !hidden)),
+      ...(tokenId !== undefined ? [item(hidden ? 'Show to Players' : 'Hide from Players', () => this.host.setHidden(tokenId, !hidden))] : []),
       { type: 'item', label: 'Remove from Initiative', destructive: true, onClick: () => this.host.act({ type: 'remove', id: entry.id }) },
     ];
   }

@@ -100,7 +100,7 @@ import { positionOf } from './camera';
 import { wireDiceSounds } from '../sound/diceSounds';
 import { boardHeard } from '../sound/boardHeard';
 import { doorChanges, RecentDrops, remoteMoves, sceneKey } from '../sound/miniSounds';
-import { currentEntries, turnAnnouncement } from './initiative';
+import { currentTokenIds, turnAnnouncement } from './initiative';
 import { BoardChanges } from '../sound/boardChanges';
 import { conditionSound } from '../sound/conditionSounds';
 import { staggerOffsets } from '../sound/thinning';
@@ -3283,7 +3283,7 @@ export class Board {
    */
   private hearMapChanges(map: BoardMap, conditions: CollectionRules['conditions'], scene: string, sameScene: boolean): void {
     const fight = map.initiative ?? null;
-    const current = fight ? currentEntries(fight).map((entry) => entry.tokenId) : [];
+    const current = fight ? currentTokenIds(fight) : [];
     const turnKey = fight ? turnAnnouncement(fight)?.key ?? null : null;
     const changes = this.changes.next({
       id: scene,
