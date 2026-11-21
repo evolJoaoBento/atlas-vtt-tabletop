@@ -15,6 +15,7 @@ export const ATLAS_TEXT_KEYS = [
   'toolbar.lootRoller',
   'toolbar.assetManager',
   'toolbar.commandPalette',
+  'common.delete',
 ] as const;
 
 /** The fog tool's texts are Atlas 0.18's, the synced snapshot lacks them: `atlasTextFog.ts` has them (generated from 0.18). */
