@@ -459,8 +459,8 @@ async function main(): Promise<void> {
   // Atlas 0.15 has none of cover all and hide rooms).
   let fogRecord: Record<string, Record<string, unknown>> = Object.fromEntries(map.fog.map((operation) => [operation.id, structuredClone(operation) as unknown as Record<string, unknown>]));
   let nextFog = 1;
-  const fogOffers = { add: true, clear: true, cover: true, hideRooms: true };
-  const fogState = { gmOpacity: 0.5 as number | null, rooms: { rooms: 0, hidden: 0 }, switches: { fogSnap: true, fogConstrain: false } as Record<string, boolean>, switchesKept: false, adds: [] as unknown[][], notices: [] as string[], fail: false };
+  const fogOffers = { add: true, clear: true, cover: true, hideRooms: true, reveal: true, hide: true, forget: true };
+  const fogState = { gmOpacity: 0.5 as number | null, rooms: { rooms: 0, hidden: 0 }, switches: { fogSnap: true, fogConstrain: false } as Record<string, boolean>, switchesKept: false, adds: [] as unknown[][], notices: [] as string[], fail: false, menuWrites: [] as string[] };
   const setFog = (next: Record<string, Record<string, unknown>>): void => {
     fogRecord = next;
     (board as unknown as { map: BoardMap }).map.fog = readFog(fogRecord);
@@ -493,6 +493,25 @@ async function main(): Promise<void> {
       return true;
     },
     hideRooms: () => fogState.rooms,
+    // Atlas 0.18's store actions of the fog menu, as its fogSlice does them: a revealing lasso with the mark; hiding brings the
+    // fog back (a painting operation after every other); forgetting takes the mark off.
+    reveal: (outlines) => {
+      fogState.menuWrites.push(`reveal ${outlines.length}`);
+      writeFog('fog revealed', (draft) => { for (const outline of outlines) if (outline.length >= 3) putFog(draft, { type: 'lasso', isErasing: true, points: outline.map(({ x, y }) => ({ x, y })), area: {} }); });
+    },
+    hide: (id) => {
+      fogState.menuWrites.push(`hide ${id}`);
+      writeFog('fog hidden', (draft) => {
+        const area = draft[id];
+        if (!area || !('area' in area)) return;
+        const { area: _mark, ...plain } = area;
+        draft[id] = { ...plain, isErasing: false, timestamp: Math.max(...Object.values(draft).map((operation) => operation.timestamp as number)) + 1 };
+      });
+    },
+    forget: (id) => {
+      fogState.menuWrites.push(`forget ${id}`);
+      writeFog('revealed fog forgotten', (draft) => { const area = draft[id]; if (area) delete area.area; });
+    },
     gmOpacity: () => fogState.gmOpacity,
     setGmOpacity: (opacity) => { fogState.gmOpacity = opacity; },
     switchOn: (id) => (fogState.switchesKept ? fogState.switches[id] ?? null : null),
@@ -505,6 +524,10 @@ async function main(): Promise<void> {
   const host: BoardHost = {
     fog: fogHost,
     fogHotkey: () => 'F',
+    fogMenu: (entries, event, onClose) => {
+      menu?.close();
+      menu = new AtlasMenu(document, () => entries, { x: event.clientX, y: event.clientY }, (element, name) => { element.dataset.icon = name; }, () => { menu = null; onClose(); });
+    },
     spellBook: () => (spellEntries === null ? null : spellBook),
     water: () => (liquids ? waterSourceOf(readLiquids(liquids), null, { ...(otherLiquids.lava.motion ? { lava: otherLiquids.lava.motion } : {}), ...(otherLiquids.acid.motion ? { acid: otherLiquids.acid.motion } : {}) }) : keptWater()),
     saveWater: (masks) => {

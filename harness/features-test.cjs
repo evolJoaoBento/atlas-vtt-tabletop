@@ -7468,6 +7468,7 @@ feature('shortcut help on the board', async ({ page, shot }) => {
   check("shortcut help: the asset manager is listed with the board's key (Shift + A)", (find('asset')?.[1] ?? '') === 'Shift + A', JSON.stringify(find('asset')));
   check("shortcut help: Atlas's 2D map tools are not listed (the fog tool and its brush keys are the board's now)", !seen.atlasRows.some((label) => /draw|erase|text tool|pin|wall|sound page/.test(label.replace('smaller drawing or fog brush', '').replace('larger drawing or fog brush', ''))), JSON.stringify(seen.atlasRows));
   check("shortcut help: the fog tool key and the brush size keys are listed", seen.atlasRows.includes('fog tools') && seen.atlasRows.includes('smaller drawing or fog brush') && seen.atlasRows.includes('larger drawing or fog brush') && (find('fog tools')?.[1] ?? '') === 'F', JSON.stringify(find('fog tools')));
+  check("shortcut help: the fog tool's Alt, Shift, Ctrl/Cmd, Enter, Backspace and Escape are listed among the board's own keys", ['Alt', 'Shift', 'Ctrl/Cmd', 'Enter', 'Backspace / Undo key', 'Escape'].every((keys) => seen.rows.some(([label, key]) => label.startsWith('Fog tool:') && key === keys)), JSON.stringify(seen.rows.filter(([label]) => label.startsWith('Fog tool:'))));
   // Atlas 0.17+ has no experimental switch on Next mood and Silence: the board's two sound keys are listed; the Sound page key (S, a clash with Silence's Shift+S) is not.
   check("shortcut help: Next mood and Silence are listed, the Sound page key is not", seen.atlasRows.includes('next mood') && seen.atlasRows.includes('stop all sound') && !seen.atlasRows.includes('sound page'), JSON.stringify(seen.atlasRows));
   check("shortcut help: the board's own keys follow, camera and eyes included",
@@ -8062,6 +8063,149 @@ feature('fog shapes', async ({ page, shot }) => {
   const disabled = await page.evaluate(() => document.querySelector('.atlas-tabletop-fog-bars [data-fog-shape="room"]')?.getAttribute('aria-disabled'));
   check('fog shapes: Room is disabled without walls', disabled === 'true', String(disabled));
   await tool(() => { window.boardTest.board.toolbarActions().fog.setShape('brush'); window.boardTest.fog.reset(); });
+});
+
+// ── The fog tool's right-click menu: Reveal / Delete on fog, Hide / Delete on revealed ground ───────────────────────────
+feature('fog menu', async ({ page, shot }) => {
+  const at = (x, y) => page.evaluate(([x, y]) => window.boardTest.project(x, y, 0), [x, y]);
+  const ops = () => page.evaluate(() => Object.values(window.boardTest.fog.record()));
+  const tool = (call, arg) => page.evaluate(call, arg);
+  const menu = () => page.evaluate(() => [...document.querySelectorAll('.atlas-ctx-menu .atlas-ctx-item')].map((row) => [row.textContent, row.classList.contains('atlas-ctx-item--destructive'), row.hasAttribute('data-disabled')]));
+  const target = () => page.evaluate(() => { const view = window.boardTest.board.fogTool.targetView; return { shown: view.shown, accent: view.current?.accent === true, paths: view.current?.paths?.length ?? 0 }; });
+  const writes = () => page.evaluate(() => [...window.boardTest.fog.state.menuWrites]);
+  const rightClick = async (x, y) => {
+    const p = await at(x, y);
+    await page.mouse.move(p.x, p.y);
+    await page.mouse.down({ button: 'right' });
+    await page.mouse.up({ button: 'right' });
+    await wait(300);
+  };
+  const choose = async (label) => { await page.locator('.atlas-ctx-menu .atlas-ctx-item', { hasText: label }).first().click(); await wait(350); };
+  const undo = async () => { await tool(() => window.boardTest.history.undo(['map.atlasmap'])); await wait(350); };
+  // A clean map: no walls, one rectangle of fog from (70, 70) to (630, 490) over two of the fixture's tokens.
+  await tool(async () => {
+    const { board, modes, fog, host } = window.boardTest;
+    fog.reset();
+    fog.state.menuWrites.length = 0;
+    board.map.walls = [];
+    modes.on = true;
+    modes.mode = 'edit';
+    board.toolbarActions().fog.start();
+    board.toolbarActions().fog.setShape('brush');
+    await host.fog.add([{ type: 'rectangle', x: 70, y: 70, width: 560, height: 420, isErasing: false }]);
+    board.frameMap();
+    board.camera.snap();
+    board.wake(true);
+  });
+  await wait(600);
+  const FOG = [590, 100];
+  check('fog menu: a seeded body of fog', (await ops()).length === 1);
+
+  // On fog: Reveal, then Delete as a destructive row; the body is outlined in the accent while it is open.
+  await rightClick(...FOG);
+  const onFog = await menu();
+  check('fog menu: a right-click on fog opens a menu of Reveal and Delete, Delete destructive', JSON.stringify(onFog) === '[["Reveal",false,false],["Delete",true,false]]', JSON.stringify(onFog));
+  const mark = await target();
+  check('fog menu: the body it acts on is outlined in the theme accent', mark.shown.includes('fog-mark-line') && mark.accent && mark.paths >= 1, JSON.stringify(mark));
+  await shot('fog-menu');
+  await page.keyboard.press('Escape');
+  await wait(250);
+  check('fog menu: Escape closes it, writes nothing, takes the mark off and leaves the tool on', (await menu()).length === 0 && (await target()).shown.length === 0 && (await ops()).length === 1 && (await writes()).length === 0 && await tool(() => window.boardTest.board.fogTool.on));
+
+  // Reveal: the body is taken away and remembered (a lasso that erases, with the area mark), as one step.
+  await rightClick(...FOG);
+  await choose('Reveal');
+  let all = await ops();
+  const lasso = all.find((op) => op.type === 'lasso');
+  check('fog menu: Reveal writes one erasing lasso with the area mark, of the whole body', all.length === 2 && lasso && lasso.isErasing === true && lasso.area && typeof lasso.area === 'object' && lasso.points.length >= 4, JSON.stringify(all.map((op) => [op.type, op.isErasing, op.area])));
+  check('fog menu: choosing closes the menu and the mark', (await menu()).length === 0 && (await target()).shown.length === 0 && JSON.stringify(await writes()) === '["reveal 1"]');
+  check('fog menu: the revealed ground is no longer fog (the board shows it open)', await tool(() => window.boardTest.board.fog.areas.length === 0));
+
+  // On the revealed ground: Hide and Delete, the area outlined.
+  await rightClick(...FOG);
+  const onGround = await menu();
+  check('fog menu: on the revealed ground the menu is Hide and Delete', JSON.stringify(onGround) === '[["Hide",false,false],["Delete",true,false]]', JSON.stringify(onGround));
+  check('fog menu: the revealed fog is outlined in the accent', (await target()).accent && (await target()).shown.includes('fog-mark-line'));
+  await shot('fog-menu-revealed');
+  await choose('Hide');
+  all = await ops();
+  const hidden = all.find((op) => op.type === 'lasso');
+  check('fog menu: Hide brings the fog back as a plain painting lasso, with no mark', hidden && hidden.isErasing === false && !('area' in hidden) && all.length === 2 && (await writes()).at(-1) === `hide ${hidden.id}`, JSON.stringify(all.map((op) => [op.type, op.isErasing, op.area])));
+  check('fog menu: the fog is back, and right-clicking it offers Reveal again', await (async () => { await rightClick(...FOG); const items = await menu(); await page.keyboard.press('Escape'); await wait(200); return items[0]?.[0] === 'Reveal'; })());
+  await undo();
+  all = await ops();
+  check('fog menu: undo takes Hide back: the ground is revealed and remembered again', all.length === 2 && all.find((op) => op.type === 'lasso').isErasing === true && 'area' in all.find((op) => op.type === 'lasso'));
+
+  // Delete on revealed ground: forgotten, still revealed.
+  await rightClick(...FOG);
+  await choose('Delete');
+  all = await ops();
+  const forgotten = all.find((op) => op.type === 'lasso');
+  check('fog menu: Delete on revealed ground forgets it: the lasso stays erasing, the mark goes', forgotten && forgotten.isErasing === true && !('area' in forgotten) && (await writes()).at(-1) === `forget ${forgotten.id}`, JSON.stringify(all.map((op) => [op.type, op.isErasing, op.area])));
+  await rightClick(...FOG);
+  check('fog menu: forgotten ground has no menu', (await menu()).length === 0);
+  await undo();
+  await undo();
+  check('fog menu: two undos take it back to the fog as painted', (await ops()).length === 1);
+
+  // Delete on fog: the body is erased for good (a plain lasso that erases, no mark).
+  await rightClick(...FOG);
+  await choose('Delete');
+  all = await ops();
+  const erased = all.find((op) => op.type === 'lasso');
+  check('fog menu: Delete on fog erases its body with a plain lasso (no area mark)', all.length === 2 && erased && erased.isErasing === true && !('area' in erased) && erased.points.length >= 4, JSON.stringify(all.map((op) => [op.type, op.isErasing, op.area])));
+  await rightClick(...FOG);
+  check('fog menu: where fog was deleted there is no menu', (await menu()).length === 0);
+  await undo();
+  check('fog menu: undo gives the fog back', (await ops()).length === 1);
+
+  // Only on fog: open ground away from it has no fog menu; a token keeps its own menu, also standing in fog.
+  await rightClick(40, 30);
+  check('fog menu: a right-click on open ground away from fog opens no menu', (await menu()).length === 0);
+  const tokenMenus = await tool(() => window.boardTest.record.menus.length);
+  await rightClick(245, 245);
+  check('fog menu: a right-click on a token in fog is the token menu, not the fog menu', (await tool(() => window.boardTest.record.menus.length)) === tokenMenus + 1 && !(await menu()).some((row) => row[0] === 'Reveal'), JSON.stringify(await menu()));
+  await page.keyboard.press('Escape');
+  await wait(250);
+
+  // A polygon under way takes no menu: its corners wait.
+  await tool(() => window.boardTest.board.toolbarActions().fog.setShape('polygon'));
+  for (const [x, y] of [[520, 100], [560, 100]]) { const p = await at(x, y); await page.mouse.move(p.x, p.y); await page.mouse.down(); await page.mouse.up(); await wait(120); }
+  await rightClick(...FOG);
+  check('fog menu: while a polygon has corners no fog menu opens, and the polygon waits on', (await menu()).length === 0 && await tool(() => window.boardTest.board.fogTool.drawing), JSON.stringify([await menu(), await tool(() => { const t = window.boardTest.board.fogTool; return [t.drawing, t.on, t.shape, window.boardTest.board.press]; })]));
+  await page.keyboard.press('Escape');
+  await wait(200);
+  await tool(() => window.boardTest.board.toolbarActions().fog.setShape('brush'));
+
+  // An Atlas without the 0.18 actions: the rows it cannot do are left out; no row at all, no menu.
+  await tool(() => { window.boardTest.fog.offers.reveal = false; });
+  await rightClick(...FOG);
+  const old = await menu();
+  check('fog menu: without Reveal in Atlas the menu on fog is Delete alone', JSON.stringify(old) === '[["Delete",true,false]]', JSON.stringify(old));
+  await page.keyboard.press('Escape');
+  await wait(200);
+  await tool(() => { window.boardTest.fog.offers.add = false; });
+  await rightClick(...FOG);
+  check('fog menu: with neither Reveal nor adding, fog has no menu', (await menu()).length === 0);
+  await tool(() => { Object.assign(window.boardTest.fog.offers, { reveal: true, add: true }); });
+  await rightClick(...FOG);
+  await choose('Reveal');
+  await tool(() => { window.boardTest.fog.offers.hide = false; });
+  await rightClick(...FOG);
+  check('fog menu: without Hide in Atlas revealed ground offers Delete alone', JSON.stringify(await menu()) === '[["Delete",true,false]]', JSON.stringify(await menu()));
+  await page.keyboard.press('Escape');
+  await wait(200);
+  await tool(() => { window.boardTest.fog.offers.forget = false; });
+  await rightClick(...FOG);
+  check('fog menu: without Hide and Delete there is no menu on revealed ground', (await menu()).length === 0);
+  await tool(() => { Object.assign(window.boardTest.fog.offers, { hide: true, forget: true }); });
+
+  // The tool off: no fog menu (the board's own right-click is as ever).
+  await tool(() => window.boardTest.board.toolbarActions().fog.stop());
+  await wait(300);
+  await rightClick(...FOG);
+  check('fog menu: with the tool off a right-click on fog opens no menu', (await menu()).length === 0);
+  await tool(() => { window.boardTest.fog.reset(); window.boardTest.fog.state.menuWrites.length = 0; });
 });
 
 server.listen(0, async () => {
