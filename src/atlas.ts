@@ -102,6 +102,10 @@ export interface AtlasSceneState {
   clearFog?: () => void;
   coverAllFog?: (mapRect: { x: number; y: number; width: number; height: number } | null) => boolean;
   hideRooms?: (mapRect: { x: number; y: number; width: number; height: number } | null, coverage?: unknown) => { rooms: number; hidden: number };
+  /** Atlas 0.18's fog menu: reveal bodies of fog and remember them, hide such fog again, forget it (false for an id that is none). */
+  revealFogGround?: (outlines: ReadonlyArray<ReadonlyArray<{ x: number; y: number }>>) => void;
+  hideFogArea?: (id: string) => boolean;
+  forgetFogArea?: (id: string) => boolean;
   /** Atlas 0.18's tool switches (the fog tool's Snap and Constrain): per view, never saved. */
   toolSwitches?: Partial<Record<string, boolean>>;
   setToolSwitch?: (id: string, on: boolean) => void;

@@ -71,6 +71,8 @@ import { BoardSurface } from './surface';
 import { FogVolume } from './fogVolume';
 import { hasRoomWalls } from '../atlasPort/app/fog/fogRooms';
 import { fogWalls } from './fogWalls';
+import { fogMenuAt, fogMenuEntries } from './fogMenu';
+import type { MenuEntry } from './atlasMenu';
 import { FogTool, type FogBarActions, type FogHost, type FogOperationInput, type FogSwitchId } from './fogTool';
 import { at as atlasText } from '../atlasPort/atlasText';
 import { LaserBeam } from './laserBeam';
@@ -388,6 +390,8 @@ export interface BoardHost {
   wallMenu(id: string, event: MouseEvent): void;
   /** A pin's right-click menu (the GM's board: Readable by players). Without it a right-click on a pin does nothing of its own. */
   pinMenu?(id: string, event: MouseEvent): void;
+  /** The fog menu (Reveal, Hide, Delete) opened at a right-click, in Atlas's menu style; `onClose` once it has closed, however. */
+  fogMenu?(entries: MenuEntry[], event: MouseEvent, onClose: () => void): void;
   /** The board's ambient light (0–1), and keeping a new level. */
   ambient(): number;
   /** Whether the scene's lighting is on in Atlas: the light level can be set only then. Absent: it can. */
@@ -3000,6 +3004,35 @@ export class Board {
     if (kept instanceof Promise) void kept.then((ok) => { if (ok === false) this.fogTool?.failed(); }, () => this.fogTool?.failed());
   }
 
+  /**
+   * The fog menu at a right-click released in place (Atlas's `showFogMenu`): while the fog tool is on and no shape is under way,
+   * on fog it offers Reveal and Delete, on revealed open ground Hide and Delete, and the body or ground they act on is outlined
+   * while it is open. False where the fog has no menu there (the click is then the board's own).
+   */
+  private openFogMenu(event: MouseEvent): boolean {
+    const tool = this.fogTool;
+    const host = this.host.fog;
+    if (!tool?.on || !host || !this.host.fogMenu || this.audience !== 'gm' || tool.drawing || !this.map) return false;
+    const point = this.boardPoint(event.clientX, event.clientY);
+    const hit = point ? fogMenuAt(this.map.fog, point) : null;
+    if (!point || !hit) return false;
+    const now = (): ReturnType<typeof fogMenuAt> => (this.map ? fogMenuAt(this.map.fog, point) : null);
+    const quiet = (done: Promise<unknown> | void): void => { if (done instanceof Promise) void done.catch(() => undefined); };
+    const entries = fogMenuEntries(hit, {
+      offers: () => host.offers(),
+      now,
+      reveal: (outlines) => quiet(host.reveal(outlines)),
+      erase: (body) => quiet(host.add([{ type: 'lasso', points: body.map(({ x, y }) => ({ x, y })), isErasing: true }])),
+      hide: (id) => quiet(host.hide(id)),
+      forget: (id) => quiet(host.forget(id)),
+    });
+    if (entries.length === 0) return false;
+    tool.cancel();
+    tool.showTarget(hit.outlines);
+    this.host.fogMenu(entries, event, () => tool.showTarget(null));
+    return true;
+  }
+
   /** Cover all: hides the whole map; Atlas's own notice where there is none to hide. */
   private coverFog(): void {
     const host = this.host.fog;
@@ -4635,6 +4668,8 @@ export class Board {
       return;
     }
     if (press.moved) return;
+    // The fog tool owns a right-click on fog (and on the ground of fog revealed from it); a token's menu is still the token's.
+    if (press.button === 2 && !press.token && this.openFogMenu(event)) return;
     if (press.button === 0 && press.door) {
       this.toggleDoor(press.door);
       return;

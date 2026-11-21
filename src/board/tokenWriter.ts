@@ -464,17 +464,21 @@ export class TokenWriter {
 
   /**
    * What Atlas's fog actions the writer can use on the map are there, read at once: `add` (Atlas 0.15 has one operation at a
-   * time, 0.17+ several), `clear`, `cover` (hide the whole map) and `hideRooms` (the latter two are Atlas 0.17-0.18's). With
-   * Atlas not holding the map yet, all of them are taken to be there (it is asked at the write).
+   * time, 0.17+ several), `clear`, `cover` (hide the whole map) and `hideRooms` (the latter two are Atlas 0.17-0.18's), and the
+   * fog menu's `reveal`, `hide` and `forget` (Atlas 0.18's: fog revealed from its menu is remembered, hidden again, or forgotten).
+   * With Atlas not holding the map yet, all of them are taken to be there (it is asked at the write).
    */
-  fogOffers(path: string): { add: boolean; clear: boolean; cover: boolean; hideRooms: boolean } {
+  fogOffers(path: string): { add: boolean; clear: boolean; cover: boolean; hideRooms: boolean; reveal: boolean; hide: boolean; forget: boolean } {
     const state = this.holder(path)?.atlasStore.getState();
-    if (!state) return { add: true, clear: true, cover: true, hideRooms: true };
+    if (!state) return { add: true, clear: true, cover: true, hideRooms: true, reveal: true, hide: true, forget: true };
     return {
       add: typeof state.addFogOperations === 'function' || typeof state.addFogOperation === 'function',
       clear: typeof state.clearFog === 'function',
       cover: typeof state.coverAllFog === 'function',
       hideRooms: typeof state.hideRooms === 'function',
+      reveal: typeof state.revealFogGround === 'function',
+      hide: typeof state.hideFogArea === 'function',
+      forget: typeof state.forgetFogArea === 'function',
     };
   }
 
@@ -521,6 +525,33 @@ export class TokenWriter {
     const state = this.fogStore(path, level);
     if (typeof state.coverAllFog !== 'function') throw TokenWriter.missing('way to cover the map');
     return state.coverAllFog(mapRect);
+  }
+
+  /**
+   * The fog menu's Reveal: takes the fog away under each outline (a body of fog as Atlas's `fogBodyAt` gives it) and remembers it
+   * as revealed fog, so that it can be hidden again; one step of Atlas's history. Outlines that enclose nothing are passed over.
+   */
+  async revealFogGround(path: string, outlines: ReadonlyArray<ReadonlyArray<{ x: number; y: number }>>, level?: string | null): Promise<void> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.fogStore(path, level);
+    if (typeof state.revealFogGround !== 'function') throw TokenWriter.missing('way to reveal fog');
+    state.revealFogGround(outlines);
+  }
+
+  /** The fog menu's Hide: brings remembered revealed fog of the level shown back as plain fog, in one step; false for an id that is none. */
+  async hideFogArea(path: string, id: string, level?: string | null): Promise<boolean> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.fogStore(path, level);
+    if (typeof state.hideFogArea !== 'function') throw TokenWriter.missing('way to hide revealed fog');
+    return state.hideFogArea(id);
+  }
+
+  /** The fog menu's Delete on revealed ground: forgets remembered revealed fog (it stays revealed), in one step; false for an id that is none. */
+  async forgetFogArea(path: string, id: string, level?: string | null): Promise<boolean> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.fogStore(path, level);
+    if (typeof state.forgetFogArea !== 'function') throw TokenWriter.missing('way to forget revealed fog');
+    return state.forgetFogArea(id);
   }
 
   /** Paints fog over every room the walls of the level shown enclose that is not hidden yet, in one step; how many rooms there are and how many it hid. */

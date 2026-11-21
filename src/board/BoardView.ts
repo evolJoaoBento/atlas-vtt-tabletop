@@ -1482,6 +1482,9 @@ export class BoardView extends ItemView {
       clear: () => writer.clearFog(mapPath(), level()).catch(refused),
       cover: (rect) => writer.coverAllFog(mapPath(), rect, level()).catch(refused),
       hideRooms: (rect) => writer.hideRooms(mapPath(), rect, undefined, level()).catch(refused),
+      reveal: (outlines) => writer.revealFogGround(mapPath(), outlines, level()).catch(refused),
+      hide: (id) => writer.hideFogArea(mapPath(), id, level()).catch(refused),
+      forget: (id) => writer.forgetFogArea(mapPath(), id, level()).catch(refused),
       gmOpacity: () => bridge().gmFogOpacity(),
       setGmOpacity: (opacity) => { bridge().setGmFogOpacity(opacity); },
       switchOn: (id) => {
@@ -1509,6 +1512,10 @@ export class BoardView extends ItemView {
     const mapPath = (): string => this.path ?? '';
     return {
       fog: this.fogHost(),
+      fogMenu: (entries, event, onClose) => {
+        this.menu?.close();
+        this.menu = new AtlasMenu(this.contentEl.ownerDocument, () => entries, { x: event.clientX, y: event.clientY }, (element, name) => setIcon(element, name), () => { this.menu = null; onClose(); });
+      },
       fogHotkey: () => { const key = new AtlasBridge(this.app).hotkey('fog'); return key ? formatHotkey(key) : null; },
       sounds: () => this.soundEngine(),
       controlledByPlayers: (tokenId) => this.services.session?.()?.controllers?.(tokenId)?.some((player) => player.controls) === true,

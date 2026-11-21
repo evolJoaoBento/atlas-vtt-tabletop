@@ -20,6 +20,8 @@ interface FogBase {
   /** Where the stroke was dragged to, from where it was drawn. */
   offsetX: number;
   offsetY: number;
+  /** Atlas 0.18's mark of fog revealed from its menu (a revealing lasso or rectangle): it can be hidden again. Nothing but the fog menu reads it. */
+  area?: Raw;
 }
 
 export type FogOperation =
@@ -59,6 +61,7 @@ export function readFog(raw: unknown): FogOperation[] {
     const base: FogBase = {
       id: entry.id, timestamp: entry.timestamp, isErasing: entry.isErasing === true,
       offsetX: finite(entry.offsetX) ? entry.offsetX : 0, offsetY: finite(entry.offsetY) ? entry.offsetY : 0,
+      ...(isObj(entry.area) ? { area: entry.area } : {}),
     };
     if (entry.type === 'rectangle') {
       if (!finite(entry.x) || !finite(entry.y) || !finite(entry.width) || !finite(entry.height)) continue;

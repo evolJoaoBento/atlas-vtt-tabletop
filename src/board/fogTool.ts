@@ -11,6 +11,7 @@
  */
 import * as THREE from 'three';
 import { clampBrushSize, DEFAULT_FOG_TOOL, fogStrokeErases, steppedBrushSize, type FogShape, type FogToolId } from '../atlasPort/fogToolChoices';
+import { outlineRings } from '../atlasPort/app/fog/fogKeyhole';
 import { snapOverride } from '../atlasPort/app/types/toolSwitches';
 import type { FogEnv, FogGesture, FogKeys, FogOperationInput, FogPoint, FogPreviewSpec, FogShapeInput } from './fogGesture';
 import { FogMarksView } from './fogMarks';
@@ -121,6 +122,9 @@ export class FogTool {
   private ringKey = '';
   private readonly preview: FogPreview;
   private readonly marks: FogMarksView;
+  /** What the open fog menu acts on, outlined in the theme's accent (Atlas's `FogMenuTarget`); the fog it was opened on is `targetKey`. */
+  private readonly target: FogMarksView;
+  private targetKey: string | null = null;
   private readonly env: FogEnv;
   /** The preview sheet is begun for the shape under way. */
   private sheetOn = false;
@@ -136,6 +140,7 @@ export class FogTool {
   constructor(private readonly deps: FogToolDeps) {
     this.preview = new FogPreview(deps.parent, () => deps.canvas());
     this.marks = new FogMarksView(deps.parent, () => deps.accent());
+    this.target = new FogMarksView(deps.parent, () => deps.accent());
     const snapping = new FogSnapping({
       grid: () => { const grid = deps.grid(); return grid && grid.snap && grid.size > 0 ? grid : null; },
       walls: () => deps.walls(),
@@ -163,6 +168,8 @@ export class FogTool {
   get rings(): { dark: THREE.Mesh; light: THREE.Mesh } | null { return this.ring; }
   /** The marks' view (for tests). */
   get markView(): FogMarksView { return this.marks; }
+  /** The mark of what the fog menu acts on (for tests). */
+  get targetView(): FogMarksView { return this.target; }
   /** The preview sheet (for tests). */
   get sheet(): FogPreview { return this.preview; }
   /** Whether a stroke made now erases: the eraser does, and Alt makes a stroke do the other thing. */
@@ -175,6 +182,7 @@ export class FogTool {
     this.onNow = on;
     if (!on) {
       this.cancel();
+      this.showTarget(null);
       this.clearMarks();
       this.flipped = false;
       this.hideRing();
@@ -367,8 +375,21 @@ export class FogTool {
     if (!this.gesture) this.clearMarks();
   }
 
+  /**
+   * The fog menu is open on `outlines` (the body of fog or the revealed fog its entries act on), or closed (null): they are marked
+   * in the theme's accent for as long as it is open, and go when the fog changes.
+   */
+  showTarget(outlines: ReadonlyArray<ReadonlyArray<FogPoint>> | null): void {
+    const rings = (outlines ?? []).flatMap((outline) => (outline.length >= 3 ? outlineRings(outline) : []));
+    this.targetKey = rings.length > 0 ? this.deps.fogKey() : null;
+    if (rings.length === 0) this.target.clear();
+    else this.target.setMarks({ paths: rings.map((ring) => ({ points: ring, closed: true, alpha: 1 })), accent: true }, false, this.pixel());
+    this.deps.wake();
+  }
+
   /** The board drew the fog the store holds (or the stroke was not kept): the stroke's preview is no longer needed. */
   fogDrawn(): void {
+    if (this.targetKey !== null && this.deps.fogKey() !== this.targetKey) this.showTarget(null);
     if (this.holding !== null && this.deps.fogKey() !== this.heldKey) this.releaseHold();
   }
 
@@ -382,12 +403,14 @@ export class FogTool {
     if (!this.onNow) return;
     if (this.pointer) this.refreshRing(true);
     this.marks.frame(this.pixel());
+    this.target.frame(this.pixel());
   }
 
   dispose(): void {
     this.cancel();
     this.preview.dispose();
     this.marks.dispose();
+    this.target.dispose();
     if (this.ring) {
       for (const mesh of [this.ring.dark, this.ring.light]) {
         this.deps.parent.remove(mesh);
@@ -528,6 +551,10 @@ export interface FogOffers {
   clear: boolean;
   cover: boolean;
   hideRooms: boolean;
+  /** The fog menu's Reveal, and Hide and Delete on revealed ground (Atlas 0.18). */
+  reveal: boolean;
+  hide: boolean;
+  forget: boolean;
 }
 
 /** The fog tool's switches (Atlas 0.18's tool switches): what Ctrl or Cmd and Shift are to a keyboard. */
@@ -542,6 +569,10 @@ export interface FogHost {
   /** Hides the whole map (`rect`: the map as the board draws it); false: nothing to cover. */
   cover(rect: { x: number; y: number; width: number; height: number } | null): Promise<boolean> | boolean;
   hideRooms(rect: { x: number; y: number; width: number; height: number } | null): Promise<{ rooms: number; hidden: number }> | { rooms: number; hidden: number };
+  /** The fog menu: reveals the bodies of fog (outlines) remembering them, hides a remembered revealed fog again (its id), forgets it. */
+  reveal(outlines: ReadonlyArray<ReadonlyArray<FogPoint>>): Promise<unknown> | void;
+  hide(id: string): Promise<unknown> | void;
+  forget(id: string): Promise<unknown> | void;
   /** Atlas's "Fog opacity in GM view" (0.1 to 1) where Atlas has it (0.17+), else null; and setting it. */
   gmOpacity?(): number | null;
   setGmOpacity?(opacity: number): void;
