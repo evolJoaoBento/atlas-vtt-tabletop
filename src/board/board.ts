@@ -2657,8 +2657,6 @@ export class Board {
     if (this.painted.object3d.parent) this.painted.tick(time / 1000);
     // The water brush was put away (another tool, Escape): its outline goes with it.
     if (this.brushRing?.visible && !this.waterTool) this.brushRing.visible = false;
-    // The fog brush's ring keeps its width on screen and its place under a still pointer while the camera moves.
-    this.fogTool?.frame();
     // A cutscene's camera is set whole each frame, not eased, and asks for a frame after every frame.
     const cameraMoving = this.cinematicDriver ? driven : this.camera.update(dt);
     if (this.pendingStack && !this.camera.gliding) this.setStack(this.pendingStack);
@@ -2675,6 +2673,9 @@ export class Board {
       if (turning) busy = true;
     }
     this.applyView();
+    // The fog brush's ring keeps its width on screen and its place under a still pointer while the camera moves (after the
+    // camera is placed, so the frame that settles it draws the ring settled too).
+    this.fogTool?.frame();
     this.toolbar.syncOverlay();
     this.spellTick();
     const viewHeight = this.renderer.domElement.clientHeight || 1;
