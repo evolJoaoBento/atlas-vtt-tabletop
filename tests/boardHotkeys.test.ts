@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_MAP_HOTKEYS, type MapHotkeyId } from '../src/atlasPort/app/keyboard/mapHotkeys';
+import { availableHotkeys, DEFAULT_MAP_HOTKEYS, type MapHotkeyId } from '../src/atlasPort/app/keyboard/mapHotkeys';
 import { BOARD_OWN_KEYS, boardBinding, boardHotkeyAction, nextBoardMeasureMode, worksOnBoard } from '../src/board/boardHotkeys';
 
 const key = (init: Partial<KeyboardEvent> & { key: string }) =>
@@ -67,4 +67,18 @@ test("the shortcut help lists Atlas's shortcuts the board has, not its 2D map to
 test("the board's own keys name the camera and the eyes", () => {
   const all = BOARD_OWN_KEYS.flatMap((group) => group.keys.map((entry) => entry.keys));
   assert.ok(all.includes('W A S D / Arrow keys') && all.includes('Q / E') && all.includes('F'));
+});
+
+test('Atlas 0.17+: Next mood and Silence need no experimental switch; the Sound page and brush size keys are not on the board', () => {
+  const ids = (player: boolean): string[] => availableHotkeys(player, () => false).map((action) => action.id);
+  assert.ok(ids(false).includes('nextMood'));
+  assert.ok(ids(false).includes('silence'));
+  assert.equal(DEFAULT_MAP_HOTKEYS.soundPage, 's');
+  assert.equal(DEFAULT_MAP_HOTKEYS.drawSmaller, ',');
+  assert.equal(DEFAULT_MAP_HOTKEYS.drawLarger, '.');
+  assert.ok(!ids(true).includes('soundPage'), 'the DM screen is the GM\'s');
+  // Its S would become Shift+S on the board, which is Silence: so it is left off the board, and out of the shortcut help.
+  for (const id of ['soundPage', 'drawSmaller', 'drawLarger']) assert.equal(worksOnBoard(id), false, id);
+  assert.equal(worksOnBoard('silence'), true);
+  assert.equal(DEFAULT_MAP_HOTKEYS.silence, 'Shift+s');
 });

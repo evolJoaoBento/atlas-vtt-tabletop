@@ -110,6 +110,17 @@ export const ALLOWED_PACKAGES = [
  * file, so a newer Atlas that moved it is noticed at once.
  */
 export const PATCHES = [
+  // Atlas 0.17 took the sound keys out of the experimental features and 0.18 added the Sound page key and the brush size keys (the floor, 0.15, has none).
+  {
+    file: 'keyboard/mapHotkeys.ts',
+    find: "  { id: 'nextMood', label: t('hotkey.nextMood'), group: t('hotkey.group.map'), defaultKey: 'n', dmOnly: true, experimental: 'sound' },\n  { id: 'silence', label: t('hotkey.silence'), group: t('hotkey.group.map'), defaultKey: 'Shift+s', dmOnly: true, experimental: 'sound' },\n",
+    replace: "  { id: 'nextMood', label: t('hotkey.nextMood'), group: t('hotkey.group.map'), defaultKey: 'n', dmOnly: true },\n  { id: 'silence', label: t('hotkey.silence'), group: t('hotkey.group.map'), defaultKey: 'Shift+s', dmOnly: true },\n  // Opens the DM screen on its Sound page, and closes it from there (`UIRoot`, `DMScreen`).\n  { id: 'soundPage', label: t('hotkey.soundPage'), group: t('hotkey.group.map'), defaultKey: 's', dmOnly: true },\n",
+  },
+  {
+    file: 'keyboard/mapHotkeys.ts',
+    find: "  { id: 'measure', label: t('hotkey.measure'), group: t('hotkey.group.tools'), defaultKey: 'm' },\n",
+    replace: "  // Run only while the Draw tool or the fog tool is in use (`useToolbarHotkeys`): the size of whichever it is.\n  { id: 'drawSmaller', label: t('hotkey.drawSmaller'), group: t('hotkey.group.tools'), defaultKey: ',', dmOnly: true, repeats: true },\n  { id: 'drawLarger', label: t('hotkey.drawLarger'), group: t('hotkey.group.tools'), defaultKey: '.', dmOnly: true, repeats: true },\n  { id: 'measure', label: t('hotkey.measure'), group: t('hotkey.group.tools'), defaultKey: 'm' },\n",
+  },
   // Atlas 0.18's Tiny (0.75) and Small (0.875) token sizes, in the size menu and the statblock size map (0.15: both 1).
   {
     file: 'pixi/token-renderer/tokenSizing.ts',

@@ -21,13 +21,18 @@ export const MAP_HOTKEYS = [
   { id: 'fitToken', label: t('hotkey.fitToken'), group: t('hotkey.group.map'), defaultKey: 'Shift+2' },
   { id: 'levelUp', label: t('hotkey.levelUp'), group: t('hotkey.group.map'), defaultKey: 'PageUp', dmOnly: true },
   { id: 'levelDown', label: t('hotkey.levelDown'), group: t('hotkey.group.map'), defaultKey: 'PageDown', dmOnly: true },
-  { id: 'nextMood', label: t('hotkey.nextMood'), group: t('hotkey.group.map'), defaultKey: 'n', dmOnly: true, experimental: 'sound' },
-  { id: 'silence', label: t('hotkey.silence'), group: t('hotkey.group.map'), defaultKey: 'Shift+s', dmOnly: true, experimental: 'sound' },
+  { id: 'nextMood', label: t('hotkey.nextMood'), group: t('hotkey.group.map'), defaultKey: 'n', dmOnly: true },
+  { id: 'silence', label: t('hotkey.silence'), group: t('hotkey.group.map'), defaultKey: 'Shift+s', dmOnly: true },
+  // Opens the DM screen on its Sound page, and closes it from there (`UIRoot`, `DMScreen`).
+  { id: 'soundPage', label: t('hotkey.soundPage'), group: t('hotkey.group.map'), defaultKey: 's', dmOnly: true },
   { id: 'move', label: t('hotkey.move'), group: t('hotkey.group.tools'), defaultKey: 'v' },
   { id: 'fog', label: t('hotkey.fog'), group: t('hotkey.group.tools'), defaultKey: 'f', dmOnly: true },
   { id: 'draw', label: t('hotkey.draw'), group: t('hotkey.group.tools'), defaultKey: 'b', dmOnly: true },
   { id: 'erase', label: t('hotkey.erase'), group: t('hotkey.group.tools'), defaultKey: 'e', dmOnly: true },
   { id: 'text', label: t('hotkey.text'), group: t('hotkey.group.tools'), defaultKey: 't', dmOnly: true },
+  // Run only while the Draw tool or the fog tool is in use (`useToolbarHotkeys`): the size of whichever it is.
+  { id: 'drawSmaller', label: t('hotkey.drawSmaller'), group: t('hotkey.group.tools'), defaultKey: ',', dmOnly: true, repeats: true },
+  { id: 'drawLarger', label: t('hotkey.drawLarger'), group: t('hotkey.group.tools'), defaultKey: '.', dmOnly: true, repeats: true },
   { id: 'measure', label: t('hotkey.measure'), group: t('hotkey.group.tools'), defaultKey: 'm' },
   // Runs only while the measure tool is in use (`useToolbarHotkeys`).
   { id: 'measureKeep', label: t('hotkey.measureKeep'), group: t('hotkey.group.tools'), defaultKey: 'k', dmOnly: true },

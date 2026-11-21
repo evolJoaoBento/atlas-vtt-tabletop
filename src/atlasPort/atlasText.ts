@@ -15,9 +15,9 @@ export type MessageValues = Readonly<Record<string, string | number>>;
  * size menu (Atlas 0.18's own wording). A synced text of the same key wins, so a newer sync simply replaces these.
  */
 const SINCE_0_18: Readonly<Record<string, Readonly<Record<string, AtlasMessage>>>> = {
-  en: { 'token.size.tiny': 'Tiny (0.5×0.5)', 'token.size.small': 'Small (0.75×0.75)' },
-  ru: { 'token.size.tiny': 'Крошечный (0,5×0,5)', 'token.size.small': 'Маленький (0,75×0,75)' },
-  zh: { 'token.size.tiny': '超小型（0.5×0.5）', 'token.size.small': '小型（0.75×0.75）' },
+  en: { 'token.size.tiny': 'Tiny (0.5×0.5)', 'token.size.small': 'Small (0.75×0.75)', 'hotkey.soundPage': 'Sound page', 'hotkey.drawSmaller': 'Smaller drawing or fog brush', 'hotkey.drawLarger': 'Larger drawing or fog brush' },
+  ru: { 'token.size.tiny': 'Крошечный (0,5×0,5)', 'token.size.small': 'Маленький (0,75×0,75)', 'hotkey.soundPage': 'Страница «Звук»', 'hotkey.drawSmaller': 'Уменьшить кисть рисования или тумана', 'hotkey.drawLarger': 'Увеличить кисть рисования или тумана' },
+  zh: { 'token.size.tiny': '超小型（0.5×0.5）', 'token.size.small': '小型（0.75×0.75）', 'hotkey.soundPage': '声音页面', 'hotkey.drawSmaller': '缩小绘图或迷雾画笔', 'hotkey.drawLarger': '放大绘图或迷雾画笔' },
 };
 
 export const ATLAS_TEXT = Object.fromEntries(
