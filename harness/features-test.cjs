@@ -1732,6 +1732,31 @@ feature('portal host', async ({ page }) => {
   check('portal host: with Atlas\'s host the dialog joins it, and Atlas\'s own content stays', /(^|\s)atlas-portal-host(\s|$)/.test(seen.joined.parent ?? '') && seen.joined.underBody && seen.atlasKept, JSON.stringify(seen));
 });
 
+// Atlas 0.18: combatants without a token (a party member, an "Add enemy" entry) get a card with their name and portrait, no token click.
+feature('initiative tokenless entries', async ({ page, shot }) => {
+  const seen = await page.evaluate(() => {
+    const { board, panel, record } = window.boardTest;
+    const entry = (id, fields, order) => ({ id, name: id, initiative: 10 - order, initiativeModifier: 0, imagePath: '', isActive: false, isNPC: true, order, ...fields });
+    board.map.initiative = {
+      entries: [entry('Hero', { tokenId: 'hero', isNPC: false }, 0), entry('Mira', { partyMemberId: 'pm1', imagePath: 'red.png', isNPC: false }, 1), entry('Enemy 1', { awaitingInitiative: true }, 2)],
+      currentIndex: 1, round: 2, isActive: true, config: { autoSort: true },
+    };
+    board.map.initiative.entries[1].isActive = true;
+    panel.setOpen(true);
+    panel.render();
+    const cards = [...document.querySelectorAll('.tabletop-initiative-card')];
+    const info = cards.map((card) => ({ name: card.querySelector('img')?.alt ?? card.dataset.entry, entry: card.dataset.entry, img: !!card.querySelector('img'), active: card.classList.contains('tabletop-initiative-card--active') }));
+    record.shown.length = 0;
+    cards[1].click();
+    cards[0].click();
+    return { info, shown: [...record.shown], reset: [...document.querySelectorAll('.tabletop-initiative-tracker__controls button')].map((b) => b.getAttribute('aria-label') ?? b.title ?? '') };
+  });
+  check('tokenless initiative: every entry gets a card, in Atlas order', seen.info.map((c) => c.entry).join() === 'Hero,Mira,Enemy 1', JSON.stringify(seen));
+  check('tokenless initiative: the party member shows its portrait and has the turn', seen.info[1].img === true && seen.info[1].active === true && seen.info[0].active === false, JSON.stringify(seen));
+  check('tokenless initiative: clicking a card shows its token only where it has one', seen.shown.join() === 'hero', JSON.stringify(seen));
+  await shot('initiative-tokenless');
+});
+
 feature('command palette', async ({ page, shot }) => {
   await page.evaluate(() => window.boardTest.palette.open());
   const win = page.locator('.atlas-tabletop-atlas-ui .atlas-command-palette-window');
@@ -7439,7 +7464,9 @@ feature('shortcut help on the board', async ({ page, shot }) => {
   const find = (text) => seen.rows.find(([label]) => label.toLowerCase().includes(text));
   check("shortcut help: Atlas's help window opens on the board, with its title", seen.title.length > 0 && seen.rows.length > 10, JSON.stringify(seen.title));
   check("shortcut help: the asset manager is listed with the board's key (Shift + A)", (find('asset')?.[1] ?? '') === 'Shift + A', JSON.stringify(find('asset')));
-  check("shortcut help: Atlas's 2D map tools are not listed", !seen.atlasRows.some((label) => /fog|draw|erase|text tool|pin|wall|sound/.test(label)), JSON.stringify(seen.atlasRows));
+  check("shortcut help: Atlas's 2D map tools are not listed", !seen.atlasRows.some((label) => /fog|draw|erase|text tool|pin|wall|sound page|brush/.test(label)), JSON.stringify(seen.atlasRows));
+  // Atlas 0.17+ has no experimental switch on Next mood and Silence: the board's two sound keys are listed; the Sound page key (S, a clash with Silence's Shift+S) is not.
+  check("shortcut help: Next mood and Silence are listed, the Sound page key is not", seen.atlasRows.includes('next mood') && seen.atlasRows.includes('stop all sound') && !seen.atlasRows.includes('sound page'), JSON.stringify(seen.atlasRows));
   check("shortcut help: the board's own keys follow, camera and eyes included",
     seen.headings.includes('Tabletop: camera') && seen.headings.includes("Tabletop: through a token's eyes") && (find('move the camera')?.[1] ?? '') === 'W A S D / Arrow keys', JSON.stringify(seen.headings));
   check('shortcut help: the sections are spread over balanced columns, none split', seen.columns >= 2 && !seen.split, JSON.stringify({ columns: seen.columns, split: seen.split }));

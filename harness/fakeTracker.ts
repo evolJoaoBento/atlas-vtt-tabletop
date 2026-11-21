@@ -210,6 +210,15 @@ export function applyInitiative(given: InitiativeState, action: InitiativeAction
       state.currentIndex = -1;
       break;
     }
+    // Atlas 0.18's Reset initiative: the fight ends and every number is emptied, everyone stays.
+    case 'resetNumbers': {
+      clearFight(state);
+      state.isActive = false;
+      state.round = 0;
+      state.currentIndex = -1;
+      for (const entry of state.entries) { entry.initiative = 0; entry.awaitingInitiative = true; entry.isActive = false; }
+      break;
+    }
     case 'edit': {
       const entry = entries[find(action.id)];
       if (!entry) break;
