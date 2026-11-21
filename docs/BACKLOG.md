@@ -5,6 +5,9 @@ Ideas and asks not yet planned. Newest first. Done items leave this list (their 
 - **Fog menu under the Move/Select tools** (2026-11-21): Atlas also opens the fog menu (Reveal, Hide, Delete) on a right-click
   on fog while its Select or Move tool is on; the board offers it only with the fog tool on. Also left out: Atlas's menu rows
   have no icons in 0.18 (its item renderer ignores `icon`), so neither has the board's.
+  Fog tool review leftovers (2026-11-21), left as they are: (M3) the snap and closing reach and the marks' constant width use the
+  metre across the view (`unitsPerPixel`), not a pixel's footprint along the ground, so on a low camera the 10 px reach is about 5 px deep;
+  (M4) on a map whose image size is unknown the fog tool cannot paint and swallows the press with no notice (Atlas needs no map rect to draw).
 
 - **Atlas 0.18 features the board does not show yet** (2026-11-21, survey of 0.18.0): saved rolls and the collection's
   editable dice row in the board's dice tray; Atlas's compact / horizontal initiative layouts and turn banners; the
