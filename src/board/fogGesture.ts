@@ -78,6 +78,8 @@ export interface FogGesture {
   key?(key: 'Enter' | 'Backspace'): boolean;
   /** Shapes the last press or key closed (a polygon); they are handed over once. */
   take?(): FogShapeInput[];
+  /** The press under way is lost (a second finger, a cancelled pointer) while what the shape has kept stays: a polygon's corners, less the one this press placed. Without it the whole shape is dropped (`cancel`). */
+  dropPress?(): void;
   /** Nothing is pointed at any more: the guide, the cell or room outlined go. */
   rest?(): void;
   cancel(): void;

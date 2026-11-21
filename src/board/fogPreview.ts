@@ -84,18 +84,21 @@ export class FogPreview {
   }
 
   /** Draws the sheet again as `polygons` (each filled, holes by the even-odd rule): for the shapes that are not a brush. */
-  polygons(polygons: ReadonlyArray<ReadonlyArray<Point>>): void {
+  polygons(polygons: ReadonlyArray<ReadonlyArray<Point>>, behind: ReadonlyArray<ReadonlyArray<ReadonlyArray<Point>>> = []): void {
     const context = this.context;
     if (!context || !this.canvas || !this.mesh?.visible) return;
     const s = this.scale;
     context.clearRect(0, 0, this.canvas.width, this.canvas.height);
     context.fillStyle = '#ffffff';
-    context.beginPath();
-    for (const polygon of polygons) {
-      polygon.forEach((point, index) => (index === 0 ? context.moveTo(point.x * s, point.y * s) : context.lineTo(point.x * s, point.y * s)));
-      context.closePath();
+    // What was committed earlier and waits for the fog volume stays under the shape (each group on its own: they do not cut holes in each other).
+    for (const group of [...behind, polygons]) {
+      context.beginPath();
+      for (const polygon of group) {
+        polygon.forEach((point, index) => (index === 0 ? context.moveTo(point.x * s, point.y * s) : context.lineTo(point.x * s, point.y * s)));
+        context.closePath();
+      }
+      context.fill('evenodd');
     }
-    context.fill('evenodd');
     this.touch();
   }
 

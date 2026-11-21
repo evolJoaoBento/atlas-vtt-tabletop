@@ -10,9 +10,10 @@ import { FogVolume } from '../src/board/fogVolume';
 const keys = { shift: false, ctrl: false };
 
 /** A fake 2D canvas context that only counts what is drawn. */
+const drawn = { clears: 0 };
 function fakeCanvas(): HTMLCanvasElement {
   const calls: string[] = [];
-  const context = new Proxy({}, { get: (_target, name) => (name === 'calls' ? calls : () => { calls.push(String(name)); }), set: () => true });
+  const context = new Proxy({}, { get: (_target, name) => (name === 'calls' ? calls : () => { calls.push(String(name)); if (name === 'clearRect') drawn.clears += 1; }), set: () => true });
   return { width: 0, height: 0, getContext: () => context } as unknown as HTMLCanvasElement;
 }
 
@@ -444,4 +445,55 @@ test('erasing a shape that is no brush shows the wash (light red), painting show
   fog.setFlipped(true);
   assert.equal(fog.sheet.wash, true);
   fog.cancel();
+});
+
+test('a press right after a stroke does not wipe that stroke from the preview before the fog volume holds it', () => {
+  const { fog, setFogKey } = tool();
+  fog.setOn(true);
+  fog.down(10, 10, keys, false);
+  fog.up(60, 10, keys, false);
+  const before = drawn.clears;
+  // The next press and stroke draw on the same sheet: it is not begun anew (cleared) while the first stroke waits for the fog.
+  fog.down(10, 100, keys, false);
+  fog.move(60, 100, keys, false);
+  fog.up(60, 100, keys, false);
+  assert.equal(drawn.clears, before);
+  assert.equal(fog.sheet.shown, true);
+  // The fog is drawn: both are held no more.
+  setFogKey('b');
+  fog.fogDrawn();
+  assert.equal(fog.sheet.shown, false);
+  // A stroke that does the other thing (erases) cannot share the sheet: it is begun anew.
+  fog.down(10, 10, keys, false);
+  fog.up(60, 10, keys, false);
+  const mark = drawn.clears;
+  fog.down(10, 100, keys, true);
+  fog.up(60, 100, keys, true);
+  assert.ok(drawn.clears > mark);
+});
+
+test("a polygon's corners stay under a second finger or a cancelled pointer; the corner that press placed is taken back", () => {
+  const { fog } = tool();
+  fog.setOn(true);
+  fog.setShape('polygon');
+  const corners = (): number => fog.markView.current?.dots?.length ?? 0;
+  press(fog, 100, 100); fog.up(100, 100, keys, false);
+  press(fog, 300, 100); fog.up(300, 100, keys, false);
+  assert.equal(corners(), 2);
+  // A third finger down places a corner; the pinch that follows drops that press only.
+  press(fog, 300, 300);
+  assert.equal(corners(), 3);
+  fog.dropPress();
+  assert.equal(fog.drawing, true);
+  assert.equal(corners(), 2);
+  // The press that began the polygon: taken back, nothing is left.
+  fog.cancel();
+  press(fog, 50, 50);
+  fog.dropPress();
+  assert.equal(fog.drawing, false);
+  // A brush stroke under a pinch is dropped whole.
+  fog.setShape('brush');
+  press(fog, 10, 10);
+  fog.dropPress();
+  assert.equal(fog.drawing, false);
 });

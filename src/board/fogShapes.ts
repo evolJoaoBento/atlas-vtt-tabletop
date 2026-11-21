@@ -196,6 +196,8 @@ export class PolygonGesture implements FogGesture {
   private pointer: { at: FogPoint; keys: FogKeys } | null = null;
   private closed: FogShapeInput[] = [];
   private last: { at: FogPoint; time: number } | null = null;
+  /** The press that is down placed a corner (it is taken back if the press is lost, `dropPress`). */
+  private placed = false;
 
   constructor(private readonly env: FogEnv, private readonly now: () => number = () => performance.now()) {}
 
@@ -219,6 +221,7 @@ export class PolygonGesture implements FogGesture {
 
   down(at: FogPoint, keys: FogKeys, _radius: number, screen: FogPoint): boolean {
     const second = this.doubleClick(screen);
+    this.placed = false;
     if (this.active && (second || this.closesOn(at))) {
       // Corners that make no area yet: the press places none, and the polygon goes on.
       this.close();
@@ -227,6 +230,7 @@ export class PolygonGesture implements FogGesture {
     const began = !this.active;
     const corner = this.env.snapping.corner(at, keys, this.draft.last);
     if (!this.draft.add(corner) && began) return true;
+    this.placed = true;
     this.pointer = { at: { x: at.x, y: at.y }, keys };
     this.cursor = corner;
     return true;
@@ -249,7 +253,14 @@ export class PolygonGesture implements FogGesture {
 
   hover(at: FogPoint, keys: FogKeys): void { this.move(at, keys); }
 
-  up(): FogShapeInput[] { return []; }
+  up(): FogShapeInput[] { this.placed = false; return []; }
+
+  /** Atlas's `dropDrag`: a polygon between its clicks stays; the corner the lost press placed goes. */
+  dropPress(): void {
+    if (!this.placed) return;
+    this.placed = false;
+    this.key('Backspace');
+  }
 
   rekey(keys: FogKeys): void {
     if (this.active && this.pointer) this.move(this.pointer.at, keys);

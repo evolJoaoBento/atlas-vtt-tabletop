@@ -8235,6 +8235,101 @@ feature('fog menu', async ({ page, shot }) => {
   await tool(() => { window.boardTest.fog.reset(); window.boardTest.fog.state.menuWrites.length = 0; });
 });
 
+// ── Fog review fixes: a pin or door keeps its press, a shape does not outlive its map or the Edit mode, Escape is the active board's, a pinch keeps polygon corners ──
+feature('fog review fixes', async ({ page, shot }) => {
+  const at = (x, y, h = 0) => page.evaluate(([x, y, h]) => window.boardTest.project(x, y, h), [x, y, h]);
+  const ops = () => page.evaluate(() => Object.values(window.boardTest.fog.record()));
+  const tool = (call, arg) => page.evaluate(call, arg);
+  await tool(() => {
+    const { board, modes, fog } = window.boardTest;
+    fog.reset();
+    fog.state.adds.length = 0;
+    board.map.grid.type = 'square';
+    board.map.grid.size = 70;
+    board.map.grid.snap = true;
+    modes.on = true;
+    modes.mode = 'edit';
+    board.toolbarActions().fog.start();
+    board.toolbarActions().fog.setShape('brush');
+    board.frameMap();
+    board.camera.snap();
+    board.wake(true);
+  });
+  await wait(500);
+  // M1: a press on a pin or a door is that object's (Atlas: a pin, door badge or light marker takes the press from any tool; the fog tool draws nothing).
+  const pin = await tool(() => { const b = window.boardTest.board; const target = b.pins[0].hitTarget; const v = new window.boardTest.Vector3(); target.getWorldPosition(v); return window.boardTest.project(v.x, v.z, v.y); });
+  await page.mouse.move(pin.x, pin.y);
+  await page.mouse.down();
+  const onPin = await tool(() => window.boardTest.board.press?.kind ?? null);
+  await page.mouse.up();
+  await wait(400);
+  check('fog review: a left press on a pin is the pin\'s, not a fog stroke', onPin !== 'fog' && (await ops()).length === 0 && !(await tool(() => window.boardTest.board.fogTool.drawing)), JSON.stringify([onPin, await ops()]));
+  const door = await at(1280, 800, 35);
+  const doorHit = await tool(([x, y]) => window.boardTest.board.doorAt(x, y), [door.x, door.y]);
+  if (doorHit) {
+    await page.mouse.move(door.x, door.y);
+    await page.mouse.down();
+    const onDoor = await tool(() => window.boardTest.board.press?.kind ?? null);
+    await page.mouse.up();
+    await wait(400);
+    check('fog review: a left press on a door is the door\'s, not a fog stroke', onDoor !== 'fog' && (await ops()).length === 0, JSON.stringify([onDoor, await ops()]));
+  }
+
+  // M5: another board switches the shared mode to Play: this board's tool paints nothing (and goes off).
+  const plain = await at(300, 300);
+  await tool(() => { window.boardTest.modes.mode = 'play'; });
+  await page.mouse.move(plain.x, plain.y);
+  await page.mouse.down();
+  const inPlay = await tool(() => window.boardTest.board.press?.kind ?? null);
+  await page.mouse.move(plain.x + 40, plain.y + 5, { steps: 3 });
+  await page.mouse.up();
+  await wait(400);
+  check('fog review: with the mode switched to Play (by another board) a drag writes no fog', inPlay !== 'fog' && (await ops()).length === 0, JSON.stringify([inPlay, await ops()]));
+  await tool(() => { window.boardTest.modes.mode = 'edit'; window.boardTest.board.toolbarActions().fog.start(); });
+
+  // M2: a polygon under way is dropped when the map or level changes.
+  await tool(() => window.boardTest.board.toolbarActions().fog.setShape('polygon'));
+  for (const p of [[200, 200], [400, 200], [400, 400]]) {
+    const s = await at(...p);
+    await page.mouse.move(s.x, s.y);
+    await page.mouse.down();
+    await page.mouse.up();
+  }
+  const pending = await tool(() => window.boardTest.board.fogTool.drawing);
+  await tool(async () => { const { board } = window.boardTest; await board.load({ ...board.map, path: 'other-scene.atlasmap' }); });
+  await wait(300);
+  check('fog review: a polygon with corners pending is dropped when another scene loads', pending && !(await tool(() => window.boardTest.board.fogTool.drawing)), JSON.stringify(pending));
+  await tool(async () => { const { board } = window.boardTest; await board.load({ ...board.map, path: 'harness.atlasmap' }); });
+  for (const p of [[200, 200], [400, 200], [400, 400]]) {
+    const s = await at(...p);
+    await page.mouse.move(s.x, s.y);
+    await page.mouse.down();
+    await page.mouse.up();
+  }
+  const pendingAgain = await tool(() => window.boardTest.board.fogTool.drawing);
+  await tool(async () => { const { board } = window.boardTest; await board.load({ ...board.map, level: 'upper-level' }); });
+  await wait(300);
+  check('fog review: and when the level changes', pendingAgain && !(await tool(() => window.boardTest.board.fogTool.drawing)), JSON.stringify(pendingAgain));
+  await tool(async () => { const { board } = window.boardTest; const { level, ...rest } = board.map; await board.load(rest); });
+
+  // M6: Escape pressed while this board's tab is not the active one is not swallowed.
+  for (const p of [[200, 200], [400, 200], [400, 400]]) {
+    const s = await at(...p);
+    await page.mouse.move(s.x, s.y);
+    await page.mouse.down();
+    await page.mouse.up();
+  }
+  await tool(() => { const box = window.boardTest.board.canvas.parentElement.parentElement; box.classList.add('workspace-leaf'); window.__leaf = box; });
+  const escape = () => tool(() => { const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }); document.body.dispatchEvent(event); return event.defaultPrevented; });
+  const swallowed = await escape();
+  const stillDrawing = await tool(() => window.boardTest.board.fogTool.drawing);
+  check('fog review: Escape with the board\'s tab in the background is left alone and keeps the polygon', !swallowed && stillDrawing, JSON.stringify([swallowed, stillDrawing]));
+  await tool(() => window.__leaf.classList.add('mod-active'));
+  const taken = await escape();
+  check('fog review: Escape on the active board still drops the polygon', taken && !(await tool(() => window.boardTest.board.fogTool.drawing)), JSON.stringify(taken));
+  await tool(() => { window.__leaf.classList.remove('workspace-leaf', 'mod-active'); });
+});
+
 server.listen(0, async () => {
   const errors = [];
   const bundles = { 'board.js': affected.inventory(path.join(root, 'board.js')), 'playerBoard.js': affected.inventory(path.join(root, 'playerBoard.js')) };

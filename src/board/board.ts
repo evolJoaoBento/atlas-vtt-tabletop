@@ -1195,6 +1195,8 @@ export class Board {
     this.showCell(null);
     const first = this.map === null;
     const sameImage = this.map?.background === map.background;
+    // A shape under way belongs to the map and level it was drawn on: another scene, level or image drops it.
+    if (this.map && (this.map.path !== map.path || this.map.level !== map.level || !sameImage)) this.fogTool?.cancel();
     this.map = map;
     // Another of the stack becomes the one played: its layer is put away and the old scene comes back as a layer (kept
     // ready), at once, both easing; the camera glides between them.
@@ -1818,6 +1820,8 @@ export class Board {
     try {
       this.fog.update(map.fog, this.host.fogHeight(), map.grid.size);
       this.fogTool?.fogDrawn();
+      // Another board of this vault switched the shared mode away from Edit: the tool is put down here too.
+      if (this.fogTool?.on && !this.editing) { this.fogTool.setOn(false); this.toolbar.refresh(); }
       // The fog tool's bars say whether there is fog to delete: they follow what the map holds.
       const fogShown = map.fog.map((operation) => operation.id).join(',');
       if (fogShown !== this.fogShown) { this.fogShown = fogShown; if (this.fogTool) this.toolbar.refresh(); }
@@ -3012,7 +3016,7 @@ export class Board {
   private openFogMenu(event: MouseEvent): boolean {
     const tool = this.fogTool;
     const host = this.host.fog;
-    if (!tool?.on || !host || !this.host.fogMenu || this.audience !== 'gm' || tool.drawing || !this.map) return false;
+    if (!tool?.on || !host || !this.host.fogMenu || this.audience !== 'gm' || !this.editing || tool.drawing || !this.map) return false;
     const point = this.boardPoint(event.clientX, event.clientY);
     const hit = point ? fogMenuAt(this.map.fog, point) : null;
     if (!point || !hit) return false;
@@ -3846,6 +3850,9 @@ export class Board {
     const fogKeys = (event: KeyboardEvent): void => {
       const tool = this.fogTool;
       if (this.audience !== 'gm' || !tool?.on || !tool.drawing) return;
+      // Only the board of the tab that is shown has the key (another tab's polygon does not take the Escape that closes a menu).
+      const leaf = this.container.closest('.workspace-leaf');
+      if (leaf && !leaf.classList.contains('mod-active')) return;
       const target = event.target as HTMLElement | null;
       if (target && target.closest('input, textarea, select, [contenteditable="true"], .modal-container') !== null) return;
       if (event.type === 'keydown' && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); tool.cancel(); return; }
@@ -3986,7 +3993,9 @@ export class Board {
     }
     // The GM's fog tool: a drag draws fog (Alt: the other thing). A press on a token is the token's.
     // A press of the tool that begins nothing (Cells without a grid) is swallowed too: nothing under it is dragged or lifted.
-    if (event.button === 0 && this.fogTool?.on && !this.tokenAt(x, y)) {
+    // The press of a token, a pin, a door or a light's bulb is that object's from any tool (Atlas: they take the press and the fog tool draws nothing).
+    // Only in Edit mode: another board may have switched the shared mode to Play under a tool left on.
+    if (event.button === 0 && this.fogTool?.on && this.editing && !this.tokenAt(x, y) && !this.pinAt(x, y) && !this.doorAt(x, y) && !this.lightAt(x, y)) {
       if (this.fogTool.down(x, y, { shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey }, event.altKey)) this.press = { kind: 'fog' };
       return;
     }
@@ -4691,7 +4700,8 @@ export class Board {
   private cancel(): void {
     const press = this.press;
     this.press = null;
-    if (press?.kind === 'fog') { this.fogTool?.cancel(); return; }
+    // A second finger or a cancelled pointer: a polygon keeps the corners it has (Atlas's `dropDrag`).
+    if (press?.kind === 'fog') { this.fogTool?.dropPress(); return; }
     if (press?.kind === 'tool') {
       this.tools.cancel();
       this.showToolOverlay();

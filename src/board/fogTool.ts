@@ -128,6 +128,10 @@ export class FogTool {
   private readonly env: FogEnv;
   /** The preview sheet is begun for the shape under way. */
   private sheetOn = false;
+  /** What the sheet shows as (erasing, wash): a press that would show as the other thing begins it anew. */
+  private sheetKind = '';
+  /** The polygons of the shapes committed and not yet in the fog volume: a shape's preview is drawn over them. */
+  private heldPolygons: FogPoint[][][] = [];
   /** Where the pointer last was on screen, and over the ground; null once it left the canvas. */
   private pointer: { x: number; y: number } | null = null;
   private pointerAt: FogPoint | null = null;
@@ -266,7 +270,8 @@ export class FogTool {
     this.setFlipped(alt);
     this.held = held;
     if (!gesture.down(at, this.resolve(held), this.sizeNow, { x: clientX, y: clientY })) return false;
-    this.releaseHold();
+    // The stroke committed before waits for the fog volume (`fogDrawn`): this one is drawn over it, not in its place, unless it shows as the other thing.
+    if (this.holding === null || this.sheetKind !== this.kindNow()) this.releaseHold();
     this.gesture = gesture;
     this.pointer = { x: clientX, y: clientY };
     this.pointerAt = at;
@@ -340,7 +345,7 @@ export class FogTool {
     if (shapes.length > 0) this.commit(shapes);
     if (!gesture.active) {
       this.gesture = null;
-      if (shapes.length === 0) this.clearSheet();
+      if (shapes.length === 0 && this.holding === null) this.clearSheet();
     } else {
       this.drawPreview(null);
     }
@@ -350,13 +355,29 @@ export class FogTool {
   private commit(shapes: FogShapeInput[]): void {
     const isErasing = this.erasing;
     // A shape that is no brush shows what it leaves (the polygon's last corner under the pointer was no corner).
-    if (shapes.some((shape) => shape.type !== 'brush')) this.drawSheet(shapes.flatMap(shapePolygons));
+    if (shapes.some((shape) => shape.type !== 'brush')) {
+      const polygons = shapes.flatMap(shapePolygons);
+      this.drawSheet(polygons, this.heldPolygons);
+      this.heldPolygons.push(polygons);
+    }
     // The preview stays, as it is, until the fog volume holds the stroke (it would flicker off and on again): held before
     // the write, which may be drawn at once.
     this.heldKey = this.deps.fogKey();
     if (this.holding !== null) clearTimeout(this.holding);
     this.holding = setTimeout(() => this.releaseHold(), 3000);
     this.deps.commit(shapes.map((shape) => ({ ...shape, isErasing }) as FogOperationInput));
+  }
+
+  /**
+   * The press under way is lost (a second finger comes, the pointer is cancelled): a brush, rectangle, lasso or the cells and room
+   * under it are dropped, a polygon keeps its corners (less the one this press placed), as Atlas's `dropDrag`.
+   */
+  dropPress(): void {
+    const gesture = this.gesture;
+    if (!gesture) return;
+    if (!gesture.dropPress) { this.cancel(); return; }
+    gesture.dropPress();
+    this.settle(gesture, []);
   }
 
   /** Drops the shape under way without committing it (a polygon's corners too). */
@@ -423,9 +444,12 @@ export class FogTool {
 
   private releaseHold(): void {
     if (this.holding !== null) { clearTimeout(this.holding); this.holding = null; }
+    this.heldPolygons = [];
     if (!this.drawing) this.clearSheet();
     this.deps.wake();
   }
+
+  private kindNow(): string { return `${this.erasing}:${this.washes}`; }
 
   private clearSheet(): void {
     this.sheetOn = false;
@@ -466,15 +490,16 @@ export class FogTool {
     if (!this.sheetOn) {
       this.preview.begin(size.width, size.height, this.erasing);
       this.sheetOn = true;
+      this.sheetKind = this.kindNow();
     }
     this.preview.setErasing(this.erasing);
     this.preview.setWash(this.washes);
     return true;
   }
 
-  private drawSheet(polygons: ReadonlyArray<ReadonlyArray<FogPoint>>): void {
+  private drawSheet(polygons: ReadonlyArray<ReadonlyArray<FogPoint>>, behind: ReadonlyArray<ReadonlyArray<ReadonlyArray<FogPoint>>> = this.heldPolygons): void {
     if (!this.ensureSheet()) return;
-    this.preview.polygons(polygons);
+    this.preview.polygons(polygons, behind);
     this.deps.wake();
   }
 
