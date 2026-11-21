@@ -340,6 +340,8 @@ export class FogToolBars {
     }
     const rooms = this.actions.hasWalls() && offers.hideRooms;
     this.roomsItem.disabled = !rooms;
+    // A disabled button takes no pointer: the row around it does, so its tooltip still opens.
+    this.roomsItem.style.pointerEvents = rooms ? '' : 'none';
   }
 
   /** Why Hide all rooms cannot be used now, or null. */

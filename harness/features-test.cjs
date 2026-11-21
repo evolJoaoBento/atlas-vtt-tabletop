@@ -7555,7 +7555,8 @@ feature('fog tool bars', async ({ page, shot }) => {
   await page.evaluate(() => { const { board, modes } = window.boardTest; modes.mode = 'edit'; board.refreshToolbar(); });
   check('fog bars: it is in Edit mode', await button.isVisible());
   check('fog bars: the bars are not there while the tool is off', !(await q('.atlas-tabletop-fog-bars').isVisible()));
-  const tip = async () => page.evaluate(() => { const shown = document.querySelector('.atlas-tabletop-atlas-tooltip:not([hidden])'); return shown ? shown.textContent : ''; });
+  // The tooltip as it shows, waited for (it opens after a delay that a loaded machine stretches).
+  const tip = async () => { for (let i = 0; i < 20; i += 1) { const text = await page.evaluate(() => { const shown = document.querySelector('.atlas-tabletop-atlas-tooltip:not([hidden])'); return shown ? shown.textContent : ''; }); if (text) return text; await page.waitForTimeout(150); } return ''; };
   await window_hover(page, button);
   await page.waitForTimeout(600);
   const buttonTip = await tip();
@@ -7653,7 +7654,10 @@ feature('fog tool bars', async ({ page, shot }) => {
   await q('.atlas-tabletop-fog-bars [data-fog-popover="more"]').click();
   const old = await page.evaluate(() => ({ cover: document.querySelector('[data-fog-action="cover"]').getAttribute('aria-disabled'), rooms: document.querySelector('[data-fog-action="rooms"]').disabled, opacity: document.querySelector('.atlas-tabletop-fog-popover--more input[aria-label="Fog opacity in GM view"]').disabled }));
   check('fog bars: with an older Atlas Cover all, Hide all rooms and the opacity are disabled', old.cover === 'true' && old.rooms === true && old.opacity === true, JSON.stringify(old));
+  const moreOpen = (open) => page.evaluate((open) => { const panel = document.querySelector('.atlas-tabletop-fog-popover--more'); if (panel.hidden === open) document.querySelector('.atlas-tabletop-fog-bars [data-fog-popover="more"]').click(); }, open);
+  await moreOpen(true);
   const roomsTip = await hoverTip('.atlas-tabletop-fog-popover--more [data-fog-action="rooms"]');
+  await moreOpen(false);
   check('fog bars: Hide all rooms says why in a tooltip, not a native title', roomsTip === 'This needs a newer Atlas.', roomsTip);
   await q('.atlas-tabletop-fog-bars [data-fog-popover="more"]').click();
   check('fog bars: Cover all says it needs a newer Atlas', (await hoverTip('.atlas-tabletop-fog-bars [data-fog-action="cover"]')) === 'Cover allThis needs a newer Atlas.');
