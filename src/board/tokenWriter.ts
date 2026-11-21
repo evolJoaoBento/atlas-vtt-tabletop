@@ -18,6 +18,7 @@ import type { InitiativeAction } from './initiative';
 import { mergeExtra, type WallExtraChange } from './recordExtras';
 import type { ExtrasMove } from './extrasMigration';
 import { moveOf, type StackPlan } from './stackMove';
+import { resolveLevel, type BoardLevel } from './levels';
 
 type RawToken = Record<string, unknown> & { x?: number; y?: number; imagePath?: string; instanceNumber?: number };
 /**
@@ -459,6 +460,75 @@ export class TokenWriter {
       for (const light of lights.slice(ids.length)) if (light) now().deleteLight?.(light);
       return ids;
     });
+  }
+
+  /**
+   * What Atlas's fog actions the writer can use on the map are there, read at once: `add` (Atlas 0.15 has one operation at a
+   * time, 0.17+ several), `clear`, `cover` (hide the whole map) and `hideRooms` (the latter two are Atlas 0.17-0.18's). With
+   * Atlas not holding the map yet, all of them are taken to be there (it is asked at the write).
+   */
+  fogOffers(path: string): { add: boolean; clear: boolean; cover: boolean; hideRooms: boolean } {
+    const state = this.holder(path)?.atlasStore.getState();
+    if (!state) return { add: true, clear: true, cover: true, hideRooms: true };
+    return {
+      add: typeof state.addFogOperations === 'function' || typeof state.addFogOperation === 'function',
+      clear: typeof state.clearFog === 'function',
+      cover: typeof state.coverAllFog === 'function',
+      hideRooms: typeof state.hideRooms === 'function',
+    };
+  }
+
+  /**
+   * The store of the map for a fog write on `level` (the level the board shows). Atlas's fog actions act on the level its
+   * own view shows and take no level: a board that shows another one (Atlas has not followed yet) is refused.
+   */
+  private fogStore(path: string, level: string | null | undefined): AtlasSceneState {
+    const state = this.store(path);
+    if (level !== undefined && level !== null && (state.levels?.length ?? 0) > 0) {
+      const shown = resolveLevel(state.levels as readonly BoardLevel[], state.viewedLevel ?? null);
+      if (shown !== level) throw new Error('Atlas shows another level of this scene: wait for it to follow the board');
+    }
+    return state;
+  }
+
+  /**
+   * Adds fog operations (Atlas's input shapes: `brush`, `lasso`, `rectangle`, each with `isErasing`) on the level shown, in
+   * one step of Atlas's history; they act in the order given, after all the fog there is. The ids Atlas gave.
+   */
+  async addFog(path: string, operations: ReadonlyArray<Record<string, unknown>>, level?: string | null): Promise<string[]> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.fogStore(path, level);
+    if (operations.length === 0) return [];
+    const view = this.holder(path);
+    // Read fresh at every write: an action swaps the store's state.
+    const now = (): AtlasSceneState => view?.atlasStore.getState() ?? state;
+    if (typeof state.addFogOperations === 'function') return this.asOneStep(path, () => now().addFogOperations?.(operations.map((operation) => ({ ...operation }))) ?? []);
+    if (typeof state.addFogOperation !== 'function') throw TokenWriter.missing('fog tool');
+    return this.asOneStep(path, () => operations.map((operation) => now().addFogOperation?.({ ...operation }) ?? ''));
+  }
+
+  /** Deletes all the fog of the level shown, in one step of Atlas's history (none when there is none). */
+  async clearFog(path: string, level?: string | null): Promise<void> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.fogStore(path, level);
+    if (typeof state.clearFog !== 'function') throw TokenWriter.missing('way to delete fog');
+    state.clearFog();
+  }
+
+  /** Hides the whole map of the level shown (`mapRect`: the map as the board draws it); false, and nothing hidden, where Atlas finds no map to cover. */
+  async coverAllFog(path: string, mapRect: { x: number; y: number; width: number; height: number } | null, level?: string | null): Promise<boolean> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.fogStore(path, level);
+    if (typeof state.coverAllFog !== 'function') throw TokenWriter.missing('way to cover the map');
+    return state.coverAllFog(mapRect);
+  }
+
+  /** Paints fog over every room the walls of the level shown enclose that is not hidden yet, in one step; how many rooms there are and how many it hid. */
+  async hideRooms(path: string, mapRect: { x: number; y: number; width: number; height: number } | null, coverage?: unknown, level?: string | null): Promise<{ rooms: number; hidden: number }> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.fogStore(path, level);
+    if (typeof state.hideRooms !== 'function') throw TokenWriter.missing('way to hide rooms');
+    return state.hideRooms(mapRect, coverage);
   }
 
   /**
