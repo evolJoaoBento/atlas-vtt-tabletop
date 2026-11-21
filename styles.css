@@ -3003,6 +3003,24 @@ body.atlas-tabletop-player-window .view-header {
 .atlas-vtt-plugin .atlas-command-palette-options { flex: 1; min-height: 0; overflow-y: auto; }
 
 /*
+ * The ported palette is Atlas 0.15's markup (backdrop > anchor > window > container). Atlas 0.18 moved the frame off the
+ * container onto a `-surface` wrapper the copy does not have, and centred the anchor with `translate: -50% 0`, which
+ * stacks on the inline left the copy sets. Restated here, scoped to Tabletop's palette host (one class more than
+ * Atlas's own rules, so it wins whatever order the stylesheets load in): Atlas 0.17's frame, and no extra translate.
+ * Under 0.15 to 0.17 these are Atlas's own declarations again.
+ */
+.atlas-vtt-plugin.atlas-tabletop-atlas-ui .atlas-command-palette-anchor { translate: none; }
+.atlas-vtt-plugin.atlas-tabletop-atlas-ui .atlas-command-palette-container {
+  background: var(--background-primary);
+  border: 1.5px solid color-mix(in oklch, var(--mono-100) 18%, transparent);
+  box-shadow: var(--shadow-l);
+  --atlas-panel-inner-radius: 14px;
+  border-radius: 15.5px;
+  position: relative;
+  overflow: hidden;
+}
+
+/*
  * Atlas 0.15's floating UI joins Atlas's host under <body>; with no Atlas host the copied panels make Tabletop's own
  * (src/atlasPort/shims/portalHost.ts). Atlas's rule for its host while it holds a dialog, restated for that one.
  */

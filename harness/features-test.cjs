@@ -1742,6 +1742,17 @@ feature('command palette', async ({ page, shot }) => {
   check('palette lists Atlas\'s entries', /Random tables|random tables/i.test(text) && /Dice log|dice log/i.test(text), text.slice(0, 300));
   check('no raw text keys in the palette', !/\b[a-z]+\.[a-z]+\.[a-z]+\b/i.test(text), text);
   await shot('command-palette');
+  // Under any Atlas stylesheet (0.17's frame is on the container, 0.18's on a wrapper the copy lacks): a frame, and in view.
+  const frame = await page.evaluate(() => {
+    const box = document.querySelector('.atlas-tabletop-atlas-ui .atlas-command-palette-container');
+    const anchor = document.querySelector('.atlas-tabletop-atlas-ui .atlas-command-palette-anchor');
+    if (!box || !anchor) return null;
+    const style = getComputedStyle(box);
+    const rect = box.getBoundingClientRect();
+    return { bg: style.backgroundColor, border: style.borderTopWidth + ' ' + style.borderTopStyle, shadow: style.boxShadow, translate: getComputedStyle(anchor).translate, left: rect.left, right: rect.right, width: innerWidth };
+  });
+  check('palette window has an opaque background and a border', frame !== null && frame.bg !== 'rgba(0, 0, 0, 0)' && frame.bg !== 'transparent' && parseFloat(frame.border) > 0 && frame.border.endsWith('solid') && frame.shadow !== 'none', JSON.stringify(frame));
+  check('palette window is not shifted by an extra translate and stays inside the page', frame !== null && (frame.translate === 'none' || frame.translate === '0px') && frame.left >= 0 && frame.right <= frame.width, JSON.stringify(frame));
   await page.keyboard.type('random');
   await wait(300);
   await page.keyboard.press('Enter');
