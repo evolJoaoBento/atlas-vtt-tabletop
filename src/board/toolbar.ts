@@ -2470,7 +2470,8 @@ export class BoardToolbar {
 
   /** Syncs the GM view switch with the board's look: on in GM view, off in session view; there in Play and Edit mode, where the board has one. */
   private syncGmView(mode: BoardMode | null): void {
-    const offered = this.actions.gmView !== undefined && this.actions.setGmView !== undefined && mode !== 'cinematic';
+    // Play and Edit mode (a board without modes, which has no GM's view to switch, shows none).
+    const offered = this.actions.gmView !== undefined && this.actions.setGmView !== undefined && (mode === 'play' || mode === 'edit');
     this.gmViewEnd.hidden = !offered;
     if (!offered) return;
     const on = this.actions.gmView?.() ?? true;

@@ -515,11 +515,11 @@ feature('narrow toolbar', async ({ page, shot }) => {
     return { left: r.left, right: r.right, width: r.width, buttons, view: document.getElementById('board').clientWidth };
   });
   const paneWidth = (px) => page.evaluate((px) => { document.getElementById('board').style.width = `${px}px`; }, px);
-  await paneWidth(1100);
-  await wait(800);
+  await paneWidth(1000);
+  await wait(300);
   const wide = await bar();
   check('36 wide pane: every button is on the bar', wide.buttons.includes('Dice') && wide.buttons.includes('Visibility') && !wide.buttons.includes('More tools'), JSON.stringify(wide.buttons));
-  await paneWidth(400);
+  await paneWidth(330);
   await wait(600);
   const narrow = await bar();
   await shot('narrow-toolbar');
@@ -533,7 +533,7 @@ feature('narrow toolbar', async ({ page, shot }) => {
   await page.keyboard.press('Escape');
   await wait(200);
   check('36 Escape closes the menu', await page.evaluate(() => { const m = document.querySelector('.atlas-tabletop-more-menu'); return !m || m.hidden; }));
-  await paneWidth(1100);
+  await paneWidth(1000);
   await wait(600);
   const back = await bar();
   check('36 widening the pane brings the tools back', back.buttons.includes('Dice') && !back.buttons.includes('More tools'), JSON.stringify(back.buttons));
@@ -1127,7 +1127,7 @@ feature('elevation layers', async ({ page, shot }) => {
   const seen = await page.evaluate(() => {
     const { board } = window.boardTest;
     const view = [...board.layerViews.values()][0];
-    board.showFor('player');
+    board.showFor('player', true);
     const forPlayers = view.object3d.visible;
     board.showFor('gm');
     return { forPlayers, forGm: view.object3d.visible };
@@ -6903,7 +6903,8 @@ feature('command button', async ({ page, shot }) => {
 
   const rightmostInfo = () => page.evaluate(() => {
     const bar = document.querySelector('.atlas-tabletop-toolbar');
-    const children = [...bar.children].filter((el) => el.offsetParent !== null);
+    // The GM view switch keeps the bar's very last place, after the command palette.
+    const children = [...bar.children].filter((el) => el.offsetParent !== null && !el.matches('.atlas-toolbar-end:not(.atlas-tabletop-extensions)'));
     const buttons = [...bar.querySelectorAll('button')].filter((b) => b.offsetParent !== null && !b.closest('.atlas-dropdown-content'));
     const cmd = bar.querySelector('button[data-atlas-tool="palette"]');
     const cmdRect = cmd?.getBoundingClientRect();
