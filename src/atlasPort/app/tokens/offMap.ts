@@ -1,4 +1,4 @@
-// Atlas source: src/app/tokens/offMap.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/tokens/offMap.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Combatants kept beside the map (`BaseToken.offMap`): tokens of the scene, with their resources,

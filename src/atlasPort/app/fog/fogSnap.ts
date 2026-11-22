@@ -1,4 +1,4 @@
-// Atlas source: src/app/fog/fogSnap.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/fog/fogSnap.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Where a point of a fog shape lands: on what lies close to the pointer, so fog drawn along the

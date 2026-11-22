@@ -1,4 +1,4 @@
-// Atlas source: src/app/react/components/dice/presetLook.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/react/components/dice/presetLook.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Saved rolls whose dice are designed as a Dice Lab set is (`DicePreset.look`): read from settings with the Dice
@@ -6,7 +6,7 @@
  */
 
 import { cleanDiceName, parseStoredDiceSet } from '../../../gameSystems/diceSetValidation';
-import { MAX_SET_DICE, MAX_SET_GROUPS, MAX_SET_SIDES, setRollText } from '../../../gameSystems/diceSets';
+import { MAX_SET_DICE, MAX_SET_GROUPS, MAX_SET_SIDES, setRoll, setRollText } from '../../../gameSystems/diceSets';
 import { parseFormula } from '../../../tools/parseFormula';
 import type { DicePreset } from '../../../../shims/atlasTypes';
 import type { DiceSet, DiceSetDie, RollingDice } from '../../../../shims/atlasTypes';
@@ -80,4 +80,13 @@ export function presetText(preset: DicePreset): string {
   const dice = setRollText(preset.look.dice);
   if (bonus === 0) return dice;
   return `${dice} ${bonus > 0 ? '+' : '−'} ${Math.abs(bonus)}`;
+}
+
+/** The formula a saved roll's place in the row is drawn from (`presetFaceParts`): a designed roll's dice and bonus, else its formula. */
+export function presetFaceFormula(preset: DicePreset): string {
+  if (!preset.look) return preset.formula;
+  const bonus = lookBonus(preset);
+  const dice = setRoll(preset.look.dice);
+  if (bonus === 0) return dice;
+  return `${dice}${bonus > 0 ? '+' : ''}${bonus}`;
 }

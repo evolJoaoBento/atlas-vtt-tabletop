@@ -1,4 +1,4 @@
-// Atlas source: src/app/fog/fogCells.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/fog/fogCells.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * The Cells shape of the fog tool: the cells of the grid a drag passes, squares or hexes, and the

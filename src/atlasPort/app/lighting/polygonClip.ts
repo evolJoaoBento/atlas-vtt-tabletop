@@ -1,4 +1,4 @@
-// Atlas source: src/app/lighting/polygonClip.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/lighting/polygonClip.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import { booleanOpWithPolyTree, ClipType, difference, EndType, FillRule, inflatePaths, intersect, JoinType, PolyTree64, union, type Path64, type Paths64, type PolyPath64 } from 'clipper2-ts';
 import { Q_SCALE, type Q, type QPolygon, type QShape } from '../types/shapeTypes';

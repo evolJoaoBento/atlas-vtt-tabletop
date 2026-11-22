@@ -1,4 +1,4 @@
-// Atlas source: src/app/fog/fogPolygon.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/fog/fogPolygon.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /** A fog shape drawn corner by corner: which corners make one, and the corners placed so far. */
 

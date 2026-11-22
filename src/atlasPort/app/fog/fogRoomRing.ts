@@ -1,4 +1,4 @@
-// Atlas source: src/app/fog/fogRoomRing.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/fog/fogRoomRing.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * The ring of corners a room's outline is made from (`fogRoomOutline.ts`), put in order: without

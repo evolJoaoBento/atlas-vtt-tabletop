@@ -1,4 +1,4 @@
-// Atlas source: src/app/annotations/annotationFit.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/annotations/annotationFit.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Whether a drawing's hints still say what its points are. `points` is the truth; `type` and

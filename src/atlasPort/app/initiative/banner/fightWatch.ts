@@ -1,4 +1,4 @@
-// Atlas source: src/app/initiative/banner/fightWatch.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/initiative/banner/fightWatch.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * The banners that say a fight began or ended: crossed swords in red as it starts, a quiet

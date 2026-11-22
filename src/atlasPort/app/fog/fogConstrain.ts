@@ -1,4 +1,4 @@
-// Atlas source: src/app/fog/fogConstrain.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/fog/fogConstrain.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /** What Shift does to a point of a fog shape: a rectangle becomes a square, a polygon's edge keeps to eighths of a turn. */
 

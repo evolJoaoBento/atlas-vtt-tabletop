@@ -1,4 +1,4 @@
-// Atlas source: src/app/annotations/annotationList.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/annotations/annotationList.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Drawings and texts as everything reads them. A map file arrives unchecked (a hand edit, a sync

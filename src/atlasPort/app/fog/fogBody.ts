@@ -1,4 +1,4 @@
-// Atlas source: src/app/fog/fogBody.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/fog/fogBody.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * The fog objects of a map, for whoever acts on the fog under a point. A fog object is a

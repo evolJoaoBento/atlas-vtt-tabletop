@@ -1,4 +1,4 @@
-// Atlas source: src/app/fog/fogRoomHoles.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/fog/fogRoomHoles.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * A room without the rooms and rock it encloses: a corridor that runs all round a room ends at

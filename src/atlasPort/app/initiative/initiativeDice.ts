@@ -1,4 +1,4 @@
-// Atlas source: src/app/initiative/initiativeDice.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/initiative/initiativeDice.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /** The dice of initiative: a combatant's roll, a side's roll, and the shuffle of a deck of cards. */
 

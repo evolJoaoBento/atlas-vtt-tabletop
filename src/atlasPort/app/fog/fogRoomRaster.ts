@@ -1,4 +1,4 @@
-// Atlas source: src/app/fog/fogRoomRaster.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/fog/fogRoomRaster.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * The map as rooms are told apart on it (`fogRooms.ts`): a raster in which every texel a wall

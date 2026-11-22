@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/values/fillReferences.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/values/fillReferences.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * A statblock's values as its card shows them: every `@` reference that names a number of the
@@ -9,7 +9,8 @@
 
 import type { FieldRecord } from './fieldValues';
 import { readField } from './fieldValues';
-import { parseNumberText, roundForDisplay } from './numberText';
+import { referenceNumber, roundForDisplay } from './numberText';
+import { writtenSide } from '../../tools/writtenAdvantage';
 import { DICE_AFTER, namesReference, readReference, type FieldLookup } from './references';
 import type { TemplateField } from '../model/templateTypes';
 
@@ -23,12 +24,6 @@ const MINUS = /[-−–]/;
 const SIGN_BEFORE = /[+\-−–][ \t]*$/;
 /** A sum of numbers and nothing else, as a Number field's value comes out once its references are in. */
 export const NUMBER_SUM = /^[+-]?\s*\d+(?:\.\d+)?(?:\s*[+-]\s*\d+(?:\.\d+)?)*$/;
-
-/** The number a reference reads: a finite number, or text that writes one (`+2`, `1.5`). */
-function numberOf(value: unknown): number | null {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  return typeof value === 'string' ? parseNumberText(value) : null;
-}
 
 /** A number as the card writes it. */
 const numberText = (value: number): string => String(value);
@@ -89,7 +84,7 @@ export function fillReferences(text: string, lookup: FieldLookup): Filled {
       continue;
     }
     out += text.slice(cursor, at);
-    const value = 'missing' in reference ? null : numberOf(reference.value);
+    const value = 'missing' in reference ? null : referenceNumber(reference.value);
     if (value === null || 'missing' in reference) {
       unresolved.push('missing' in reference ? reference.missing : reference.field);
       out += text.slice(at, reference.end);
@@ -132,12 +127,20 @@ function filledValue(value: unknown, lookup: FieldLookup): unknown {
   return value;
 }
 
-/** What a Number field's filled value comes to: a sum of numbers is its total, anything else stays. */
+/**
+ * What a Number field's filled value comes to: a sum of numbers is its total, anything else stays.
+ * A side written after the sum stays after its total: `10 + 3 adv` reads `13 adv`.
+ */
 export function numberValue(value: unknown): unknown {
-  if (typeof value !== 'string' || !NUMBER_SUM.test(value.trim())) return value;
-  const terms = value.replace(/\s+/g, '').match(/[+-]?\d+(?:\.\d+)?/g) ?? [];
+  if (typeof value !== 'string') return value;
+  const { formula, word } = writtenSide(value);
+  if (!NUMBER_SUM.test(formula.trim())) return value;
+  const terms = formula.replace(/\s+/g, '').match(/[+-]?\d+(?:\.\d+)?/g) ?? [];
   const total = terms.reduce((sum, term) => sum + Number(term), 0);
-  return Number.isFinite(total) ? roundForDisplay(total) : value;
+  if (!Number.isFinite(total)) return value;
+  // ponytail: a lone number with its side (`+7 adv`) is kept as written, sign included
+  if (word === '') return roundForDisplay(total);
+  return terms.length > 1 ? `${roundForDisplay(total)} ${word}` : value;
 }
 
 /** Every string inside a value, at any depth, in order. */

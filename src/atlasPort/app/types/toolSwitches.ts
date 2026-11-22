@@ -1,4 +1,4 @@
-// Atlas source: src/app/types/toolSwitches.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/types/toolSwitches.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * The switches of the tools' menus that say what a key held during a press says on a desktop:

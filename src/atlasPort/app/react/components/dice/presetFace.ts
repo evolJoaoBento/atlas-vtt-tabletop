@@ -1,4 +1,4 @@
-// Atlas source: src/app/react/components/dice/presetFace.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/react/components/dice/presetFace.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * How a saved roll shows on its place in the tray's row: the body of its first die, with what else it does as small

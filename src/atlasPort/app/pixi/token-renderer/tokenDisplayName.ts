@@ -1,4 +1,4 @@
-// Atlas source: src/app/pixi/token-renderer/tokenDisplayName.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/pixi/token-renderer/tokenDisplayName.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import type { BaseToken, Character } from '../../../shims/atlasTypes';
 import { t } from '../../../shims/i18n';

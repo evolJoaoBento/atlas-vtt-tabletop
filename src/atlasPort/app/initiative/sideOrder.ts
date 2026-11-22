@@ -1,4 +1,4 @@
-// Atlas source: src/app/initiative/sideOrder.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/initiative/sideOrder.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * The order the sides of a fight act in within a round: the fight's own order, or the order of

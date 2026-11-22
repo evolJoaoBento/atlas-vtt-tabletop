@@ -1,4 +1,4 @@
-// Atlas source: src/app/grid/squareLattice.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/grid/squareLattice.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import type { GridState } from '../../shims/atlasTypes';
 import { EDGE_MARGIN, EPSILON } from './cellNumbering';

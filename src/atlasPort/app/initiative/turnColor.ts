@@ -1,4 +1,4 @@
-// Atlas source: src/app/initiative/turnColor.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/initiative/turnColor.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * The colour a combatant's turn flashes in, on the players' list and in the turn banner: its token's ring colour; null

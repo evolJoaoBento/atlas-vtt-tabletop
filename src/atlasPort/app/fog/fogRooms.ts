@@ -1,4 +1,4 @@
-// Atlas source: src/app/fog/fogRooms.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/fog/fogRooms.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Rooms from walls: the ground a level's walls enclose around a point, and every such room of a

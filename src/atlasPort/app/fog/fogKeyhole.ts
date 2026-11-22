@@ -1,4 +1,4 @@
-// Atlas source: src/app/fog/fogKeyhole.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/fog/fogKeyhole.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Ground with holes in it as one outline. Fog is filled by the nonzero rule, so an outline that

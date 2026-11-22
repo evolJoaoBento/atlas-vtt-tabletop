@@ -1,4 +1,4 @@
-// Atlas source: src/app/statblocks/values/valueCoercion.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/statblocks/values/valueCoercion.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Turns what someone typed into the value a field of its declared type stores.
@@ -18,6 +18,7 @@ import { parsePairText } from './pairValues';
 import { quoted } from './valueText';
 import { NUMBER_SUM, withReferencesAsOne } from './fillReferences';
 import { namesReference } from './references';
+import { writtenSide } from '../../tools/writtenAdvantage';
 
 /** `value: undefined` means the key is cleared. */
 export type CoercionResult =
@@ -40,6 +41,13 @@ function refused(raw: string, problem: string): CoercionResult {
 }
 
 function coerceNumber(text: string, input: string): CoercionResult {
+  // `+7 adv` is kept as written: a number rolled with the dice set's advantage or disadvantage rule
+  const written = writtenSide(text);
+  if (written.word !== '') {
+    const number = written.formula.trim();
+    const fits = number !== '' && writtenSide(number).word === '' && coerceNumber(number, number).ok;
+    return fits ? kept(text) : refused(input, `${quoted(text)} isn't a number.`);
+  }
   const value = parseNumberText(text);
   if (value !== null) return kept(value);
   // `10 + @dex` is kept as written: the card shows its total

@@ -110,6 +110,14 @@ export const ALLOWED_PACKAGES = [
  * file, so a newer Atlas that moved it is noticed at once.
  */
 export const PATCHES = [
+  // Atlas 0.19's `inSideOrder` (the order the GM dragged the sides into, `InitiativeState.sideOrder`). The floor's initiativeSideRules
+  // is 0.15's: 0.18 and 0.19 changed more of it (the side roll's timing) than the board needs, so only this function is added. Once
+  // the floor is 0.19 the sync fails on this patch's `find` (Atlas has it): drop it then.
+  {
+    file: 'gameSystems/initiativeSideRules.ts',
+    find: "  return rules.sides ?? defaultSides(rules.firstSide);\n}\n",
+    replace: "  return rules.sides ?? defaultSides(rules.firstSide);\n}\n\n/** `sides` with those `order` names first, in its order, and the rest after them in their own (Atlas 0.19). */\nexport function inSideOrder(sides: readonly SideRef[], order: readonly SideId[] | undefined): SideRef[] {\n  if (!order) return [...sides];\n  const place = (side: SideRef): number => {\n    const index = order.indexOf(side.id);\n    return index < 0 ? order.length : index;\n  };\n  return [...sides].sort((a, b) => place(a) - place(b));\n}\n",
+  },
   // Atlas 0.17 took the sound keys out of the experimental features and 0.18 added the Sound page key and the brush size keys (the floor, 0.15, has none).
   {
     file: 'keyboard/mapHotkeys.ts',
@@ -182,7 +190,7 @@ export const PATCHES = [
 // renders the options as that plain scrolling div, so they are gone.)
 
 /**
- * Atlas files the floor (0.15) lacks, copied from the newer Atlas (`--newer=`, default ../atlas-vtt-0.18-ref) in the same
+ * Atlas files the floor (0.15) lacks, copied from the newer Atlas (`--newer=`, default ../atlas-vtt-0.19-ref) in the same
  * layout, with what they import that the floor lacks too (what the floor has stays the floor's). Each copy's header names
  * the newer version. The fog tool's pure logic (snapping, cells, rooms, polygons, strokes) is here.
  */
@@ -215,7 +223,27 @@ export const NEWER_ENTRIES = [
   'react/components/dice/presetLook.ts',
   // The dice row (0.18): how a saved roll shows on its place (the body of its first die, with marks).
   'react/components/dice/presetFace.ts',
+  // Atlas 0.19: dice sets that offer advantage only where they have a rule for it (a Plain d20 for a collection without a system).
+  'gameSystems/builtInDiceSets.ts',
+  'gameSystems/diceSetResolution.ts',
+  'gameSystems/presets/daggerheart.ts',
+  'gameSystems/presets/oldSchoolEssentials.ts',
+  // Atlas 0.19: a side written after a value (`+7 adv`) is kept, summed and read by a reference as written.
+  'statblocks/values/valueRolls.ts',
+  'statblocks/values/valueCoercion.ts',
+  'statblocks/values/numberText.ts',
+  'statblocks/values/fillReferences.ts',
 ];
 
 /** Floor files the newer Atlas's version replaces (a superset: it only adds what the fog's room logic needs). */
-export const NEWER_OVERRIDES = ['lighting/polygonClip.ts'];
+export const NEWER_OVERRIDES = [
+  'lighting/polygonClip.ts',
+  'gameSystems/builtInDiceSets.ts',
+  'gameSystems/diceSetResolution.ts',
+  'gameSystems/presets/daggerheart.ts',
+  'gameSystems/presets/oldSchoolEssentials.ts',
+  'statblocks/values/valueRolls.ts',
+  'statblocks/values/valueCoercion.ts',
+  'statblocks/values/numberText.ts',
+  'statblocks/values/fillReferences.ts',
+];

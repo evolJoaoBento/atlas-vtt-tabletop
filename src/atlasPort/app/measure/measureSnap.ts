@@ -1,4 +1,4 @@
-// Atlas source: src/app/measure/measureSnap.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/measure/measureSnap.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Where a measurement's points snap. `grid` is the grid they snap to: null where the grid's Snap

@@ -1,4 +1,4 @@
-// Atlas source: src/app/initiative/banner/turnBanner.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/initiative/banner/turnBanner.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * What the turn banner says when the turn of a running fight moves on: whose turn it is (the

@@ -1,4 +1,4 @@
-// Atlas source: src/app/initiative/turnHolders.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/initiative/turnHolders.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /**
  * Who holds the turn of a running fight, as the map's marker, the turn banner, the GM's camera and
@@ -33,6 +33,12 @@ export function currentTurn(initiative: TurnState | undefined): CurrentTurn | nu
 export function turnKey(turn: CurrentTurn): string {
   const holder = turn.kind === 'combatant' ? `e:${turn.entry.id}` : `s:${[...turn.sides].sort().join(',')}`;
   return `${turn.round}|${holder}`;
+}
+
+/** The key of the turn now (`turnKey`), or null where nobody holds it. */
+export function currentTurnKey(initiative: TurnState | undefined): string | null {
+  const turn = currentTurn(initiative);
+  return turn ? turnKey(turn) : null;
 }
 
 /** The ids of the sides a running fight by sides knows, in acting order. */

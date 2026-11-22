@@ -1,4 +1,4 @@
-// Atlas source: src/app/measure/measureGrid.ts @ 0.18.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/measure/measureGrid.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 /** A grid as measurements read it: the cell a point lies in, a cell's outline, and a length in cells. */
 

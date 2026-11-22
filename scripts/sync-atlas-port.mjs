@@ -10,9 +10,9 @@ import { build } from 'esbuild';
 import { ALLOWED_PACKAGES, BOUNDARIES, NEWER_ENTRIES, NEWER_OVERRIDES, PATCHES, PORT_ENTRIES } from './atlasPortList.mjs';
 
 const args = process.argv.slice(2);
-// The newer Atlas (default ../atlas-vtt-0.18-ref) the NEWER_ENTRIES come from: files the floor lacks, copied with what they import that the floor lacks too.
+// The newer Atlas (default ../atlas-vtt-0.19-ref) the NEWER_ENTRIES come from: files the floor lacks, copied with what they import that the floor lacks too.
 const newerArg = args.find((arg) => arg.startsWith('--newer='));
-const newerRoot = resolve(newerArg ? newerArg.slice(8) : '../atlas-vtt-0.18-ref');
+const newerRoot = resolve(newerArg ? newerArg.slice(8) : '../atlas-vtt-0.19-ref');
 const dry = args.includes('--dry');
 const root = resolve(args.find((arg) => !arg.startsWith('--')) ?? '../atlas-vtt-0.15-ref');
 const newerApp = join(newerRoot, 'src/app');
