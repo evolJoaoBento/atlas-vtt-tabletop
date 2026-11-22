@@ -213,6 +213,8 @@ export const NEWER_ENTRIES = [
   // Saved rolls (0.18): the collection's `dicePresets` and `diceRow` as the dice tray reads, changes and writes them, and a roll's look.
   'react/components/dice/diceShelf.ts',
   'react/components/dice/presetLook.ts',
+  // The dice row (0.18): how a saved roll shows on its place (the body of its first die, with marks).
+  'react/components/dice/presetFace.ts',
 ];
 
 /** Floor files the newer Atlas's version replaces (a superset: it only adds what the fog's room logic needs). */

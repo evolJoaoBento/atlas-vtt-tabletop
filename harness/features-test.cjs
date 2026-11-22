@@ -133,7 +133,7 @@ feature('saved rolls', async ({ page, shot }) => {
   const diceButton = page.locator('.atlas-tabletop-extensions button[aria-label="Dice"]');
   const tray = page.locator('.atlas-tabletop-dice-picker');
   const panel = page.locator('.atlas-tabletop-dice-picker .atlas-dice-presets');
-  const foot = tray.locator('.atlas-dice-tray__foot-icon');
+  const foot = tray.locator('.atlas-dice-tray__foot-icon[aria-keyshortcuts="P"]');
   const names = () => panel.locator('.atlas-dice-presets__item .atlas-dice-presets__name').allTextContents();
   const settings = () => page.evaluate(() => JSON.parse(JSON.stringify(window.boardTest.savedSettings)));
   const open = async () => { if (!(await tray.isVisible())) { await diceButton.click(); await wait(300); } };
@@ -247,7 +247,7 @@ feature('saved rolls', async ({ page, shot }) => {
   await card('Rapier').locator('.atlas-dice-presets__more').click();
   await wait(200);
   const menuItems = await page.locator('.atlas-ctx-menu .atlas-ctx-item').allTextContents();
-  check('saved rolls: the ⋯ holds Edit and Delete', JSON.stringify(menuItems) === '["Edit","Delete"]', JSON.stringify(menuItems));
+  check("saved rolls: the ⋯ holds Edit, the dice row pin and Delete, in Atlas's order", JSON.stringify(menuItems) === '["Edit","Put in the dice row","Delete"]', JSON.stringify(menuItems));
   await shot('saved-rolls-menu');
   await page.locator('.atlas-ctx-menu .atlas-ctx-item', { hasText: 'Edit' }).click();
   await wait(250);
@@ -319,6 +319,238 @@ feature('saved rolls', async ({ page, shot }) => {
   await diceButton.click();
   await wait(300);
   check('saved rolls: back in a collection of Atlas 0.18 they return, the panel as it was left', await foot.isVisible() && await panel.isVisible());
+  await page.keyboard.press('Escape');
+});
+
+// ── Dice tray: the collection's editable dice row (Atlas 0.18) ────────────────────────────────────────────────────────
+feature('dice row', async ({ page, shot }) => {
+  const diceButton = page.locator('.atlas-tabletop-extensions button[aria-label="Dice"]');
+  const tray = page.locator('.atlas-tabletop-dice-picker');
+  const panel = tray.locator('.atlas-dice-presets');
+  const dice = () => tray.locator('.atlas-dice-tray__dice').first();
+  const captions = () => dice().locator('.atlas-dice-tray__die').evaluateAll((cells) => cells.map((cell) => (cell.querySelector('.atlas-dice-tray__caption')?.textContent) || (cell.querySelector('[data-die]')?.getAttribute('data-die')) || ''));
+  const row = () => page.evaluate(() => JSON.parse(JSON.stringify(window.boardTest.savedSettings.diceRow ?? null)));
+  const formula = () => tray.locator('.atlas-dice-tray__formula').textContent();
+  const edit = tray.locator('.atlas-dice-tray__foot-icon[aria-keyshortcuts="E"]');
+  const open = async () => { if (!(await tray.isVisible())) { await diceButton.click(); await wait(300); } };
+  const atlasSets = async (value) => {
+    await page.evaluate((next) => {
+      const { savedSettings, savedListeners } = window.boardTest;
+      if (next === undefined) delete savedSettings.diceRow; else savedSettings.diceRow = next;
+      for (const listener of [...savedListeners]) listener('c1');
+    }, value);
+    await wait(150);
+  };
+  const place = (kind, value) => (kind === 'die' ? { kind, sides: value } : { kind, id: value });
+  const same = async (expected) => JSON.stringify(await row()) === JSON.stringify(expected);
+  await open();
+  // No row of the collection's own: the seven standard dice, as Atlas shows them.
+  check('dice row: with no row of its own the tray shows the seven standard dice', JSON.stringify(await captions()) === '["d4","d6","d8","d10","d12","d20","d100"]' && (await row()) === null, JSON.stringify(await captions()));
+  check("dice row: the tray has Atlas's pencil at its foot, named in its words, with its key", await edit.isVisible() && (await edit.getAttribute('aria-label')) === 'Edit dice row' && (await edit.getAttribute('title')) === 'Edit dice row (E)');
+  // A row the GM made in Atlas: a saved roll, a d20, a d3 (the board has no body for it), a d6.
+  await atlasSets([place('preset', 'fire'), place('die', 20), place('die', 3), place('die', 6)]);
+  check("dice row: the collection's row shows its dice and saved rolls in its own order, a saved roll under its name", JSON.stringify(await captions()) === '["Fireball","d20","d3","d6"]', JSON.stringify(await captions()));
+  check('dice row: a saved roll stands on its place as its first die with marks', (await dice().locator('.atlas-preset-face__mark').allTextContents()).join('|').includes('2×') && (await dice().locator('.atlas-preset-face').count()) === 1, JSON.stringify(await dice().locator('.atlas-preset-face__mark').allTextContents()));
+  const cols = await dice().evaluate((el) => el.style.getPropertyValue('--atlas-tray-slots'));
+  check('dice row: the row is as many columns wide as it has places', cols === '4', cols);
+  await shot('dice-row-own');
+  // The number keys put a place in the tray: 2 is the d20.
+  await tray.locator('[data-die="d20"]').focus();
+  await page.keyboard.press('2');
+  check('dice row: the number key of a place puts it in the tray (2: the d20)', (await formula()) === '1d20', await formula());
+  await page.keyboard.press('4');
+  check('dice row: the fourth place is the d6', (await formula()) === '1d6 + 1d20', await formula());
+  // A die the board has no body for is kept, shown, and cannot be thrown here.
+  const d3 = tray.locator('[data-die="d3"]');
+  check('dice row: a d3 stays in the row, disabled, saying why', (await d3.getAttribute('aria-disabled')) === 'true' && /no d3/.test((await d3.getAttribute('title')) ?? ''), await d3.getAttribute('title'));
+  await d3.click({ force: true });
+  await page.keyboard.press('3');
+  check('dice row: the d3 puts nothing in the tray', (await formula()) === '1d6 + 1d20', await formula());
+  await tray.locator('.atlas-dice-tray__actions .btn', { hasText: 'Clear' }).click();
+  // A saved roll in the row is thrown at once; the tray steps aside.
+  const before = await page.evaluate(() => (window.boardTest.board.dice?.object3d.children.length ?? 0));
+  await tray.locator('[data-preset="fire"]').click();
+  await wait(400);
+  const thrown = await page.evaluate(() => ({ dice: (window.boardTest.board.dice?.object3d.children.length ?? 0), open: !document.querySelector('.atlas-tabletop-dice-picker').hidden }));
+  check('dice row: a saved roll in the row lays its three dice on the table and the tray steps aside', thrown.dice - before === 3 && !thrown.open, JSON.stringify(thrown));
+  await page.waitForFunction(() => document.querySelector('.atlas-tabletop-dice-prompt__throw'), null, { timeout: 5000 });
+  await page.locator('.atlas-tabletop-dice-prompt__throw').click();
+  await page.waitForFunction(() => window.boardTest.board.dice.busy, null, { timeout: 5000 });
+  await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
+  await wait(300);
+  await open();
+  // The edit mode: E, the pencil. Its places wiggle, a foot with Done and the way back to the standard dice.
+  await tray.locator('[data-die="d20"]').focus();
+  await page.keyboard.press('e');
+  await wait(200);
+  check("dice row: E switches the row's edit mode, in Atlas's markup", await tray.locator('.atlas-dice-tray__row-edit .atlas-dice-tray__dice--editing').isVisible() && (await edit.getAttribute('aria-pressed')) === 'true');
+  const foot = await tray.locator('.atlas-dice-tray__actions').evaluateAll((all) => all.filter((el) => !el.hidden).flatMap((el) => [...el.querySelectorAll('button')].filter((b) => !b.hidden).map((b) => b.getAttribute('aria-label'))));
+  check('dice row: while the row is edited the foot has Done and nothing else (no arrow back with the standard dice)', JSON.stringify(foot) === '["Done"]' || JSON.stringify(foot) === '["Standard dice","Done"]', JSON.stringify(foot));
+  const places = await tray.locator('.atlas-dice-tray__dice--editing .atlas-dice-tray__die').count();
+  check('dice row: the editor shows each place with its x and a + for one more', places === 5 && (await tray.locator('.atlas-dice-tray__remove').count()) === 4 && (await tray.locator('.atlas-dice-tray__add').count()) === 1, String(places));
+  check('dice row: each place names itself and its place', (await tray.locator('.atlas-dice-tray__dice--editing .atlas-dice-tray__face[role="img"]').first().getAttribute('aria-label')) === 'Fireball, place 1. Alt and an arrow key move it');
+  await shot('dice-row-editing');
+  // Take one out.
+  await tray.locator('.atlas-dice-tray__remove[aria-label="Take d3 out of the row"]').click();
+  await wait(200);
+  check("dice row: the x takes a place out, and the collection's row is written", await same([place('preset', 'fire'), place('die', 20), place('die', 6)]), JSON.stringify(await row()));
+  // Add a die by typing it.
+  const note = tray.locator('.atlas-dice-tray__row-note');
+  const typeDie = async (text) => {
+    const field = tray.locator('.atlas-dice-tray__add-field');
+    if (!(await field.count())) await tray.locator('.atlas-dice-tray__add').click({ force: true });
+    await field.fill(text);
+    await field.press('Enter');
+    await wait(150);
+  };
+  await typeDie('d6');
+  check("dice row: a die already in the row is refused in Atlas's words", (await note.textContent()) === 'd6 is already in the row' && (await row()).length === 3, await note.textContent());
+  await typeDie('banana');
+  check("dice row: what is no die is refused in Atlas's words", (await note.textContent()) === 'Type a die, such as d3', await note.textContent());
+  await typeDie('d1');
+  check("dice row: a die of one face is refused in Atlas's words", (await note.textContent()) === 'A die has 2 to 1,000 faces', await note.textContent());
+  await typeDie('d12');
+  check('dice row: a typed die joins the row at its end and is written', await same([place('preset', 'fire'), place('die', 20), place('die', 6), place('die', 12)]), JSON.stringify(await row()));
+  // Move one: drag the first place over the third.
+  const faces = tray.locator('.atlas-dice-tray__dice--editing .atlas-dice-tray__die');
+  const a = await faces.nth(0).boundingBox();
+  const c = await faces.nth(2).boundingBox();
+  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(a.x + a.width / 2 + 20, a.y + a.height / 2, { steps: 4 });
+  await page.mouse.move(c.x + c.width / 2, c.y + c.height / 2, { steps: 8 });
+  const held = await faces.nth(0).getAttribute('data-held');
+  await shot('dice-row-dragging');
+  await page.mouse.up();
+  await wait(200);
+  check('dice row: a drag holds the place while it moves', held !== null);
+  check('dice row: the drag writes the new order (the first place moved to the third)', await same([place('die', 20), place('die', 6), place('preset', 'fire'), place('die', 12)]), JSON.stringify(await row()));
+  // A tap on a place does not move it.
+  const tapped = await tray.locator('.atlas-dice-tray__dice--editing .atlas-dice-tray__die').nth(1).boundingBox();
+  await page.mouse.click(tapped.x + tapped.width / 2, tapped.y + tapped.height / 2);
+  await wait(100);
+  check('dice row: a tap is no drag', await same([place('die', 20), place('die', 6), place('preset', 'fire'), place('die', 12)]));
+  // The keyboard: Alt and an arrow key.
+  await tray.locator('.atlas-dice-tray__dice--editing .atlas-dice-tray__face[role="img"]').nth(0).focus();
+  await page.keyboard.press('Alt+ArrowRight');
+  await wait(150);
+  check('dice row: Alt and an arrow key move the focused place', await same([place('die', 6), place('die', 20), place('preset', 'fire'), place('die', 12)]), JSON.stringify(await row()));
+  const focused = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? null);
+  check('dice row: the moved place keeps the focus', (focused ?? '').startsWith('d20, place 2'), focused);
+  // What Atlas changes meanwhile is shown at once.
+  await atlasSets([place('die', 8), place('die', 20)]);
+  check('dice row: a row changed in Atlas shows at once, in the editor too', (await tray.locator('.atlas-dice-tray__dice--editing .atlas-dice-tray__die').count()) === 3, String(await tray.locator('.atlas-dice-tray__dice--editing .atlas-dice-tray__die').count()));
+  // Escape ends the edit first; the tray stays.
+  await page.keyboard.press('Escape');
+  await wait(150);
+  check('dice row: Escape ends the edit and the tray stays open', (await tray.locator('.atlas-dice-tray__dice--editing').count()) === 0 && await tray.isVisible() && JSON.stringify(await captions()) === '["d8","d20"]', JSON.stringify(await captions()));
+  // Done.
+  await edit.click();
+  await wait(100);
+  await tray.getByRole('button', { name: 'Done' }).click();
+  await wait(100);
+  check('dice row: Done ends the edit', (await tray.locator('.atlas-dice-tray__dice--editing').count()) === 0 && await edit.isVisible());
+  // A full row takes no more.
+  await atlasSets(Array.from({ length: 10 }, (_, index) => place('die', index + 2)));
+  await edit.click();
+  await wait(150);
+  check('dice row: a row of ten has no + and is eight columns wide at most', (await tray.locator('.atlas-dice-tray__add').count()) === 0 && (await tray.locator('.atlas-dice-tray__dice--editing').evaluate((el) => el.style.getPropertyValue('--atlas-tray-slots'))) === '8');
+  await shot('dice-row-full');
+  // The way back to the standard dice.
+  await tray.getByRole('button', { name: 'Standard dice' }).click();
+  await wait(200);
+  check("dice row: the arrow back removes the row of the collection's own: Atlas's standard dice return", (await row()) === null && (await page.evaluate(() => 'diceRow' in window.boardTest.savedSettings)) === false);
+  check('dice row: with the standard dice there is no arrow back', (await tray.getByRole('button', { name: 'Standard dice' }).count()) === 0 || !(await tray.getByRole('button', { name: 'Standard dice' }).isVisible()));
+  await tray.getByRole('button', { name: 'Done' }).click();
+  check('dice row: the seven standard dice are shown again', JSON.stringify(await captions()) === '["d4","d6","d8","d10","d12","d20","d100"]', JSON.stringify(await captions()));
+  // The pin of a saved roll.
+  await tray.locator('.atlas-dice-tray__foot-icon[aria-keyshortcuts="P"]').click();
+  await wait(250);
+  const card = (name) => panel.locator('.atlas-dice-presets__item', { hasText: name });
+  const choose = async (name, entry) => {
+    await card(name).hover();
+    await card(name).locator('.atlas-dice-presets__more').click();
+    await page.locator('.atlas-ctx-menu .atlas-ctx-item', { hasText: entry }).click();
+    await wait(250);
+  };
+  await choose('Stats', 'Put in the dice row');
+  const pinned = await row();
+  check("dice row: Pin puts the saved roll at the end of the row (the standard dice become the collection's own row)", pinned?.length === 8 && JSON.stringify(pinned.at(-1)) === JSON.stringify(place('preset', 'stats')), JSON.stringify(pinned));
+  check('dice row: the pinned roll stands in the tray under its name and its card carries a pin', (await captions()).at(-1) === 'Stats' && (await card('Stats').getAttribute('data-pinned')) !== null && (await card('Stats').locator('.atlas-dice-presets__pinned').count()) === 1, JSON.stringify(await captions()));
+  await shot('dice-row-pinned');
+  // A saved roll written as a formula is thrown at once too (the board's tray holds dice, not formulas).
+  const tableBefore = await page.evaluate(() => (window.boardTest.board.dice?.object3d.children.length ?? 0));
+  // The pointer moves over it first, so the press lands on it and not on the saved roll's card it left (a frame must pass).
+  await tray.locator('[data-preset="stats"]').hover();
+  await wait(150);
+  await tray.locator('[data-preset="stats"]').click();
+  await wait(400);
+  check('dice row: a formula roll in the row is thrown at once as well (4d6kh3: four dice)', (await page.evaluate(() => (window.boardTest.board.dice?.object3d.children.length ?? 0))) === 4, String(tableBefore));
+  await page.locator('.atlas-tabletop-dice-prompt__throw').click();
+  await page.waitForFunction(() => window.boardTest.board.dice.busy, null, { timeout: 5000 });
+  await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
+  await wait(300);
+  await open();
+  await card('Stats').hover();
+  await card('Stats').locator('.atlas-dice-presets__more').click();
+  const items = await page.locator('.atlas-ctx-menu .atlas-ctx-item').allTextContents();
+  check('dice row: a pinned roll offers to be taken out of the row', JSON.stringify(items) === '["Edit","Take out of the dice row","Delete"]', JSON.stringify(items));
+  await page.locator('.atlas-ctx-menu .atlas-ctx-item', { hasText: 'Take out of the dice row' }).click();
+  await wait(250);
+  check('dice row: Unpin takes it out of the row and the card loses its pin', (await row()).length === 7 && (await card('Stats').getAttribute('data-pinned')) === null && (await card('Stats').locator('.atlas-dice-presets__pinned').count()) === 0, JSON.stringify(await row()));
+  // A full row says so on the pin.
+  await atlasSets(Array.from({ length: 10 }, (_, index) => place('die', index + 2)));
+  await card('Stats').hover();
+  await card('Stats').locator('.atlas-dice-presets__more').click();
+  await wait(150);
+  const pin = page.locator('.atlas-ctx-menu .atlas-ctx-item', { hasText: 'Put in the dice row' });
+  check("dice row: with a full row the pin is disabled and says why, in Atlas's words", (await pin.getAttribute('aria-disabled')) === 'true' && (await pin.getAttribute('title')) === 'The dice row holds 10; take one out first', await pin.getAttribute('title'));
+  await pin.click({ force: true });
+  await wait(100);
+  check('dice row: a disabled pin writes nothing', (await row()).length === 10);
+  await page.keyboard.press('Escape');
+  // Removing a saved roll takes its place out of the row.
+  await atlasSets([place('preset', 'stats'), place('die', 6)]);
+  await choose('Stats', 'Delete');
+  check('dice row: deleting a pinned saved roll takes its place out of the row too', await same([place('die', 6)]), JSON.stringify(await row()));
+  // A write Atlas refuses is told, and the row stays.
+  await page.evaluate(() => { window.boardTest.savedState.failing = true; });
+  await edit.click();
+  await tray.locator('.atlas-dice-tray__remove').first().click();
+  await wait(200);
+  const warned = await page.evaluate(() => window.boardTest.savedState.warnings);
+  check('dice row: a write that fails says so and leaves the row', warned.includes('The saved rolls could not be saved.') && await same([place('die', 6)]) && (await tray.locator('.atlas-dice-tray__dice--editing .atlas-dice-tray__die').count()) >= 1, JSON.stringify(warned));
+  await page.evaluate(() => { window.boardTest.savedState.failing = false; });
+  // Closing the tray ends the edit.
+  await tray.locator('.atlas-dice-tray__dice--editing .atlas-dice-tray__face[role="img"]').first().focus();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await wait(150);
+  check('dice row: Escape ends the edit, and a second Escape closes the tray', await tray.isHidden());
+  await diceButton.click();
+  await wait(250);
+  check('dice row: the tray opens as the plain tray', (await tray.locator('.atlas-dice-tray__dice--editing').count()) === 0 && await tray.isVisible());
+  // Older Atlas, or a map in no collection: today's fixed row, no pencil.
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { window.boardTest.savedState.version = '0.17.2'; });
+  await diceButton.click();
+  await wait(300);
+  check("dice row: an Atlas older than 0.18 keeps today's fixed row and has no pencil", JSON.stringify(await captions()) === '["d4","d6","d8","d10","d12","d20","d100"]' && await edit.isHidden());
+  await tray.locator('[data-die="d6"]').focus();
+  await page.keyboard.press('e');
+  check('dice row: nor does E start an edit', (await tray.locator('.atlas-dice-tray__dice--editing').count()) === 0);
+  await page.keyboard.press('2');
+  check('dice row: the fixed row has no number keys, as today', (await formula()) === 'The tray is empty.', await formula());
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { window.boardTest.savedState.version = '0.18.0'; window.boardTest.savedState.collection = null; });
+  await diceButton.click();
+  await wait(300);
+  check('dice row: a map in no collection has the fixed row and no pencil', JSON.stringify(await captions()) === '["d4","d6","d8","d10","d12","d20","d100"]' && await edit.isHidden());
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { window.boardTest.savedState.collection = 'c1'; });
+  await diceButton.click();
+  await wait(300);
+  check("dice row: back in a collection of Atlas 0.18 the collection's row returns", await edit.isVisible() && JSON.stringify(await captions()) === '["d6"]', JSON.stringify(await captions()));
   await page.keyboard.press('Escape');
 });
 
@@ -1205,7 +1437,7 @@ feature('sheet pin', async ({ page, shot }) => {
   await wait(400);
   const pin = drawer.locator('.atlas-tabletop-sheet__pin');
   check('pin: the drawer has a Pin button, not pinned', (await pin.count()) === 1 && (await pin.getAttribute('aria-pressed')) === 'false' && (await pin.getAttribute('aria-label')) === 'Pin');
-  await pin.click();
+  await pin.click({ force: true });
   check('pin: clicking it pins the drawer', (await pin.getAttribute('aria-pressed')) === 'true' && (await pin.getAttribute('aria-label')) === 'Unpin' && (await drawer.getAttribute('class')).includes('is-pinned'));
   await settings.click();
   await wait(200);
@@ -1223,7 +1455,7 @@ feature('sheet pin', async ({ page, shot }) => {
   await page.locator('button[aria-label^="Lighting"]').click();
   check('pin: it stays when the lighting menu opens', await drawer.isVisible());
   await page.keyboard.press('Escape');
-  await pin.click();
+  await pin.click({ force: true });
   check('pin: clicking again unpins it', (await pin.getAttribute('aria-pressed')) === 'false' && !(await drawer.getAttribute('class')).includes('is-pinned'));
   await settings.click();
   check('pin: unpinned, it closes when Board settings opens', await drawer.isHidden());
@@ -1243,7 +1475,7 @@ feature('pin kept across reloads', async ({ page, shot }) => {
   await open();
   const pin = drawer.locator('.atlas-tabletop-sheet__pin');
   check('pin kept: a fresh board starts unpinned', (await pin.getAttribute('aria-pressed')) === 'false');
-  await pin.click();
+  await pin.click({ force: true });
   await page.reload();
   await page.waitForFunction(() => window.boardTest?.ready, null, { timeout: 30000 });
   await wait(1200);
@@ -1253,7 +1485,7 @@ feature('pin kept across reloads', async ({ page, shot }) => {
   await page.locator('button[aria-label="Board settings"]').first().click();
   check('pin kept: and it still stays under the settings panel', await drawer.isVisible());
   await page.locator('button[aria-label="Board settings"]').first().click();
-  await pin.click();
+  await pin.click({ force: true });
   await page.reload();
   await page.waitForFunction(() => window.boardTest?.ready, null, { timeout: 30000 });
   await wait(1200);

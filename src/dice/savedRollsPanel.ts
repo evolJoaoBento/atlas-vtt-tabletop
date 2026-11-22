@@ -2,7 +2,7 @@
  * The saved rolls beside the dice tray (Atlas 0.18's `DicePresetsPanel`, `PresetCards`), in Atlas's markup and classes: a
  * card that saves the tray's roll under a name, then one card per saved roll, a click throwing it, its ⋯ holding Edit and
  * Delete. They are the collection's (`dicePresets`), so the board and Atlas show and change the same rolls. Left to Atlas:
- * dressing a roll's dice (its editor), keeping a set of the Dice Lab (the flask) and pinning a roll in the tray's row.
+ * dressing a roll's dice (its editor) and keeping a set of the Dice Lab (the flask). The pin puts a roll in the tray's row (`diceRow.ts`).
  * Plain DOM; what a roll is, how it is saved and thrown is `savedRolls.ts`.
  */
 import { at } from '../atlasPort/atlasText';
@@ -12,6 +12,7 @@ import {
 import { presetText } from '../atlasPort/app/react/components/dice/presetLook';
 import type { MenuEntry, IconPainter } from '../board/atlasMenu';
 import { setSvg } from '../svg';
+import { pinEntry } from './diceRow';
 import { saveRoll, savedRollEdited, type SavedRoll, type SavedRollProblem } from './savedRolls';
 import type { DiceRules } from './rollRules';
 
@@ -44,6 +45,8 @@ const svg = (body: string): string => `<svg viewBox="0 0 24 24" fill="none" stro
 const PLUS_SVG = svg('<path d="M5 12h14"/><path d="M12 5v14"/>');
 const MORE_SVG = svg('<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>');
 export const BOOKMARK_SVG = svg('<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>');
+/** Lucide's `pin` (ISC): a saved roll that stands in the tray's row. */
+const PIN_SVG = svg('<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>');
 const CHECK_SVG = svg('<path d="M20 6 9 17l-5-5"/>');
 
 type Made<K extends keyof HTMLElementTagNameMap> = HTMLElementTagNameMap[K];
@@ -233,7 +236,16 @@ export class SavedRollsPanel {
     const text = presetText(preset as never) as string;
     roll.setAttribute('aria-label', at('diceRoll.presetRoll', { name: preset.name, formula: text }));
     roll.append(this.dice(preset));
-    roll.append(Object.assign(doc.win.createSpan(), { className: 'atlas-dice-presets__name', textContent: preset.name }));
+    const name = Object.assign(doc.win.createSpan(), { className: 'atlas-dice-presets__name', textContent: preset.name });
+    if (pinned) {
+      // Atlas's class is on the icon itself (it sizes it).
+      const holder = doc.win.createSpan();
+      setSvg(holder, PIN_SVG);
+      const mark = holder.firstElementChild;
+      mark?.setAttribute('class', 'atlas-dice-presets__pinned');
+      if (mark) name.append(mark);
+    }
+    roll.append(name);
     roll.append(Object.assign(doc.win.createSpan(), { className: 'atlas-dice-presets__formula', textContent: text }));
     roll.addEventListener('click', () => this.say(this.host.roll(preset)));
     const more = doc.win.createEl('button');
@@ -263,8 +275,16 @@ export class SavedRollsPanel {
       this.host.icon(span, name);
       return span;
     };
+    const shelf = this.host.shelf();
+    const pin = shelf ? pinEntry(shelf, preset.id) : null;
     return [
       { type: 'item', label: at('diceRoll.presetEditShort'), leading: icon('pencil'), onClick: () => this.edit(preset.id) },
+      // The row's pin: in the tray's row (Atlas's order: Edit, the row, Delete); a full row says so and takes no more.
+      ...(pin ? [{
+        type: 'item' as const, label: pin.label, leading: icon(pin.pinned ? 'pin-off' : 'pin'), disabled: pin.disabled,
+        ...(pin.description && { description: pin.description }),
+        onClick: () => { if (pin.change) this.write(pin.change); },
+      }] : []),
       {
         type: 'item', label: at('diceRoll.presetDelete'), leading: icon('trash-2'), destructive: true,
         onClick: () => {

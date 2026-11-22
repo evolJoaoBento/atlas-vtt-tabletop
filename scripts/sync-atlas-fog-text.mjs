@@ -13,7 +13,9 @@ const toolbarKeys = ['toolbar.fogTool', 'toolbar.fogEraser', 'toolbar.brush', 't
 const initiativeKeys = ['initiative.bannerTurn', 'initiative.bannerRound', 'initiative.combatStarted', 'initiative.combatEnded', 'initiative.side.players', 'initiative.side.opponents'];
 const tokenKeys = ['token.unknownCreature'];
 // The dice tray's saved rolls (diceRoll.ts): the panel's words, as the board's panel shows them.
-const diceKeys = ['diceRoll.presetsTitle', 'diceRoll.presetEdit', 'diceRoll.presetEditShort', 'diceRoll.presetActions', 'diceRoll.presetRoll', 'diceRoll.presetDelete', 'diceRoll.presetName', 'diceRoll.presetFormula', 'diceRoll.presetSave', 'diceRoll.presetNeedsName', 'diceRoll.presetNeedsFormula', 'diceRoll.presetsSaveFailed', 'diceRoll.rowDone'];
+const diceKeys = ['diceRoll.presetsTitle', 'diceRoll.presetEdit', 'diceRoll.presetEditShort', 'diceRoll.presetActions', 'diceRoll.presetRoll', 'diceRoll.presetDelete', 'diceRoll.presetName', 'diceRoll.presetFormula', 'diceRoll.presetSave', 'diceRoll.presetNeedsName', 'diceRoll.presetNeedsFormula', 'diceRoll.presetsSaveFailed', 'diceRoll.rowDone',
+  'diceRoll.die', 'diceRoll.presetRollsAtOnce', 'diceRoll.presetPin', 'diceRoll.presetUnpin', 'diceRoll.presetRowFull', 'diceRoll.rowTitle', 'diceRoll.rowStandard', 'diceRoll.rowPlace', 'diceRoll.rowRemove',
+  'diceRoll.rowAddDie', 'diceRoll.rowAddDieCaption', 'diceRoll.rowNotADie', 'diceRoll.rowFaces', 'diceRoll.rowPresent', 'diceRoll.rowEdit'];
 const out = {};
 const keys = new Set();
 for (const lang of ['en', 'ru', 'zh']) {

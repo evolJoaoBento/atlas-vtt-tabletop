@@ -78,8 +78,11 @@ export type SavedRollPlan = { request: RollRequest; rules: DiceRules } | { probl
 function missingDie(look: NonNullable<SavedRoll['look']>): string | null {
   const known: readonly string[] = DIE_TYPES;
   const missing = look.dice.find((die) => !known.includes(`d${die.sides}`));
-  return missing ? `There is no d${missing.sides} to throw here: use d4, d6, d8, d10, d12, d20 or d100.` : null;
+  return missing ? noDieText(missing.sides) : null;
 }
+
+/** Why a die of `sides` faces cannot be thrown on the board (it has the standard bodies only). */
+export const noDieText = (sides: number): string => `There is no d${sides} to throw here: use d4, d6, d8, d10, d12, d20 or d100.`;
 
 /**
  * How a saved roll is thrown (Atlas's `useSavedRolls.roll`): a formula as written, by the collection's rules; designed dice

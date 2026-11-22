@@ -23,6 +23,8 @@ export type MenuEntry =
     onClick: () => void;
     checked?: boolean;
     disabled?: boolean;
+    /** Why it is as it is (Atlas's tooltip on the row), e.g. why it is disabled. */
+    description?: string;
     destructive?: boolean;
     /** Drawn before the label, e.g. a condition's badge. */
     leading?: (doc: Document) => HTMLElement;
@@ -170,6 +172,7 @@ export class AtlasMenu {
         row.setAttribute('role', entry.checked !== undefined ? 'menuitemcheckbox' : 'menuitem');
         if (entry.checked !== undefined) row.setAttribute('aria-checked', String(entry.checked));
         if (entry.destructive) row.classList.add('atlas-ctx-item--destructive');
+        if (entry.description) row.title = entry.description;
         if (entry.disabled) {
           row.setAttribute('data-disabled', '');
           row.setAttribute('aria-disabled', 'true');
