@@ -201,26 +201,23 @@ test('Atlas 0.9: a Fantasy Statblocks creature\'s own modifier counts before the
   assert.equal(statblockModifier({ modifier: 2, stats: [10, 18] }, collectionInitiativeRules({ systemPresetId: 'builtin:dnd5e' })), 2);
 });
 
-test('the turn announcement names the round and whose turn it is, and changes only when the turn does', async () => {
+test('the turn announcement changes only when the round or whose turn it is does', async () => {
   const { turnAnnouncement, currentEntries, delayedTokens } = await import('../src/board/initiative');
   assert.equal(turnAnnouncement(fight()), null, 'no fight, no banner');
   const started = applyInitiative(fight(), { type: 'start', rules: DEFAULT }, () => 0.5);
   const first = turnAnnouncement(started)!;
-  assert.match(first.text, /^Round 1 · /);
   assert.equal(currentEntries(started).length, 1);
   const again = turnAnnouncement(started)!;
   assert.equal(again.key, first.key, 'the same turn is the same key');
   const next = applyInitiative(started, { type: 'next' }, () => 0.5);
   assert.notEqual(turnAnnouncement(next)!.key, first.key);
-  assert.ok(turnAnnouncement(next)!.text.includes(currentEntries(next)[0]!.name));
   // A round that wraps changes the key even when one combatant stands alone.
   const solo = fight({ entries: [entry('a', 0)], isActive: true, round: 1, currentIndex: 0 });
   const soloNext = { ...solo, round: 2 };
   assert.notEqual(turnAnnouncement(solo)!.key, turnAnnouncement(soloNext)!.key);
-  assert.match(turnAnnouncement(soloNext)!.text, /^Round 2 /);
-  // Two combatants sharing a turn read as one banner.
+  // Two combatants sharing a turn are one key.
   const shared = fight({ entries: [entry('a', 0, { isActive: true }), entry('b', 1, { isActive: true })], isActive: true, round: 1 });
-  assert.match(turnAnnouncement(shared)!.text, /a & b/);
+  assert.equal(turnAnnouncement(shared)!.key, '1:a,b');
   // Delayed combatants' tokens are listed only while a fight runs.
   const held = fight({ entries: [entry('a', 0, { delayed: true }), entry('b', 1)], isActive: true });
   assert.deepEqual(delayedTokens(held), ['t-a']);
@@ -246,7 +243,7 @@ test('Atlas 0.18: entries without a token (party members, enemies) are kept, so 
   // The current one has no token: nothing is highlighted, the announcement names the party member.
   assert.deepEqual(currentEntries(state).map((one) => one.id), ['p']);
   assert.deepEqual(currentTokenIds(state), []);
-  assert.match(turnAnnouncement(state)!.text, /^Round 3 · Mira$/);
+  assert.equal(turnAnnouncement(state)!.key, '3:p');
   // Without a marked entry, currentIndex indexes the whole list (the party member is the second).
   const unmarked = readInitiative({ ...raw, entries: raw.entries.map((one) => ({ ...one, isActive: false })) });
   assert.deepEqual(currentEntries(unmarked).map((one) => one.id), ['p']);

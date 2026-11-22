@@ -48,6 +48,7 @@ const MEMBERS = [
   ['getDragDistance', 'atlasBridge.ts (settings service)'],
   ['setDragDistance', 'atlasBridge.ts (settings service)'],
   ['getDiceVolume', 'atlasBridge.ts (settings service)'],
+  ['initiativeTurnOptions', 'turnBanner.ts (settings service: the Turn banner switch; absent = on)'],
   // The fog tool (tokenWriter.ts, atlasBridge.ts): Atlas 0.15 has addFogOperation and clearFog; the rest is 0.17-0.18's (optional).
   ['insertMapObjects', 'tokenWriter.ts (store action: paste)'],
   ['duplicateMapObjects', 'tokenWriter.ts (store action: duplicate)'],

@@ -54,6 +54,7 @@ import { SpellAskModal } from '../spellAskModal';
 import { conditionChange, conditionStep, resetChange, type ConditionFields } from './tokenEdits';
 import { currentTokenIds, delayedTokens, emptyInitiative, ownModifier, readInitiative, statblockModifier, turnAnnouncement, type InitiativeAction, type InitiativeState } from './initiative';
 import { InitiativePanel, type InitiativePanelHost } from './initiativePanel';
+import { bannerStateOf, TurnAnnouncer, turnBannerEnabled, type TurnBannerState } from './turnBanner';
 import { wholeWall, isWindow, mirroredDoor, rotatedDoor, windowSpan, WINDOW_STEP, type DoorFlip } from './walls';
 import { extrasOf, readLightHeight, readWallExtra, type RecordExtras, type WallExtraChange } from './recordExtras';
 import { planExtrasMove } from './extrasMigration';
@@ -2360,16 +2361,28 @@ export class BoardView extends ItemView {
     const fight = this.liveInitiative();
     this.board?.setActiveTokens(currentTokenIds(fight));
     this.board?.setDelayedTokens(delayedTokens(fight));
-    // The turn passing flashes a banner; opening the board in the middle of a fight does not.
+    // Atlas's turn banner: the turn passing, a fight's start and end (opening the board in the middle of a fight says nothing).
     const turn = turnAnnouncement(fight);
-    if (turn && this.lastTurn !== null && this.lastTurn !== turn.key) this.board?.flashTurn(turn.text);
-    this.lastTurn = turn?.key ?? null;
+    this.board?.showTurnBanner(this.turnAnnouncer.look(this.turnBannerState(), turnBannerEnabled(new AtlasBridge(this.app).settings())), (path) => this.portraitUrl(path));
     // The horn goes through the board's own watcher, which also hears the file's tracker, so one turn sounds once.
     this.board?.hearTurn(turn?.key ?? null, currentTokenIds(fight));
   }
 
-  /** The turn last announced, to flash the banner only when it changes. */
-  private lastTurn: string | null = null;
+  /** What says when the turn banner shows (Atlas's `TurnWatch` and `FightWatch`). */
+  private readonly turnAnnouncer = new TurnAnnouncer();
+
+  /** The fight and tokens the banner reads: Atlas's store while it holds this map, else the map file's. */
+  private turnBannerState(): TurnBannerState {
+    const state = this.watched?.view.atlasStore.getState();
+    if (state && state.mapPath === this.path) return state as unknown as TurnBannerState;
+    return bannerStateOf(this.path ?? '', this.map?.initiative ?? null, this.map?.tokens ?? []);
+  }
+
+  /** The address of a portrait by its vault path; none for a path the vault lacks. */
+  private portraitUrl(path: string): string | null {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    return file instanceof TFile ? this.app.vault.getResourcePath(file) : null;
+  }
 
   private liveInitiative(): InitiativeState {
     const state = this.watched?.view.atlasStore.getState();
@@ -2458,10 +2471,7 @@ export class BoardView extends ItemView {
       },
       tokenSettings: () => this.map?.tokenSettings ?? { showNameplates: false, showInstanceBadges: true, hiddenResources: [] },
       definitions: () => this.rules.definitions,
-      imageUrl: (path) => {
-        const file = this.app.vault.getAbstractFileByPath(path);
-        return file instanceof TFile ? this.app.vault.getResourcePath(file) : '';
-      },
+      imageUrl: (path) => this.portraitUrl(path) ?? '',
       icon: (element, name) => setIcon(element, name),
       roll: (entryId) => { void this.rollInitiative(entryId); },
       act: (action) => this.initiativeAct(action),

@@ -387,20 +387,77 @@ feature('mini sounds in a group', async ({ page, shot }) => {
   await shot('mini-sounds-group');
 });
 
-// ── Item 27: the turn banner and the delayed marker ─────────────────────────────────────────────────────────────
+// ── Atlas 0.18's turn banner (initiative/banner) over the toolbar, and item 27's delayed marker ─────────────────────────
 feature('turn banner and delayed marker', async ({ page, shot }) => {
-  await page.evaluate(() => window.boardTest.board.flashTurn('Round 2 · Goblin'));
-  await wait(400);
-  const banner = page.locator('.atlas-tabletop-turn-banner');
-  check('27 banner shows the words', (await banner.count()) === 1 && (await banner.textContent()) === 'Round 2 · Goblin');
-  const box = await banner.boundingBox();
+  /** The tracker as the harness's map holds it: `active` is the entry whose turn it is (none: no fight). */
+  const fightAt = (active, round = 1, running = true) => page.evaluate(([active, round, running]) => {
+    const { board, announce } = window.boardTest;
+    const init = board.map.initiative;
+    init.entries.forEach((entry) => { entry.isActive = entry.id === active; });
+    init.isActive = running; init.round = round; init.currentIndex = init.entries.findIndex((entry) => entry.id === active);
+    announce();
+  }, [active, round, running]);
+  const banner = page.locator('.atlas-turn-banner');
+  const words = async () => ({ kind: await page.locator('.atlas-turn-banner--fight-start, .atlas-turn-banner--fight-end').count(), eyebrow: await page.locator('.atlas-turn-banner__eyebrow').allTextContents(), title: (await page.locator('.atlas-turn-banner__title, .atlas-fight-banner__title').allTextContents()) });
+  await fightAt('none', 0, false);
+  await wait(300);
+  check('27 no banner before anything happens', (await banner.count()) === 0);
+
+  // A fight starts: it says so, then names its first turn with the round.
+  await fightAt('e-hero', 1);
+  await wait(500);
+  const start = await words();
+  check('27 a fight starting says "Combat has started" first (Atlas 0.18)', start.kind === 1 && start.title.join() === 'Combat has started', JSON.stringify(start));
+  await page.waitForSelector('.atlas-turn-banner__title', { timeout: 6000 });
+  const first = await words();
+  check('27 then the first turn: the round above the name, with its portrait', first.eyebrow.join() === 'Round 1' && first.title.join() === 'Hero' && (await page.locator('.atlas-turn-banner .atlas-token-portrait img').count()) === 1, JSON.stringify(first));
+  const box = await page.locator('.atlas-turn-banner').boundingBox();
+  const bar = await page.locator('.atlas-tabletop-toolbar-row .atlas-tabletop-toolbar').boundingBox();
   const view = page.viewportSize();
-  check('27 banner sits inside the board, centred high', box && box.x >= 0 && box.x + box.width <= view.width && Math.abs(box.x + box.width / 2 - view.width / 2) < 4 && box.y < view.height / 3, JSON.stringify(box));
+  check('27 the banner stands centred just above the toolbar', box && bar && box.y + box.height <= bar.y && bar.y - (box.y + box.height) < 60 && Math.abs(box.x + box.width / 2 - view.width / 2) < 6, JSON.stringify({ box, bar }));
+  const flash = await page.evaluate(() => { const el = document.querySelector('.atlas-turn-banner'); return { before: getComputedStyle(el, '::before').animationName, shape: getComputedStyle(el).borderRadius }; });
+  check('27 the capsule flashes its border as it appears', flash.before === 'atlas-turn-banner-flash' && parseFloat(flash.shape) > 100, JSON.stringify(flash));
   await shot('turn-banner');
-  await page.evaluate(() => window.boardTest.board.flashTurn('Round 2 · Orc'));
-  check('27 a second turn replaces the banner', (await banner.count()) === 1 && (await banner.textContent()) === 'Round 2 · Orc');
-  await wait(2800);
-  check('27 the banner goes by itself', (await banner.count()) === 0);
+
+  // The next turn inside the round says "Turn", and replaces the banner at once.
+  await fightAt('e-gob', 1);
+  await wait(300);
+  const second = await words();
+  check('27 a turn inside the round reads "Turn" and the name, replacing the banner', second.eyebrow.join() === 'Turn' && second.title.join() === 'Goblin' && (await banner.count()) === 1, JSON.stringify(second));
+  await wait(2600);
+  check('27 the banner goes by itself after its time', (await banner.count()) === 0);
+
+  // A hidden combatant's turn is the GM's to see; a new round says the round.
+  await fightAt('e-orc', 2);
+  await wait(300);
+  const hidden = await words();
+  check('27 the GM banner names the hidden orc, in a new round', hidden.eyebrow.join() === 'Round 2' && hidden.title.join() === 'Orc', JSON.stringify(hidden));
+  await wait(2600);
+
+  // Atlas's Turn banner switch off: turns pass silently.
+  await page.evaluate(() => { window.boardTest.bannerSwitch.on = false; });
+  await fightAt('e-hero', 2);
+  await wait(400);
+  check('27 with the setting off no banner shows', (await banner.count()) === 0);
+  await page.evaluate(() => { window.boardTest.bannerSwitch.on = true; });
+  await fightAt('e-gob', 2);
+  await wait(300);
+  check('27 switched on again it names the turn', (await words()).title.join() === 'Goblin');
+  await wait(2600);
+
+  // The fight ends: its own banner stands its time.
+  await fightAt('none', 2, false);
+  await wait(500);
+  const end = await words();
+  check('27 a fight ending says "Combat has ended"', end.kind === 1 && end.title.join() === 'Combat has ended', JSON.stringify(end));
+  await shot('turn-banner-fight-end');
+  await wait(2600);
+  check('27 and goes by itself', (await banner.count()) === 0);
+  await fightAt('e-hero', 1);
+  await wait(600);
+  await shot('turn-banner-fight-start');
+  await fightAt('none', 1, false);
+  await wait(300);
 
   const id = await page.evaluate(() => [...window.boardTest.board.tokens.keys()][0]);
   await page.evaluate((id) => window.boardTest.board.setDelayedTokens([id]), id);
@@ -583,9 +640,9 @@ feature('light theme', async ({ page, shot }) => {
   await shot('light-group-bar');
   await page.keyboard.press('Escape');
   // The turn banner.
-  await page.evaluate(() => window.boardTest.board.flashTurn('Round 3 · Goblin'));
+  await page.evaluate(() => window.boardTest.board.showTurnBanner({ show: [{ key: 'k', round: 3, title: 'Goblin', portrait: null }] }, () => null));
   await wait(300);
-  needs('turn banner', await contrast('.atlas-tabletop-turn-banner'));
+  needs('turn banner', await contrast('.atlas-turn-banner__title'));
   await shot('light-turn-banner');
 });
 

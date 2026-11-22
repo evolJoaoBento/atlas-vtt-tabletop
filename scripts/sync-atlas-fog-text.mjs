@@ -9,6 +9,9 @@ function load(lang, file) {
   return new Function(`${src}; return ${name};`)();
 }
 const toolbarKeys = ['toolbar.fogTool', 'toolbar.fogEraser', 'toolbar.brush', 'toolbar.lasso', 'toolbar.rectangle', 'toolbar.snap', 'toolbar.constrain', 'toolbar.gmView', 'toolbar.sessionView', 'toolbar.peek'];
+// The turn banner's words (initiative.ts) and the placeholder name it falls back on (token.ts).
+const initiativeKeys = ['initiative.bannerTurn', 'initiative.bannerRound', 'initiative.combatStarted', 'initiative.combatEnded', 'initiative.side.players', 'initiative.side.opponents'];
+const tokenKeys = ['token.unknownCreature'];
 const out = {};
 const keys = new Set();
 for (const lang of ['en', 'ru', 'zh']) {
@@ -16,9 +19,12 @@ for (const lang of ['en', 'ru', 'zh']) {
   out[lang] = {};
   for (const [k, v] of Object.entries(fog)) { out[lang][k] = v; keys.add(k); }
   for (const k of toolbarKeys) if (toolbar[k] !== undefined) { out[lang][k] = toolbar[k]; keys.add(k); }
+  const initiative = load(lang, 'initiative'); const token = load(lang, 'token');
+  for (const k of initiativeKeys) if (initiative[k] !== undefined) { out[lang][k] = initiative[k]; keys.add(k); }
+  for (const k of tokenKeys) if (token[k] !== undefined) { out[lang][k] = token[k]; keys.add(k); }
 }
-const body = `// Generated from Atlas 0.18's src/app/i18n/locales/{en,ru,zh}/{fog,toolbar}.ts (AGPL-3.0): the fog tool's bars and notices, and the
-// toolbar words they share. The synced snapshot (the floor, 0.15) lacks them; a synced text of the same key wins (atlasText.ts).
+const body = `// Generated from Atlas 0.18's src/app/i18n/locales/{en,ru,zh}/{fog,toolbar,initiative,token}.ts (AGPL-3.0): the fog tool's bars and notices, the
+// toolbar words they share, and the turn banner's words. The synced snapshot (the floor, 0.15) lacks them; a synced text of the same key wins (atlasText.ts).
 import type { AtlasMessage } from './atlasText';
 
 export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, AtlasMessage>>>> = ${JSON.stringify(out, null, 2)};

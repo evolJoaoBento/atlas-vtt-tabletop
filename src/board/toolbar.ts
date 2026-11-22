@@ -300,6 +300,8 @@ export function readWallThickness(text: string): number | null {
 
 export class BoardToolbar {
   private readonly row: HTMLElement;
+  /** Where Atlas's turn banner stands: centred above the toolbar (its `atlas-bottom-toolbar-row__above`). */
+  readonly turnBannerHost: HTMLElement;
   private readonly bar: HTMLElement;
   /** Atlas 0.17's keyboard shortcuts bar, in the board's bottom-right corner (hidden until `setHelp`). */
   private readonly helpBar: HTMLElement;
@@ -520,6 +522,8 @@ export class BoardToolbar {
 
     // Atlas's own class names under a root of Tabletop's: its look is copied in styles.css, without needing its styles.
     this.row = el('div', 'atlas-tabletop-toolbar-row atlas-tabletop-atlas', container);
+    this.turnBannerHost = el('div', 'atlas-bottom-toolbar-row__above', this.row);
+    this.turnBannerHost.setAttribute('aria-live', 'polite');
     // The main toolbar and, as in Atlas 0.17's bottom row, the bars beside it (the keyboard shortcuts bar at its end).
     const line = el('div', 'atlas-tabletop-bar-line', this.row);
     const bar = el('div', 'atlas-vtt-toolbar atlas-main-toolbar atlas-tabletop-toolbar', line);

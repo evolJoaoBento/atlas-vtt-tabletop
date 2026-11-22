@@ -39,6 +39,8 @@ export interface AtlasSettingsService {
   getGmFogOpacity?(): unknown;
   setGmFogOpacity?(opacity: number): void;
   setDragDistance?(choice: DragDistance): void;
+  /** What a turn change does (Atlas 0.8 on): the turn banner is on unless `banner` is false. */
+  initiativeTurnOptions?(): { banner?: boolean; movesOnTurn?: boolean };
   getDiceVolume?(): unknown;
   onChange?(listener: () => void): () => void;
   [member: string]: unknown;

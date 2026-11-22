@@ -206,6 +206,10 @@ export const NEWER_ENTRIES = [
   'clipboard/mapClipboard.ts',
   'clipboard/mapObjectContent.ts',
   'clipboard/mapObjectPlacement.ts',
+  // The turn banner (0.18 adds the fight's start and end, the players' hidden turn holders and the combatant's colour).
+  'initiative/banner/turnBanner.ts',
+  'initiative/banner/fightWatch.ts',
+  'initiative/banner/turnBannerElement.ts',
 ];
 
 /** Floor files the newer Atlas's version replaces (a superset: it only adds what the fog's room logic needs). */

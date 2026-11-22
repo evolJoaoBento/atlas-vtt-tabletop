@@ -107,6 +107,8 @@ import { wireDiceSounds } from '../sound/diceSounds';
 import { boardHeard } from '../sound/boardHeard';
 import { doorChanges, RecentDrops, remoteMoves, sceneKey } from '../sound/miniSounds';
 import { currentTokenIds, turnAnnouncement } from './initiative';
+import { TurnBannerDisplay, type PortraitSource } from '../atlasPort/app/initiative/banner/turnBannerElement';
+import type { TurnBannerCommand } from './turnBanner';
 import { BoardChanges } from '../sound/boardChanges';
 import { conditionSound } from '../sound/conditionSounds';
 import { staggerOffsets } from '../sound/thinning';
@@ -546,9 +548,6 @@ const PLAIN_DOOR = 0x6e4a2c;
 const VIDEO_FRAME_MS = 33;
 /** The colour a sea of lava lights the board with from below (set from its tint). */
 const LAVA_UNDERLIGHT = new THREE.Color();
-
-/** How long the turn banner stays before it is gone, in milliseconds (it fades out over most of it). */
-const TURN_BANNER_MS = 2400;
 
 /** Room left around the map when it is framed, for the tilt's perspective. */
 const FRAME_MARGIN = 1.1;
@@ -7411,17 +7410,22 @@ export class Board {
     this.wake();
   }
 
-  /** Flashes a banner over the board for the turn that began: it fades by itself. */
-  flashTurn(text: string): void {
-    const doc = this.container.ownerDocument;
-    this.container.querySelector('.atlas-tabletop-turn-banner')?.remove();
-    const banner = doc.win.createDiv();
-    banner.className = 'atlas-tabletop-turn-banner';
-    banner.setAttribute('role', 'status');
-    banner.textContent = text;
-    this.container.appendChild(banner);
-    (doc.defaultView ?? window).setTimeout(() => banner.remove(), TURN_BANNER_MS);
+  /** Atlas's turn banner, standing above the toolbar: made on first use (the toolbar holds its place). */
+  private turnBanners: TurnBannerDisplay | null = null;
+
+  /** Does what the turn announcer says: shows Atlas's banners (a portrait by `portrait`), or lets a turn's banner leave. */
+  showTurnBanner(command: TurnBannerCommand, portrait: PortraitSource): void {
+    if (!command || this.disposed) return;
+    if ('hideTurn' in command) {
+      if (this.turnBanners?.showing && !this.turnBanners.showsFightEnd) this.turnBanners.hide();
+      return;
+    }
+    this.turnBanners ??= new TurnBannerDisplay(this.toolbar.turnBannerHost, (path) => this.turnPortrait?.(path) ?? null);
+    this.turnPortrait = portrait;
+    this.turnBanners.show(...command.show);
   }
+
+  private turnPortrait: PortraitSource | null = null;
 
   /** Rings the tokens of the combatants whose turn it is; none takes the rings away. */
   setActiveTokens(ids: readonly string[]): void {
@@ -7986,6 +7990,8 @@ export class Board {
   }
 
   dispose(): void {
+    this.turnBanners?.destroy();
+    this.turnBanners = null;
     this.loadingOverlay.dispose();
     this.cinematicDriver = null;
     this.arLatest = null;

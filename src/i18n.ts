@@ -81,7 +81,6 @@ const EN = {
   'group.heal': 'Heal all',
   'group.amount': 'HP amount',
   'group.clear': 'Clear selection',
-  'turn.banner': 'Round {round} · {names}',
   'open3d': 'Open in 3D',
   'atlasTools.needsAtlas': 'needs Atlas',
   'parity.newerAtlas': "Atlas {installed} is newer than the version these tools were checked against ({checked}): some of Atlas's newest tools may be missing on the board.",

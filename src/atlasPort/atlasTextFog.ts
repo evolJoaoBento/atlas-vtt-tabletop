@@ -1,5 +1,5 @@
-// Generated from Atlas 0.18's src/app/i18n/locales/{en,ru,zh}/{fog,toolbar}.ts (AGPL-3.0): the fog tool's bars and notices, and the
-// toolbar words they share. The synced snapshot (the floor, 0.15) lacks them; a synced text of the same key wins (atlasText.ts).
+// Generated from Atlas 0.18's src/app/i18n/locales/{en,ru,zh}/{fog,toolbar,initiative,token}.ts (AGPL-3.0): the fog tool's bars and notices, the
+// toolbar words they share, and the turn banner's words. The synced snapshot (the floor, 0.15) lacks them; a synced text of the same key wins (atlasText.ts).
 import type { AtlasMessage } from './atlasText';
 
 export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, AtlasMessage>>>> = {
@@ -56,7 +56,14 @@ export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, Atl
     "toolbar.constrain": "Constrain",
     "toolbar.gmView": "GM view ({key})",
     "toolbar.sessionView": "Session view ({key})",
-    "toolbar.peek": "Hold to see what the players see"
+    "toolbar.peek": "Hold to see what the players see",
+    "initiative.bannerTurn": "Turn",
+    "initiative.bannerRound": "Round {round}",
+    "initiative.combatStarted": "Combat has started",
+    "initiative.combatEnded": "Combat has ended",
+    "initiative.side.players": "Players",
+    "initiative.side.opponents": "Opponents",
+    "token.unknownCreature": "Unknown Creature"
   },
   "ru": {
     "fog.cellCount": {
@@ -115,7 +122,14 @@ export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, Atl
     "toolbar.constrain": "Ограничить",
     "toolbar.gmView": "Вид мастера ({key})",
     "toolbar.sessionView": "Вид сессии ({key})",
-    "toolbar.peek": "Удерживайте, чтобы увидеть то, что видят игроки"
+    "toolbar.peek": "Удерживайте, чтобы увидеть то, что видят игроки",
+    "initiative.bannerTurn": "Ход",
+    "initiative.bannerRound": "Раунд {round}",
+    "initiative.combatStarted": "Бой начался",
+    "initiative.combatEnded": "Бой окончен",
+    "initiative.side.players": "Игроки",
+    "initiative.side.opponents": "Противники",
+    "token.unknownCreature": "Неизвестное существо"
   },
   "zh": {
     "fog.cellCount": {
@@ -168,7 +182,14 @@ export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, Atl
     "toolbar.constrain": "约束",
     "toolbar.gmView": "GM 视图（{key}）",
     "toolbar.sessionView": "场面视图（{key}）",
-    "toolbar.peek": "按住查看玩家看到的画面"
+    "toolbar.peek": "按住查看玩家看到的画面",
+    "initiative.bannerTurn": "回合",
+    "initiative.bannerRound": "第 {round} 轮",
+    "initiative.combatStarted": "战斗开始",
+    "initiative.combatEnded": "战斗结束",
+    "initiative.side.players": "玩家",
+    "initiative.side.opponents": "对手",
+    "token.unknownCreature": "未知生物"
   }
 };
 
@@ -210,6 +231,13 @@ export const ATLAS_FOG_TEXT_KEYS = [
   "fog.roomsAreHidden",
   "fog.roomsHidden",
   "fog.tools",
+  "initiative.bannerRound",
+  "initiative.bannerTurn",
+  "initiative.combatEnded",
+  "initiative.combatStarted",
+  "initiative.side.opponents",
+  "initiative.side.players",
+  "token.unknownCreature",
   "toolbar.brush",
   "toolbar.constrain",
   "toolbar.fogEraser",
