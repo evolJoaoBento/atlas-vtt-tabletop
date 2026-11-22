@@ -100,7 +100,7 @@ import type { ToolbarCommandHost } from '../palette/tabletopCommands';
 import { BoardToolbar, type AtlasToolButton, type CinemaButtons, type DiceButton, type ToolbarActions, type ToolbarHelp, UNPAINT } from './toolbar';
 import type { SeeThroughCircle } from './seeThroughRing';
 import { pinTitle } from './pinIcons';
-import { insideFog, pinsShown, playerSees } from './playerView';
+import { insideFog, pinsShown, playerSees, shownToPlayers } from './playerView';
 import { instanceBadgeNumbers } from './levels';
 import { positionOf } from './camera';
 import { wireDiceSounds } from '../sound/diceSounds';
@@ -3208,8 +3208,8 @@ export class Board {
   }
 
   private pinAt(clientX: number, clientY: number): string | null {
-    // Only a pin drawn can be clicked: one hidden (beyond sight on a player's board) opens nothing.
-    const shown = this.audience === 'player' ? this.pins.filter((pin) => pin.object3d.visible) : this.pins;
+    // Only a pin drawn can be clicked: one hidden (beyond sight on a player's board, or the GM's own in session view) opens nothing.
+    const shown = this.audience === 'player' || this.sessionView ? this.pins.filter((pin) => pin.object3d.visible) : this.pins;
     const hit = this.hit(clientX, clientY, shown.map((pin) => pin.hitTarget));
     return (hit?.userData.pinId as string | undefined) ?? null;
   }
@@ -5394,7 +5394,9 @@ export class Board {
     for (const piece of this.texts) piece.object3d.visible = gm || !piece.label.hidden;
     for (const piece of this.icons) piece.show(gm || !piece.icon.hidden);
     const pins = pinsShown(viewer, this.audience);
-    for (const pin of this.pins) pin.object3d.visible = pins && !this.pointBeyond(viewer, pin.pin.x, pin.pin.y);
+    // Atlas's session view on the GM's own board shows the pins the GM shares with players (`shownToPlayers`); the players' window none.
+    const shared = !gm && !window && this.audience === 'gm';
+    for (const pin of this.pins) pin.object3d.visible = (pins || (shared && shownToPlayers(pin.pin))) && !this.pointBeyond(viewer, pin.pin.x, pin.pin.y);
     for (const piece of this.props.values()) piece.object3d.visible = (gm || revealed || !insideFog(fog, { x: piece.object3d.position.x, y: piece.object3d.position.z })) && (gm || !underBox(this.map?.inks ?? [], { x: piece.object3d.position.x, y: piece.object3d.position.z })) && !this.beyondSight(viewer, `p:${piece.id}`);
     if (this.cellOutline) this.cellOutline.visible = gm;
     if (this.cellLabel) this.cellLabel.visible = gm;

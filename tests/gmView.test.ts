@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readGmView, writeGmView } from '../src/board/gmView';
+import { shownToPlayers } from '../src/board/playerView';
 import { at } from '../src/atlasPort/atlasText';
 import { TOOLBAR_BUTTONS } from '../src/board/toolbarButtons';
 import type { ToolbarButtonState } from '../src/board/toolbarButtons';
@@ -41,4 +42,16 @@ test('the palette offers the switch in Play and Edit mode, lit while in GM view'
   on = false;
   assert.equal(spec.active?.(state), false);
   assert.equal(spec.available({ actions: {} } as unknown as ToolbarButtonState), false);
+});
+
+test("session view shows the pins Atlas's does: readable ones that link a note players could read (`shownToPlayers`)", () => {
+  assert.equal(shownToPlayers({ readable: true, notePath: 'Notes/Tavern.md' }), true);
+  assert.equal(shownToPlayers({ readable: true, notePath: 'Notes/Area.md#3. Slanted Room' }), true);
+  // Not marked readable: the GM's alone.
+  assert.equal(shownToPlayers({ notePath: 'Notes/Tavern.md' }), false);
+  assert.equal(shownToPlayers({ readable: false, notePath: 'Notes/Tavern.md' }), false);
+  // Readable, but it links a scene, an encounter folder or nothing: nothing players could read.
+  assert.equal(shownToPlayers({ readable: true, notePath: 'maps/crypt.atlasmap' }), false);
+  assert.equal(shownToPlayers({ readable: true, notePath: 'atlas-vtt/collections/goblins/encounters/Ambush' }), false);
+  assert.equal(shownToPlayers({ readable: true, notePath: null }), false);
 });

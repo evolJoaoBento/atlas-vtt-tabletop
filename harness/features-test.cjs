@@ -7605,6 +7605,29 @@ feature('gm view switch', async ({ page, shot }) => {
   check('gm view: switching back shows hidden tokens and the GM\'s fog opacity again', back.orc && !back.session && Math.abs(back.fog - 0.5) < 0.01 && back.names && back.sets.join() === 'false,true', JSON.stringify(back));
   await shot('gm-view-gm');
 
+  // Pins: session view shows the ones players may read (Atlas's `shownToPlayers`), not the GM's own; the player window shows none, as before.
+  const pinsSeen = () => page.evaluate(() => {
+    const { board } = window.boardTest;
+    const [p1, p2] = board.pins;
+    p1.pin.readable = true;
+    p1.pin.notePath = 'Notes/Tavern.md';
+    p2.pin.readable = undefined;
+    const now = { readable: p1.object3d.visible, gmOnly: p2.object3d.visible };
+    board.showFor('player', true);
+    const players = { readable: p1.object3d.visible, gmOnly: p2.object3d.visible };
+    board.showFor(board.sessionView ? 'player' : 'gm');
+    return { now, players, session: board.sessionView };
+  });
+  const gmPins = await pinsSeen();
+  check('gm view: GM view shows every pin', gmPins.now.readable && gmPins.now.gmOnly, JSON.stringify(gmPins));
+  await page.click(sw);
+  await wait(500);
+  const sessionPins = await pinsSeen();
+  check('gm view: session view shows the readable pin and hides the GM own, as Atlas does; the player window still shows none',
+    sessionPins.session && sessionPins.now.readable && !sessionPins.now.gmOnly && !sessionPins.players.readable && !sessionPins.players.gmOnly, JSON.stringify(sessionPins));
+  await page.click(sw);
+  await wait(400);
+
   // Edit mode has the switch too, and it is the same state.
   await page.evaluate(() => { window.boardTest.modes.mode = 'edit'; window.boardTest.board.refreshToolbar(); });
   await wait(300);
@@ -7618,7 +7641,7 @@ feature('gm view switch', async ({ page, shot }) => {
   await page.keyboard.press('Shift+D');
   await wait(500);
   const key = await state();
-  check('gm view: Shift + D (Atlas\'s D, with Shift on the board) throws the switch off', key.session && key.sets.join() === 'false,true,false' && !key.orc, JSON.stringify(key));
+  check('gm view: Shift + D (Atlas\'s D, with Shift on the board) throws the switch off', key.session && key.sets.join() === 'false,true,false,true,false' && !key.orc, JSON.stringify(key));
   check('gm view: the fog tool stays on in session view, as in Atlas', await page.evaluate(() => window.boardTest.board.fogTool.on === true));
   await page.screenshot({ path: `${shots}/gmview-edit-off.png`, clip: await barClip(120) });
   await page.keyboard.press('Shift+D');
