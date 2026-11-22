@@ -149,6 +149,7 @@ export class BoardAtlasTools {
       case 'brushSmaller': return board.stepFogBrush(-1, event.repeat);
       case 'brushLarger': return board.stepFogBrush(1, event.repeat);
       case 'gmView': return board.toggleGmView();
+      case 'peek': return board.peek(true, event.key.toLowerCase());
     }
   }
 

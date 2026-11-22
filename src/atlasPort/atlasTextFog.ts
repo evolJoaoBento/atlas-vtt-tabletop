@@ -55,7 +55,8 @@ export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, Atl
     "toolbar.snap": "Snap",
     "toolbar.constrain": "Constrain",
     "toolbar.gmView": "GM view ({key})",
-    "toolbar.sessionView": "Session view ({key})"
+    "toolbar.sessionView": "Session view ({key})",
+    "toolbar.peek": "Hold to see what the players see"
   },
   "ru": {
     "fog.cellCount": {
@@ -113,7 +114,8 @@ export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, Atl
     "toolbar.snap": "Привязка",
     "toolbar.constrain": "Ограничить",
     "toolbar.gmView": "Вид мастера ({key})",
-    "toolbar.sessionView": "Вид сессии ({key})"
+    "toolbar.sessionView": "Вид сессии ({key})",
+    "toolbar.peek": "Удерживайте, чтобы увидеть то, что видят игроки"
   },
   "zh": {
     "fog.cellCount": {
@@ -165,7 +167,8 @@ export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, Atl
     "toolbar.snap": "吸附",
     "toolbar.constrain": "约束",
     "toolbar.gmView": "GM 视图（{key}）",
-    "toolbar.sessionView": "场面视图（{key}）"
+    "toolbar.sessionView": "场面视图（{key}）",
+    "toolbar.peek": "按住查看玩家看到的画面"
   }
 };
 
@@ -213,6 +216,7 @@ export const ATLAS_FOG_TEXT_KEYS = [
   "toolbar.fogTool",
   "toolbar.gmView",
   "toolbar.lasso",
+  "toolbar.peek",
   "toolbar.rectangle",
   "toolbar.sessionView",
   "toolbar.snap"

@@ -10,7 +10,8 @@
 import { FOG_MIN, GROUND_NOISES, MAX_MARGIN, MAX_TILE, type GroundMode, type GroundSettings } from './ground';
 import type { LiquidKind, WaterMotion } from './water';
 import { setSvg } from '../svg';
-import { atlasMeasureControlIcon, atlasMeasureEffectIcon, atlasMeasureIcon, atlasToolIcon, fogIcon, gmViewIcon, helpIcon, historyIcon, modeIcon, waterIcon } from './atlasToolIcons';
+import { atlasMeasureControlIcon, atlasMeasureEffectIcon, atlasMeasureIcon, atlasToolIcon, fogIcon, gmViewIcon, helpIcon, historyIcon, modeIcon, peekIcon, waterIcon } from './atlasToolIcons';
+import { peekButtonState, type PeekButtonState } from './lightingPeek';
 import { FogToolBars } from './fogToolBar';
 import type { FogBarActions } from './fogTool';
 import { at } from '../atlasPort/atlasText';
@@ -150,6 +151,10 @@ export interface ToolbarActions {
   gmView?(): boolean;
   setGmView?(on: boolean): void;
   gmViewShortcut?(): string | null;
+  /** Atlas's lighting peek, held from the bar's button (a finger holds no key): starts and ends it. Absent where the board has none. */
+  peek?(on: boolean): void;
+  /** Whether the pointer is a finger now: the peek button is there only then. */
+  coarse?(): boolean;
   templateOn(): boolean;
   templateShape(): string;
   /** Turns the Template tool on with a shape, or off with null. */
@@ -421,6 +426,9 @@ export class BoardToolbar {
   /** Atlas's GM view switch, at the bar's last place after "More tools" (its `end` control). */
   private readonly gmViewEnd: HTMLElement;
   private readonly gmViewSwitch: HTMLElement;
+  private readonly peekButton: HTMLButtonElement;
+  /** The peek button is held down (Atlas's `held`). */
+  private peekHeld = false;
   private dice: EndButton | null = null;
   private diceLog: EndButton | null = null;
   private sheetHandlers: DiceButton | null = null;
@@ -1592,6 +1600,27 @@ export class BoardToolbar {
     const gmViewName = el('span', '', this.gmViewEnd);
     gmViewName.hidden = true;
     gmViewName.id = 'atlas-tabletop-gm-view-name';
+    // Atlas's peek button (`PeekButton.tsx`), before the switch: a finger holds it where a keyboard holds the peek key. Its name is its label alone, no tooltip.
+    this.peekButton = el('button', 'btn btn--toolbar btn--icon btn--toolbar atlas-peek-button', this.gmViewEnd);
+    this.peekButton.type = 'button';
+    this.peekButton.setAttribute('aria-label', at('toolbar.peek'));
+    this.peekButton.setAttribute('aria-pressed', 'false');
+    this.peekButton.hidden = true;
+    setSvg(this.peekButton, peekIcon());
+    const peek = (on: boolean): void => {
+      if (this.peekHeld === on) return;
+      this.peekHeld = on;
+      this.actions.peek?.(on);
+      this.refresh();
+    };
+    this.peekButton.addEventListener('pointerdown', (event) => {
+      if ((this.actions.gmView?.() ?? true) === false || event.button !== 0) return;
+      // The press is captured, so a finger that slides off the button still ends the peek when it lifts.
+      try { this.peekButton.setPointerCapture(event.pointerId); } catch { /* a press the system has taken away */ }
+      peek(true);
+    });
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) this.peekButton.addEventListener(type, () => peek(false));
+    this.peekButton.addEventListener('contextmenu', (event) => event.preventDefault());
     this.gmViewSwitch = el('div', 'atlas-toggle', this.gmViewEnd);
     this.gmViewSwitch.setAttribute('role', 'switch');
     this.gmViewSwitch.setAttribute('aria-labelledby', gmViewName.id);
@@ -2473,8 +2502,9 @@ export class BoardToolbar {
     // Play and Edit mode (a board without modes, which has no GM's view to switch, shows none).
     const offered = this.actions.gmView !== undefined && this.actions.setGmView !== undefined && (mode === 'play' || mode === 'edit');
     this.gmViewEnd.hidden = !offered;
-    if (!offered) return;
     const on = this.actions.gmView?.() ?? true;
+    this.syncPeek(mode, on);
+    if (!offered) return;
     const state = on ? 'on' : 'off';
     this.gmViewSwitch.setAttribute('aria-checked', String(on));
     this.gmViewSwitch.replaceChildren();
@@ -2489,6 +2519,20 @@ export class BoardToolbar {
     const key = this.actions.gmViewShortcut?.() ?? '';
     this.gmViewSwitch.setAttribute('aria-label', at('toolbar.gmView', { key }));
     this.gmViewEnd.querySelector('span')!.textContent = at('toolbar.gmView', { key });
+  }
+
+  /** Syncs the lighting peek's button: there for a finger, in Play and Edit mode; held while pressed, and taking no press in session view. */
+  private syncPeek(mode: BoardMode | null, gmView: boolean): void {
+    const stateOf = (): PeekButtonState => peekButtonState({ coarse: this.actions.coarse?.() === true, mode, hasPeek: this.actions.peek !== undefined && this.actions.gmView !== undefined, gmView, held: this.peekHeld });
+    // The view left the GM's picture, or the button went, while it was held: the peek ends with it.
+    const before = stateOf();
+    if (this.peekHeld && (!before.shown || before.disabled)) { this.peekHeld = false; this.actions.peek?.(false); }
+    const state = stateOf();
+    this.peekButton.hidden = !state.shown;
+    this.peekButton.setAttribute('aria-pressed', String(state.pressed));
+    if (state.disabled) this.peekButton.setAttribute('aria-disabled', 'true'); else this.peekButton.removeAttribute('aria-disabled');
+    this.peekButton.classList.toggle('is-active', state.pressed);
+    this.peekButton.classList.toggle('atlas-tool-button--disabled', state.disabled);
   }
 
   /** Syncs the Fog Tool button (its face is the mode in use) and its two bars with the fog tool. */

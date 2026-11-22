@@ -7469,6 +7469,7 @@ feature('shortcut help on the board', async ({ page, shot }) => {
   check("shortcut help: the asset manager is listed with the board's key (Shift + A)", (find('asset')?.[1] ?? '') === 'Shift + A', JSON.stringify(find('asset')));
   check("shortcut help: Atlas's 2D map tools are not listed (the fog tool and its brush keys are the board's now)", !seen.atlasRows.some((label) => /draw|erase|text tool|pin|wall|sound page/.test(label.replace('smaller drawing or fog brush', '').replace('larger drawing or fog brush', ''))), JSON.stringify(seen.atlasRows));
   check("shortcut help: Copy, Cut, Paste and Duplicate are listed with Atlas's keys", [['copy selection', 'Ctrl/Cmd + C'], ['cut selection', 'Ctrl/Cmd + X'], ['paste at cursor', 'Ctrl/Cmd + V'], ['duplicate selection', 'Ctrl/Cmd + D']].every(([label, keys]) => (find(label)?.[1] ?? '').replace(/⌘|Ctrl|Cmd/g, 'M').length > 0), JSON.stringify([find('copy selection'), find('cut selection'), find('paste at cursor'), find('duplicate selection')]));
+  check("shortcut help: the lighting peek key is listed, with Atlas's words and its H", (find('hold to see what the players see')?.[1] ?? '') === 'H', JSON.stringify(find('hold to see')));
   check("shortcut help: the fog tool key and the brush size keys are listed", seen.atlasRows.includes('fog tools') && seen.atlasRows.includes('smaller drawing or fog brush') && seen.atlasRows.includes('larger drawing or fog brush') && (find('fog tools')?.[1] ?? '') === 'F', JSON.stringify(find('fog tools')));
   check("shortcut help: the fog tool's Alt, Shift, Ctrl/Cmd, Enter, Backspace and Escape are listed among the board's own keys", ['Alt', 'Shift', 'Ctrl/Cmd', 'Enter', 'Backspace / Undo key', 'Escape'].every((keys) => seen.rows.some(([label, key]) => label.startsWith('Fog tool:') && key === keys)), JSON.stringify(seen.rows.filter(([label]) => label.startsWith('Fog tool:'))));
   // Atlas 0.17+ has no experimental switch on Next mood and Silence: the board's two sound keys are listed; the Sound page key (S, a clash with Silence's Shift+S) is not.
@@ -7759,7 +7760,7 @@ feature('gm view switch', async ({ page, shot }) => {
     const box = (e) => { const r = e.getBoundingClientRect(); const c = getComputedStyle(e); return { w: Math.round(r.width * 10) / 10, h: Math.round(r.height * 10) / 10, bg: c.backgroundColor, border: c.borderTopColor, bw: c.borderTopWidth, radius: c.borderTopLeftRadius, pad: c.paddingLeft, shadow: c.boxShadow, color: c.color }; };
     const track = root.querySelector('.atlas-toggle__switch');
     const thumb = root.querySelector('.atlas-toggle__thumb');
-    const icon = root.querySelector('svg');
+    const icon = root.querySelector('.atlas-toggle svg');
     return { outer: box(root.querySelector('.atlas-toggle')), track: box(track), thumb: { ...box(thumb), dx: Math.round((thumb.getBoundingClientRect().left - track.getBoundingClientRect().left) * 10) / 10 }, icon: { ...box(icon), cls: icon.getAttribute('class'), markup: icon.innerHTML } };
   }, rootSel);
   const EYE = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye atlas-toggle__icon"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path><circle cx="12" cy="12" r="3"></circle></svg>';
@@ -7786,6 +7787,198 @@ feature('gm view switch', async ({ page, shot }) => {
     await page.evaluate(() => document.querySelector('#atlas-fixture')?.remove());
   }
   await page.evaluate(() => window.boardTest.board.throwGmView(true));
+});
+
+// ── Atlas's lighting peek (hold H; a button to hold for a finger) ────────────────────────────────────────────────────
+feature('lighting peek', async ({ page, shot }) => {
+  const sw = '.atlas-tabletop-toolbar [data-toolbar-id="gm-view"]';
+  const btn = '.atlas-tabletop-toolbar .atlas-peek-button';
+  const shots = process.argv[3] ?? '.';
+  const state = () => page.evaluate(() => {
+    const { board, gmViewSwitch } = window.boardTest;
+    return {
+      session: board.sessionView, atlas: gmViewSwitch.on, sets: [...gmViewSwitch.sets],
+      orc: board.tokens.get('orc').piece.object3d.visible,
+      fog: board.fog.material.uniforms.uStrength.value,
+      names: board.tokens.get('hero').labels.object3d.visible,
+      checked: document.querySelector('.atlas-tabletop-toolbar [data-toolbar-id="gm-view"]')?.getAttribute('aria-checked'),
+    };
+  });
+  await page.evaluate(() => {
+    const { board, modes, gmViewSwitch, fog, pointer } = window.boardTest;
+    fog.state.gmOpacity = 0.5;
+    gmViewSwitch.on = true;
+    gmViewSwitch.sets.length = 0;
+    pointer.coarse = false;
+    modes.on = true;
+    modes.mode = 'play';
+    board.gmViewChanged();
+    board.refreshToolbar();
+    board.frameMap();
+    board.camera.snap();
+    board.wake(true);
+    const { canvas } = board; canvas.tabIndex = 0; canvas.focus();
+  });
+  await wait(500);
+  const rest = await state();
+  check("lighting peek: GM view at rest shows hidden tokens, the GM's names and the GM's fog", rest.orc && !rest.session && rest.names && Math.abs(rest.fog - 0.5) < 0.01, JSON.stringify(rest));
+
+  // The key: held, the players' picture; the GM view switch does not move; let go, the GM's again.
+  await page.keyboard.down('h');
+  await wait(500);
+  const held = await state();
+  check("lighting peek: H held shows what the players see (hidden token gone, fog opaque, players' names) with the GM view switch unmoved",
+    held.session && !held.orc && Math.abs(held.fog - 1) < 0.01 && !held.names && held.atlas === true && held.sets.length === 0 && held.checked === 'true', JSON.stringify(held));
+  await shot('lighting-peek-held');
+  await page.keyboard.up('h');
+  await wait(500);
+  const back = await state();
+  check("lighting peek: letting go of H shows the GM's view again", !back.session && back.orc && back.names && Math.abs(back.fog - 0.5) < 0.01 && back.sets.length === 0, JSON.stringify(back));
+
+  // The camera's own keys are not the peek, and the window losing the focus lets it go.
+  await page.keyboard.press('d');
+  await wait(200);
+  check("lighting peek: the camera's keys are not the peek", (await state()).session === false);
+  await page.keyboard.down('h');
+  await wait(300);
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await wait(400);
+  check('lighting peek: the window losing the focus ends the peek', (await state()).session === false);
+  await page.keyboard.up('h');
+  await wait(100);
+
+  // In session view the map shows the players' picture already: H changes nothing, and letting go stays in session view.
+  await page.click(sw);
+  await wait(400);
+  await page.keyboard.down('h');
+  await wait(300);
+  const inSession = await state();
+  await page.keyboard.up('h');
+  await wait(400);
+  const afterSession = await state();
+  check('lighting peek: in session view H changes nothing, and letting go stays in session view', inSession.session && afterSession.session && afterSession.atlas === false, JSON.stringify([inSession, afterSession]));
+  await page.click(sw);
+  await wait(400);
+
+  // Cinematic mode has no peek (no GM view there to look away from); Edit mode has it.
+  await page.evaluate(() => { window.boardTest.modes.mode = 'cinematic'; window.boardTest.board.refreshToolbar(); });
+  await wait(300);
+  const cinema = await page.evaluate(() => { const { board } = window.boardTest; const took = board.peek(true, 'h'); const seen = board.sessionView; board.peek(false); return { took, seen }; });
+  check('lighting peek: Cinematic mode has no peek', cinema.took === false && cinema.seen === false, JSON.stringify(cinema));
+  await page.evaluate(() => { window.boardTest.modes.mode = 'edit'; window.boardTest.board.refreshToolbar(); });
+  await wait(300);
+  await page.evaluate(() => window.boardTest.board.canvas.focus());
+  await page.keyboard.down('h');
+  await wait(400);
+  const edit = await state();
+  await page.keyboard.up('h');
+  await wait(300);
+  check('lighting peek: Edit mode peeks too', edit.session && !edit.orc && (await state()).session === false, JSON.stringify(edit));
+  await page.evaluate(() => { window.boardTest.modes.mode = 'play'; window.boardTest.board.refreshToolbar(); });
+  await wait(300);
+
+  // The button: only for a finger, Atlas's markup and place, held to peek.
+  const buttonInfo = () => page.evaluate(([sel, swSel]) => {
+    const el = document.querySelector(sel);
+    if (!el) return null;
+    const toggle = document.querySelector(swSel);
+    return {
+      shown: el.offsetParent !== null, label: el.getAttribute('aria-label'), pressed: el.getAttribute('aria-pressed'), disabled: el.getAttribute('aria-disabled'),
+      cls: el.className, icon: el.querySelector('svg')?.getAttribute('class') ?? null, title: el.getAttribute('title'),
+      beforeSwitch: el.nextElementSibling === toggle, last: toggle === toggle.parentElement.lastElementChild,
+    };
+  }, [btn, sw]);
+  await page.evaluate(() => { window.boardTest.gmViewSwitch.sets.length = 0; });
+  const mouse = await buttonInfo();
+  check('lighting peek: a mouse has no peek button (the key holds it)', mouse === null || !mouse.shown, JSON.stringify(mouse));
+  await page.evaluate(() => { window.boardTest.pointer.coarse = true; window.boardTest.board.refreshToolbar(); });
+  await wait(400);
+  const touch = await buttonInfo();
+  check('lighting peek: a finger gets Atlas\'s button (ScanEye, "Hold to see what the players see", btn--toolbar btn--icon atlas-peek-button) before the GM view switch',
+    touch !== null && touch.shown && touch.label === 'Hold to see what the players see' && touch.pressed === 'false' && touch.disabled === null
+      && /lucide-scan-eye/.test(touch.icon) && /\bbtn--toolbar\b/.test(touch.cls) && /\bbtn--icon\b/.test(touch.cls) && /\batlas-peek-button\b/.test(touch.cls) && touch.beforeSwitch && touch.last && touch.title === null, JSON.stringify(touch));
+  const clip = await page.evaluate(() => { const r = document.querySelector('.atlas-tabletop-toolbar').getBoundingClientRect(); return { x: Math.max(0, r.left - 10), y: Math.max(0, r.top - 10), width: Math.min(r.width + 20, 1000), height: r.height + 20 }; });
+  await page.screenshot({ path: `${shots}/peek-button.png`, clip });
+  // Held (the mouse standing in for the finger): the players' picture, the button lit; released: back.
+  const box = await page.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, btn);
+  await page.mouse.move(box.x, box.y);
+  await page.mouse.down();
+  await wait(500);
+  const pressedNow = await state();
+  const lit = await buttonInfo();
+  check("lighting peek: holding the button shows the players' picture, the button pressed (is-active) and the switch unmoved",
+    pressedNow.session && !pressedNow.orc && pressedNow.atlas === true && pressedNow.sets.length === 0 && lit.pressed === 'true' && /\bis-active\b/.test(lit.cls), JSON.stringify([pressedNow, lit]));
+  await page.screenshot({ path: `${shots}/peek-button-held.png`, clip });
+  await shot('lighting-peek-button-held');
+  await page.mouse.up();
+  await wait(500);
+  const released = await state();
+  const unlit = await buttonInfo();
+  check("lighting peek: letting go of the button shows the GM's view again", !released.session && released.orc && unlit.pressed === 'false' && !/\bis-active\b/.test(unlit.cls), JSON.stringify([released, unlit]));
+  // Slid off the button while held: the press is captured, so lifting elsewhere still ends it.
+  await page.mouse.move(box.x, box.y);
+  await page.mouse.down();
+  await wait(300);
+  await page.mouse.move(box.x - 200, box.y - 150);
+  await wait(200);
+  const slid = await state();
+  await page.mouse.up();
+  await wait(400);
+  check('lighting peek: a press that slides off the button holds until it lifts, then ends', slid.session && (await state()).session === false, JSON.stringify(slid));
+  // Session view: the button is there but takes no press (aria-disabled, Atlas's disabled look).
+  await page.evaluate(() => window.boardTest.board.throwGmView(false));
+  await wait(400);
+  const dis = await buttonInfo();
+  await page.mouse.move(box.x, box.y);
+  await page.mouse.down();
+  await wait(300);
+  const noPress = await buttonInfo();
+  await page.mouse.up();
+  check('lighting peek: in session view the button is disabled and takes no press', dis.shown && dis.disabled === 'true' && /atlas-tool-button--disabled/.test(dis.cls) && noPress.pressed === 'false', JSON.stringify([dis, noPress]));
+  await page.screenshot({ path: `${shots}/peek-button-disabled.png`, clip });
+  // The switch thrown while the button is held ends the peek.
+  await page.evaluate(() => window.boardTest.board.throwGmView(true));
+  await wait(300);
+  await page.evaluate((sel) => { document.querySelector(sel).dispatchEvent(new PointerEvent('pointerdown', { pointerId: 41, pointerType: 'touch', button: 0, bubbles: true })); }, btn);
+  await wait(300);
+  const heldTouch = await state();
+  await page.evaluate(() => window.boardTest.board.throwGmView(false));
+  await wait(300);
+  await page.evaluate(() => window.boardTest.board.throwGmView(true));
+  await wait(400);
+  const afterSwitch = await state();
+  check("lighting peek: a held peek ends when the view switch leaves the GM's view", heldTouch.session && !afterSwitch.session && (await buttonInfo()).pressed === 'false', JSON.stringify([heldTouch, afterSwitch]));
+  // The look matches Atlas's own button (its markup under its styles), measured beside the board's.
+  const look = (sel) => page.evaluate((sel) => {
+    const e = document.querySelector(sel);
+    const r = e.getBoundingClientRect(); const c = getComputedStyle(e);
+    const i = e.querySelector('svg').getBoundingClientRect();
+    return { w: Math.round(r.width * 10) / 10, h: Math.round(r.height * 10) / 10, bg: c.backgroundColor, color: c.color, radius: c.borderTopLeftRadius, pad: c.paddingLeft, iw: Math.round(i.width * 10) / 10 };
+  }, sel);
+  await page.mouse.move(5, 5);
+  await wait(300);
+  const ownLook = await look(btn);
+  await page.evaluate((html) => {
+    document.querySelector('#atlas-fixture')?.remove();
+    const host = document.createElement('div');
+    host.id = 'atlas-fixture';
+    host.className = 'atlas-vtt-plugin';
+    host.style.cssText = 'position:fixed;left:10px;top:10px;z-index:99999;background:var(--background-primary, #1e1e1e);padding:8px';
+    host.innerHTML = `<div class="atlas-vtt-toolbar"><div class="atlas-toolbar-end"><button type="button" aria-label="Hold to see what the players see" aria-pressed="false" class="btn btn--toolbar btn--icon btn--toolbar atlas-peek-button">${html}</button></div></div>`;
+    document.body.appendChild(host);
+  }, await page.evaluate((sel) => document.querySelector(sel).innerHTML, btn));
+  const atlasLook = await look('#atlas-fixture button');
+  // The corner is left out: the board restates Atlas's `.btn` with Obsidian's radius (8px, Atlas's 10px) for every button it has, this one under them.
+  const { radius: ownRadius, ...ownRest } = ownLook;
+  const { radius: atlasRadius, ...atlasRest } = atlasLook;
+  check("lighting peek: the button matches Atlas's markup under Atlas's styles (size, colours, icon)", JSON.stringify(ownRest) === JSON.stringify(atlasRest), JSON.stringify({ atlas: atlasLook, board: ownLook }));
+  await page.evaluate(() => document.querySelector('#atlas-fixture')?.remove());
+  // Cinematic mode: no button.
+  await page.evaluate(() => { window.boardTest.modes.mode = 'cinematic'; window.boardTest.board.refreshToolbar(); });
+  await wait(300);
+  const cineButton = await buttonInfo();
+  check('lighting peek: Cinematic mode has no button', cineButton === null || !cineButton.shown, JSON.stringify(cineButton));
+  await page.evaluate(() => { const t = window.boardTest; t.modes.mode = 'play'; t.pointer.coarse = false; t.board.refreshToolbar(); });
 });
 
 /** What every feature depends on beside the bundle: this file outside the features, the page, the styles, the runner. */

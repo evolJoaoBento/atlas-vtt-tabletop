@@ -5,7 +5,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
   Ban, Brush, Circle, CircleHelp, Clapperboard, Check, Cloud, CloudFog, CloudOff, Command, DoorOpen, Droplets, Eraser, Eye, EyeOff, Flame, FlaskConical, Grid3x3, Hammer,
-  ImageIcon, Lasso, LayoutGrid, Moon, MoreHorizontal, PaintBucket, PaintRoller, Paintbrush, Pentagon, Pin, Redo2, Ruler, Slash, SlidersHorizontal, Snowflake,
+  ImageIcon, Lasso, LayoutGrid, Moon, MoreHorizontal, PaintBucket, PaintRoller, Paintbrush, Pentagon, Pin, Redo2, Ruler, ScanEye, Slash, SlidersHorizontal, Snowflake,
   Square, Sun, Swords, Target, Trash2, Triangle, Undo2, Waves, X, Zap,
 } from 'lucide-react';
 import { CoinIcon } from '../atlasPort/app/react/components/CoinIcon';
@@ -104,6 +104,11 @@ export function fogIcon(id: FogIconId): string {
 /** The icon on the GM view switch's thumb (`MainToolbar.tsx`): Atlas's lucide Eye in GM view, EyeOff in session view. */
 export function gmViewIcon(on: boolean): string {
   return on ? renderToStaticMarkup(<Eye className="atlas-toggle__icon" />) : renderToStaticMarkup(<EyeOff className="atlas-toggle__icon" />);
+}
+
+/** The icon of the lighting peek's button (`PeekButton.tsx`): lucide's ScanEye. */
+export function peekIcon(): string {
+  return renderToStaticMarkup(<ScanEye />);
 }
 
 /** The board's three modes (Play, Edit, Cinematic) and the wall paint tool (painting, taking a material off). */

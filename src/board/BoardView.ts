@@ -12,7 +12,7 @@ import type { BoardMark, BoardSession, BoardViewer, GmCutscene } from '../connec
 import type { CutsceneOwner } from '../cutscene/cutsceneRun';
 import type { BackgroundStore } from '../background/backgroundStore';
 import type { LoadedBackground } from '../background/backgroundData';
-import { ItemView, Menu, Modal, Notice, TFile, TFolder, debounce, setIcon, type App, type EventRef, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
+import { ItemView, Menu, Modal, Notice, Platform, TFile, TFolder, debounce, setIcon, type App, type EventRef, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
 import { ATLAS_VIEW_TYPE, presentedSceneOf, tabViewOf, type AtlasSceneState, type AtlasView } from '../atlas';
 import { AtlasBridge } from '../atlasBridge';
 import { collectionRulesOf } from '../collectionRulesOf';
@@ -33,6 +33,7 @@ import { DEFAULT_MEASURE_TOOL, type MeasureToolOptions } from './measureOptions'
 import { formatHotkey } from '../atlasPort/app/keyboard/mapHotkeys';
 import { boardBinding } from './boardHotkeys';
 import { readGmView, writeGmView } from './gmView';
+import { pointerNow } from './lightingPeek';
 import type { SpellBook } from './spellPicker';
 import type { SpellChange, TemplateChange } from './playerTools';
 import { isVideoPath } from './textures';
@@ -344,6 +345,13 @@ export class BoardView extends ItemView {
     // Atlas saved a collection's settings (its units, its diagonal rule, its conditions): the board reads its rules again.
     this.registerEvent((this.app.workspace as unknown as { on(name: string, callback: () => void): EventRef }).on('atlas-vtt:collection-settings-changed', () => this.reload()));
     this.registerDomEvent(this.contentEl, 'pointerdown', () => { this.services.focused(this); this.followHost(); }, true);
+    // A mouse attached or taken away: the lighting peek's button (a finger's) comes or goes, as Atlas's does.
+    {
+      const win = this.contentEl.ownerDocument.defaultView;
+      const queries = typeof win?.matchMedia === 'function' ? [win.matchMedia('(pointer: coarse)'), win.matchMedia('(pointer: fine) and (hover: hover)')] : [];
+      const changed = (): void => this.board?.refreshToolbar();
+      for (const query of queries) { query.addEventListener('change', changed); this.register(() => query.removeEventListener('change', changed)); }
+    }
     // Atlas's "Fog opacity in GM view" changed (here or in Atlas): the fog in the GM's view takes it. Heard once Atlas has loaded.
     {
       const bridge = new AtlasBridge(this.app);
@@ -1724,6 +1732,7 @@ export class BoardView extends ItemView {
       // Atlas's GM view switch, in the store of the Atlas view holding this map: Atlas's 2D view and the board share it.
       gmView: () => readGmView(this.path ? this.services.writer.holder(this.path)?.atlasStore.getState() : null),
       setGmView: (on) => writeGmView(this.path ? this.services.writer.holder(this.path)?.atlasStore.getState() : null, on),
+      coarsePointer: () => pointerNow(this.contentEl.ownerDocument.defaultView ?? undefined, Platform.isMobile) === 'coarse',
       laser: () => this.services.laser(),
       setLaser: (changes) => this.services.setLaser(changes),
       setLighting: (choice) => this.services.setLighting?.(choice),

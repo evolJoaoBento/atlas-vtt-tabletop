@@ -305,6 +305,8 @@ async function main(): Promise<void> {
   let measureTool: MeasureToolOptions = { ...DEFAULT_MEASURE_TOOL };
   // Atlas's GM view switch (`isGMView` in the store of the Atlas view holding the map): null stands for an Atlas without one; `sets` records what the board wrote.
   const gmViewSwitch: { on: boolean | null; sets: boolean[] } = { on: true, sets: [] };
+  // Whether the pointer is a finger (Atlas's coarse pointer): the lighting peek's button is there only then.
+  const pointer = { coarse: false };
   let keptMeasures: BoardMeasure[] = [];
   let nextMeasureId = 1;
   const syncKeptMeasures = (): void => {
@@ -660,8 +662,9 @@ async function main(): Promise<void> {
     measureAction: (change) => applyMeasureChange(change),
     measureHotkeys: () => ({ measure: 'M', measureKeep: 'K', gmView: 'Shift + D' }),
     // Atlas's map shortcuts as the shell routes them (src/board/boardAtlasTools.ts): the GM view key, which is Shift + D here.
-    atlasKey: (event) => (boardHotkeyAction(event, (id) => DEFAULT_MAP_HOTKEYS[id] ?? null) === 'gmView' ? board.toggleGmView() : false),
+    atlasKey: (event) => { const action = boardHotkeyAction(event, (id) => DEFAULT_MAP_HOTKEYS[id] ?? null); return action === 'gmView' ? board.toggleGmView() : action === 'peek' ? board.peek(true, event.key.toLowerCase()) : false; },
     gmView: () => gmViewSwitch.on,
+    coarsePointer: () => pointer.coarse,
     setGmView: (on) => { if (gmViewSwitch.on === null) return false; gmViewSwitch.on = on; gmViewSwitch.sets.push(on); board.gmViewChanged(); return true; },
     warn: (message) => { if (!record.warnings.includes(message)) record.warnings.push(message); },
     // A popup window stands in for Obsidian's pop-out: same process, another document.
@@ -1109,7 +1112,7 @@ async function main(): Promise<void> {
     await editor.open(folder);
     return editor;
   };
-  Object.assign(window, { boardTest: { gmViewSwitch, hotkeyHelp, backgrounds, backgroundFiles, backgroundsReady, backgroundKit: { DEFAULT_BACKGROUND, emptyLayers, TERRAINS, backgroundFrame }, openBackgroundEditor, closeBackgroundEditor, backgroundEditor: null, studio: cutsceneHarness, api: { cutscene: channel },Board, FreeCamera, fog: { offers: fogOffers, state: fogState, record: () => fogRecord, reset: () => setFog({}) }, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, keptMeasures: () => keptMeasures, clearKeptMeasures: () => { keptMeasures = []; syncKeptMeasures(); }, measureTool: () => measureTool, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, Matrix4: THREE.Matrix4, Quaternion: THREE.Quaternion, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
+  Object.assign(window, { boardTest: { gmViewSwitch, pointer, hotkeyHelp, backgrounds, backgroundFiles, backgroundsReady, backgroundKit: { DEFAULT_BACKGROUND, emptyLayers, TERRAINS, backgroundFrame }, openBackgroundEditor, closeBackgroundEditor, backgroundEditor: null, studio: cutsceneHarness, api: { cutscene: channel },Board, FreeCamera, fog: { offers: fogOffers, state: fogState, record: () => fogRecord, reset: () => setFog({}) }, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, keptMeasures: () => keptMeasures, clearKeptMeasures: () => { keptMeasures = []; syncKeptMeasures(); }, measureTool: () => measureTool, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, Matrix4: THREE.Matrix4, Quaternion: THREE.Quaternion, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

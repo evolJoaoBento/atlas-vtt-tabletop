@@ -3290,5 +3290,8 @@ body.atlas-tabletop-player-window .view-header {
 .atlas-tabletop-atlas .atlas-toggle,.atlas-tabletop-atlas .atlas-toggle *,.atlas-tabletop-atlas .atlas-toggle *:before,.atlas-tabletop-atlas .atlas-toggle *:after{box-sizing:border-box}
 .atlas-tabletop-atlas .atlas-toolbar-end:not(.atlas-tabletop-extensions){display:flex;align-items:center}
 .atlas-tabletop-atlas .atlas-toolbar-end[hidden]:not(.atlas-tabletop-extensions){display:none}
+/* What stands before the GM view switch (a finger's peek button) keeps the bar's gap from it (main.scss); the button is made once and hidden where Atlas leaves it out. */
+.atlas-tabletop-atlas .atlas-toolbar-end:not(.atlas-tabletop-extensions){gap:4px}
+.atlas-tabletop-atlas .atlas-peek-button[hidden]{display:none}
 @media (hover: hover){.atlas-tabletop-atlas .atlas-toggle:not(.atlas-toggle--disabled):hover .atlas-toggle__switch--off{background-color:color-mix(in oklch,var(--background-secondary-alt),var(--text-normal) 12%)}.atlas-tabletop-atlas .atlas-toggle:not(.atlas-toggle--disabled):hover .atlas-toggle__switch--on{background-color:color-mix(in oklch,var(--interactive-accent) 86%,black)}}
 .atlas-tabletop-atlas .atlas-tool-button--disabled{opacity:.5;cursor:not-allowed;pointer-events:none}

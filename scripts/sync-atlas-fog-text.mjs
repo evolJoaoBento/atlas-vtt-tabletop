@@ -8,7 +8,7 @@ function load(lang, file) {
   const name = /const (\w+) =/.exec(src)[1];
   return new Function(`${src}; return ${name};`)();
 }
-const toolbarKeys = ['toolbar.fogTool', 'toolbar.fogEraser', 'toolbar.brush', 'toolbar.lasso', 'toolbar.rectangle', 'toolbar.snap', 'toolbar.constrain', 'toolbar.gmView', 'toolbar.sessionView'];
+const toolbarKeys = ['toolbar.fogTool', 'toolbar.fogEraser', 'toolbar.brush', 'toolbar.lasso', 'toolbar.rectangle', 'toolbar.snap', 'toolbar.constrain', 'toolbar.gmView', 'toolbar.sessionView', 'toolbar.peek'];
 const out = {};
 const keys = new Set();
 for (const lang of ['en', 'ru', 'zh']) {

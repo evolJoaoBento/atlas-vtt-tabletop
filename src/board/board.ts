@@ -341,6 +341,8 @@ export interface BoardHost {
   gmView?(): boolean | null;
   /** Throws that switch; false where Atlas has none to throw. */
   setGmView?(on: boolean): boolean;
+  /** Whether the pointer is a finger (Atlas's coarse pointer): the lighting peek then has a button in the bar, where a keyboard holds its key. */
+  coarsePointer?(): boolean;
   /** The laser's colour and size, kept for every map; and saving a change. */
   laser(): LaserSettings;
   setLaser(changes: Partial<LaserSettings>): void;
@@ -1061,8 +1063,10 @@ export class Board {
       setAutoRoll: (on) => this.host.setAutoRoll?.(on),
       setLaser: (changes) => { this.host.setLaser(changes); this.wake(); },
       togglePlayerView: () => this.host.togglePlayerView(),
-      gmView: () => !this.sessionView,
+      gmView: () => !this.sessionSwitch,
       setGmView: (on) => this.throwGmView(on),
+      // The lighting peek's button, which a finger holds in the key's place.
+      ...(this.audience === 'gm' && { peek: (on: boolean) => { this.peek(on); }, coarse: () => this.host.coarsePointer?.() === true }),
       gmViewShortcut: () => this.host.measureHotkeys?.().gmView ?? null,
       playerFrozen: () => this.player?.frozen != null,
       togglePlayerFreeze: () => this.setPlayerFrozen(this.player?.frozen == null),
@@ -3026,11 +3030,44 @@ export class Board {
   get sessionView(): boolean {
     // Cinematic mode has no such switch: a cutscene is edited in the GM's view.
     if (this.audience !== 'gm' || this.host.boardMode?.() === 'cinematic') return false;
+    // The peek (Atlas's lighting peek) shows the same picture, for as long as it is held.
+    return this.peeking || this.sessionSwitch;
+  }
+
+  /** The GM view switch alone: off is session view. The peek leaves it as it is. */
+  private get sessionSwitch(): boolean {
+    if (this.audience !== 'gm' || this.host.boardMode?.() === 'cinematic') return false;
     const shared = this.host.gmView?.() ?? null;
     return shared === null ? this.sessionLocal : !shared;
   }
 
   private sessionLocal = false;
+  /** Atlas's lighting peek is held: the board shows the players' look though the GM view switch says the GM's. */
+  private peeking = false;
+  /** The key that holds the peek (lower case), so its release is known; null for the toolbar's button. */
+  private peekKey: string | null = null;
+
+  /**
+   * Atlas's lighting peek (`SessionLighting.setPeeking`): while held the GM's board shows what the players see, as session view does, and the
+   * GM view switch stays where it was. Never on a player's board or in Cinematic mode, which have no GM view to look away from. True when it
+   * took the press.
+   */
+  peek(on: boolean, key: string | null = null): boolean {
+    if (on && (this.audience !== 'gm' || this.host.boardMode?.() === 'cinematic')) return false;
+    this.peekKey = on ? key : null;
+    if (this.peeking === on) return true;
+    this.peeking = on;
+    // The fog shape under way is kept (Atlas hides its marks for the peek and drops nothing); the board is drawn anew.
+    this.sightApplied = true;
+    this.toolbar.refresh();
+    this.wake();
+    return true;
+  }
+
+  /** A key was let go: ends the peek that key holds. */
+  private peekKeyUp(key: string): void {
+    if (this.peeking && this.peekKey !== null && this.peekKey === key.toLowerCase()) this.peek(false);
+  }
 
   /** Throws the GM view switch: on is GM view, off Atlas's session view. */
   throwGmView(on: boolean): void {
@@ -3043,7 +3080,7 @@ export class Board {
   /** Atlas's GM key: turns between GM view and session view. False where the board has no such switch (a player's board, Cinematic mode). */
   toggleGmView(): boolean {
     if (this.audience !== 'gm' || this.host.boardMode?.() === 'cinematic') return false;
-    this.throwGmView(this.sessionView);
+    this.throwGmView(this.sessionSwitch);
     return true;
   }
 
@@ -3888,6 +3925,12 @@ export class Board {
     win?.addEventListener('keydown', escape);
     this.stops.push(() => win?.removeEventListener('keydown', escape));
     win?.addEventListener('keyup', ctrl);
+    // The lighting peek is held by its key, let go wherever the focus is; and the window losing the focus lets it go (Atlas's `bindHoldHotkey`).
+    const peekUp = (event: KeyboardEvent): void => this.peekKeyUp(event.key);
+    const peekLost = (): void => { if (this.peekKey !== null) this.peek(false); };
+    win?.addEventListener('keyup', peekUp);
+    win?.addEventListener('blur', peekLost);
+    this.stops.push(() => { win?.removeEventListener('keyup', peekUp); win?.removeEventListener('blur', peekLost); });
     // Alt held with the water brush: the eraser, until it is let go (as Atlas's Alt turns its fog brush around).
     const altErase = (event: KeyboardEvent): void => {
       if (event.key !== 'Alt' || this.audience !== 'gm') return;
