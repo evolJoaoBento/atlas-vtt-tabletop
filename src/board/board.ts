@@ -3098,14 +3098,13 @@ export class Board {
   private heldRuler: { tool: PlayerTool; shape: MeasureShape } | null = null;
 
   /**
-   * Whether a press on `target` may be a quick ruler, as Atlas's held measure key makes it: the GM's board in Play mode with
-   * no tool of Edit mode (fog, water, props, shapes), laser or view through a token's eyes in the way. Elsewhere the key is a tap.
+   * Whether a press on `target` may be a quick ruler, as Atlas's held measure key makes it: the GM's board over its canvas, whatever tool
+   * (fog, water, props, shapes, laser) or mode (Play, Edit) is in use, which wait for the press. Not through a token's eyes (the view only looks
+   * about), in Cinematic mode (no tools to measure with) or on a player's board (Connect's own tools). Elsewhere the key is a tap.
    */
   canHoldRuler(target: EventTarget | null): boolean {
     if (this.audience !== 'gm' || target !== this.canvas || this.eye) return false;
-    const mode = this.host.boardMode?.() ?? null;
-    if (mode === 'edit' || mode === 'cinematic') return false;
-    return !this.laserOn && !this.fogTool?.on && !this.waterTool && !this.placing && !this.painting && this.shapeEditor?.active !== true;
+    return this.host.boardMode?.() !== 'cinematic';
   }
 
   /**
@@ -4149,6 +4148,16 @@ export class Board {
     }
     this.tooltip.hidden = true;
     const { clientX: x, clientY: y } = event;
+    // The measure key held (Atlas's `holdRuler`): the press is the quick ruler's, whatever tool is in use; that tool waits and has it back after.
+    if (event.button === 0 && this.heldRuler !== null && this.audience === 'gm') {
+      const at = this.boardPoint(x, y);
+      if (at) {
+        this.press = { kind: 'tool', x, y, moved: false };
+        this.tools.down(at, this.now());
+        this.showToolOverlay();
+        return;
+      }
+    }
     // The handles of a scene being placed on the plane come first.
     if (event.button === 0 && this.audience === 'gm' && this.beginGizmo(x, y)) return;
     if (event.button === 0 && this.placing) return;
@@ -4645,7 +4654,7 @@ export class Board {
     }
     const { clientX: x, clientY: y } = event;
     // Painting: a click paints the wall under it (Shift: the whole wall), and painting goes on until Esc.
-    if (event.button === 0 && this.painting) {
+    if (event.button === 0 && this.painting && press?.kind !== 'tool') {
       // A raised shape under the pointer takes the material (or loses it), before the walls behind it.
       const shaped = this.shapePartAt(x, y);
       if (shaped) {
@@ -4656,7 +4665,7 @@ export class Board {
       if (wall) this.host.paintWall(wall, this.painting === UNPAINT ? null : this.painting, event.shiftKey);
       return;
     }
-    if (event.button === 0 && this.placing) {
+    if (event.button === 0 && this.placing && press?.kind !== 'tool') {
       const at = this.boardPoint(x, y);
       const glb = this.placing;
       const look = this.placingLook;

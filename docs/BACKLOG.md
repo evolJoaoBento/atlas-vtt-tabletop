@@ -30,6 +30,5 @@ opening Atlas's 2D map with the tool chosen).
 17. **"Only show toolbar on hover" setting** (Atlas 0.18).
 18. **Five new languages** (de, fr, es, pt, it) for the ported panels (Atlas 0.18; needs a port re-sync from
     `2075-code/atlas-vtt-0.18-ref`).
-19. **Measure: Shift flips Keep on release, and the quick ruler from the other tools** (Atlas 0.18: Shift at the end of a measurement keeps it
-    if Keep is off and lets it fade if on, a held M ruler included; the board has no Shift flip, and the held M ruler is left out
-    of Edit mode, the fog tool, laser and a token's eyes, where the key stays a tap).
+19. **Measure: Shift flips Keep on release** (Atlas 0.18: Shift at the end of a measurement keeps it if Keep is off and lets it
+    fade if on, a held M ruler included; the board's measure tool has no Shift flip).

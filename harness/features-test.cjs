@@ -8074,14 +8074,30 @@ feature('hold M to measure', async ({ page, shot }) => {
   await page.keyboard.up('m');
   check('hold M: the key let go after that is no tap', (await state()).on === false);
 
-  // Edit mode has no quick ruler: a press with the key held is no ruler.
-  await page.evaluate(() => { const { board, modes } = window.boardTest; modes.mode = 'edit'; board.refreshToolbar(); });
-  await page.keyboard.down('m');
-  await page.mouse.down();
-  const edit = await state();
-  check('hold M: in Edit mode a press with the key held is no quick ruler', edit.drawn === null && edit.tool === 'move', JSON.stringify(edit));
-  await page.mouse.up();
-  await page.keyboard.up('m');
+  // Atlas lets the held key take the press from any tool: in Edit mode, with the fog tool, the water brush, the laser, the Shapes tool, and prop painting.
+  const fogCount = () => page.evaluate(() => Object.keys(window.boardTest.fog.record()).length);
+  const quick = async (label, setup, tearDown, expectBack) => {
+    await page.evaluate(setup);
+    await page.mouse.move(x, y);
+    await page.keyboard.down('m');
+    await page.mouse.down();
+    await page.mouse.move(x + 100, y + 30, { steps: 5 });
+    const mid = await state();
+    await page.mouse.up();
+    await page.keyboard.up('m');
+    const end = await state();
+    check('hold M: ' + label + ': the held key draws a ruler', mid.drawn === 'ruler' && mid.tool === 'measure', JSON.stringify(mid));
+    check('hold M: ' + label + ': the tool is back after, and nothing was kept', end.tool === 'move' && end.kept === 0 && (await page.evaluate(expectBack)), JSON.stringify(end));
+    await page.evaluate(tearDown);
+  };
+  await page.evaluate(() => { const { board, modes, fog } = window.boardTest; fog.reset(); modes.mode = 'edit'; board.refreshToolbar(); });
+  await quick('Edit mode with Move', () => {}, () => {}, () => true);
+  await quick('the fog tool', () => { window.boardTest.board.toolbarActions().fog.start(); }, () => { window.boardTest.board.toolbarActions().fog.stop(); }, () => window.boardTest.board.toolbarActions().fog.state().on === true);
+  check('hold M: the fog tool painted no fog', (await fogCount()) === 0, String(await fogCount()));
+  await quick('the water brush', () => { window.boardTest.board.toolbarActions().setWaterTool('paint'); }, () => { window.boardTest.board.toolbarActions().setWaterTool(null); }, () => window.boardTest.board.waterTool === 'paint');
+  await quick('the laser', () => { window.boardTest.board.toolbarActions().selectTool?.('laser'); }, () => { window.boardTest.board.toolbarActions().selectTool?.('move'); }, () => true);
+  await quick('prop painting', () => { window.boardTest.board.paintWith('wood'); }, () => { window.boardTest.board.paintWith(null); }, () => window.boardTest.board.painting === 'wood');
+  await quick('prop placing', () => { window.boardTest.board.placeProp('x.glb'); }, () => { window.boardTest.board.stopPlacing(); }, () => window.boardTest.board.placing === 'x.glb');
   await page.evaluate(() => { const { board, modes } = window.boardTest; modes.mode = 'play'; board.toolbarActions().selectMeasure(null); board.refreshToolbar(); });
 });
 
