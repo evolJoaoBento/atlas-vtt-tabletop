@@ -19,6 +19,10 @@ import { mergeExtra, type WallExtraChange } from './recordExtras';
 import type { ExtrasMove } from './extrasMigration';
 import { moveOf, type StackPlan } from './stackMove';
 import { resolveLevel, type BoardLevel } from './levels';
+import { collectMapObjects, countMapObjects, type MapObjectContent } from '../atlasPort/app/clipboard/mapObjectContent';
+import { pasteOffset, placeMapObjects } from '../atlasPort/app/clipboard/mapObjectPlacement';
+import { levelObjects } from '../atlasPort/app/levels/levelObjects';
+import type { GridState } from '../atlasPort/shims/atlasTypes';
 
 type RawToken = Record<string, unknown> & { x?: number; y?: number; imagePath?: string; instanceNumber?: number };
 /**
@@ -644,6 +648,45 @@ export class TokenWriter {
   /** Kills the token, as Atlas's Kill does: every resource that defeats it spent. */
   kill(path: string, id: string, definitions: readonly ResourceDefinition[]): Promise<void> {
     return this.change(path, id, kill(definitions));
+  }
+
+  /**
+   * Atlas's copy: detached copies of these tokens of the map (the ones on the map, in the order given), nothing written;
+   * null when none of the ids is a token on it.
+   */
+  async tokensToCopy(path: string, ids: readonly string[]): Promise<MapObjectContent | null> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.store(path);
+    const content = collectMapObjects({ tokens: (state.objects?.tokens ?? {}) as never, drawings: {}, texts: {}, pins: {} }, ids);
+    return countMapObjects(content) > 0 ? content : null;
+  }
+
+  /** Atlas's cut: copies the tokens, then takes them off the map in one write (one undo step, auras and all). */
+  async cutTokens(path: string, ids: readonly string[]): Promise<MapObjectContent | null> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.store(path);
+    if (!state.removeMapObjects) throw TokenWriter.missing('way to cut tokens');
+    const content = await this.tokensToCopy(path, ids);
+    if (!content) return null;
+    state.removeMapObjects(ids.filter((id) => Object.hasOwn(state.objects?.tokens ?? {}, id)));
+    return content;
+  }
+
+  /**
+   * Atlas's paste: the copies centred on `target` (map pixels), snapped to the map's grid as a drag is and stepping aside
+   * from what stands there; one write. Returns the new tokens' ids (Atlas gives them, and numbers them).
+   */
+  async pasteContent(path: string, content: MapObjectContent, target: { x: number; y: number }): Promise<string[]> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.store(path);
+    if (!state.insertMapObjects) throw TokenWriter.missing('way to paste tokens');
+    const grid = (state.grid ?? null) as GridState | null;
+    const scene = state as unknown as Parameters<typeof levelObjects>[0];
+    // What stands on the level shown, for a copy to step aside from (the other kinds are no concern of a token paste).
+    const there = levelObjects(scene) as unknown as { tokens?: object; drawings?: object; texts?: object; pins?: object; levelLinks?: object };
+    const existing = { tokens: there.tokens ?? {}, drawings: there.drawings ?? {}, texts: there.texts ?? {}, pins: there.pins ?? {}, levelLinks: there.levelLinks };
+    const placed = placeMapObjects(content, pasteOffset(content, target, grid), grid, existing as never);
+    return state.insertMapObjects(placed);
   }
 
   /** Deletes the token from the map. */

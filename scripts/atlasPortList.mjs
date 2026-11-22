@@ -202,6 +202,10 @@ export const NEWER_ENTRIES = [
   'types/toolSwitches.ts',
   'lighting/exploredEdits.ts',
   'lighting/polygonClip.ts',
+  // Copy, cut and paste (Atlas's map clipboard): what is copied, where a paste lands, and the clipboard itself.
+  'clipboard/mapClipboard.ts',
+  'clipboard/mapObjectContent.ts',
+  'clipboard/mapObjectPlacement.ts',
 ];
 
 /** Floor files the newer Atlas's version replaces (a superset: it only adds what the fog's room logic needs). */

@@ -7468,6 +7468,7 @@ feature('shortcut help on the board', async ({ page, shot }) => {
   check("shortcut help: Atlas's help window opens on the board, with its title", seen.title.length > 0 && seen.rows.length > 10, JSON.stringify(seen.title));
   check("shortcut help: the asset manager is listed with the board's key (Shift + A)", (find('asset')?.[1] ?? '') === 'Shift + A', JSON.stringify(find('asset')));
   check("shortcut help: Atlas's 2D map tools are not listed (the fog tool and its brush keys are the board's now)", !seen.atlasRows.some((label) => /draw|erase|text tool|pin|wall|sound page/.test(label.replace('smaller drawing or fog brush', '').replace('larger drawing or fog brush', ''))), JSON.stringify(seen.atlasRows));
+  check("shortcut help: Copy, Cut and Paste are listed with Atlas's keys", [['copy selection', 'Ctrl/Cmd + C'], ['cut selection', 'Ctrl/Cmd + X'], ['paste at cursor', 'Ctrl/Cmd + V']].every(([label, keys]) => (find(label)?.[1] ?? '').replace(/⌘|Ctrl|Cmd/g, 'M').length > 0), JSON.stringify([find('copy selection'), find('cut selection'), find('paste at cursor')]));
   check("shortcut help: the fog tool key and the brush size keys are listed", seen.atlasRows.includes('fog tools') && seen.atlasRows.includes('smaller drawing or fog brush') && seen.atlasRows.includes('larger drawing or fog brush') && (find('fog tools')?.[1] ?? '') === 'F', JSON.stringify(find('fog tools')));
   check("shortcut help: the fog tool's Alt, Shift, Ctrl/Cmd, Enter, Backspace and Escape are listed among the board's own keys", ['Alt', 'Shift', 'Ctrl/Cmd', 'Enter', 'Backspace / Undo key', 'Escape'].every((keys) => seen.rows.some(([label, key]) => label.startsWith('Fog tool:') && key === keys)), JSON.stringify(seen.rows.filter(([label]) => label.startsWith('Fog tool:'))));
   // Atlas 0.17+ has no experimental switch on Next mood and Silence: the board's two sound keys are listed; the Sound page key (S, a clash with Silence's Shift+S) is not.
@@ -7528,6 +7529,70 @@ feature('atlas shortcuts on the board', async ({ page }) => {
     result.up && result.down && !result.pastTop && JSON.stringify(result.switched) === JSON.stringify([['layer', 'upper'], ['layer', 'cellar']]), JSON.stringify(result));
   check('board shortcuts: Select all selects every token, Delete removes them all at once, then has nothing to remove',
     result.all && result.groupSize === result.tokenCount && result.deleted && result.removed.length === result.tokenCount && !result.nothingLeft, JSON.stringify(result));
+});
+
+// ── Atlas's Copy, Cut and Paste of tokens (Ctrl/Cmd + C / X / V) ─────────────────────────────────────────────────────
+feature('copy, cut and paste tokens', async ({ page, shot }) => {
+  // What the keys call on the board (the keys themselves are matched in tests/boardHotkeys.test.ts; the store work is in
+  // tests/tokenClipboard.test.ts): the selection goes to the host, a paste lands under the pointer, else in the view's middle.
+  await page.evaluate(() => { window.boardTest.board.select(null); window.boardTest.record.clip.length = 0; });
+  const canvas = await page.evaluate(() => { const r = window.boardTest.board.canvas.getBoundingClientRect(); return { x: r.left + r.width * 0.6, y: r.top + r.height * 0.6 }; });
+  await page.mouse.move(canvas.x, canvas.y);
+  await wait(100);
+  const result = await page.evaluate(({ canvas }) => {
+    const { board, record } = window.boardTest;
+    const clip = () => JSON.parse(JSON.stringify(record.clip.splice(0)));
+    const out = {};
+    // Nothing selected: the key is still the board's, and nothing is sent.
+    out.emptyKeys = [board.copySelection(), board.cutSelection(), board.pasteSelection()];
+    out.empty = clip().map((entry) => entry[0]);
+    board.select('hero');
+    out.copyOne = [board.copySelection(), clip()];
+    board.selectTokens(['hero', 'orc']);
+    out.copyGroup = [board.copySelection(), clip()];
+    out.groupKept = board.group.size;
+    out.cut = [board.cutSelection(), clip()];
+    out.afterCut = { group: board.group.size, selected: board.selectedTokenIds().length };
+    // Selected page text is the browser's to copy.
+    board.select('hero');
+    const note = document.createElement('p');
+    note.textContent = 'some selected text';
+    document.body.append(note);
+    const range = document.createRange();
+    range.selectNodeContents(note);
+    const selection = document.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    out.yield = [board.copySelection(), board.cutSelection(), clip().length];
+    selection.removeAllRanges();
+    note.remove();
+    board.select(null);
+    return out;
+  }, { canvas });
+  check("copy/cut/paste: with nothing selected the keys are the board's and send nothing", JSON.stringify(result.emptyKeys) === '[true,true,true]' && JSON.stringify(result.empty) === '["paste"]', JSON.stringify(result));
+  check('copy/cut/paste: Copy sends the selected token, or the whole group, and keeps the selection', JSON.stringify(result.copyOne) === '[true,[["copy",["hero"]]]]' && result.copyGroup[1][0][1].length === 2 && result.groupKept === 2, JSON.stringify(result.copyGroup));
+  check('copy/cut/paste: Cut sends the group and clears the selection', result.cut[1][0][0] === 'cut' && result.cut[1][0][1].length === 2 && result.afterCut.group === 0 && result.afterCut.selected === 0, JSON.stringify(result.cut));
+  check('copy/cut/paste: selected page text keeps Copy and Cut for the browser', result.yield[0] === false && result.yield[1] === false && result.yield[2] === 0, JSON.stringify(result.yield));
+  // Paste under the pointer, then the middle of the view when the pointer is off the board.
+  await page.evaluate(() => { window.boardTest.record.clip.length = 0; window.boardTest.board.pasteSelection(); });
+  await wait(100);
+  const pasted = await page.evaluate(({ canvas }) => {
+    const { board, record } = window.boardTest;
+    const at = record.clip.find((entry) => entry[0] === 'paste')?.[1];
+    const under = board.boardPoint(canvas.x, canvas.y);
+    return { at, under, group: [...board.group], selected: board.selectedTokenIds() };
+  }, { canvas });
+  check('copy/cut/paste: Paste lands on the point under the pointer and selects the copies', pasted.at && Math.hypot(pasted.at.x - pasted.under.x, pasted.at.y - pasted.under.y) < 2 && pasted.group.length === 2, JSON.stringify(pasted));
+  await shot('paste-tokens');
+  await page.mouse.move(2, 2);
+  await page.evaluate(() => { const el = window.boardTest.board.canvas; el.dispatchEvent(new PointerEvent('pointerleave', { bubbles: true })); window.boardTest.record.clip.length = 0; window.boardTest.board.pasteSelection(); });
+  await wait(100);
+  const centred = await page.evaluate(() => {
+    const { board, record } = window.boardTest;
+    const at = record.clip.find((entry) => entry[0] === 'paste')?.[1];
+    return { at, centre: board.viewCentre() };
+  });
+  check('copy/cut/paste: with the pointer off the board Paste lands in the middle of the view', centred.at && Math.hypot(centred.at.x - centred.centre.x, centred.at.y - centred.centre.y) < 1, JSON.stringify(centred));
 });
 
 // ── Atlas's GM view switch (GM view / session view) on the board's toolbar ───────────────────────────────────────────

@@ -32,6 +32,9 @@ test("Atlas's default keys reach their board actions", () => {
     [{ key: 'a', ctrlKey: true }, 'selectAll'],
     [{ key: 'Delete' }, 'delete'],
     [{ key: 'Backspace' }, 'delete'],
+    [{ key: 'c', ctrlKey: true }, 'copy'],
+    [{ key: 'x', ctrlKey: true }, 'cut'],
+    [{ key: 'v', ctrlKey: true }, 'paste'],
     [{ key: 'f' }, 'fog'],
     [{ key: ',' }, 'brushSmaller'],
     [{ key: '.' }, 'brushLarger'],
@@ -68,8 +71,8 @@ test("the Measure key steps through the modes in the bar's order, passing over R
 });
 
 test("the shortcut help lists Atlas's shortcuts the board has, not its 2D map tools or what the board lacks", () => {
-  for (const id of ['help', 'palette', 'assets', 'measure', 'diceTray', 'fitToken', 'levelUp', 'selectAll', 'delete', 'initiative', 'nextTurn', 'fog', 'drawSmaller', 'drawLarger']) assert.ok(worksOnBoard(id), id);
-  for (const id of ['draw', 'erase', 'text', 'pin', 'wall', 'audio', 'lightingPeek', 'copy', 'paste', 'duplicate', 'widget1', 'increase']) assert.ok(!worksOnBoard(id), id);
+  for (const id of ['help', 'palette', 'assets', 'measure', 'diceTray', 'fitToken', 'levelUp', 'selectAll', 'delete', 'copy', 'cut', 'paste', 'initiative', 'nextTurn', 'fog', 'drawSmaller', 'drawLarger']) assert.ok(worksOnBoard(id), id);
+  for (const id of ['draw', 'erase', 'text', 'pin', 'wall', 'audio', 'lightingPeek', 'duplicate', 'widget1', 'increase']) assert.ok(!worksOnBoard(id), id);
 });
 
 test("the board's own keys name the camera and the eyes", () => {

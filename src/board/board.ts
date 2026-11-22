@@ -267,6 +267,14 @@ export interface BoardHost {
   summonTokens?(tokens: ReadonlyArray<{ name: string; x: number; y: number; statblock?: string }>): string[];
   /** Takes tokens off the map. */
   removeTokens?(ids: readonly string[]): void;
+  /**
+   * Atlas's Copy, Cut and Paste of tokens (the GM's; `tokenClipboard.ts`): copy puts the tokens on the clipboard (false
+   * when none is on the map); cut also takes them off, in one step; paste puts the clipboard centred on a map point and
+   * gives the new tokens' ids. A host without them (an Atlas that lacks the store actions refuses with a reason).
+   */
+  copyTokens?(ids: readonly string[]): Promise<boolean>;
+  cutTokens?(ids: readonly string[]): Promise<boolean>;
+  pasteTokens?(at: { x: number; y: number }): Promise<readonly string[]>;
   /** Several tokens turned (degrees, 0 to 360); a host without it cannot turn a group. */
   rotateTokens?(turns: ReadonlyArray<{ id: string; rotation: number }>): void;
   moveProp(id: string, x: number, y: number): void;
@@ -5929,15 +5937,59 @@ export class Board {
     return true;
   }
 
+  /** The tokens of the shown scene that are selected: the group, else the selected one. */
+  selectedTokenIds(): string[] {
+    const picked = this.group.size > 0 ? [...this.group] : this.selectedId !== null ? [this.selectedId] : [];
+    return picked.filter((id) => this.tokens.has(id));
+  }
+
   /** Atlas's Delete key: the selected tokens leave the map (the GM's, one undo step). False with nothing selected. */
   deleteSelection(): boolean {
     if (this.audience !== 'gm' || !this.host.removeTokens) return false;
-    const picked = this.group.size > 0 ? [...this.group] : this.selectedId !== null ? [this.selectedId] : [];
-    const ids = picked.filter((id) => this.tokens.has(id));
+    const ids = this.selectedTokenIds();
     if (ids.length === 0) return false;
     this.clearGroup();
     this.select(null);
     this.host.removeTokens(ids);
+    return true;
+  }
+
+  /** Text selected on the page: Atlas's Copy and Cut leave the key to the browser's own copy then (`yieldsToTextSelection`). */
+  private textSelected(): boolean {
+    const selection = this.canvas.ownerDocument.getSelection();
+    return selection !== null && !selection.isCollapsed && selection.toString().trim() !== '';
+  }
+
+  /**
+   * Atlas's Copy key: the selected tokens go on the clipboard (the GM's). True when the key is the board's (as in Atlas,
+   * even with nothing selected), false when it was left to selected page text or this is not the GM's board.
+   */
+  copySelection(): boolean {
+    if (this.audience !== 'gm' || !this.host.copyTokens || this.textSelected()) return false;
+    const ids = this.selectedTokenIds();
+    if (ids.length > 0) void this.host.copyTokens(ids);
+    return true;
+  }
+
+  /** Atlas's Cut key: Copy, then the selected tokens leave the map in one undo step. */
+  cutSelection(): boolean {
+    if (this.audience !== 'gm' || !this.host.cutTokens || this.textSelected()) return false;
+    const ids = this.selectedTokenIds();
+    if (ids.length === 0) return true;
+    this.clearGroup();
+    this.select(null);
+    void this.host.cutTokens(ids);
+    return true;
+  }
+
+  /**
+   * Atlas's Paste key: the copied tokens land centred on the point under the pointer, else on the middle of the view, and
+   * the copies are selected. True when the key is the board's.
+   */
+  pasteSelection(): boolean {
+    if (this.audience !== 'gm' || !this.host.pasteTokens) return false;
+    const at = this.pointerAt ? this.boardPoint(this.pointerAt.x, this.pointerAt.y) : null;
+    this.host.pasteTokens(at ?? this.viewCentre()).then((ids) => { if (ids.length > 0) this.selectTokens(ids); }, () => {});
     return true;
   }
 

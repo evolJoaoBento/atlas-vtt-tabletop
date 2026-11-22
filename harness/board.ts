@@ -282,7 +282,7 @@ async function main(): Promise<void> {
     edits: [] as Array<[string, string, ResourceValue, ResourceValue, boolean]>,
     rotations: [] as Array<Array<{ id: string; rotation: number }>>,
     /** Spell rules carried out: tokens moved, tokens summoned, tokens removed, casts claimed. */
-    ruleMoves: [] as Array<Array<{ id: string; x: number; y: number }>>, summons: [] as unknown[], removed: [] as string[], claims: [] as string[],
+    ruleMoves: [] as Array<Array<{ id: string; x: number; y: number }>>, summons: [] as unknown[], removed: [] as string[], clip: [] as Array<[string, ...unknown[]]>, claims: [] as string[],
   };
   /** What the host holds, as Atlas or the file would: edits apply to it. */
   const stored = new Map(map.tokens.map((entry) => [entry.id, structuredClone(entry.resources)]));
@@ -590,6 +590,9 @@ async function main(): Promise<void> {
     claimSpell: (id) => { if (record.claims.includes(id)) return false; record.claims.push(id); return true; },
     summonTokens: (tokens) => { record.summons.push(JSON.parse(JSON.stringify(tokens))); return tokens.map((_, k) => (k === 0 ? 'gob' : `summoned${k}`)); },
     removeTokens: (ids) => { record.removed.push(...ids); },
+    copyTokens: async (ids) => { record.clip.push(['copy', [...ids]]); return true; },
+    cutTokens: async (ids) => { record.clip.push(['cut', [...ids]]); return true; },
+    pasteTokens: async (at) => { record.clip.push(['paste', { ...at }]); return ['hero', 'orc']; },
     moveProp: (id, x, y) => { record.propMoves.push([id, x, y]); },
     scaleProp: (id, scale) => { record.propScales.push([id, scale]); },
     liftProp: (id, lift) => { record.propLifts.push([id, lift]); },

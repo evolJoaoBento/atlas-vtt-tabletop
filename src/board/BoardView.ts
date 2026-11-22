@@ -68,6 +68,7 @@ import type { PlayerView } from './PlayerWindow';
 import { DEFAULT_EDGES, DEFAULT_SEE_THROUGH_SIZE, QUALITY, withLooks, type LayerLook, type Quality, type QualityPreset, type WallEdges } from './quality';
 import { DEFAULT_SKY, type LightingChoice, type Sky } from './look';
 import type { TokenWriter } from './tokenWriter';
+import { copyTokens, cutTokens, pasteTokens } from './tokenClipboard';
 import { BoardDice } from '../dice/boardDice';
 import { DEFAULT_CINEMATIC_SETTINGS, type CinematicSettings } from '../cutscene/cinematicSettings';
 import { levelOfPlace, mapOfPlace, placeAt } from '../cutscene/cutsceneData';
@@ -1588,6 +1589,20 @@ export class BoardView extends ItemView {
         }
       },
       removeTokens: (ids) => { for (const id of ids) this.deleteToken(id); },
+      copyTokens: (ids) => copyTokens(writer, mapPath(), ids).catch((error: unknown) => { this.unsaved('copy', error); return false; }),
+      cutTokens: async (ids) => {
+        const path = mapPath();
+        try {
+          const cut = await cutTokens(writer, path, ids);
+          // The tokens are gone: so are the minis Tabletop gave them, and their looks (as a Delete does).
+          if (cut) for (const id of ids) { assignments.remove(path, id); boardData.setStyle(path, id, 'disc'); }
+          return cut;
+        } catch (error) {
+          this.unsaved('cut', error);
+          return false;
+        }
+      },
+      pasteTokens: (at) => pasteTokens(writer, mapPath(), at).catch((error: unknown) => { this.unsaved('paste', error); return []; }),
       moveProp: (id, x, y) => boardData.moveProp(mapPath(), id, x, y),
       scaleProp: (id, scale) => boardData.setPropScale(mapPath(), id, scale),
       liftProp: (id, lift) => boardData.setPropLift(mapPath(), id, lift),
