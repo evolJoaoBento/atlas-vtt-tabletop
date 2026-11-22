@@ -11,7 +11,7 @@ import {
 import { lookOfFormula } from '../atlasPort/app/react/components/dice/presetLook';
 import { rulesOfLook } from './atlasDice';
 import { DIE_TYPES } from './kit/faces';
-import { explainFormula, parseFormula, type DiceRules, type RollRequest } from './rollRules';
+import { askedSide, explainFormula, parseFormula, type DiceRules, type RollRequest } from './rollRules';
 
 /** A saved roll as Atlas keeps it (`DicePreset`): a formula, or designed dice (`look`) with a bonus as its formula. */
 export interface SavedRoll {
@@ -101,5 +101,5 @@ export function savedRollPlan(preset: SavedRoll, collection: DiceRules, side?: '
   const request = parseFormula(written, rules);
   if (!request) return { problem: explainFormula(written, rules) ?? `Can't read "${preset.formula}" as dice.` };
   const edge = side ? rules[side] : null;
-  return { request: { ...request, ...(side && edge ? { advantage: side } : {}) }, rules };
+  return { request: askedSide(request, side && edge ? side : null), rules };
 }

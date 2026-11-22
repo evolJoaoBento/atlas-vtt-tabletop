@@ -3,6 +3,7 @@
  * bare bonus is added to, how critical results are recognised and which dice explode. Pure.
  */
 import { explodingFaces, getDiceCrit, MAX_EXPLOSIONS, type RollingDice } from '../../packages/atlas-shared/src/index';
+import { combinedSide, writtenSide } from '../atlasPort/app/tools/writtenAdvantage';
 import { DIE_FACES, DIE_TYPES, type DieType } from './kit/faces';
 
 export interface DiceRules {
@@ -175,7 +176,30 @@ export function parseFormula(formula: string, rules: DiceRules = DEFAULT_RULES):
   return 'error' in result ? null : result;
 }
 
+/**
+ * A formula as a request. A side written last (`1d20+5 adv`, Atlas 0.19's `writtenSide`) asks for that side, as Shift or Alt
+ * does; the word alone rolls the set's dice. Atlas refuses a word that would change nothing (the set has no rule for that
+ * side, or the roll holds none of the set's dice) rather than ignore it.
+ */
 function readFormula(formula: string, rules: DiceRules): RollRequest | { error: string } {
+  const written = writtenSide(formula);
+  if (!written.side) return readDice(formula, rules);
+  const read = readDice(written.formula.trim() === '' ? '+0' : written.formula, rules);
+  if ('error' in read) return read;
+  const edge = edgeOf(rules, written.side);
+  const own = defaultDice(rules).reduce((sum, die) => sum + (read.dice[die] ?? 0), 0);
+  if (edge === null || (edge.kind === 'keep' ? own !== 1 : own === 0)) return { error: "adv and dis change only rolls of the dice set's own dice, and only where the set has a rule for that side." };
+  return { ...read, advantage: written.side };
+}
+
+/** `request` with the side asked for (Shift or Alt) beside the one it writes: opposite sides cancel (Atlas's `combinedSide`). */
+export function askedSide(request: RollRequest, asked: 'advantage' | 'disadvantage' | null | undefined): RollRequest {
+  const { advantage: written, ...rest } = request;
+  const side = combinedSide(written ?? null, asked ?? null);
+  return side ? { ...rest, advantage: side } : rest;
+}
+
+function readDice(formula: string, rules: DiceRules): RollRequest | { error: string } {
   const bad = (error: string): { error: string } => ({ error });
   // Labels (`2d6[fire]`) are taken out first, whitespace and all, and put back by number.
   const labels: string[] = [];

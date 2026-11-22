@@ -101,6 +101,21 @@ test('a side of advantage goes with a designed roll only where its set has a rul
   assert.equal(without.request.advantage, undefined);
 });
 
+test('Atlas 0.19: a side a saved roll writes (`+5 adv`) is thrown with it, and the side asked for beside it cancels it', () => {
+  const written = savedRollPlan({ id: 'a', name: 'Check', formula: '+5 adv' }, DEFAULT_RULES);
+  assert.ok('request' in written);
+  assert.equal(written.request.advantage, 'advantage');
+  assert.equal(written.request.modifier, 5);
+  const look = { dice: [{ count: 1, sides: 20 }], crit: 'natural', advantage: { kind: 'keep' }, disadvantage: { kind: 'keep' } };
+  const designed = { id: 'b', name: 'Check', formula: '+5 adv', look };
+  const same = savedRollPlan(designed, DEFAULT_RULES, 'advantage');
+  assert.ok('request' in same);
+  assert.equal(same.request.advantage, 'advantage');
+  const opposite = savedRollPlan(designed, DEFAULT_RULES, 'disadvantage');
+  assert.ok('request' in opposite);
+  assert.equal(opposite.request.advantage, undefined, 'opposite sides cancel');
+});
+
 test('a saved roll is renamed, and a formula roll rewritten, in its place', () => {
   const saved = saveRoll(empty, 'Stats', '4d6kh3', DEFAULT_RULES, 'b');
   assert.ok('change' in saved);

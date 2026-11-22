@@ -27,7 +27,7 @@ import { DiceTable } from './diceTable';
 import { DiceTextures } from './diceTextures';
 import { listenForDiePresses } from './diePress';
 import { DIE_TYPES, type DieType } from './kit/faces';
-import { explainFormula, parseFormula, type RollRequest } from './rollRules';
+import { askedSide, explainFormula, parseFormula, type RollRequest } from './rollRules';
 import { GENTLE } from './throwInput';
 
 export interface BoardDiceDeps {
@@ -272,7 +272,7 @@ export class BoardDice {
     this.rollFrom = { abilityName: label, tokenId };
     // Auto roll (the board settings' tick): thrown at once, and a die caught on an edge or an explosion thrown again by
     // itself; otherwise the dice lie on the table for the GM to throw.
-    controller.start({ ...parsed, label, ...(advantage ? { advantage } : {}) }, this.deps.settings().autoRoll ? { auto: GENTLE } : {});
+    controller.start({ ...askedSide(parsed, advantage), label }, this.deps.settings().autoRoll ? { auto: GENTLE } : {});
   }
 
   /**

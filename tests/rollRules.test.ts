@@ -175,3 +175,31 @@ test('Fate dice and labels are read, and refused where they cannot work', async 
   assert.equal(parse('2d6[ação do goblin]', rules)?.dieLabels?.d6?.[0], 'ação do goblin', 'letters of any language');
   assert.equal(parse('21dF', rules), null, 'more than 20 dice');
 });
+
+test('Atlas 0.19: a side written last (`+7 adv`) is read as the side asked for, where the set has a rule for it', () => {
+  const keep: DiceRules = { ...DEFAULT_RULES };
+  assert.equal(parseFormula('1d20+5 adv', keep)?.advantage, 'advantage');
+  assert.equal(parseFormula('+3 DIS', keep)?.advantage, 'disadvantage');
+  assert.deepEqual(parseFormula('+7 adv', keep)?.modifier, 7);
+  assert.equal(parseFormula('adv', keep)?.advantage, 'advantage', 'the word alone rolls the set\'s dice');
+  assert.equal(parseFormula('1d20+5', keep)?.advantage, undefined);
+  // The word stands last, after a space.
+  assert.equal(parseFormula('1d20+5adv', keep), null);
+  // A set with no rule for the side, or a roll of other dice than the set's own, refuses the word rather than ignoring it.
+  const none: DiceRules = { ...DEFAULT_RULES, advantage: null, disadvantage: null };
+  assert.equal(parseFormula('+7 adv', none), null);
+  assert.match(explainFormula('+7 adv', none) ?? '', /adv and dis change only rolls of the dice set's own dice/);
+  assert.equal(parseFormula('2d8+3 adv', keep), null);
+  const onlyDis: DiceRules = { ...DEFAULT_RULES, advantage: null };
+  assert.equal(parseFormula('+2 dis', onlyDis)?.advantage, 'disadvantage');
+  assert.equal(parseFormula('+2 adv', onlyDis), null);
+});
+
+test('Atlas 0.19: a side asked for beside a side written cancels it, as Atlas combines them', async () => {
+  const { askedSide } = await import('../src/dice/rollRules');
+  const written = parseFormula('+7 adv', DEFAULT_RULES)!;
+  assert.equal(askedSide(written, undefined).advantage, 'advantage');
+  assert.equal(askedSide(written, 'advantage').advantage, 'advantage');
+  assert.equal('advantage' in askedSide(written, 'disadvantage'), false, 'opposite sides cancel');
+  assert.equal(askedSide(parseFormula('+7', DEFAULT_RULES)!, 'disadvantage').advantage, 'disadvantage');
+});
