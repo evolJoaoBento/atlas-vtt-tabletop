@@ -6,7 +6,7 @@
  */
 import * as THREE from 'three';
 import { templateArea, type MeasureShape, type TemplateMark, type TemplateShape } from './playerTools';
-import { plateTexture } from './textures';
+import { measurePinTexture, plateTexture } from './textures';
 import { stripGeometry } from './surface';
 
 type Point = { x: number; y: number };
@@ -16,6 +16,10 @@ const LIFT = 1.2;
 const PING_SECONDS = 1.5;
 const LASER_FADE_SECONDS = 1.2;
 const MEASURE_COLOR = '#ffcc33';
+/** The pin beside a fading measurement's label: its size and the gap to the label, in screen pixels. */
+export const MEASURE_PIN_PX = 20;
+const MEASURE_PIN_GAP_PX = 3;
+const LABEL_PX = 22;
 
 interface Ping { group: THREE.Group; born: number }
 interface Laser { line: THREE.Line; points: Array<Point & { at: number }>; lifted: boolean; color: string }
@@ -75,19 +79,47 @@ export class BoardMarks {
     draft: { shape: TemplateShape; start: Point; end: Point; color: string; width?: number } | null,
     coneAngle: number,
     pixel: number,
+    pin = false,
   ): void {
     clear(this.overlay);
+    this.pin = null;
     if (measure) {
       this.overlay.add(this.measureShape(measure.shape, measure.start, measure.end, measure.color ?? MEASURE_COLOR, coneAngle, measure.cell ?? 70, measure.waypoints, measure.width));
       const plate = plateTexture(measure.label, 24);
       const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: plate.texture, sizeAttenuation: false, transparent: true, depthTest: false }));
       // As the board's ruler labels: 22 screen pixels tall, whatever the distance.
-      sprite.scale.set(pixel * 22 * (plate.width / plate.height), pixel * 22, 1);
+      const labelWidth = LABEL_PX * (plate.width / plate.height);
+      sprite.scale.set(pixel * labelWidth, pixel * LABEL_PX, 1);
       sprite.position.set(measure.end.x, LIFT, measure.end.y);
       sprite.renderOrder = 10;
       this.overlay.add(sprite);
+      if (pin) {
+        // Beside the label, to the screen's right: the sprite's anchor is pushed left of its centre.
+        const away = labelWidth / 2 + MEASURE_PIN_GAP_PX + MEASURE_PIN_PX / 2;
+        const badge = new THREE.Sprite(new THREE.SpriteMaterial({ map: measurePinTexture(), sizeAttenuation: false, transparent: true, depthTest: false }));
+        badge.scale.set(pixel * MEASURE_PIN_PX, pixel * MEASURE_PIN_PX, 1);
+        badge.center.set(0.5 - away / MEASURE_PIN_PX, 0.5);
+        badge.position.set(measure.end.x, LIFT, measure.end.y);
+        badge.renderOrder = 11;
+        this.overlay.add(badge);
+        this.pin = { x: measure.end.x, y: measure.end.y, away };
+      }
     }
     if (draft) this.overlay.add(this.shape(draft.shape, draft.start, draft.end, draft.color, coneAngle, 0.18, draft.width));
+  }
+
+  /** Where the pin beside the measure's label stands: the label's anchor on the map and how many screen pixels to its right; null without one. */
+  pin: { x: number; y: number; away: number } | null = null;
+
+  /** Shows the measure and its pin as `alpha` of themselves (1 whole, 0 gone): the dissolve of one that is not kept. */
+  setOverlayAlpha(alpha: number): void {
+    this.overlay.traverse((node) => {
+      const material = (node as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+      for (const one of Array.isArray(material) ? material : material ? [material] : []) {
+        one.userData.base ??= one.opacity;
+        one.opacity = (one.userData.base as number) * alpha;
+      }
+    });
   }
 
   /** Someone's ping: a ring that grows and fades over a second and a half. */

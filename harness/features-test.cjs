@@ -8057,6 +8057,90 @@ feature('measure menu and behaviour', async ({ page, shot }) => {
   await page.keyboard.press('Escape');
 });
 
+feature('measure release: kept, or two seconds with a pin that keeps it (Atlas 0.19)', async ({ page, shot }) => {
+  await page.evaluate(() => {
+    const { modes, board, clearKeptMeasures } = window.boardTest;
+    clearKeptMeasures();
+    modes.on = true;
+    modes.mode = 'play';
+    board.host.setMeasureTool({ keep: false });
+    board.refreshToolbar();
+  });
+  await page.evaluate(() => window.boardTest.board.tools.select('move'));
+  await page.click('button[aria-label="Measure"]');
+  await wait(150);
+  await page.click('.atlas-tabletop-measure-bars [data-measure-mode="circle"]');
+  await wait(80);
+  const canvas = await page.locator('canvas').first().boundingBox();
+  const drag = async (shift = false) => {
+    const sx = canvas.x + canvas.width * 0.35;
+    const sy = canvas.y + canvas.height * 0.62;
+    await page.mouse.move(sx, sy);
+    await page.mouse.down();
+    await page.mouse.move(sx + 80, sy + 10, { steps: 4 });
+    await wait(60);
+    if (shift) await page.keyboard.down('Shift');
+    await page.mouse.up();
+    if (shift) await page.keyboard.up('Shift');
+    await wait(100);
+  };
+  const state = () => page.evaluate(() => ({
+    kept: window.boardTest.keptMeasures().length,
+    drawn: window.boardTest.board.marks.overlay.children.length,
+    pin: window.boardTest.board.marks.pin !== null,
+    keep: window.boardTest.measureTool().keep,
+  }));
+  // Keep off: nothing is kept at once, but the measurement stays with its pin.
+  await drag();
+  const released = await state();
+  check('measure release: Keep off leaves the measurement on the board with a pin and keeps nothing yet', released.kept === 0 && released.drawn > 0 && released.pin, JSON.stringify(released));
+  // A press on the pin keeps it (one measure in Atlas's store) and takes the fading one off.
+  const pinAt = await page.evaluate(() => {
+    const { board, Vector3 } = window.boardTest;
+    board.applyView();
+    const rect = board.canvas.getBoundingClientRect();
+    const pin = board.marks.pin;
+    const on = new Vector3(pin.x, 1.2, pin.y).project(board.view);
+    return { x: rect.left + ((on.x + 1) / 2) * rect.width + pin.away, y: rect.top + ((1 - on.y) / 2) * rect.height };
+  });
+  await page.mouse.click(pinAt.x, pinAt.y);
+  await wait(200);
+  const pinned = await state();
+  check('measure release: pressing the pin keeps the measurement and it goes from the fading one', pinned.kept === 1 && !pinned.pin, JSON.stringify(pinned));
+  await page.evaluate(() => window.boardTest.clearKeptMeasures());
+  await drag();
+  await shot('measure-released-pin');
+  await wait(2300);
+  // Left alone, it dissolves and is gone after two seconds, nothing kept.
+  await drag();
+  await wait(1200);
+  const mid = await state();
+  await wait(1300);
+  const gone = await state();
+  check('measure release: left alone it is gone after two seconds and nothing is kept', mid.drawn > 0 && gone.drawn === 0 && !gone.pin && gone.kept === 0, JSON.stringify({ mid, gone }));
+  // Shift flips Keep: off becomes kept.
+  await drag(true);
+  const shiftKept = await state();
+  check('measure release: Shift with Keep off keeps it at once', shiftKept.kept === 1 && shiftKept.drawn === 0, JSON.stringify(shiftKept));
+  await page.evaluate(() => window.boardTest.clearKeptMeasures());
+  // Keep on (the K key): kept at release; Shift lets it fade instead.
+  await page.keyboard.press('k');
+  await wait(100);
+  await drag();
+  const keepOn = await state();
+  check('measure release: the K key makes Keep stay on, and a measurement is then kept at release', keepOn.keep === true && keepOn.kept === 1, JSON.stringify(keepOn));
+  await page.evaluate(() => window.boardTest.clearKeptMeasures());
+  await drag(true);
+  const shiftFades = await state();
+  check('measure release: Shift with Keep on lets it fade, with its pin', shiftFades.kept === 0 && shiftFades.pin, JSON.stringify(shiftFades));
+  // A new measurement gives the fading one way.
+  await drag();
+  const fresh = await state();
+  check('measure release: a new press makes the fading measurement give way', fresh.kept === 1, JSON.stringify(fresh));
+  await page.keyboard.press('k');
+  await page.keyboard.press('Escape');
+});
+
 feature('shortcut help on the board', async ({ page, shot }) => {
   // Atlas's own shortcut help (copied), as the board's ? key opens it: Atlas's shortcuts the board has, with the keys the
   // board takes (a camera letter with Shift), then the board's own keys; Atlas's 2D map tools left out.

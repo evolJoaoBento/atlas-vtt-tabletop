@@ -30,7 +30,8 @@ import type { MaterialLibrary } from '../materials';
 import { Board, GM_SPELL_OWNER, type BoardHost } from './board';
 import { isInstantaneous, readCastSpells, type CastSpell, type SpellAsk } from './spells';
 import { castsOfMeasures, marksOfMeasures, measureWrite, spellWrite, templateWrite, type MeasureChange, type MeasureWrite } from './boardMeasures';
-import { DEFAULT_MEASURE_TOOL, type MeasureToolOptions } from './measureOptions';
+import { readAtlasMeasureTool, writeAtlasMeasureTool } from './atlasMeasureTool';
+import type { MeasureToolOptions } from './measureOptions';
 import { formatHotkey } from '../atlasPort/app/keyboard/mapHotkeys';
 import { boardBinding } from './boardHotkeys';
 import { readGmView, writeGmView } from './gmView';
@@ -178,7 +179,7 @@ export interface BoardServices {
   /** The laser's colour and size, kept for every map; and saving a change. */
   laser(): LaserSettings;
   setLaser(changes: Partial<LaserSettings>): void;
-  /** The GM's Measure tool choices, kept for every board. */
+  /** The GM's Measure tool choices, kept for every board where Atlas has none of its own (before 0.16). */
   measureTool?(): MeasureToolOptions;
   setMeasureTool?(changes: Partial<MeasureToolOptions>): void;
   /** Chooses the board's lighting, for every board. */
@@ -1707,8 +1708,13 @@ export class BoardView extends ItemView {
         if (!new AtlasBridge(this.app).setDragDistance(choice)) new Notice('Tabletop: drag distance is kept in Atlas, which is not enabled.');
         this.board?.refreshToolbar();
       },
-      measureTool: () => this.services.measureTool?.() ?? DEFAULT_MEASURE_TOOL,
-      setMeasureTool: (changes) => this.services.setMeasureTool?.(changes),
+      // Atlas's own choices (its map view's store), so the board's bar and Atlas's toolbar are one; the board's copy where Atlas has none.
+      measureTool: () => readAtlasMeasureTool(this.path ? this.services.writer.holder(this.path)?.atlasStore.getState() : null) ?? this.services.measureTool?.() ?? null,
+      setMeasureTool: (changes) => {
+        if (writeAtlasMeasureTool(this.path ? this.services.writer.holder(this.path)?.atlasStore.getState() : null, changes)) return true;
+        this.services.setMeasureTool?.(changes);
+        return false;
+      },
       measureAction: (change) => {
         const path = this.path;
         if (path) this.gmMeasure(path, change);
@@ -2226,6 +2232,7 @@ export class BoardView extends ItemView {
       let derived = view.atlasStore.getState().objects;
       let extrasOf3d = view.atlasStore.getState().objects;
       let gmView = readGmView(view.atlasStore.getState());
+      let measureTool = (view.atlasStore.getState() as unknown as { measureTool?: unknown }).measureTool;
       const stop = view.atlasStore.subscribe(() => {
         const state = view.atlasStore.getState();
         // Atlas moved to another map in that view: the file is this map's tracker again.
@@ -2233,6 +2240,9 @@ export class BoardView extends ItemView {
         // The GM view switch was thrown in Atlas (its button, its key, Table mode): the board shows the same look.
         const gmNow = readGmView(state);
         if (gmNow !== gmView) { gmView = gmNow; this.board?.gmViewChanged(); }
+        // The Measure tool's choices were changed in Atlas (its toolbar, its keys): the board's bar follows.
+        const toolNow = (state as unknown as { measureTool?: unknown }).measureTool;
+        if (toolNow !== measureTool) { measureTool = toolNow; this.board?.measureToolChanged(); }
         // What a kept spell stands in Atlas (walls, difficult ground, light) follows its measure: after a cast, a move, an undo.
         const objects = state.objects;
         // What the GM set in 3D on a wall, a door or a light (on its record): shown at once, ahead of the map's next read.

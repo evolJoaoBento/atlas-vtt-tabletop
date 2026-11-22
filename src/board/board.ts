@@ -120,9 +120,11 @@ import { DarknessLayer } from './darkness';
 import { BoardMarks } from './marks';
 import { PlayerToolState, type MeasureShape, type PlayerTool, type TemplateChange, type TemplateMark, type TemplateShape, type ToolAction } from './playerTools';
 import { DEFAULT_MEASURE_TOOL, isMeasureShape, type MeasureToolOptions } from './measureOptions';
+import { MEASURE_PIN_PX } from './marks';
 import { measureWhileHeld } from '../atlasPort/measureWhileHeld';
 import { nextBoardMeasureMode } from './boardHotkeys';
 import type { MeasureChange } from './boardMeasures';
+import { LIVE_DISSOLVE_MS, MEASURE_FADE_MS, releaseKeeps, releasedAlpha } from './measureRelease';
 import type { FogOperation } from './fog';
 import { isDoor, isWindow, NO_FLIP, segmentFrame, wholeWall, windowSpan, type BoardLight, type BoardWall, type DoorFlip, type WindowSpan } from './walls';
 import { MINI_DRAG_TYPE, MINI_TEXT_PREFIX } from '../assignments';
@@ -317,8 +319,10 @@ export interface BoardHost {
   dragDistance?(): DragDistance;
   setDragDistance?(choice: DragDistance): void;
   /** The GM's Measure tool choices (persisted across boards); defaults to `DEFAULT_MEASURE_TOOL`. */
-  measureTool?(): MeasureToolOptions;
-  setMeasureTool?(changes: Partial<MeasureToolOptions>): void;
+  /** Atlas's Measure tool choices (the board's bar and Atlas's toolbar share them); null where Atlas has none (the board keeps its own). */
+  measureTool?(): MeasureToolOptions | null;
+  /** Changes Atlas's choices; false where Atlas has none. */
+  setMeasureTool?(changes: Partial<MeasureToolOptions>): boolean;
   /** Writes a kept measurement or clears the kept measurements of the shown level. */
   measureAction?(change: MeasureChange): void;
   /** Opens the collection's Measurement rules (Grid settings) in Atlas when reachable. */
@@ -2753,6 +2757,7 @@ export class Board {
     if ([...this.layerViews.values(), ...this.parked.values()].some((view) => view.object3d.visible && view.fading)) { doorsMoving = true; this.wake(); }
     if (doorsMoving) busy = true;
     if (this.marks.step(this.clock, context.pixel)) busy = true;
+    if (this.stepReleased()) busy = true;
     if (this.viewers.step(this.clock, dt, context.pixel)) busy = true;
     this.rig.step(this.clock);
     const glide = 1 - Math.exp(-GLIDE * dt);
@@ -3132,6 +3137,7 @@ export class Board {
     this.tools.cancel();
     this.tools.tool = from.tool;
     this.tools.shape = from.shape;
+    this.dissolveReleased();
     this.showToolOverlay();
   }
 
@@ -4154,6 +4160,12 @@ export class Board {
     }
     this.tooltip.hidden = true;
     const { clientX: x, clientY: y } = event;
+    // The pin beside a measurement that fades: a press on it keeps the measurement.
+    if (event.button === 0 && this.audience === 'gm' && this.releasedPinAt(x, y)) {
+      this.keepReleased();
+      this.press = null;
+      return;
+    }
     // The measure key held (Atlas's `holdRuler`): the press is the quick ruler's, whatever tool is in use; that tool waits and has it back after.
     if (event.button === 0 && this.heldRuler !== null && this.audience === 'gm') {
       const at = this.boardPoint(x, y);
@@ -4402,9 +4414,79 @@ export class Board {
     }
   }
 
+  /**
+   * The measurement let go that Keep did not keep (Atlas's `LiveMeasuring.fade`): it stays `MEASURE_FADE_MS` with a pin beside
+   * its label that keeps it, and dissolves over the last `LIVE_DISSOLVE_MS`. `add` is what the pin keeps; `at` when it was let go.
+   */
+  private released: { measure: NonNullable<ReturnType<PlayerToolState['overlay']>['measure']>; add: MeasureChange; at: number; pin: boolean } | null = null;
+
+  /** Takes the fading measurement off the board. */
+  private clearReleased(): void {
+    if (!this.released) return;
+    this.released = null;
+    this.showToolOverlay();
+  }
+
+  /** The pin of the fading measurement was pressed: its measurement is kept, in one step of Atlas's history. */
+  private keepReleased(): void {
+    const released = this.released;
+    if (!released) return;
+    this.host.measureAction?.(released.add);
+    this.released = null;
+    this.showToolOverlay();
+  }
+
+  /** Whether the screen point is on the pin beside the fading measurement's label. */
+  private releasedPinAt(clientX: number, clientY: number): boolean {
+    const pin = this.marks.pin;
+    if (!this.released?.pin || !pin) return false;
+    this.applyView();
+    const rect = this.canvas.getBoundingClientRect();
+    const on = new THREE.Vector3(pin.x, 1.2, pin.y).project(this.view);
+    if (on.z > 1) return false;
+    const x = rect.left + ((on.x + 1) / 2) * rect.width + pin.away;
+    const y = rect.top + ((1 - on.y) / 2) * rect.height;
+    // A little beyond its disc still takes the press (Atlas's reach).
+    return Math.hypot(clientX - x, clientY - y) <= MEASURE_PIN_PX / 2 + 2;
+  }
+
+  /** Ages the fading measurement: whole while it stays, dissolving at the end, gone after `MEASURE_FADE_MS`; true while it shows. */
+  private stepReleased(): boolean {
+    const released = this.released;
+    if (!released) return false;
+    const elapsed = this.now() - released.at;
+    if (elapsed >= MEASURE_FADE_MS) { this.clearReleased(); return false; }
+    this.marks.setOverlayAlpha(releasedAlpha(elapsed));
+    return true;
+  }
+
+  /** The measure key let go: a measurement still fading goes without its pin, dissolving at once (Atlas's `dissolve`). */
+  private dissolveReleased(): void {
+    const released = this.released;
+    if (!released) return;
+    released.pin = false;
+    released.at = this.now() - (MEASURE_FADE_MS - LIVE_DISSOLVE_MS);
+    this.showToolOverlay();
+  }
+
+  /** Atlas's Measure tool choices changed (its toolbar, its keys): the bar and the shape in use follow. */
+  measureToolChanged(): void {
+    if (this.audience !== 'gm') return;
+    const { mode } = this.measureOptions();
+    if (this.tools.tool === 'measure' && isMeasureShape(mode) && this.tools.shape !== mode) {
+      this.tools.shape = mode;
+      this.tools.cancel();
+      this.showToolOverlay();
+    }
+    this.toolbar.refresh();
+  }
+
   /** The measure or template being dragged, drawn; the toolbar told of a change. */
   private showToolOverlay(): void {
-    const { measure, draft } = this.tools.overlay();
+    const { measure: live, draft } = this.tools.overlay();
+    // A new measurement gives way to one that still fades.
+    if (live) this.released = null;
+    const measure = live ?? this.released?.measure ?? null;
     const map = this.map;
     const cell = map?.grid.size ?? 70;
     const opts = this.measureOptions();
@@ -4421,7 +4503,9 @@ export class Board {
       draft ? { ...draft, color: this.host.ownColor?.() ?? '#ffcc33', ...(draft.shape === 'line' ? { width: cell } : {}) } : null,
       this.tools.coneAngle,
       this.lastPose?.pixel ?? 0.002,
+      !live && this.released?.pin === true,
     );
+    if (!live && this.released) this.marks.setOverlayAlpha(releasedAlpha(this.now() - this.released.at));
     this.wake();
   }
 
@@ -4703,22 +4787,27 @@ export class Board {
       this.act(actions);
       if (pendingMeasure && at) {
         const opts = this.measureOptions();
-        // The quick ruler of the held measure key keeps nothing, whatever Keep says.
-        if (opts.keep && this.heldRuler === null) {
-          const cell = this.map?.grid.size ?? 70;
-          const points = pendingMeasure.shape === 'ruler'
-            ? [pendingMeasure.start, ...(pendingMeasure.waypoints ?? []), at]
-            : [pendingMeasure.start, at];
-          this.host.measureAction?.({
-            add: {
-              shape: pendingMeasure.shape,
-              points,
-              ...(pendingMeasure.shape === 'line' ? { width: opts.lineWidth * cell } : {}),
-              ...(opts.color ? { color: opts.color } : {}),
-              ...(!opts.players ? { hidden: true as const } : {}),
-              ...(pendingMeasure.shape !== 'ruler' && opts.effect ? { effect: opts.effect } : {}),
-            },
-          });
+        const cell = this.map?.grid.size ?? 70;
+        const points = pendingMeasure.shape === 'ruler'
+          ? [pendingMeasure.start, ...(pendingMeasure.waypoints ?? []), at]
+          : [pendingMeasure.start, at];
+        const add: MeasureChange = {
+          add: {
+            shape: pendingMeasure.shape,
+            points,
+            ...(pendingMeasure.shape === 'line' ? { width: opts.lineWidth * cell } : {}),
+            ...(opts.color ? { color: opts.color } : {}),
+            ...(!opts.players ? { hidden: true as const } : {}),
+            ...(pendingMeasure.shape !== 'ruler' && opts.effect ? { effect: opts.effect } : {}),
+          },
+        };
+        // As Atlas lets go of a measurement: kept when Keep and Shift differ (the held measure key's ruler counts as Keep off);
+        // else it stays two seconds with a pin that keeps it, and dissolves.
+        if (releaseKeeps(opts.keep, this.heldRuler !== null, event.shiftKey)) {
+          this.released = null;
+          this.host.measureAction?.(add);
+        } else {
+          this.released = { measure: { ...pendingMeasure, end: at }, add, at: this.now(), pin: true };
         }
       }
       this.showToolOverlay();
@@ -5316,6 +5405,7 @@ export class Board {
   private setMeasureOptions(changes: Partial<MeasureToolOptions>): void {
     const next = { ...this.measureOptions(), ...changes };
     this.localMeasureTool = next;
+    // Atlas holds the choices where it can (its own toolbar shows the same); the board's copy stands where it cannot.
     this.host.setMeasureTool?.(changes);
     if (changes.mode && isMeasureShape(changes.mode)) {
       this.tools.shape = changes.mode;

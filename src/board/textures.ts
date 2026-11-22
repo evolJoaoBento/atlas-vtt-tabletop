@@ -231,6 +231,39 @@ function readableMark(context: CanvasRenderingContext2D, x: number, y: number, r
   context.restore();
 }
 
+/** Inner paths of Lucide's `pin` icon (24 x 24), as Atlas draws the pin beside a measurement that fades (`MeasurePin.ts`). */
+const MEASURE_PIN_PATHS = [
+  'M12 17v5',
+  'M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z',
+];
+
+/** The pin beside the label of a measurement that fades: a round badge in the label's look with Lucide's pin glyph. */
+export function measurePinTexture(): THREE.CanvasTexture {
+  return canvasTexture(PIN_PX, PIN_PX, (context) => {
+    const centre = PIN_PX / 2;
+    const radius = PIN_PX / 2 - 3;
+    context.globalAlpha = 0.92;
+    context.fillStyle = PLATE_COLOR;
+    context.beginPath();
+    context.arc(centre, centre, radius, 0, Math.PI * 2);
+    context.fill();
+    context.globalAlpha = 1;
+    context.lineWidth = 3;
+    context.strokeStyle = 'rgba(255,255,255,0.4)';
+    context.stroke();
+    const scale = (PIN_PX * 0.5) / 24;
+    context.save();
+    context.translate(centre - 12 * scale, centre - 12 * scale);
+    context.scale(scale, scale);
+    context.lineWidth = 2;
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.strokeStyle = 'rgba(255,255,255,0.92)';
+    for (const path of MEASURE_PIN_PATHS) context.stroke(new Path2D(path));
+    context.restore();
+  });
+}
+
 /** A text plate (a pill) for a name or a title. Returns the texture and its size in pixels. */
 export function plateTexture(text: string, fontPx = 26): { texture: THREE.CanvasTexture; width: number; height: number } {
   const probe = createEl('canvas').getContext('2d')!;

@@ -29,22 +29,20 @@ opening Atlas's 2D map with the tool chosen).
 13. **"Only show toolbar on hover" setting** (Atlas 0.18).
 14. **Five new languages** (de, fr, es, pt, it) for the ported panels (Atlas 0.18; needs a port re-sync from
     `2075-code/atlas-vtt-0.18-ref`).
-15. **Measure: Shift flips Keep on release** (Atlas 0.18: Shift at the end of a measurement keeps it if Keep is off and lets it
-    fade if on, a held M ruler included; the board's measure tool has no Shift flip).
-16. **Turn banner, the rest** (Atlas 0.18; the GM's banner over the board is done): the players' banner in Tabletop's player window
+15. **Turn banner, the rest** (Atlas 0.18; the GM's banner over the board is done): the players' banner in Tabletop's player window
     (Atlas's `TurnBannerStage`, viewer `players`: hidden combatants are not announced, names follow the player view's setting), the
     camera following the turn (Atlas's `followTurn`). Connect's player page has no turn banner either. (The "Turn banner" switch is done:
     the board's tracker options menu writes Atlas's own setting.)
-17. **Tracker options menu, the rest** (Atlas 0.18; the Compact view, Turn banner, Reset and Clear rows are done, and the board's tracker is
+16. **Tracker options menu, the rest** (Atlas 0.18; the Compact view, Turn banner, Reset and Clear rows are done, and the board's tracker is
     the compact list when Atlas's setting says so): the menu's party row (add the players at the table, or open the collection's party)
     and Add enemy (a combatant without a token), Clear's confirmation dialog, and Atlas's floating header and number-editing in the
     cards. Atlas 0.18 has no horizontal layout for the GM's tracker (always the right edge; only the players' list can run as a row
     across the top or bottom, mirrored for the far side of the table, in What players see): there is no players' list in Tabletop's
     player window yet to give it.
-18. **Explored areas on the board** (Atlas 0.18; "Forget explored areas" is in the lighting menu and writes Atlas's own request, but the board does not draw the players' explored memory at all, so nothing shows the forgetting; the memory lives in Atlas's lighting texture and the saved mask `exploredMask(s)`).
-19. **Ranges measure mode** (Atlas 0.18's Ranges: click a token or a place to see its range bands or movement steps; Atlas 0.19 no longer asks for GM view and shows the rings to the players, in the player window and online). The board's measure menu lists Ranges but it is never offered (`rangesUnavailable` has no provider); the rings, the range check between two tokens and the players seeing them are all to build. The key (M) cycles to it where offered.
-20. **Order the sides before a fight** (Atlas 0.19: drag a side's heading in the tracker to choose who acts first, written as `initiative.sideOrder`). The board's tracker already lists the sides, and starts the fight (Atlas's `startCombat`), in the order Atlas holds; it has no way to change that order. Atlas's `setSideOrder` is the store action.
-21. **Smoother initiative drag** (Atlas 0.19: cards are dragged as a phone's home screen is arranged, with `useRowDrag`; the others shiver and slide aside, and a dropped card glides home). The board's tracker still uses the browser's drag and drop with a drop line.
-22. **Initiative list scroll shades** (Atlas 0.19: a fade at the bottom of the list while more lies below, shown without a round at the foot; and the compact list shows at most 12 lines before it scrolls). The board's tracker has the top shade only and its compact list is as tall as its combatants.
-23. **Players' ranges, measures and rolls online** (Atlas 0.19 Atlas Online: players see the GM's Ranges rings, roll and edit values written with `adv` / `dis`; Connect's player page and Tabletop's player window have neither).
-24. **Stream Deck and Atlas's Sound page** (Atlas 0.19: Stream Deck settings, the music packs, downloads list and sorting on the Sound page): Atlas's own pages, nothing on the board, listed so a later look at the board's sounds (Tabletop's own, `src/sound`) can decide whether to offer any of Atlas's.
+17. **Explored areas on the board** (Atlas 0.18; "Forget explored areas" is in the lighting menu and writes Atlas's own request, but the board does not draw the players' explored memory at all, so nothing shows the forgetting; the memory lives in Atlas's lighting texture and the saved mask `exploredMask(s)`).
+18. **Ranges measure mode** (Atlas 0.18's Ranges: click a token or a place to see its range bands or movement steps; Atlas 0.19 no longer asks for GM view and shows the rings to the players, in the player window and online). The board's measure menu lists Ranges but it is never offered (`rangesUnavailable` has no provider); the rings, the range check between two tokens and the players seeing them are all to build. The key (M) cycles to it where offered.
+19. **Order the sides before a fight** (Atlas 0.19: drag a side's heading in the tracker to choose who acts first, written as `initiative.sideOrder`). The board's tracker already lists the sides, and starts the fight (Atlas's `startCombat`), in the order Atlas holds; it has no way to change that order. Atlas's `setSideOrder` is the store action.
+20. **Smoother initiative drag** (Atlas 0.19: cards are dragged as a phone's home screen is arranged, with `useRowDrag`; the others shiver and slide aside, and a dropped card glides home). The board's tracker still uses the browser's drag and drop with a drop line.
+21. **Initiative list scroll shades** (Atlas 0.19: a fade at the bottom of the list while more lies below, shown without a round at the foot; and the compact list shows at most 12 lines before it scrolls). The board's tracker has the top shade only and its compact list is as tall as its combatants.
+22. **Players' ranges, measures and rolls online** (Atlas 0.19 Atlas Online: players see the GM's Ranges rings, roll and edit values written with `adv` / `dis`; Connect's player page and Tabletop's player window have neither).
+23. **Stream Deck and Atlas's Sound page** (Atlas 0.19: Stream Deck settings, the music packs, downloads list and sorting on the Sound page): Atlas's own pages, nothing on the board, listed so a later look at the board's sounds (Tabletop's own, `src/sound`) can decide whether to offer any of Atlas's.
