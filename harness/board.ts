@@ -38,6 +38,8 @@ import { HP_RESOURCE, type ResourceDefinition, type ResourceValue } from '../src
 import { readInitiative, type InitiativeAction } from '../src/board/initiative';
 import { applyInitiative } from './fakeTracker';
 import { InitiativePanel } from '../src/board/initiativePanel';
+import { bannerStateOf, TurnAnnouncer } from '../src/board/turnBanner';
+import { trackerCompact, trackerOptionEntries, type TrackerSettings } from '../src/board/trackerOptions';
 import { NO_FLIP, type BoardWall, type DoorFlip } from '../src/board/walls';
 import { materialDrag, type LoadedMaterial } from '../src/materials';
 import { parseMini, type LoadedMini } from '../src/library';
@@ -68,6 +70,7 @@ import { DEFAULT_RULES, type RollRequest } from '../src/dice/rollRules';
 import { RollSession } from '../src/dice/rollSession';
 import type { Flick } from '../src/dice/throwInput';
 import { BoardDice } from '../src/dice/boardDice';
+import { savedRollsAccess } from '../src/dice/savedRollsAccess';
 import type { MapViewLike } from '../src/dice/atlasDice';
 import { vendoredPack } from '../src/dice/dicePack';
 import { DiceTextures } from '../src/dice/diceTextures';
@@ -277,12 +280,12 @@ async function main(): Promise<void> {
     moves: [] as Array<[string, number, number]>, propMoves: [] as Array<[string, number, number]>, propScales: [] as Array<[string, number]>, propLifts: [] as Array<[string, number]>, added: [] as Array<[string, number, number, unknown?]>,
     notes: [] as string[], menus: [] as string[], propMenus: [] as string[], previews: [] as string[], warnings: [] as string[],
     copies: [] as Array<[string, string, number, number]>, menuActions: [] as unknown[][], initiative: [] as unknown[], shown: [] as string[],
-    heights: [] as unknown[][], doors: [] as string[], wallMenus: [] as string[], paints: [] as Array<[string, string, boolean]>, lightMenus: [] as string[], ambients: [] as number[], tints: [] as Array<string | null>, lasers: [] as Array<Record<string, unknown>>, fogHeights: [] as number[], thicknesses: [] as number[], toolActions: [] as unknown[], opened: 0, imageReads: [] as string[], sceneTabs: [] as unknown[][],
+    heights: [] as unknown[][], doors: [] as string[], wallMenus: [] as string[], paints: [] as Array<[string, string, boolean]>, lightMenus: [] as string[], ambients: [] as number[], forgets: 0, tints: [] as Array<string | null>, lasers: [] as Array<Record<string, unknown>>, fogHeights: [] as number[], thicknesses: [] as number[], toolActions: [] as unknown[], opened: 0, imageReads: [] as string[], sceneTabs: [] as unknown[][],
     /** Resource edits as the host saved them: token, key, the value it held, the value written, max edited. */
     edits: [] as Array<[string, string, ResourceValue, ResourceValue, boolean]>,
     rotations: [] as Array<Array<{ id: string; rotation: number }>>,
     /** Spell rules carried out: tokens moved, tokens summoned, tokens removed, casts claimed. */
-    ruleMoves: [] as Array<Array<{ id: string; x: number; y: number }>>, summons: [] as unknown[], removed: [] as string[], claims: [] as string[],
+    ruleMoves: [] as Array<Array<{ id: string; x: number; y: number }>>, summons: [] as unknown[], removed: [] as string[], clip: [] as Array<[string, ...unknown[]]>, claims: [] as string[],
   };
   /** What the host holds, as Atlas or the file would: edits apply to it. */
   const stored = new Map(map.tokens.map((entry) => [entry.id, structuredClone(entry.resources)]));
@@ -305,6 +308,8 @@ async function main(): Promise<void> {
   let measureTool: MeasureToolOptions = { ...DEFAULT_MEASURE_TOOL };
   // Atlas's GM view switch (`isGMView` in the store of the Atlas view holding the map): null stands for an Atlas without one; `sets` records what the board wrote.
   const gmViewSwitch: { on: boolean | null; sets: boolean[] } = { on: true, sets: [] };
+  // Whether the pointer is a finger (Atlas's coarse pointer): the lighting peek's button is there only then.
+  const pointer = { coarse: false };
   let keptMeasures: BoardMeasure[] = [];
   let nextMeasureId = 1;
   const syncKeptMeasures = (): void => {
@@ -590,6 +595,10 @@ async function main(): Promise<void> {
     claimSpell: (id) => { if (record.claims.includes(id)) return false; record.claims.push(id); return true; },
     summonTokens: (tokens) => { record.summons.push(JSON.parse(JSON.stringify(tokens))); return tokens.map((_, k) => (k === 0 ? 'gob' : `summoned${k}`)); },
     removeTokens: (ids) => { record.removed.push(...ids); },
+    copyTokens: async (ids) => { record.clip.push(['copy', [...ids]]); return true; },
+    cutTokens: async (ids) => { record.clip.push(['cut', [...ids]]); return true; },
+    pasteTokens: async (at) => { record.clip.push(['paste', { ...at }]); return ['hero', 'orc']; },
+    duplicateTokens: async (ids) => { record.clip.push(['duplicate', [...ids]]); return [...ids]; },
     moveProp: (id, x, y) => { record.propMoves.push([id, x, y]); },
     scaleProp: (id, scale) => { record.propScales.push([id, scale]); },
     liftProp: (id, lift) => { record.propLifts.push([id, lift]); },
@@ -656,8 +665,9 @@ async function main(): Promise<void> {
     measureAction: (change) => applyMeasureChange(change),
     measureHotkeys: () => ({ measure: 'M', measureKeep: 'K', gmView: 'Shift + D' }),
     // Atlas's map shortcuts as the shell routes them (src/board/boardAtlasTools.ts): the GM view key, which is Shift + D here.
-    atlasKey: (event) => (boardHotkeyAction(event, (id) => DEFAULT_MAP_HOTKEYS[id] ?? null) === 'gmView' ? board.toggleGmView() : false),
+    atlasKey: (event) => { const action = boardHotkeyAction(event, (id) => DEFAULT_MAP_HOTKEYS[id] ?? null); return action === 'gmView' ? board.toggleGmView() : action === 'peek' ? board.peek(true, event.key.toLowerCase()) : action === 'measure' ? board.measureKey(event) : false; },
     gmView: () => gmViewSwitch.on,
+    coarsePointer: () => pointer.coarse,
     setGmView: (on) => { if (gmViewSwitch.on === null) return false; gmViewSwitch.on = on; gmViewSwitch.sets.push(on); board.gmViewChanged(); return true; },
     warn: (message) => { if (!record.warnings.includes(message)) record.warnings.push(message); },
     // A popup window stands in for Obsidian's pop-out: same process, another document.
@@ -731,6 +741,9 @@ async function main(): Promise<void> {
     tint: () => tintKept,
     setTint: (color) => { tintKept = color; record.tints.push(color); board.refresh(); },
     clearTint: () => { tintKept = null; record.tints.push(null); board.refresh(); },
+    // Atlas's Forget explored areas; the 'forget explored 0.18' feature turns the offer off for an Atlas without it.
+    forgetExplored: () => { record.forgets += 1; },
+    forgetExploredOffered: () => (window as unknown as { __noForget?: boolean }).__noForget !== true,
     lightHeight: (light) => lightHeights.get(light.id) ?? 1,
     lightMenu: (id) => { record.lightMenus.push(id); },
     hosting: () => hosting,
@@ -767,13 +780,40 @@ async function main(): Promise<void> {
     const now = shownMap();
     now.initiative = applyInitiative(now.initiative, action, () => landings[landing++ % landings.length]!);
     panel.render();
+    announce();
+  };
+  /** Atlas's turn banner, wired as the board's tab wires it (`BoardView.showInitiative`); `bannerOn` is Atlas's Turn banner switch. */
+  const announcer = new TurnAnnouncer();
+  const bannerSwitch = { on: true };
+  const announce = (): void => {
+    const now = shownMap();
+    board.showTurnBanner(announcer.look(bannerStateOf(now.path, now.initiative, now.tokens), bannerSwitch.on), (path) => images[path] ?? null);
   };
   const changeShown = (id: string, fields: Partial<BoardToken>): void => {
     const now = shownMap().tokens.find((t) => t.id === id);
     if (now) board.changeToken(id, { ...now, ...fields });
     panel.render();
   };
+  /**
+   * Atlas's settings service as the tracker's options see it: the Compact view and the Turn banner are Atlas's own switches,
+   * kept here; `without` names members an older Atlas (0.15) lacks. A change redraws the tracker, as BoardView's listener does.
+   */
+  const trackerSettings = {
+    compact: false,
+    without: new Set<string>(),
+    members(): TrackerSettings | null {
+      const all: TrackerSettings = {
+        showsCompactInitiative: () => this.compact,
+        setCompactInitiative: (on) => { this.compact = on; panel.render(); },
+        initiativeTurnOptions: () => ({ banner: bannerSwitch.on, movesOnTurn: false }),
+        setInitiativeTurnOptions: (changes) => { if (changes.banner !== undefined) bannerSwitch.on = changes.banner; },
+      };
+      return Object.fromEntries(Object.entries(all).filter(([name]) => !this.without.has(name))) as TrackerSettings;
+    },
+  };
   const panel = new InitiativePanel(container, {
+    compact: () => trackerCompact(trackerSettings.members()),
+    options: () => trackerOptionEntries(trackerSettings.members()),
     state: () => shownMap().initiative,
     rules: () => rules.initiative,
     tokens: () => shownMap().tokens,
@@ -793,6 +833,7 @@ async function main(): Promise<void> {
       menu = new AtlasMenu(document, entries, at, (element, name) => { element.dataset.icon = name; }, () => { menu = null; });
     },
   });
+  announce();
   // The tab's keys: I shows or hides the tracker; the arrows step the turns while it shows a running fight.
   container.addEventListener('keydown', (event) => {
     if (menu?.isOpen || event.ctrlKey || event.metaKey || event.altKey || (event.target as HTMLElement).tagName === 'INPUT') return;
@@ -856,7 +897,43 @@ async function main(): Promise<void> {
   const otherAtlas = () => makeAtlas();
   const useAtlasView = (view: MapViewLike) => { current = view; };
   const diceWarnings: string[] = [];
+  // Atlas 0.18's collection of this map, with two saved rolls a GM made in Atlas: designed dice (a coloured fireball) and a formula.
+  const savedSettings: Record<string, unknown> = {
+    dicePresets: [
+      { id: 'fire', name: 'Fireball', formula: '+2', look: { dice: [{ count: 2, sides: 6, colour: '#ff6a00', name: 'Fire' }, { count: 1, sides: 8 }], crit: 'none' } },
+      { id: 'stats', name: 'Stats', formula: '4d6kh3' },
+    ],
+  };
+  const savedState = {
+    version: '0.18.0' as string | null, collection: 'c1' as string | null, failing: false,
+    writes: [] as Array<Record<string, unknown>>, warnings: [] as string[], storage: new Map<string, unknown>(),
+  };
+  const savedListeners = new Set<(id: string) => void>();
+  const savedRolls = savedRollsAccess({
+    bridge: {
+      version: () => savedState.version,
+      collectionFor: () => savedState.collection,
+      collectionSettings: () => savedSettings,
+      updateCollectionSettings: async (id, change) => {
+        if (savedState.failing) throw new Error('disk');
+        savedState.writes.push({ ...change });
+        for (const [key, value] of Object.entries(change)) { if (value === undefined) delete savedSettings[key]; else savedSettings[key] = value; }
+        for (const listener of [...savedListeners]) listener(id);
+        return true;
+      },
+    },
+    mapPath: () => map.path,
+    changed: (listener) => { savedListeners.add(listener); return () => savedListeners.delete(listener); },
+    storage: { load: (key) => savedState.storage.get(key), save: (key, value) => { savedState.storage.set(key, value); } },
+    menu: (entries, at) => {
+      menu?.close();
+      menu = new AtlasMenu(document, () => entries, at, (element, name) => { element.dataset.icon = name; }, () => { menu = null; });
+    },
+    icon: (element, name) => { element.dataset.icon = name; },
+    warn: (message) => { savedState.warnings.push(message); },
+  });
   const boardDice = new BoardDice({
+    savedRolls,
     board,
     container,
     mapPath: () => map.path,
@@ -1105,7 +1182,7 @@ async function main(): Promise<void> {
     await editor.open(folder);
     return editor;
   };
-  Object.assign(window, { boardTest: { gmViewSwitch, hotkeyHelp, backgrounds, backgroundFiles, backgroundsReady, backgroundKit: { DEFAULT_BACKGROUND, emptyLayers, TERRAINS, backgroundFrame }, openBackgroundEditor, closeBackgroundEditor, backgroundEditor: null, studio: cutsceneHarness, api: { cutscene: channel },Board, FreeCamera, fog: { offers: fogOffers, state: fogState, record: () => fogRecord, reset: () => setFog({}) }, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, keptMeasures: () => keptMeasures, clearKeptMeasures: () => { keptMeasures = []; syncKeptMeasures(); }, measureTool: () => measureTool, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, Matrix4: THREE.Matrix4, Quaternion: THREE.Quaternion, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
+  Object.assign(window, { boardTest: { trackerSettings, bannerSwitch, announce, gmViewSwitch, pointer, hotkeyHelp, backgrounds, backgroundFiles, backgroundsReady, backgroundKit: { DEFAULT_BACKGROUND, emptyLayers, TERRAINS, backgroundFrame }, openBackgroundEditor, closeBackgroundEditor, backgroundEditor: null, studio: cutsceneHarness, api: { cutscene: channel },Board, FreeCamera, fog: { offers: fogOffers, state: fogState, record: () => fogRecord, reset: () => setFog({}) }, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, savedState, savedSettings, savedListeners, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, keptMeasures: () => keptMeasures, clearKeptMeasures: () => { keptMeasures = []; syncKeptMeasures(); }, measureTool: () => measureTool, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, Matrix4: THREE.Matrix4, Quaternion: THREE.Quaternion, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

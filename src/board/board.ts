@@ -107,6 +107,8 @@ import { wireDiceSounds } from '../sound/diceSounds';
 import { boardHeard } from '../sound/boardHeard';
 import { doorChanges, RecentDrops, remoteMoves, sceneKey } from '../sound/miniSounds';
 import { currentTokenIds, turnAnnouncement } from './initiative';
+import { TurnBannerDisplay, type PortraitSource } from '../atlasPort/app/initiative/banner/turnBannerElement';
+import type { TurnBannerCommand } from './turnBanner';
 import { BoardChanges } from '../sound/boardChanges';
 import { conditionSound } from '../sound/conditionSounds';
 import { staggerOffsets } from '../sound/thinning';
@@ -116,8 +118,10 @@ import { WallSet } from './wallPieces';
 import { LightRig } from './lightRig';
 import { DarknessLayer } from './darkness';
 import { BoardMarks } from './marks';
-import { PlayerToolState, type TemplateChange, type TemplateMark, type TemplateShape, type ToolAction } from './playerTools';
+import { PlayerToolState, type MeasureShape, type PlayerTool, type TemplateChange, type TemplateMark, type TemplateShape, type ToolAction } from './playerTools';
 import { DEFAULT_MEASURE_TOOL, isMeasureShape, type MeasureToolOptions } from './measureOptions';
+import { measureWhileHeld } from '../atlasPort/measureWhileHeld';
+import { nextBoardMeasureMode } from './boardHotkeys';
 import type { MeasureChange } from './boardMeasures';
 import type { FogOperation } from './fog';
 import { isDoor, isWindow, NO_FLIP, segmentFrame, wholeWall, windowSpan, type BoardLight, type BoardWall, type DoorFlip, type WindowSpan } from './walls';
@@ -267,6 +271,15 @@ export interface BoardHost {
   summonTokens?(tokens: ReadonlyArray<{ name: string; x: number; y: number; statblock?: string }>): string[];
   /** Takes tokens off the map. */
   removeTokens?(ids: readonly string[]): void;
+  /**
+   * Atlas's Copy, Cut and Paste of tokens (the GM's; `tokenClipboard.ts`): copy puts the tokens on the clipboard (false
+   * when none is on the map); cut also takes them off, in one step; paste puts the clipboard centred on a map point and
+   * gives the new tokens' ids. A host without them (an Atlas that lacks the store actions refuses with a reason).
+   */
+  copyTokens?(ids: readonly string[]): Promise<boolean>;
+  cutTokens?(ids: readonly string[]): Promise<boolean>;
+  pasteTokens?(at: { x: number; y: number }): Promise<readonly string[]>;
+  duplicateTokens?(ids: readonly string[]): Promise<readonly string[]>;
   /** Several tokens turned (degrees, 0 to 360); a host without it cannot turn a group. */
   rotateTokens?(turns: ReadonlyArray<{ id: string; rotation: number }>): void;
   moveProp(id: string, x: number, y: number): void;
@@ -332,6 +345,8 @@ export interface BoardHost {
   gmView?(): boolean | null;
   /** Throws that switch; false where Atlas has none to throw. */
   setGmView?(on: boolean): boolean;
+  /** Whether the pointer is a finger (Atlas's coarse pointer): the lighting peek then has a button in the bar, where a keyboard holds its key. */
+  coarsePointer?(): boolean;
   /** The laser's colour and size, kept for every map; and saving a change. */
   laser(): LaserSettings;
   setLaser(changes: Partial<LaserSettings>): void;
@@ -405,6 +420,9 @@ export interface BoardHost {
   tint(): string | null;
   setTint(color: string): void;
   clearTint(): void;
+  /** Atlas's "Forget explored areas", and whether Atlas offers it here. Absent where it is not the GM's. */
+  forgetExplored?(): void;
+  forgetExploredOffered?(): boolean;
   /** How high a light hangs, in grid squares. */
   lightHeight(light: BoardLight): number;
   /** A light's right-click menu (on its bulb). */
@@ -533,9 +551,6 @@ const PLAIN_DOOR = 0x6e4a2c;
 const VIDEO_FRAME_MS = 33;
 /** The colour a sea of lava lights the board with from below (set from its tint). */
 const LAVA_UNDERLIGHT = new THREE.Color();
-
-/** How long the turn banner stays before it is gone, in milliseconds (it fades out over most of it). */
-const TURN_BANNER_MS = 2400;
 
 /** Room left around the map when it is framed, for the tilt's perspective. */
 const FRAME_MARGIN = 1.1;
@@ -1052,8 +1067,10 @@ export class Board {
       setAutoRoll: (on) => this.host.setAutoRoll?.(on),
       setLaser: (changes) => { this.host.setLaser(changes); this.wake(); },
       togglePlayerView: () => this.host.togglePlayerView(),
-      gmView: () => !this.sessionView,
+      gmView: () => !this.sessionSwitch,
       setGmView: (on) => this.throwGmView(on),
+      // The lighting peek's button, which a finger holds in the key's place.
+      ...(this.audience === 'gm' && { peek: (on: boolean) => { this.peek(on); }, coarse: () => this.host.coarsePointer?.() === true }),
       gmViewShortcut: () => this.host.measureHotkeys?.().gmView ?? null,
       playerFrozen: () => this.player?.frozen != null,
       togglePlayerFreeze: () => this.setPlayerFrozen(this.player?.frozen == null),
@@ -1096,8 +1113,8 @@ export class Board {
         this.host.saveWaterMotion?.(motion, liquid);
         this.wake();
       },
-      measureOn: () => this.tools.tool === 'measure',
-      measureShape: () => this.tools.shape,
+      measureOn: () => (this.heldRuler?.tool ?? this.tools.tool) === 'measure',
+      measureShape: () => this.heldRuler?.shape ?? this.tools.shape,
       selectMeasure: (shape) => {
         if (shape !== null) {
           this.fogTool?.setOn(false);
@@ -1158,6 +1175,10 @@ export class Board {
         this.paintDaylight();
         this.wake(true);
       },
+      ...(this.host.forgetExplored && {
+        forgetExplored: () => this.host.forgetExplored?.(),
+        forgetExploredOffered: () => this.host.forgetExploredOffered?.() ?? true,
+      }),
     });
     this.toolbar.setHidden(this.audience === 'player');
     this.tools.eraseAny = this.audience === 'gm';
@@ -3017,11 +3038,107 @@ export class Board {
   get sessionView(): boolean {
     // Cinematic mode has no such switch: a cutscene is edited in the GM's view.
     if (this.audience !== 'gm' || this.host.boardMode?.() === 'cinematic') return false;
+    // The peek (Atlas's lighting peek) shows the same picture, for as long as it is held.
+    return this.peeking || this.sessionSwitch;
+  }
+
+  /** The GM view switch alone: off is session view. The peek leaves it as it is. */
+  private get sessionSwitch(): boolean {
+    if (this.audience !== 'gm' || this.host.boardMode?.() === 'cinematic') return false;
     const shared = this.host.gmView?.() ?? null;
     return shared === null ? this.sessionLocal : !shared;
   }
 
   private sessionLocal = false;
+  /** Atlas's lighting peek is held: the board shows the players' look though the GM view switch says the GM's. */
+  private peeking = false;
+  /** The key that holds the peek (lower case), so its release is known; null for the toolbar's button. */
+  private peekKey: string | null = null;
+
+  /**
+   * Atlas's lighting peek (`SessionLighting.setPeeking`): while held the GM's board shows what the players see, as session view does, and the
+   * GM view switch stays where it was. Never on a player's board or in Cinematic mode, which have no GM view to look away from. True when it
+   * took the press.
+   */
+  peek(on: boolean, key: string | null = null): boolean {
+    if (on && (this.audience !== 'gm' || this.host.boardMode?.() === 'cinematic')) return false;
+    this.peekKey = on ? key : null;
+    if (this.peeking === on) return true;
+    this.peeking = on;
+    // The fog shape under way is kept (Atlas hides its marks for the peek and drops nothing); the board is drawn anew.
+    this.sightApplied = true;
+    this.toolbar.refresh();
+    this.wake();
+    return true;
+  }
+
+  /**
+   * Atlas's Measure key (`measureWhileHeld`), pressed: a tap, acted on when the key goes up, chooses the tool (in Play mode, switching to
+   * it) or, with the tool chosen, steps to its next mode. Held while the map is pressed it is a quick ruler (the measure tool, a plain
+   * ruler, nothing kept) and the tool in use comes back once key and button are up. Where the board cannot take a quick ruler (Edit mode,
+   * the fog tool, a token's eyes) a press is no ruler and the key is a tap. True: the key is the board's.
+   */
+  measureKey(event: KeyboardEvent): boolean {
+    measureWhileHeld(event, {
+      onMap: (target) => this.canHoldRuler(target),
+      tap: () => this.measureTap(),
+      press: () => this.holdRuler(),
+      release: () => this.releaseRuler(),
+    });
+    return true;
+  }
+
+  private measureTap(): void {
+    const actions = this.toolbarActions();
+    if (!actions.measureOn?.()) { this.goToToolbar('measure'); return; }
+    const options = actions.measureOptions?.();
+    if (!options) return;
+    const ranges = actions.rangesUnavailable !== undefined && actions.rangesUnavailable() === null;
+    const next = nextBoardMeasureMode(options.mode, ranges);
+    if (isMeasureShape(next)) actions.selectMeasure?.(next);
+    else actions.setMeasureOptions?.({ mode: next });
+    this.refreshToolbar();
+  }
+
+  /** The tool that waits while Atlas's measure key is held for a quick ruler (`heldRulerFrom`), with the measure shape it had. */
+  private heldRuler: { tool: PlayerTool; shape: MeasureShape } | null = null;
+
+  /**
+   * Whether a press on `target` may be a quick ruler, as Atlas's held measure key makes it: the GM's board over its canvas, whatever tool
+   * (fog, water, props, shapes, laser) or mode (Play, Edit) is in use, which wait for the press. Not through a token's eyes (the view only looks
+   * about), in Cinematic mode (no tools to measure with) or on a player's board (Connect's own tools). Elsewhere the key is a tap.
+   */
+  canHoldRuler(target: EventTarget | null): boolean {
+    if (this.audience !== 'gm' || target !== this.canvas || this.eye) return false;
+    return this.host.boardMode?.() !== 'cinematic';
+  }
+
+  /**
+   * The measure key held with a press on the map (Atlas's `holdRuler`): the measure tool takes the press as a ruler that is never
+   * kept, and the tool in use waits, still the one the bar shows. Pressed again while held, the first tool still waits.
+   */
+  holdRuler(): void {
+    this.heldRuler ??= { tool: this.tools.tool, shape: this.tools.shape };
+    this.tools.tool = 'measure';
+    this.tools.shape = 'ruler';
+  }
+
+  /** Key and button are let go (Atlas's `releaseRuler`): the tool that waited comes back, unless another was picked meanwhile. */
+  releaseRuler(): void {
+    const from = this.heldRuler;
+    if (from === null) return;
+    this.heldRuler = null;
+    if (this.tools.tool !== 'measure') return;
+    this.tools.cancel();
+    this.tools.tool = from.tool;
+    this.tools.shape = from.shape;
+    this.showToolOverlay();
+  }
+
+  /** A key was let go: ends the peek that key holds. */
+  private peekKeyUp(key: string): void {
+    if (this.peeking && this.peekKey !== null && this.peekKey === key.toLowerCase()) this.peek(false);
+  }
 
   /** Throws the GM view switch: on is GM view, off Atlas's session view. */
   throwGmView(on: boolean): void {
@@ -3034,7 +3151,7 @@ export class Board {
   /** Atlas's GM key: turns between GM view and session view. False where the board has no such switch (a player's board, Cinematic mode). */
   toggleGmView(): boolean {
     if (this.audience !== 'gm' || this.host.boardMode?.() === 'cinematic') return false;
-    this.throwGmView(this.sessionView);
+    this.throwGmView(this.sessionSwitch);
     return true;
   }
 
@@ -3058,14 +3175,19 @@ export class Board {
   }
 
   /**
-   * The fog menu at a right-click released in place (Atlas's `showFogMenu`): while the fog tool is on and no shape is under way,
+   * The fog menu at a right-click released in place (Atlas's `showFogMenu`): while the fog tool is on and no shape is under way, or the Move tool (Atlas's Select and Move) is,
    * on fog it offers Reveal and Delete, on revealed open ground Hide and Delete, and the body or ground they act on is outlined
    * while it is open. False where the fog has no menu there (the click is then the board's own).
    */
   private openFogMenu(event: MouseEvent): boolean {
     const tool = this.fogTool;
     const host = this.host.fog;
-    if (!tool?.on || !host || !this.host.fogMenu || this.audience !== 'gm' || !this.editing || tool.drawing || !this.map || this.sessionView) return false;
+    if (!host || !this.host.fogMenu || this.audience !== 'gm' || !this.map || this.sessionView) return false;
+    // Atlas's `secondaryTargetAt`: the menu is the GM's, with the fog tool on, and with the tools that take tokens (Select, Move: the board's
+    // Move with nothing else held or painted); the board's Cinematic mode, a cutscene's, has none.
+    const mode = this.host.boardMode?.() ?? null;
+    if (tool?.on) { if (!this.editing || tool.drawing) return false; }
+    else if (!tool || this.tools.tool !== 'move' || this.painting || this.waterTool || this.placing || mode === 'cinematic') return false;
     const point = this.boardPoint(event.clientX, event.clientY);
     const hit = point ? fogMenuAt(this.map.fog, point) : null;
     if (!point || !hit) return false;
@@ -3874,6 +3996,12 @@ export class Board {
     win?.addEventListener('keydown', escape);
     this.stops.push(() => win?.removeEventListener('keydown', escape));
     win?.addEventListener('keyup', ctrl);
+    // The lighting peek is held by its key, let go wherever the focus is; and the window losing the focus lets it go (Atlas's `bindHoldHotkey`).
+    const peekUp = (event: KeyboardEvent): void => this.peekKeyUp(event.key);
+    const peekLost = (): void => { if (this.peekKey !== null) this.peek(false); };
+    win?.addEventListener('keyup', peekUp);
+    win?.addEventListener('blur', peekLost);
+    this.stops.push(() => { win?.removeEventListener('keyup', peekUp); win?.removeEventListener('blur', peekLost); });
     // Alt held with the water brush: the eraser, until it is let go (as Atlas's Alt turns its fog brush around).
     const altErase = (event: KeyboardEvent): void => {
       if (event.key !== 'Alt' || this.audience !== 'gm') return;
@@ -4026,6 +4154,16 @@ export class Board {
     }
     this.tooltip.hidden = true;
     const { clientX: x, clientY: y } = event;
+    // The measure key held (Atlas's `holdRuler`): the press is the quick ruler's, whatever tool is in use; that tool waits and has it back after.
+    if (event.button === 0 && this.heldRuler !== null && this.audience === 'gm') {
+      const at = this.boardPoint(x, y);
+      if (at) {
+        this.press = { kind: 'tool', x, y, moved: false };
+        this.tools.down(at, this.now());
+        this.showToolOverlay();
+        return;
+      }
+    }
     // The handles of a scene being placed on the plane come first.
     if (event.button === 0 && this.audience === 'gm' && this.beginGizmo(x, y)) return;
     if (event.button === 0 && this.placing) return;
@@ -4522,7 +4660,7 @@ export class Board {
     }
     const { clientX: x, clientY: y } = event;
     // Painting: a click paints the wall under it (Shift: the whole wall), and painting goes on until Esc.
-    if (event.button === 0 && this.painting) {
+    if (event.button === 0 && this.painting && press?.kind !== 'tool') {
       // A raised shape under the pointer takes the material (or loses it), before the walls behind it.
       const shaped = this.shapePartAt(x, y);
       if (shaped) {
@@ -4533,7 +4671,7 @@ export class Board {
       if (wall) this.host.paintWall(wall, this.painting === UNPAINT ? null : this.painting, event.shiftKey);
       return;
     }
-    if (event.button === 0 && this.placing) {
+    if (event.button === 0 && this.placing && press?.kind !== 'tool') {
       const at = this.boardPoint(x, y);
       const glb = this.placing;
       const look = this.placingLook;
@@ -4565,7 +4703,8 @@ export class Board {
       this.act(actions);
       if (pendingMeasure && at) {
         const opts = this.measureOptions();
-        if (opts.keep) {
+        // The quick ruler of the held measure key keeps nothing, whatever Keep says.
+        if (opts.keep && this.heldRuler === null) {
           const cell = this.map?.grid.size ?? 70;
           const points = pendingMeasure.shape === 'ruler'
             ? [pendingMeasure.start, ...(pendingMeasure.waypoints ?? []), at]
@@ -5924,15 +6063,67 @@ export class Board {
     return true;
   }
 
+  /** The tokens of the shown scene that are selected: the group, else the selected one. */
+  selectedTokenIds(): string[] {
+    const picked = this.group.size > 0 ? [...this.group] : this.selectedId !== null ? [this.selectedId] : [];
+    return picked.filter((id) => this.tokens.has(id));
+  }
+
   /** Atlas's Delete key: the selected tokens leave the map (the GM's, one undo step). False with nothing selected. */
   deleteSelection(): boolean {
     if (this.audience !== 'gm' || !this.host.removeTokens) return false;
-    const picked = this.group.size > 0 ? [...this.group] : this.selectedId !== null ? [this.selectedId] : [];
-    const ids = picked.filter((id) => this.tokens.has(id));
+    const ids = this.selectedTokenIds();
     if (ids.length === 0) return false;
     this.clearGroup();
     this.select(null);
     this.host.removeTokens(ids);
+    return true;
+  }
+
+  /** Text selected on the page: Atlas's Copy and Cut leave the key to the browser's own copy then (`yieldsToTextSelection`). */
+  private textSelected(): boolean {
+    const selection = this.canvas.ownerDocument.getSelection();
+    return selection !== null && !selection.isCollapsed && selection.toString().trim() !== '';
+  }
+
+  /**
+   * Atlas's Copy key: the selected tokens go on the clipboard (the GM's). True when the key is the board's (as in Atlas,
+   * even with nothing selected), false when it was left to selected page text or this is not the GM's board.
+   */
+  copySelection(): boolean {
+    if (this.audience !== 'gm' || !this.host.copyTokens || this.textSelected()) return false;
+    const ids = this.selectedTokenIds();
+    if (ids.length > 0) void this.host.copyTokens(ids);
+    return true;
+  }
+
+  /** Atlas's Cut key: Copy, then the selected tokens leave the map in one undo step. */
+  cutSelection(): boolean {
+    if (this.audience !== 'gm' || !this.host.cutTokens || this.textSelected()) return false;
+    const ids = this.selectedTokenIds();
+    if (ids.length === 0) return true;
+    this.clearGroup();
+    this.select(null);
+    void this.host.cutTokens(ids);
+    return true;
+  }
+
+  /**
+   * Atlas's Paste key: the copied tokens land centred on the point under the pointer, else on the middle of the view, and
+   * the copies are selected. True when the key is the board's.
+   */
+  pasteSelection(): boolean {
+    if (this.audience !== 'gm' || !this.host.pasteTokens) return false;
+    const at = this.pointerAt ? this.boardPoint(this.pointerAt.x, this.pointerAt.y) : null;
+    this.host.pasteTokens(at ?? this.viewCentre()).then((ids) => { if (ids.length > 0) this.selectTokens(ids); }, () => {});
+    return true;
+  }
+
+  /** Atlas's Duplicate key: copies of the selected tokens one cell aside, selected afterwards (one undo step). True when the key is the board's. */
+  duplicateSelection(): boolean {
+    if (this.audience !== 'gm' || !this.host.duplicateTokens) return false;
+    const ids = this.selectedTokenIds();
+    if (ids.length > 0) this.host.duplicateTokens(ids).then((copies) => { if (copies.length > 0) this.selectTokens(copies); }, () => {});
     return true;
   }
 
@@ -7226,17 +7417,22 @@ export class Board {
     this.wake();
   }
 
-  /** Flashes a banner over the board for the turn that began: it fades by itself. */
-  flashTurn(text: string): void {
-    const doc = this.container.ownerDocument;
-    this.container.querySelector('.atlas-tabletop-turn-banner')?.remove();
-    const banner = doc.win.createDiv();
-    banner.className = 'atlas-tabletop-turn-banner';
-    banner.setAttribute('role', 'status');
-    banner.textContent = text;
-    this.container.appendChild(banner);
-    (doc.defaultView ?? window).setTimeout(() => banner.remove(), TURN_BANNER_MS);
+  /** Atlas's turn banner, standing above the toolbar: made on first use (the toolbar holds its place). */
+  private turnBanners: TurnBannerDisplay | null = null;
+
+  /** Does what the turn announcer says: shows Atlas's banners (a portrait by `portrait`), or lets a turn's banner leave. */
+  showTurnBanner(command: TurnBannerCommand, portrait: PortraitSource): void {
+    if (!command || this.disposed) return;
+    if ('hideTurn' in command) {
+      if (this.turnBanners?.showing && !this.turnBanners.showsFightEnd) this.turnBanners.hide();
+      return;
+    }
+    this.turnBanners ??= new TurnBannerDisplay(this.toolbar.turnBannerHost, (path) => this.turnPortrait?.(path) ?? null);
+    this.turnPortrait = portrait;
+    this.turnBanners.show(...command.show);
   }
+
+  private turnPortrait: PortraitSource | null = null;
 
   /** Rings the tokens of the combatants whose turn it is; none takes the rings away. */
   setActiveTokens(ids: readonly string[]): void {
@@ -7801,6 +7997,8 @@ export class Board {
   }
 
   dispose(): void {
+    this.turnBanners?.destroy();
+    this.turnBanners = null;
     this.loadingOverlay.dispose();
     this.cinematicDriver = null;
     this.arLatest = null;

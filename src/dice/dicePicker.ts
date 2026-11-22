@@ -8,6 +8,13 @@
 import { setSvg } from '../svg';
 import { DIE_TYPES, type DieType } from './kit/faces';
 import { defaultDice, edgeOf, MAX_DICE, type DiceRules, type RollRequest } from './rollRules';
+import { at } from '../atlasPort/atlasText';
+import { presetText } from '../atlasPort/app/react/components/dice/presetLook';
+import { presetFaceParts } from '../atlasPort/app/react/components/dice/presetFace';
+import { STANDARD_ROW_CHANGE } from '../atlasPort/app/react/components/dice/diceShelf';
+import { placeKey, rowColumns, rowPlaces, type RowPlace } from './diceRow';
+import { buildRowEditor } from './diceRowEditor';
+import { BOOKMARK_SVG, SavedRollsPanel, type SavedRollsHost } from './savedRollsPanel';
 
 export type AdvantageSide = NonNullable<RollRequest['advantage']>;
 
@@ -22,7 +29,7 @@ export interface Pick {
 export const MODIFIER_LIMIT = 20;
 export const DIE_LIMIT = 20;
 
-/** The tray's dice in Atlas's order: the percentile die last. */
+/** The tray's dice in Atlas's order: the percentile die last (the formula is written in it, whichever dice the row shows). */
 const TRAY_DICE: readonly DieType[] = ['d4', 'd6', 'd8', 'd10', 'd12', 'd20', 'd100'];
 
 export function emptyPick(): Pick {
@@ -131,6 +138,8 @@ export interface DicePickerOptions {
   onOpenChange?(open: boolean): void;
   /** Opens the board's dice log from the button in the tray. */
   onOpenLog?(): void;
+  /** The collection's saved rolls beside the tray (Atlas 0.18's); left out, the tray has none. */
+  saved?: SavedRollsHost;
 }
 
 /** Lucide's `dices` (ISC): the toolbar's Dice button. */
@@ -140,6 +149,17 @@ const LOG_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 /** Lucide's `minus` and `plus` (ISC). */
 const MINUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/></svg>';
 const PLUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>';
+
+/** Lucide's `pencil` and `rotate-ccw` (ISC): the row's edit mode, and the way back to the standard dice. */
+const PENCIL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>';
+const RESET_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
+
+/** One place of the row drawn in the tray. */
+interface Cell {
+  place: RowPlace;
+  cell: HTMLElement;
+  face: HTMLButtonElement;
+}
 
 const SIDES: Array<{ value: AdvantageSide | 'normal'; label: string }> = [
   { value: 'normal', label: 'Normal' },
@@ -151,8 +171,17 @@ export class DicePicker {
   private pick: Pick = emptyPick();
   /** Atlas's tray: positioned over its button by Atlas's own styles. */
   private readonly panel: HTMLElement;
-  private readonly faces = new Map<DieType, HTMLButtonElement>();
-  private readonly grips = new Map<DieType, HTMLElement>();
+  /** The row of dice and saved rolls (the collection's own, else the seven standard dice), as it is drawn now. */
+  private row: HTMLElement;
+  private cells: Cell[] = [];
+  private rowKey: string | null = null;
+  /** The row's edit mode (Atlas's pencil, E): its places can be moved, taken out and added. */
+  private editing = false;
+  private focusPlace: number | null = null;
+  private readonly actions: HTMLElement;
+  private readonly editActions: HTMLElement;
+  private readonly standardButton: HTMLButtonElement;
+  private editButton: HTMLButtonElement | null = null;
   private readonly sides: HTMLElement;
   private readonly sideButtons = new Map<string, HTMLButtonElement>();
   private readonly modifierValue: HTMLElement;
@@ -163,10 +192,15 @@ export class DicePicker {
   private readonly clear: HTMLButtonElement;
   private readonly swatches: HTMLElement;
   private swatchesFor: DieType | null = null;
+  /** The saved rolls beside the tray, and the bookmark at its foot that opens them. */
+  private readonly saved: SavedRollsPanel | null;
+  private readonly savedButton: HTMLButtonElement | null = null;
   private readonly stops: Array<() => void> = [];
   private readonly onOutside = (event: PointerEvent): void => {
     const target = event.target as Node;
     // The Dice button toggles the tray itself.
+    // A menu of the saved rolls lies in the document, outside the tray, and is the tray's too.
+    if ((target as Element).closest?.('.atlas-ctx-menu')) return;
     if (!this.panel.contains(target) && !this.panel.parentElement?.contains(target)) this.close();
   };
 
@@ -192,19 +226,7 @@ export class DicePicker {
     this.panel.setAttribute('aria-label', 'Dice');
     const content = el('div', 'atlas-dice-tray__content', el('div', 'atlas-dice-panel', this.panel));
 
-    const dice = el('div', 'atlas-dice-tray__dice', content);
-    for (const die of TRAY_DICE) {
-      const cell = el('div', 'atlas-dice-tray__die', dice);
-      const face = button('atlas-dice-tray__face', cell, `Add a ${die}`, () => this.change(stepDie(this.pick, die, 1)));
-      face.dataset.die = die;
-      face.title = `${die} · right-click: colour, advantage`;
-      face.addEventListener('contextmenu', (event) => {
-        event.preventDefault();
-        this.showSwatches(die, face);
-      });
-      this.faces.set(die, face);
-      this.grips.set(die, cell);
-    }
+    this.row = el('div', 'atlas-dice-tray__dice', content);
     this.swatches = el('div', 'atlas-tabletop-dice-swatches', content);
     this.swatches.hidden = true;
 
@@ -234,6 +256,16 @@ export class DicePicker {
     this.formula.setAttribute('aria-live', 'polite');
 
     const actions = el('div', 'atlas-dice-tray__actions', content);
+    this.actions = actions;
+    // While the row is edited the foot has only the way back to the standard dice (where the row is the collection's own) and Done.
+    // Kept out of the tray until the row is edited, so the tray has one Roll.
+    this.editActions = doc.win.createDiv();
+    this.editActions.className = 'atlas-dice-tray__actions';
+    this.standardButton = button('btn btn--ghost atlas-dice-tray__foot-icon', this.editActions, at('diceRoll.rowStandard'), () => this.useStandardRow());
+    this.standardButton.title = at('diceRoll.rowStandard');
+    setSvg(this.standardButton, RESET_SVG);
+    const done = button('btn btn--default btn--sm atlas-dice-tray__roll', this.editActions, at('diceRoll.rowDone'), () => this.setEditing(false), at('diceRoll.rowDone'));
+    done.setAttribute('aria-keyshortcuts', 'Escape');
     this.roll = button('btn btn--default btn--sm atlas-dice-tray__roll', actions, 'Roll', () => {
       const request = pickedRequest(this.pick, this.opts.rules());
       if (!request) return;
@@ -242,6 +274,25 @@ export class DicePicker {
       this.change(emptyPick());
     }, 'Roll');
     this.clear = button('btn btn--outline btn--sm', actions, 'Clear', () => this.change(emptyPick()), 'Clear');
+    this.saved = this.opts.saved ? new SavedRollsPanel(this.panel, this.opts.saved) : null;
+    if (this.saved) {
+      // At the foot's left, before Clear, as in Atlas: its name and key (P) in its tooltip.
+      const saved = this.saved;
+      const toggle = button('btn btn--ghost atlas-dice-tray__foot-icon', actions, at('diceRoll.presetsTitle'), () => { saved.toggle(); this.syncSaved(); });
+      toggle.title = `${at('diceRoll.presetsTitle')} (P)`;
+      toggle.setAttribute('aria-keyshortcuts', 'P');
+      setSvg(toggle, BOOKMARK_SVG);
+      actions.prepend(toggle);
+      this.savedButton = toggle;
+      // The row's edit mode, after the bookmark: its name and key (E) in its tooltip.
+      const edit = button('btn btn--ghost atlas-dice-tray__foot-icon', actions, at('diceRoll.rowEdit'), () => this.setEditing(!this.editing));
+      edit.title = `${at('diceRoll.rowEdit')} (E)`;
+      edit.setAttribute('aria-keyshortcuts', 'E');
+      setSvg(edit, PENCIL_SVG);
+      toggle.after(edit);
+      this.editButton = edit;
+      this.stops.push(this.opts.saved!.onChange(() => { this.drawRow(); this.show(); }));
+    }
     if (this.opts.onOpenLog) {
       const log = button('btn btn--outline btn--icon atlas-tabletop-dice-tray-log', actions, 'Dice log', () => {
         this.close();
@@ -258,11 +309,35 @@ export class DicePicker {
       if (event.key !== 'Escape' || !this.isOpen) return;
       event.preventDefault();
       event.stopPropagation();
-      this.close();
+      // Escape ends the row's edit first, as in Atlas.
+      if (this.editing) this.setEditing(false);
+      else this.close();
     };
-    this.panel.addEventListener('keydown', (event) => { if (event.key === 'Escape') escape(event); else event.stopPropagation(); });
+    this.panel.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') escape(event);
+      else {
+        // P opens and shuts the saved rolls, as in Atlas's tray; not while a field is being typed in.
+        const typing = (event.target as Element).closest?.('input, textarea') !== null;
+        const plain = !typing && !event.ctrlKey && !event.metaKey && !event.altKey && this.saved?.available;
+        if (plain && event.key.toLowerCase() === 'p' && !this.editing) {
+          event.preventDefault();
+          this.saved!.toggle();
+          this.syncSaved();
+        } else if (plain && event.key.toLowerCase() === 'e') {
+          // E switches the row's edit mode, as in Atlas's tray.
+          event.preventDefault();
+          this.setEditing(!this.editing);
+        } else if (plain && !this.editing && /^[0-9]$/.test(event.key)) {
+          // The number keys put the row's places in the tray by their place: 1 is the first, 0 the tenth.
+          event.preventDefault();
+          this.activate((Number(event.key) + 9) % 10);
+        }
+        event.stopPropagation();
+      }
+    });
     parent.addEventListener('keydown', escape);
     this.stops.push(() => parent.removeEventListener('keydown', escape));
+    this.drawRow();
     this.show();
   }
 
@@ -272,8 +347,10 @@ export class DicePicker {
 
   open(): void {
     if (this.isOpen) return;
+    this.drawRow();
     this.show();
     this.panel.hidden = false;
+    this.syncSaved();
     this.keepInView();
     this.parent.ownerDocument.addEventListener('pointerdown', this.onOutside, true);
     this.opts.onOpenChange?.(true);
@@ -283,6 +360,7 @@ export class DicePicker {
     if (!this.isOpen) return;
     this.panel.hidden = true;
     this.hideSwatches();
+    this.setEditing(false);
     this.parent.ownerDocument.removeEventListener('pointerdown', this.onOutside, true);
     this.opts.onOpenChange?.(false);
   }
@@ -294,6 +372,265 @@ export class DicePicker {
     const width = this.parent.ownerDocument.defaultView?.innerWidth ?? rect.right;
     const shift = rect.right > width - 8 ? width - 8 - rect.right : rect.left < 8 ? 8 - rect.left : 0;
     if (shift !== 0) this.panel.style.setProperty('--atlas-keep-in-view-x', `${Math.round(shift)}px`);
+  }
+
+  /** The saved rolls' bookmark and panel as the shelf says now: both stay out where Atlas keeps no saved rolls for this map. */
+  private syncSaved(): void {
+    if (!this.saved || !this.savedButton) return;
+    this.savedButton.hidden = !this.saved.available;
+    this.savedButton.setAttribute('aria-pressed', String(this.saved.isOpen));
+    this.saved.sync();
+  }
+
+  /** The picture of a die's body: the pack's own, else its name. */
+  private diePicture(die: DieType): HTMLElement {
+    const doc = this.parent.ownerDocument;
+    const picture = this.opts.picture?.(die) ?? null;
+    if (picture) {
+      const img = doc.win.createEl('img');
+      img.className = 'atlas-tabletop-die-picture';
+      img.src = picture;
+      img.alt = '';
+      img.setAttribute('aria-hidden', 'true');
+      img.draggable = false;
+      return img;
+    }
+    const name = doc.win.createSpan();
+    name.className = 'atlas-tabletop-dice-face-name';
+    name.textContent = die;
+    return name;
+  }
+
+  /**
+   * What a place of the row shows: a die's body (a die the board has no body for, `d3`, only its name), or a saved roll as
+   * Atlas draws it on its place: the body of its first die with how many it throws and what else it adds as small marks.
+   */
+  private art(place: RowPlace): HTMLElement {
+    const doc = this.parent.ownerDocument;
+    if (place.kind === 'die') {
+      if (place.die) return this.diePicture(place.die);
+      const named = doc.win.createSpan();
+      named.className = 'atlas-die-face atlas-die-face--named';
+      named.setAttribute('aria-hidden', 'true');
+      named.textContent = place.caption;
+      return named;
+    }
+    const preset = place.preset!;
+    const written = presetText(preset as never) as string;
+    const parts = presetFaceParts(written);
+    const first = preset.look?.dice[0];
+    const sides = first ? first.sides : parts?.sides ?? null;
+    const known = sides !== null && (DIE_TYPES as readonly string[]).includes(`d${sides}`);
+    const face = doc.win.createSpan();
+    face.className = 'atlas-preset-face';
+    face.setAttribute('aria-hidden', 'true');
+    if (sides === null || !parts && !first) {
+      // A roll without dice is its formula.
+      face.className = 'atlas-die-face atlas-die-face--named';
+      face.textContent = preset.formula.replace(/\[[^\]]*\]/g, '');
+      return face;
+    }
+    if (known) face.appendChild(this.diePicture(`d${sides}` as DieType));
+    else {
+      const named = doc.win.createSpan();
+      named.className = 'atlas-die-face atlas-die-face--named';
+      named.textContent = `d${sides}`;
+      face.appendChild(named);
+    }
+    const mark = (kind: string, text: string): void => {
+      const made = doc.win.createSpan();
+      made.className = `atlas-preset-face__mark atlas-preset-face__mark--${kind}`;
+      made.textContent = text;
+      face.appendChild(made);
+    };
+    const count = first ? first.count : parts?.count ?? 1;
+    if (count > 1) mark('count', `${count}×`);
+    if (parts?.rule) mark('rule', parts.rule);
+    if (parts?.rest) mark('rest', parts.rest);
+    return face;
+  }
+
+  /**
+   * The row as the collection holds it (else the seven standard dice), drawn again where it changed: its places, or while the
+   * row is edited its editor. The dice's counts and pictures are `show()`'s.
+   */
+  private drawRow(): void {
+    const shelf = this.opts.saved?.shelf() ?? null;
+    const places = rowPlaces(shelf);
+    // An edit mode needs a row to change: it ends where the collection (and so the row) is no longer reachable.
+    if (this.editing && !shelf) this.editing = false;
+    const key = JSON.stringify([this.editing, shelf?.ownRow ?? false, places.map((place) => [place.caption, place.kind, place.preset?.formula, place.preset?.look])]);
+    this.syncEdit(shelf);
+    if (key === this.rowKey) return;
+    this.rowKey = key;
+    this.cells = [];
+    const doc = this.parent.ownerDocument;
+    let next: HTMLElement;
+    if (this.editing) {
+      next = buildRowEditor({
+        doc,
+        shelf: () => this.opts.saved?.shelf() ?? null,
+        write: (change) => this.writeRow(change),
+        art: (place) => this.art(place),
+        keepFocus: (place) => { this.focusPlace = place; },
+      }, places);
+    } else {
+      next = doc.win.createDiv();
+      next.className = 'atlas-dice-tray__dice';
+      next.style.setProperty('--atlas-tray-slots', String(rowColumns(places.length)));
+      places.forEach((place, index) => next.appendChild(this.makeCell(place, index)));
+    }
+    // A redraw leaves the focus where it was (the place a key moved is named), so keys go on reaching the tray.
+    const dieCells = (from: HTMLElement): HTMLElement[] => [...from.querySelectorAll<HTMLElement>('.atlas-dice-tray__die')];
+    const held = dieCells(this.row).findIndex((each) => each.contains(doc.activeElement));
+    const focusAt = this.focusPlace ?? (held >= 0 ? held : null);
+    this.focusPlace = null;
+    this.row.replaceWith(next);
+    this.row = next;
+    if (focusAt !== null) {
+      const target = dieCells(next);
+      target[Math.min(focusAt, target.length - 1)]?.querySelector<HTMLElement>('.atlas-dice-tray__face')?.focus();
+    }
+    this.hideSwatches();
+    // The tray is as wide as its row: held inside the window again.
+    if (this.isOpen) this.keepInView();
+  }
+
+  private makeCell(place: RowPlace, index: number): HTMLElement {
+    const doc = this.parent.ownerDocument;
+    const cell = doc.win.createDiv();
+    cell.className = 'atlas-dice-tray__die';
+    const face = doc.win.createEl('button');
+    face.type = 'button';
+    face.className = 'atlas-dice-tray__face';
+    const key = placeKey(index);
+    face.setAttribute('aria-keyshortcuts', key);
+    if (place.kind === 'die') {
+      face.dataset.die = place.caption;
+      face.title = place.problem ?? `${place.caption} · right-click: colour, advantage · ${key}`;
+      if (place.die) {
+        const die = place.die;
+        face.addEventListener('click', () => this.change(stepDie(this.pick, die, 1)));
+        face.addEventListener('contextmenu', (event) => {
+          event.preventDefault();
+          this.showSwatches(die, face);
+        });
+      }
+    } else {
+      face.dataset.preset = place.preset!.id;
+      face.title = `${presetText(place.preset as never) as string} · ${at('diceRoll.presetRollsAtOnce')} · ${key}`;
+      face.setAttribute('aria-label', place.caption);
+      face.addEventListener('click', () => this.activate(index));
+    }
+    cell.appendChild(face);
+    this.cells.push({ place, cell, face });
+    if (place.kind === 'preset') {
+      const caption = doc.win.createSpan();
+      caption.className = 'atlas-dice-tray__caption';
+      caption.setAttribute('aria-hidden', 'true');
+      caption.textContent = place.caption;
+      cell.appendChild(caption);
+    }
+    return cell;
+  }
+
+  /** One place drawn as the tray holds its dice now: its picture, its count and colours, the grip that takes one back. */
+  private drawCell({ place, cell, face }: Cell, total: number): void {
+    face.replaceChildren(this.art(place));
+    if (place.kind === 'preset') return;
+    const die = place.die;
+    if (!die) {
+      // A die the board has no body for stays in the row, as Atlas keeps it; it says why it cannot be thrown here.
+      face.setAttribute('aria-disabled', 'true');
+      face.setAttribute('aria-label', place.problem ?? place.caption);
+      return;
+    }
+    const doc = this.parent.ownerDocument;
+    const count = countOf(this.pick, die);
+    if (count > 0) {
+      const badge = doc.win.createSpan();
+      badge.className = 'atlas-dice-tray__count';
+      badge.setAttribute('aria-hidden', 'true');
+      badge.textContent = String(count);
+      face.appendChild(badge);
+    }
+    // The colours picked for it, as a stripe of their shares under the picture (the pack's own leaves no mark).
+    const picked = this.pick.dice[die] ?? [];
+    const coloured = picked.some((each) => each !== null);
+    face.classList.toggle('has-color', coloured);
+    if (coloured) {
+      const stops = picked.map((each, index) => `${each ?? 'transparent'} ${(index / picked.length) * 100}% ${((index + 1) / picked.length) * 100}%`);
+      face.style.setProperty('--atlas-tabletop-die-colors', `linear-gradient(to right, ${stops.join(', ')})`);
+    } else face.style.removeProperty('--atlas-tabletop-die-colors');
+    face.disabled = count >= DIE_LIMIT || total >= MAX_DICE;
+    face.setAttribute('aria-label', count === 0 ? `Add a ${die}` : `Add a ${die}, ${count} in the tray`);
+    // Under each die: the grip that takes one back, or the space it would take.
+    cell.querySelector('.atlas-dice-tray__grip, .atlas-dice-tray__grip-space')?.remove();
+    if (count > 0) {
+      const grip = doc.win.createEl('button');
+      grip.type = 'button';
+      grip.className = 'atlas-dice-tray__grip';
+      grip.setAttribute('aria-label', `Take one ${die} back`);
+      setSvg(grip, MINUS_SVG);
+      grip.addEventListener('click', () => this.change(stepDie(this.pick, die, -1)));
+      cell.appendChild(grip);
+    } else {
+      const space = doc.win.createSpan();
+      space.className = 'atlas-dice-tray__grip-space';
+      space.setAttribute('aria-hidden', 'true');
+      cell.appendChild(space);
+    }
+  }
+
+  /** The place's own action: a die goes in the tray, a saved roll is thrown at once (the tray steps aside), as Atlas's designed rolls are. */
+  private activate(index: number): void {
+    const entry = this.cells[index];
+    if (!entry || this.editing) return;
+    const { place } = entry;
+    if (place.kind === 'die') {
+      if (place.die && !entry.face.disabled) this.change(stepDie(this.pick, place.die, 1));
+      else if (place.problem) this.opts.saved?.warn(place.problem);
+      return;
+    }
+    const problem = place.preset ? this.opts.saved?.roll(place.preset) ?? null : null;
+    if (problem) this.opts.saved?.warn(problem);
+  }
+
+  /** Writes a change of the row to the collection; a refusal is told, and the row is read again from what Atlas holds. */
+  private writeRow(change: Parameters<NonNullable<DicePickerOptions['saved']>['write']>[0]): void {
+    const saved = this.opts.saved;
+    if (!saved) return;
+    saved.write(change).catch(() => {
+      saved.warn(at('diceRoll.presetsSaveFailed'));
+      this.rowKey = null;
+      this.drawRow();
+    });
+  }
+
+  /** The row's edit mode, on or off (Atlas's pencil and E; Done and Escape end it). */
+  private setEditing(on: boolean): void {
+    if (this.editing === on) return;
+    if (on && !this.opts.saved?.shelf()) return;
+    this.editing = on;
+    this.drawRow();
+    this.show();
+  }
+
+  /** The foot as the mode says: the editing foot (the way back to the standard dice, and Done) or the tray's own. */
+  private syncEdit(shelf: ReturnType<SavedRollsHost['shelf']>): void {
+    this.actions.hidden = this.editing;
+    if (this.editing) this.actions.after(this.editActions);
+    else this.editActions.remove();
+    this.standardButton.hidden = !shelf?.ownRow;
+    if (this.editButton) {
+      this.editButton.hidden = !shelf;
+      this.editButton.setAttribute('aria-pressed', String(this.editing));
+    }
+  }
+
+  /** The standard seven dice again, in place of the collection's own row. */
+  private useStandardRow(): void {
+    this.writeRow(STANDARD_ROW_CHANGE);
   }
 
   /** What Roll lays on the table now; null with no dice picked. */
@@ -309,6 +646,7 @@ export class DicePicker {
   dispose(): void {
     this.close();
     for (const stop of this.stops) stop();
+    this.saved?.dispose();
     this.panel.remove();
   }
 
@@ -321,60 +659,7 @@ export class DicePicker {
   private show(): void {
     const doc = this.parent.ownerDocument;
     const total = pickedCount(this.pick);
-    for (const die of TRAY_DICE) {
-      const count = countOf(this.pick, die);
-      const face = this.faces.get(die)!;
-      face.replaceChildren();
-      const picture = this.opts.picture?.(die) ?? null;
-      if (picture) {
-        const img = doc.win.createEl('img');
-        img.className = 'atlas-tabletop-die-picture';
-        img.src = picture;
-        img.alt = '';
-        img.setAttribute('aria-hidden', 'true');
-        img.draggable = false;
-        face.appendChild(img);
-      } else {
-        const name = doc.win.createSpan();
-        name.className = 'atlas-tabletop-dice-face-name';
-        name.textContent = die;
-        face.appendChild(name);
-      }
-      if (count > 0) {
-        const badge = doc.win.createSpan();
-        badge.className = 'atlas-dice-tray__count';
-        badge.setAttribute('aria-hidden', 'true');
-        badge.textContent = String(count);
-        face.appendChild(badge);
-      }
-      // The colours picked for it, as a stripe of their shares under the picture (the pack's own leaves no mark).
-      const picked = this.pick.dice[die] ?? [];
-      const coloured = picked.some((each) => each !== null);
-      face.classList.toggle('has-color', coloured);
-      if (coloured) {
-        const stops = picked.map((each, index) => `${each ?? 'transparent'} ${(index / picked.length) * 100}% ${((index + 1) / picked.length) * 100}%`);
-        face.style.setProperty('--atlas-tabletop-die-colors', `linear-gradient(to right, ${stops.join(', ')})`);
-      } else face.style.removeProperty('--atlas-tabletop-die-colors');
-      face.disabled = count >= DIE_LIMIT || total >= MAX_DICE;
-      face.setAttribute('aria-label', count === 0 ? `Add a ${die}` : `Add a ${die}, ${count} in the tray`);
-      // Under each die: the grip that takes one back, or the space it would take.
-      const cell = this.grips.get(die)!;
-      cell.querySelector('.atlas-dice-tray__grip, .atlas-dice-tray__grip-space')?.remove();
-      if (count > 0) {
-        const grip = doc.win.createEl('button');
-        grip.type = 'button';
-        grip.className = 'atlas-dice-tray__grip';
-        grip.setAttribute('aria-label', `Take one ${die} back`);
-        setSvg(grip, MINUS_SVG);
-        grip.addEventListener('click', () => this.change(stepDie(this.pick, die, -1)));
-        cell.appendChild(grip);
-      } else {
-        const space = doc.win.createSpan();
-        space.className = 'atlas-dice-tray__grip-space';
-        space.setAttribute('aria-hidden', 'true');
-        cell.appendChild(space);
-      }
-    }
+    for (const entry of this.cells) this.drawCell(entry, total);
     const applies = advantageApplies(this.pick, this.opts.rules());
     // A side the set gives no effect shows as Normal, as the roll it makes.
     const side = applies && (!this.pick.advantage || advantageApplies(this.pick, this.opts.rules(), this.pick.advantage)) ? this.pick.advantage ?? 'normal' : 'normal';
@@ -392,6 +677,7 @@ export class DicePicker {
     const sideName = applies && this.pick.advantage ? SIDES.find((entry) => entry.value === this.pick.advantage)?.label : undefined;
     this.formula.textContent = formula === '' ? 'The tray is empty.' : sideName ? `${formula} · ${sideName}` : formula;
     this.formula.classList.toggle('atlas-dice-tray__formula--empty', formula === '');
+    this.saved?.setTrayFormula(formula);
     this.roll.disabled = formula === '';
     this.clear.hidden = formula === '' && this.pick.modifier === 0;
   }

@@ -32,10 +32,16 @@ test("Atlas's default keys reach their board actions", () => {
     [{ key: 'a', ctrlKey: true }, 'selectAll'],
     [{ key: 'Delete' }, 'delete'],
     [{ key: 'Backspace' }, 'delete'],
+    [{ key: 'c', ctrlKey: true }, 'copy'],
+    [{ key: 'x', ctrlKey: true }, 'cut'],
+    [{ key: 'v', ctrlKey: true }, 'paste'],
+    [{ key: 'd', ctrlKey: true }, 'duplicate'],
+    [{ key: 'd', metaKey: true }, 'duplicate'],
     [{ key: 'f' }, 'fog'],
     [{ key: ',' }, 'brushSmaller'],
     [{ key: '.' }, 'brushLarger'],
     [{ key: 'D', shiftKey: true }, 'gmView'],
+    [{ key: 'h' }, 'peek'],
   ];
   for (const [init, action] of cases) assert.equal(boardHotkeyAction(key(init), defaults), action, `${JSON.stringify(init)} -> ${action}`);
 });
@@ -55,6 +61,7 @@ test("the GM's rebinding wins, and a rebinding to a camera letter takes Shift", 
 test('a held key does not repeat an action', () => {
   assert.equal(boardHotkeyAction(key({ key: 'r', repeat: true }), defaults), null);
   assert.equal(boardHotkeyAction(key({ key: 'f', repeat: true }), defaults), null);
+  assert.equal(boardHotkeyAction(key({ key: 'h', repeat: true }), defaults), null);
   // The brush keys of the fog tool are the exception: held, they go on sizing it.
   assert.equal(boardHotkeyAction(key({ key: ',', repeat: true }), defaults), 'brushSmaller');
   assert.equal(boardHotkeyAction(key({ key: '.', repeat: true }), defaults), 'brushLarger');
@@ -68,8 +75,8 @@ test("the Measure key steps through the modes in the bar's order, passing over R
 });
 
 test("the shortcut help lists Atlas's shortcuts the board has, not its 2D map tools or what the board lacks", () => {
-  for (const id of ['help', 'palette', 'assets', 'measure', 'diceTray', 'fitToken', 'levelUp', 'selectAll', 'delete', 'initiative', 'nextTurn', 'fog', 'drawSmaller', 'drawLarger']) assert.ok(worksOnBoard(id), id);
-  for (const id of ['draw', 'erase', 'text', 'pin', 'wall', 'audio', 'lightingPeek', 'copy', 'paste', 'duplicate', 'widget1', 'increase']) assert.ok(!worksOnBoard(id), id);
+  for (const id of ['help', 'palette', 'assets', 'measure', 'diceTray', 'fitToken', 'levelUp', 'selectAll', 'delete', 'copy', 'cut', 'paste', 'duplicate', 'initiative', 'nextTurn', 'fog', 'drawSmaller', 'drawLarger', 'lightingPeek']) assert.ok(worksOnBoard(id), id);
+  for (const id of ['draw', 'erase', 'text', 'pin', 'wall', 'audio', 'widget1', 'increase']) assert.ok(!worksOnBoard(id), id);
 });
 
 test("the board's own keys name the camera and the eyes", () => {

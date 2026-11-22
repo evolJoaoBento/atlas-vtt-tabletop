@@ -198,6 +198,16 @@ export function diceRulesOf(view: MapViewLike | null, forMap?: string): DiceRule
   return isObject(settings) && isObject(settings.dice) ? readRules(settings.dice) : { ...DEFAULT_RULES };
 }
 
+/**
+ * The rules of a saved roll's designed dice (Atlas's `RollingDice`, a dice set without its name): its dice in their colours
+ * and names, its critical and exploding rules and what advantage does. Null where it holds a die Tabletop has none of: a
+ * set read as Atlas's default would throw another die than the roll names.
+ */
+export function rulesOfLook(look: unknown): DiceRules | null {
+  if (!isObject(look) || !Array.isArray(look.dice) || setGroups(look.dice) === null) return null;
+  return readRules(look);
+}
+
 /** A tag colour Atlas keeps: `#rrggbb`. */
 const tagColour = (color: unknown): string | undefined => (typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color) ? color : undefined);
 

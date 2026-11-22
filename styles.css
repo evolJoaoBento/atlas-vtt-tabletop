@@ -2092,6 +2092,127 @@ body.atlas-tabletop-player-window .view-header {
   to { opacity: 1; transform: translateX(0) scale(1); }
 }
 
+/* Atlas 0.18's compact tracker (its Compact view setting; `initiative-tracker-compact.scss`, restated under the board's class names):
+   a line per combatant, the number on a plate, the name beside it, the marks last, over the token's art faded in from the right end. */
+.atlas-tabletop-atlas .tabletop-initiative-tracker--compact { width: 216px; }
+.atlas-tabletop-atlas .tabletop-initiative-tracker--compact,
+.atlas-tabletop-atlas .tabletop-initiative-tracker--compact .tabletop-initiative-tracker__content { gap: 4px; }
+.atlas-tabletop-atlas .tabletop-initiative-tracker--compact .tabletop-initiative-side { gap: 4px; }
+.atlas-tabletop-atlas .tabletop-initiative-tracker--compact .tabletop-initiative-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  height: 34px;
+  flex-shrink: 0;
+  gap: 4px;
+  padding: 4px;
+  border-width: 1px;
+  isolation: isolate;
+}
+.atlas-tabletop-atlas .tabletop-initiative-tracker--compact .tabletop-initiative-card:active { transform: none; }
+.atlas-tabletop-atlas .tabletop-initiative-tracker--compact .tabletop-initiative-card > :not(.tabletop-initiative-card__backdrop) { z-index: 1; }
+.atlas-tabletop-atlas .tabletop-initiative-card__backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  border-radius: 9px;
+  pointer-events: none;
+}
+.atlas-tabletop-atlas .tabletop-initiative-card__backdrop img {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 75%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 30%;
+  opacity: 0.75;
+  filter: brightness(0.85);
+  mask-image: linear-gradient(to right, transparent 8%, rgb(0 0 0 / 0.45) 50%, #000 90%);
+  transition: opacity 120ms ease-out, filter 120ms ease-out;
+}
+.atlas-tabletop-atlas .tabletop-initiative-card__backdrop--framed img { transform: scale(1.4); transform-origin: 50% 45%; }
+.atlas-tabletop-atlas .tabletop-initiative-tracker--compact .tabletop-initiative-card:hover .tabletop-initiative-card__backdrop img { opacity: 0.95; filter: none; transition-duration: 0s; }
+.atlas-tabletop-atlas .tabletop-initiative-tracker--compact .tabletop-initiative-card--hidden .tabletop-initiative-card__backdrop { opacity: 0.5; }
+.atlas-tabletop-atlas .tabletop-initiative-tracker--compact .tabletop-initiative-card--hidden .tabletop-initiative-card__name { opacity: 0.6; }
+/* The turn's ring and glow lie over the art, which would cover them on the card itself. */
+.atlas-tabletop-atlas .tabletop-initiative-tracker--compact .tabletop-initiative-card--active,
+.atlas-tabletop-atlas .tabletop-initiative-tracker--compact .tabletop-initiative-side--active .tabletop-initiative-card:not(.tabletop-initiative-card--sitting-out) { box-shadow: none; }
+.atlas-tabletop-atlas .tabletop-initiative-card__backdrop::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
+.atlas-tabletop-atlas .tabletop-initiative-tracker--compact .tabletop-initiative-card--active .tabletop-initiative-card__backdrop::after,
+.atlas-tabletop-atlas .tabletop-initiative-tracker--compact .tabletop-initiative-side--active .tabletop-initiative-card:not(.tabletop-initiative-card--sitting-out) .tabletop-initiative-card__backdrop::after {
+  box-shadow:
+    inset 0 0 0 1px var(--interactive-accent),
+    inset 0 0 12px color-mix(in oklch, var(--interactive-accent) 25%, transparent);
+}
+.atlas-tabletop-atlas .tabletop-initiative-tracker--compact .tabletop-initiative-card--active .tabletop-initiative-card__backdrop::after { animation: atlas-tabletop-initiative-pulse 2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .atlas-tabletop-atlas .tabletop-initiative-tracker--compact .tabletop-initiative-card--active .tabletop-initiative-card__backdrop::after { animation: none; }
+}
+.atlas-tabletop-atlas .tabletop-initiative-tracker--compact .tabletop-initiative-card__initiative {
+  grid-area: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 4px;
+  border-radius: 5px;
+  border: 1px solid var(--background-modifier-border);
+  background: color-mix(in srgb, var(--background-primary) 70%, transparent);
+}
+.atlas-tabletop-atlas .tabletop-initiative-tracker--compact .tabletop-initiative-card__name {
+  grid-area: 1 / 2;
+  display: block;
+  min-width: 0;
+  padding-inline: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--text-normal);
+  text-align: start;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.9), 0 0 6px rgb(0 0 0 / 0.7);
+}
+.atlas-tabletop-atlas .tabletop-initiative-tracker--compact .tabletop-initiative-card__marks {
+  grid-area: 1 / 3;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+}
+.atlas-tabletop-atlas .tabletop-initiative-card__marks:empty { display: none; }
+.atlas-tabletop-atlas .tabletop-initiative-card__marks svg { width: 14px; height: 14px; }
+.atlas-tabletop-atlas .tabletop-initiative-card__marks .tabletop-initiative-card__defeated-mark { display: flex; }
+.atlas-tabletop-atlas .tabletop-initiative-tracker--compact .tabletop-initiative-card__instance-badge,
+.atlas-tabletop-atlas .tabletop-initiative-tracker--compact .tabletop-initiative-card__hidden-badge { position: static; }
+/* The resource bars that defeat lie along the line's foot. */
+.atlas-tabletop-atlas .tabletop-initiative-tracker--compact .tabletop-initiative-card__resources {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 1px;
+  width: auto;
+  z-index: 1;
+  pointer-events: none;
+}
+/* A compact line is a dark surface in a light theme too, its art fading into dark under light words. */
+.theme-light .atlas-tabletop-atlas .tabletop-initiative-tracker--compact .tabletop-initiative-card {
+  --background-primary: #1c1c1f;
+  --background-secondary: #2a2a2e;
+  --background-modifier-hover: #26262a;
+  --background-modifier-active-hover: #303035;
+  --background-modifier-border: rgb(255 255 255 / 0.14);
+  --text-normal: #ece6da;
+  --text-muted: rgb(236 230 218 / 0.72);
+  --mono-100: #fff;
+  color-scheme: dark;
+}
+
 .atlas-tabletop-palette__check { margin: 0; }
 
 /* The material editor: a wall's worth of the texture (four squares by two) at the chosen scale. */
@@ -2167,6 +2288,8 @@ body.atlas-tabletop-player-window .view-header {
 /* The GM's dice tray, opened from the Dice button in the toolbar's end slot: Atlas's own tray (its styles), over the button. */
 .atlas-tabletop-atlas .atlas-dice-tray.atlas-tabletop-dice-picker { cursor: default; }
 .atlas-tabletop-atlas .atlas-dice-tray.atlas-tabletop-dice-picker[hidden] { display: none; }
+/* Atlas's classes set a display of their own, which would show what the tray hides (the saved rolls, their bookmark). */
+.atlas-tabletop-atlas .atlas-tabletop-dice-picker [hidden] { display: none !important; }
 .atlas-tabletop-atlas .atlas-dice-tray__actions .atlas-tabletop-dice-tray-log {
   flex: none;
   width: 40px;
@@ -2434,36 +2557,178 @@ body.atlas-tabletop-player-window .view-header {
   margin-top: var(--size-4-2);
 }
 
-/* The turn banner: flashes at the top of the board when the turn passes, then fades. */
-.atlas-tabletop-turn-banner {
+/* Atlas 0.18's turn banner (initiative/banner/turn-banner.scss, compiled values): a capsule centred above the toolbar that names
+   whose turn it is for a moment, and a fight's start and end as words between two rules. The players' banner (the player window's
+   centre, dimmed table) is Atlas's player window's, not the board's. */
+.atlas-tabletop-atlas .atlas-bottom-toolbar-row__above {
   position: absolute;
-  top: 12%;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: var(--size-4-2, 8px) var(--size-4-6, 24px);
-  border-radius: var(--radius-xl, 16px);
-  background: color-mix(in oklch, var(--background-primary, #1c1c1c) 88%, transparent);
-  border: 1.5px solid #f5b73d;
-  color: var(--text-normal, #eee);
-  font-size: var(--font-ui-large, 18px);
-  font-weight: var(--font-semibold);
-  letter-spacing: 0.02em;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 8px);
+  display: flex;
+  justify-content: center;
   pointer-events: none;
-  z-index: 6;
-  box-shadow: var(--shadow-l);
-  animation: atlas-tabletop-turn-banner 2.4s ease-out forwards;
 }
 
-@keyframes atlas-tabletop-turn-banner {
-  0% { opacity: 0; transform: translateX(-50%) translateY(-8px) scale(0.96); }
-  12% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
-  70% { opacity: 1; }
-  100% { opacity: 0; }
+.atlas-tabletop-atlas .atlas-turn-banner {
+  background: var(--background-primary);
+  border: 1.5px solid color-mix(in oklch, var(--mono-100) 18%, transparent);
+  box-shadow: var(--shadow-l);
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  box-sizing: border-box;
+  max-width: min(360px, calc(100% - 2 * 16px));
+  transform-origin: 50% 100%;
+  pointer-events: none;
+  color: var(--text-normal);
+  font-family: var(--font-interface);
+  position: relative;
+  --atlas-turn-banner-flash: var(--interactive-accent);
+}
+
+/* As it appears its border flashes, in the combatant's colour, else the accent. */
+.atlas-tabletop-atlas .atlas-turn-banner::before {
+  content: "";
+  position: absolute;
+  inset: -1.5px;
+  border: 2px solid var(--atlas-turn-banner-flash);
+  border-radius: inherit;
+  box-shadow: inset 0 0 12px var(--atlas-turn-banner-flash);
+  opacity: 0;
+  pointer-events: none;
+  animation: atlas-turn-banner-flash 0.9s ease-out both;
+}
+
+@keyframes atlas-turn-banner-flash {
+  0%, 33%, 66% { opacity: 1; }
+  16%, 50%, 100% { opacity: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .atlas-tabletop-turn-banner { animation: atlas-tabletop-turn-banner-still 2.4s linear forwards; }
-  @keyframes atlas-tabletop-turn-banner-still { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
+  .atlas-tabletop-atlas .atlas-turn-banner::before { animation: none; }
+}
+
+.atlas-tabletop-atlas .atlas-turn-banner__portrait {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+}
+
+.atlas-tabletop-atlas .atlas-turn-banner__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding-inline-end: 12px;
+}
+
+.atlas-tabletop-atlas .atlas-turn-banner--text .atlas-turn-banner__text { padding-inline: 12px; }
+
+.atlas-tabletop-atlas .atlas-turn-banner__eyebrow {
+  font-size: var(--font-ui-smaller);
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.atlas-tabletop-atlas .atlas-turn-banner__eyebrow--round { color: var(--text-accent); }
+
+.atlas-tabletop-atlas .atlas-turn-banner__title {
+  max-width: 240px;
+  overflow: hidden;
+  font-size: var(--font-ui-medium);
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* A fight's own banner, as a game titles a moment: no capsule, the sentence between two hairline rules that fade outward, over a
+   soft shade that reads on any map. Red rules as a fight starts, pale gold as it ends. */
+.atlas-tabletop-atlas .atlas-turn-banner.atlas-turn-banner--fight {
+  --atlas-fight-banner-accent: #d8c396;
+  gap: 12px;
+  width: max-content;
+  max-width: min(560px, calc(100% - 2 * 16px));
+  padding: 12px 24px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  color: #f2ead9;
+  isolation: isolate;
+}
+
+.atlas-tabletop-atlas .atlas-turn-banner.atlas-turn-banner--fight::before {
+  inset: -16px -32px;
+  z-index: -1;
+  border: none;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(0 0 0 / 0.66), rgb(0 0 0 / 0.5) 40%, rgb(0 0 0 / 0.22) 72%, transparent);
+  box-shadow: none;
+  opacity: 1;
+  animation: atlas-fight-banner-shade 0.9s cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.atlas-tabletop-atlas .atlas-turn-banner.atlas-turn-banner--fight.atlas-turn-banner--leaving { animation: atlas-fight-banner-out 0.7s ease-in both; }
+.atlas-tabletop-atlas .atlas-turn-banner.atlas-turn-banner--fight.atlas-turn-banner--leaving .atlas-fight-banner__title { animation: atlas-fight-banner-title-out 0.7s ease-in both; }
+
+.atlas-tabletop-atlas .atlas-turn-banner--fight-start { --atlas-fight-banner-accent: var(--atlas-theme-red, #e0574f); }
+.atlas-tabletop-atlas .atlas-turn-banner--fight-start .atlas-fight-banner__title {
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.9), 0 0 18px color-mix(in srgb, var(--atlas-fight-banner-accent) 45%, transparent);
+}
+
+.atlas-tabletop-atlas .atlas-fight-banner__title {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--atlas-theme-heading-font, var(--font-interface));
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.9);
+  animation: atlas-fight-banner-title 1s 80ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+/* Each rule fades towards its outer end and draws outward from the words. */
+.atlas-tabletop-atlas .atlas-fight-banner__rule {
+  flex: 0 0 72px;
+  height: 1px;
+  animation: atlas-fight-banner-rule 1.1s 0.2s cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.atlas-tabletop-atlas .atlas-fight-banner__rule--before {
+  background: linear-gradient(to left, var(--atlas-fight-banner-accent), transparent);
+  transform-origin: 100% 50%;
+}
+
+.atlas-tabletop-atlas .atlas-fight-banner__rule--after {
+  background: linear-gradient(to right, var(--atlas-fight-banner-accent), transparent);
+  transform-origin: 0 50%;
+}
+
+@keyframes atlas-fight-banner-shade { 0% { opacity: 0; transform: scaleX(0.6); } }
+@keyframes atlas-fight-banner-title { 0% { opacity: 0; letter-spacing: 0.32em; filter: blur(8px); } }
+@keyframes atlas-fight-banner-rule { 0% { opacity: 0; transform: scaleX(0); } }
+@keyframes atlas-fight-banner-out { to { opacity: 0; filter: blur(4px); } }
+@keyframes atlas-fight-banner-title-out { to { letter-spacing: 0.14em; } }
+@keyframes atlas-fight-banner-fade { 0% { opacity: 0; } }
+@keyframes atlas-fight-banner-out-still { to { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .atlas-tabletop-atlas .atlas-turn-banner.atlas-turn-banner--fight,
+  .atlas-tabletop-atlas .atlas-turn-banner.atlas-turn-banner--fight::before,
+  .atlas-tabletop-atlas .atlas-fight-banner__title,
+  .atlas-tabletop-atlas .atlas-fight-banner__rule { animation: atlas-fight-banner-fade 0.2s ease-out both; }
+
+  .atlas-tabletop-atlas .atlas-turn-banner.atlas-turn-banner--fight.atlas-turn-banner--leaving,
+  .atlas-tabletop-atlas .atlas-turn-banner--fight.atlas-turn-banner--leaving .atlas-fight-banner__title { animation: atlas-fight-banner-out-still 0.2s ease-in both; }
 }
 
 /* The bar over the board while a group of tokens is selected: how many, rotate, hurt or heal, let go. */
@@ -3290,5 +3555,8 @@ body.atlas-tabletop-player-window .view-header {
 .atlas-tabletop-atlas .atlas-toggle,.atlas-tabletop-atlas .atlas-toggle *,.atlas-tabletop-atlas .atlas-toggle *:before,.atlas-tabletop-atlas .atlas-toggle *:after{box-sizing:border-box}
 .atlas-tabletop-atlas .atlas-toolbar-end:not(.atlas-tabletop-extensions){display:flex;align-items:center}
 .atlas-tabletop-atlas .atlas-toolbar-end[hidden]:not(.atlas-tabletop-extensions){display:none}
+/* What stands before the GM view switch (a finger's peek button) keeps the bar's gap from it (main.scss); the button is made once and hidden where Atlas leaves it out. */
+.atlas-tabletop-atlas .atlas-toolbar-end:not(.atlas-tabletop-extensions){gap:4px}
+.atlas-tabletop-atlas .atlas-peek-button[hidden]{display:none}
 @media (hover: hover){.atlas-tabletop-atlas .atlas-toggle:not(.atlas-toggle--disabled):hover .atlas-toggle__switch--off{background-color:color-mix(in oklch,var(--background-secondary-alt),var(--text-normal) 12%)}.atlas-tabletop-atlas .atlas-toggle:not(.atlas-toggle--disabled):hover .atlas-toggle__switch--on{background-color:color-mix(in oklch,var(--interactive-accent) 86%,black)}}
 .atlas-tabletop-atlas .atlas-tool-button--disabled{opacity:.5;cursor:not-allowed;pointer-events:none}

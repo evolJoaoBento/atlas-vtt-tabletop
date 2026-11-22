@@ -22,7 +22,11 @@ export type MenuEntry =
     label: string;
     onClick: () => void;
     checked?: boolean;
+    /** An Obsidian (Lucide) icon drawn before the label, as Atlas's menu rows have. */
+    icon?: string;
     disabled?: boolean;
+    /** Why it is as it is (Atlas's tooltip on the row), e.g. why it is disabled. */
+    description?: string;
     destructive?: boolean;
     /** Drawn before the label, e.g. a condition's badge. */
     leading?: (doc: Document) => HTMLElement;
@@ -170,15 +174,16 @@ export class AtlasMenu {
         row.setAttribute('role', entry.checked !== undefined ? 'menuitemcheckbox' : 'menuitem');
         if (entry.checked !== undefined) row.setAttribute('aria-checked', String(entry.checked));
         if (entry.destructive) row.classList.add('atlas-ctx-item--destructive');
+        if (entry.description) row.title = entry.description;
         if (entry.disabled) {
           row.setAttribute('data-disabled', '');
           row.setAttribute('aria-disabled', 'true');
         }
         const label = Object.assign(this.doc.win.createSpan(), { className: 'atlas-ctx-item__label', textContent: entry.label });
-        if (entry.leading) {
+        if (entry.leading || entry.icon) {
           const leading = this.doc.win.createSpan();
           leading.className = 'atlas-ctx-item__leading';
-          leading.append(entry.leading(this.doc), label);
+          leading.append(entry.leading ? entry.leading(this.doc) : this.iconSpan(entry.icon!), label);
           row.appendChild(leading);
         } else {
           row.append(entry.label);

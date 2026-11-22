@@ -10,7 +10,8 @@
 import { FOG_MIN, GROUND_NOISES, MAX_MARGIN, MAX_TILE, type GroundMode, type GroundSettings } from './ground';
 import type { LiquidKind, WaterMotion } from './water';
 import { setSvg } from '../svg';
-import { atlasMeasureControlIcon, atlasMeasureEffectIcon, atlasMeasureIcon, atlasToolIcon, fogIcon, gmViewIcon, helpIcon, historyIcon, modeIcon, waterIcon } from './atlasToolIcons';
+import { atlasMeasureControlIcon, atlasMeasureEffectIcon, atlasMeasureIcon, atlasToolIcon, fogIcon, gmViewIcon, helpIcon, historyIcon, modeIcon, peekIcon, waterIcon } from './atlasToolIcons';
+import { peekButtonState, type PeekButtonState } from './lightingPeek';
 import { FogToolBars } from './fogToolBar';
 import type { FogBarActions } from './fogTool';
 import { at } from '../atlasPort/atlasText';
@@ -150,6 +151,10 @@ export interface ToolbarActions {
   gmView?(): boolean;
   setGmView?(on: boolean): void;
   gmViewShortcut?(): string | null;
+  /** Atlas's lighting peek, held from the bar's button (a finger holds no key): starts and ends it. Absent where the board has none. */
+  peek?(on: boolean): void;
+  /** Whether the pointer is a finger now: the peek button is there only then. */
+  coarse?(): boolean;
   templateOn(): boolean;
   templateShape(): string;
   /** Turns the Template tool on with a shape, or off with null. */
@@ -190,8 +195,14 @@ export interface ToolbarActions {
   tint(): string | null;
   setTint(color: string, keep: boolean): void;
   resetTint(): void;
+  /** Atlas's "Forget explored areas" (its Lighting settings button): the players' memory of what their tokens saw is forgotten. Absent: not the GM's to do. */
+  forgetExplored?(): void;
+  /** Whether Atlas can do it (a newer Atlas than the floor may be needed). Absent: it can. */
+  forgetExploredOffered?(): boolean;
 }
 
+/** Lucide's `rotate-ccw` (ISC), the icon of Atlas's Forget explored areas button. */
+const FORGET_EXPLORED_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
 /** What the light level's slider says while the scene's lighting is off in Atlas. */
 export const LIGHTING_OFF_TITLE = 'Turn on lighting in Atlas to set the light level.';
 
@@ -295,6 +306,8 @@ export function readWallThickness(text: string): number | null {
 
 export class BoardToolbar {
   private readonly row: HTMLElement;
+  /** Where Atlas's turn banner stands: centred above the toolbar (its `atlas-bottom-toolbar-row__above`). */
+  readonly turnBannerHost: HTMLElement;
   private readonly bar: HTMLElement;
   /** Atlas 0.17's keyboard shortcuts bar, in the board's bottom-right corner (hidden until `setHelp`). */
   private readonly helpBar: HTMLElement;
@@ -414,6 +427,7 @@ export class BoardToolbar {
   private readonly ambientValue: HTMLElement;
   private readonly tintInput: HTMLInputElement;
   private readonly tintReset: HTMLButtonElement;
+  private readonly forgetExploredButton: HTMLButtonElement | null = null;
   private readonly tiltInput: HTMLInputElement;
   private readonly occlusionInput: HTMLInputElement;
   /** Atlas's end slot, and the Dice button in it while the board has dice. */
@@ -421,6 +435,9 @@ export class BoardToolbar {
   /** Atlas's GM view switch, at the bar's last place after "More tools" (its `end` control). */
   private readonly gmViewEnd: HTMLElement;
   private readonly gmViewSwitch: HTMLElement;
+  private readonly peekButton: HTMLButtonElement;
+  /** The peek button is held down (Atlas's `held`). */
+  private peekHeld = false;
   private dice: EndButton | null = null;
   private diceLog: EndButton | null = null;
   private sheetHandlers: DiceButton | null = null;
@@ -512,6 +529,8 @@ export class BoardToolbar {
 
     // Atlas's own class names under a root of Tabletop's: its look is copied in styles.css, without needing its styles.
     this.row = el('div', 'atlas-tabletop-toolbar-row atlas-tabletop-atlas', container);
+    this.turnBannerHost = el('div', 'atlas-bottom-toolbar-row__above', this.row);
+    this.turnBannerHost.setAttribute('aria-live', 'polite');
     // The main toolbar and, as in Atlas 0.17's bottom row, the bars beside it (the keyboard shortcuts bar at its end).
     const line = el('div', 'atlas-tabletop-bar-line', this.row);
     const bar = el('div', 'atlas-vtt-toolbar atlas-main-toolbar atlas-tabletop-toolbar', line);
@@ -1237,6 +1256,17 @@ export class BoardToolbar {
       box.addEventListener('change', () => change(box.checked));
       return box;
     };
+    // Atlas's Lighting settings button, as Atlas draws it: a ghost button with the rotate icon in the settings' action row.
+    if (this.actions.forgetExplored) {
+      const actions = el('div', 'atlas-setting-actions', light);
+      const forget = el('button', 'btn btn--ghost btn--sm', actions);
+      forget.type = 'button';
+      forget.dataset.lightingAction = 'forget-explored';
+      setSvg(forget, FORGET_EXPLORED_SVG, true);
+      el('span', '', forget, at('sceneLight.forgetExplored'));
+      forget.addEventListener('click', () => { this.actions.forgetExplored?.(); this.closeLighting(); });
+      this.forgetExploredButton = forget;
+    }
     this.tiltInput = toggleIn(t('lighting.tilt'), t('lighting.tiltHint'), (on) => this.actions.setTiltShift(on));
     this.occlusionInput = toggleIn(t('lighting.occlusion'), t('lighting.occlusionHint'), (on) => this.actions.setOcclusion(on));
     this.lightingPanel.addEventListener('keydown', (event) => {
@@ -1592,6 +1622,27 @@ export class BoardToolbar {
     const gmViewName = el('span', '', this.gmViewEnd);
     gmViewName.hidden = true;
     gmViewName.id = 'atlas-tabletop-gm-view-name';
+    // Atlas's peek button (`PeekButton.tsx`), before the switch: a finger holds it where a keyboard holds the peek key. Its name is its label alone, no tooltip.
+    this.peekButton = el('button', 'btn btn--toolbar btn--icon btn--toolbar atlas-peek-button', this.gmViewEnd);
+    this.peekButton.type = 'button';
+    this.peekButton.setAttribute('aria-label', at('toolbar.peek'));
+    this.peekButton.setAttribute('aria-pressed', 'false');
+    this.peekButton.hidden = true;
+    setSvg(this.peekButton, peekIcon());
+    const peek = (on: boolean): void => {
+      if (this.peekHeld === on) return;
+      this.peekHeld = on;
+      this.actions.peek?.(on);
+      this.refresh();
+    };
+    this.peekButton.addEventListener('pointerdown', (event) => {
+      if ((this.actions.gmView?.() ?? true) === false || event.button !== 0) return;
+      // The press is captured, so a finger that slides off the button still ends the peek when it lifts.
+      try { this.peekButton.setPointerCapture(event.pointerId); } catch { /* a press the system has taken away */ }
+      peek(true);
+    });
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) this.peekButton.addEventListener(type, () => peek(false));
+    this.peekButton.addEventListener('contextmenu', (event) => event.preventDefault());
     this.gmViewSwitch = el('div', 'atlas-toggle', this.gmViewEnd);
     this.gmViewSwitch.setAttribute('role', 'switch');
     this.gmViewSwitch.setAttribute('aria-labelledby', gmViewName.id);
@@ -2296,6 +2347,13 @@ export class BoardToolbar {
     this.ambientInput.disabled = !lit;
     if (lit) this.ambientInput.removeAttribute('title');
     else this.ambientInput.title = LIGHTING_OFF_TITLE;
+    // Atlas disables Forget explored areas while its lighting is off; a map Atlas cannot do it on says so.
+    if (this.forgetExploredButton) {
+      const offered = this.actions.forgetExploredOffered?.() ?? true;
+      this.forgetExploredButton.disabled = !lit || !offered;
+      if (offered) this.forgetExploredButton.removeAttribute('title');
+      else this.forgetExploredButton.title = t('fog.needsNewerAtlas');
+    }
     this.tintInput.value = this.actions.tint() ?? '#ffffff';
     this.tintReset.disabled = this.actions.tint() === null;
     this.tiltInput.checked = this.actions.tiltShift();
@@ -2473,8 +2531,9 @@ export class BoardToolbar {
     // Play and Edit mode (a board without modes, which has no GM's view to switch, shows none).
     const offered = this.actions.gmView !== undefined && this.actions.setGmView !== undefined && (mode === 'play' || mode === 'edit');
     this.gmViewEnd.hidden = !offered;
-    if (!offered) return;
     const on = this.actions.gmView?.() ?? true;
+    this.syncPeek(mode, on);
+    if (!offered) return;
     const state = on ? 'on' : 'off';
     this.gmViewSwitch.setAttribute('aria-checked', String(on));
     this.gmViewSwitch.replaceChildren();
@@ -2489,6 +2548,20 @@ export class BoardToolbar {
     const key = this.actions.gmViewShortcut?.() ?? '';
     this.gmViewSwitch.setAttribute('aria-label', at('toolbar.gmView', { key }));
     this.gmViewEnd.querySelector('span')!.textContent = at('toolbar.gmView', { key });
+  }
+
+  /** Syncs the lighting peek's button: there for a finger, in Play and Edit mode; held while pressed, and taking no press in session view. */
+  private syncPeek(mode: BoardMode | null, gmView: boolean): void {
+    const stateOf = (): PeekButtonState => peekButtonState({ coarse: this.actions.coarse?.() === true, mode, hasPeek: this.actions.peek !== undefined && this.actions.gmView !== undefined, gmView, held: this.peekHeld });
+    // The view left the GM's picture, or the button went, while it was held: the peek ends with it.
+    const before = stateOf();
+    if (this.peekHeld && (!before.shown || before.disabled)) { this.peekHeld = false; this.actions.peek?.(false); }
+    const state = stateOf();
+    this.peekButton.hidden = !state.shown;
+    this.peekButton.setAttribute('aria-pressed', String(state.pressed));
+    if (state.disabled) this.peekButton.setAttribute('aria-disabled', 'true'); else this.peekButton.removeAttribute('aria-disabled');
+    this.peekButton.classList.toggle('is-active', state.pressed);
+    this.peekButton.classList.toggle('atlas-tool-button--disabled', state.disabled);
   }
 
   /** Syncs the Fog Tool button (its face is the mode in use) and its two bars with the fog tool. */

@@ -14,8 +14,7 @@ import type { PaletteHost } from '../palette/paletteHost';
 import { PaletteWindow } from '../palette/PaletteWindow';
 import { HotkeyHelpWindow } from './HotkeyHelpWindow';
 import { atlasPlayToolButtons, boardKey, type AtlasToolId } from './atlasTools';
-import { boardBinding, boardHotkeyAction, nextBoardMeasureMode } from './boardHotkeys';
-import { isMeasureShape } from './measureOptions';
+import { boardBinding, boardHotkeyAction } from './boardHotkeys';
 import type { Board } from './board';
 import type { AtlasToolButton } from './toolbar';
 import type { TokenWriter } from './tokenWriter';
@@ -128,7 +127,7 @@ export class BoardAtlasTools {
     switch (action) {
       case null: return false;
       case 'help': this.help.toggle(); return true;
-      case 'measure': return this.measureKey(board);
+      case 'measure': return board.measureKey(event);
       case 'diceTray': return board.goToToolbar('dice');
       case 'diceLog': return board.goToToolbar('dice-log');
       case 'sceneSwitcher': this.deps.palette.openSceneBrowser(); return true;
@@ -141,25 +140,16 @@ export class BoardAtlasTools {
       case 'levelDown': return board.stepLevel(-1);
       case 'selectAll': return board.selectAll();
       case 'delete': return board.deleteSelection();
+      case 'copy': return board.copySelection();
+      case 'cut': return board.cutSelection();
+      case 'paste': return board.pasteSelection();
+      case 'duplicate': return board.duplicateSelection();
       case 'fog': return board.toggleFogTool();
       case 'brushSmaller': return board.stepFogBrush(-1, event.repeat);
       case 'brushLarger': return board.stepFogBrush(1, event.repeat);
       case 'gmView': return board.toggleGmView();
+      case 'peek': return board.peek(true, event.key.toLowerCase());
     }
-  }
-
-  /** Atlas's Measure key: chooses the tool (in Play mode, switching to it), or, while chosen, steps to its next mode. */
-  private measureKey(board: Board): boolean {
-    const actions = board.toolbarActions();
-    if (!actions.measureOn?.()) return board.goToToolbar('measure');
-    const options = actions.measureOptions?.();
-    if (!options) return false;
-    const ranges = actions.rangesUnavailable !== undefined && actions.rangesUnavailable() === null;
-    const next = nextBoardMeasureMode(options.mode, ranges);
-    if (isMeasureShape(next)) actions.selectMeasure?.(next);
-    else actions.setMeasureOptions?.({ mode: next });
-    board.refreshToolbar();
-    return true;
   }
 
   /** Runs one of Atlas's own commands on this scene's Atlas view (the dashboard, the sound desk). */

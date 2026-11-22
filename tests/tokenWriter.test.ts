@@ -268,3 +268,55 @@ test("the light level and its colour are set through Atlas's scene lighting, nev
   await assert.rejects(old.setSceneLighting('m.atlasmap', { ambient: 0.4 }), /offers no scene lighting/);
 });
 
+
+// ── Forget explored areas (Atlas 0.18) ───────────────────────────────────
+
+/** A view whose event bus is Atlas's: `reactTo` is what its lighting does when asked to forget (it counts an edit, as Atlas's memory does). */
+function lightingView(over: Partial<AtlasSceneState>, calls: unknown[], reactTo?: (state: { edits: number }) => void): { view: AtlasView; state: () => AtlasSceneState } {
+  const live = liveView({ mapPath: 'm.atlasmap', mapLoaded: true, isMapLoading: false, exploredEdits: 0, ...over }, calls);
+  const view = Object.assign(live.view, {
+    serviceManager: { getEventBus: () => ({ emit: (event: string) => {
+      calls.push(['emit', event]);
+      if (reactTo) {
+        const box = { edits: live.view.atlasStore.getState().exploredEdits ?? 0 };
+        reactTo(box);
+        live.set({ exploredEdits: box.edits });
+      }
+    } }) },
+  });
+  return { view, state: () => view.atlasStore.getState() };
+}
+
+test("Forget explored areas asks Atlas's lighting, as its palette and lighting page do", async () => {
+  const calls: unknown[] = [];
+  const lit = lightingView({ setExploredMask: (mask, level) => { calls.push(['mask', mask, level]); } }, calls, (box) => { box.edits += 1; });
+  const writer = new TokenWriter({ views: () => [lit.view], held: async () => null });
+  assert.equal(writer.offersForgetExplored('m.atlasmap'), true);
+  await writer.forgetExplored('m.atlasmap');
+  // Atlas's memory took it as an edit (an undo step of Atlas's own): nothing more is written.
+  assert.deepEqual(calls, [['emit', 'lighting-reset-explored']]);
+});
+
+test('Forget explored areas clears the saved memory itself where Atlas has no lighting to do it, on the level shown', async () => {
+  const calls: unknown[] = [];
+  const idle = lightingView({ setExploredMask: (mask, level) => { calls.push(['mask', mask, level]); }, levels: [{ id: 'a' }, { id: 'b' }], viewedLevel: 'b' }, calls);
+  const writer = new TokenWriter({ views: () => [idle.view], held: async () => null });
+  await writer.forgetExplored('m.atlasmap');
+  assert.deepEqual(calls, [['emit', 'lighting-reset-explored'], ['mask', null, 'b']]);
+  // A bus that is not there at all (an older Atlas): the same, still on the level shown.
+  const calls2: unknown[] = [];
+  const bare = liveView({ mapPath: 'm.atlasmap', mapLoaded: true, isMapLoading: false, setExploredMask: (mask, level) => { calls2.push(['mask', mask, level]); } }, calls2);
+  await new TokenWriter({ views: () => [bare.view], held: async () => null }).forgetExplored('m.atlasmap');
+  assert.deepEqual(calls2, [['mask', null, null]]);
+});
+
+test('Forget explored areas is offered only where Atlas can do it, and a map Atlas does not hold is refused', async () => {
+  const none = liveView({ mapPath: 'm.atlasmap', mapLoaded: true, isMapLoading: false }, []);
+  const writer = new TokenWriter({ views: () => [none.view], held: async () => null });
+  assert.equal(writer.offersForgetExplored('m.atlasmap'), false);
+  await assert.rejects(writer.forgetExplored('m.atlasmap'), /offers no way to forget explored areas/);
+  // Atlas not holding the map yet: it is asked at the write, so it is offered.
+  assert.equal(new TokenWriter({ views: () => [], held: async () => null }).offersForgetExplored('m.atlasmap'), true);
+  const away = lightingView({ mapPath: 'other.atlasmap', setExploredMask: () => {} }, []);
+  await assert.rejects(new TokenWriter({ views: () => [away.view], held: async () => null }).forgetExplored('m.atlasmap'), NotHeldError);
+});

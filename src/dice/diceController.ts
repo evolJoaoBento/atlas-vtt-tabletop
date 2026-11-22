@@ -31,6 +31,8 @@ export const AUTO_THROWS = 5;
 export interface StartOptions {
   /** Auto roll: thrown at once with this flick, and whatever is caught or explodes is thrown again the same way. */
   auto?: Flick;
+  /** The rules this roll is thrown by (a saved roll's own dice), instead of the map's. */
+  rules?: DiceRules;
 }
 
 export class DiceController {
@@ -87,7 +89,7 @@ export class DiceController {
 
   /** A new roll, its dice laid on the table to be thrown; a roll still on the table goes, as it is. */
   start(request: RollRequest, options: StartOptions = {}): void {
-    const session = new RollSession(request, this.deps.rules());
+    const session = new RollSession(request, options.rules ?? this.deps.rules());
     this.session = session;
     this.published = false;
     this.auto = options.auto ? { flick: options.auto, left: AUTO_THROWS } : null;

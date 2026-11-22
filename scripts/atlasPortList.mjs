@@ -202,6 +202,19 @@ export const NEWER_ENTRIES = [
   'types/toolSwitches.ts',
   'lighting/exploredEdits.ts',
   'lighting/polygonClip.ts',
+  // Copy, cut and paste (Atlas's map clipboard): what is copied, where a paste lands, and the clipboard itself.
+  'clipboard/mapClipboard.ts',
+  'clipboard/mapObjectContent.ts',
+  'clipboard/mapObjectPlacement.ts',
+  // The turn banner (0.18 adds the fight's start and end, the players' hidden turn holders and the combatant's colour).
+  'initiative/banner/turnBanner.ts',
+  'initiative/banner/fightWatch.ts',
+  'initiative/banner/turnBannerElement.ts',
+  // Saved rolls (0.18): the collection's `dicePresets` and `diceRow` as the dice tray reads, changes and writes them, and a roll's look.
+  'react/components/dice/diceShelf.ts',
+  'react/components/dice/presetLook.ts',
+  // The dice row (0.18): how a saved roll shows on its place (the body of its first die, with marks).
+  'react/components/dice/presetFace.ts',
 ];
 
 /** Floor files the newer Atlas's version replaces (a superset: it only adds what the fog's room logic needs). */

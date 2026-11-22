@@ -22,7 +22,7 @@ export function boardBinding(binding: string | null): string | null {
 /** What an Atlas shortcut does on the board. */
 export type BoardHotkeyAction =
   | 'help' | 'measure' | 'diceTray' | 'diceLog' | 'sceneSwitcher' | 'dashboard' | 'nextMood' | 'silence'
-  | 'fitMap' | 'fitToken' | 'levelUp' | 'levelDown' | 'selectAll' | 'delete' | 'fog' | 'brushSmaller' | 'brushLarger' | 'gmView';
+  | 'fitMap' | 'fitToken' | 'levelUp' | 'levelDown' | 'selectAll' | 'delete' | 'copy' | 'cut' | 'paste' | 'duplicate' | 'fog' | 'brushSmaller' | 'brushLarger' | 'gmView' | 'peek';
 
 /**
  * Atlas's shortcuts that do something on the board: these here, Atlas's tools the board opens (`atlasTools.ts`), undo and
@@ -32,11 +32,13 @@ export type BoardHotkeyAction =
 const ON_BOARD: ReadonlySet<MapHotkeyId> = new Set<MapHotkeyId>([
   'help', 'palette', 'assets', 'lootRoller', 'undo', 'redo', 'redoAlt', 'cancel', 'move', 'measure', 'measureKeep',
   'initiative', 'previousTurn', 'nextTurn', 'diceTray', 'diceLog', 'sceneSwitcher', 'dashboard', 'nextMood', 'silence',
-  'fitMap', 'fitToken', 'levelUp', 'levelDown', 'selectAll', 'delete', 'deleteAlt',
+  'fitMap', 'fitToken', 'levelUp', 'levelDown', 'selectAll', 'delete', 'deleteAlt', 'copy', 'cut', 'paste', 'duplicate',
   // The fog tool (Edit mode): its key, and the keys that size its brush while it is on.
   'fog', 'drawSmaller', 'drawLarger',
   // The GM view switch (Atlas's D, Shift+D here): the board's players' look.
   'gmView',
+  // The lighting peek (Atlas's H): held, the board shows the players' look; a button of the bar's end for a finger.
+  'lightingPeek',
 ]);
 
 /** Whether Atlas's shortcut `id` does something on the board. */
@@ -97,10 +99,15 @@ const ACTION_KEYS: ReadonlyArray<readonly [BoardHotkeyAction, MapHotkeyId]> = [
   ['selectAll', 'selectAll'],
   ['delete', 'delete'],
   ['delete', 'deleteAlt'],
+  ['copy', 'copy'],
+  ['cut', 'cut'],
+  ['paste', 'paste'],
+  ['duplicate', 'duplicate'],
   ['fog', 'fog'],
   ['brushSmaller', 'drawSmaller'],
   ['brushLarger', 'drawLarger'],
   ['gmView', 'gmView'],
+  ['peek', 'lightingPeek'],
 ];
 
 /** The action a key stands for on the board, read with the GM's Atlas bindings (`binding(id)`), or null. */

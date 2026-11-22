@@ -11,7 +11,6 @@
  * Atlas can run is refused in the file (`fileCannotRun`).
  */
 import { listedBySides as atlasListedBySides, sideOf as atlasSideOf } from '../../packages/atlas-shared/src/index';
-import { t } from '../i18n';
 
 export type InitiativeSide = 'players' | 'opponents';
 /** Atlas 0.9 adds fights by cards. */
@@ -313,12 +312,11 @@ export function currentEntries(state: InitiativeState): InitiativeEntry[] {
   return state.entries.slice(at, at + 1);
 }
 
-/** What the board flashes when the turn passes: a key that changes with the turn (round and combatants) and the words. */
-export function turnAnnouncement(state: InitiativeState): { key: string; text: string } | null {
+/** What tells one turn from the next (the horn sounds on it): a key that changes with the round and the combatants. */
+export function turnAnnouncement(state: InitiativeState): { key: string } | null {
   const current = currentEntries(state);
   if (current.length === 0) return null;
-  const names = current.map((entry) => entry.name).join(' & ');
-  return { key: `${state.round}:${current.map((entry) => entry.id).join(',')}`, text: t('turn.banner', { round: Math.max(state.round, 1), names }) };
+  return { key: `${state.round}:${current.map((entry) => entry.id).join(',')}` };
 }
 
 /** The tokens of the combatants holding their turn back, while a fight runs. */

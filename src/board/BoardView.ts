@@ -12,9 +12,10 @@ import type { BoardMark, BoardSession, BoardViewer, GmCutscene } from '../connec
 import type { CutsceneOwner } from '../cutscene/cutsceneRun';
 import type { BackgroundStore } from '../background/backgroundStore';
 import type { LoadedBackground } from '../background/backgroundData';
-import { ItemView, Menu, Modal, Notice, TFile, TFolder, debounce, setIcon, type App, type EventRef, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
+import { ItemView, Menu, Modal, Notice, Platform, TFile, TFolder, debounce, setIcon, type App, type EventRef, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
 import { ATLAS_VIEW_TYPE, presentedSceneOf, tabViewOf, type AtlasSceneState, type AtlasView } from '../atlas';
 import { AtlasBridge } from '../atlasBridge';
+import { savedRollsAccess, type SavedRollsAccess } from '../dice/savedRollsAccess';
 import { collectionRulesOf } from '../collectionRulesOf';
 import { BoardAtlasTools } from './boardAtlasTools';
 import { tabletopCommands } from '../palette/tabletopCommands';
@@ -33,6 +34,7 @@ import { DEFAULT_MEASURE_TOOL, type MeasureToolOptions } from './measureOptions'
 import { formatHotkey } from '../atlasPort/app/keyboard/mapHotkeys';
 import { boardBinding } from './boardHotkeys';
 import { readGmView, writeGmView } from './gmView';
+import { pointerNow } from './lightingPeek';
 import type { SpellBook } from './spellPicker';
 import type { SpellChange, TemplateChange } from './playerTools';
 import { isVideoPath } from './textures';
@@ -53,6 +55,8 @@ import { SpellAskModal } from '../spellAskModal';
 import { conditionChange, conditionStep, resetChange, type ConditionFields } from './tokenEdits';
 import { currentTokenIds, delayedTokens, emptyInitiative, ownModifier, readInitiative, statblockModifier, turnAnnouncement, type InitiativeAction, type InitiativeState } from './initiative';
 import { InitiativePanel, type InitiativePanelHost } from './initiativePanel';
+import { trackerCompact, trackerOptionEntries } from './trackerOptions';
+import { bannerStateOf, TurnAnnouncer, turnBannerEnabled, type TurnBannerState } from './turnBanner';
 import { wholeWall, isWindow, mirroredDoor, rotatedDoor, windowSpan, WINDOW_STEP, type DoorFlip } from './walls';
 import { extrasOf, readLightHeight, readWallExtra, type RecordExtras, type WallExtraChange } from './recordExtras';
 import { planExtrasMove } from './extrasMigration';
@@ -68,6 +72,7 @@ import type { PlayerView } from './PlayerWindow';
 import { DEFAULT_EDGES, DEFAULT_SEE_THROUGH_SIZE, QUALITY, withLooks, type LayerLook, type Quality, type QualityPreset, type WallEdges } from './quality';
 import { DEFAULT_SKY, type LightingChoice, type Sky } from './look';
 import type { TokenWriter } from './tokenWriter';
+import { copyTokens, cutTokens, duplicateTokens, pasteTokens } from './tokenClipboard';
 import { BoardDice } from '../dice/boardDice';
 import { DEFAULT_CINEMATIC_SETTINGS, type CinematicSettings } from '../cutscene/cinematicSettings';
 import { levelOfPlace, mapOfPlace, placeAt } from '../cutscene/cutsceneData';
@@ -341,8 +346,15 @@ export class BoardView extends ItemView {
     }));
     this.registerEvent(this.app.vault.on('delete', (file) => { if (file.path === this.path) this.leaf.detach(); }));
     // Atlas saved a collection's settings (its units, its diagonal rule, its conditions): the board reads its rules again.
-    this.registerEvent((this.app.workspace as unknown as { on(name: string, callback: () => void): EventRef }).on('atlas-vtt:collection-settings-changed', () => this.reload()));
+    this.registerEvent((this.app.workspace as unknown as { on(name: string, callback: () => void): EventRef }).on('atlas-vtt:collection-settings-changed', () => { if (this.settingsWrites <= 0) this.reload(); }));
     this.registerDomEvent(this.contentEl, 'pointerdown', () => { this.services.focused(this); this.followHost(); }, true);
+    // A mouse attached or taken away: the lighting peek's button (a finger's) comes or goes, as Atlas's does.
+    {
+      const win = this.contentEl.ownerDocument.defaultView;
+      const queries = typeof win?.matchMedia === 'function' ? [win.matchMedia('(pointer: coarse)'), win.matchMedia('(pointer: fine) and (hover: hover)')] : [];
+      const changed = (): void => this.board?.refreshToolbar();
+      for (const query of queries) { query.addEventListener('change', changed); this.register(() => query.removeEventListener('change', changed)); }
+    }
     // Atlas's "Fog opacity in GM view" changed (here or in Atlas): the fog in the GM's view takes it. Heard once Atlas has loaded.
     {
       const bridge = new AtlasBridge(this.app);
@@ -365,6 +377,8 @@ export class BoardView extends ItemView {
       this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => { if (leaf === this.leaf) this.followHost(); }));
     }
     this.initiative = new InitiativePanel(this.contentEl, this.initiativeHost());
+    // The Compact view and Turn banner switches are Atlas's own settings: a change made in Atlas's map or here redraws the tracker.
+    this.register(new AtlasBridge(this.app).onSettingsChange(() => { this.initiative?.render(); }));
     this.studio = new CutsceneStudio(this.contentEl, this.studioHost());
     // Atlas's scene tabs over the board: switch scenes here, and present one with its eye, as in Atlas.
     this.sceneTabs = new SceneTabBar(this.contentEl, {
@@ -668,12 +682,37 @@ export class BoardView extends ItemView {
       setSheetPinned: (pinned) => this.services.setSheetPinned?.(pinned),
       sheetOf: (tokenId) => this.sheetOf(tokenId),
       cardOf: (tokenId) => this.cardOf(tokenId),
+      savedRolls: this.savedRolls(),
     });
     board.cinemaButton({
       live: () => this.studio?.live === true,
       toggleLive: () => this.studio?.toggleLive(),
     });
     return board;
+  }
+
+  /** Collections the board itself is writing saved rolls to: Atlas tells the change, which alters no rule the board reads. */
+  private settingsWrites = 0;
+
+  /** The dice tray's saved rolls: the collection's own, which Atlas 0.18 keeps (`dicePresets`); the tray has none from an older Atlas. */
+  private savedRolls(): SavedRollsAccess {
+    const workspace = this.app.workspace as unknown as { on(name: string, callback: (id: string) => void): EventRef; offref(ref: EventRef): void };
+    return savedRollsAccess({
+      bridge: new AtlasBridge(this.app),
+      mapPath: () => this.path ?? '',
+      changed: (listener) => {
+        const ref = workspace.on('atlas-vtt:collection-settings-changed', listener);
+        return () => workspace.offref(ref);
+      },
+      storage: { load: (key) => this.app.loadLocalStorage(key), save: (key, value) => this.app.saveLocalStorage(key, value) },
+      writing: (_id, on) => { this.settingsWrites += on ? 1 : -1; },
+      menu: (entries, at) => {
+        this.menu?.close();
+        this.menu = new AtlasMenu(this.contentEl.ownerDocument, () => entries, at, (element, name) => setIcon(element, name), () => { this.menu = null; });
+      },
+      icon: (element, name) => setIcon(element, name),
+      warn: (message) => new Notice(`Tabletop: ${message}`),
+    });
   }
 
   /** The sheet of a token's stat block, named as the token when the stat block has no name. */
@@ -1588,6 +1627,21 @@ export class BoardView extends ItemView {
         }
       },
       removeTokens: (ids) => { for (const id of ids) this.deleteToken(id); },
+      copyTokens: (ids) => copyTokens(writer, mapPath(), ids).catch((error: unknown) => { this.unsaved('copy', error); return false; }),
+      cutTokens: async (ids) => {
+        const path = mapPath();
+        try {
+          const cut = await cutTokens(writer, path, ids);
+          // The tokens are gone: so are the minis Tabletop gave them, and their looks (as a Delete does).
+          if (cut) for (const id of ids) { assignments.remove(path, id); boardData.setStyle(path, id, 'disc'); }
+          return cut;
+        } catch (error) {
+          this.unsaved('cut', error);
+          return false;
+        }
+      },
+      pasteTokens: (at) => pasteTokens(writer, mapPath(), at).catch((error: unknown) => { this.unsaved('paste', error); return []; }),
+      duplicateTokens: (ids) => duplicateTokens(writer, mapPath(), ids).catch((error: unknown) => { this.unsaved('duplicate', error); return []; }),
       moveProp: (id, x, y) => boardData.moveProp(mapPath(), id, x, y),
       scaleProp: (id, scale) => boardData.setPropScale(mapPath(), id, scale),
       liftProp: (id, lift) => boardData.setPropLift(mapPath(), id, lift),
@@ -1708,6 +1762,7 @@ export class BoardView extends ItemView {
       // Atlas's GM view switch, in the store of the Atlas view holding this map: Atlas's 2D view and the board share it.
       gmView: () => readGmView(this.path ? this.services.writer.holder(this.path)?.atlasStore.getState() : null),
       setGmView: (on) => writeGmView(this.path ? this.services.writer.holder(this.path)?.atlasStore.getState() : null, on),
+      coarsePointer: () => pointerNow(this.contentEl.ownerDocument.defaultView ?? undefined, Platform.isMobile) === 'coarse',
       laser: () => this.services.laser(),
       setLaser: (changes) => this.services.setLaser(changes),
       setLighting: (choice) => this.services.setLighting?.(choice),
@@ -1775,6 +1830,9 @@ export class BoardView extends ItemView {
       tint: () => this.map?.lighting.ambientColor ?? null,
       setTint: (color) => { writer.setSceneLighting(mapPath(), { ambientColor: color }).catch((error: unknown) => this.unsaved('tint', error)); },
       clearTint: () => { writer.setSceneLighting(mapPath(), { ambientColor: undefined }).catch((error: unknown) => this.unsaved('tint', error)); },
+      // Atlas's Forget explored areas (an undo step where its lighting keeps the memory).
+      forgetExplored: () => { writer.forgetExplored(mapPath()).catch((error: unknown) => this.unsaved('explored areas', error)); },
+      forgetExploredOffered: () => writer.offersForgetExplored(mapPath()),
       lightHeight: (light) => this.extras().lightHeight(light.id) ?? DEFAULT_LIGHT_SQUARES,
       lightMenu: (id, event) => this.lightMenu(id, event),
       miniTurn: (tokenId) => assignments.get(mapPath(), tokenId)?.turn ?? null,
@@ -2335,16 +2393,28 @@ export class BoardView extends ItemView {
     const fight = this.liveInitiative();
     this.board?.setActiveTokens(currentTokenIds(fight));
     this.board?.setDelayedTokens(delayedTokens(fight));
-    // The turn passing flashes a banner; opening the board in the middle of a fight does not.
+    // Atlas's turn banner: the turn passing, a fight's start and end (opening the board in the middle of a fight says nothing).
     const turn = turnAnnouncement(fight);
-    if (turn && this.lastTurn !== null && this.lastTurn !== turn.key) this.board?.flashTurn(turn.text);
-    this.lastTurn = turn?.key ?? null;
+    this.board?.showTurnBanner(this.turnAnnouncer.look(this.turnBannerState(), turnBannerEnabled(new AtlasBridge(this.app).settings())), (path) => this.portraitUrl(path));
     // The horn goes through the board's own watcher, which also hears the file's tracker, so one turn sounds once.
     this.board?.hearTurn(turn?.key ?? null, currentTokenIds(fight));
   }
 
-  /** The turn last announced, to flash the banner only when it changes. */
-  private lastTurn: string | null = null;
+  /** What says when the turn banner shows (Atlas's `TurnWatch` and `FightWatch`). */
+  private readonly turnAnnouncer = new TurnAnnouncer();
+
+  /** The fight and tokens the banner reads: Atlas's store while it holds this map, else the map file's. */
+  private turnBannerState(): TurnBannerState {
+    const state = this.watched?.view.atlasStore.getState();
+    if (state && state.mapPath === this.path) return state as unknown as TurnBannerState;
+    return bannerStateOf(this.path ?? '', this.map?.initiative ?? null, this.map?.tokens ?? []);
+  }
+
+  /** The address of a portrait by its vault path; none for a path the vault lacks. */
+  private portraitUrl(path: string): string | null {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    return file instanceof TFile ? this.app.vault.getResourcePath(file) : null;
+  }
 
   private liveInitiative(): InitiativeState {
     const state = this.watched?.view.atlasStore.getState();
@@ -2433,10 +2503,7 @@ export class BoardView extends ItemView {
       },
       tokenSettings: () => this.map?.tokenSettings ?? { showNameplates: false, showInstanceBadges: true, hiddenResources: [] },
       definitions: () => this.rules.definitions,
-      imageUrl: (path) => {
-        const file = this.app.vault.getAbstractFileByPath(path);
-        return file instanceof TFile ? this.app.vault.getResourcePath(file) : '';
-      },
+      imageUrl: (path) => this.portraitUrl(path) ?? '',
       icon: (element, name) => setIcon(element, name),
       roll: (entryId) => { void this.rollInitiative(entryId); },
       act: (action) => this.initiativeAct(action),
@@ -2447,6 +2514,8 @@ export class BoardView extends ItemView {
         const vision = held.vision as Record<string, unknown> | undefined;
         return side === 'players' && vision?.enabled !== true ? { side, vision: { ...vision, enabled: true } } : { side };
       }, 'side change'),
+      compact: () => trackerCompact(new AtlasBridge(this.app).settings()),
+      options: () => trackerOptionEntries(new AtlasBridge(this.app).settings()),
       showToken: (id) => this.board?.showToken(id),
       menu: (entries, at) => {
         this.menu?.close();

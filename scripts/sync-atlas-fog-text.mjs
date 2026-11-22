@@ -8,7 +8,17 @@ function load(lang, file) {
   const name = /const (\w+) =/.exec(src)[1];
   return new Function(`${src}; return ${name};`)();
 }
-const toolbarKeys = ['toolbar.fogTool', 'toolbar.fogEraser', 'toolbar.brush', 'toolbar.lasso', 'toolbar.rectangle', 'toolbar.snap', 'toolbar.constrain', 'toolbar.gmView', 'toolbar.sessionView'];
+const toolbarKeys = ['toolbar.fogTool', 'toolbar.fogEraser', 'toolbar.brush', 'toolbar.lasso', 'toolbar.rectangle', 'toolbar.snap', 'toolbar.constrain', 'toolbar.gmView', 'toolbar.sessionView', 'toolbar.peek'];
+// The turn banner's words and the tracker options menu's rows (initiative.ts) and the placeholder name it falls back on (token.ts).
+const initiativeKeys = ['initiative.bannerTurn', 'initiative.bannerRound', 'initiative.combatStarted', 'initiative.combatEnded', 'initiative.side.players', 'initiative.side.opponents',
+  'initiative.compact', 'initiative.compactHint', 'initiative.turnBanner', 'initiative.turnBannerHint', 'initiative.options', 'initiative.resetNumbers', 'initiative.resetNumbersHint', 'initiative.clear'];
+const tokenKeys = ['token.unknownCreature'];
+// The dice tray's saved rolls (diceRoll.ts): the panel's words, as the board's panel shows them.
+const diceKeys = ['diceRoll.presetsTitle', 'diceRoll.presetEdit', 'diceRoll.presetEditShort', 'diceRoll.presetActions', 'diceRoll.presetRoll', 'diceRoll.presetDelete', 'diceRoll.presetName', 'diceRoll.presetFormula', 'diceRoll.presetSave', 'diceRoll.presetNeedsName', 'diceRoll.presetNeedsFormula', 'diceRoll.presetsSaveFailed', 'diceRoll.rowDone',
+  'diceRoll.die', 'diceRoll.presetRollsAtOnce', 'diceRoll.presetPin', 'diceRoll.presetUnpin', 'diceRoll.presetRowFull', 'diceRoll.rowTitle', 'diceRoll.rowStandard', 'diceRoll.rowPlace', 'diceRoll.rowRemove',
+  'diceRoll.rowAddDie', 'diceRoll.rowAddDieCaption', 'diceRoll.rowNotADie', 'diceRoll.rowFaces', 'diceRoll.rowPresent', 'diceRoll.rowEdit'];
+// The lighting page's Forget explored areas button (sceneLight.ts).
+const lightKeys = ['sceneLight.forgetExplored'];
 const out = {};
 const keys = new Set();
 for (const lang of ['en', 'ru', 'zh']) {
@@ -16,9 +26,16 @@ for (const lang of ['en', 'ru', 'zh']) {
   out[lang] = {};
   for (const [k, v] of Object.entries(fog)) { out[lang][k] = v; keys.add(k); }
   for (const k of toolbarKeys) if (toolbar[k] !== undefined) { out[lang][k] = toolbar[k]; keys.add(k); }
+  const initiative = load(lang, 'initiative'); const token = load(lang, 'token');
+  for (const k of initiativeKeys) if (initiative[k] !== undefined) { out[lang][k] = initiative[k]; keys.add(k); }
+  for (const k of tokenKeys) if (token[k] !== undefined) { out[lang][k] = token[k]; keys.add(k); }
+  const light = load(lang, 'sceneLight');
+  for (const k of lightKeys) if (light[k] !== undefined) { out[lang][k] = light[k]; keys.add(k); }
+  const dice = load(lang, 'diceRoll');
+  for (const k of diceKeys) if (dice[k] !== undefined) { out[lang][k] = dice[k]; keys.add(k); }
 }
-const body = `// Generated from Atlas 0.18's src/app/i18n/locales/{en,ru,zh}/{fog,toolbar}.ts (AGPL-3.0): the fog tool's bars and notices, and the
-// toolbar words they share. The synced snapshot (the floor, 0.15) lacks them; a synced text of the same key wins (atlasText.ts).
+const body = `// Generated from Atlas 0.18's src/app/i18n/locales/{en,ru,zh}/{fog,toolbar,initiative,token,diceRoll,sceneLight}.ts (AGPL-3.0): the fog tool's bars and notices, the
+// toolbar words they share, the turn banner's words and the dice tray's saved rolls and the lighting page's Forget explored areas. The synced snapshot (the floor, 0.15) lacks them; a synced text of the same key wins (atlasText.ts).
 import type { AtlasMessage } from './atlasText';
 
 export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, AtlasMessage>>>> = ${JSON.stringify(out, null, 2)};

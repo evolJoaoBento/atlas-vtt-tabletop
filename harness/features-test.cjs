@@ -128,6 +128,432 @@ feature('dice sounds', async ({ page, shot }) => {
   await shot('dice-sounds');
 });
 
+// ── Dice tray: the collection's saved rolls (Atlas 0.18) beside the tray ─────────────────────────────────────────────
+feature('saved rolls', async ({ page, shot }) => {
+  const diceButton = page.locator('.atlas-tabletop-extensions button[aria-label="Dice"]');
+  const tray = page.locator('.atlas-tabletop-dice-picker');
+  const panel = page.locator('.atlas-tabletop-dice-picker .atlas-dice-presets');
+  const foot = tray.locator('.atlas-dice-tray__foot-icon[aria-keyshortcuts="P"]');
+  const names = () => panel.locator('.atlas-dice-presets__item .atlas-dice-presets__name').allTextContents();
+  const settings = () => page.evaluate(() => JSON.parse(JSON.stringify(window.boardTest.savedSettings)));
+  const open = async () => { if (!(await tray.isVisible())) { await diceButton.click(); await wait(300); } };
+  const card = (name) => panel.locator('.atlas-dice-presets__item', { hasText: name });
+  const choose = async (name, entry) => {
+    await card(name).hover();
+    await card(name).locator('.atlas-dice-presets__more').click();
+    await page.locator('.atlas-ctx-menu .atlas-ctx-item', { hasText: entry }).click();
+    await wait(250);
+  };
+  const throwAndWait = async () => {
+    await page.locator('.atlas-tabletop-dice-prompt__throw').click();
+    await page.waitForFunction(() => window.boardTest.board.dice.busy, null, { timeout: 5000 });
+    await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
+    await wait(300);
+  };
+  // The tray opens with a bookmark at its foot; the saved rolls stand shut until it is pressed.
+  await open();
+  check("saved rolls: the tray has a bookmark for them, named in Atlas's words, and the panel stands shut", await foot.isVisible() && (await foot.getAttribute('aria-label')) === 'Saved rolls' && await panel.isHidden());
+  await foot.click();
+  await wait(300);
+  check("saved rolls: the bookmark opens the panel with the rolls Atlas holds, in Atlas's markup", await panel.isVisible() && JSON.stringify(await names()) === '["Fireball","Stats"]' && (await foot.getAttribute('aria-pressed')) === 'true' && await panel.locator('.atlas-dice-presets__form').isVisible());
+  const texts = await panel.locator('.atlas-dice-presets__item .atlas-dice-presets__formula').allTextContents();
+  check('saved rolls: a designed roll shows its dice and bonus, a formula roll its formula', texts[0] === '2d6 + d8 + 2' && texts[1] === '4d6kh3', JSON.stringify(texts));
+  check("saved rolls: the panel stands open for this device, under Atlas's key", await page.evaluate(() => window.boardTest.savedState.storage.get('atlas-vtt-dice-tray-presets-open')) === true);
+  await shot('saved-rolls-open');
+  const placement = () => page.evaluate(() => {
+    const a = document.querySelector('.atlas-tabletop-dice-picker .atlas-dice-presets').getBoundingClientRect();
+    const b = document.querySelector('.atlas-tabletop-dice-picker .atlas-dice-panel').getBoundingClientRect();
+    return { panelRight: a.right, trayLeft: b.left, panelLeft: a.left, panelBottom: a.bottom, trayTop: b.top, top: [a.top, b.top], width: window.innerWidth };
+  });
+  // Atlas's own rule: in a window under 1000 px the saved rolls stand above the tray, else beside it, top to top.
+  const narrow = await placement();
+  check('saved rolls: in a narrow window the panel stands above the tray, inside the window', narrow.panelBottom <= narrow.trayTop + 1 && narrow.panelLeft >= 0 && narrow.panelRight <= narrow.width, JSON.stringify(narrow));
+  await page.setViewportSize({ width: 1400, height: 720 });
+  await wait(500);
+  await open();
+  const wide = await placement();
+  check('saved rolls: in a wide window the panel stands to the left of the tray, top to top', wide.panelRight <= wide.trayLeft + 1 && wide.panelLeft >= 0 && Math.abs(wide.top[0] - wide.top[1]) < 3, JSON.stringify(wide));
+  await shot('saved-rolls-wide');
+  await page.setViewportSize({ width: 1000, height: 640 });
+  await wait(500);
+  await open();
+  // P opens and shuts it from the tray.
+  await tray.locator('[data-die="d6"]').focus();
+  await page.keyboard.press('p');
+  check('saved rolls: P shuts the panel from the tray', await panel.isHidden());
+  await page.keyboard.press('p');
+  check('saved rolls: P opens it again', await panel.isVisible());
+  // The form follows the tray's roll until it is typed in.
+  await tray.locator('[data-die="d6"]').click();
+  await tray.locator('[data-die="d6"]').click();
+  check("saved rolls: the form's formula follows the tray's dice", (await panel.locator('.atlas-dice-presets__field--formula').inputValue()) === '2d6');
+  // A designed roll is thrown with its own dice and rules, and logged as any roll of the board is.
+  const before = await page.evaluate(() => window.boardTest.atlasRolls.length);
+  await card('Fireball').locator('.atlas-dice-presets__roll').click();
+  await wait(400);
+  const laid = await page.evaluate(() => ({ dice: window.boardTest.board.dice.object3d.children.length, open: !document.querySelector('.atlas-tabletop-dice-picker').hidden }));
+  check('saved rolls: a saved roll lays its three dice on the table and the tray steps aside', laid.dice === 3 && !laid.open, JSON.stringify(laid));
+  await throwAndWait();
+  const fire = await page.evaluate((count) => {
+    const roll = window.boardTest.atlasRolls.slice(count).map((entry) => entry[1]).at(-1);
+    return roll ? { total: roll.total, modifiers: roll.modifiers, rolls: roll.rolls.map((die) => [die.die, die.colour ?? null, die.name ?? null]), crit: roll.crit ?? null } : null;
+  }, before);
+  check("saved rolls: the roll is logged in Atlas with the set's colours, names and bonus", fire !== null && fire.modifiers === 2 && JSON.stringify(fire.rolls) === '[["d6","#ff6a00","Fire"],["d6","#ff6a00","Fire"],["d8",null,null]]' && fire.crit === null, JSON.stringify(fire));
+  await shot('saved-rolls-thrown');
+  // A roll written as a formula is thrown by the collection's rules.
+  await open();
+  await card('Stats').locator('.atlas-dice-presets__roll').click();
+  await wait(400);
+  const stats = await page.evaluate(() => window.boardTest.board.dice.object3d.children.length);
+  check('saved rolls: a formula roll lays its four dice', stats === 4, String(stats));
+  await throwAndWait();
+  const kept = await page.evaluate(() => window.boardTest.atlasRolls.at(-1)[1].rolls.filter((die) => !die.dropped).length);
+  check('saved rolls: 4d6kh3 keeps three of its four dice', kept === 3, String(kept));
+  // Saving: a name and a formula, as Atlas asks for them.
+  await open();
+  const nameField = panel.locator('.atlas-dice-presets__form .atlas-dice-presets__field').first();
+  const formulaField = panel.locator('.atlas-dice-presets__form .atlas-dice-presets__field--formula');
+  const message = panel.locator('.atlas-dice-presets__form .atlas-dice-presets__message');
+  await formulaField.fill('1d4 + 2');
+  await panel.locator('.atlas-dice-presets__save').click();
+  check("saved rolls: a roll with no name says so, in Atlas's words, and nothing is saved", (await message.textContent()) === 'Give the roll a name' && (await settings()).dicePresets.length === 2);
+  await nameField.fill('Dagger');
+  await formulaField.fill('2d7');
+  await panel.locator('.atlas-dice-presets__save').click();
+  check('saved rolls: a formula the dice cannot throw says why', /d7/.test((await message.textContent()) ?? '') && (await settings()).dicePresets.length === 2, await message.textContent());
+  await formulaField.fill('');
+  await panel.locator('.atlas-dice-presets__save').click();
+  check('saved rolls: no formula says so', (await message.textContent()) === 'Write the roll to save');
+  await formulaField.fill('1d4 + 2');
+  await formulaField.press('Enter');
+  await wait(300);
+  const saved = await settings();
+  const dagger = saved.dicePresets[2];
+  check('saved rolls: a roll of plain dice is written as Atlas writes it: dice to dress, with the bonus beside them', saved.dicePresets.length === 3 && dagger.name === 'Dagger' && dagger.formula === '+2' && dagger.look.dice[0].sides === 4 && dagger.look.dice[0].count === 1, JSON.stringify(dagger));
+  check('saved rolls: it joins the list and the form empties', JSON.stringify(await names()) === '["Fireball","Stats","Dagger"]' && (await nameField.inputValue()) === '' && (await message.textContent()) === '', JSON.stringify(await names()));
+  await shot('saved-rolls-saved');
+  // What Atlas changes meanwhile redraws the list and leaves what is being typed.
+  await nameField.fill('Typing');
+  await page.evaluate(() => {
+    const { savedSettings, savedListeners } = window.boardTest;
+    savedSettings.dicePresets = [...savedSettings.dicePresets, { id: 'rapier', name: 'Rapier', formula: '1d8 + 3' }];
+    for (const listener of [...savedListeners]) listener('c1');
+  });
+  await wait(200);
+  check('saved rolls: a roll saved in Atlas shows at once, and the name being typed stays', JSON.stringify(await names()) === '["Fireball","Stats","Dagger","Rapier"]' && (await nameField.inputValue()) === 'Typing');
+  await nameField.fill('');
+  // The ⋯ of a card: Edit and Delete.
+  await card('Rapier').hover();
+  await card('Rapier').locator('.atlas-dice-presets__more').click();
+  await wait(200);
+  const menuItems = await page.locator('.atlas-ctx-menu .atlas-ctx-item').allTextContents();
+  check("saved rolls: the ⋯ holds Edit, the dice row pin and Delete, in Atlas's order", JSON.stringify(menuItems) === '["Edit","Put in the dice row","Delete"]', JSON.stringify(menuItems));
+  await shot('saved-rolls-menu');
+  await page.locator('.atlas-ctx-menu .atlas-ctx-item', { hasText: 'Edit' }).click();
+  await wait(250);
+  const editor = panel.locator('.atlas-dice-preset-editor');
+  check("saved rolls: Edit opens the roll's editor, its card lit, and the tray stays open", await editor.isVisible() && (await card('Rapier').getAttribute('aria-current')) === 'true' && await tray.isVisible());
+  await shot('saved-rolls-edit');
+  await editor.locator('.atlas-dice-preset-editor__name').fill('Epee');
+  await editor.locator('.atlas-dice-presets__field--formula').fill('1d8 + 4');
+  await editor.locator('.atlas-dice-preset-editor__done').click();
+  await wait(300);
+  const edited = (await settings()).dicePresets.find((preset) => preset.id === 'rapier');
+  check('saved rolls: Done writes the new name and formula in place', edited?.name === 'Epee' && edited?.formula === '1d8 + 4' && (await editor.count()) === 0 && JSON.stringify(await names()) === '["Fireball","Stats","Dagger","Epee"]', JSON.stringify(edited));
+  // A designed roll keeps its dice: only its name changes.
+  await choose('Fireball', 'Edit');
+  const designed = panel.locator('.atlas-dice-preset-editor');
+  const designedFormula = designed.locator('.atlas-dice-presets__field--formula');
+  check("saved rolls: a designed roll's formula shows what it throws and cannot be typed over", (await designedFormula.inputValue()) === '2d6 + d8 + 2' && await designedFormula.evaluate((input) => input.readOnly));
+  await designed.locator('.atlas-dice-preset-editor__name').fill('Big fireball');
+  await designed.locator('.atlas-dice-preset-editor__name').press('Enter');
+  await wait(300);
+  const fireball = (await settings()).dicePresets.find((preset) => preset.id === 'fire');
+  check("saved rolls: Enter in the editor keeps the designed roll's dice and bonus, with its new name", fireball.name === 'Big fireball' && fireball.formula === '+2' && fireball.look.dice.length === 2 && fireball.look.dice[0].colour === '#ff6a00', JSON.stringify(fireball));
+  // Escape in the editor leaves the editor and keeps the tray.
+  await choose('Stats', 'Edit');
+  await panel.locator('.atlas-dice-preset-editor__name').fill('Nope');
+  await page.keyboard.press('Escape');
+  await wait(200);
+  check('saved rolls: Escape leaves the editor without writing, and the tray stays open', (await panel.locator('.atlas-dice-preset-editor').count()) === 0 && await tray.isVisible() && (await settings()).dicePresets.find((preset) => preset.id === 'stats').name === 'Stats');
+  // Delete.
+  await choose('Dagger', 'Delete');
+  await wait(100);
+  check('saved rolls: Delete takes the roll out of the collection and the list', (await settings()).dicePresets.every((preset) => preset.name !== 'Dagger') && !(await names()).includes('Dagger') && await tray.isVisible());
+  // A write Atlas refuses is told.
+  await page.evaluate(() => { window.boardTest.savedState.failing = true; });
+  await choose('Stats', 'Delete');
+  await wait(100);
+  const warned = await page.evaluate(() => window.boardTest.savedState.warnings);
+  check('saved rolls: a write that fails says so in Atlas\'s words and leaves the roll', warned.includes('The saved rolls could not be saved.') && (await names()).includes('Stats'), JSON.stringify(warned));
+  await page.evaluate(() => { window.boardTest.savedState.failing = false; });
+  // A designed roll with a die the board has none of is not thrown as another die.
+  await page.evaluate(() => {
+    const { savedSettings, savedListeners } = window.boardTest;
+    savedSettings.dicePresets = [...savedSettings.dicePresets, { id: 'coin', name: 'Coin', formula: '', look: { dice: [{ count: 1, sides: 3 }], crit: 'natural' } }];
+    for (const listener of [...savedListeners]) listener('c1');
+  });
+  await wait(200);
+  const tableBefore = await page.evaluate(() => window.boardTest.board.dice.object3d.children.length);
+  await card('Coin').locator('.atlas-dice-presets__roll').click();
+  await wait(300);
+  const coin = await page.evaluate(() => ({ dice: window.boardTest.board.dice.object3d.children.length, open: !document.querySelector('.atlas-tabletop-dice-picker').hidden }));
+  check('saved rolls: a roll with a d3 says there is no d3 and throws nothing, the tray staying open', /d3/.test((await message.textContent()) ?? '') && coin.dice === tableBefore && coin.open, JSON.stringify({ coin, message: await message.textContent() }));
+  await shot('saved-rolls-no-d3');
+  // The panel stays out of an Atlas older than 0.18, and of a map in no collection.
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { window.boardTest.savedState.version = '0.17.2'; });
+  await diceButton.click();
+  await wait(300);
+  check('saved rolls: an Atlas older than 0.18 gets no bookmark and no panel', await foot.isHidden() && await panel.isHidden());
+  await tray.locator('[data-die="d6"]').focus();
+  await page.keyboard.press('p');
+  check('saved rolls: nor does P open one', await panel.isHidden());
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { window.boardTest.savedState.version = '0.18.0'; window.boardTest.savedState.collection = null; });
+  await diceButton.click();
+  await wait(300);
+  check('saved rolls: a map in no collection has no saved rolls either', await foot.isHidden() && await panel.isHidden());
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { window.boardTest.savedState.collection = 'c1'; });
+  await diceButton.click();
+  await wait(300);
+  check('saved rolls: back in a collection of Atlas 0.18 they return, the panel as it was left', await foot.isVisible() && await panel.isVisible());
+  await page.keyboard.press('Escape');
+});
+
+// ── Dice tray: the collection's editable dice row (Atlas 0.18) ────────────────────────────────────────────────────────
+feature('dice row', async ({ page, shot }) => {
+  const diceButton = page.locator('.atlas-tabletop-extensions button[aria-label="Dice"]');
+  const tray = page.locator('.atlas-tabletop-dice-picker');
+  const panel = tray.locator('.atlas-dice-presets');
+  const dice = () => tray.locator('.atlas-dice-tray__dice').first();
+  const captions = () => dice().locator('.atlas-dice-tray__die').evaluateAll((cells) => cells.map((cell) => (cell.querySelector('.atlas-dice-tray__caption')?.textContent) || (cell.querySelector('[data-die]')?.getAttribute('data-die')) || ''));
+  const row = () => page.evaluate(() => JSON.parse(JSON.stringify(window.boardTest.savedSettings.diceRow ?? null)));
+  const formula = () => tray.locator('.atlas-dice-tray__formula').textContent();
+  const edit = tray.locator('.atlas-dice-tray__foot-icon[aria-keyshortcuts="E"]');
+  const open = async () => { if (!(await tray.isVisible())) { await diceButton.click(); await wait(300); } };
+  const atlasSets = async (value) => {
+    await page.evaluate((next) => {
+      const { savedSettings, savedListeners } = window.boardTest;
+      if (next === undefined) delete savedSettings.diceRow; else savedSettings.diceRow = next;
+      for (const listener of [...savedListeners]) listener('c1');
+    }, value);
+    await wait(150);
+  };
+  const place = (kind, value) => (kind === 'die' ? { kind, sides: value } : { kind, id: value });
+  const same = async (expected) => JSON.stringify(await row()) === JSON.stringify(expected);
+  await open();
+  // No row of the collection's own: the seven standard dice, as Atlas shows them.
+  check('dice row: with no row of its own the tray shows the seven standard dice', JSON.stringify(await captions()) === '["d4","d6","d8","d10","d12","d20","d100"]' && (await row()) === null, JSON.stringify(await captions()));
+  check("dice row: the tray has Atlas's pencil at its foot, named in its words, with its key", await edit.isVisible() && (await edit.getAttribute('aria-label')) === 'Edit dice row' && (await edit.getAttribute('title')) === 'Edit dice row (E)');
+  // A row the GM made in Atlas: a saved roll, a d20, a d3 (the board has no body for it), a d6.
+  await atlasSets([place('preset', 'fire'), place('die', 20), place('die', 3), place('die', 6)]);
+  check("dice row: the collection's row shows its dice and saved rolls in its own order, a saved roll under its name", JSON.stringify(await captions()) === '["Fireball","d20","d3","d6"]', JSON.stringify(await captions()));
+  check('dice row: a saved roll stands on its place as its first die with marks', (await dice().locator('.atlas-preset-face__mark').allTextContents()).join('|').includes('2×') && (await dice().locator('.atlas-preset-face').count()) === 1, JSON.stringify(await dice().locator('.atlas-preset-face__mark').allTextContents()));
+  const cols = await dice().evaluate((el) => el.style.getPropertyValue('--atlas-tray-slots'));
+  check('dice row: the row is as many columns wide as it has places', cols === '4', cols);
+  await shot('dice-row-own');
+  // The number keys put a place in the tray: 2 is the d20.
+  await tray.locator('[data-die="d20"]').focus();
+  await page.keyboard.press('2');
+  check('dice row: the number key of a place puts it in the tray (2: the d20)', (await formula()) === '1d20', await formula());
+  await page.keyboard.press('4');
+  check('dice row: the fourth place is the d6', (await formula()) === '1d6 + 1d20', await formula());
+  // A die the board has no body for is kept, shown, and cannot be thrown here.
+  const d3 = tray.locator('[data-die="d3"]');
+  check('dice row: a d3 stays in the row, disabled, saying why', (await d3.getAttribute('aria-disabled')) === 'true' && /no d3/.test((await d3.getAttribute('title')) ?? ''), await d3.getAttribute('title'));
+  await d3.click({ force: true });
+  await page.keyboard.press('3');
+  check('dice row: the d3 puts nothing in the tray', (await formula()) === '1d6 + 1d20', await formula());
+  await tray.locator('.atlas-dice-tray__actions .btn', { hasText: 'Clear' }).click();
+  // A saved roll in the row is thrown at once; the tray steps aside.
+  const before = await page.evaluate(() => (window.boardTest.board.dice?.object3d.children.length ?? 0));
+  await tray.locator('[data-preset="fire"]').click();
+  await wait(400);
+  const thrown = await page.evaluate(() => ({ dice: (window.boardTest.board.dice?.object3d.children.length ?? 0), open: !document.querySelector('.atlas-tabletop-dice-picker').hidden }));
+  check('dice row: a saved roll in the row lays its three dice on the table and the tray steps aside', thrown.dice - before === 3 && !thrown.open, JSON.stringify(thrown));
+  await page.waitForFunction(() => document.querySelector('.atlas-tabletop-dice-prompt__throw'), null, { timeout: 5000 });
+  await page.locator('.atlas-tabletop-dice-prompt__throw').click();
+  await page.waitForFunction(() => window.boardTest.board.dice.busy, null, { timeout: 5000 });
+  await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
+  await wait(300);
+  await open();
+  // The edit mode: E, the pencil. Its places wiggle, a foot with Done and the way back to the standard dice.
+  await tray.locator('[data-die="d20"]').focus();
+  await page.keyboard.press('e');
+  await wait(200);
+  check("dice row: E switches the row's edit mode, in Atlas's markup", await tray.locator('.atlas-dice-tray__row-edit .atlas-dice-tray__dice--editing').isVisible() && (await edit.getAttribute('aria-pressed')) === 'true');
+  const foot = await tray.locator('.atlas-dice-tray__actions').evaluateAll((all) => all.filter((el) => !el.hidden).flatMap((el) => [...el.querySelectorAll('button')].filter((b) => !b.hidden).map((b) => b.getAttribute('aria-label'))));
+  check('dice row: while the row is edited the foot has Done and nothing else (no arrow back with the standard dice)', JSON.stringify(foot) === '["Done"]' || JSON.stringify(foot) === '["Standard dice","Done"]', JSON.stringify(foot));
+  const places = await tray.locator('.atlas-dice-tray__dice--editing .atlas-dice-tray__die').count();
+  check('dice row: the editor shows each place with its x and a + for one more', places === 5 && (await tray.locator('.atlas-dice-tray__remove').count()) === 4 && (await tray.locator('.atlas-dice-tray__add').count()) === 1, String(places));
+  check('dice row: each place names itself and its place', (await tray.locator('.atlas-dice-tray__dice--editing .atlas-dice-tray__face[role="img"]').first().getAttribute('aria-label')) === 'Fireball, place 1. Alt and an arrow key move it');
+  await shot('dice-row-editing');
+  // Take one out.
+  await tray.locator('.atlas-dice-tray__remove[aria-label="Take d3 out of the row"]').click();
+  await wait(200);
+  check("dice row: the x takes a place out, and the collection's row is written", await same([place('preset', 'fire'), place('die', 20), place('die', 6)]), JSON.stringify(await row()));
+  // Add a die by typing it.
+  const note = tray.locator('.atlas-dice-tray__row-note');
+  const typeDie = async (text) => {
+    const field = tray.locator('.atlas-dice-tray__add-field');
+    if (!(await field.count())) await tray.locator('.atlas-dice-tray__add').click({ force: true });
+    await field.fill(text);
+    await field.press('Enter');
+    await wait(150);
+  };
+  await typeDie('d6');
+  check("dice row: a die already in the row is refused in Atlas's words", (await note.textContent()) === 'd6 is already in the row' && (await row()).length === 3, await note.textContent());
+  await typeDie('banana');
+  check("dice row: what is no die is refused in Atlas's words", (await note.textContent()) === 'Type a die, such as d3', await note.textContent());
+  await typeDie('d1');
+  check("dice row: a die of one face is refused in Atlas's words", (await note.textContent()) === 'A die has 2 to 1,000 faces', await note.textContent());
+  await typeDie('d12');
+  check('dice row: a typed die joins the row at its end and is written', await same([place('preset', 'fire'), place('die', 20), place('die', 6), place('die', 12)]), JSON.stringify(await row()));
+  // Move one: drag the first place over the third.
+  const faces = tray.locator('.atlas-dice-tray__dice--editing .atlas-dice-tray__die');
+  const a = await faces.nth(0).boundingBox();
+  const c = await faces.nth(2).boundingBox();
+  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(a.x + a.width / 2 + 20, a.y + a.height / 2, { steps: 4 });
+  await page.mouse.move(c.x + c.width / 2, c.y + c.height / 2, { steps: 8 });
+  const held = await faces.nth(0).getAttribute('data-held');
+  await shot('dice-row-dragging');
+  await page.mouse.up();
+  await wait(200);
+  check('dice row: a drag holds the place while it moves', held !== null);
+  check('dice row: the drag writes the new order (the first place moved to the third)', await same([place('die', 20), place('die', 6), place('preset', 'fire'), place('die', 12)]), JSON.stringify(await row()));
+  // A tap on a place does not move it.
+  const tapped = await tray.locator('.atlas-dice-tray__dice--editing .atlas-dice-tray__die').nth(1).boundingBox();
+  await page.mouse.click(tapped.x + tapped.width / 2, tapped.y + tapped.height / 2);
+  await wait(100);
+  check('dice row: a tap is no drag', await same([place('die', 20), place('die', 6), place('preset', 'fire'), place('die', 12)]));
+  // The keyboard: Alt and an arrow key.
+  await tray.locator('.atlas-dice-tray__dice--editing .atlas-dice-tray__face[role="img"]').nth(0).focus();
+  await page.keyboard.press('Alt+ArrowRight');
+  await wait(150);
+  check('dice row: Alt and an arrow key move the focused place', await same([place('die', 6), place('die', 20), place('preset', 'fire'), place('die', 12)]), JSON.stringify(await row()));
+  const focused = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? null);
+  check('dice row: the moved place keeps the focus', (focused ?? '').startsWith('d20, place 2'), focused);
+  // What Atlas changes meanwhile is shown at once.
+  await atlasSets([place('die', 8), place('die', 20)]);
+  check('dice row: a row changed in Atlas shows at once, in the editor too', (await tray.locator('.atlas-dice-tray__dice--editing .atlas-dice-tray__die').count()) === 3, String(await tray.locator('.atlas-dice-tray__dice--editing .atlas-dice-tray__die').count()));
+  // Escape ends the edit first; the tray stays.
+  await page.keyboard.press('Escape');
+  await wait(150);
+  check('dice row: Escape ends the edit and the tray stays open', (await tray.locator('.atlas-dice-tray__dice--editing').count()) === 0 && await tray.isVisible() && JSON.stringify(await captions()) === '["d8","d20"]', JSON.stringify(await captions()));
+  // Done.
+  await edit.click();
+  await wait(100);
+  await tray.getByRole('button', { name: 'Done' }).click();
+  await wait(100);
+  check('dice row: Done ends the edit', (await tray.locator('.atlas-dice-tray__dice--editing').count()) === 0 && await edit.isVisible());
+  // A full row takes no more.
+  await atlasSets(Array.from({ length: 10 }, (_, index) => place('die', index + 2)));
+  await edit.click();
+  await wait(150);
+  check('dice row: a row of ten has no + and is eight columns wide at most', (await tray.locator('.atlas-dice-tray__add').count()) === 0 && (await tray.locator('.atlas-dice-tray__dice--editing').evaluate((el) => el.style.getPropertyValue('--atlas-tray-slots'))) === '8');
+  await shot('dice-row-full');
+  // The way back to the standard dice.
+  await tray.getByRole('button', { name: 'Standard dice' }).click();
+  await wait(200);
+  check("dice row: the arrow back removes the row of the collection's own: Atlas's standard dice return", (await row()) === null && (await page.evaluate(() => 'diceRow' in window.boardTest.savedSettings)) === false);
+  check('dice row: with the standard dice there is no arrow back', (await tray.getByRole('button', { name: 'Standard dice' }).count()) === 0 || !(await tray.getByRole('button', { name: 'Standard dice' }).isVisible()));
+  await tray.getByRole('button', { name: 'Done' }).click();
+  check('dice row: the seven standard dice are shown again', JSON.stringify(await captions()) === '["d4","d6","d8","d10","d12","d20","d100"]', JSON.stringify(await captions()));
+  // The pin of a saved roll.
+  await tray.locator('.atlas-dice-tray__foot-icon[aria-keyshortcuts="P"]').click();
+  await wait(250);
+  const card = (name) => panel.locator('.atlas-dice-presets__item', { hasText: name });
+  const choose = async (name, entry) => {
+    await card(name).hover();
+    await card(name).locator('.atlas-dice-presets__more').click();
+    await page.locator('.atlas-ctx-menu .atlas-ctx-item', { hasText: entry }).click();
+    await wait(250);
+  };
+  await choose('Stats', 'Put in the dice row');
+  const pinned = await row();
+  check("dice row: Pin puts the saved roll at the end of the row (the standard dice become the collection's own row)", pinned?.length === 8 && JSON.stringify(pinned.at(-1)) === JSON.stringify(place('preset', 'stats')), JSON.stringify(pinned));
+  check('dice row: the pinned roll stands in the tray under its name and its card carries a pin', (await captions()).at(-1) === 'Stats' && (await card('Stats').getAttribute('data-pinned')) !== null && (await card('Stats').locator('.atlas-dice-presets__pinned').count()) === 1, JSON.stringify(await captions()));
+  await shot('dice-row-pinned');
+  // A saved roll written as a formula is thrown at once too (the board's tray holds dice, not formulas).
+  const tableBefore = await page.evaluate(() => (window.boardTest.board.dice?.object3d.children.length ?? 0));
+  // The pointer moves over it first, so the press lands on it and not on the saved roll's card it left (a frame must pass).
+  await tray.locator('[data-preset="stats"]').hover();
+  await wait(150);
+  await tray.locator('[data-preset="stats"]').click();
+  await wait(400);
+  check('dice row: a formula roll in the row is thrown at once as well (4d6kh3: four dice)', (await page.evaluate(() => (window.boardTest.board.dice?.object3d.children.length ?? 0))) === 4, String(tableBefore));
+  await page.locator('.atlas-tabletop-dice-prompt__throw').click();
+  await page.waitForFunction(() => window.boardTest.board.dice.busy, null, { timeout: 5000 });
+  await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
+  await wait(300);
+  await open();
+  await card('Stats').hover();
+  await card('Stats').locator('.atlas-dice-presets__more').click();
+  const items = await page.locator('.atlas-ctx-menu .atlas-ctx-item').allTextContents();
+  check('dice row: a pinned roll offers to be taken out of the row', JSON.stringify(items) === '["Edit","Take out of the dice row","Delete"]', JSON.stringify(items));
+  await page.locator('.atlas-ctx-menu .atlas-ctx-item', { hasText: 'Take out of the dice row' }).click();
+  await wait(250);
+  check('dice row: Unpin takes it out of the row and the card loses its pin', (await row()).length === 7 && (await card('Stats').getAttribute('data-pinned')) === null && (await card('Stats').locator('.atlas-dice-presets__pinned').count()) === 0, JSON.stringify(await row()));
+  // A full row says so on the pin.
+  await atlasSets(Array.from({ length: 10 }, (_, index) => place('die', index + 2)));
+  await card('Stats').hover();
+  await card('Stats').locator('.atlas-dice-presets__more').click();
+  await wait(150);
+  const pin = page.locator('.atlas-ctx-menu .atlas-ctx-item', { hasText: 'Put in the dice row' });
+  check("dice row: with a full row the pin is disabled and says why, in Atlas's words", (await pin.getAttribute('aria-disabled')) === 'true' && (await pin.getAttribute('title')) === 'The dice row holds 10; take one out first', await pin.getAttribute('title'));
+  await pin.click({ force: true });
+  await wait(100);
+  check('dice row: a disabled pin writes nothing', (await row()).length === 10);
+  await page.keyboard.press('Escape');
+  // Removing a saved roll takes its place out of the row.
+  await atlasSets([place('preset', 'stats'), place('die', 6)]);
+  await choose('Stats', 'Delete');
+  check('dice row: deleting a pinned saved roll takes its place out of the row too', await same([place('die', 6)]), JSON.stringify(await row()));
+  // A write Atlas refuses is told, and the row stays.
+  await page.evaluate(() => { window.boardTest.savedState.failing = true; });
+  await edit.click();
+  await tray.locator('.atlas-dice-tray__remove').first().click();
+  await wait(200);
+  const warned = await page.evaluate(() => window.boardTest.savedState.warnings);
+  check('dice row: a write that fails says so and leaves the row', warned.includes('The saved rolls could not be saved.') && await same([place('die', 6)]) && (await tray.locator('.atlas-dice-tray__dice--editing .atlas-dice-tray__die').count()) >= 1, JSON.stringify(warned));
+  await page.evaluate(() => { window.boardTest.savedState.failing = false; });
+  // Closing the tray ends the edit.
+  await tray.locator('.atlas-dice-tray__dice--editing .atlas-dice-tray__face[role="img"]').first().focus();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await wait(150);
+  check('dice row: Escape ends the edit, and a second Escape closes the tray', await tray.isHidden());
+  await diceButton.click();
+  await wait(250);
+  check('dice row: the tray opens as the plain tray', (await tray.locator('.atlas-dice-tray__dice--editing').count()) === 0 && await tray.isVisible());
+  // Older Atlas, or a map in no collection: today's fixed row, no pencil.
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { window.boardTest.savedState.version = '0.17.2'; });
+  await diceButton.click();
+  await wait(300);
+  check("dice row: an Atlas older than 0.18 keeps today's fixed row and has no pencil", JSON.stringify(await captions()) === '["d4","d6","d8","d10","d12","d20","d100"]' && await edit.isHidden());
+  await tray.locator('[data-die="d6"]').focus();
+  await page.keyboard.press('e');
+  check('dice row: nor does E start an edit', (await tray.locator('.atlas-dice-tray__dice--editing').count()) === 0);
+  await page.keyboard.press('2');
+  check('dice row: the fixed row has no number keys, as today', (await formula()) === 'The tray is empty.', await formula());
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { window.boardTest.savedState.version = '0.18.0'; window.boardTest.savedState.collection = null; });
+  await diceButton.click();
+  await wait(300);
+  check('dice row: a map in no collection has the fixed row and no pencil', JSON.stringify(await captions()) === '["d4","d6","d8","d10","d12","d20","d100"]' && await edit.isHidden());
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { window.boardTest.savedState.collection = 'c1'; });
+  await diceButton.click();
+  await wait(300);
+  check("dice row: back in a collection of Atlas 0.18 the collection's row returns", await edit.isVisible() && JSON.stringify(await captions()) === '["d6"]', JSON.stringify(await captions()));
+  await page.keyboard.press('Escape');
+});
+
 // ── Board sounds: minis picked up and put down (here and seen from other boards), doors, wall swaps ───────────────
 feature('mini sounds', async ({ page, shot }) => {
   const heard = () => page.evaluate(() => window.boardTest.sounds.plays.map((play) => ({ id: play[0], delayMs: play[1]?.delayMs ?? 0, at: play[1]?.at ?? null })));
@@ -387,20 +813,77 @@ feature('mini sounds in a group', async ({ page, shot }) => {
   await shot('mini-sounds-group');
 });
 
-// ── Item 27: the turn banner and the delayed marker ─────────────────────────────────────────────────────────────
+// ── Atlas 0.18's turn banner (initiative/banner) over the toolbar, and item 27's delayed marker ─────────────────────────
 feature('turn banner and delayed marker', async ({ page, shot }) => {
-  await page.evaluate(() => window.boardTest.board.flashTurn('Round 2 · Goblin'));
-  await wait(400);
-  const banner = page.locator('.atlas-tabletop-turn-banner');
-  check('27 banner shows the words', (await banner.count()) === 1 && (await banner.textContent()) === 'Round 2 · Goblin');
-  const box = await banner.boundingBox();
+  /** The tracker as the harness's map holds it: `active` is the entry whose turn it is (none: no fight). */
+  const fightAt = (active, round = 1, running = true) => page.evaluate(([active, round, running]) => {
+    const { board, announce } = window.boardTest;
+    const init = board.map.initiative;
+    init.entries.forEach((entry) => { entry.isActive = entry.id === active; });
+    init.isActive = running; init.round = round; init.currentIndex = init.entries.findIndex((entry) => entry.id === active);
+    announce();
+  }, [active, round, running]);
+  const banner = page.locator('.atlas-turn-banner');
+  const words = async () => ({ kind: await page.locator('.atlas-turn-banner--fight-start, .atlas-turn-banner--fight-end').count(), eyebrow: await page.locator('.atlas-turn-banner__eyebrow').allTextContents(), title: (await page.locator('.atlas-turn-banner__title, .atlas-fight-banner__title').allTextContents()) });
+  await fightAt('none', 0, false);
+  await wait(300);
+  check('27 no banner before anything happens', (await banner.count()) === 0);
+
+  // A fight starts: it says so, then names its first turn with the round.
+  await fightAt('e-hero', 1);
+  await wait(500);
+  const start = await words();
+  check('27 a fight starting says "Combat has started" first (Atlas 0.18)', start.kind === 1 && start.title.join() === 'Combat has started', JSON.stringify(start));
+  await page.waitForSelector('.atlas-turn-banner__title', { timeout: 6000 });
+  const first = await words();
+  check('27 then the first turn: the round above the name, with its portrait', first.eyebrow.join() === 'Round 1' && first.title.join() === 'Hero' && (await page.locator('.atlas-turn-banner .atlas-token-portrait img').count()) === 1, JSON.stringify(first));
+  const box = await page.locator('.atlas-turn-banner').boundingBox();
+  const bar = await page.locator('.atlas-tabletop-toolbar-row .atlas-tabletop-toolbar').boundingBox();
   const view = page.viewportSize();
-  check('27 banner sits inside the board, centred high', box && box.x >= 0 && box.x + box.width <= view.width && Math.abs(box.x + box.width / 2 - view.width / 2) < 4 && box.y < view.height / 3, JSON.stringify(box));
+  check('27 the banner stands centred just above the toolbar', box && bar && box.y + box.height <= bar.y && bar.y - (box.y + box.height) < 60 && Math.abs(box.x + box.width / 2 - view.width / 2) < 6, JSON.stringify({ box, bar }));
+  const flash = await page.evaluate(() => { const el = document.querySelector('.atlas-turn-banner'); return { before: getComputedStyle(el, '::before').animationName, shape: getComputedStyle(el).borderRadius }; });
+  check('27 the capsule flashes its border as it appears', flash.before === 'atlas-turn-banner-flash' && parseFloat(flash.shape) > 100, JSON.stringify(flash));
   await shot('turn-banner');
-  await page.evaluate(() => window.boardTest.board.flashTurn('Round 2 · Orc'));
-  check('27 a second turn replaces the banner', (await banner.count()) === 1 && (await banner.textContent()) === 'Round 2 · Orc');
-  await wait(2800);
-  check('27 the banner goes by itself', (await banner.count()) === 0);
+
+  // The next turn inside the round says "Turn", and replaces the banner at once.
+  await fightAt('e-gob', 1);
+  await wait(300);
+  const second = await words();
+  check('27 a turn inside the round reads "Turn" and the name, replacing the banner', second.eyebrow.join() === 'Turn' && second.title.join() === 'Goblin' && (await banner.count()) === 1, JSON.stringify(second));
+  await wait(2600);
+  check('27 the banner goes by itself after its time', (await banner.count()) === 0);
+
+  // A hidden combatant's turn is the GM's to see; a new round says the round.
+  await fightAt('e-orc', 2);
+  await wait(300);
+  const hidden = await words();
+  check('27 the GM banner names the hidden orc, in a new round', hidden.eyebrow.join() === 'Round 2' && hidden.title.join() === 'Orc', JSON.stringify(hidden));
+  await wait(2600);
+
+  // Atlas's Turn banner switch off: turns pass silently.
+  await page.evaluate(() => { window.boardTest.bannerSwitch.on = false; });
+  await fightAt('e-hero', 2);
+  await wait(400);
+  check('27 with the setting off no banner shows', (await banner.count()) === 0);
+  await page.evaluate(() => { window.boardTest.bannerSwitch.on = true; });
+  await fightAt('e-gob', 2);
+  await wait(300);
+  check('27 switched on again it names the turn', (await words()).title.join() === 'Goblin');
+  await wait(2600);
+
+  // The fight ends: its own banner stands its time.
+  await fightAt('none', 2, false);
+  await wait(500);
+  const end = await words();
+  check('27 a fight ending says "Combat has ended"', end.kind === 1 && end.title.join() === 'Combat has ended', JSON.stringify(end));
+  await shot('turn-banner-fight-end');
+  await wait(2600);
+  check('27 and goes by itself', (await banner.count()) === 0);
+  await fightAt('e-hero', 1);
+  await wait(600);
+  await shot('turn-banner-fight-start');
+  await fightAt('none', 1, false);
+  await wait(300);
 
   const id = await page.evaluate(() => [...window.boardTest.board.tokens.keys()][0]);
   await page.evaluate((id) => window.boardTest.board.setDelayedTokens([id]), id);
@@ -583,9 +1066,9 @@ feature('light theme', async ({ page, shot }) => {
   await shot('light-group-bar');
   await page.keyboard.press('Escape');
   // The turn banner.
-  await page.evaluate(() => window.boardTest.board.flashTurn('Round 3 · Goblin'));
+  await page.evaluate(() => window.boardTest.board.showTurnBanner({ show: [{ key: 'k', round: 3, title: 'Goblin', portrait: null }] }, () => null));
   await wait(300);
-  needs('turn banner', await contrast('.atlas-tabletop-turn-banner'));
+  needs('turn banner', await contrast('.atlas-turn-banner__title'));
   await shot('light-turn-banner');
 });
 
@@ -954,7 +1437,7 @@ feature('sheet pin', async ({ page, shot }) => {
   await wait(400);
   const pin = drawer.locator('.atlas-tabletop-sheet__pin');
   check('pin: the drawer has a Pin button, not pinned', (await pin.count()) === 1 && (await pin.getAttribute('aria-pressed')) === 'false' && (await pin.getAttribute('aria-label')) === 'Pin');
-  await pin.click();
+  await pin.click({ force: true });
   check('pin: clicking it pins the drawer', (await pin.getAttribute('aria-pressed')) === 'true' && (await pin.getAttribute('aria-label')) === 'Unpin' && (await drawer.getAttribute('class')).includes('is-pinned'));
   await settings.click();
   await wait(200);
@@ -972,7 +1455,7 @@ feature('sheet pin', async ({ page, shot }) => {
   await page.locator('button[aria-label^="Lighting"]').click();
   check('pin: it stays when the lighting menu opens', await drawer.isVisible());
   await page.keyboard.press('Escape');
-  await pin.click();
+  await pin.click({ force: true });
   check('pin: clicking again unpins it', (await pin.getAttribute('aria-pressed')) === 'false' && !(await drawer.getAttribute('class')).includes('is-pinned'));
   await settings.click();
   check('pin: unpinned, it closes when Board settings opens', await drawer.isHidden());
@@ -992,7 +1475,7 @@ feature('pin kept across reloads', async ({ page, shot }) => {
   await open();
   const pin = drawer.locator('.atlas-tabletop-sheet__pin');
   check('pin kept: a fresh board starts unpinned', (await pin.getAttribute('aria-pressed')) === 'false');
-  await pin.click();
+  await pin.click({ force: true });
   await page.reload();
   await page.waitForFunction(() => window.boardTest?.ready, null, { timeout: 30000 });
   await wait(1200);
@@ -1002,7 +1485,7 @@ feature('pin kept across reloads', async ({ page, shot }) => {
   await page.locator('button[aria-label="Board settings"]').first().click();
   check('pin kept: and it still stays under the settings panel', await drawer.isVisible());
   await page.locator('button[aria-label="Board settings"]').first().click();
-  await pin.click();
+  await pin.click({ force: true });
   await page.reload();
   await page.waitForFunction(() => window.boardTest?.ready, null, { timeout: 30000 });
   await wait(1200);
@@ -1274,6 +1757,32 @@ feature('lighting from Atlas', async ({ page, shot }) => {
   await wait(400);
   const on = await state();
   check('lighting from Atlas: the light level can be set while the scene is lit in Atlas', on.shown && !on.disabled && on.title === null, JSON.stringify(on));
+});
+
+feature('forget explored areas', async ({ page, shot }) => {
+  // Atlas 0.18's Forget explored areas, in the lighting menu where Atlas has it on its Lighting settings page: a ghost button with its rotate icon.
+  const open = async () => { await page.locator('button[aria-label^="Lighting"]').click(); await wait(300); };
+  const button = page.locator('.atlas-tabletop-lighting-extra button[data-lighting-action="forget-explored"]');
+  await open();
+  const facts = await button.evaluate((el) => ({ text: el.textContent.trim(), icon: !!el.querySelector('svg'), ghost: el.classList.contains('btn--ghost'), row: el.parentElement.className, disabled: el.disabled }));
+  check('forget explored: the lighting menu has the Atlas button, with its text and icon', facts.text === 'Forget explored areas' && facts.icon && facts.ghost && facts.row === 'atlas-setting-actions' && !facts.disabled, JSON.stringify(facts));
+  await shot('forget-explored-menu');
+  await button.click();
+  await wait(300);
+  check('forget explored: pressing it asks the host once (no confirmation, as in Atlas) and closes the menu', (await page.evaluate(() => window.boardTest.record.forgets)) === 1 && (await page.locator('.atlas-tabletop-lighting-options').isHidden()), '');
+  // Lighting off in Atlas: Atlas disables it.
+  await page.evaluate(() => { window.__lightingOff = true; });
+  await open();
+  check('forget explored: with lighting off in Atlas it is disabled', await button.isDisabled(), '');
+  await page.locator('button[aria-label^="Lighting"]').click();
+  await wait(300);
+  await page.evaluate(() => { window.__lightingOff = false; window.__noForget = true; });
+  await open();
+  const old = await button.evaluate((el) => ({ disabled: el.disabled, title: el.getAttribute('title') }));
+  check('forget explored: an Atlas without it disables it and says it needs a newer Atlas', old.disabled && old.title === 'This needs a newer Atlas.', JSON.stringify(old));
+  await shot('forget-explored-old-atlas');
+  await page.locator('button[aria-label^="Lighting"]').click();
+  await page.evaluate(() => { window.__noForget = false; });
 });
 
 feature('daylight tint', async ({ page, shot }) => {
@@ -1757,6 +2266,100 @@ feature('initiative tokenless entries', async ({ page, shot }) => {
   check('tokenless initiative: the party member shows its portrait and has the turn', seen.info[1].img === true && seen.info[1].active === true && seen.info[0].active === false, JSON.stringify(seen));
   check('tokenless initiative: clicking a card shows its token only where it has one', seen.shown.join() === 'hero', JSON.stringify(seen));
   await shot('initiative-tokenless');
+});
+
+// ── Atlas 0.18's tracker options: the Compact view and the Turn banner, Atlas's own shared settings ─────────────
+feature('initiative compact layout and options menu', async ({ page, shot }) => {
+  const prepare = () => page.evaluate(() => {
+    const { board, panel, trackerSettings, bannerSwitch } = window.boardTest;
+    trackerSettings.compact = false; trackerSettings.without.clear(); bannerSwitch.on = true;
+    const init = board.map.initiative;
+    init.entries.forEach((entry) => { entry.isActive = entry.id === 'e-gob'; });
+    init.isActive = true; init.round = 2; init.currentIndex = init.entries.findIndex((entry) => entry.id === 'e-gob');
+    panel.setOpen(true);
+    panel.render();
+  });
+  const look = () => page.evaluate(() => {
+    const tracker = document.querySelector('.tabletop-initiative-tracker');
+    const rect = tracker.getBoundingClientRect();
+    const first = tracker.querySelector('.tabletop-initiative-card');
+    const cards = [...tracker.querySelectorAll('.tabletop-initiative-card')];
+    return {
+      compact: tracker.classList.contains('tabletop-initiative-tracker--compact'), width: Math.round(rect.width), rect: rect.toJSON(),
+      grid: first ? getComputedStyle(first).display : null, height: first ? Math.round(first.getBoundingClientRect().height) : 0,
+      names: cards.map((card) => card.querySelector('.tabletop-initiative-card__name')?.textContent ?? null),
+      numbers: cards.map((card) => card.querySelector('.tabletop-initiative-card__initiative')?.textContent ?? null),
+      backdrops: cards.filter((card) => card.querySelector('.tabletop-initiative-card__backdrop img')).length, portraits: cards.filter((card) => card.querySelector('.atlas-token-portrait')).length,
+      cards: cards.length, activeCards: cards.filter((card) => card.classList.contains('tabletop-initiative-card--active')).length,
+      options: !!tracker.querySelector('.tabletop-initiative-tracker__btn--options'),
+    };
+  });
+  const rows = () => page.evaluate(() => [...document.querySelectorAll('.atlas-ctx-item')].map((row) => ({ text: row.textContent, checked: row.getAttribute('aria-checked'), icon: row.querySelector('.atlas-ctx-icon')?.dataset.icon ?? null, title: row.title })));
+  const openOptions = async () => { await page.locator('.tabletop-initiative-tracker__btn--options').click(); await wait(150); };
+
+  await prepare();
+  await wait(200);
+  const before = await look();
+  check('28 the tracker starts as today: tiles in a 96 px column, with an options button', !before.compact && before.width === 96 && before.portraits === before.cards && before.options, JSON.stringify(before));
+  await shot('initiative-tiles');
+
+  await openOptions();
+  const menu = await rows();
+  check('28 the options menu holds Atlas rows: Compact view (list icon) and Turn banner (flag icon), with their hints, then Reset and Clear as Atlas 0.18 has them', menu.length === 4 && menu[2].text === 'Reset initiative' && menu[2].icon === 'rotate-ccw' && menu[3].text === 'Clear initiative' && menu[3].icon === 'trash-2' && menu[0].text === 'Compact view' && menu[0].icon === 'list' && /plain list without portraits/.test(menu[0].title) && menu[1].text === 'Turn banner' && menu[1].icon === 'flag' && /whose turn it is/.test(menu[1].title), JSON.stringify(menu));
+  check('28 Compact view is off and Turn banner on, as Atlas has them', menu[0].checked === 'false' && menu[1].checked === 'true', JSON.stringify(menu));
+  await shot('initiative-options-menu');
+  check('28 with the menu, Reset and Clear are no longer buttons in the narrow tracker', (await page.locator('.tabletop-initiative-tracker__controls button').count()) === 3, String(await page.locator('.tabletop-initiative-tracker__controls button').count()));
+
+  // Compact view: Atlas's setting is written, and the tracker is the list of lines.
+  await page.locator('.atlas-ctx-item', { hasText: 'Compact view' }).click();
+  await wait(300);
+  const compact = await look();
+  const written = await page.evaluate(() => window.boardTest.trackerSettings.compact);
+  check('28 choosing Compact view writes the Atlas setting', written === true);
+  check('28 the tracker becomes the compact list: 216 px wide, a grid line of 34 px per combatant, names beside the numbers', compact.compact && compact.width === 216 && compact.grid === 'grid' && compact.height === 34 && compact.names.every((name) => name && name.length > 0) && compact.numbers.length === compact.cards, JSON.stringify(compact));
+  check('28 the compact line has the token art behind it and no portrait tile; the turn line is marked', compact.portraits === 0 && compact.backdrops > 0 && compact.activeCards === 1, JSON.stringify(compact));
+  check('28 the compact tracker stays inside the board, clear of the top bars', compact.rect.right <= 1000 && compact.rect.left > 600 && compact.rect.top >= 60 && compact.rect.bottom <= 600, JSON.stringify(compact.rect));
+  await page.mouse.move(5, 5);
+  await shot('initiative-compact');
+
+  // The menu follows the setting; Turn banner switches Atlas's banner setting off and on.
+  await openOptions();
+  const after = await rows();
+  check('28 reopened, the menu shows Compact view checked', after[0].checked === 'true' && after[1].checked === 'true', JSON.stringify(after));
+  await page.locator('.atlas-ctx-item', { hasText: 'Turn banner' }).click();
+  await wait(150);
+  check('28 choosing Turn banner switches the Atlas banner setting off', (await page.evaluate(() => window.boardTest.bannerSwitch.on)) === false);
+  await openOptions();
+  check('28 and the row shows it unchecked', (await rows())[1].checked === 'false');
+  await page.locator('.atlas-ctx-item', { hasText: 'Turn banner' }).click();
+  await wait(150);
+  check('28 choosing it again switches it on', (await page.evaluate(() => window.boardTest.bannerSwitch.on)) === true);
+
+  // Atlas's own change (its map's menu) is the board's too: the setting is the one place.
+  await page.evaluate(() => { window.boardTest.trackerSettings.compact = false; window.boardTest.panel.render(); });
+  check('28 Atlas turning Compact view off turns the tracker back into tiles', !(await look()).compact);
+
+  // A long name is clipped inside its line.
+  await page.evaluate(() => { window.boardTest.trackerSettings.compact = true; window.boardTest.panel.render(); });
+  await wait(200);
+  await page.evaluate(() => {
+    const first = document.querySelector('.tabletop-initiative-card .tabletop-initiative-card__name');
+    if (first) first.textContent = 'A combatant with a very long name indeed';
+  });
+  const clipped = await page.evaluate(() => { const name = document.querySelector('.tabletop-initiative-card__name'); return { overflow: getComputedStyle(name).textOverflow, fits: name.getBoundingClientRect().right <= name.closest('.tabletop-initiative-card').getBoundingClientRect().right }; });
+  check('28 a long name is clipped with an ellipsis inside the line', clipped.overflow === 'ellipsis' && clipped.fits, JSON.stringify(clipped));
+  await shot('initiative-compact-long-name');
+
+  // Atlas 0.15 has the banner switch but no Compact view: one row. An Atlas with neither: no options button.
+  await page.evaluate(() => { const { trackerSettings, panel } = window.boardTest; trackerSettings.compact = false; trackerSettings.without = new Set(['showsCompactInitiative', 'setCompactInitiative']); panel.render(); });
+  await openOptions();
+  const older = await rows();
+  check('28 an Atlas without the Compact view setting offers only Turn banner, and the tracker stays tiles', older.length === 3 && older[0].text === 'Turn banner' && older[2].text === 'Clear initiative' && !(await look()).compact, JSON.stringify(older));
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { const { trackerSettings, panel } = window.boardTest; trackerSettings.without = new Set(['showsCompactInitiative', 'setCompactInitiative', 'initiativeTurnOptions', 'setInitiativeTurnOptions']); panel.render(); });
+  const none = await look();
+  check('28 with neither setting there is no options button, and Reset and Clear stay buttons: the layout as before', !none.options && !none.compact && none.width === 96 && (await page.locator('.tabletop-initiative-tracker__controls [aria-label="Clear initiative"]').count()) === 1 && (await page.locator('.tabletop-initiative-tracker__controls [aria-label="Reset initiative"]').count()) === 1, JSON.stringify(none));
+  await page.evaluate(() => { const { trackerSettings, panel } = window.boardTest; trackerSettings.without.clear(); trackerSettings.compact = false; panel.render(); });
 });
 
 feature('command palette', async ({ page, shot }) => {
@@ -7468,6 +8071,8 @@ feature('shortcut help on the board', async ({ page, shot }) => {
   check("shortcut help: Atlas's help window opens on the board, with its title", seen.title.length > 0 && seen.rows.length > 10, JSON.stringify(seen.title));
   check("shortcut help: the asset manager is listed with the board's key (Shift + A)", (find('asset')?.[1] ?? '') === 'Shift + A', JSON.stringify(find('asset')));
   check("shortcut help: Atlas's 2D map tools are not listed (the fog tool and its brush keys are the board's now)", !seen.atlasRows.some((label) => /draw|erase|text tool|pin|wall|sound page/.test(label.replace('smaller drawing or fog brush', '').replace('larger drawing or fog brush', ''))), JSON.stringify(seen.atlasRows));
+  check("shortcut help: Copy, Cut, Paste and Duplicate are listed with Atlas's keys", [['copy selection', 'Ctrl/Cmd + C'], ['cut selection', 'Ctrl/Cmd + X'], ['paste at cursor', 'Ctrl/Cmd + V'], ['duplicate selection', 'Ctrl/Cmd + D']].every(([label, keys]) => (find(label)?.[1] ?? '').replace(/⌘|Ctrl|Cmd/g, 'M').length > 0), JSON.stringify([find('copy selection'), find('cut selection'), find('paste at cursor'), find('duplicate selection')]));
+  check("shortcut help: the lighting peek key is listed, with Atlas's words and its H", (find('hold to see what the players see')?.[1] ?? '') === 'H', JSON.stringify(find('hold to see')));
   check("shortcut help: the fog tool key and the brush size keys are listed", seen.atlasRows.includes('fog tools') && seen.atlasRows.includes('smaller drawing or fog brush') && seen.atlasRows.includes('larger drawing or fog brush') && (find('fog tools')?.[1] ?? '') === 'F', JSON.stringify(find('fog tools')));
   check("shortcut help: the fog tool's Alt, Shift, Ctrl/Cmd, Enter, Backspace and Escape are listed among the board's own keys", ['Alt', 'Shift', 'Ctrl/Cmd', 'Enter', 'Backspace / Undo key', 'Escape'].every((keys) => seen.rows.some(([label, key]) => label.startsWith('Fog tool:') && key === keys)), JSON.stringify(seen.rows.filter(([label]) => label.startsWith('Fog tool:'))));
   // Atlas 0.17+ has no experimental switch on Next mood and Silence: the board's two sound keys are listed; the Sound page key (S, a clash with Silence's Shift+S) is not.
@@ -7528,6 +8133,83 @@ feature('atlas shortcuts on the board', async ({ page }) => {
     result.up && result.down && !result.pastTop && JSON.stringify(result.switched) === JSON.stringify([['layer', 'upper'], ['layer', 'cellar']]), JSON.stringify(result));
   check('board shortcuts: Select all selects every token, Delete removes them all at once, then has nothing to remove',
     result.all && result.groupSize === result.tokenCount && result.deleted && result.removed.length === result.tokenCount && !result.nothingLeft, JSON.stringify(result));
+});
+
+// ── Atlas's Copy, Cut and Paste of tokens (Ctrl/Cmd + C / X / V) ─────────────────────────────────────────────────────
+feature('copy, cut and paste tokens', async ({ page, shot }) => {
+  // What the keys call on the board (the keys themselves are matched in tests/boardHotkeys.test.ts; the store work is in
+  // tests/tokenClipboard.test.ts): the selection goes to the host, a paste lands under the pointer, else in the view's middle.
+  await page.evaluate(() => { window.boardTest.board.select(null); window.boardTest.record.clip.length = 0; });
+  const canvas = await page.evaluate(() => { const r = window.boardTest.board.canvas.getBoundingClientRect(); return { x: r.left + r.width * 0.6, y: r.top + r.height * 0.6 }; });
+  await page.mouse.move(canvas.x, canvas.y);
+  await wait(100);
+  const result = await page.evaluate(({ canvas }) => {
+    const { board, record } = window.boardTest;
+    const clip = () => JSON.parse(JSON.stringify(record.clip.splice(0)));
+    const out = {};
+    // Nothing selected: the key is still the board's, and nothing is sent.
+    out.emptyKeys = [board.copySelection(), board.cutSelection(), board.pasteSelection()];
+    out.empty = clip().map((entry) => entry[0]);
+    board.select('hero');
+    out.copyOne = [board.copySelection(), clip()];
+    board.selectTokens(['hero', 'orc']);
+    out.copyGroup = [board.copySelection(), clip()];
+    out.groupKept = board.group.size;
+    out.cut = [board.cutSelection(), clip()];
+    out.afterCut = { group: board.group.size, selected: board.selectedTokenIds().length };
+    // Selected page text is the browser's to copy.
+    board.select('hero');
+    const note = document.createElement('p');
+    note.textContent = 'some selected text';
+    document.body.append(note);
+    const range = document.createRange();
+    range.selectNodeContents(note);
+    const selection = document.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    out.yield = [board.copySelection(), board.cutSelection(), clip().length];
+    selection.removeAllRanges();
+    note.remove();
+    board.select(null);
+    return out;
+  }, { canvas });
+  check("copy/cut/paste: with nothing selected the keys are the board's and send nothing", JSON.stringify(result.emptyKeys) === '[true,true,true]' && JSON.stringify(result.empty) === '["paste"]', JSON.stringify(result));
+  check('copy/cut/paste: Copy sends the selected token, or the whole group, and keeps the selection', JSON.stringify(result.copyOne) === '[true,[["copy",["hero"]]]]' && result.copyGroup[1][0][1].length === 2 && result.groupKept === 2, JSON.stringify(result.copyGroup));
+  check('copy/cut/paste: Cut sends the group and clears the selection', result.cut[1][0][0] === 'cut' && result.cut[1][0][1].length === 2 && result.afterCut.group === 0 && result.afterCut.selected === 0, JSON.stringify(result.cut));
+  check('copy/cut/paste: selected page text keeps Copy and Cut for the browser', result.yield[0] === false && result.yield[1] === false && result.yield[2] === 0, JSON.stringify(result.yield));
+  // Paste under the pointer, then the middle of the view when the pointer is off the board.
+  await page.evaluate(() => { window.boardTest.record.clip.length = 0; window.boardTest.board.pasteSelection(); });
+  await wait(100);
+  const pasted = await page.evaluate(({ canvas }) => {
+    const { board, record } = window.boardTest;
+    const at = record.clip.find((entry) => entry[0] === 'paste')?.[1];
+    const under = board.boardPoint(canvas.x, canvas.y);
+    return { at, under, group: [...board.group], selected: board.selectedTokenIds() };
+  }, { canvas });
+  check('copy/cut/paste: Paste lands on the point under the pointer and selects the copies', pasted.at && Math.hypot(pasted.at.x - pasted.under.x, pasted.at.y - pasted.under.y) < 2 && pasted.group.length === 2, JSON.stringify(pasted));
+  await shot('paste-tokens');
+  await page.mouse.move(2, 2);
+  await page.evaluate(() => { const el = window.boardTest.board.canvas; el.dispatchEvent(new PointerEvent('pointerleave', { bubbles: true })); window.boardTest.record.clip.length = 0; window.boardTest.board.pasteSelection(); });
+  await wait(100);
+  const centred = await page.evaluate(() => {
+    const { board, record } = window.boardTest;
+    const at = record.clip.find((entry) => entry[0] === 'paste')?.[1];
+    return { at, centre: board.viewCentre() };
+  });
+  check('copy/cut/paste: with the pointer off the board Paste lands in the middle of the view', centred.at && Math.hypot(centred.at.x - centred.centre.x, centred.at.y - centred.centre.y) < 1, JSON.stringify(centred));
+  // Duplicate (Ctrl+D): the selection goes to the host, the copies are selected; the camera's D stays the camera's.
+  const dup = await page.evaluate(async () => {
+    const { board, record } = window.boardTest;
+    record.clip.length = 0;
+    board.clearGroup();
+    board.select(null);
+    const none = [board.duplicateSelection(), record.clip.length];
+    board.selectTokens(['hero', 'orc']);
+    const keyed = board.duplicateSelection();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    return { none, keyed, clip: JSON.parse(JSON.stringify(record.clip)), group: board.group.size };
+  });
+  check('duplicate: Ctrl+D sends the selection to Atlas and selects the copies; with nothing selected it sends nothing', JSON.stringify(dup.none) === '[true,0]' && dup.keyed && dup.clip.length === 1 && dup.clip[0][0] === 'duplicate' && dup.clip[0][1].length === 2 && dup.group === 2, JSON.stringify(dup));
 });
 
 // ── Atlas's GM view switch (GM view / session view) on the board's toolbar ───────────────────────────────────────────
@@ -7681,7 +8363,7 @@ feature('gm view switch', async ({ page, shot }) => {
     const box = (e) => { const r = e.getBoundingClientRect(); const c = getComputedStyle(e); return { w: Math.round(r.width * 10) / 10, h: Math.round(r.height * 10) / 10, bg: c.backgroundColor, border: c.borderTopColor, bw: c.borderTopWidth, radius: c.borderTopLeftRadius, pad: c.paddingLeft, shadow: c.boxShadow, color: c.color }; };
     const track = root.querySelector('.atlas-toggle__switch');
     const thumb = root.querySelector('.atlas-toggle__thumb');
-    const icon = root.querySelector('svg');
+    const icon = root.querySelector('.atlas-toggle svg');
     return { outer: box(root.querySelector('.atlas-toggle')), track: box(track), thumb: { ...box(thumb), dx: Math.round((thumb.getBoundingClientRect().left - track.getBoundingClientRect().left) * 10) / 10 }, icon: { ...box(icon), cls: icon.getAttribute('class'), markup: icon.innerHTML } };
   }, rootSel);
   const EYE = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye atlas-toggle__icon"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path><circle cx="12" cy="12" r="3"></circle></svg>';
@@ -7708,6 +8390,318 @@ feature('gm view switch', async ({ page, shot }) => {
     await page.evaluate(() => document.querySelector('#atlas-fixture')?.remove());
   }
   await page.evaluate(() => window.boardTest.board.throwGmView(true));
+});
+
+// ── Atlas's lighting peek (hold H; a button to hold for a finger) ────────────────────────────────────────────────────
+feature('lighting peek', async ({ page, shot }) => {
+  const sw = '.atlas-tabletop-toolbar [data-toolbar-id="gm-view"]';
+  const btn = '.atlas-tabletop-toolbar .atlas-peek-button';
+  const shots = process.argv[3] ?? '.';
+  const state = () => page.evaluate(() => {
+    const { board, gmViewSwitch } = window.boardTest;
+    return {
+      session: board.sessionView, atlas: gmViewSwitch.on, sets: [...gmViewSwitch.sets],
+      orc: board.tokens.get('orc').piece.object3d.visible,
+      fog: board.fog.material.uniforms.uStrength.value,
+      names: board.tokens.get('hero').labels.object3d.visible,
+      checked: document.querySelector('.atlas-tabletop-toolbar [data-toolbar-id="gm-view"]')?.getAttribute('aria-checked'),
+    };
+  });
+  await page.evaluate(() => {
+    const { board, modes, gmViewSwitch, fog, pointer } = window.boardTest;
+    fog.state.gmOpacity = 0.5;
+    gmViewSwitch.on = true;
+    gmViewSwitch.sets.length = 0;
+    pointer.coarse = false;
+    modes.on = true;
+    modes.mode = 'play';
+    board.gmViewChanged();
+    board.refreshToolbar();
+    board.frameMap();
+    board.camera.snap();
+    board.wake(true);
+    const { canvas } = board; canvas.tabIndex = 0; canvas.focus();
+  });
+  await wait(500);
+  const rest = await state();
+  check("lighting peek: GM view at rest shows hidden tokens, the GM's names and the GM's fog", rest.orc && !rest.session && rest.names && Math.abs(rest.fog - 0.5) < 0.01, JSON.stringify(rest));
+
+  // The key: held, the players' picture; the GM view switch does not move; let go, the GM's again.
+  await page.keyboard.down('h');
+  await wait(500);
+  const held = await state();
+  check("lighting peek: H held shows what the players see (hidden token gone, fog opaque, players' names) with the GM view switch unmoved",
+    held.session && !held.orc && Math.abs(held.fog - 1) < 0.01 && !held.names && held.atlas === true && held.sets.length === 0 && held.checked === 'true', JSON.stringify(held));
+  await shot('lighting-peek-held');
+  await page.keyboard.up('h');
+  await wait(500);
+  const back = await state();
+  check("lighting peek: letting go of H shows the GM's view again", !back.session && back.orc && back.names && Math.abs(back.fog - 0.5) < 0.01 && back.sets.length === 0, JSON.stringify(back));
+
+  // The camera's own keys are not the peek, and the window losing the focus lets it go.
+  await page.keyboard.press('d');
+  await wait(200);
+  check("lighting peek: the camera's keys are not the peek", (await state()).session === false);
+  await page.keyboard.down('h');
+  await wait(300);
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await wait(400);
+  check('lighting peek: the window losing the focus ends the peek', (await state()).session === false);
+  await page.keyboard.up('h');
+  await wait(100);
+
+  // In session view the map shows the players' picture already: H changes nothing, and letting go stays in session view.
+  await page.click(sw);
+  await wait(400);
+  await page.keyboard.down('h');
+  await wait(300);
+  const inSession = await state();
+  await page.keyboard.up('h');
+  await wait(400);
+  const afterSession = await state();
+  check('lighting peek: in session view H changes nothing, and letting go stays in session view', inSession.session && afterSession.session && afterSession.atlas === false, JSON.stringify([inSession, afterSession]));
+  await page.click(sw);
+  await wait(400);
+
+  // Cinematic mode has no peek (no GM view there to look away from); Edit mode has it.
+  await page.evaluate(() => { window.boardTest.modes.mode = 'cinematic'; window.boardTest.board.refreshToolbar(); });
+  await wait(300);
+  const cinema = await page.evaluate(() => { const { board } = window.boardTest; const took = board.peek(true, 'h'); const seen = board.sessionView; board.peek(false); return { took, seen }; });
+  check('lighting peek: Cinematic mode has no peek', cinema.took === false && cinema.seen === false, JSON.stringify(cinema));
+  await page.evaluate(() => { window.boardTest.modes.mode = 'edit'; window.boardTest.board.refreshToolbar(); });
+  await wait(300);
+  await page.evaluate(() => window.boardTest.board.canvas.focus());
+  await page.keyboard.down('h');
+  await wait(400);
+  const edit = await state();
+  await page.keyboard.up('h');
+  await wait(300);
+  check('lighting peek: Edit mode peeks too', edit.session && !edit.orc && (await state()).session === false, JSON.stringify(edit));
+  await page.evaluate(() => { window.boardTest.modes.mode = 'play'; window.boardTest.board.refreshToolbar(); });
+  await wait(300);
+
+  // The button: only for a finger, Atlas's markup and place, held to peek.
+  const buttonInfo = () => page.evaluate(([sel, swSel]) => {
+    const el = document.querySelector(sel);
+    if (!el) return null;
+    const toggle = document.querySelector(swSel);
+    return {
+      shown: el.offsetParent !== null, label: el.getAttribute('aria-label'), pressed: el.getAttribute('aria-pressed'), disabled: el.getAttribute('aria-disabled'),
+      cls: el.className, icon: el.querySelector('svg')?.getAttribute('class') ?? null, title: el.getAttribute('title'),
+      beforeSwitch: el.nextElementSibling === toggle, last: toggle === toggle.parentElement.lastElementChild,
+    };
+  }, [btn, sw]);
+  await page.evaluate(() => { window.boardTest.gmViewSwitch.sets.length = 0; });
+  const mouse = await buttonInfo();
+  check('lighting peek: a mouse has no peek button (the key holds it)', mouse === null || !mouse.shown, JSON.stringify(mouse));
+  await page.evaluate(() => { window.boardTest.pointer.coarse = true; window.boardTest.board.refreshToolbar(); });
+  await wait(400);
+  const touch = await buttonInfo();
+  check('lighting peek: a finger gets Atlas\'s button (ScanEye, "Hold to see what the players see", btn--toolbar btn--icon atlas-peek-button) before the GM view switch',
+    touch !== null && touch.shown && touch.label === 'Hold to see what the players see' && touch.pressed === 'false' && touch.disabled === null
+      && /lucide-scan-eye/.test(touch.icon) && /\bbtn--toolbar\b/.test(touch.cls) && /\bbtn--icon\b/.test(touch.cls) && /\batlas-peek-button\b/.test(touch.cls) && touch.beforeSwitch && touch.last && touch.title === null, JSON.stringify(touch));
+  const clip = await page.evaluate(() => { const r = document.querySelector('.atlas-tabletop-toolbar').getBoundingClientRect(); return { x: Math.max(0, r.left - 10), y: Math.max(0, r.top - 10), width: Math.min(r.width + 20, 1000), height: r.height + 20 }; });
+  await page.screenshot({ path: `${shots}/peek-button.png`, clip });
+  // Held (the mouse standing in for the finger): the players' picture, the button lit; released: back.
+  const box = await page.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, btn);
+  await page.mouse.move(box.x, box.y);
+  await page.mouse.down();
+  await wait(500);
+  const pressedNow = await state();
+  const lit = await buttonInfo();
+  check("lighting peek: holding the button shows the players' picture, the button pressed (is-active) and the switch unmoved",
+    pressedNow.session && !pressedNow.orc && pressedNow.atlas === true && pressedNow.sets.length === 0 && lit.pressed === 'true' && /\bis-active\b/.test(lit.cls), JSON.stringify([pressedNow, lit]));
+  await page.screenshot({ path: `${shots}/peek-button-held.png`, clip });
+  await shot('lighting-peek-button-held');
+  await page.mouse.up();
+  await wait(500);
+  const released = await state();
+  const unlit = await buttonInfo();
+  check("lighting peek: letting go of the button shows the GM's view again", !released.session && released.orc && unlit.pressed === 'false' && !/\bis-active\b/.test(unlit.cls), JSON.stringify([released, unlit]));
+  // Slid off the button while held: the press is captured, so lifting elsewhere still ends it.
+  await page.mouse.move(box.x, box.y);
+  await page.mouse.down();
+  await wait(300);
+  await page.mouse.move(box.x - 200, box.y - 150);
+  await wait(200);
+  const slid = await state();
+  await page.mouse.up();
+  await wait(400);
+  check('lighting peek: a press that slides off the button holds until it lifts, then ends', slid.session && (await state()).session === false, JSON.stringify(slid));
+  // Session view: the button is there but takes no press (aria-disabled, Atlas's disabled look).
+  await page.evaluate(() => window.boardTest.board.throwGmView(false));
+  await wait(400);
+  const dis = await buttonInfo();
+  await page.mouse.move(box.x, box.y);
+  await page.mouse.down();
+  await wait(300);
+  const noPress = await buttonInfo();
+  await page.mouse.up();
+  check('lighting peek: in session view the button is disabled and takes no press', dis.shown && dis.disabled === 'true' && /atlas-tool-button--disabled/.test(dis.cls) && noPress.pressed === 'false', JSON.stringify([dis, noPress]));
+  await page.screenshot({ path: `${shots}/peek-button-disabled.png`, clip });
+  // The switch thrown while the button is held ends the peek.
+  await page.evaluate(() => window.boardTest.board.throwGmView(true));
+  await wait(300);
+  await page.evaluate((sel) => { document.querySelector(sel).dispatchEvent(new PointerEvent('pointerdown', { pointerId: 41, pointerType: 'touch', button: 0, bubbles: true })); }, btn);
+  await wait(300);
+  const heldTouch = await state();
+  await page.evaluate(() => window.boardTest.board.throwGmView(false));
+  await wait(300);
+  await page.evaluate(() => window.boardTest.board.throwGmView(true));
+  await wait(400);
+  const afterSwitch = await state();
+  check("lighting peek: a held peek ends when the view switch leaves the GM's view", heldTouch.session && !afterSwitch.session && (await buttonInfo()).pressed === 'false', JSON.stringify([heldTouch, afterSwitch]));
+  // The look matches Atlas's own button (its markup under its styles), measured beside the board's.
+  const look = (sel) => page.evaluate((sel) => {
+    const e = document.querySelector(sel);
+    const r = e.getBoundingClientRect(); const c = getComputedStyle(e);
+    const i = e.querySelector('svg').getBoundingClientRect();
+    return { w: Math.round(r.width * 10) / 10, h: Math.round(r.height * 10) / 10, bg: c.backgroundColor, color: c.color, radius: c.borderTopLeftRadius, pad: c.paddingLeft, iw: Math.round(i.width * 10) / 10 };
+  }, sel);
+  await page.mouse.move(5, 5);
+  await wait(300);
+  const ownLook = await look(btn);
+  await page.evaluate((html) => {
+    document.querySelector('#atlas-fixture')?.remove();
+    const host = document.createElement('div');
+    host.id = 'atlas-fixture';
+    host.className = 'atlas-vtt-plugin';
+    host.style.cssText = 'position:fixed;left:10px;top:10px;z-index:99999;background:var(--background-primary, #1e1e1e);padding:8px';
+    host.innerHTML = `<div class="atlas-vtt-toolbar"><div class="atlas-toolbar-end"><button type="button" aria-label="Hold to see what the players see" aria-pressed="false" class="btn btn--toolbar btn--icon btn--toolbar atlas-peek-button">${html}</button></div></div>`;
+    document.body.appendChild(host);
+  }, await page.evaluate((sel) => document.querySelector(sel).innerHTML, btn));
+  const atlasLook = await look('#atlas-fixture button');
+  // The corner is left out: the board restates Atlas's `.btn` with Obsidian's radius (8px, Atlas's 10px) for every button it has, this one under them.
+  const { radius: ownRadius, ...ownRest } = ownLook;
+  const { radius: atlasRadius, ...atlasRest } = atlasLook;
+  check("lighting peek: the button matches Atlas's markup under Atlas's styles (size, colours, icon)", JSON.stringify(ownRest) === JSON.stringify(atlasRest), JSON.stringify({ atlas: atlasLook, board: ownLook }));
+  await page.evaluate(() => document.querySelector('#atlas-fixture')?.remove());
+  // Cinematic mode: no button.
+  await page.evaluate(() => { window.boardTest.modes.mode = 'cinematic'; window.boardTest.board.refreshToolbar(); });
+  await wait(300);
+  const cineButton = await buttonInfo();
+  check('lighting peek: Cinematic mode has no button', cineButton === null || !cineButton.shown, JSON.stringify(cineButton));
+  await page.evaluate(() => { const t = window.boardTest; t.modes.mode = 'play'; t.pointer.coarse = false; t.board.refreshToolbar(); });
+});
+
+// ── Atlas 0.18's measure key: a tap picks or steps the tool, held with a press on the map it is a quick ruler ──────────
+feature('hold M to measure', async ({ page, shot }) => {
+  const canvas = await page.locator('canvas').first().boundingBox();
+  const [x, y] = [canvas.x + canvas.width * 0.5, canvas.y + canvas.height * 0.5];
+  const state = () => page.evaluate(() => {
+    const { board, measureTool, keptMeasures } = window.boardTest;
+    const actions = board.toolbarActions();
+    return { tool: board.tools.tool, shape: board.tools.shape, on: actions.measureOn(), shown: actions.measureShape(), mode: measureTool().mode, kept: keptMeasures().length, drawn: board.tools.overlay().measure?.shape ?? null, bars: !document.querySelector('.atlas-tabletop-measure-bars')?.hidden };
+  });
+  await page.evaluate(() => {
+    const { board, modes, clearKeptMeasures } = window.boardTest;
+    clearKeptMeasures();
+    modes.on = true; modes.mode = 'play';
+    board.toolbarActions().selectMeasure(null);
+    board.toolbarActions().setMeasureOptions({ mode: 'ruler', keep: false, players: true });
+    board.refreshToolbar();
+    const { canvas } = board; canvas.tabIndex = 0; canvas.focus();
+  });
+  await wait(300);
+  check('hold M: the tool in use at the start is Move', (await state()).tool === 'move');
+
+  // A tap: acts when the key goes up; the measure tool is chosen, and the next tap steps to the next mode.
+  await page.keyboard.down('m');
+  check('hold M: a tap does nothing until the key goes up', (await state()).on === false);
+  await page.keyboard.up('m');
+  const tapped = await state();
+  check('hold M: a tap chooses the measure tool, as before', tapped.on && tapped.tool === 'measure' && tapped.mode === 'ruler', JSON.stringify(tapped));
+  await page.keyboard.press('m');
+  check('hold M: a second tap steps to the next measure mode', (await state()).mode === 'circle', JSON.stringify(await state()));
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => window.boardTest.board.toolbarActions().setMeasureOptions({ mode: 'ruler' }));
+  check('hold M: Escape leaves the tool', (await state()).on === false);
+
+  // Held with a drag from Move: a ruler is drawn, nothing is kept, and Move comes back when key and button are let go.
+  await page.mouse.move(x, y);
+  await page.keyboard.down('m');
+  await page.mouse.down();
+  await page.mouse.move(x + 120, y + 40, { steps: 6 });
+  await wait(300);
+  const during = await state();
+  check('hold M: held with a drag from Move draws a ruler on the measure tool, the bar still showing Move', during.tool === 'measure' && during.drawn === 'ruler' && during.on === false, JSON.stringify(during));
+  await shot('hold-m-ruler');
+  await page.mouse.up();
+  const lifted = await state();
+  check('hold M: the button let go with the key held leaves the tool as the ruler until the key goes', lifted.tool === 'measure' && lifted.drawn === null, JSON.stringify(lifted));
+  await page.keyboard.up('m');
+  const after = await state();
+  check('hold M: the key let go, Move comes back and nothing was kept', after.tool === 'move' && after.on === false && after.kept === 0 && after.mode === 'ruler', JSON.stringify(after));
+
+  // The key let go before the button: the tool waits for the button.
+  await page.keyboard.down('m');
+  await page.mouse.down();
+  await page.mouse.move(x - 100, y + 30, { steps: 4 });
+  await page.keyboard.up('m');
+  check('hold M: the key let go first leaves the ruler going until the button is let go', (await state()).tool === 'measure');
+  await page.mouse.up();
+  const late = await state();
+  check('hold M: the button let go after the key brings Move back', late.tool === 'move' && late.kept === 0, JSON.stringify(late));
+
+  // With the circle chosen and Keep on, the held key is still a plain ruler that keeps nothing, and the circle comes back.
+  await page.evaluate(() => { const { board } = window.boardTest; board.toolbarActions().selectMeasure('circle'); board.toolbarActions().setMeasureOptions({ keep: true }); });
+  await page.mouse.move(x, y);
+  await page.keyboard.down('m');
+  await page.mouse.down();
+  await page.mouse.move(x + 100, y + 20, { steps: 4 });
+  const circle = await state();
+  check('hold M: with the circle chosen, the held key measures a ruler, the bar still showing the circle', circle.drawn === 'ruler' && circle.on && circle.shown === 'circle', JSON.stringify(circle));
+  await page.mouse.up();
+  await page.keyboard.up('m');
+  const back = await state();
+  check('hold M: the circle is chosen again after it, and Keep keeps nothing of the quick ruler', back.tool === 'measure' && back.shape === 'circle' && back.kept === 0 && back.on, JSON.stringify(back));
+  // The chosen tool still keeps what it measures.
+  await page.mouse.down();
+  await page.mouse.move(x + 90, y + 20, { steps: 4 });
+  await page.mouse.up();
+  check('hold M: the chosen circle still keeps its area', (await state()).kept === 1, JSON.stringify(await state()));
+  await page.evaluate(() => { const { board, clearKeptMeasures } = window.boardTest; board.toolbarActions().setMeasureOptions({ keep: false }); board.toolbarActions().selectMeasure(null); clearKeptMeasures(); });
+
+  // Escape while held puts the tool away for good; the window losing its focus ends a hold.
+  await page.keyboard.down('m');
+  await page.mouse.down();
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await page.keyboard.up('m');
+  check('hold M: Escape during the hold leaves Move chosen', (await state()).tool === 'move');
+  await page.keyboard.down('m');
+  await page.mouse.down();
+  await page.mouse.up();
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  check('hold M: the window losing its focus ends the hold', (await state()).tool === 'move');
+  await page.keyboard.up('m');
+  check('hold M: the key let go after that is no tap', (await state()).on === false);
+
+  // Atlas lets the held key take the press from any tool: in Edit mode, with the fog tool, the water brush, the laser, the Shapes tool, and prop painting.
+  const fogCount = () => page.evaluate(() => Object.keys(window.boardTest.fog.record()).length);
+  const quick = async (label, setup, tearDown, expectBack) => {
+    await page.evaluate(setup);
+    await page.mouse.move(x, y);
+    await page.keyboard.down('m');
+    await page.mouse.down();
+    await page.mouse.move(x + 100, y + 30, { steps: 5 });
+    const mid = await state();
+    await page.mouse.up();
+    await page.keyboard.up('m');
+    const end = await state();
+    check('hold M: ' + label + ': the held key draws a ruler', mid.drawn === 'ruler' && mid.tool === 'measure', JSON.stringify(mid));
+    check('hold M: ' + label + ': the tool is back after, and nothing was kept', end.tool === 'move' && end.kept === 0 && (await page.evaluate(expectBack)), JSON.stringify(end));
+    await page.evaluate(tearDown);
+  };
+  await page.evaluate(() => { const { board, modes, fog } = window.boardTest; fog.reset(); modes.mode = 'edit'; board.refreshToolbar(); });
+  await quick('Edit mode with Move', () => {}, () => {}, () => true);
+  await quick('the fog tool', () => { window.boardTest.board.toolbarActions().fog.start(); }, () => { window.boardTest.board.toolbarActions().fog.stop(); }, () => window.boardTest.board.toolbarActions().fog.state().on === true);
+  check('hold M: the fog tool painted no fog', (await fogCount()) === 0, String(await fogCount()));
+  await quick('the water brush', () => { window.boardTest.board.toolbarActions().setWaterTool('paint'); }, () => { window.boardTest.board.toolbarActions().setWaterTool(null); }, () => window.boardTest.board.waterTool === 'paint');
+  await quick('the laser', () => { window.boardTest.board.toolbarActions().selectTool?.('laser'); }, () => { window.boardTest.board.toolbarActions().selectTool?.('move'); }, () => true);
+  await quick('prop painting', () => { window.boardTest.board.paintWith('wood'); }, () => { window.boardTest.board.paintWith(null); }, () => window.boardTest.board.painting === 'wood');
+  await quick('prop placing', () => { window.boardTest.board.placeProp('x.glb'); }, () => { window.boardTest.board.stopPlacing(); }, () => window.boardTest.board.placing === 'x.glb');
+  await page.evaluate(() => { const { board, modes } = window.boardTest; modes.mode = 'play'; board.toolbarActions().selectMeasure(null); board.refreshToolbar(); });
 });
 
 /** What every feature depends on beside the bundle: this file outside the features, the page, the styles, the runner. */
@@ -8412,7 +9406,35 @@ feature('fog menu', async ({ page, shot }) => {
   await tool(() => window.boardTest.board.toolbarActions().fog.stop());
   await wait(300);
   await rightClick(...FOG);
-  check('fog menu: with the tool off a right-click on fog opens no menu', (await menu()).length === 0);
+  const names = async () => JSON.stringify((await menu()).map((row) => row[0]));
+  const close = async () => { await page.keyboard.press('Escape'); await wait(250); };
+  check('fog menu: with the tool off and Move on (Atlas Select/Move) a right-click on the revealed ground opens its fog menu (Hide, Delete)', await (async () => { await rightClick(...FOG); const got = await names(); await close(); return got === '["Hide","Delete"]'; })());
+  check('fog menu: under Move the body is outlined and the fog tool stays off', await (async () => { await rightClick(...FOG); const mark = await target(); const off = !(await tool(() => window.boardTest.board.fogTool.on)); await close(); return mark.shown.includes('fog-mark-line') && off; })());
+  await rightClick(40, 30);
+  check('fog menu: under Move open ground away from fog opens no menu', (await menu()).length === 0);
+  const moveMenus = await tool(() => window.boardTest.record.menus.length);
+  await rightClick(245, 245);
+  check('fog menu: under Move a token in fog is the token menu', (await tool(() => window.boardTest.record.menus.length)) === moveMenus + 1 && !(await menu()).some((row) => row[0] === 'Reveal'));
+  await close();
+  await tool(() => window.boardTest.board.toolbarActions().selectMeasure('circle'));
+  await rightClick(...FOG);
+  check('fog menu: under the Measure tool a right-click on fog opens no fog menu', !(await menu()).some((row) => row[0] === 'Reveal'));
+  await close();
+  await tool(() => { window.boardTest.board.tools.select('move'); window.boardTest.board.toolsChanged(); });
+  await tool(() => window.boardTest.board.throwGmView(false));
+  await wait(300);
+  await rightClick(...FOG);
+  check('fog menu: in the session view (GM view off) Move offers no fog menu', (await menu()).length === 0);
+  await tool(() => window.boardTest.board.throwGmView(true));
+  await wait(300);
+  await tool(() => { window.boardTest.modes.mode = 'play'; window.boardTest.board.setMode('play'); });
+  await wait(300);
+  check('fog menu: in Play mode Move opens the fog menu too', await (async () => { await rightClick(...FOG); const got = await names(); await close(); return got === '["Hide","Delete"]'; })());
+  await tool(() => { window.boardTest.modes.mode = 'cinematic'; window.boardTest.board.setMode('cinematic'); });
+  await wait(300);
+  await rightClick(...FOG);
+  check('fog menu: in Cinematic mode there is no fog menu', (await menu()).length === 0);
+  await tool(() => { window.boardTest.modes.mode = 'edit'; window.boardTest.board.setMode('edit'); });
   await tool(() => { window.boardTest.fog.reset(); window.boardTest.fog.state.menuWrites.length = 0; });
 });
 

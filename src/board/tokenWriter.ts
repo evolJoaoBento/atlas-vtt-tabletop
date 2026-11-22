@@ -19,6 +19,10 @@ import { mergeExtra, type WallExtraChange } from './recordExtras';
 import type { ExtrasMove } from './extrasMigration';
 import { moveOf, type StackPlan } from './stackMove';
 import { resolveLevel, type BoardLevel } from './levels';
+import { collectMapObjects, countMapObjects, type MapObjectContent } from '../atlasPort/app/clipboard/mapObjectContent';
+import { duplicateStep, pasteOffset, placeMapObjects } from '../atlasPort/app/clipboard/mapObjectPlacement';
+import { levelObjects } from '../atlasPort/app/levels/levelObjects';
+import type { GridState } from '../atlasPort/shims/atlasTypes';
 
 type RawToken = Record<string, unknown> & { x?: number; y?: number; imagePath?: string; instanceNumber?: number };
 /**
@@ -625,6 +629,38 @@ export class TokenWriter {
     state.setSceneLighting(given);
   }
 
+  /**
+   * Whether "Forget explored areas" can be done on the map: Atlas's store keeps the explored memory (`setExploredMask`, which
+   * the 0.15 floor has). With Atlas not holding the map yet it is taken to be there (it is asked at the write).
+   */
+  offersForgetExplored(path: string): boolean {
+    const state = this.holder(path)?.atlasStore.getState();
+    return !state || typeof state.setExploredMask === 'function';
+  }
+
+  /**
+   * Atlas's "Forget explored areas" (its palette command and the Lighting settings button): the same request Atlas's own
+   * views send, `lighting-reset-explored` on the event bus, which its lighting answers as an edit of the memory (an undo step
+   * of Atlas's history) when it keeps the memory. Where nothing answered (the lighting is not running here, so the count of
+   * edits stood still), the saved memory of the level shown is dropped through Atlas's store, which is what Atlas itself does
+   * when it holds no memory to edit (no undo step then, in Atlas too).
+   */
+  async forgetExplored(path: string): Promise<void> {
+    if (this.holder(path) === null) await this.ready(path);
+    const view = this.holder(path);
+    if (!view) throw new NotHeldError();
+    const state = view.atlasStore.getState();
+    if (typeof state.setExploredMask !== 'function') throw TokenWriter.missing('way to forget explored areas');
+    const before = state.exploredEdits;
+    const bus = (view as unknown as { serviceManager?: { getEventBus?: () => { emit?: (event: string) => void } | undefined } }).serviceManager?.getEventBus?.();
+    if (typeof bus?.emit === 'function') bus.emit('lighting-reset-explored');
+    const now = view.atlasStore.getState();
+    if (typeof bus?.emit === 'function' && now.exploredEdits !== before) return;
+    // Atlas's own level for the memory: the level its view shows; none (the first) on a scene without levels.
+    const level = (now.levels?.length ?? 0) > 0 ? now.viewedLevel ?? null : null;
+    now.setExploredMask?.(null, level);
+  }
+
   /** Locks a door (shutting it) or unlocks it. */
   async lockDoor(path: string, id: string, locked: boolean): Promise<void> {
     if (this.holder(path) === null) await this.ready(path);
@@ -644,6 +680,65 @@ export class TokenWriter {
   /** Kills the token, as Atlas's Kill does: every resource that defeats it spent. */
   kill(path: string, id: string, definitions: readonly ResourceDefinition[]): Promise<void> {
     return this.change(path, id, kill(definitions));
+  }
+
+  /**
+   * Atlas's copy: detached copies of these tokens of the map (the ones on the map, in the order given), nothing written;
+   * null when none of the ids is a token on it.
+   */
+  async tokensToCopy(path: string, ids: readonly string[]): Promise<MapObjectContent | null> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.store(path);
+    const content = collectMapObjects({ tokens: (state.objects?.tokens ?? {}) as never, drawings: {}, texts: {}, pins: {} }, ids);
+    return countMapObjects(content) > 0 ? content : null;
+  }
+
+  /** Atlas's cut: copies the tokens, then takes them off the map in one write (one undo step, auras and all). */
+  async cutTokens(path: string, ids: readonly string[]): Promise<MapObjectContent | null> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.store(path);
+    if (!state.removeMapObjects) throw TokenWriter.missing('way to cut tokens');
+    const content = await this.tokensToCopy(path, ids);
+    if (!content) return null;
+    state.removeMapObjects(ids.filter((id) => Object.hasOwn(state.objects?.tokens ?? {}, id)));
+    return content;
+  }
+
+  /**
+   * Atlas's paste: the copies centred on `target` (map pixels), snapped to the map's grid as a drag is and stepping aside
+   * from what stands there; one write. Returns the new tokens' ids (Atlas gives them, and numbers them).
+   */
+  async pasteContent(path: string, content: MapObjectContent, target: { x: number; y: number }): Promise<string[]> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.store(path);
+    if (!state.insertMapObjects) throw TokenWriter.missing('way to paste tokens');
+    const grid = (state.grid ?? null) as GridState | null;
+    const scene = state as unknown as Parameters<typeof levelObjects>[0];
+    // What stands on the level shown, for a copy to step aside from (the other kinds are no concern of a token paste).
+    const there = levelObjects(scene) as unknown as { tokens?: object; drawings?: object; texts?: object; pins?: object; levelLinks?: object };
+    const existing = { tokens: there.tokens ?? {}, drawings: there.drawings ?? {}, texts: there.texts ?? {}, pins: there.pins ?? {}, levelLinks: there.levelLinks };
+    const placed = placeMapObjects(content, pasteOffset(content, target, grid), grid, existing as never);
+    return state.insertMapObjects(placed);
+  }
+
+  /**
+   * Atlas's Duplicate: copies of these tokens one diagonal cell aside (stepping on while a copy would sit on an identical
+   * token), fresh ids, numbered, in one write (one undo step); Atlas's `duplicateMapObjects` does it when the store has it,
+   * else its parts do (`insertMapObjects` with the ported placement). Returns the copies' ids, none when no id is a token.
+   */
+  async duplicateTokens(path: string, ids: readonly string[]): Promise<string[]> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.store(path);
+    const tokens = ids.filter((id) => Object.hasOwn(state.objects?.tokens ?? {}, id));
+    if (tokens.length === 0) return [];
+    if (state.duplicateMapObjects) return state.duplicateMapObjects(tokens);
+    if (!state.insertMapObjects) throw TokenWriter.missing('way to duplicate tokens');
+    const content = await this.tokensToCopy(path, tokens);
+    if (!content) return [];
+    const grid = (state.grid ?? null) as GridState | null;
+    const there = levelObjects(state as unknown as Parameters<typeof levelObjects>[0]) as unknown as { tokens?: object; drawings?: object; texts?: object; pins?: object; levelLinks?: object };
+    const existing = { tokens: there.tokens ?? {}, drawings: there.drawings ?? {}, texts: there.texts ?? {}, pins: there.pins ?? {}, levelLinks: there.levelLinks };
+    return state.insertMapObjects(placeMapObjects(content, duplicateStep(grid), grid, existing as never));
   }
 
   /** Deletes the token from the map. */

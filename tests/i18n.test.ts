@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
 import { ENGLISH, language, languageOf, setLanguage, t, TABLES } from '../src/i18n';
-import { turnAnnouncement, type InitiativeEntry, type InitiativeState } from '../src/board/initiative';
 
 // Atlas has no translations, so Tabletop ships none: the layer is tested with a stand-in language added for the test.
 beforeEach(() => {
-  TABLES.xx = { 'group.selected': '{n} chosen', 'open3d': 'Open (xx)', 'turn.banner': 'Turn {round} / {names}' };
+  TABLES.xx = { 'group.selected': '{n} chosen', 'open3d': 'Open (xx)' };
 });
 afterEach(() => {
   delete TABLES.xx;
@@ -45,13 +44,4 @@ test('every translation has an English original, and keeps its placeholders', ()
       assert.deepEqual(placeholders(text as string), placeholders(ENGLISH[key as keyof typeof ENGLISH]), `${code}: ${key} changes its placeholders`);
     }
   }
-});
-
-test('the turn banner speaks the language', () => {
-  const entry = (id: string, order: number): InitiativeEntry => ({ id, tokenId: `t-${id}`, name: id, initiative: 0, initiativeModifier: 0, imagePath: '', isActive: false, isNPC: true, order });
-  // A fight Atlas started: round 1, the Goblin's turn.
-  const started: InitiativeState = { entries: [{ ...entry('Goblin', 0), isActive: true }], currentIndex: 0, round: 1, isActive: true, config: { autoSort: true } };
-  assert.equal(turnAnnouncement(started)!.text, 'Round 1 \u00b7 Goblin');
-  setLanguage('xx');
-  assert.equal(turnAnnouncement(started)!.text, 'Turn 1 / Goblin');
 });

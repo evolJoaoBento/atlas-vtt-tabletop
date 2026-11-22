@@ -43,12 +43,21 @@ const MEMBERS = [
   ['onLoadFile', 'atlas-host (open a map as a scene tab of the one view)'],
   ['loadIfDeferred', 'atlas-host (wake a deferred Atlas tab)'],
   ['setSceneLighting', 'tokenWriter.ts (the light level and its colour)'],
+  ['setExploredMask', 'tokenWriter.ts (Forget explored areas)'],
+  ['lighting-reset-explored', 'tokenWriter.ts (event: Forget explored areas)'],
   ['getLaserPointerSettings', 'atlasBridge.ts (settings service)'],
   ['setLaserPointerSettings', 'atlasBridge.ts (settings service)'],
   ['getDragDistance', 'atlasBridge.ts (settings service)'],
   ['setDragDistance', 'atlasBridge.ts (settings service)'],
   ['getDiceVolume', 'atlasBridge.ts (settings service)'],
+  ['initiativeTurnOptions', 'turnBanner.ts (settings service: the Turn banner switch; absent = on)'],
+  ['setInitiativeTurnOptions', 'trackerOptions.ts (settings service: the Turn banner row of the tracker menu; absent = no row)'],
+  ['showsCompactInitiative', 'trackerOptions.ts (settings service: the Compact view; absent = no row)'],
+  ['setCompactInitiative', 'trackerOptions.ts (settings service: the Compact view; absent = no row)'],
   // The fog tool (tokenWriter.ts, atlasBridge.ts): Atlas 0.15 has addFogOperation and clearFog; the rest is 0.17-0.18's (optional).
+  ['insertMapObjects', 'tokenWriter.ts (store action: paste)'],
+  ['duplicateMapObjects', 'tokenWriter.ts (store action: duplicate)'],
+  ['removeMapObjects', 'tokenWriter.ts (store action: cut)'],
   ['addFogOperation', 'tokenWriter.ts (store action)'],
   ['clearFog', 'tokenWriter.ts (store action)'],
   ['addFogOperations', 'tokenWriter.ts (store action, 0.17+)'],
@@ -64,9 +73,12 @@ const MEMBERS = [
   ['setGMView', 'gmView.ts (view store action)'],
   ['isExperimentalOn', 'shims/settingsService.ts (settings service, for the copied hotkeys and statblock counters)'],
   ['atlas-vtt:collection-settings-changed', 'BoardView.ts (workspace event: a collection\'s settings were saved)'],
+  // The dice tray's saved rolls (savedRollsAccess.ts): the collection's settings, which only Atlas 0.18 keeps.
+  ['dicePresets', 'savedRollsAccess.ts (collection setting, 0.18: the saved rolls)'],
+  ['diceRow', 'savedRollsAccess.ts (collection setting, 0.18: the tray row, read with the shelf)'],
 ];
 // Members Tabletop reads defensively and that a given Atlas may not have; reported, not failed.
-const OPTIONAL = new Set(['atlas-vtt:send-map-to-player-view', 'this.deps.service', 'addFogOperations', 'coverAllFog', 'hideRooms', 'revealFogGround', 'hideFogArea', 'forgetFogArea', 'getGmFogOpacity', 'setGmFogOpacity', 'setToolSwitch']);
+const OPTIONAL = new Set(['atlas-vtt:send-map-to-player-view', 'this.deps.service', 'addFogOperations', 'coverAllFog', 'hideRooms', 'revealFogGround', 'hideFogArea', 'forgetFogArea', 'getGmFogOpacity', 'setGmFogOpacity', 'setToolSwitch', 'dicePresets', 'diceRow']);
 
 let missing = 0;
 for (const [name, where] of MEMBERS) {
