@@ -643,7 +643,8 @@ export class TokenWriter {
    * views send, `lighting-reset-explored` on the event bus, which its lighting answers as an edit of the memory (an undo step
    * of Atlas's history) when it keeps the memory. Where nothing answered (the lighting is not running here, so the count of
    * edits stood still), the saved memory of the level shown is dropped through Atlas's store, which is what Atlas itself does
-   * when it holds no memory to edit (no undo step then, in Atlas too).
+   * when it holds no memory to edit (no undo step then, in Atlas too). Atlas 0.19 forgets every floor of the scene: its lighting
+   * takes the other floors' saved memories along with the step, so only where nothing answered are they dropped here too.
    */
   async forgetExplored(path: string): Promise<void> {
     if (this.holder(path) === null) await this.ready(path);
@@ -659,6 +660,7 @@ export class TokenWriter {
     // Atlas's own level for the memory: the level its view shows; none (the first) on a scene without levels.
     const level = (now.levels?.length ?? 0) > 0 ? now.viewedLevel ?? null : null;
     now.setExploredMask?.(null, level);
+    now.forgetOtherLevelsExplored?.();
   }
 
   /** Locks a door (shutting it) or unlocks it. */

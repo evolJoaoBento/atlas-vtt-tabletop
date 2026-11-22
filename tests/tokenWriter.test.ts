@@ -310,6 +310,24 @@ test('Forget explored areas clears the saved memory itself where Atlas has no li
   assert.deepEqual(calls2, [['mask', null, null]]);
 });
 
+test('Forget explored areas forgets every floor where Atlas 0.19 has the way, and only the level shown before it', async () => {
+  const calls: unknown[] = [];
+  const idle = lightingView({
+    setExploredMask: (mask, level) => { calls.push(['mask', mask, level]); }, levels: [{ id: 'a' }, { id: 'b' }], viewedLevel: 'b',
+    forgetOtherLevelsExplored: () => { calls.push(['others']); return {}; },
+  }, calls);
+  await new TokenWriter({ views: () => [idle.view], held: async () => null }).forgetExplored('m.atlasmap');
+  assert.deepEqual(calls, [['emit', 'lighting-reset-explored'], ['mask', null, 'b'], ['others']]);
+  // Atlas's lighting answered (0.19 forgets the other floors itself, with the step that takes them back): nothing more is written.
+  const answered: unknown[] = [];
+  const lit = lightingView({
+    setExploredMask: (mask, level) => { answered.push(['mask', mask, level]); }, levels: [{ id: 'a' }, { id: 'b' }], viewedLevel: 'b',
+    forgetOtherLevelsExplored: () => { answered.push(['others']); return {}; },
+  }, answered, (box) => { box.edits += 1; });
+  await new TokenWriter({ views: () => [lit.view], held: async () => null }).forgetExplored('m.atlasmap');
+  assert.deepEqual(answered, [['emit', 'lighting-reset-explored']]);
+});
+
 test('Forget explored areas is offered only where Atlas can do it, and a map Atlas does not hold is refused', async () => {
   const none = liveView({ mapPath: 'm.atlasmap', mapLoaded: true, isMapLoading: false }, []);
   const writer = new TokenWriter({ views: () => [none.view], held: async () => null });
