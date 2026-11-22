@@ -53,7 +53,9 @@ export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, Atl
     "toolbar.lasso": "Lasso",
     "toolbar.rectangle": "Rectangle",
     "toolbar.snap": "Snap",
-    "toolbar.constrain": "Constrain"
+    "toolbar.constrain": "Constrain",
+    "toolbar.gmView": "GM view ({key})",
+    "toolbar.sessionView": "Session view ({key})"
   },
   "ru": {
     "fog.cellCount": {
@@ -109,7 +111,9 @@ export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, Atl
     "toolbar.lasso": "Лассо",
     "toolbar.rectangle": "Прямоугольник",
     "toolbar.snap": "Привязка",
-    "toolbar.constrain": "Ограничить"
+    "toolbar.constrain": "Ограничить",
+    "toolbar.gmView": "Вид мастера ({key})",
+    "toolbar.sessionView": "Вид сессии ({key})"
   },
   "zh": {
     "fog.cellCount": {
@@ -159,7 +163,9 @@ export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, Atl
     "toolbar.lasso": "套索",
     "toolbar.rectangle": "矩形",
     "toolbar.snap": "吸附",
-    "toolbar.constrain": "约束"
+    "toolbar.constrain": "约束",
+    "toolbar.gmView": "GM 视图（{key}）",
+    "toolbar.sessionView": "场面视图（{key}）"
   }
 };
 
@@ -205,7 +211,9 @@ export const ATLAS_FOG_TEXT_KEYS = [
   "toolbar.constrain",
   "toolbar.fogEraser",
   "toolbar.fogTool",
+  "toolbar.gmView",
   "toolbar.lasso",
   "toolbar.rectangle",
+  "toolbar.sessionView",
   "toolbar.snap"
 ] as const;

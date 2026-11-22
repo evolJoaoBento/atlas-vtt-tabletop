@@ -3286,4 +3286,9 @@ body.atlas-tabletop-player-window .view-header {
 .atlas-tabletop-atlas .atlas-toggle__thumb{display:flex;align-items:center;justify-content:center;transition:transform .2s ease;background-color:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:6px;box-shadow:0 1px 2px #00000029}
 .atlas-tabletop-atlas .atlas-toggle__thumb--off{transform:translate(0)}
 .atlas-tabletop-atlas .atlas-toggle__icon{height:18px;width:18px;color:var(--text-normal)}
+/* Atlas 0.18's GM view switch: its `end` control after "More tools", and the track deepening a step under the pointer (toggle.scss and main.scss, restated under Tabletop's root). */
+.atlas-tabletop-atlas .atlas-toggle,.atlas-tabletop-atlas .atlas-toggle *,.atlas-tabletop-atlas .atlas-toggle *:before,.atlas-tabletop-atlas .atlas-toggle *:after{box-sizing:border-box}
+.atlas-tabletop-atlas .atlas-toolbar-end:not(.atlas-tabletop-extensions){display:flex;align-items:center}
+.atlas-tabletop-atlas .atlas-toolbar-end[hidden]:not(.atlas-tabletop-extensions){display:none}
+@media (hover: hover){.atlas-tabletop-atlas .atlas-toggle:not(.atlas-toggle--disabled):hover .atlas-toggle__switch--off{background-color:color-mix(in oklch,var(--background-secondary-alt),var(--text-normal) 12%)}.atlas-tabletop-atlas .atlas-toggle:not(.atlas-toggle--disabled):hover .atlas-toggle__switch--on{background-color:color-mix(in oklch,var(--interactive-accent) 86%,black)}}
 .atlas-tabletop-atlas .atlas-tool-button--disabled{opacity:.5;cursor:not-allowed;pointer-events:none}

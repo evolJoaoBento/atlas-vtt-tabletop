@@ -515,11 +515,11 @@ feature('narrow toolbar', async ({ page, shot }) => {
     return { left: r.left, right: r.right, width: r.width, buttons, view: document.getElementById('board').clientWidth };
   });
   const paneWidth = (px) => page.evaluate((px) => { document.getElementById('board').style.width = `${px}px`; }, px);
-  await paneWidth(1000);
-  await wait(300);
+  await paneWidth(1100);
+  await wait(800);
   const wide = await bar();
   check('36 wide pane: every button is on the bar', wide.buttons.includes('Dice') && wide.buttons.includes('Visibility') && !wide.buttons.includes('More tools'), JSON.stringify(wide.buttons));
-  await paneWidth(330);
+  await paneWidth(400);
   await wait(600);
   const narrow = await bar();
   await shot('narrow-toolbar');
@@ -533,7 +533,7 @@ feature('narrow toolbar', async ({ page, shot }) => {
   await page.keyboard.press('Escape');
   await wait(200);
   check('36 Escape closes the menu', await page.evaluate(() => { const m = document.querySelector('.atlas-tabletop-more-menu'); return !m || m.hidden; }));
-  await paneWidth(1000);
+  await paneWidth(1100);
   await wait(600);
   const back = await bar();
   check('36 widening the pane brings the tools back', back.buttons.includes('Dice') && !back.buttons.includes('More tools'), JSON.stringify(back.buttons));
@@ -7527,6 +7527,163 @@ feature('atlas shortcuts on the board', async ({ page }) => {
     result.up && result.down && !result.pastTop && JSON.stringify(result.switched) === JSON.stringify([['layer', 'upper'], ['layer', 'cellar']]), JSON.stringify(result));
   check('board shortcuts: Select all selects every token, Delete removes them all at once, then has nothing to remove',
     result.all && result.groupSize === result.tokenCount && result.deleted && result.removed.length === result.tokenCount && !result.nothingLeft, JSON.stringify(result));
+});
+
+// ── Atlas's GM view switch (GM view / session view) on the board's toolbar ───────────────────────────────────────────
+feature('gm view switch', async ({ page, shot }) => {
+  const sw = '.atlas-tabletop-toolbar [data-toolbar-id="gm-view"]';
+  const end = '.atlas-tabletop-toolbar .atlas-toolbar-end:not(.atlas-tabletop-extensions)';
+  const shots = process.argv[3] ?? '.';
+  const state = () => page.evaluate(() => {
+    const { board, gmViewSwitch } = window.boardTest;
+    const orc = board.tokens.get('orc');
+    const hero = board.tokens.get('hero');
+    return {
+      session: board.sessionView, atlas: gmViewSwitch.on, sets: [...gmViewSwitch.sets],
+      orc: orc.piece.object3d.visible,
+      fog: board.fog.material.uniforms.uStrength.value,
+      names: hero.labels.object3d.visible, playerNames: hero.playerLabels.object3d.visible,
+    };
+  });
+  const tip = async () => {
+    await page.hover(sw);
+    await wait(700);
+    const text = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-atlas-tooltip')].filter((e) => !e.hidden).map((e) => e.textContent).join('|'));
+    await page.mouse.move(5, 5);
+    await wait(250);
+    return text;
+  };
+  const barClip = (above) => page.evaluate((above) => { const r = document.querySelector('.atlas-tabletop-toolbar').getBoundingClientRect(); return { x: Math.max(0, r.left - 10), y: Math.max(0, r.top - above), width: Math.min(r.width + 20, 1000), height: r.height + above + 10 }; }, above);
+  await page.evaluate(() => {
+    const { board, modes, gmViewSwitch, fog } = window.boardTest;
+    fog.state.gmOpacity = 0.5;
+    gmViewSwitch.on = true;
+    gmViewSwitch.sets.length = 0;
+    modes.on = true;
+    modes.mode = 'play';
+    board.refreshToolbar();
+    board.frameMap();
+    board.camera.snap();
+    board.wake(true);
+  });
+  await wait(500);
+  // Atlas's switch is a role=switch, named "GM view" in both states, at the bar's last place.
+  const play = await page.evaluate(([sel, endSel]) => {
+    const el = document.querySelector(sel);
+    const more = document.querySelector('.atlas-tabletop-more');
+    return {
+      role: el.getAttribute('role'), checked: el.getAttribute('aria-checked'),
+      named: document.getElementById(el.getAttribute('aria-labelledby'))?.textContent,
+      shown: el.offsetParent !== null, icon: el.querySelector('svg')?.getAttribute('class') ?? null,
+      afterMore: (more.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+      lastChild: document.querySelector(endSel) === el.parentElement && el.parentElement === el.parentElement.parentElement.lastElementChild,
+    };
+  }, [sw, end]);
+  check('gm view: Play mode has Atlas\'s switch (role switch, on, named "GM view (Shift + D)", the lucide eye on its thumb, after More tools, last on the bar)',
+    play.role === 'switch' && play.checked === 'true' && play.named === 'GM view (Shift + D)' && play.shown && /lucide-eye\b/.test(play.icon) && /atlas-toggle__icon/.test(play.icon) && play.afterMore && play.lastChild, JSON.stringify(play));
+  const first = await state();
+  check('gm view: GM view shows hidden tokens, the GM\'s names and the fog at the GM\'s opacity', first.orc && !first.session && first.names && !first.playerNames && Math.abs(first.fog - 0.5) < 0.01, JSON.stringify(first));
+  const tipOn = await tip();
+  check('gm view: the tooltip says "GM view (Shift + D)" while on', tipOn === 'GM view (Shift + D)', tipOn);
+  await page.screenshot({ path: `${shots}/gmview-on.png`, clip: await barClip(10) });
+
+  // Click: session view as Atlas draws it for players.
+  await page.click(sw);
+  await wait(500);
+  const off = await state();
+  check('gm view: the switch off is Atlas\'s session view: hidden token gone, fog opaque, players\' names',
+    off.session && off.sets.join() === 'false' && !off.orc && Math.abs(off.fog - 1) < 0.01 && !off.names && off.playerNames, JSON.stringify(off));
+  const offLook = await page.evaluate((sel) => { const el = document.querySelector(sel); return el.getAttribute('aria-checked') === 'false' && /lucide-eye-off/.test(el.querySelector('svg').getAttribute('class')) && !!el.querySelector('.atlas-toggle__switch--off'); }, sw);
+  const tipOff = await tip();
+  check('gm view: the switch reads off, with EyeOff and "Session view (Shift + D)"', offLook && tipOff === 'Session view (Shift + D)', JSON.stringify([offLook, tipOff]));
+  await page.screenshot({ path: `${shots}/gmview-off.png`, clip: await barClip(10) });
+  await shot('gm-view-session');
+  await page.click(sw);
+  await wait(500);
+  const back = await state();
+  check('gm view: switching back shows hidden tokens and the GM\'s fog opacity again', back.orc && !back.session && Math.abs(back.fog - 0.5) < 0.01 && back.names && back.sets.join() === 'false,true', JSON.stringify(back));
+  await shot('gm-view-gm');
+
+  // Edit mode has the switch too, and it is the same state.
+  await page.evaluate(() => { window.boardTest.modes.mode = 'edit'; window.boardTest.board.refreshToolbar(); });
+  await wait(300);
+  check('gm view: Edit mode has the switch, on', await page.evaluate((sel) => { const el = document.querySelector(sel); return el.offsetParent !== null && el.getAttribute('aria-checked') === 'true'; }, sw));
+  await page.evaluate(() => window.boardTest.board.toolbarActions().fog.start());
+  await wait(200);
+  await page.evaluate(() => { const { canvas } = window.boardTest.board; canvas.tabIndex = 0; canvas.focus(); });
+  await page.keyboard.press('d');
+  await wait(300);
+  check('gm view: the camera\'s plain D is not the switch', (await state()).session === false);
+  await page.keyboard.press('Shift+D');
+  await wait(500);
+  const key = await state();
+  check('gm view: Shift + D (Atlas\'s D, with Shift on the board) throws the switch off', key.session && key.sets.join() === 'false,true,false' && !key.orc, JSON.stringify(key));
+  check('gm view: the fog tool stays on in session view, as in Atlas', await page.evaluate(() => window.boardTest.board.fogTool.on === true));
+  await page.screenshot({ path: `${shots}/gmview-edit-off.png`, clip: await barClip(120) });
+  await page.keyboard.press('Shift+D');
+  await wait(400);
+  check('gm view: Shift + D again is GM view', (await state()).session === false);
+
+  // Atlas's own 2D view throws the switch: the board follows, and the switch follows.
+  await page.evaluate(() => { const { gmViewSwitch, board } = window.boardTest; gmViewSwitch.on = false; board.gmViewChanged(); });
+  await wait(400);
+  const shared = await state();
+  check('gm view: a switch thrown in Atlas shows on the board at once, and on its switch', shared.session && !shared.orc && (await page.evaluate((sel) => document.querySelector(sel).getAttribute('aria-checked'), sw)) === 'false', JSON.stringify(shared));
+  await page.evaluate(() => { const { gmViewSwitch, board } = window.boardTest; gmViewSwitch.on = true; board.gmViewChanged(); });
+  await wait(300);
+
+  // Cinematic mode has no switch (a cutscene is edited in the GM's view).
+  await page.evaluate(() => { window.boardTest.modes.mode = 'cinematic'; window.boardTest.board.refreshToolbar(); });
+  await wait(300);
+  const cinema = await page.evaluate((sel) => ({ hidden: document.querySelector(sel).offsetParent === null, key: window.boardTest.board.toggleGmView() }), sw);
+  check('gm view: Cinematic mode shows no switch and the key does nothing', cinema.hidden && cinema.key === false, JSON.stringify(cinema));
+  await page.evaluate(() => { window.boardTest.modes.mode = 'play'; window.boardTest.board.refreshToolbar(); });
+  await wait(300);
+
+  // An Atlas without the switch: the board keeps its own, and writes nothing to Atlas.
+  await page.evaluate(() => { const { gmViewSwitch } = window.boardTest; gmViewSwitch.on = null; gmViewSwitch.sets.length = 0; });
+  await page.click(sw);
+  await wait(400);
+  const own = await state();
+  check('gm view: with no Atlas switch the board keeps its own (session look, nothing written)', own.session && !own.orc && own.sets.length === 0, JSON.stringify(own));
+  await page.click(sw);
+  await wait(300);
+  check('gm view: ... and flips it back', (await state()).session === false);
+  await page.evaluate(() => { window.boardTest.gmViewSwitch.on = true; });
+
+  // The switch looks as Atlas's does: Atlas's own markup (MainToolbar.tsx's Toggle) under Atlas's own styles, measured against the board's.
+  const measure = (rootSel) => page.evaluate((rootSel) => {
+    const root = document.querySelector(rootSel);
+    const box = (e) => { const r = e.getBoundingClientRect(); const c = getComputedStyle(e); return { w: Math.round(r.width * 10) / 10, h: Math.round(r.height * 10) / 10, bg: c.backgroundColor, border: c.borderTopColor, bw: c.borderTopWidth, radius: c.borderTopLeftRadius, pad: c.paddingLeft, shadow: c.boxShadow, color: c.color }; };
+    const track = root.querySelector('.atlas-toggle__switch');
+    const thumb = root.querySelector('.atlas-toggle__thumb');
+    const icon = root.querySelector('svg');
+    return { outer: box(root.querySelector('.atlas-toggle')), track: box(track), thumb: { ...box(thumb), dx: Math.round((thumb.getBoundingClientRect().left - track.getBoundingClientRect().left) * 10) / 10 }, icon: { ...box(icon), cls: icon.getAttribute('class'), markup: icon.innerHTML } };
+  }, rootSel);
+  const EYE = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye atlas-toggle__icon"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+  const EYE_OFF = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye-off atlas-toggle__icon"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"></path><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"></path><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"></path><path d="m2 2 20 20"></path></svg>';
+  for (const on of [true, false]) {
+    await page.evaluate(([on, svg]) => {
+      document.querySelector('#atlas-fixture')?.remove();
+      const host = document.createElement('div');
+      host.id = 'atlas-fixture';
+      host.className = 'atlas-vtt-plugin';
+      host.style.cssText = 'position:fixed;left:10px;top:10px;z-index:99999;background:var(--background-primary, #1e1e1e);padding:8px';
+      const s = on ? 'on' : 'off';
+      host.innerHTML = `<div class="atlas-toggle" role="switch" aria-checked="${on}" tabindex="0"><div class="atlas-toggle__switch atlas-toggle__switch--${s}"><div class="atlas-toggle__thumb atlas-toggle__thumb--${s}">${svg}</div></div></div>`;
+      document.body.appendChild(host);
+      window.boardTest.board.throwGmView(on);
+    }, [on, on ? EYE : EYE_OFF]);
+    await page.mouse.move(5, 5);
+    await wait(600);
+    const atlas = await measure('#atlas-fixture');
+    const mine = await measure(end);
+    const same = JSON.stringify(atlas) === JSON.stringify(mine);
+    check(`gm view: the ${on ? 'on' : 'off'} switch matches Atlas's markup under Atlas's styles (sizes, colours, icon)`, same, JSON.stringify({ atlas, board: mine }));
+    await page.screenshot({ path: `${shots}/gmview-compare-${on ? 'on' : 'off'}.png`, clip: { x: 0, y: 0, width: 140, height: 80 } });
+    await page.evaluate(() => document.querySelector('#atlas-fixture')?.remove());
+  }
+  await page.evaluate(() => window.boardTest.board.throwGmView(true));
 });
 
 /** What every feature depends on beside the bundle: this file outside the features, the page, the styles, the runner. */

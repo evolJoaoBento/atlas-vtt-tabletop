@@ -60,6 +60,8 @@ const MEMBERS = [
   ['getGmFogOpacity', 'atlasBridge.ts (settings service, 0.17+)'],
   ['setGmFogOpacity', 'atlasBridge.ts (settings service, 0.17+)'],
   ['setToolSwitch', 'BoardView.ts (store action, 0.18)'],
+  ['isGMView', 'gmView.ts (view store field: the GM view switch)'],
+  ['setGMView', 'gmView.ts (view store action)'],
   ['isExperimentalOn', 'shims/settingsService.ts (settings service, for the copied hotkeys and statblock counters)'],
   ['atlas-vtt:collection-settings-changed', 'BoardView.ts (workspace event: a collection\'s settings were saved)'],
 ];

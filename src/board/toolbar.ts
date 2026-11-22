@@ -10,7 +10,7 @@
 import { FOG_MIN, GROUND_NOISES, MAX_MARGIN, MAX_TILE, type GroundMode, type GroundSettings } from './ground';
 import type { LiquidKind, WaterMotion } from './water';
 import { setSvg } from '../svg';
-import { atlasMeasureControlIcon, atlasMeasureEffectIcon, atlasMeasureIcon, atlasToolIcon, fogIcon, helpIcon, historyIcon, modeIcon, waterIcon } from './atlasToolIcons';
+import { atlasMeasureControlIcon, atlasMeasureEffectIcon, atlasMeasureIcon, atlasToolIcon, fogIcon, gmViewIcon, helpIcon, historyIcon, modeIcon, waterIcon } from './atlasToolIcons';
 import { FogToolBars } from './fogToolBar';
 import type { FogBarActions } from './fogTool';
 import { at } from '../atlasPort/atlasText';
@@ -146,6 +146,10 @@ export interface ToolbarActions {
   rangesUnavailable?(): string | null;
   measureShortcut?(): string | null;
   measureKeepShortcut?(): string | null;
+  /** Atlas's GM view switch: whether the board shows the GM's view (off: Atlas's session view, as players see it), throwing it, and its key as shown. Absent where there is no switch. */
+  gmView?(): boolean;
+  setGmView?(on: boolean): void;
+  gmViewShortcut?(): string | null;
   templateOn(): boolean;
   templateShape(): string;
   /** Turns the Template tool on with a shape, or off with null. */
@@ -414,6 +418,9 @@ export class BoardToolbar {
   private readonly occlusionInput: HTMLInputElement;
   /** Atlas's end slot, and the Dice button in it while the board has dice. */
   private readonly endSlot: HTMLElement;
+  /** Atlas's GM view switch, at the bar's last place after "More tools" (its `end` control). */
+  private readonly gmViewEnd: HTMLElement;
+  private readonly gmViewSwitch: HTMLElement;
   private dice: EndButton | null = null;
   private diceLog: EndButton | null = null;
   private sheetHandlers: DiceButton | null = null;
@@ -1579,6 +1586,28 @@ export class BoardToolbar {
     this.moreGroup.addEventListener('keydown', (event) => {
       if (event.key === 'Escape' && !this.moreMenu.hidden) { event.preventDefault(); event.stopPropagation(); this.closeMore(); }
     });
+    // Atlas's GM view switch (`MainToolbar.tsx`): a switch, named "GM view" whatever its state, its tooltip saying what each state is.
+    // It keeps the bar's last place, after "More tools", and never goes into that menu.
+    this.gmViewEnd = el('div', 'atlas-toolbar-end', bar);
+    const gmViewName = el('span', '', this.gmViewEnd);
+    gmViewName.hidden = true;
+    gmViewName.id = 'atlas-tabletop-gm-view-name';
+    this.gmViewSwitch = el('div', 'atlas-toggle', this.gmViewEnd);
+    this.gmViewSwitch.setAttribute('role', 'switch');
+    this.gmViewSwitch.setAttribute('aria-labelledby', gmViewName.id);
+    this.gmViewSwitch.tabIndex = 0;
+    this.registerButton('gm-view', this.gmViewSwitch as unknown as HTMLButtonElement);
+    const flipGmView = (): void => { this.actions.setGmView?.(!(this.actions.gmView?.() ?? true)); this.refresh(); };
+    this.gmViewSwitch.addEventListener('click', flipGmView);
+    this.gmViewSwitch.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      flipGmView();
+    });
+    this.viewTooltip.attach(this.gmViewSwitch, () => {
+      const on = this.actions.gmView?.() ?? true;
+      return { label: at(on ? 'toolbar.gmView' : 'toolbar.sessionView', { key: this.actions.gmViewShortcut?.() ?? '' }) };
+    });
     // Left to right as they stand; they leave from the right.
     this.fitOrder.push(laserGroup, this.fogGroup, this.measureGroup, this.waterGroup, this.paintGroup, this.templateGroup, this.lightingGroup, this.groundButton.closest('.atlas-tool-button') as HTMLElement, this.button.closest('.atlas-tool-button') as HTMLElement, this.viewButton.closest('.atlas-tool-button') as HTMLElement, this.endSlot);
     this.fitWatch = new (doc.defaultView ?? window).ResizeObserver(() => this.fit());
@@ -1622,6 +1651,7 @@ export class BoardToolbar {
     show(this.measureGroup, playing);
     show(this.templateGroup, playing);
     show(this.endSlot, playing || cinematic);
+    this.syncGmView(mode);
     show(this.atlasGroup, playing);
     show(this.waterGroup, editing);
     show(this.fogGroup, editing);
@@ -2035,6 +2065,9 @@ export class BoardToolbar {
       case 'more':
         if (!this.moreGroup.hidden) this.openMore();
         break;
+      case 'gm-view':
+        this.actions.setGmView?.(!(this.actions.gmView?.() ?? true));
+        break;
     }
     this.refresh();
     return true;
@@ -2106,6 +2139,8 @@ export class BoardToolbar {
     if (paletteTool) {
       const made = makeAtlasButton(this.bar, paletteTool, 'atlas-tabletop-command');
       this.commandSlot = made.button.closest('.atlas-tool-button') as HTMLElement;
+      // The GM view switch keeps the bar's last place, after even the Command palette.
+      this.bar.insertBefore(this.commandSlot, this.gmViewEnd);
       this.commandButton = made;
     }
     this.refresh();
@@ -2431,6 +2466,28 @@ export class BoardToolbar {
     if (this.waterFillInput) this.waterFillInput.value = String(fillPct);
     this.waterValues.fill.textContent = `${fillPct}%`;
     this.viewTooltip.refresh();
+  }
+
+  /** Syncs the GM view switch with the board's look: on in GM view, off in session view; there in Play and Edit mode, where the board has one. */
+  private syncGmView(mode: BoardMode | null): void {
+    const offered = this.actions.gmView !== undefined && this.actions.setGmView !== undefined && mode !== 'cinematic';
+    this.gmViewEnd.hidden = !offered;
+    if (!offered) return;
+    const on = this.actions.gmView?.() ?? true;
+    const state = on ? 'on' : 'off';
+    this.gmViewSwitch.setAttribute('aria-checked', String(on));
+    this.gmViewSwitch.replaceChildren();
+    const doc = this.gmViewSwitch.ownerDocument;
+    const track = doc.createElement('div');
+    track.className = `atlas-toggle__switch atlas-toggle__switch--${state}`;
+    const thumb = doc.createElement('div');
+    thumb.className = `atlas-toggle__thumb atlas-toggle__thumb--${state}`;
+    track.appendChild(thumb);
+    this.gmViewSwitch.appendChild(track);
+    setSvg(thumb, gmViewIcon(on));
+    const key = this.actions.gmViewShortcut?.() ?? '';
+    this.gmViewSwitch.setAttribute('aria-label', at('toolbar.gmView', { key }));
+    this.gmViewEnd.querySelector('span')!.textContent = at('toolbar.gmView', { key });
   }
 
   /** Syncs the Fog Tool button (its face is the mode in use) and its two bars with the fog tool. */

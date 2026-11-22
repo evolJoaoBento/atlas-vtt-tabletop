@@ -328,6 +328,10 @@ export interface BoardHost {
   /** Opens or closes the local player view of this map; whether it is open. */
   togglePlayerView(): void;
   playerViewOpen(): boolean;
+  /** Atlas's GM view switch of the Atlas view holding this map (true: GM view, false: session view); null where Atlas has none. */
+  gmView?(): boolean | null;
+  /** Throws that switch; false where Atlas has none to throw. */
+  setGmView?(on: boolean): boolean;
   /** The laser's colour and size, kept for every map; and saving a change. */
   laser(): LaserSettings;
   setLaser(changes: Partial<LaserSettings>): void;
@@ -1048,6 +1052,9 @@ export class Board {
       setAutoRoll: (on) => this.host.setAutoRoll?.(on),
       setLaser: (changes) => { this.host.setLaser(changes); this.wake(); },
       togglePlayerView: () => this.host.togglePlayerView(),
+      gmView: () => !this.sessionView,
+      setGmView: (on) => this.throwGmView(on),
+      gmViewShortcut: () => this.host.measureHotkeys?.().gmView ?? null,
       playerFrozen: () => this.player?.frozen != null,
       togglePlayerFreeze: () => this.setPlayerFrozen(this.player?.frozen == null),
       hosting: () => this.host.hosting?.() === true,
@@ -2197,6 +2204,11 @@ export class Board {
         return;
       }
     }
+    // Atlas's session view: the GM's own board shows the players' picture, drawn afresh each frame (a token may have moved under the fog).
+    else if (this.sessionView) {
+      this.showFor('player');
+      this.sightApplied = true;
+    }
     // The GM's board follows a previewed point of view, and goes back to showing everything after it.
     else if (this.povSight !== null) {
       this.showFor('gm');
@@ -2757,7 +2769,7 @@ export class Board {
       this.rig.place(entry.token.id, entry.at.x, entry.at.y);
       entry.labels.place(entry.piece.figureHeight(), ringDiameter(this.map!.grid, entry.token.size) / 2, entry.piece.top);
       entry.labels.pose(context);
-      if (this.audience === 'player') entry.playerLabels.pose(context);
+      if (this.audience === 'player' || this.sessionView) entry.playerLabels.pose(context);
       entry.playerLabels.place(entry.piece.figureHeight(), ringDiameter(this.map!.grid, entry.token.size) / 2, entry.piece.top);
       if (entry.piece.animating) {
         busy = true;
@@ -2997,6 +3009,43 @@ export class Board {
     return tool.key(event.key, event.repeat === true, undo);
   }
 
+  /**
+   * Atlas's session view (its GM view switch off): the GM's own board shows the map as the players see it, hidden tokens gone and
+   * the fog opaque. The switch is Atlas's, in the store of the Atlas view holding the map, so Atlas and the board agree; where
+   * there is none it is the board's own. Never on a player's board.
+   */
+  get sessionView(): boolean {
+    // Cinematic mode has no such switch: a cutscene is edited in the GM's view.
+    if (this.audience !== 'gm' || this.host.boardMode?.() === 'cinematic') return false;
+    const shared = this.host.gmView?.() ?? null;
+    return shared === null ? this.sessionLocal : !shared;
+  }
+
+  private sessionLocal = false;
+
+  /** Throws the GM view switch: on is GM view, off Atlas's session view. */
+  throwGmView(on: boolean): void {
+    if (this.audience !== 'gm') return;
+    // Written to Atlas's store, which tells the board back (`gmViewChanged`); the board's own where Atlas has none.
+    if (this.host.setGmView?.(on) !== true) this.sessionLocal = !on;
+    this.gmViewChanged();
+  }
+
+  /** Atlas's GM key: turns between GM view and session view. False where the board has no such switch (a player's board, Cinematic mode). */
+  toggleGmView(): boolean {
+    if (this.audience !== 'gm' || this.host.boardMode?.() === 'cinematic') return false;
+    this.throwGmView(this.sessionView);
+    return true;
+  }
+
+  /** The switch was thrown (here, or in Atlas): the board is drawn anew, and a fog polygon begun in the other view is dropped, as Atlas drops it. */
+  gmViewChanged(): void {
+    if (this.sessionView && this.fogTool?.drawing) this.fogTool.cancel();
+    this.sightApplied = true;
+    this.toolbar.refresh();
+    this.wake();
+  }
+
   /** Whether the GM's fog tool is on. */
   get fogToolOn(): boolean {
     return this.fogTool?.on === true;
@@ -3016,7 +3065,7 @@ export class Board {
   private openFogMenu(event: MouseEvent): boolean {
     const tool = this.fogTool;
     const host = this.host.fog;
-    if (!tool?.on || !host || !this.host.fogMenu || this.audience !== 'gm' || !this.editing || tool.drawing || !this.map) return false;
+    if (!tool?.on || !host || !this.host.fogMenu || this.audience !== 'gm' || !this.editing || tool.drawing || !this.map || this.sessionView) return false;
     const point = this.boardPoint(event.clientX, event.clientY);
     const hit = point ? fogMenuAt(this.map.fog, point) : null;
     if (!point || !hit) return false;
@@ -5326,7 +5375,7 @@ export class Board {
    * whose centre is under the fog (tokens, Tabletop's props), no cell highlight, the solid fog and their own labels; pins
    * only on a Connect player's own board, which holds just the readable ones (`pinsShown`).
    */
-  private showFor(viewer: 'gm' | 'player'): void {
+  private showFor(viewer: 'gm' | 'player', window = false): void {
     const gm = viewer === 'gm';
     const fog = this.fog.areas;
     // A cutscene's reveal: players are shown what the GM's view shows, as players draw it (no fog, no sight, hidden tokens still hidden).
@@ -5369,7 +5418,8 @@ export class Board {
     // shows the scenes stacked with theirs, which Connect sends (their form, never what stands on them).
     // Under sight (a point of view on the GM's board, or a player's board) the scenes stacked above
     // are blacked out as shadows, and the ones below stay.
-    const ownBoard = !gm && this.audience === 'player';
+    // The GM's own board in session view keeps the scenes stacked on it, as a player's board does.
+    const ownBoard = !gm && (this.audience === 'player' || !window);
     const sighted = !revealed && ((gm && this.povSight !== null) || (ownBoard && this.sight !== null));
     for (const view of this.layerViews.values()) {
       view.setVisible(gm || ownBoard);
@@ -5408,7 +5458,7 @@ export class Board {
       zoom: height / (2 * distance * Math.tan(THREE.MathUtils.degToRad(FOV) / 2)),
       pixel: screenScale(1, height, FOV),
     };
-    this.showFor('player');
+    this.showFor('player', true);
     // Only the thrower sees the dice tumble: never the players' screen. Nor the AR players' eyes: those are the GM's.
     if (this.dice) this.dice.object3d.visible = false;
     this.viewers.object3d.visible = false;
@@ -5436,8 +5486,8 @@ export class Board {
     } catch (error) {
       console.error('[Tabletop] The player view could not be drawn:', error);
     } finally {
-      // Whatever happened, the GM's board goes back to the GM's look.
-      this.showFor('gm');
+      // Whatever happened, the GM's board goes back to its own look: the GM's, or Atlas's session view.
+      this.showFor(this.sessionView ? 'player' : 'gm');
       if (this.dice) this.dice.object3d.visible = true;
       this.viewers.object3d.visible = true;
       this.tableOutlines.visible = true;

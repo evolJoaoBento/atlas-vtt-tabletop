@@ -54,6 +54,7 @@ export const TOOLBAR_BUTTON_IDS = [
   'atlas-assets',
   'atlas-palette',
   'more',
+  'gm-view',
 ] as const;
 
 export type ToolbarButtonId = (typeof TOOLBAR_BUTTON_IDS)[number];
@@ -323,6 +324,13 @@ export const TOOLBAR_BUTTONS: Readonly<Record<ToolbarButtonId, ToolbarButtonSpec
     labelOf: (state) => atlasToolOf(state, 'palette')?.label ?? 'Command Palette',
     keywords: ['command', 'palette', 'search'],
     available: (state) => atlasToolOf(state, 'palette')?.enabled === true,
+  },
+  'gm-view': {
+    id: 'gm-view', label: 'GM view', icon: 'eye', modes: ['play', 'edit'],
+    keywords: ['gm', 'view', 'session', 'players', 'player view', 'fog', 'hidden', 'preview'],
+    available: ({ actions }) => actions.gmView !== undefined && actions.setGmView !== undefined,
+    toggle: true,
+    active: ({ actions }) => actions.gmView?.() !== false,
   },
   more: {
     id: 'more', label: 'More tools', icon: 'ellipsis', modes: ['play', 'edit'],
