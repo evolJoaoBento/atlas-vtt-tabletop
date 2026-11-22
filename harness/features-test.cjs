@@ -2268,6 +2268,26 @@ feature('initiative tokenless entries', async ({ page, shot }) => {
   await shot('initiative-tokenless');
 });
 
+// ── Atlas 0.19: before a fight the sides stand in the order the GM dragged them into ────────────────────────────
+feature('initiative sides in the dragged order', async ({ page, shot }) => {
+  const heading = (sideOrder) => page.evaluate((order) => {
+    const { board, panel, initiativeRules } = window.boardTest;
+    const entry = (id, fields, at) => ({ id, name: id, initiative: 10 - at, initiativeModifier: 0, imagePath: '', isActive: false, isNPC: true, order: at, ...fields });
+    window.__rulesWas ??= { ...initiativeRules };
+    Object.assign(initiativeRules, { mode: 'sides', firstSide: 'players', sideRoll: undefined });
+    board.map.initiative = { entries: [entry('Hero', { tokenId: 'hero', isNPC: false }, 0), entry('Enemy 1', { awaitingInitiative: true }, 1)], currentIndex: -1, round: 0, isActive: false, config: { autoSort: true }, ...(order ? { sideOrder: order } : {}) };
+    panel.setOpen(true);
+    panel.render();
+    return [...document.querySelectorAll('.tabletop-initiative-side__label')].map((label) => label.textContent);
+  }, sideOrder);
+  const rules = await heading(undefined);
+  check('sides: without a dragged order they stand as the rules have them', rules.join() === 'Players,Opponents', rules.join());
+  const dragged = await heading(['opponents']);
+  check("sides: Atlas 0.19's sideOrder puts the dragged side first before a fight", dragged.join() === 'Opponents,Players', dragged.join());
+  await shot('initiative-sides-order');
+  await page.evaluate(() => { const { board, panel, initiativeRules } = window.boardTest; board.map.initiative = { entries: [], currentIndex: -1, round: 0, isActive: false, config: { autoSort: true } }; for (const key of Object.keys(initiativeRules)) delete initiativeRules[key]; Object.assign(initiativeRules, window.__rulesWas); panel.setOpen(false); });
+});
+
 // ── Atlas 0.18's tracker options: the Compact view and the Turn banner, Atlas's own shared settings ─────────────
 feature('initiative compact layout and options menu', async ({ page, shot }) => {
   const prepare = () => page.evaluate(() => {

@@ -11,6 +11,7 @@
  * Atlas can run is refused in the file (`fileCannotRun`).
  */
 import { listedBySides as atlasListedBySides, sideOf as atlasSideOf } from '../../packages/atlas-shared/src/index';
+import { inSideOrder } from '../atlasPort/app/gameSystems/initiativeSideRules';
 
 export type InitiativeSide = 'players' | 'opponents';
 /** Atlas 0.9 adds fights by cards. */
@@ -156,11 +157,16 @@ export function sideLabel(id: SideId, named: ReadonlyArray<{ id: SideId; name?: 
   return named.find((side) => side.id === id)?.name ?? id;
 }
 
-/** The sides of a fight by sides in the order they act: Atlas 0.9's order when set, else the two built-in ones. */
-export function fightSides(state: Pick<InitiativeState, 'sides'>, rules: InitiativeRules): SideId[] {
+/**
+ * The sides of a fight by sides in the order they act: Atlas 0.9's order when set, else the two built-in ones. Before a fight
+ * the order the GM dragged the sides into (Atlas 0.19's `sideOrder`) comes first, as Atlas's list shows them (`listedSides`).
+ */
+export function fightSides(state: Pick<InitiativeState, 'sides'> & { sideOrder?: unknown }, rules: InitiativeRules): SideId[] {
   const order = state.sides?.order ?? (state.sides ? undefined : rules.sides);
-  if (order && order.length > 0) return order.map((side) => side.id);
-  return sidesInOrder(state.sides?.first ?? rules.firstSide);
+  const sides = order && order.length > 0 ? order.map((side) => side.id) : sidesInOrder(state.sides?.first ?? rules.firstSide);
+  if (state.sides || !Array.isArray(state.sideOrder)) return sides;
+  const dragged = state.sideOrder.filter((id): id is SideId => typeof id === 'string');
+  return inSideOrder(sides.map((id) => ({ id })), dragged).map((side) => side.id);
 }
 
 export function otherSide(side: InitiativeSide): InitiativeSide {

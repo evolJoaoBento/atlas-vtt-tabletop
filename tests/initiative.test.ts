@@ -191,6 +191,17 @@ test('Atlas 0.9: its rules are kept whole for Atlas, and a named side is read', 
   assert.equal(sideLabel('goblins', [{ id: 'goblins', name: 'Goblins' }]), 'Goblins');
 });
 
+test('Atlas 0.19: before a fight the sides stand in the order the GM dragged them into', () => {
+  const named = { ...DEFAULT, sides: [{ id: 'players' }, { id: 'opponents' }, { id: 'goblins', name: 'Goblins' }] } as unknown as typeof DEFAULT;
+  assert.deepEqual(fightSides({}, named), ['players', 'opponents', 'goblins']);
+  // Those the order names come first, in its order; the rest follow as the rules have them.
+  assert.deepEqual(fightSides({ sideOrder: ['goblins', 'players'] }, named), ['goblins', 'players', 'opponents']);
+  assert.deepEqual(fightSides({ sideOrder: ['opponents'] }, DEFAULT), ['opponents', 'players']);
+  // A running fight keeps the order it started in.
+  assert.deepEqual(fightSides({ sideOrder: ['opponents'], sides: { first: 'players', active: 'players' } }, DEFAULT), ['players', 'opponents']);
+  assert.deepEqual(fightSides({ sideOrder: ['players'], sides: { first: 'players', active: 'goblins', order: [{ id: 'goblins' }, { id: 'players' }] } }, DEFAULT), ['goblins', 'players']);
+});
+
 test('Atlas 0.9: removing the combatant with the turn passes it on, past the defeated', () => {
   let state = applyInitiative(fight(), { type: 'start', rules: DEFAULT });
   state = applyInitiative(state, { type: 'remove', id: 'a', defeated: ['b'] });
