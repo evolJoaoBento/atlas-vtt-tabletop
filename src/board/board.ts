@@ -3058,14 +3058,19 @@ export class Board {
   }
 
   /**
-   * The fog menu at a right-click released in place (Atlas's `showFogMenu`): while the fog tool is on and no shape is under way,
+   * The fog menu at a right-click released in place (Atlas's `showFogMenu`): while the fog tool is on and no shape is under way, or the Move tool (Atlas's Select and Move) is,
    * on fog it offers Reveal and Delete, on revealed open ground Hide and Delete, and the body or ground they act on is outlined
    * while it is open. False where the fog has no menu there (the click is then the board's own).
    */
   private openFogMenu(event: MouseEvent): boolean {
     const tool = this.fogTool;
     const host = this.host.fog;
-    if (!tool?.on || !host || !this.host.fogMenu || this.audience !== 'gm' || !this.editing || tool.drawing || !this.map || this.sessionView) return false;
+    if (!host || !this.host.fogMenu || this.audience !== 'gm' || !this.map || this.sessionView) return false;
+    // Atlas's `secondaryTargetAt`: the menu is the GM's, with the fog tool on, and with the tools that take tokens (Select, Move: the board's
+    // Move with nothing else held or painted); the board's Cinematic mode, a cutscene's, has none.
+    const mode = this.host.boardMode?.() ?? null;
+    if (tool?.on) { if (!this.editing || tool.drawing) return false; }
+    else if (!tool || this.tools.tool !== 'move' || this.painting || this.waterTool || this.placing || mode === 'cinematic') return false;
     const point = this.boardPoint(event.clientX, event.clientY);
     const hit = point ? fogMenuAt(this.map.fog, point) : null;
     if (!point || !hit) return false;
