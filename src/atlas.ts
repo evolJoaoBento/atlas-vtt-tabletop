@@ -42,6 +42,10 @@ export interface AtlasSceneState {
   grid?: Record<string, unknown> | null;
   exploredMask?: string | null;
   exploredMasks?: Record<string, string>;
+  /** How many edits of the explored memory Atlas's undo history holds a count for (Atlas 0.18); its lighting raises it when it forgets. */
+  exploredEdits?: number;
+  /** Keeps (or with null drops) a level's explored memory as the map file holds it; Atlas's lighting does this as it saves. */
+  setExploredMask?: (dataUrl: string | null, level?: string | null) => void;
   levelAlignments?: Record<string, unknown>;
   /** Writes a whole edit of the levels in one step: the levels, the first level's image, every record, the explored memory, the alignments. */
   applyLevelScene?: (scene: Record<string, unknown>) => void;

@@ -43,6 +43,8 @@ const MEMBERS = [
   ['onLoadFile', 'atlas-host (open a map as a scene tab of the one view)'],
   ['loadIfDeferred', 'atlas-host (wake a deferred Atlas tab)'],
   ['setSceneLighting', 'tokenWriter.ts (the light level and its colour)'],
+  ['setExploredMask', 'tokenWriter.ts (Forget explored areas)'],
+  ['lighting-reset-explored', 'tokenWriter.ts (event: Forget explored areas)'],
   ['getLaserPointerSettings', 'atlasBridge.ts (settings service)'],
   ['setLaserPointerSettings', 'atlasBridge.ts (settings service)'],
   ['getDragDistance', 'atlasBridge.ts (settings service)'],

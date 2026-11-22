@@ -195,8 +195,14 @@ export interface ToolbarActions {
   tint(): string | null;
   setTint(color: string, keep: boolean): void;
   resetTint(): void;
+  /** Atlas's "Forget explored areas" (its Lighting settings button): the players' memory of what their tokens saw is forgotten. Absent: not the GM's to do. */
+  forgetExplored?(): void;
+  /** Whether Atlas can do it (a newer Atlas than the floor may be needed). Absent: it can. */
+  forgetExploredOffered?(): boolean;
 }
 
+/** Lucide's `rotate-ccw` (ISC), the icon of Atlas's Forget explored areas button. */
+const FORGET_EXPLORED_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
 /** What the light level's slider says while the scene's lighting is off in Atlas. */
 export const LIGHTING_OFF_TITLE = 'Turn on lighting in Atlas to set the light level.';
 
@@ -421,6 +427,7 @@ export class BoardToolbar {
   private readonly ambientValue: HTMLElement;
   private readonly tintInput: HTMLInputElement;
   private readonly tintReset: HTMLButtonElement;
+  private readonly forgetExploredButton: HTMLButtonElement | null = null;
   private readonly tiltInput: HTMLInputElement;
   private readonly occlusionInput: HTMLInputElement;
   /** Atlas's end slot, and the Dice button in it while the board has dice. */
@@ -1249,6 +1256,17 @@ export class BoardToolbar {
       box.addEventListener('change', () => change(box.checked));
       return box;
     };
+    // Atlas's Lighting settings button, as Atlas draws it: a ghost button with the rotate icon in the settings' action row.
+    if (this.actions.forgetExplored) {
+      const actions = el('div', 'atlas-setting-actions', light);
+      const forget = el('button', 'btn btn--ghost btn--sm', actions);
+      forget.type = 'button';
+      forget.dataset.lightingAction = 'forget-explored';
+      setSvg(forget, FORGET_EXPLORED_SVG, true);
+      el('span', '', forget, at('sceneLight.forgetExplored'));
+      forget.addEventListener('click', () => { this.actions.forgetExplored?.(); this.closeLighting(); });
+      this.forgetExploredButton = forget;
+    }
     this.tiltInput = toggleIn(t('lighting.tilt'), t('lighting.tiltHint'), (on) => this.actions.setTiltShift(on));
     this.occlusionInput = toggleIn(t('lighting.occlusion'), t('lighting.occlusionHint'), (on) => this.actions.setOcclusion(on));
     this.lightingPanel.addEventListener('keydown', (event) => {
@@ -2329,6 +2347,13 @@ export class BoardToolbar {
     this.ambientInput.disabled = !lit;
     if (lit) this.ambientInput.removeAttribute('title');
     else this.ambientInput.title = LIGHTING_OFF_TITLE;
+    // Atlas disables Forget explored areas while its lighting is off; a map Atlas cannot do it on says so.
+    if (this.forgetExploredButton) {
+      const offered = this.actions.forgetExploredOffered?.() ?? true;
+      this.forgetExploredButton.disabled = !lit || !offered;
+      if (offered) this.forgetExploredButton.removeAttribute('title');
+      else this.forgetExploredButton.title = t('fog.needsNewerAtlas');
+    }
     this.tintInput.value = this.actions.tint() ?? '#ffffff';
     this.tintReset.disabled = this.actions.tint() === null;
     this.tiltInput.checked = this.actions.tiltShift();

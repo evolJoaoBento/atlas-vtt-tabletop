@@ -17,6 +17,8 @@ const tokenKeys = ['token.unknownCreature'];
 const diceKeys = ['diceRoll.presetsTitle', 'diceRoll.presetEdit', 'diceRoll.presetEditShort', 'diceRoll.presetActions', 'diceRoll.presetRoll', 'diceRoll.presetDelete', 'diceRoll.presetName', 'diceRoll.presetFormula', 'diceRoll.presetSave', 'diceRoll.presetNeedsName', 'diceRoll.presetNeedsFormula', 'diceRoll.presetsSaveFailed', 'diceRoll.rowDone',
   'diceRoll.die', 'diceRoll.presetRollsAtOnce', 'diceRoll.presetPin', 'diceRoll.presetUnpin', 'diceRoll.presetRowFull', 'diceRoll.rowTitle', 'diceRoll.rowStandard', 'diceRoll.rowPlace', 'diceRoll.rowRemove',
   'diceRoll.rowAddDie', 'diceRoll.rowAddDieCaption', 'diceRoll.rowNotADie', 'diceRoll.rowFaces', 'diceRoll.rowPresent', 'diceRoll.rowEdit'];
+// The lighting page's Forget explored areas button (sceneLight.ts).
+const lightKeys = ['sceneLight.forgetExplored'];
 const out = {};
 const keys = new Set();
 for (const lang of ['en', 'ru', 'zh']) {
@@ -27,11 +29,13 @@ for (const lang of ['en', 'ru', 'zh']) {
   const initiative = load(lang, 'initiative'); const token = load(lang, 'token');
   for (const k of initiativeKeys) if (initiative[k] !== undefined) { out[lang][k] = initiative[k]; keys.add(k); }
   for (const k of tokenKeys) if (token[k] !== undefined) { out[lang][k] = token[k]; keys.add(k); }
+  const light = load(lang, 'sceneLight');
+  for (const k of lightKeys) if (light[k] !== undefined) { out[lang][k] = light[k]; keys.add(k); }
   const dice = load(lang, 'diceRoll');
   for (const k of diceKeys) if (dice[k] !== undefined) { out[lang][k] = dice[k]; keys.add(k); }
 }
-const body = `// Generated from Atlas 0.18's src/app/i18n/locales/{en,ru,zh}/{fog,toolbar,initiative,token,diceRoll}.ts (AGPL-3.0): the fog tool's bars and notices, the
-// toolbar words they share, the turn banner's words and the dice tray's saved rolls. The synced snapshot (the floor, 0.15) lacks them; a synced text of the same key wins (atlasText.ts).
+const body = `// Generated from Atlas 0.18's src/app/i18n/locales/{en,ru,zh}/{fog,toolbar,initiative,token,diceRoll,sceneLight}.ts (AGPL-3.0): the fog tool's bars and notices, the
+// toolbar words they share, the turn banner's words and the dice tray's saved rolls and the lighting page's Forget explored areas. The synced snapshot (the floor, 0.15) lacks them; a synced text of the same key wins (atlasText.ts).
 import type { AtlasMessage } from './atlasText';
 
 export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, AtlasMessage>>>> = ${JSON.stringify(out, null, 2)};

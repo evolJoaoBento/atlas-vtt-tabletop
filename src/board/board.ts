@@ -420,6 +420,9 @@ export interface BoardHost {
   tint(): string | null;
   setTint(color: string): void;
   clearTint(): void;
+  /** Atlas's "Forget explored areas", and whether Atlas offers it here. Absent where it is not the GM's. */
+  forgetExplored?(): void;
+  forgetExploredOffered?(): boolean;
   /** How high a light hangs, in grid squares. */
   lightHeight(light: BoardLight): number;
   /** A light's right-click menu (on its bulb). */
@@ -1172,6 +1175,10 @@ export class Board {
         this.paintDaylight();
         this.wake(true);
       },
+      ...(this.host.forgetExplored && {
+        forgetExplored: () => this.host.forgetExplored?.(),
+        forgetExploredOffered: () => this.host.forgetExploredOffered?.() ?? true,
+      }),
     });
     this.toolbar.setHidden(this.audience === 'player');
     this.tools.eraseAny = this.audience === 'gm';

@@ -1759,6 +1759,32 @@ feature('lighting from Atlas', async ({ page, shot }) => {
   check('lighting from Atlas: the light level can be set while the scene is lit in Atlas', on.shown && !on.disabled && on.title === null, JSON.stringify(on));
 });
 
+feature('forget explored areas', async ({ page, shot }) => {
+  // Atlas 0.18's Forget explored areas, in the lighting menu where Atlas has it on its Lighting settings page: a ghost button with its rotate icon.
+  const open = async () => { await page.locator('button[aria-label^="Lighting"]').click(); await wait(300); };
+  const button = page.locator('.atlas-tabletop-lighting-extra button[data-lighting-action="forget-explored"]');
+  await open();
+  const facts = await button.evaluate((el) => ({ text: el.textContent.trim(), icon: !!el.querySelector('svg'), ghost: el.classList.contains('btn--ghost'), row: el.parentElement.className, disabled: el.disabled }));
+  check('forget explored: the lighting menu has the Atlas button, with its text and icon', facts.text === 'Forget explored areas' && facts.icon && facts.ghost && facts.row === 'atlas-setting-actions' && !facts.disabled, JSON.stringify(facts));
+  await shot('forget-explored-menu');
+  await button.click();
+  await wait(300);
+  check('forget explored: pressing it asks the host once (no confirmation, as in Atlas) and closes the menu', (await page.evaluate(() => window.boardTest.record.forgets)) === 1 && (await page.locator('.atlas-tabletop-lighting-options').isHidden()), '');
+  // Lighting off in Atlas: Atlas disables it.
+  await page.evaluate(() => { window.__lightingOff = true; });
+  await open();
+  check('forget explored: with lighting off in Atlas it is disabled', await button.isDisabled(), '');
+  await page.locator('button[aria-label^="Lighting"]').click();
+  await wait(300);
+  await page.evaluate(() => { window.__lightingOff = false; window.__noForget = true; });
+  await open();
+  const old = await button.evaluate((el) => ({ disabled: el.disabled, title: el.getAttribute('title') }));
+  check('forget explored: an Atlas without it disables it and says it needs a newer Atlas', old.disabled && old.title === 'This needs a newer Atlas.', JSON.stringify(old));
+  await shot('forget-explored-old-atlas');
+  await page.locator('button[aria-label^="Lighting"]').click();
+  await page.evaluate(() => { window.__noForget = false; });
+});
+
 feature('daylight tint', async ({ page, shot }) => {
   const read = () => page.evaluate(() => { const b = window.boardTest.board; const bg = b.scene.background; let backdrop = null; if (bg && bg.isColor) backdrop = [Math.round(bg.r * 255), Math.round(bg.g * 255), Math.round(bg.b * 255)]; else if (bg && bg.image && bg.image.getContext) { const d = bg.image.getContext('2d').getImageData(1500, 300, 1, 1).data; backdrop = [d[0], d[1], d[2]]; } return { sky: b.hemisphere.color.getHexString(), sun: b.sun.color.getHexString(), backdrop, fog: b.scene.fog ? b.scene.fog.color.getHexString() : null, tints: window.boardTest.record.tints }; });
   const before = await read();

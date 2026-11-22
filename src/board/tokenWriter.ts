@@ -629,6 +629,38 @@ export class TokenWriter {
     state.setSceneLighting(given);
   }
 
+  /**
+   * Whether "Forget explored areas" can be done on the map: Atlas's store keeps the explored memory (`setExploredMask`, which
+   * the 0.15 floor has). With Atlas not holding the map yet it is taken to be there (it is asked at the write).
+   */
+  offersForgetExplored(path: string): boolean {
+    const state = this.holder(path)?.atlasStore.getState();
+    return !state || typeof state.setExploredMask === 'function';
+  }
+
+  /**
+   * Atlas's "Forget explored areas" (its palette command and the Lighting settings button): the same request Atlas's own
+   * views send, `lighting-reset-explored` on the event bus, which its lighting answers as an edit of the memory (an undo step
+   * of Atlas's history) when it keeps the memory. Where nothing answered (the lighting is not running here, so the count of
+   * edits stood still), the saved memory of the level shown is dropped through Atlas's store, which is what Atlas itself does
+   * when it holds no memory to edit (no undo step then, in Atlas too).
+   */
+  async forgetExplored(path: string): Promise<void> {
+    if (this.holder(path) === null) await this.ready(path);
+    const view = this.holder(path);
+    if (!view) throw new NotHeldError();
+    const state = view.atlasStore.getState();
+    if (typeof state.setExploredMask !== 'function') throw TokenWriter.missing('way to forget explored areas');
+    const before = state.exploredEdits;
+    const bus = (view as unknown as { serviceManager?: { getEventBus?: () => { emit?: (event: string) => void } | undefined } }).serviceManager?.getEventBus?.();
+    if (typeof bus?.emit === 'function') bus.emit('lighting-reset-explored');
+    const now = view.atlasStore.getState();
+    if (typeof bus?.emit === 'function' && now.exploredEdits !== before) return;
+    // Atlas's own level for the memory: the level its view shows; none (the first) on a scene without levels.
+    const level = (now.levels?.length ?? 0) > 0 ? now.viewedLevel ?? null : null;
+    now.setExploredMask?.(null, level);
+  }
+
   /** Locks a door (shutting it) or unlocks it. */
   async lockDoor(path: string, id: string, locked: boolean): Promise<void> {
     if (this.holder(path) === null) await this.ready(path);

@@ -1830,6 +1830,9 @@ export class BoardView extends ItemView {
       tint: () => this.map?.lighting.ambientColor ?? null,
       setTint: (color) => { writer.setSceneLighting(mapPath(), { ambientColor: color }).catch((error: unknown) => this.unsaved('tint', error)); },
       clearTint: () => { writer.setSceneLighting(mapPath(), { ambientColor: undefined }).catch((error: unknown) => this.unsaved('tint', error)); },
+      // Atlas's Forget explored areas (an undo step where its lighting keeps the memory).
+      forgetExplored: () => { writer.forgetExplored(mapPath()).catch((error: unknown) => this.unsaved('explored areas', error)); },
+      forgetExploredOffered: () => writer.offersForgetExplored(mapPath()),
       lightHeight: (light) => this.extras().lightHeight(light.id) ?? DEFAULT_LIGHT_SQUARES,
       lightMenu: (id, event) => this.lightMenu(id, event),
       miniTurn: (tokenId) => assignments.get(mapPath(), tokenId)?.turn ?? null,

@@ -1,5 +1,5 @@
-// Generated from Atlas 0.18's src/app/i18n/locales/{en,ru,zh}/{fog,toolbar,initiative,token,diceRoll}.ts (AGPL-3.0): the fog tool's bars and notices, the
-// toolbar words they share, the turn banner's words and the dice tray's saved rolls. The synced snapshot (the floor, 0.15) lacks them; a synced text of the same key wins (atlasText.ts).
+// Generated from Atlas 0.18's src/app/i18n/locales/{en,ru,zh}/{fog,toolbar,initiative,token,diceRoll,sceneLight}.ts (AGPL-3.0): the fog tool's bars and notices, the
+// toolbar words they share, the turn banner's words and the dice tray's saved rolls and the lighting page's Forget explored areas. The synced snapshot (the floor, 0.15) lacks them; a synced text of the same key wins (atlasText.ts).
 import type { AtlasMessage } from './atlasText';
 
 export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, AtlasMessage>>>> = {
@@ -72,6 +72,7 @@ export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, Atl
     "initiative.resetNumbersHint": "Ends the fight, empties every combatant's number and takes their conditions away, keeping them all in the tracker for the next roll",
     "initiative.clear": "Clear initiative",
     "token.unknownCreature": "Unknown Creature",
+    "sceneLight.forgetExplored": "Forget explored areas",
     "diceRoll.presetsTitle": "Saved rolls",
     "diceRoll.presetEdit": "Edit {name}",
     "diceRoll.presetEditShort": "Edit",
@@ -174,6 +175,7 @@ export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, Atl
     "initiative.resetNumbersHint": "Заканчивает бой, стирает числа всех участников и снимает с них состояния, но оставляет их в трекере для следующего броска",
     "initiative.clear": "Очистить инициативу",
     "token.unknownCreature": "Неизвестное существо",
+    "sceneLight.forgetExplored": "Забыть исследованные области",
     "diceRoll.presetsTitle": "Сохранённые броски",
     "diceRoll.presetEdit": "Изменить {name}",
     "diceRoll.presetEditShort": "Изменить",
@@ -270,6 +272,7 @@ export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, Atl
     "initiative.resetNumbersHint": "结束战斗，清空每个参战者的先攻数字并移除其状态，但把所有人留在追踪器中，等待下一次掷骰",
     "initiative.clear": "清空先攻",
     "token.unknownCreature": "未知生物",
+    "sceneLight.forgetExplored": "忘记已探索区域",
     "diceRoll.presetsTitle": "已保存的掷骰",
     "diceRoll.presetEdit": "编辑 {name}",
     "diceRoll.presetEditShort": "编辑",
@@ -381,6 +384,7 @@ export const ATLAS_FOG_TEXT_KEYS = [
   "initiative.side.players",
   "initiative.turnBanner",
   "initiative.turnBannerHint",
+  "sceneLight.forgetExplored",
   "token.unknownCreature",
   "toolbar.brush",
   "toolbar.constrain",
