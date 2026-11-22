@@ -11,7 +11,7 @@ opening Atlas's 2D map with the tool chosen).
 1. **Saved rolls, the rest** (Atlas 0.18; the saved rolls panel and the tray's editable dice row are done: save, throw, rename, delete, pin, shared with Atlas):
     the dice editor of a designed roll (each die's faces, name and colour, critical, exploding and advantage rules), the flask that
     keeps a Dice Lab set as a saved roll, and the saved rolls' tour. A saved roll in the row throws at once on the board (Atlas adds a formula roll to the tray's formula; the board's tray holds dice, not a formula). The board's own
-    formula grammar has no written `adv` / `dis` and no `*`, `/` or brackets, so a saved roll using them says why it cannot be thrown.
+    formula grammar has no `*`, `/` or brackets, so a saved roll using them says why it cannot be thrown (a written `adv` / `dis` is read since Atlas 0.19).
 2. **Connect: tokenless combatants in the Obsidian player scene tab** (the web page shows them; the tab leaves them out).
 3. **Fog tool on a map of unknown size** (fog review M4): on a map whose image size is unknown the fog tool cannot paint
     and swallows the press with no notice (Atlas needs no map rect to draw).
@@ -42,3 +42,9 @@ opening Atlas's 2D map with the tool chosen).
     across the top or bottom, mirrored for the far side of the table, in What players see): there is no players' list in Tabletop's
     player window yet to give it.
 18. **Explored areas on the board** (Atlas 0.18; "Forget explored areas" is in the lighting menu and writes Atlas's own request, but the board does not draw the players' explored memory at all, so nothing shows the forgetting; the memory lives in Atlas's lighting texture and the saved mask `exploredMask(s)`).
+19. **Ranges measure mode** (Atlas 0.18's Ranges: click a token or a place to see its range bands or movement steps; Atlas 0.19 no longer asks for GM view and shows the rings to the players, in the player window and online). The board's measure menu lists Ranges but it is never offered (`rangesUnavailable` has no provider); the rings, the range check between two tokens and the players seeing them are all to build. The key (M) cycles to it where offered.
+20. **Order the sides before a fight** (Atlas 0.19: drag a side's heading in the tracker to choose who acts first, written as `initiative.sideOrder`). The board's tracker already lists the sides, and starts the fight (Atlas's `startCombat`), in the order Atlas holds; it has no way to change that order. Atlas's `setSideOrder` is the store action.
+21. **Smoother initiative drag** (Atlas 0.19: cards are dragged as a phone's home screen is arranged, with `useRowDrag`; the others shiver and slide aside, and a dropped card glides home). The board's tracker still uses the browser's drag and drop with a drop line.
+22. **Initiative list scroll shades** (Atlas 0.19: a fade at the bottom of the list while more lies below, shown without a round at the foot; and the compact list shows at most 12 lines before it scrolls). The board's tracker has the top shade only and its compact list is as tall as its combatants.
+23. **Players' ranges, measures and rolls online** (Atlas 0.19 Atlas Online: players see the GM's Ranges rings, roll and edit values written with `adv` / `dis`; Connect's player page and Tabletop's player window have neither).
+24. **Stream Deck and Atlas's Sound page** (Atlas 0.19: Stream Deck settings, the music packs, downloads list and sorting on the Sound page): Atlas's own pages, nothing on the board, listed so a later look at the board's sounds (Tabletop's own, `src/sound`) can decide whether to offer any of Atlas's.

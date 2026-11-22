@@ -45,6 +45,8 @@ const MEMBERS = [
   ['setSceneLighting', 'tokenWriter.ts (the light level and its colour)'],
   ['setExploredMask', 'tokenWriter.ts (Forget explored areas)'],
   ['lighting-reset-explored', 'tokenWriter.ts (event: Forget explored areas)'],
+  ['forgetOtherLevelsExplored', 'tokenWriter.ts (store action, 0.19: Forget explored areas on every floor where no lighting ran)'],
+  ['sideOrder', 'initiative.ts (tracker field, 0.19: the order the GM dragged the sides into)'],
   ['getLaserPointerSettings', 'atlasBridge.ts (settings service)'],
   ['setLaserPointerSettings', 'atlasBridge.ts (settings service)'],
   ['getDragDistance', 'atlasBridge.ts (settings service)'],

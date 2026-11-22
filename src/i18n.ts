@@ -48,7 +48,6 @@ const EN = {
   'toolbar.ranges': 'Ranges',
   'toolbar.rangesTip': 'Click a token or a place to see its ranges',
   'toolbar.rangesNoRules': 'This game system has no ranges or movement steps',
-  'toolbar.rangesNeedGmView': 'Switch to GM View ({key}) to see ranges',
   'measure.shape.ruler': 'Ruler',
   'measure.shape.circle': 'Circle',
   'measure.shape.cone': 'Cone',

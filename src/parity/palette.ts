@@ -1,6 +1,6 @@
 import type { ParityRow } from './types';
 
-/** Atlas 0.18.0's command palette entries (0.12.0's, 0.14's lighting pages, 0.17's and 0.18's later ones) (`CommandPalette.tsx` `commandOptions`, sub-page entries included), in order. */
+/** Atlas 0.19.0's command palette entries (0.12.0's, 0.14's lighting pages, 0.17's and 0.18's later ones; 0.19 adds none) (`CommandPalette.tsx` `commandOptions`, sub-page entries included), in order. */
 export const ATLAS_PALETTE: readonly ParityRow[] = [
   { id: 'move-tool', status: 'mapped', note: "The board's Move/Select tool." },
   { id: 'fog-tool', status: 'native', note: "The board's Fog Tool (Edit mode)." },
