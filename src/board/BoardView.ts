@@ -31,6 +31,8 @@ import { isInstantaneous, readCastSpells, type CastSpell, type SpellAsk } from '
 import { castsOfMeasures, marksOfMeasures, measureWrite, spellWrite, templateWrite, type MeasureChange, type MeasureWrite } from './boardMeasures';
 import { DEFAULT_MEASURE_TOOL, type MeasureToolOptions } from './measureOptions';
 import { formatHotkey } from '../atlasPort/app/keyboard/mapHotkeys';
+import { boardBinding } from './boardHotkeys';
+import { readGmView, writeGmView } from './gmView';
 import type { SpellBook } from './spellPicker';
 import type { SpellChange, TemplateChange } from './playerTools';
 import { isVideoPath } from './textures';
@@ -1660,7 +1662,8 @@ export class BoardView extends ItemView {
       measureHotkeys: () => {
         const bridge = new AtlasBridge(this.app);
         const fmt = (id: 'measure' | 'measureKeep' | 'gmView'): string | null => {
-          const key = bridge.hotkey(id);
+          // On the board a camera letter takes Shift (D is Shift + D here).
+          const key = boardBinding(bridge.hotkey(id));
           return key ? formatHotkey(key) : null;
         };
         return { measure: fmt('measure'), measureKeep: fmt('measureKeep'), gmView: fmt('gmView') };
@@ -1702,6 +1705,9 @@ export class BoardView extends ItemView {
       statblockPreviewEnd: () => this.hoverCard?.hide(),
       warn: (message) => this.warn(message),
       togglePlayerView: () => this.services.togglePlayerView(this),
+      // Atlas's GM view switch, in the store of the Atlas view holding this map: Atlas's 2D view and the board share it.
+      gmView: () => readGmView(this.path ? this.services.writer.holder(this.path)?.atlasStore.getState() : null),
+      setGmView: (on) => writeGmView(this.path ? this.services.writer.holder(this.path)?.atlasStore.getState() : null, on),
       laser: () => this.services.laser(),
       setLaser: (changes) => this.services.setLaser(changes),
       setLighting: (choice) => this.services.setLighting?.(choice),
@@ -2161,10 +2167,14 @@ export class BoardView extends ItemView {
       let liquids = view.atlasStore.getState().objects?.liquids;
       let derived = view.atlasStore.getState().objects;
       let extrasOf3d = view.atlasStore.getState().objects;
+      let gmView = readGmView(view.atlasStore.getState());
       const stop = view.atlasStore.subscribe(() => {
         const state = view.atlasStore.getState();
         // Atlas moved to another map in that view: the file is this map's tracker again.
         if (state.mapPath !== this.path) { this.watchAtlas(); return; }
+        // The GM view switch was thrown in Atlas (its button, its key, Table mode): the board shows the same look.
+        const gmNow = readGmView(state);
+        if (gmNow !== gmView) { gmView = gmNow; this.board?.gmViewChanged(); }
         // What a kept spell stands in Atlas (walls, difficult ground, light) follows its measure: after a cast, a move, an undo.
         const objects = state.objects;
         // What the GM set in 3D on a wall, a door or a light (on its record): shown at once, ahead of the map's next read.

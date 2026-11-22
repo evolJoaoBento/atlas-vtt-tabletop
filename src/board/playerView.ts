@@ -4,6 +4,7 @@
  * resources they see is `visibleResources(…, 'player')`. Pure, so it is tested without Obsidian.
  */
 import type { FogArea } from './fog';
+import { canBeReadable } from './pinMenu';
 
 interface Point {
   x: number;
@@ -37,6 +38,14 @@ export function playerSees(token: { hidden: boolean }, at: Point, fog: readonly 
  */
 export function pinsShown(viewer: 'gm' | 'player', audience: 'gm' | 'player'): boolean {
   return viewer === 'gm' || audience === 'player';
+}
+
+/**
+ * Whether a pin is one the GM shows to players (Atlas's `shownToPlayers`, `tools/pinSharing.ts`): marked "Readable by players" and
+ * linking a note they could read. Atlas's session view shows these on the GM's own canvas, where the players' window shows none.
+ */
+export function shownToPlayers(pin: { readable?: boolean; notePath: string | null }): boolean {
+  return pin.readable === true && canBeReadable(pin.notePath);
 }
 
 /** Whether a load of `next` frames its map: the first scene, or one other than the scene the camera last framed. */

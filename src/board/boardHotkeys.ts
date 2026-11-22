@@ -22,7 +22,7 @@ export function boardBinding(binding: string | null): string | null {
 /** What an Atlas shortcut does on the board. */
 export type BoardHotkeyAction =
   | 'help' | 'measure' | 'diceTray' | 'diceLog' | 'sceneSwitcher' | 'dashboard' | 'nextMood' | 'silence'
-  | 'fitMap' | 'fitToken' | 'levelUp' | 'levelDown' | 'selectAll' | 'delete' | 'fog' | 'brushSmaller' | 'brushLarger';
+  | 'fitMap' | 'fitToken' | 'levelUp' | 'levelDown' | 'selectAll' | 'delete' | 'fog' | 'brushSmaller' | 'brushLarger' | 'gmView';
 
 /**
  * Atlas's shortcuts that do something on the board: these here, Atlas's tools the board opens (`atlasTools.ts`), undo and
@@ -35,6 +35,8 @@ const ON_BOARD: ReadonlySet<MapHotkeyId> = new Set<MapHotkeyId>([
   'fitMap', 'fitToken', 'levelUp', 'levelDown', 'selectAll', 'delete', 'deleteAlt',
   // The fog tool (Edit mode): its key, and the keys that size its brush while it is on.
   'fog', 'drawSmaller', 'drawLarger',
+  // The GM view switch (Atlas's D, Shift+D here): the board's players' look.
+  'gmView',
 ]);
 
 /** Whether Atlas's shortcut `id` does something on the board. */
@@ -98,6 +100,7 @@ const ACTION_KEYS: ReadonlyArray<readonly [BoardHotkeyAction, MapHotkeyId]> = [
   ['fog', 'fog'],
   ['brushSmaller', 'drawSmaller'],
   ['brushLarger', 'drawLarger'],
+  ['gmView', 'gmView'],
 ];
 
 /** The action a key stands for on the board, read with the GM's Atlas bindings (`binding(id)`), or null. */

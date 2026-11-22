@@ -101,6 +101,11 @@ export function fogIcon(id: FogIconId): string {
   return fog[id];
 }
 
+/** The icon on the GM view switch's thumb (`MainToolbar.tsx`): Atlas's lucide Eye in GM view, EyeOff in session view. */
+export function gmViewIcon(on: boolean): string {
+  return on ? renderToStaticMarkup(<Eye className="atlas-toggle__icon" />) : renderToStaticMarkup(<EyeOff className="atlas-toggle__icon" />);
+}
+
 /** The board's three modes (Play, Edit, Cinematic) and the wall paint tool (painting, taking a material off). */
 let modes: Record<'play' | 'edit' | 'cinematic' | 'paint' | 'unpaint' | 'view', string> | null = null;
 export function modeIcon(id: 'play' | 'edit' | 'cinematic' | 'paint' | 'unpaint' | 'view'): string {
