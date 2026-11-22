@@ -1,5 +1,5 @@
-// Generated from Atlas 0.18's src/app/i18n/locales/{en,ru,zh}/{fog,toolbar,initiative,token}.ts (AGPL-3.0): the fog tool's bars and notices, the
-// toolbar words they share, and the turn banner's words. The synced snapshot (the floor, 0.15) lacks them; a synced text of the same key wins (atlasText.ts).
+// Generated from Atlas 0.18's src/app/i18n/locales/{en,ru,zh}/{fog,toolbar,initiative,token,diceRoll}.ts (AGPL-3.0): the fog tool's bars and notices, the
+// toolbar words they share, the turn banner's words and the dice tray's saved rolls. The synced snapshot (the floor, 0.15) lacks them; a synced text of the same key wins (atlasText.ts).
 import type { AtlasMessage } from './atlasText';
 
 export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, AtlasMessage>>>> = {
@@ -63,7 +63,20 @@ export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, Atl
     "initiative.combatEnded": "Combat has ended",
     "initiative.side.players": "Players",
     "initiative.side.opponents": "Opponents",
-    "token.unknownCreature": "Unknown Creature"
+    "token.unknownCreature": "Unknown Creature",
+    "diceRoll.presetsTitle": "Saved rolls",
+    "diceRoll.presetEdit": "Edit {name}",
+    "diceRoll.presetEditShort": "Edit",
+    "diceRoll.presetActions": "More for {name}",
+    "diceRoll.presetRoll": "Roll {name}: {formula}",
+    "diceRoll.presetDelete": "Delete",
+    "diceRoll.presetName": "Name",
+    "diceRoll.presetFormula": "Formula",
+    "diceRoll.presetSave": "Save roll",
+    "diceRoll.presetNeedsName": "Give the roll a name",
+    "diceRoll.presetNeedsFormula": "Write the roll to save",
+    "diceRoll.presetsSaveFailed": "The saved rolls could not be saved.",
+    "diceRoll.rowDone": "Done"
   },
   "ru": {
     "fog.cellCount": {
@@ -129,7 +142,20 @@ export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, Atl
     "initiative.combatEnded": "Бой окончен",
     "initiative.side.players": "Игроки",
     "initiative.side.opponents": "Противники",
-    "token.unknownCreature": "Неизвестное существо"
+    "token.unknownCreature": "Неизвестное существо",
+    "diceRoll.presetsTitle": "Сохранённые броски",
+    "diceRoll.presetEdit": "Изменить {name}",
+    "diceRoll.presetEditShort": "Изменить",
+    "diceRoll.presetActions": "Действия: {name}",
+    "diceRoll.presetRoll": "Бросить {name}: {formula}",
+    "diceRoll.presetDelete": "Удалить",
+    "diceRoll.presetName": "Название",
+    "diceRoll.presetFormula": "Формула",
+    "diceRoll.presetSave": "Сохранить бросок",
+    "diceRoll.presetNeedsName": "Дайте броску название",
+    "diceRoll.presetNeedsFormula": "Впишите бросок, который нужно сохранить",
+    "diceRoll.presetsSaveFailed": "Не удалось сохранить сохранённые броски.",
+    "diceRoll.rowDone": "Готово"
   },
   "zh": {
     "fog.cellCount": {
@@ -189,11 +215,37 @@ export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, Atl
     "initiative.combatEnded": "战斗结束",
     "initiative.side.players": "玩家",
     "initiative.side.opponents": "对手",
-    "token.unknownCreature": "未知生物"
+    "token.unknownCreature": "未知生物",
+    "diceRoll.presetsTitle": "已保存的掷骰",
+    "diceRoll.presetEdit": "编辑 {name}",
+    "diceRoll.presetEditShort": "编辑",
+    "diceRoll.presetActions": "{name} 的更多操作",
+    "diceRoll.presetRoll": "掷 {name}：{formula}",
+    "diceRoll.presetDelete": "删除",
+    "diceRoll.presetName": "名称",
+    "diceRoll.presetFormula": "公式",
+    "diceRoll.presetSave": "保存掷骰",
+    "diceRoll.presetNeedsName": "请给掷骰起个名字",
+    "diceRoll.presetNeedsFormula": "请写下要保存的掷骰",
+    "diceRoll.presetsSaveFailed": "无法保存已保存的掷骰。",
+    "diceRoll.rowDone": "完成"
   }
 };
 
 export const ATLAS_FOG_TEXT_KEYS = [
+  "diceRoll.presetActions",
+  "diceRoll.presetDelete",
+  "diceRoll.presetEdit",
+  "diceRoll.presetEditShort",
+  "diceRoll.presetFormula",
+  "diceRoll.presetName",
+  "diceRoll.presetNeedsFormula",
+  "diceRoll.presetNeedsName",
+  "diceRoll.presetRoll",
+  "diceRoll.presetSave",
+  "diceRoll.presetsSaveFailed",
+  "diceRoll.presetsTitle",
+  "diceRoll.rowDone",
   "fog.brushSize",
   "fog.brushSizeNeedsBrush",
   "fog.cellCount",

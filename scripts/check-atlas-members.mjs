@@ -68,9 +68,12 @@ const MEMBERS = [
   ['setGMView', 'gmView.ts (view store action)'],
   ['isExperimentalOn', 'shims/settingsService.ts (settings service, for the copied hotkeys and statblock counters)'],
   ['atlas-vtt:collection-settings-changed', 'BoardView.ts (workspace event: a collection\'s settings were saved)'],
+  // The dice tray's saved rolls (savedRollsAccess.ts): the collection's settings, which only Atlas 0.18 keeps.
+  ['dicePresets', 'savedRollsAccess.ts (collection setting, 0.18: the saved rolls)'],
+  ['diceRow', 'savedRollsAccess.ts (collection setting, 0.18: the tray row, read with the shelf)'],
 ];
 // Members Tabletop reads defensively and that a given Atlas may not have; reported, not failed.
-const OPTIONAL = new Set(['atlas-vtt:send-map-to-player-view', 'this.deps.service', 'addFogOperations', 'coverAllFog', 'hideRooms', 'revealFogGround', 'hideFogArea', 'forgetFogArea', 'getGmFogOpacity', 'setGmFogOpacity', 'setToolSwitch']);
+const OPTIONAL = new Set(['atlas-vtt:send-map-to-player-view', 'this.deps.service', 'addFogOperations', 'coverAllFog', 'hideRooms', 'revealFogGround', 'hideFogArea', 'forgetFogArea', 'getGmFogOpacity', 'setGmFogOpacity', 'setToolSwitch', 'dicePresets', 'diceRow']);
 
 let missing = 0;
 for (const [name, where] of MEMBERS) {

@@ -2167,6 +2167,8 @@ body.atlas-tabletop-player-window .view-header {
 /* The GM's dice tray, opened from the Dice button in the toolbar's end slot: Atlas's own tray (its styles), over the button. */
 .atlas-tabletop-atlas .atlas-dice-tray.atlas-tabletop-dice-picker { cursor: default; }
 .atlas-tabletop-atlas .atlas-dice-tray.atlas-tabletop-dice-picker[hidden] { display: none; }
+/* Atlas's classes set a display of their own, which would show what the tray hides (the saved rolls, their bookmark). */
+.atlas-tabletop-atlas .atlas-tabletop-dice-picker [hidden] { display: none !important; }
 .atlas-tabletop-atlas .atlas-dice-tray__actions .atlas-tabletop-dice-tray-log {
   flex: none;
   width: 40px;

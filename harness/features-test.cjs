@@ -128,6 +128,200 @@ feature('dice sounds', async ({ page, shot }) => {
   await shot('dice-sounds');
 });
 
+// ── Dice tray: the collection's saved rolls (Atlas 0.18) beside the tray ─────────────────────────────────────────────
+feature('saved rolls', async ({ page, shot }) => {
+  const diceButton = page.locator('.atlas-tabletop-extensions button[aria-label="Dice"]');
+  const tray = page.locator('.atlas-tabletop-dice-picker');
+  const panel = page.locator('.atlas-tabletop-dice-picker .atlas-dice-presets');
+  const foot = tray.locator('.atlas-dice-tray__foot-icon');
+  const names = () => panel.locator('.atlas-dice-presets__item .atlas-dice-presets__name').allTextContents();
+  const settings = () => page.evaluate(() => JSON.parse(JSON.stringify(window.boardTest.savedSettings)));
+  const open = async () => { if (!(await tray.isVisible())) { await diceButton.click(); await wait(300); } };
+  const card = (name) => panel.locator('.atlas-dice-presets__item', { hasText: name });
+  const choose = async (name, entry) => {
+    await card(name).hover();
+    await card(name).locator('.atlas-dice-presets__more').click();
+    await page.locator('.atlas-ctx-menu .atlas-ctx-item', { hasText: entry }).click();
+    await wait(250);
+  };
+  const throwAndWait = async () => {
+    await page.locator('.atlas-tabletop-dice-prompt__throw').click();
+    await page.waitForFunction(() => window.boardTest.board.dice.busy, null, { timeout: 5000 });
+    await page.waitForFunction(() => !window.boardTest.board.dice.busy, null, { timeout: 90000 });
+    await wait(300);
+  };
+  // The tray opens with a bookmark at its foot; the saved rolls stand shut until it is pressed.
+  await open();
+  check("saved rolls: the tray has a bookmark for them, named in Atlas's words, and the panel stands shut", await foot.isVisible() && (await foot.getAttribute('aria-label')) === 'Saved rolls' && await panel.isHidden());
+  await foot.click();
+  await wait(300);
+  check("saved rolls: the bookmark opens the panel with the rolls Atlas holds, in Atlas's markup", await panel.isVisible() && JSON.stringify(await names()) === '["Fireball","Stats"]' && (await foot.getAttribute('aria-pressed')) === 'true' && await panel.locator('.atlas-dice-presets__form').isVisible());
+  const texts = await panel.locator('.atlas-dice-presets__item .atlas-dice-presets__formula').allTextContents();
+  check('saved rolls: a designed roll shows its dice and bonus, a formula roll its formula', texts[0] === '2d6 + d8 + 2' && texts[1] === '4d6kh3', JSON.stringify(texts));
+  check("saved rolls: the panel stands open for this device, under Atlas's key", await page.evaluate(() => window.boardTest.savedState.storage.get('atlas-vtt-dice-tray-presets-open')) === true);
+  await shot('saved-rolls-open');
+  const placement = () => page.evaluate(() => {
+    const a = document.querySelector('.atlas-tabletop-dice-picker .atlas-dice-presets').getBoundingClientRect();
+    const b = document.querySelector('.atlas-tabletop-dice-picker .atlas-dice-panel').getBoundingClientRect();
+    return { panelRight: a.right, trayLeft: b.left, panelLeft: a.left, panelBottom: a.bottom, trayTop: b.top, top: [a.top, b.top], width: window.innerWidth };
+  });
+  // Atlas's own rule: in a window under 1000 px the saved rolls stand above the tray, else beside it, top to top.
+  const narrow = await placement();
+  check('saved rolls: in a narrow window the panel stands above the tray, inside the window', narrow.panelBottom <= narrow.trayTop + 1 && narrow.panelLeft >= 0 && narrow.panelRight <= narrow.width, JSON.stringify(narrow));
+  await page.setViewportSize({ width: 1400, height: 720 });
+  await wait(500);
+  await open();
+  const wide = await placement();
+  check('saved rolls: in a wide window the panel stands to the left of the tray, top to top', wide.panelRight <= wide.trayLeft + 1 && wide.panelLeft >= 0 && Math.abs(wide.top[0] - wide.top[1]) < 3, JSON.stringify(wide));
+  await shot('saved-rolls-wide');
+  await page.setViewportSize({ width: 1000, height: 640 });
+  await wait(500);
+  await open();
+  // P opens and shuts it from the tray.
+  await tray.locator('[data-die="d6"]').focus();
+  await page.keyboard.press('p');
+  check('saved rolls: P shuts the panel from the tray', await panel.isHidden());
+  await page.keyboard.press('p');
+  check('saved rolls: P opens it again', await panel.isVisible());
+  // The form follows the tray's roll until it is typed in.
+  await tray.locator('[data-die="d6"]').click();
+  await tray.locator('[data-die="d6"]').click();
+  check("saved rolls: the form's formula follows the tray's dice", (await panel.locator('.atlas-dice-presets__field--formula').inputValue()) === '2d6');
+  // A designed roll is thrown with its own dice and rules, and logged as any roll of the board is.
+  const before = await page.evaluate(() => window.boardTest.atlasRolls.length);
+  await card('Fireball').locator('.atlas-dice-presets__roll').click();
+  await wait(400);
+  const laid = await page.evaluate(() => ({ dice: window.boardTest.board.dice.object3d.children.length, open: !document.querySelector('.atlas-tabletop-dice-picker').hidden }));
+  check('saved rolls: a saved roll lays its three dice on the table and the tray steps aside', laid.dice === 3 && !laid.open, JSON.stringify(laid));
+  await throwAndWait();
+  const fire = await page.evaluate((count) => {
+    const roll = window.boardTest.atlasRolls.slice(count).map((entry) => entry[1]).at(-1);
+    return roll ? { total: roll.total, modifiers: roll.modifiers, rolls: roll.rolls.map((die) => [die.die, die.colour ?? null, die.name ?? null]), crit: roll.crit ?? null } : null;
+  }, before);
+  check("saved rolls: the roll is logged in Atlas with the set's colours, names and bonus", fire !== null && fire.modifiers === 2 && JSON.stringify(fire.rolls) === '[["d6","#ff6a00","Fire"],["d6","#ff6a00","Fire"],["d8",null,null]]' && fire.crit === null, JSON.stringify(fire));
+  await shot('saved-rolls-thrown');
+  // A roll written as a formula is thrown by the collection's rules.
+  await open();
+  await card('Stats').locator('.atlas-dice-presets__roll').click();
+  await wait(400);
+  const stats = await page.evaluate(() => window.boardTest.board.dice.object3d.children.length);
+  check('saved rolls: a formula roll lays its four dice', stats === 4, String(stats));
+  await throwAndWait();
+  const kept = await page.evaluate(() => window.boardTest.atlasRolls.at(-1)[1].rolls.filter((die) => !die.dropped).length);
+  check('saved rolls: 4d6kh3 keeps three of its four dice', kept === 3, String(kept));
+  // Saving: a name and a formula, as Atlas asks for them.
+  await open();
+  const nameField = panel.locator('.atlas-dice-presets__form .atlas-dice-presets__field').first();
+  const formulaField = panel.locator('.atlas-dice-presets__form .atlas-dice-presets__field--formula');
+  const message = panel.locator('.atlas-dice-presets__form .atlas-dice-presets__message');
+  await formulaField.fill('1d4 + 2');
+  await panel.locator('.atlas-dice-presets__save').click();
+  check("saved rolls: a roll with no name says so, in Atlas's words, and nothing is saved", (await message.textContent()) === 'Give the roll a name' && (await settings()).dicePresets.length === 2);
+  await nameField.fill('Dagger');
+  await formulaField.fill('2d7');
+  await panel.locator('.atlas-dice-presets__save').click();
+  check('saved rolls: a formula the dice cannot throw says why', /d7/.test((await message.textContent()) ?? '') && (await settings()).dicePresets.length === 2, await message.textContent());
+  await formulaField.fill('');
+  await panel.locator('.atlas-dice-presets__save').click();
+  check('saved rolls: no formula says so', (await message.textContent()) === 'Write the roll to save');
+  await formulaField.fill('1d4 + 2');
+  await formulaField.press('Enter');
+  await wait(300);
+  const saved = await settings();
+  const dagger = saved.dicePresets[2];
+  check('saved rolls: a roll of plain dice is written as Atlas writes it: dice to dress, with the bonus beside them', saved.dicePresets.length === 3 && dagger.name === 'Dagger' && dagger.formula === '+2' && dagger.look.dice[0].sides === 4 && dagger.look.dice[0].count === 1, JSON.stringify(dagger));
+  check('saved rolls: it joins the list and the form empties', JSON.stringify(await names()) === '["Fireball","Stats","Dagger"]' && (await nameField.inputValue()) === '' && (await message.textContent()) === '', JSON.stringify(await names()));
+  await shot('saved-rolls-saved');
+  // What Atlas changes meanwhile redraws the list and leaves what is being typed.
+  await nameField.fill('Typing');
+  await page.evaluate(() => {
+    const { savedSettings, savedListeners } = window.boardTest;
+    savedSettings.dicePresets = [...savedSettings.dicePresets, { id: 'rapier', name: 'Rapier', formula: '1d8 + 3' }];
+    for (const listener of [...savedListeners]) listener('c1');
+  });
+  await wait(200);
+  check('saved rolls: a roll saved in Atlas shows at once, and the name being typed stays', JSON.stringify(await names()) === '["Fireball","Stats","Dagger","Rapier"]' && (await nameField.inputValue()) === 'Typing');
+  await nameField.fill('');
+  // The ⋯ of a card: Edit and Delete.
+  await card('Rapier').hover();
+  await card('Rapier').locator('.atlas-dice-presets__more').click();
+  await wait(200);
+  const menuItems = await page.locator('.atlas-ctx-menu .atlas-ctx-item').allTextContents();
+  check('saved rolls: the ⋯ holds Edit and Delete', JSON.stringify(menuItems) === '["Edit","Delete"]', JSON.stringify(menuItems));
+  await shot('saved-rolls-menu');
+  await page.locator('.atlas-ctx-menu .atlas-ctx-item', { hasText: 'Edit' }).click();
+  await wait(250);
+  const editor = panel.locator('.atlas-dice-preset-editor');
+  check("saved rolls: Edit opens the roll's editor, its card lit, and the tray stays open", await editor.isVisible() && (await card('Rapier').getAttribute('aria-current')) === 'true' && await tray.isVisible());
+  await shot('saved-rolls-edit');
+  await editor.locator('.atlas-dice-preset-editor__name').fill('Epee');
+  await editor.locator('.atlas-dice-presets__field--formula').fill('1d8 + 4');
+  await editor.locator('.atlas-dice-preset-editor__done').click();
+  await wait(300);
+  const edited = (await settings()).dicePresets.find((preset) => preset.id === 'rapier');
+  check('saved rolls: Done writes the new name and formula in place', edited?.name === 'Epee' && edited?.formula === '1d8 + 4' && (await editor.count()) === 0 && JSON.stringify(await names()) === '["Fireball","Stats","Dagger","Epee"]', JSON.stringify(edited));
+  // A designed roll keeps its dice: only its name changes.
+  await choose('Fireball', 'Edit');
+  const designed = panel.locator('.atlas-dice-preset-editor');
+  const designedFormula = designed.locator('.atlas-dice-presets__field--formula');
+  check("saved rolls: a designed roll's formula shows what it throws and cannot be typed over", (await designedFormula.inputValue()) === '2d6 + d8 + 2' && await designedFormula.evaluate((input) => input.readOnly));
+  await designed.locator('.atlas-dice-preset-editor__name').fill('Big fireball');
+  await designed.locator('.atlas-dice-preset-editor__name').press('Enter');
+  await wait(300);
+  const fireball = (await settings()).dicePresets.find((preset) => preset.id === 'fire');
+  check("saved rolls: Enter in the editor keeps the designed roll's dice and bonus, with its new name", fireball.name === 'Big fireball' && fireball.formula === '+2' && fireball.look.dice.length === 2 && fireball.look.dice[0].colour === '#ff6a00', JSON.stringify(fireball));
+  // Escape in the editor leaves the editor and keeps the tray.
+  await choose('Stats', 'Edit');
+  await panel.locator('.atlas-dice-preset-editor__name').fill('Nope');
+  await page.keyboard.press('Escape');
+  await wait(200);
+  check('saved rolls: Escape leaves the editor without writing, and the tray stays open', (await panel.locator('.atlas-dice-preset-editor').count()) === 0 && await tray.isVisible() && (await settings()).dicePresets.find((preset) => preset.id === 'stats').name === 'Stats');
+  // Delete.
+  await choose('Dagger', 'Delete');
+  await wait(100);
+  check('saved rolls: Delete takes the roll out of the collection and the list', (await settings()).dicePresets.every((preset) => preset.name !== 'Dagger') && !(await names()).includes('Dagger') && await tray.isVisible());
+  // A write Atlas refuses is told.
+  await page.evaluate(() => { window.boardTest.savedState.failing = true; });
+  await choose('Stats', 'Delete');
+  await wait(100);
+  const warned = await page.evaluate(() => window.boardTest.savedState.warnings);
+  check('saved rolls: a write that fails says so in Atlas\'s words and leaves the roll', warned.includes('The saved rolls could not be saved.') && (await names()).includes('Stats'), JSON.stringify(warned));
+  await page.evaluate(() => { window.boardTest.savedState.failing = false; });
+  // A designed roll with a die the board has none of is not thrown as another die.
+  await page.evaluate(() => {
+    const { savedSettings, savedListeners } = window.boardTest;
+    savedSettings.dicePresets = [...savedSettings.dicePresets, { id: 'coin', name: 'Coin', formula: '', look: { dice: [{ count: 1, sides: 3 }], crit: 'natural' } }];
+    for (const listener of [...savedListeners]) listener('c1');
+  });
+  await wait(200);
+  const tableBefore = await page.evaluate(() => window.boardTest.board.dice.object3d.children.length);
+  await card('Coin').locator('.atlas-dice-presets__roll').click();
+  await wait(300);
+  const coin = await page.evaluate(() => ({ dice: window.boardTest.board.dice.object3d.children.length, open: !document.querySelector('.atlas-tabletop-dice-picker').hidden }));
+  check('saved rolls: a roll with a d3 says there is no d3 and throws nothing, the tray staying open', /d3/.test((await message.textContent()) ?? '') && coin.dice === tableBefore && coin.open, JSON.stringify({ coin, message: await message.textContent() }));
+  await shot('saved-rolls-no-d3');
+  // The panel stays out of an Atlas older than 0.18, and of a map in no collection.
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { window.boardTest.savedState.version = '0.17.2'; });
+  await diceButton.click();
+  await wait(300);
+  check('saved rolls: an Atlas older than 0.18 gets no bookmark and no panel', await foot.isHidden() && await panel.isHidden());
+  await tray.locator('[data-die="d6"]').focus();
+  await page.keyboard.press('p');
+  check('saved rolls: nor does P open one', await panel.isHidden());
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { window.boardTest.savedState.version = '0.18.0'; window.boardTest.savedState.collection = null; });
+  await diceButton.click();
+  await wait(300);
+  check('saved rolls: a map in no collection has no saved rolls either', await foot.isHidden() && await panel.isHidden());
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { window.boardTest.savedState.collection = 'c1'; });
+  await diceButton.click();
+  await wait(300);
+  check('saved rolls: back in a collection of Atlas 0.18 they return, the panel as it was left', await foot.isVisible() && await panel.isVisible());
+  await page.keyboard.press('Escape');
+});
+
 // ── Board sounds: minis picked up and put down (here and seen from other boards), doors, wall swaps ───────────────
 feature('mini sounds', async ({ page, shot }) => {
   const heard = () => page.evaluate(() => window.boardTest.sounds.plays.map((play) => ({ id: play[0], delayMs: play[1]?.delayMs ?? 0, at: play[1]?.at ?? null })));

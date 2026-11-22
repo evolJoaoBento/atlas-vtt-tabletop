@@ -15,6 +15,7 @@ import type { LoadedBackground } from '../background/backgroundData';
 import { ItemView, Menu, Modal, Notice, Platform, TFile, TFolder, debounce, setIcon, type App, type EventRef, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
 import { ATLAS_VIEW_TYPE, presentedSceneOf, tabViewOf, type AtlasSceneState, type AtlasView } from '../atlas';
 import { AtlasBridge } from '../atlasBridge';
+import { savedRollsAccess, type SavedRollsAccess } from '../dice/savedRollsAccess';
 import { collectionRulesOf } from '../collectionRulesOf';
 import { BoardAtlasTools } from './boardAtlasTools';
 import { tabletopCommands } from '../palette/tabletopCommands';
@@ -344,7 +345,7 @@ export class BoardView extends ItemView {
     }));
     this.registerEvent(this.app.vault.on('delete', (file) => { if (file.path === this.path) this.leaf.detach(); }));
     // Atlas saved a collection's settings (its units, its diagonal rule, its conditions): the board reads its rules again.
-    this.registerEvent((this.app.workspace as unknown as { on(name: string, callback: () => void): EventRef }).on('atlas-vtt:collection-settings-changed', () => this.reload()));
+    this.registerEvent((this.app.workspace as unknown as { on(name: string, callback: () => void): EventRef }).on('atlas-vtt:collection-settings-changed', () => { if (this.settingsWrites <= 0) this.reload(); }));
     this.registerDomEvent(this.contentEl, 'pointerdown', () => { this.services.focused(this); this.followHost(); }, true);
     // A mouse attached or taken away: the lighting peek's button (a finger's) comes or goes, as Atlas's does.
     {
@@ -678,12 +679,37 @@ export class BoardView extends ItemView {
       setSheetPinned: (pinned) => this.services.setSheetPinned?.(pinned),
       sheetOf: (tokenId) => this.sheetOf(tokenId),
       cardOf: (tokenId) => this.cardOf(tokenId),
+      savedRolls: this.savedRolls(),
     });
     board.cinemaButton({
       live: () => this.studio?.live === true,
       toggleLive: () => this.studio?.toggleLive(),
     });
     return board;
+  }
+
+  /** Collections the board itself is writing saved rolls to: Atlas tells the change, which alters no rule the board reads. */
+  private settingsWrites = 0;
+
+  /** The dice tray's saved rolls: the collection's own, which Atlas 0.18 keeps (`dicePresets`); the tray has none from an older Atlas. */
+  private savedRolls(): SavedRollsAccess {
+    const workspace = this.app.workspace as unknown as { on(name: string, callback: (id: string) => void): EventRef; offref(ref: EventRef): void };
+    return savedRollsAccess({
+      bridge: new AtlasBridge(this.app),
+      mapPath: () => this.path ?? '',
+      changed: (listener) => {
+        const ref = workspace.on('atlas-vtt:collection-settings-changed', listener);
+        return () => workspace.offref(ref);
+      },
+      storage: { load: (key) => this.app.loadLocalStorage(key), save: (key, value) => this.app.saveLocalStorage(key, value) },
+      writing: (_id, on) => { this.settingsWrites += on ? 1 : -1; },
+      menu: (entries, at) => {
+        this.menu?.close();
+        this.menu = new AtlasMenu(this.contentEl.ownerDocument, () => entries, at, (element, name) => setIcon(element, name), () => { this.menu = null; });
+      },
+      icon: (element, name) => setIcon(element, name),
+      warn: (message) => new Notice(`Tabletop: ${message}`),
+    });
   }
 
   /** The sheet of a token's stat block, named as the token when the stat block has no name. */

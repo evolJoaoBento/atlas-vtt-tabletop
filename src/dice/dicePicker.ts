@@ -8,6 +8,8 @@
 import { setSvg } from '../svg';
 import { DIE_TYPES, type DieType } from './kit/faces';
 import { defaultDice, edgeOf, MAX_DICE, type DiceRules, type RollRequest } from './rollRules';
+import { at } from '../atlasPort/atlasText';
+import { BOOKMARK_SVG, SavedRollsPanel, type SavedRollsHost } from './savedRollsPanel';
 
 export type AdvantageSide = NonNullable<RollRequest['advantage']>;
 
@@ -131,6 +133,8 @@ export interface DicePickerOptions {
   onOpenChange?(open: boolean): void;
   /** Opens the board's dice log from the button in the tray. */
   onOpenLog?(): void;
+  /** The collection's saved rolls beside the tray (Atlas 0.18's); left out, the tray has none. */
+  saved?: SavedRollsHost;
 }
 
 /** Lucide's `dices` (ISC): the toolbar's Dice button. */
@@ -163,10 +167,15 @@ export class DicePicker {
   private readonly clear: HTMLButtonElement;
   private readonly swatches: HTMLElement;
   private swatchesFor: DieType | null = null;
+  /** The saved rolls beside the tray, and the bookmark at its foot that opens them. */
+  private readonly saved: SavedRollsPanel | null;
+  private readonly savedButton: HTMLButtonElement | null = null;
   private readonly stops: Array<() => void> = [];
   private readonly onOutside = (event: PointerEvent): void => {
     const target = event.target as Node;
     // The Dice button toggles the tray itself.
+    // A menu of the saved rolls lies in the document, outside the tray, and is the tray's too.
+    if ((target as Element).closest?.('.atlas-ctx-menu')) return;
     if (!this.panel.contains(target) && !this.panel.parentElement?.contains(target)) this.close();
   };
 
@@ -242,6 +251,17 @@ export class DicePicker {
       this.change(emptyPick());
     }, 'Roll');
     this.clear = button('btn btn--outline btn--sm', actions, 'Clear', () => this.change(emptyPick()), 'Clear');
+    this.saved = this.opts.saved ? new SavedRollsPanel(this.panel, this.opts.saved) : null;
+    if (this.saved) {
+      // At the foot's left, before Clear, as in Atlas: its name and key (P) in its tooltip.
+      const saved = this.saved;
+      const toggle = button('btn btn--ghost atlas-dice-tray__foot-icon', actions, at('diceRoll.presetsTitle'), () => { saved.toggle(); this.syncSaved(); });
+      toggle.title = `${at('diceRoll.presetsTitle')} (P)`;
+      toggle.setAttribute('aria-keyshortcuts', 'P');
+      setSvg(toggle, BOOKMARK_SVG);
+      actions.prepend(toggle);
+      this.savedButton = toggle;
+    }
     if (this.opts.onOpenLog) {
       const log = button('btn btn--outline btn--icon atlas-tabletop-dice-tray-log', actions, 'Dice log', () => {
         this.close();
@@ -260,7 +280,19 @@ export class DicePicker {
       event.stopPropagation();
       this.close();
     };
-    this.panel.addEventListener('keydown', (event) => { if (event.key === 'Escape') escape(event); else event.stopPropagation(); });
+    this.panel.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') escape(event);
+      else {
+        // P opens and shuts the saved rolls, as in Atlas's tray; not while a field is being typed in.
+        const typing = (event.target as Element).closest?.('input, textarea') !== null;
+        if (event.key.toLowerCase() === 'p' && !typing && !event.ctrlKey && !event.metaKey && !event.altKey && this.saved?.available) {
+          event.preventDefault();
+          this.saved.toggle();
+          this.syncSaved();
+        }
+        event.stopPropagation();
+      }
+    });
     parent.addEventListener('keydown', escape);
     this.stops.push(() => parent.removeEventListener('keydown', escape));
     this.show();
@@ -274,6 +306,7 @@ export class DicePicker {
     if (this.isOpen) return;
     this.show();
     this.panel.hidden = false;
+    this.syncSaved();
     this.keepInView();
     this.parent.ownerDocument.addEventListener('pointerdown', this.onOutside, true);
     this.opts.onOpenChange?.(true);
@@ -296,6 +329,14 @@ export class DicePicker {
     if (shift !== 0) this.panel.style.setProperty('--atlas-keep-in-view-x', `${Math.round(shift)}px`);
   }
 
+  /** The saved rolls' bookmark and panel as the shelf says now: both stay out where Atlas keeps no saved rolls for this map. */
+  private syncSaved(): void {
+    if (!this.saved || !this.savedButton) return;
+    this.savedButton.hidden = !this.saved.available;
+    this.savedButton.setAttribute('aria-pressed', String(this.saved.isOpen));
+    this.saved.sync();
+  }
+
   /** What Roll lays on the table now; null with no dice picked. */
   request(): RollRequest | null {
     return pickedRequest(this.pick, this.opts.rules());
@@ -309,6 +350,7 @@ export class DicePicker {
   dispose(): void {
     this.close();
     for (const stop of this.stops) stop();
+    this.saved?.dispose();
     this.panel.remove();
   }
 
@@ -392,6 +434,7 @@ export class DicePicker {
     const sideName = applies && this.pick.advantage ? SIDES.find((entry) => entry.value === this.pick.advantage)?.label : undefined;
     this.formula.textContent = formula === '' ? 'The tray is empty.' : sideName ? `${formula} · ${sideName}` : formula;
     this.formula.classList.toggle('atlas-dice-tray__formula--empty', formula === '');
+    this.saved?.setTrayFormula(formula);
     this.roll.disabled = formula === '';
     this.clear.hidden = formula === '' && this.pick.modifier === 0;
   }

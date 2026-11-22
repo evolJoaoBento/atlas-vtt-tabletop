@@ -12,6 +12,8 @@ const toolbarKeys = ['toolbar.fogTool', 'toolbar.fogEraser', 'toolbar.brush', 't
 // The turn banner's words (initiative.ts) and the placeholder name it falls back on (token.ts).
 const initiativeKeys = ['initiative.bannerTurn', 'initiative.bannerRound', 'initiative.combatStarted', 'initiative.combatEnded', 'initiative.side.players', 'initiative.side.opponents'];
 const tokenKeys = ['token.unknownCreature'];
+// The dice tray's saved rolls (diceRoll.ts): the panel's words, as the board's panel shows them.
+const diceKeys = ['diceRoll.presetsTitle', 'diceRoll.presetEdit', 'diceRoll.presetEditShort', 'diceRoll.presetActions', 'diceRoll.presetRoll', 'diceRoll.presetDelete', 'diceRoll.presetName', 'diceRoll.presetFormula', 'diceRoll.presetSave', 'diceRoll.presetNeedsName', 'diceRoll.presetNeedsFormula', 'diceRoll.presetsSaveFailed', 'diceRoll.rowDone'];
 const out = {};
 const keys = new Set();
 for (const lang of ['en', 'ru', 'zh']) {
@@ -22,9 +24,11 @@ for (const lang of ['en', 'ru', 'zh']) {
   const initiative = load(lang, 'initiative'); const token = load(lang, 'token');
   for (const k of initiativeKeys) if (initiative[k] !== undefined) { out[lang][k] = initiative[k]; keys.add(k); }
   for (const k of tokenKeys) if (token[k] !== undefined) { out[lang][k] = token[k]; keys.add(k); }
+  const dice = load(lang, 'diceRoll');
+  for (const k of diceKeys) if (dice[k] !== undefined) { out[lang][k] = dice[k]; keys.add(k); }
 }
-const body = `// Generated from Atlas 0.18's src/app/i18n/locales/{en,ru,zh}/{fog,toolbar,initiative,token}.ts (AGPL-3.0): the fog tool's bars and notices, the
-// toolbar words they share, and the turn banner's words. The synced snapshot (the floor, 0.15) lacks them; a synced text of the same key wins (atlasText.ts).
+const body = `// Generated from Atlas 0.18's src/app/i18n/locales/{en,ru,zh}/{fog,toolbar,initiative,token,diceRoll}.ts (AGPL-3.0): the fog tool's bars and notices, the
+// toolbar words they share, the turn banner's words and the dice tray's saved rolls. The synced snapshot (the floor, 0.15) lacks them; a synced text of the same key wins (atlasText.ts).
 import type { AtlasMessage } from './atlasText';
 
 export const ATLAS_TEXT_FOG: Readonly<Record<string, Readonly<Record<string, AtlasMessage>>>> = ${JSON.stringify(out, null, 2)};

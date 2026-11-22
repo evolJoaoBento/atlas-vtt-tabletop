@@ -8,8 +8,11 @@ Shortcut tasks: each needs the board feature first; then add its id to `ON_BOARD
 since the camera keeps W/A/S/D/Q/E) do nothing for now; for each, decide what it does on the board (a board stand-in, or
 opening Atlas's 2D map with the tool chosen).
 
-1. **Saved rolls** in the board's dice tray (Atlas 0.18).
-2. **The collection's editable dice row** in the board's dice tray (Atlas 0.18).
+1. **The collection's editable dice row** in the board's dice tray (Atlas 0.18).
+2. **Saved rolls, the rest** (Atlas 0.18; the saved rolls panel is done: save, throw, rename, delete, shared with Atlas):
+    the dice editor of a designed roll (each die's faces, name and colour, critical, exploding and advantage rules), the flask that
+    keeps a Dice Lab set as a saved roll, the saved rolls' tour, and the row's pin (arrives with the dice row, item 1). The board's own
+    formula grammar has no written `adv` / `dis` and no `*`, `/` or brackets, so a saved roll using them says why it cannot be thrown.
 3. **Compact and horizontal initiative layouts** (Atlas 0.18's tracker layouts).
 4. **"Forget explored areas"** (Atlas 0.18).
 5. **Connect: tokenless combatants in the Obsidian player scene tab** (the web page shows them; the tab leaves them out).

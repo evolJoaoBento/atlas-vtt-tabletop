@@ -69,6 +69,7 @@ import { DEFAULT_RULES, type RollRequest } from '../src/dice/rollRules';
 import { RollSession } from '../src/dice/rollSession';
 import type { Flick } from '../src/dice/throwInput';
 import { BoardDice } from '../src/dice/boardDice';
+import { savedRollsAccess } from '../src/dice/savedRollsAccess';
 import type { MapViewLike } from '../src/dice/atlasDice';
 import { vendoredPack } from '../src/dice/dicePack';
 import { DiceTextures } from '../src/dice/diceTextures';
@@ -873,7 +874,43 @@ async function main(): Promise<void> {
   const otherAtlas = () => makeAtlas();
   const useAtlasView = (view: MapViewLike) => { current = view; };
   const diceWarnings: string[] = [];
+  // Atlas 0.18's collection of this map, with two saved rolls a GM made in Atlas: designed dice (a coloured fireball) and a formula.
+  const savedSettings: Record<string, unknown> = {
+    dicePresets: [
+      { id: 'fire', name: 'Fireball', formula: '+2', look: { dice: [{ count: 2, sides: 6, colour: '#ff6a00', name: 'Fire' }, { count: 1, sides: 8 }], crit: 'none' } },
+      { id: 'stats', name: 'Stats', formula: '4d6kh3' },
+    ],
+  };
+  const savedState = {
+    version: '0.18.0' as string | null, collection: 'c1' as string | null, failing: false,
+    writes: [] as Array<Record<string, unknown>>, warnings: [] as string[], storage: new Map<string, unknown>(),
+  };
+  const savedListeners = new Set<(id: string) => void>();
+  const savedRolls = savedRollsAccess({
+    bridge: {
+      version: () => savedState.version,
+      collectionFor: () => savedState.collection,
+      collectionSettings: () => savedSettings,
+      updateCollectionSettings: async (id, change) => {
+        if (savedState.failing) throw new Error('disk');
+        savedState.writes.push({ ...change });
+        for (const [key, value] of Object.entries(change)) { if (value === undefined) delete savedSettings[key]; else savedSettings[key] = value; }
+        for (const listener of [...savedListeners]) listener(id);
+        return true;
+      },
+    },
+    mapPath: () => map.path,
+    changed: (listener) => { savedListeners.add(listener); return () => savedListeners.delete(listener); },
+    storage: { load: (key) => savedState.storage.get(key), save: (key, value) => { savedState.storage.set(key, value); } },
+    menu: (entries, at) => {
+      menu?.close();
+      menu = new AtlasMenu(document, () => entries, at, (element, name) => { element.dataset.icon = name; }, () => { menu = null; });
+    },
+    icon: (element, name) => { element.dataset.icon = name; },
+    warn: (message) => { savedState.warnings.push(message); },
+  });
   const boardDice = new BoardDice({
+    savedRolls,
     board,
     container,
     mapPath: () => map.path,
@@ -1122,7 +1159,7 @@ async function main(): Promise<void> {
     await editor.open(folder);
     return editor;
   };
-  Object.assign(window, { boardTest: { bannerSwitch, announce, gmViewSwitch, pointer, hotkeyHelp, backgrounds, backgroundFiles, backgroundsReady, backgroundKit: { DEFAULT_BACKGROUND, emptyLayers, TERRAINS, backgroundFrame }, openBackgroundEditor, closeBackgroundEditor, backgroundEditor: null, studio: cutsceneHarness, api: { cutscene: channel },Board, FreeCamera, fog: { offers: fogOffers, state: fogState, record: () => fogRecord, reset: () => setFog({}) }, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, keptMeasures: () => keptMeasures, clearKeptMeasures: () => { keptMeasures = []; syncKeptMeasures(); }, measureTool: () => measureTool, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, Matrix4: THREE.Matrix4, Quaternion: THREE.Quaternion, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
+  Object.assign(window, { boardTest: { bannerSwitch, announce, gmViewSwitch, pointer, hotkeyHelp, backgrounds, backgroundFiles, backgroundsReady, backgroundKit: { DEFAULT_BACKGROUND, emptyLayers, TERRAINS, backgroundFrame }, openBackgroundEditor, closeBackgroundEditor, backgroundEditor: null, studio: cutsceneHarness, api: { cutscene: channel },Board, FreeCamera, fog: { offers: fogOffers, state: fogState, record: () => fogRecord, reset: () => setFog({}) }, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, savedState, savedSettings, savedListeners, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, keptMeasures: () => keptMeasures, clearKeptMeasures: () => { keptMeasures = []; syncKeptMeasures(); }, measureTool: () => measureTool, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, Matrix4: THREE.Matrix4, Quaternion: THREE.Quaternion, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

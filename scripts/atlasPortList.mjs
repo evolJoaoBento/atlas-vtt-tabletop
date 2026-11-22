@@ -210,6 +210,9 @@ export const NEWER_ENTRIES = [
   'initiative/banner/turnBanner.ts',
   'initiative/banner/fightWatch.ts',
   'initiative/banner/turnBannerElement.ts',
+  // Saved rolls (0.18): the collection's `dicePresets` and `diceRow` as the dice tray reads, changes and writes them, and a roll's look.
+  'react/components/dice/diceShelf.ts',
+  'react/components/dice/presetLook.ts',
 ];
 
 /** Floor files the newer Atlas's version replaces (a superset: it only adds what the fog's room logic needs). */

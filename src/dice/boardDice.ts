@@ -17,13 +17,16 @@ import type { AdvantageSide, PlayerSheet } from '../../packages/atlas-host/src/s
 import type { CardHost } from '../sheets/atlasCard';
 import type { ChosenPack } from './dicePack';
 import { DicePicker } from './dicePicker';
+import { savedRollPlan, type SavedRoll } from './savedRolls';
+import type { SavedRollsAccess } from './savedRollsAccess';
+import type { DiceRules } from './rollRules';
 import { DicePreviews } from './dicePreviews';
 import { DicePrompt } from './dicePrompt';
 import type { TabletopDiceSettings } from './diceSettings';
 import { DiceTable } from './diceTable';
 import { DiceTextures } from './diceTextures';
 import { listenForDiePresses } from './diePress';
-import { DIE_TYPES } from './kit/faces';
+import { DIE_TYPES, type DieType } from './kit/faces';
 import { explainFormula, parseFormula, type RollRequest } from './rollRules';
 import { GENTLE } from './throwInput';
 
@@ -47,7 +50,10 @@ export interface BoardDiceDeps {
   sheetOf?(tokenId: string): Promise<PlayerSheet | null>;
   /** What draws Atlas's own card of a token's stat block, shown in place of the text sheet; null when it links none. */
   cardOf?(tokenId: string): CardHost | null;
+  /** The collection's saved rolls beside the tray (Atlas 0.18's); left out, the tray has none. */
+  savedRolls?: SavedRollsAccess;
 }
+
 
 export class BoardDice {
   readonly picker: DicePicker;
@@ -58,6 +64,8 @@ export class BoardDice {
   private sheetRead = 0;
   /** The statblock ability the roll in play was thrown for; null for the picker's rolls. */
   private rollFrom: { abilityName: string; tokenId: string } | null = null;
+  /** The rules of the saved roll in play (its own dice, with their names); null for any other roll, thrown by the map's. */
+  private rollRules: DiceRules | null = null;
   /** The Atlas map view the log listens on, and how to stop. */
   private heard: { view: MapViewLike; stop: () => void } | null = null;
   private table: DiceTable | null = null;
@@ -97,6 +105,14 @@ export class BoardDice {
       rules: () => this.rules(),
       picture: (die) => this.previews.url(die),
       onOpenLog: () => this.log.open(),
+      ...(deps.savedRolls && {
+        saved: {
+          ...deps.savedRolls,
+          rules: () => this.rules(),
+          roll: (preset) => this.rollSaved(preset),
+          picture: (sides) => this.previews.url(`d${sides}` as DieType),
+        },
+      }),
       onOpenChange: (open) => {
         // The dice's pictures, of the pack chosen now.
         const pack = deps.pack();
@@ -203,12 +219,14 @@ export class BoardDice {
     this.lastResult = null;
     this.controller?.sceneChanged();
     this.rollFrom = null;
+    this.rollRules = null;
   }
 
   /** The GM cleared the table: the dice go; a roll not yet complete is never logged. */
   private clearTable(): void {
     this.lastResult = null;
     this.rollFrom = null;
+    this.rollRules = null;
     if (this.controller) this.controller.clear();
     else this.showPrompt(null);
   }
@@ -250,6 +268,7 @@ export class BoardDice {
     }
     const controller = this.ensureTable();
     this.lastResult = null;
+    this.rollRules = null;
     this.rollFrom = { abilityName: label, tokenId };
     // Auto roll (the board settings' tick): thrown at once, and a die caught on an edge or an explosion thrown again by
     // itself; otherwise the dice lie on the table for the GM to throw.
@@ -272,6 +291,7 @@ export class BoardDice {
   /** The table, its roll and its textures go. */
   private teardown(): void {
     this.rollFrom = null;
+    this.rollRules = null;
     this.controller?.dispose();
     this.controller = null;
     this.table?.dispose();
@@ -309,8 +329,27 @@ export class BoardDice {
     this.picker.close();
     const controller = this.ensureTable();
     this.rollFrom = null;
+    this.rollRules = null;
     this.lastResult = null;
     controller.start(request);
+  }
+
+  /**
+   * A saved roll of the tray's panel, thrown as any roll of the picker is (its dice laid where the camera looks, logged in
+   * Atlas's roll log): a designed roll with its own dice and rules. The reason in words where it cannot be thrown.
+   */
+  private rollSaved(preset: SavedRoll): string | null {
+    if (this.disposed) return null;
+    const plan = savedRollPlan(preset, this.rules());
+    if ('problem' in plan) return plan.problem;
+    this.picker.close();
+    const controller = this.ensureTable();
+    this.rollFrom = null;
+    this.lastResult = null;
+    // The set's own rules stay with the roll while it lies on the table: a die thrown again is logged by them too.
+    this.rollRules = preset.look ? plan.rules : null;
+    controller.start(plan.request, preset.look ? { rules: plan.rules } : {});
+    return null;
   }
 
   /** The table and the roll's controller, made at the first throw, with the pack and settings as they are then. */
@@ -342,7 +381,7 @@ export class BoardDice {
   /** The finished roll to Atlas's roll log, each die's colour named as the picker names it. */
   private publish(result: RollResult): void {
     // Atlas names a die by the name its dice set gives it, never by its colour.
-    const names = setDieNames(this.rules());
+    const names = setDieNames(this.rollRules ?? this.rules());
     const rolls = result.rolls.map((roll) => {
       const name = roll.color ? names.get(roll.color.toLowerCase()) : undefined;
       return name ? { ...roll, colorName: name } : roll;
