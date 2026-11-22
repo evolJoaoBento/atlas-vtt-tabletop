@@ -8578,8 +8578,9 @@ feature('lighting peek', async ({ page, shot }) => {
     const i = e.querySelector('svg').getBoundingClientRect();
     return { w: Math.round(r.width * 10) / 10, h: Math.round(r.height * 10) / 10, bg: c.backgroundColor, color: c.color, radius: c.borderTopLeftRadius, pad: c.paddingLeft, iw: Math.round(i.width * 10) / 10 };
   }, sel);
+  // Atlas 0.19 paints the page slower: the ghost background of a button just let go of is still fading (rgba(255,255,255,0) for transparent) after 300 ms.
   await page.mouse.move(5, 5);
-  await wait(300);
+  await wait(1000);
   const ownLook = await look(btn);
   await page.evaluate((html) => {
     document.querySelector('#atlas-fixture')?.remove();
