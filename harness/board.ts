@@ -662,7 +662,7 @@ async function main(): Promise<void> {
     measureAction: (change) => applyMeasureChange(change),
     measureHotkeys: () => ({ measure: 'M', measureKeep: 'K', gmView: 'Shift + D' }),
     // Atlas's map shortcuts as the shell routes them (src/board/boardAtlasTools.ts): the GM view key, which is Shift + D here.
-    atlasKey: (event) => { const action = boardHotkeyAction(event, (id) => DEFAULT_MAP_HOTKEYS[id] ?? null); return action === 'gmView' ? board.toggleGmView() : action === 'peek' ? board.peek(true, event.key.toLowerCase()) : false; },
+    atlasKey: (event) => { const action = boardHotkeyAction(event, (id) => DEFAULT_MAP_HOTKEYS[id] ?? null); return action === 'gmView' ? board.toggleGmView() : action === 'peek' ? board.peek(true, event.key.toLowerCase()) : action === 'measure' ? board.measureKey(event) : false; },
     gmView: () => gmViewSwitch.on,
     coarsePointer: () => pointer.coarse,
     setGmView: (on) => { if (gmViewSwitch.on === null) return false; gmViewSwitch.on = on; gmViewSwitch.sets.push(on); board.gmViewChanged(); return true; },

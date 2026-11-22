@@ -7981,6 +7981,110 @@ feature('lighting peek', async ({ page, shot }) => {
   await page.evaluate(() => { const t = window.boardTest; t.modes.mode = 'play'; t.pointer.coarse = false; t.board.refreshToolbar(); });
 });
 
+// ── Atlas 0.18's measure key: a tap picks or steps the tool, held with a press on the map it is a quick ruler ──────────
+feature('hold M to measure', async ({ page, shot }) => {
+  const canvas = await page.locator('canvas').first().boundingBox();
+  const [x, y] = [canvas.x + canvas.width * 0.5, canvas.y + canvas.height * 0.5];
+  const state = () => page.evaluate(() => {
+    const { board, measureTool, keptMeasures } = window.boardTest;
+    const actions = board.toolbarActions();
+    return { tool: board.tools.tool, shape: board.tools.shape, on: actions.measureOn(), shown: actions.measureShape(), mode: measureTool().mode, kept: keptMeasures().length, drawn: board.tools.overlay().measure?.shape ?? null, bars: !document.querySelector('.atlas-tabletop-measure-bars')?.hidden };
+  });
+  await page.evaluate(() => {
+    const { board, modes, clearKeptMeasures } = window.boardTest;
+    clearKeptMeasures();
+    modes.on = true; modes.mode = 'play';
+    board.toolbarActions().selectMeasure(null);
+    board.toolbarActions().setMeasureOptions({ mode: 'ruler', keep: false, players: true });
+    board.refreshToolbar();
+    const { canvas } = board; canvas.tabIndex = 0; canvas.focus();
+  });
+  await wait(300);
+  check('hold M: the tool in use at the start is Move', (await state()).tool === 'move');
+
+  // A tap: acts when the key goes up; the measure tool is chosen, and the next tap steps to the next mode.
+  await page.keyboard.down('m');
+  check('hold M: a tap does nothing until the key goes up', (await state()).on === false);
+  await page.keyboard.up('m');
+  const tapped = await state();
+  check('hold M: a tap chooses the measure tool, as before', tapped.on && tapped.tool === 'measure' && tapped.mode === 'ruler', JSON.stringify(tapped));
+  await page.keyboard.press('m');
+  check('hold M: a second tap steps to the next measure mode', (await state()).mode === 'circle', JSON.stringify(await state()));
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => window.boardTest.board.toolbarActions().setMeasureOptions({ mode: 'ruler' }));
+  check('hold M: Escape leaves the tool', (await state()).on === false);
+
+  // Held with a drag from Move: a ruler is drawn, nothing is kept, and Move comes back when key and button are let go.
+  await page.mouse.move(x, y);
+  await page.keyboard.down('m');
+  await page.mouse.down();
+  await page.mouse.move(x + 120, y + 40, { steps: 6 });
+  await wait(300);
+  const during = await state();
+  check('hold M: held with a drag from Move draws a ruler on the measure tool, the bar still showing Move', during.tool === 'measure' && during.drawn === 'ruler' && during.on === false, JSON.stringify(during));
+  await shot('hold-m-ruler');
+  await page.mouse.up();
+  const lifted = await state();
+  check('hold M: the button let go with the key held leaves the tool as the ruler until the key goes', lifted.tool === 'measure' && lifted.drawn === null, JSON.stringify(lifted));
+  await page.keyboard.up('m');
+  const after = await state();
+  check('hold M: the key let go, Move comes back and nothing was kept', after.tool === 'move' && after.on === false && after.kept === 0 && after.mode === 'ruler', JSON.stringify(after));
+
+  // The key let go before the button: the tool waits for the button.
+  await page.keyboard.down('m');
+  await page.mouse.down();
+  await page.mouse.move(x - 100, y + 30, { steps: 4 });
+  await page.keyboard.up('m');
+  check('hold M: the key let go first leaves the ruler going until the button is let go', (await state()).tool === 'measure');
+  await page.mouse.up();
+  const late = await state();
+  check('hold M: the button let go after the key brings Move back', late.tool === 'move' && late.kept === 0, JSON.stringify(late));
+
+  // With the circle chosen and Keep on, the held key is still a plain ruler that keeps nothing, and the circle comes back.
+  await page.evaluate(() => { const { board } = window.boardTest; board.toolbarActions().selectMeasure('circle'); board.toolbarActions().setMeasureOptions({ keep: true }); });
+  await page.mouse.move(x, y);
+  await page.keyboard.down('m');
+  await page.mouse.down();
+  await page.mouse.move(x + 100, y + 20, { steps: 4 });
+  const circle = await state();
+  check('hold M: with the circle chosen, the held key measures a ruler, the bar still showing the circle', circle.drawn === 'ruler' && circle.on && circle.shown === 'circle', JSON.stringify(circle));
+  await page.mouse.up();
+  await page.keyboard.up('m');
+  const back = await state();
+  check('hold M: the circle is chosen again after it, and Keep keeps nothing of the quick ruler', back.tool === 'measure' && back.shape === 'circle' && back.kept === 0 && back.on, JSON.stringify(back));
+  // The chosen tool still keeps what it measures.
+  await page.mouse.down();
+  await page.mouse.move(x + 90, y + 20, { steps: 4 });
+  await page.mouse.up();
+  check('hold M: the chosen circle still keeps its area', (await state()).kept === 1, JSON.stringify(await state()));
+  await page.evaluate(() => { const { board, clearKeptMeasures } = window.boardTest; board.toolbarActions().setMeasureOptions({ keep: false }); board.toolbarActions().selectMeasure(null); clearKeptMeasures(); });
+
+  // Escape while held puts the tool away for good; the window losing its focus ends a hold.
+  await page.keyboard.down('m');
+  await page.mouse.down();
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await page.keyboard.up('m');
+  check('hold M: Escape during the hold leaves Move chosen', (await state()).tool === 'move');
+  await page.keyboard.down('m');
+  await page.mouse.down();
+  await page.mouse.up();
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  check('hold M: the window losing its focus ends the hold', (await state()).tool === 'move');
+  await page.keyboard.up('m');
+  check('hold M: the key let go after that is no tap', (await state()).on === false);
+
+  // Edit mode has no quick ruler: a press with the key held is no ruler.
+  await page.evaluate(() => { const { board, modes } = window.boardTest; modes.mode = 'edit'; board.refreshToolbar(); });
+  await page.keyboard.down('m');
+  await page.mouse.down();
+  const edit = await state();
+  check('hold M: in Edit mode a press with the key held is no quick ruler', edit.drawn === null && edit.tool === 'move', JSON.stringify(edit));
+  await page.mouse.up();
+  await page.keyboard.up('m');
+  await page.evaluate(() => { const { board, modes } = window.boardTest; modes.mode = 'play'; board.toolbarActions().selectMeasure(null); board.refreshToolbar(); });
+});
+
 /** What every feature depends on beside the bundle: this file outside the features, the page, the styles, the runner. */
 function globalHash() {
   let rest = fs.readFileSync(__filename, 'utf8');

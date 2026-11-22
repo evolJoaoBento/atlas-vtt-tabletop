@@ -116,8 +116,10 @@ import { WallSet } from './wallPieces';
 import { LightRig } from './lightRig';
 import { DarknessLayer } from './darkness';
 import { BoardMarks } from './marks';
-import { PlayerToolState, type TemplateChange, type TemplateMark, type TemplateShape, type ToolAction } from './playerTools';
+import { PlayerToolState, type MeasureShape, type PlayerTool, type TemplateChange, type TemplateMark, type TemplateShape, type ToolAction } from './playerTools';
 import { DEFAULT_MEASURE_TOOL, isMeasureShape, type MeasureToolOptions } from './measureOptions';
+import { measureWhileHeld } from '../atlasPort/measureWhileHeld';
+import { nextBoardMeasureMode } from './boardHotkeys';
 import type { MeasureChange } from './boardMeasures';
 import type { FogOperation } from './fog';
 import { isDoor, isWindow, NO_FLIP, segmentFrame, wholeWall, windowSpan, type BoardLight, type BoardWall, type DoorFlip, type WindowSpan } from './walls';
@@ -1109,8 +1111,8 @@ export class Board {
         this.host.saveWaterMotion?.(motion, liquid);
         this.wake();
       },
-      measureOn: () => this.tools.tool === 'measure',
-      measureShape: () => this.tools.shape,
+      measureOn: () => (this.heldRuler?.tool ?? this.tools.tool) === 'measure',
+      measureShape: () => this.heldRuler?.shape ?? this.tools.shape,
       selectMeasure: (shape) => {
         if (shape !== null) {
           this.fogTool?.setOn(false);
@@ -3064,6 +3066,70 @@ export class Board {
     return true;
   }
 
+  /**
+   * Atlas's Measure key (`measureWhileHeld`), pressed: a tap, acted on when the key goes up, chooses the tool (in Play mode, switching to
+   * it) or, with the tool chosen, steps to its next mode. Held while the map is pressed it is a quick ruler (the measure tool, a plain
+   * ruler, nothing kept) and the tool in use comes back once key and button are up. Where the board cannot take a quick ruler (Edit mode,
+   * the fog tool, a token's eyes) a press is no ruler and the key is a tap. True: the key is the board's.
+   */
+  measureKey(event: KeyboardEvent): boolean {
+    measureWhileHeld(event, {
+      onMap: (target) => this.canHoldRuler(target),
+      tap: () => this.measureTap(),
+      press: () => this.holdRuler(),
+      release: () => this.releaseRuler(),
+    });
+    return true;
+  }
+
+  private measureTap(): void {
+    const actions = this.toolbarActions();
+    if (!actions.measureOn?.()) { this.goToToolbar('measure'); return; }
+    const options = actions.measureOptions?.();
+    if (!options) return;
+    const ranges = actions.rangesUnavailable !== undefined && actions.rangesUnavailable() === null;
+    const next = nextBoardMeasureMode(options.mode, ranges);
+    if (isMeasureShape(next)) actions.selectMeasure?.(next);
+    else actions.setMeasureOptions?.({ mode: next });
+    this.refreshToolbar();
+  }
+
+  /** The tool that waits while Atlas's measure key is held for a quick ruler (`heldRulerFrom`), with the measure shape it had. */
+  private heldRuler: { tool: PlayerTool; shape: MeasureShape } | null = null;
+
+  /**
+   * Whether a press on `target` may be a quick ruler, as Atlas's held measure key makes it: the GM's board in Play mode with
+   * no tool of Edit mode (fog, water, props, shapes), laser or view through a token's eyes in the way. Elsewhere the key is a tap.
+   */
+  canHoldRuler(target: EventTarget | null): boolean {
+    if (this.audience !== 'gm' || target !== this.canvas || this.eye) return false;
+    const mode = this.host.boardMode?.() ?? null;
+    if (mode === 'edit' || mode === 'cinematic') return false;
+    return !this.laserOn && !this.fogTool?.on && !this.waterTool && !this.placing && !this.painting && this.shapeEditor?.active !== true;
+  }
+
+  /**
+   * The measure key held with a press on the map (Atlas's `holdRuler`): the measure tool takes the press as a ruler that is never
+   * kept, and the tool in use waits, still the one the bar shows. Pressed again while held, the first tool still waits.
+   */
+  holdRuler(): void {
+    this.heldRuler ??= { tool: this.tools.tool, shape: this.tools.shape };
+    this.tools.tool = 'measure';
+    this.tools.shape = 'ruler';
+  }
+
+  /** Key and button are let go (Atlas's `releaseRuler`): the tool that waited comes back, unless another was picked meanwhile. */
+  releaseRuler(): void {
+    const from = this.heldRuler;
+    if (from === null) return;
+    this.heldRuler = null;
+    if (this.tools.tool !== 'measure') return;
+    this.tools.cancel();
+    this.tools.tool = from.tool;
+    this.tools.shape = from.shape;
+    this.showToolOverlay();
+  }
+
   /** A key was let go: ends the peek that key holds. */
   private peekKeyUp(key: string): void {
     if (this.peeking && this.peekKey !== null && this.peekKey === key.toLowerCase()) this.peek(false);
@@ -4622,7 +4688,8 @@ export class Board {
       this.act(actions);
       if (pendingMeasure && at) {
         const opts = this.measureOptions();
-        if (opts.keep) {
+        // The quick ruler of the held measure key keeps nothing, whatever Keep says.
+        if (opts.keep && this.heldRuler === null) {
           const cell = this.map?.grid.size ?? 70;
           const points = pendingMeasure.shape === 'ruler'
             ? [pendingMeasure.start, ...(pendingMeasure.waypoints ?? []), at]
