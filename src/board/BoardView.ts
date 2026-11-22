@@ -55,6 +55,7 @@ import { SpellAskModal } from '../spellAskModal';
 import { conditionChange, conditionStep, resetChange, type ConditionFields } from './tokenEdits';
 import { currentTokenIds, delayedTokens, emptyInitiative, ownModifier, readInitiative, statblockModifier, turnAnnouncement, type InitiativeAction, type InitiativeState } from './initiative';
 import { InitiativePanel, type InitiativePanelHost } from './initiativePanel';
+import { trackerCompact, trackerOptionEntries } from './trackerOptions';
 import { bannerStateOf, TurnAnnouncer, turnBannerEnabled, type TurnBannerState } from './turnBanner';
 import { wholeWall, isWindow, mirroredDoor, rotatedDoor, windowSpan, WINDOW_STEP, type DoorFlip } from './walls';
 import { extrasOf, readLightHeight, readWallExtra, type RecordExtras, type WallExtraChange } from './recordExtras';
@@ -376,6 +377,8 @@ export class BoardView extends ItemView {
       this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => { if (leaf === this.leaf) this.followHost(); }));
     }
     this.initiative = new InitiativePanel(this.contentEl, this.initiativeHost());
+    // The Compact view and Turn banner switches are Atlas's own settings: a change made in Atlas's map or here redraws the tracker.
+    this.register(new AtlasBridge(this.app).onSettingsChange(() => { this.initiative?.render(); }));
     this.studio = new CutsceneStudio(this.contentEl, this.studioHost());
     // Atlas's scene tabs over the board: switch scenes here, and present one with its eye, as in Atlas.
     this.sceneTabs = new SceneTabBar(this.contentEl, {
@@ -2508,6 +2511,8 @@ export class BoardView extends ItemView {
         const vision = held.vision as Record<string, unknown> | undefined;
         return side === 'players' && vision?.enabled !== true ? { side, vision: { ...vision, enabled: true } } : { side };
       }, 'side change'),
+      compact: () => trackerCompact(new AtlasBridge(this.app).settings()),
+      options: () => trackerOptionEntries(new AtlasBridge(this.app).settings()),
       showToken: (id) => this.board?.showToken(id),
       menu: (entries, at) => {
         this.menu?.close();

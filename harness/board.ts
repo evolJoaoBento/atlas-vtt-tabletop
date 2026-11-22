@@ -39,6 +39,7 @@ import { readInitiative, type InitiativeAction } from '../src/board/initiative';
 import { applyInitiative } from './fakeTracker';
 import { InitiativePanel } from '../src/board/initiativePanel';
 import { bannerStateOf, TurnAnnouncer } from '../src/board/turnBanner';
+import { trackerCompact, trackerOptionEntries, type TrackerSettings } from '../src/board/trackerOptions';
 import { NO_FLIP, type BoardWall, type DoorFlip } from '../src/board/walls';
 import { materialDrag, type LoadedMaterial } from '../src/materials';
 import { parseMini, type LoadedMini } from '../src/library';
@@ -790,7 +791,26 @@ async function main(): Promise<void> {
     if (now) board.changeToken(id, { ...now, ...fields });
     panel.render();
   };
+  /**
+   * Atlas's settings service as the tracker's options see it: the Compact view and the Turn banner are Atlas's own switches,
+   * kept here; `without` names members an older Atlas (0.15) lacks. A change redraws the tracker, as BoardView's listener does.
+   */
+  const trackerSettings = {
+    compact: false,
+    without: new Set<string>(),
+    members(): TrackerSettings | null {
+      const all: TrackerSettings = {
+        showsCompactInitiative: () => this.compact,
+        setCompactInitiative: (on) => { this.compact = on; panel.render(); },
+        initiativeTurnOptions: () => ({ banner: bannerSwitch.on, movesOnTurn: false }),
+        setInitiativeTurnOptions: (changes) => { if (changes.banner !== undefined) bannerSwitch.on = changes.banner; },
+      };
+      return Object.fromEntries(Object.entries(all).filter(([name]) => !this.without.has(name))) as TrackerSettings;
+    },
+  };
   const panel = new InitiativePanel(container, {
+    compact: () => trackerCompact(trackerSettings.members()),
+    options: () => trackerOptionEntries(trackerSettings.members()),
     state: () => shownMap().initiative,
     rules: () => rules.initiative,
     tokens: () => shownMap().tokens,
@@ -1159,7 +1179,7 @@ async function main(): Promise<void> {
     await editor.open(folder);
     return editor;
   };
-  Object.assign(window, { boardTest: { bannerSwitch, announce, gmViewSwitch, pointer, hotkeyHelp, backgrounds, backgroundFiles, backgroundsReady, backgroundKit: { DEFAULT_BACKGROUND, emptyLayers, TERRAINS, backgroundFrame }, openBackgroundEditor, closeBackgroundEditor, backgroundEditor: null, studio: cutsceneHarness, api: { cutscene: channel },Board, FreeCamera, fog: { offers: fogOffers, state: fogState, record: () => fogRecord, reset: () => setFog({}) }, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, savedState, savedSettings, savedListeners, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, keptMeasures: () => keptMeasures, clearKeptMeasures: () => { keptMeasures = []; syncKeptMeasures(); }, measureTool: () => measureTool, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, Matrix4: THREE.Matrix4, Quaternion: THREE.Quaternion, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
+  Object.assign(window, { boardTest: { trackerSettings, bannerSwitch, announce, gmViewSwitch, pointer, hotkeyHelp, backgrounds, backgroundFiles, backgroundsReady, backgroundKit: { DEFAULT_BACKGROUND, emptyLayers, TERRAINS, backgroundFrame }, openBackgroundEditor, closeBackgroundEditor, backgroundEditor: null, studio: cutsceneHarness, api: { cutscene: channel },Board, FreeCamera, fog: { offers: fogOffers, state: fogState, record: () => fogRecord, reset: () => setFog({}) }, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, savedState, savedSettings, savedListeners, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, keptMeasures: () => keptMeasures, clearKeptMeasures: () => { keptMeasures = []; syncKeptMeasures(); }, measureTool: () => measureTool, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, Matrix4: THREE.Matrix4, Quaternion: THREE.Quaternion, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

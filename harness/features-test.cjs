@@ -2242,6 +2242,100 @@ feature('initiative tokenless entries', async ({ page, shot }) => {
   await shot('initiative-tokenless');
 });
 
+// ── Atlas 0.18's tracker options: the Compact view and the Turn banner, Atlas's own shared settings ─────────────
+feature('initiative compact layout and options menu', async ({ page, shot }) => {
+  const prepare = () => page.evaluate(() => {
+    const { board, panel, trackerSettings, bannerSwitch } = window.boardTest;
+    trackerSettings.compact = false; trackerSettings.without.clear(); bannerSwitch.on = true;
+    const init = board.map.initiative;
+    init.entries.forEach((entry) => { entry.isActive = entry.id === 'e-gob'; });
+    init.isActive = true; init.round = 2; init.currentIndex = init.entries.findIndex((entry) => entry.id === 'e-gob');
+    panel.setOpen(true);
+    panel.render();
+  });
+  const look = () => page.evaluate(() => {
+    const tracker = document.querySelector('.tabletop-initiative-tracker');
+    const rect = tracker.getBoundingClientRect();
+    const first = tracker.querySelector('.tabletop-initiative-card');
+    const cards = [...tracker.querySelectorAll('.tabletop-initiative-card')];
+    return {
+      compact: tracker.classList.contains('tabletop-initiative-tracker--compact'), width: Math.round(rect.width), rect: rect.toJSON(),
+      grid: first ? getComputedStyle(first).display : null, height: first ? Math.round(first.getBoundingClientRect().height) : 0,
+      names: cards.map((card) => card.querySelector('.tabletop-initiative-card__name')?.textContent ?? null),
+      numbers: cards.map((card) => card.querySelector('.tabletop-initiative-card__initiative')?.textContent ?? null),
+      backdrops: cards.filter((card) => card.querySelector('.tabletop-initiative-card__backdrop img')).length, portraits: cards.filter((card) => card.querySelector('.atlas-token-portrait')).length,
+      cards: cards.length, activeCards: cards.filter((card) => card.classList.contains('tabletop-initiative-card--active')).length,
+      options: !!tracker.querySelector('.tabletop-initiative-tracker__btn--options'),
+    };
+  });
+  const rows = () => page.evaluate(() => [...document.querySelectorAll('.atlas-ctx-item')].map((row) => ({ text: row.textContent, checked: row.getAttribute('aria-checked'), icon: row.querySelector('.atlas-ctx-icon')?.dataset.icon ?? null, title: row.title })));
+  const openOptions = async () => { await page.locator('.tabletop-initiative-tracker__btn--options').click(); await wait(150); };
+
+  await prepare();
+  await wait(200);
+  const before = await look();
+  check('28 the tracker starts as today: tiles in a 96 px column, with an options button', !before.compact && before.width === 96 && before.portraits === before.cards && before.options, JSON.stringify(before));
+  await shot('initiative-tiles');
+
+  await openOptions();
+  const menu = await rows();
+  check('28 the options menu holds Atlas rows: Compact view (list icon) and Turn banner (flag icon), with their hints, then Reset and Clear as Atlas 0.18 has them', menu.length === 4 && menu[2].text === 'Reset initiative' && menu[2].icon === 'rotate-ccw' && menu[3].text === 'Clear initiative' && menu[3].icon === 'trash-2' && menu[0].text === 'Compact view' && menu[0].icon === 'list' && /plain list without portraits/.test(menu[0].title) && menu[1].text === 'Turn banner' && menu[1].icon === 'flag' && /whose turn it is/.test(menu[1].title), JSON.stringify(menu));
+  check('28 Compact view is off and Turn banner on, as Atlas has them', menu[0].checked === 'false' && menu[1].checked === 'true', JSON.stringify(menu));
+  await shot('initiative-options-menu');
+  check('28 with the menu, Reset and Clear are no longer buttons in the narrow tracker', (await page.locator('.tabletop-initiative-tracker__controls button').count()) === 3, String(await page.locator('.tabletop-initiative-tracker__controls button').count()));
+
+  // Compact view: Atlas's setting is written, and the tracker is the list of lines.
+  await page.locator('.atlas-ctx-item', { hasText: 'Compact view' }).click();
+  await wait(300);
+  const compact = await look();
+  const written = await page.evaluate(() => window.boardTest.trackerSettings.compact);
+  check('28 choosing Compact view writes the Atlas setting', written === true);
+  check('28 the tracker becomes the compact list: 216 px wide, a grid line of 34 px per combatant, names beside the numbers', compact.compact && compact.width === 216 && compact.grid === 'grid' && compact.height === 34 && compact.names.every((name) => name && name.length > 0) && compact.numbers.length === compact.cards, JSON.stringify(compact));
+  check('28 the compact line has the token art behind it and no portrait tile; the turn line is marked', compact.portraits === 0 && compact.backdrops > 0 && compact.activeCards === 1, JSON.stringify(compact));
+  check('28 the compact tracker stays inside the board, clear of the top bars', compact.rect.right <= 1000 && compact.rect.left > 600 && compact.rect.top >= 60 && compact.rect.bottom <= 600, JSON.stringify(compact.rect));
+  await page.mouse.move(5, 5);
+  await shot('initiative-compact');
+
+  // The menu follows the setting; Turn banner switches Atlas's banner setting off and on.
+  await openOptions();
+  const after = await rows();
+  check('28 reopened, the menu shows Compact view checked', after[0].checked === 'true' && after[1].checked === 'true', JSON.stringify(after));
+  await page.locator('.atlas-ctx-item', { hasText: 'Turn banner' }).click();
+  await wait(150);
+  check('28 choosing Turn banner switches the Atlas banner setting off', (await page.evaluate(() => window.boardTest.bannerSwitch.on)) === false);
+  await openOptions();
+  check('28 and the row shows it unchecked', (await rows())[1].checked === 'false');
+  await page.locator('.atlas-ctx-item', { hasText: 'Turn banner' }).click();
+  await wait(150);
+  check('28 choosing it again switches it on', (await page.evaluate(() => window.boardTest.bannerSwitch.on)) === true);
+
+  // Atlas's own change (its map's menu) is the board's too: the setting is the one place.
+  await page.evaluate(() => { window.boardTest.trackerSettings.compact = false; window.boardTest.panel.render(); });
+  check('28 Atlas turning Compact view off turns the tracker back into tiles', !(await look()).compact);
+
+  // A long name is clipped inside its line.
+  await page.evaluate(() => { window.boardTest.trackerSettings.compact = true; window.boardTest.panel.render(); });
+  await wait(200);
+  await page.evaluate(() => {
+    const first = document.querySelector('.tabletop-initiative-card .tabletop-initiative-card__name');
+    if (first) first.textContent = 'A combatant with a very long name indeed';
+  });
+  const clipped = await page.evaluate(() => { const name = document.querySelector('.tabletop-initiative-card__name'); return { overflow: getComputedStyle(name).textOverflow, fits: name.getBoundingClientRect().right <= name.closest('.tabletop-initiative-card').getBoundingClientRect().right }; });
+  check('28 a long name is clipped with an ellipsis inside the line', clipped.overflow === 'ellipsis' && clipped.fits, JSON.stringify(clipped));
+  await shot('initiative-compact-long-name');
+
+  // Atlas 0.15 has the banner switch but no Compact view: one row. An Atlas with neither: no options button.
+  await page.evaluate(() => { const { trackerSettings, panel } = window.boardTest; trackerSettings.compact = false; trackerSettings.without = new Set(['showsCompactInitiative', 'setCompactInitiative']); panel.render(); });
+  await openOptions();
+  const older = await rows();
+  check('28 an Atlas without the Compact view setting offers only Turn banner, and the tracker stays tiles', older.length === 3 && older[0].text === 'Turn banner' && older[2].text === 'Clear initiative' && !(await look()).compact, JSON.stringify(older));
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { const { trackerSettings, panel } = window.boardTest; trackerSettings.without = new Set(['showsCompactInitiative', 'setCompactInitiative', 'initiativeTurnOptions', 'setInitiativeTurnOptions']); panel.render(); });
+  const none = await look();
+  check('28 with neither setting there is no options button, and Reset and Clear stay buttons: the layout as before', !none.options && !none.compact && none.width === 96 && (await page.locator('.tabletop-initiative-tracker__controls [aria-label="Clear initiative"]').count()) === 1 && (await page.locator('.tabletop-initiative-tracker__controls [aria-label="Reset initiative"]').count()) === 1, JSON.stringify(none));
+  await page.evaluate(() => { const { trackerSettings, panel } = window.boardTest; trackerSettings.without.clear(); trackerSettings.compact = false; panel.render(); });
+});
+
 feature('command palette', async ({ page, shot }) => {
   await page.evaluate(() => window.boardTest.palette.open());
   const win = page.locator('.atlas-tabletop-atlas-ui .atlas-command-palette-window');

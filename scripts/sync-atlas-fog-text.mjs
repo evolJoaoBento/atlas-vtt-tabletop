@@ -9,8 +9,9 @@ function load(lang, file) {
   return new Function(`${src}; return ${name};`)();
 }
 const toolbarKeys = ['toolbar.fogTool', 'toolbar.fogEraser', 'toolbar.brush', 'toolbar.lasso', 'toolbar.rectangle', 'toolbar.snap', 'toolbar.constrain', 'toolbar.gmView', 'toolbar.sessionView', 'toolbar.peek'];
-// The turn banner's words (initiative.ts) and the placeholder name it falls back on (token.ts).
-const initiativeKeys = ['initiative.bannerTurn', 'initiative.bannerRound', 'initiative.combatStarted', 'initiative.combatEnded', 'initiative.side.players', 'initiative.side.opponents'];
+// The turn banner's words and the tracker options menu's rows (initiative.ts) and the placeholder name it falls back on (token.ts).
+const initiativeKeys = ['initiative.bannerTurn', 'initiative.bannerRound', 'initiative.combatStarted', 'initiative.combatEnded', 'initiative.side.players', 'initiative.side.opponents',
+  'initiative.compact', 'initiative.compactHint', 'initiative.turnBanner', 'initiative.turnBannerHint', 'initiative.options', 'initiative.resetNumbers', 'initiative.resetNumbersHint', 'initiative.clear'];
 const tokenKeys = ['token.unknownCreature'];
 // The dice tray's saved rolls (diceRoll.ts): the panel's words, as the board's panel shows them.
 const diceKeys = ['diceRoll.presetsTitle', 'diceRoll.presetEdit', 'diceRoll.presetEditShort', 'diceRoll.presetActions', 'diceRoll.presetRoll', 'diceRoll.presetDelete', 'diceRoll.presetName', 'diceRoll.presetFormula', 'diceRoll.presetSave', 'diceRoll.presetNeedsName', 'diceRoll.presetNeedsFormula', 'diceRoll.presetsSaveFailed', 'diceRoll.rowDone',

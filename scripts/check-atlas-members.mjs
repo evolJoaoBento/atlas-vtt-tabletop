@@ -49,6 +49,9 @@ const MEMBERS = [
   ['setDragDistance', 'atlasBridge.ts (settings service)'],
   ['getDiceVolume', 'atlasBridge.ts (settings service)'],
   ['initiativeTurnOptions', 'turnBanner.ts (settings service: the Turn banner switch; absent = on)'],
+  ['setInitiativeTurnOptions', 'trackerOptions.ts (settings service: the Turn banner row of the tracker menu; absent = no row)'],
+  ['showsCompactInitiative', 'trackerOptions.ts (settings service: the Compact view; absent = no row)'],
+  ['setCompactInitiative', 'trackerOptions.ts (settings service: the Compact view; absent = no row)'],
   // The fog tool (tokenWriter.ts, atlasBridge.ts): Atlas 0.15 has addFogOperation and clearFog; the rest is 0.17-0.18's (optional).
   ['insertMapObjects', 'tokenWriter.ts (store action: paste)'],
   ['duplicateMapObjects', 'tokenWriter.ts (store action: duplicate)'],

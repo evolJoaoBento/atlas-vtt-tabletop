@@ -41,6 +41,10 @@ export interface AtlasSettingsService {
   setDragDistance?(choice: DragDistance): void;
   /** What a turn change does (Atlas 0.8 on): the turn banner is on unless `banner` is false. */
   initiativeTurnOptions?(): { banner?: boolean; movesOnTurn?: boolean };
+  setInitiativeTurnOptions?(changes: { banner?: boolean; movesOnTurn?: boolean }): void;
+  /** Atlas 0.18: whether the GM's tracker is the compact list (a setting shared with Atlas's map). */
+  showsCompactInitiative?(): boolean;
+  setCompactInitiative?(on: boolean): void;
   getDiceVolume?(): unknown;
   onChange?(listener: () => void): () => void;
   [member: string]: unknown;
