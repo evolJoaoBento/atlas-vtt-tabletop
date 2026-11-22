@@ -593,6 +593,7 @@ async function main(): Promise<void> {
     copyTokens: async (ids) => { record.clip.push(['copy', [...ids]]); return true; },
     cutTokens: async (ids) => { record.clip.push(['cut', [...ids]]); return true; },
     pasteTokens: async (at) => { record.clip.push(['paste', { ...at }]); return ['hero', 'orc']; },
+    duplicateTokens: async (ids) => { record.clip.push(['duplicate', [...ids]]); return [...ids]; },
     moveProp: (id, x, y) => { record.propMoves.push([id, x, y]); },
     scaleProp: (id, scale) => { record.propScales.push([id, scale]); },
     liftProp: (id, lift) => { record.propLifts.push([id, lift]); },

@@ -61,6 +61,8 @@ export interface AtlasSceneState {
   /** Atlas's copy, cut and paste: take objects off (a token's auras go with it), and put detached copies on (the new ids; they become the selection). */
   removeMapObjects?: (ids: string[]) => void;
   insertMapObjects?: (content: unknown) => string[];
+  /** Atlas's Duplicate: copies of the objects one cell aside, selected; the new ids. */
+  duplicateMapObjects?: (ids: string[]) => string[];
   /** Atlas's initiative tracker: its state, opening it, and its actions (0.8.0's; an older Atlas lacks some). */
   initiative?: { entries: Array<{ id: string; tokenId: string }> };
   initiativeTrackerOpen?: boolean;

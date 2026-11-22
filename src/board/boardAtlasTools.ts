@@ -144,6 +144,7 @@ export class BoardAtlasTools {
       case 'copy': return board.copySelection();
       case 'cut': return board.cutSelection();
       case 'paste': return board.pasteSelection();
+      case 'duplicate': return board.duplicateSelection();
       case 'fog': return board.toggleFogTool();
       case 'brushSmaller': return board.stepFogBrush(-1, event.repeat);
       case 'brushLarger': return board.stepFogBrush(1, event.repeat);

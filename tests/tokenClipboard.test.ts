@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { copyTokens, cutTokens, holdsTokenClipboard, pasteTokens } from '../src/board/tokenClipboard';
+import { copyTokens, cutTokens, duplicateTokens, holdsTokenClipboard, pasteTokens } from '../src/board/tokenClipboard';
 import { TokenWriter } from '../src/board/tokenWriter';
 import { fakeAtlas } from './fakeAtlasStore';
 
@@ -95,4 +95,42 @@ test('an Atlas without the paste action refuses it with a reason, and writes not
 test('an Atlas without the remove action refuses a cut before copying anything', async () => {
   const { writer } = atlasWithClipboard({ removeMapObjects: undefined });
   await assert.rejects(cutTokens(writer, 'm.atlasmap', ['a']), /cut/);
+});
+
+test('duplicate steps the copies one diagonal cell aside, with fresh ids, in one write, and leaves the clipboard alone', async () => {
+  const { atlas, tokens, writer } = atlasWithClipboard();
+  const ids = await duplicateTokens(writer, 'm.atlasmap', ['a', 'b']);
+  assert.equal(ids.length, 2);
+  assert.ok(ids.every((id) => !['a', 'b', 'c'].includes(id)), 'fresh ids');
+  assert.deepEqual(ids.map((id) => [tokens[id]!.x, tokens[id]!.y]), [[175, 175], [275, 175]]);
+  assert.equal(atlas.calls.filter(([name]) => name === 'insertMapObjects').length, 1, 'one write, so one undo step');
+  assert.equal(Object.keys(tokens).length, 5, 'the originals stay');
+});
+
+test('duplicating again fans out instead of stacking', async () => {
+  const { tokens, writer } = atlasWithClipboard();
+  const once = await duplicateTokens(writer, 'm.atlasmap', ['a']);
+  const twice = await duplicateTokens(writer, 'm.atlasmap', ['a']);
+  assert.notDeepEqual([tokens[once[0]!]!.x, tokens[once[0]!]!.y], [tokens[twice[0]!]!.x, tokens[twice[0]!]!.y]);
+});
+
+test('duplicate ignores ids that are no token, and does nothing with none', async () => {
+  const { atlas, writer } = atlasWithClipboard();
+  assert.deepEqual(await duplicateTokens(writer, 'm.atlasmap', ['nope']), []);
+  assert.deepEqual(await duplicateTokens(writer, 'm.atlasmap', []), []);
+  assert.deepEqual(atlas.calls, []);
+});
+
+test("duplicate uses Atlas's own action when the store has one", async () => {
+  const seen: string[][] = [];
+  const { atlas, writer } = atlasWithClipboard({ duplicateMapObjects: (ids: string[]): string[] => { seen.push(ids); return ['n1']; } });
+  assert.deepEqual(await duplicateTokens(writer, 'm.atlasmap', ['a', 'zzz']), ['n1']);
+  assert.deepEqual(seen, [['a']]);
+  assert.deepEqual(atlas.calls, []);
+});
+
+test('an Atlas with neither duplicate nor insert action refuses with a reason', async () => {
+  const { atlas, writer } = atlasWithClipboard({ insertMapObjects: undefined });
+  await assert.rejects(duplicateTokens(writer, 'm.atlasmap', ['a']), /duplicate/);
+  assert.deepEqual(atlas.calls, []);
 });

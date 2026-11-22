@@ -29,6 +29,11 @@ export async function cutTokens(writer: TokenWriter, path: string, ids: readonly
   return true;
 }
 
+/** Duplicates the tokens one cell aside (Atlas's Duplicate; the clipboard is left alone); the ids of the copies. */
+export function duplicateTokens(writer: TokenWriter, path: string, ids: readonly string[]): Promise<string[]> {
+  return writer.duplicateTokens(path, ids);
+}
+
 /** Pastes the copied tokens centred on `target` (map pixels); the ids of the copies, none when nothing is on the clipboard. */
 export async function pasteTokens(writer: TokenWriter, path: string, target: { x: number; y: number }): Promise<string[]> {
   const copied = await readMapClipboard();

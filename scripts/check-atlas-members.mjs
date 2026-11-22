@@ -50,6 +50,7 @@ const MEMBERS = [
   ['getDiceVolume', 'atlasBridge.ts (settings service)'],
   // The fog tool (tokenWriter.ts, atlasBridge.ts): Atlas 0.15 has addFogOperation and clearFog; the rest is 0.17-0.18's (optional).
   ['insertMapObjects', 'tokenWriter.ts (store action: paste)'],
+  ['duplicateMapObjects', 'tokenWriter.ts (store action: duplicate)'],
   ['removeMapObjects', 'tokenWriter.ts (store action: cut)'],
   ['addFogOperation', 'tokenWriter.ts (store action)'],
   ['clearFog', 'tokenWriter.ts (store action)'],

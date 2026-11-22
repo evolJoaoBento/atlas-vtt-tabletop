@@ -20,7 +20,7 @@ import type { ExtrasMove } from './extrasMigration';
 import { moveOf, type StackPlan } from './stackMove';
 import { resolveLevel, type BoardLevel } from './levels';
 import { collectMapObjects, countMapObjects, type MapObjectContent } from '../atlasPort/app/clipboard/mapObjectContent';
-import { pasteOffset, placeMapObjects } from '../atlasPort/app/clipboard/mapObjectPlacement';
+import { duplicateStep, pasteOffset, placeMapObjects } from '../atlasPort/app/clipboard/mapObjectPlacement';
 import { levelObjects } from '../atlasPort/app/levels/levelObjects';
 import type { GridState } from '../atlasPort/shims/atlasTypes';
 
@@ -687,6 +687,26 @@ export class TokenWriter {
     const existing = { tokens: there.tokens ?? {}, drawings: there.drawings ?? {}, texts: there.texts ?? {}, pins: there.pins ?? {}, levelLinks: there.levelLinks };
     const placed = placeMapObjects(content, pasteOffset(content, target, grid), grid, existing as never);
     return state.insertMapObjects(placed);
+  }
+
+  /**
+   * Atlas's Duplicate: copies of these tokens one diagonal cell aside (stepping on while a copy would sit on an identical
+   * token), fresh ids, numbered, in one write (one undo step); Atlas's `duplicateMapObjects` does it when the store has it,
+   * else its parts do (`insertMapObjects` with the ported placement). Returns the copies' ids, none when no id is a token.
+   */
+  async duplicateTokens(path: string, ids: readonly string[]): Promise<string[]> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.store(path);
+    const tokens = ids.filter((id) => Object.hasOwn(state.objects?.tokens ?? {}, id));
+    if (tokens.length === 0) return [];
+    if (state.duplicateMapObjects) return state.duplicateMapObjects(tokens);
+    if (!state.insertMapObjects) throw TokenWriter.missing('way to duplicate tokens');
+    const content = await this.tokensToCopy(path, tokens);
+    if (!content) return [];
+    const grid = (state.grid ?? null) as GridState | null;
+    const there = levelObjects(state as unknown as Parameters<typeof levelObjects>[0]) as unknown as { tokens?: object; drawings?: object; texts?: object; pins?: object; levelLinks?: object };
+    const existing = { tokens: there.tokens ?? {}, drawings: there.drawings ?? {}, texts: there.texts ?? {}, pins: there.pins ?? {}, levelLinks: there.levelLinks };
+    return state.insertMapObjects(placeMapObjects(content, duplicateStep(grid), grid, existing as never));
   }
 
   /** Deletes the token from the map. */

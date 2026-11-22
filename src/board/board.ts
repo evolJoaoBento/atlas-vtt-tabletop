@@ -275,6 +275,7 @@ export interface BoardHost {
   copyTokens?(ids: readonly string[]): Promise<boolean>;
   cutTokens?(ids: readonly string[]): Promise<boolean>;
   pasteTokens?(at: { x: number; y: number }): Promise<readonly string[]>;
+  duplicateTokens?(ids: readonly string[]): Promise<readonly string[]>;
   /** Several tokens turned (degrees, 0 to 360); a host without it cannot turn a group. */
   rotateTokens?(turns: ReadonlyArray<{ id: string; rotation: number }>): void;
   moveProp(id: string, x: number, y: number): void;
@@ -5990,6 +5991,14 @@ export class Board {
     if (this.audience !== 'gm' || !this.host.pasteTokens) return false;
     const at = this.pointerAt ? this.boardPoint(this.pointerAt.x, this.pointerAt.y) : null;
     this.host.pasteTokens(at ?? this.viewCentre()).then((ids) => { if (ids.length > 0) this.selectTokens(ids); }, () => {});
+    return true;
+  }
+
+  /** Atlas's Duplicate key: copies of the selected tokens one cell aside, selected afterwards (one undo step). True when the key is the board's. */
+  duplicateSelection(): boolean {
+    if (this.audience !== 'gm' || !this.host.duplicateTokens) return false;
+    const ids = this.selectedTokenIds();
+    if (ids.length > 0) this.host.duplicateTokens(ids).then((copies) => { if (copies.length > 0) this.selectTokens(copies); }, () => {});
     return true;
   }
 

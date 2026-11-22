@@ -68,7 +68,7 @@ import type { PlayerView } from './PlayerWindow';
 import { DEFAULT_EDGES, DEFAULT_SEE_THROUGH_SIZE, QUALITY, withLooks, type LayerLook, type Quality, type QualityPreset, type WallEdges } from './quality';
 import { DEFAULT_SKY, type LightingChoice, type Sky } from './look';
 import type { TokenWriter } from './tokenWriter';
-import { copyTokens, cutTokens, pasteTokens } from './tokenClipboard';
+import { copyTokens, cutTokens, duplicateTokens, pasteTokens } from './tokenClipboard';
 import { BoardDice } from '../dice/boardDice';
 import { DEFAULT_CINEMATIC_SETTINGS, type CinematicSettings } from '../cutscene/cinematicSettings';
 import { levelOfPlace, mapOfPlace, placeAt } from '../cutscene/cutsceneData';
@@ -1603,6 +1603,7 @@ export class BoardView extends ItemView {
         }
       },
       pasteTokens: (at) => pasteTokens(writer, mapPath(), at).catch((error: unknown) => { this.unsaved('paste', error); return []; }),
+      duplicateTokens: (ids) => duplicateTokens(writer, mapPath(), ids).catch((error: unknown) => { this.unsaved('duplicate', error); return []; }),
       moveProp: (id, x, y) => boardData.moveProp(mapPath(), id, x, y),
       scaleProp: (id, scale) => boardData.setPropScale(mapPath(), id, scale),
       liftProp: (id, lift) => boardData.setPropLift(mapPath(), id, lift),
