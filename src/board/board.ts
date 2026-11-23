@@ -4043,7 +4043,10 @@ export class Board {
     const keysFromFocus = (event: KeyboardEvent): void => {
       if (event.defaultPrevented || this.audience !== 'gm' || this.eye) return;
       const target = event.target as HTMLElement | null;
-      if (!target || target === this.canvas || !this.container.contains(target)) return;
+      // Focus inside the board's tab, or fallen to the page (a pressed button that was removed, as the measure
+      // popover's Delete is) while the board's tab is the active one.
+      if (!target || target === this.canvas) return;
+      if (!this.container.contains(target) && target !== this.container.ownerDocument.body) return;
       const leaf = this.container.closest('.workspace-leaf');
       if (leaf && !leaf.classList.contains('mod-active')) return;
       if (target.closest('input, textarea, select, [contenteditable="true"], .atlas-tabletop-atlas-ui, .modal-container') !== null) return;

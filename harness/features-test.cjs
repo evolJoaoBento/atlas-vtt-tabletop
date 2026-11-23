@@ -8479,6 +8479,17 @@ feature('board keys with focus on a toolbar button (V, M, K, Escape)', async ({ 
   await wait(100);
   check('board keys: V typed in a text field is left to the field', (await tool()).tool === 'measure');
   await page.evaluate(() => document.getElementById('probe').remove());
+  // Focus fallen to the page (the pressed button was removed, as the measure popover's Delete is): keys still reach the board.
+  await reset();
+  await page.evaluate(() => { const { board } = window.boardTest; board.tools.selectShape('ruler'); board.toolsChanged(); document.activeElement?.blur(); });
+  await page.keyboard.press('k');
+  await wait(150);
+  const bk = await tool();
+  check('board keys: K with focus on the page flips Keep', bk.keep === true && bk.focus === 'BODY', JSON.stringify(bk));
+  await page.keyboard.press('v');
+  await wait(150);
+  const bv = await tool();
+  check('board keys: V with focus on the page puts Measure down', bv.tool === 'move', JSON.stringify(bv));
   await reset();
 });
 
