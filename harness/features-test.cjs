@@ -8189,9 +8189,32 @@ feature('measure tool: every other tool can be chosen after a measurement', asyn
       await page.evaluate(() => window.boardTest.board.canvas.focus());
       const measureLit = await page.evaluate(() => document.querySelector('button[aria-label="Measure"]')?.classList.contains('is-active') === true);
       const laser = await page.evaluate(() => window.boardTest.board.laser);
-      check(`measure tool: after ${stateName}, ${leaveName} leaves the Measure tool`, (held ? before === 'move' : before === 'measure') && after === 'move' && !measureLit, JSON.stringify({ before, after, measureLit, laser }));
+      const drawn = await page.evaluate(() => window.boardTest.board.marks.overlay.children.length);
+      const handLit = await page.evaluate(() => document.querySelector('button[aria-label="Move/Select"]')?.classList.contains('is-active') === true);
+      check(`measure tool: after ${stateName}, ${leaveName} leaves the Measure tool`, (held ? before === 'move' : before === 'measure') && after === 'move' && !measureLit && (held || (drawn === 0 && laser === false && handLit)), JSON.stringify({ before, after, measureLit, laser, drawn, handLit }));
     }
   }
+  // Every other tool taken up after a measurement, in each state: the Measure tool goes down, nothing of it stays drawn.
+  await page.evaluate(() => window.boardTest.setHosting(true));
+  const takes = {
+    'the Fog Tool': () => page.evaluate(() => window.boardTest.board.toolbarActions().fog.start('draw')),
+    'the Water tool': () => page.evaluate(() => window.boardTest.board.toolbarActions().setWaterTool('paint')),
+    'the Template tool': () => page.evaluate(() => window.boardTest.board.toolbarActions().selectTemplate('circle')),
+    'the laser': () => page.evaluate(() => window.boardTest.board.toolbarActions().selectTool('laser')),
+  };
+  for (const stateName of ['tap M then a fading ruler', 'tap M then a kept ruler', 'held M then a quick ruler']) {
+    for (const [takeName, take] of Object.entries(takes)) {
+      await page.evaluate(() => { window.boardTest.clearKeptMeasures(); const { board } = window.boardTest; board.toolbarActions().setWaterTool(null); board.toolbarActions().fog.state().on && board.toolbarActions().selectTool('move'); board.tools.select('move'); board.setLaser(false); board.toolsChanged(); board.canvas.focus(); });
+      await states[stateName]();
+      await take();
+      await wait(100);
+      const after = await page.evaluate(() => ({ tool: window.boardTest.board.tools.tool, drawn: window.boardTest.board.marks.overlay.children.length, measureLit: document.querySelector('button[aria-label="Measure"]')?.classList.contains('is-active') === true }));
+      const want = takeName === 'the Template tool' ? 'template' : 'move';
+      check(`measure tool: after ${stateName}, taking ${takeName} puts the Measure tool down`, after.tool === want && (stateName.startsWith('held') || after.drawn === 0) && !after.measureLit, JSON.stringify(after));
+      await page.evaluate(() => { const { board } = window.boardTest; board.toolbarActions().selectTool('move'); board.tools.select('move'); board.toolsChanged(); });
+    }
+  }
+  await page.evaluate(() => window.boardTest.setHosting(false));
   // The laser in hand, then the Measure tool: the laser goes down (one tool at a time).
   await page.evaluate(() => { const { board } = window.boardTest; board.tools.select('move'); board.toolsChanged(); board.setLaser(true); board.canvas.focus(); });
   await page.keyboard.press('m');

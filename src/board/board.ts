@@ -3927,7 +3927,11 @@ export class Board {
         return;
       }
       if (this.audience === 'player' && key === 'escape' && this.tools.tool !== 'move') { this.tools.select('move'); this.toolsChanged(); return; }
-      if (key === 'v' && this.audience === 'gm' && !event.ctrlKey && !event.metaKey && !event.altKey) { this.setLaser(!this.laserOn); return; }
+      if (key === 'v' && this.audience === 'gm' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        // With the Measure or Template tool in hand the key goes back to Move/Select (the hand); pressed again it is the laser.
+        if (this.tools.tool !== 'move') { this.putMeasureAway(); this.setLaser(false); } else this.setLaser(!this.laserOn);
+        return;
+      }
       if (key === 'escape' && this.group.size > 0) { this.clearGroup(); return; }
       if (key === 'escape' && this.selectedId !== null) { this.select(null); return; }
       if (key === 'escape' && this.toolbar.isOpen) { this.toolbar.close(); this.toolbar.closeView(); this.toolbar.closeGround(); this.toolbar.closeDice(); return; }
@@ -4513,6 +4517,8 @@ export class Board {
   /** Lets the tools change from outside (Connect's toolbar): the drawing and the toolbar follow. */
   toolsChanged(): void {
     this.tools.cancel();
+    // The Measure tool put away takes a measurement that still fades with it (Atlas's `putAway`: the live measurement is cleared); a held ruler's own fade is left.
+    if (this.tools.tool !== 'measure' && this.heldRuler === null) this.released = null;
     this.showToolOverlay();
     this.host.toolsChanged?.();
     if (this.audience === 'gm') this.toolbar.refresh();
