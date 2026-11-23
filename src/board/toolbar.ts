@@ -244,7 +244,8 @@ const MORE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 /** Lucide's `brick-wall` icon (ISC): the board settings button, whose panel is about walls and fog first. */
 /** Lucide's mountain: the Shapes tool (roofs, hills). */
 /** Ground running to the horizon: a horizon line and a grid in perspective (drawn for this button, in Lucide's style). */
-const GROUND_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7h20"/><path d="m9 7-5 14"/><path d="m15 7 5 14"/><path d="M12 7v14"/><path d="M5.5 15h13"/></svg>';
+// Lucide's tent-tree (0.503.0, Atlas's icon pack): the Background button.
+const GROUND_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="4" r="2"/><path d="m14 5 3-3 3 3"/><path d="m14 10 3-3 3 3"/><path d="M17 14V2"/><path d="M17 14H7l-5 8h20Z"/><path d="M8 14v8"/><path d="m9 14 5 8"/></svg>';
 const SHAPES_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 3 4 8 5-5 5 15H2L8 3z"/></svg>';
 const WALL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 9v6"/><path d="M16 15v6"/><path d="M16 3v6"/><path d="M3 15h18"/><path d="M3 9h18"/><path d="M8 15v6"/><path d="M8 3v6"/></svg>';
 
@@ -1308,8 +1309,8 @@ export class BoardToolbar {
     this.groundPanel = el('div', 'atlas-tabletop-palette atlas-tabletop-ground-panel', this.row);
     this.groundPanel.hidden = true;
     this.groundPanel.setAttribute('role', 'dialog');
-    this.groundPanel.setAttribute('aria-label', 'Ground');
-    el('div', 'atlas-tabletop-palette__title', this.groundPanel, 'Ground');
+    this.groundPanel.setAttribute('aria-label', TOOLBAR_BUTTONS.ground.label);
+    el('div', 'atlas-tabletop-palette__title', this.groundPanel, TOOLBAR_BUTTONS.ground.label);
     this.viewPanel = el('div', 'atlas-vtt-toolbar atlas-tool-bar atlas-tabletop-view-bar', this.row);
     this.viewPanel.hidden = true;
     this.viewPanel.setAttribute('role', 'toolbar');

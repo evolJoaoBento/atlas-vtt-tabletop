@@ -229,7 +229,7 @@ export const TOOLBAR_BUTTONS: Readonly<Record<ToolbarButtonId, ToolbarButtonSpec
     available: ({ actions }) => actions.canLight(),
   },
   ground: {
-    id: 'ground', label: 'Ground', icon: 'ground', modes: ['edit'],
+    id: 'ground', label: 'Background', icon: 'ground', modes: ['edit'],
     keywords: ['ground', 'horizon', 'background', 'fog', 'board', 'plane'],
     available: ({ actions }) => actions.setGround !== undefined,
   },
