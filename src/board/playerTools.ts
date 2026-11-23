@@ -8,6 +8,7 @@
  * a circle around its first point, a cone from it, a square from the middle of its near side, a line as wide as it says.
  */
 import { DEFAULT_CONE_END, shapedArea, type ShapedArea } from '../../packages/atlas-shared/src/index';
+import type { MeasureEffect } from '../atlasPort/app/measure/measureEffects';
 import { MAX_RULER_POINTS, type MeasureShapeKind } from '../atlasPort/app/measure/measureTypes';
 import type { Spell, SpellAbout } from './spells';
 import type { SpellRules } from './spellRules';
@@ -33,6 +34,10 @@ export interface TemplateMark {
   kind?: 'template' | 'area';
   /** What Atlas keeps from its players (a hidden measure, one that started on a token they do not see): drawn for the GM alone. */
   gmOnly?: true;
+  /** The look an area made in Atlas is drawn with (Atlas's `effect`): the board stands it in 3D from the floor (`areaVolume.ts`). */
+  effect?: MeasureEffect;
+  /** The measure lets the area pass walls (Atlas 0.19's `walls: false`); without it walls stop it. */
+  uncut?: true;
 }
 
 export type TemplateChange = { add: { shape: TemplateShape; start: Point; end: Point } } | { remove: string } | { clear: true };

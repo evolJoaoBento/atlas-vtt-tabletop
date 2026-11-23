@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { boxPoints, clampWallEnd, isInstantaneous, readSpell, spellHits, spellHolds, spellReaches, spellUnder, type Spell } from '../src/board/spells';
+import { boxPoints, clampWallEnd, clipped, isInstantaneous, readSpell, spellHits, spellHolds, spellReaches, spellUnder, type Spell } from '../src/board/spells';
 import type { BoardWall } from '../src/board/walls';
 
 const V = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(x, y, z);
@@ -54,12 +54,32 @@ test('a wall stands between its ends, as thick and high as set', () => {
   assert.deepEqual(clampWallEnd({ x: 0, y: 0 }, { x: 30, y: 40 }, 250), { x: 30, y: 40 });
 });
 
-test('from the caster a wall stops it; at a point it does not', () => {
+test('a wall stops every cast, from the caster or at a point, as it stops an area of Atlas', () => {
   const walls = [wall({ x: 50, y: -100 }, { x: 50, y: 100 })];
   const spell: Spell = { ...base, shape: 'sphere', from: 'self', at: { x: 0, y: 0, h: 20 }, size: 200 };
   assert.ok(spellReaches(spell, V(30, 20, 0), walls));
   assert.ok(!spellReaches(spell, V(100, 20, 0), walls), 'behind the wall');
-  assert.ok(spellReaches({ ...spell, from: 'point' }, V(100, 20, 0), walls));
+  const point: Spell = { ...spell, from: 'point' };
+  assert.ok(spellReaches(point, V(30, 20, 0), walls));
+  assert.ok(!spellReaches(point, V(100, 20, 0), walls), 'a point cast is cut too');
+});
+
+test('a cast whose measure lets it pass walls, and a wall spell, are never cut', () => {
+  const walls = [wall({ x: 50, y: -100 }, { x: 50, y: 100 })];
+  const spell: Spell = { ...base, shape: 'sphere', from: 'point', at: { x: 0, y: 0, h: 20 }, size: 200, uncut: true };
+  assert.ok(spellReaches(spell, V(100, 20, 0), walls));
+  assert.equal(clipped(spell), false);
+  const slab: Spell = { ...base, shape: 'wall', from: 'point', at: { x: 0, y: 0, h: 0 }, to: { x: 0, y: 150 }, size: 20, length: 100 };
+  assert.equal(clipped(slab), false);
+  assert.ok(spellReaches({ ...slab, to: { x: 100, y: 0 } }, V(80, 50, 0), walls));
+});
+
+test('a point cast is swept from where Atlas starts its measure: a cube from the middle of its near side', () => {
+  const walls = [wall({ x: -30, y: -200 }, { x: -30, y: 200 })];
+  // A cube of 100 at (0,0) facing -y (yaw 0): Atlas square starts at its near side, (0, 50), and the wall at x = -30 cuts what lies past it.
+  const cube: Spell = { ...base, shape: 'cube', from: 'point', at: { x: 0, y: 0, h: 50 }, size: 100 };
+  assert.ok(spellReaches(cube, V(-20, 50, 0), walls));
+  assert.ok(!spellReaches(cube, V(-45, 50, 0), walls));
 });
 
 test('hits are the targets with a point in reach, never the caster', () => {

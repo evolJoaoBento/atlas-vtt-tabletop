@@ -10,7 +10,9 @@
  * Euler YXZ, a camera's; it runs along its forward, -Z turned.
  */
 import * as THREE from 'three';
-import { canSee } from './lineOfSight';
+import { spellToMeasure } from '../../packages/atlas-host/src/spellMeasure';
+import { reachWithin, type WallsLook } from './areaCuts';
+import type { MeasureArea } from '../atlasPort/app/measure/measureGeometry';
 import type { BoardWall, Point } from './walls';
 import { readSpellRules, type SpellRules } from './spellRules';
 
@@ -46,6 +48,8 @@ export interface Spell {
   caster?: string;
   /** Its damage's look; plain without one. */
   effect?: DamageType;
+  /** Its measure lets it pass walls (Atlas 0.19's `walls: false`): not cut by them. Left out, walls stop it. */
+  uncut?: true;
 }
 
 /** A spell on a scene, as everyone has it. */
@@ -173,6 +177,7 @@ export function readSpell(raw: unknown): Spell | null {
     yaw: value.yaw, pitch: value.pitch, roll: value.roll, size: value.size, length: value.length, angle: value.angle,
     ...(typeof value.caster === 'string' ? { caster: value.caster } : {}),
     ...(isDamageType(value.effect) ? { effect: value.effect } : {}),
+    ...(value.uncut === true ? { uncut: true as const } : {}),
   };
 }
 
@@ -211,9 +216,12 @@ export function turnOf(spell: Pick<Spell, 'yaw' | 'pitch' | 'roll'>): THREE.Quat
   return new THREE.Quaternion().setFromEuler(new THREE.Euler(spell.pitch, spell.yaw, spell.roll, 'YXZ'));
 }
 
-/** Whether a shape is cut off by the walls round where it starts: one cast from the caster (a wall never is). */
-export function clipped(spell: Pick<Spell, 'shape' | 'from'>): boolean {
-  return spell.from === 'self' && spell.shape !== 'wall';
+/**
+ * Whether walls cut a shape, as Atlas's kept areas are: every cast, from the caster or at a point, unless its measure
+ * lets it pass walls (`uncut`). A wall spell is never cut.
+ */
+export function clipped(spell: Pick<Spell, 'shape' | 'uncut'>): boolean {
+  return spell.shape !== 'wall' && spell.uncut !== true;
 }
 
 /** How far from its anchor a spell reaches at most, map pixels. */
@@ -256,19 +264,41 @@ export function spellHolds(spell: Spell, point: THREE.Vector3): boolean {
   }
 }
 
-/** Whether the spell reaches a point: in the shape, and (cast from the caster) not behind a wall from where it starts. */
-export function spellReaches(spell: Spell, point: THREE.Vector3, walls: readonly BoardWall[]): boolean {
+const cuts = new WeakMap<Spell, { walls: readonly BoardWall[]; width: number; height: number; cell: number | undefined; cut: MeasureArea | null }>();
+
+/**
+ * What the walls leave of a cast spell on the floor, as Atlas leaves what its kept area measures: swept from that
+ * measure's origin (a sphere's middle, a cube's near side, a cone's tip, a beam's start), which `spellToMeasure` gives.
+ * Null where nothing cuts it (no wall in its reach, a wall spell, a measure that passes walls).
+ */
+export function spellCut(spell: Spell, walls: readonly BoardWall[], look: WallsLook = {}): MeasureArea | null {
+  if (!clipped(spell) || walls.length === 0) return null;
+  const kept = cuts.get(spell);
+  const width = look.size?.width ?? 0;
+  const height = look.size?.height ?? 0;
+  if (kept && kept.walls === walls && kept.width === width && kept.height === height && kept.cell === look.cell) return kept.cut;
+  const [origin, end] = spellToMeasure(spell).points;
+  const run = Math.hypot(end.x - origin.x, end.y - origin.y);
+  const towards = run > 0 ? { x: (end.x - origin.x) / run, y: (end.y - origin.y) / run } : { x: 1, y: 0 };
+  const reach = Math.hypot(spell.at.x - origin.x, spell.at.y - origin.y) + reachOf(spell);
+  const cut = reachWithin(origin, towards, reach, walls, look);
+  cuts.set(spell, { walls, width, height, cell: look.cell, cut });
+  return cut;
+}
+
+/** Whether the spell reaches a point: in the shape, and not behind a wall that stops it (`spellCut`). */
+export function spellReaches(spell: Spell, point: THREE.Vector3, walls: readonly BoardWall[], look: WallsLook = {}): boolean {
   if (!spellHolds(spell, point)) return false;
-  if (!clipped(spell)) return true;
-  return canSee({ x: spell.at.x, y: spell.at.y }, { x: point.x, y: point.z }, walls);
+  const cut = spellCut(spell, walls, look);
+  return cut === null || cut.contains({ x: point.x, y: point.z });
 }
 
 /** The ids of the targets the spell hits: any of their points reached. The caster is never hit by their own. */
-export function spellHits(spell: Spell, targets: readonly SpellTarget[], walls: readonly BoardWall[]): string[] {
+export function spellHits(spell: Spell, targets: readonly SpellTarget[], walls: readonly BoardWall[], look: WallsLook = {}): string[] {
   const hits: string[] = [];
   for (const target of targets) {
     if (target.id === spell.caster) continue;
-    if (target.points.some((point) => spellReaches(spell, point, walls))) hits.push(target.id);
+    if (target.points.some((point) => spellReaches(spell, point, walls, look))) hits.push(target.id);
   }
   return hits;
 }

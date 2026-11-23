@@ -118,6 +118,8 @@ import { WallSet } from './wallPieces';
 import { LightRig } from './lightRig';
 import { DarknessLayer } from './darkness';
 import { BoardMarks } from './marks';
+import { AreaVolumes, areaVolumeOf, markShape, type AreaVolume } from './areaVolume';
+import { ringsOf, type WallsLook } from './areaCuts';
 import { PlayerToolState, templateArea, type MeasureShape, type PlayerTool, type TemplateChange, type TemplateMark, type TemplateShape, type ToolAction } from './playerTools';
 import { DEFAULT_MEASURE_TOOL, isMeasureShape, type MeasureToolOptions } from './measureOptions';
 import { MEASURE_PIN_PX } from './marks';
@@ -988,6 +990,10 @@ export class Board {
   /** A Connect player's tools, and what people mark on the board in a session (templates, pings, lasers). */
   readonly tools = new PlayerToolState();
   readonly marks = new BoardMarks();
+  /** Areas of Atlas with an effect, standing in 3D from the floor (`areaVolume.ts`). */
+  private readonly areas = new AreaVolumes();
+  /** The scene's lasting templates and areas as they came: drawn again when the map's walls change. */
+  private templateMarks: readonly TemplateMark[] = [];
   /** Players looking at the map in augmented reality: an eye where each phone is (the GM's board, while hosting). */
   readonly viewers = new ArViewers();
   /** The players' AR table (the GM's board while hosting): its sheets drawn on the map, and whether the GM is placing it. */
@@ -1199,7 +1205,7 @@ export class Board {
     });
     this.toolbar.setHidden(this.audience === 'player');
     this.tools.eraseAny = this.audience === 'gm';
-    this.scene.add(this.darkness.object3d, this.marks.object3d, this.measureHandles.object3d, this.groupMarks.object3d, this.activeMarks.object3d, this.viewers.object3d, this.tableOutlines);
+    this.scene.add(this.darkness.object3d, this.marks.object3d, this.areas.object3d, this.measureHandles.object3d, this.groupMarks.object3d, this.activeMarks.object3d, this.viewers.object3d, this.tableOutlines);
     this.tableOutlines.name = 'ar-table';
     this.groupBar = new GroupBar(container, { rotate: (delta) => this.rotateGroup(delta), hp: (delta) => this.changeGroupHp(delta), clear: () => this.clearGroup() });
     this.controls = new ResourceControls(container, {
@@ -4840,10 +4846,47 @@ export class Board {
   /** The scene's lasting templates, from Connect. */
   receiveTemplates(list: readonly TemplateMark[]): void {
     this.tools.receiveTemplates(list);
-    this.marks.setTemplates(list, this.tools.coneAngle);
+    this.templateMarks = list;
+    this.drawMarks();
     this.host.toolsChanged?.();
     if (this.audience === 'gm') this.toolbar.refresh();
     this.wake();
+  }
+
+  /** What the walls leave of an area depends on the map's size (the lighting seals walls by it) and its grid. */
+  private wallsLook(): WallsLook {
+    return { size: this.mapSizeKnown ? this.mapSize : null, cell: this.map?.grid.size };
+  }
+
+  /**
+   * The lasting templates and areas drawn: each cut by the map's walls as Atlas cuts its kept areas (unless its measure
+   * passes walls), and each area with an effect standing in 3D as tall as the map's default wall height. Drawn again when
+   * the map changes (a wall or a door moved).
+   */
+  private drawMarks(): void {
+    const map = this.map;
+    const walls = map?.walls ?? [];
+    const cell = map?.grid.size ?? 70;
+    const look = this.wallsLook();
+    const height = Math.max(MIN_WALL_SQUARES, this.host.fogHeight()) * cell;
+    const cuts = new Map<string, Array<Array<{ x: number; y: number }>>>();
+    const volumes: AreaVolume[] = [];
+    for (const mark of this.templateMarks) {
+      const shape = markShape(mark, this.tools.coneAngle, walls, look);
+      if (shape?.cut) cuts.set(mark.id, ringsOf(shape.cut));
+      if (mark.effect) {
+        const volume = areaVolumeOf(mark, shape?.cut ?? null, height, this.tools.coneAngle);
+        if (volume) volumes.push(volume);
+      }
+    }
+    this.marks.setTemplates(this.templateMarks, this.tools.coneAngle, cuts);
+    this.areas.set(volumes, cell);
+    this.wake();
+  }
+
+  /** The areas with an effect drawn now, for a look in tests. */
+  areaState(): ReturnType<AreaVolumes['state']> {
+    return this.areas.state();
   }
 
   /** Someone's ping, from Connect. */
@@ -5959,6 +6002,7 @@ export class Board {
     this.rig.show(viewer);
     // What Atlas keeps from its players (a hidden area, a spell on a token they do not see) is not in their picture.
     this.marks.show(viewer);
+    this.areas.show(viewer);
     if (this.castSpells.some((cast) => cast.gmOnly)) {
       const secret = new Set(this.castSpells.filter((cast) => cast.gmOnly).map((cast) => cast.id));
       for (const [id, kept] of this.spellViews) kept.view.object3d.visible = gm || !secret.has(id);
@@ -7163,7 +7207,7 @@ export class Board {
     }
     // The same shape only moved or turned (aiming it): the drawing moves, not made again.
     if (spell && this.spellPreview && this.spellPreview.key !== key && this.spellPreview.view.fits(spell)) {
-      this.spellPreview.view.moveTo(spell, this.map?.walls ?? []);
+      this.spellPreview.view.moveTo(spell, this.map?.walls ?? [], this.wallsLook());
       this.spellPreview = { ...this.spellPreview, key, spell };
       this.spellHitsAt = 0;
       this.wake();
@@ -7172,7 +7216,7 @@ export class Board {
       this.spellPreview?.view.dispose();
       this.spellPreview = null;
       if (spell) {
-        const view = new SpellView(spell, this.host.ownColor?.() ?? '#7c5cff', this.map?.walls ?? [], 0.45, this.map?.grid.size ?? 50, { plain: true });
+        const view = new SpellView(spell, this.host.ownColor?.() ?? '#7c5cff', this.map?.walls ?? [], 0.45, this.map?.grid.size ?? 50, { plain: true, look: this.wallsLook() });
         view.setRules(rules);
         this.spellPreviewRules = rulesKey;
         this.scene.add(view.object3d);
@@ -7183,7 +7227,7 @@ export class Board {
     }
     if (!spell) return [];
     const targets = this.spellTargets();
-    const hits = new Set(spellHits(spell, targets, this.map?.walls ?? []));
+    const hits = new Set(spellHits(spell, targets, this.map?.walls ?? [], this.wallsLook()));
     return targets.filter((target) => hits.has(target.id)).map((target) => target.name);
   }
 
@@ -7233,7 +7277,7 @@ export class Board {
       const kept = this.spellViews.get(cast.id);
       if (kept?.key === key) continue;
       kept?.view.dispose();
-      const view = new SpellView(cast.spell, cast.color, walls, 0.4, this.map?.grid.size ?? 50);
+      const view = new SpellView(cast.spell, cast.color, walls, 0.4, this.map?.grid.size ?? 50, { look: this.wallsLook() });
       view.setRules(cast.rules);
       if (announced.has(cast.id)) {
         // Newly cast: it grows into place, with its damage's sound where it stands (not when it is out of sight).
@@ -7519,7 +7563,7 @@ export class Board {
     if (rules.push) {
       const origin = spell.from === 'self' && caster ? { x: caster.at.x, y: caster.at.y } : middle;
       const walls = this.movementWalls();
-      const hit = new Set(spellHits(spell, this.spellTargets().filter((target) => !target.id.startsWith('prop:')), this.map?.walls ?? []));
+      const hit = new Set(spellHits(spell, this.spellTargets().filter((target) => !target.id.startsWith('prop:')), this.map?.walls ?? [], this.wallsLook()));
       const moves = [...hit].flatMap((id) => {
         const entry = this.tokens.get(id);
         if (!entry || id === spell.caster) return [];
@@ -7630,7 +7674,8 @@ export class Board {
     if (this.impacts.active) { this.impacts.step(); this.wake(); }
     const views = [...[...this.spellViews.values()].map((kept) => kept.view), ...(this.spellPreview ? [this.spellPreview.view] : [])];
     const moving = views.filter((view) => view.animated);
-    if (moving.length === 0 && this.spellAuras.size === 0 && this.fadingSpells.length === 0 && this.growingSpells.size === 0) return;
+    const areasMove = this.areas.animated;
+    if (moving.length === 0 && !areasMove && this.spellAuras.size === 0 && this.fadingSpells.length === 0 && this.growingSpells.size === 0) return;
     const time = this.spellClock();
     const height = this.renderer.domElement.height;
     // Casts grow into place by the clock, however many frames that takes.
@@ -7640,6 +7685,7 @@ export class Board {
       if (progress >= 1) { this.growingSpells.delete(id); this.spellHitsAt = 0; }
     }
     for (const view of moving) view.tick(time, height);
+    if (areasMove) this.areas.tick(time, height);
     this.fadingSpells = this.fadingSpells.filter((fading) => {
       const left = 1 - (time - fading.start) / INSTANT_FADE_SECONDS;
       if (left <= 0) { fading.view.dispose(); return false; }
@@ -7666,6 +7712,8 @@ export class Board {
       for (const fading of this.fadingSpells) fading.view.dispose();
       this.fadingSpells = [];
       this.drawSpells();
+      // The areas are cut by the same walls, and their height is the map's.
+      this.drawMarks();
     }
     this.updateSpellLoops();
     if (this.eye) this.caster?.frame();
@@ -7684,7 +7732,7 @@ export class Board {
     const targets = this.spellTargets();
     const walls = this.map?.walls ?? [];
     const hit = new Set<string>();
-    for (const spell of spells) for (const id of spellHits(spell, targets, walls)) hit.add(id);
+    for (const spell of spells) for (const id of spellHits(spell, targets, walls, this.wallsLook())) hit.add(id);
     const byId = new Map(targets.map((target) => [target.id, target]));
     let changed = this.syncAuras(targets, walls);
     for (const [id, kept] of this.spellOutlines) {
@@ -7714,7 +7762,7 @@ export class Board {
       const type = cast.spell.effect;
       // A cast still growing sets nothing alight yet: its flames come once it is whole.
       if (!type || this.growingSpells.has(cast.id)) continue;
-      for (const id of spellHits(cast.spell, targets, walls)) wanted.set(id, type);
+      for (const id of spellHits(cast.spell, targets, walls, this.wallsLook())) wanted.set(id, type);
     }
     const byId = new Map(targets.map((target) => [target.id, target]));
     let changed = false;
@@ -8445,6 +8493,7 @@ export class Board {
     for (const key of this.waterLoops.keys()) this.soundLoop(key, null, 0);
     this.waterLoops.clear();
     for (const kept of this.spellViews.values()) kept.view.dispose();
+    this.areas.dispose();
     for (const fading of this.fadingSpells) fading.view.dispose();
     this.fadingSpells = [];
     for (const timer of this.instantTimers.values()) (this.container.ownerDocument.defaultView ?? window).clearTimeout(timer);

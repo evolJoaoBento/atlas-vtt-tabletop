@@ -233,6 +233,9 @@ export const NEWER_ENTRIES = [
   'statblocks/values/valueCoercion.ts',
   'statblocks/values/numberText.ts',
   'statblocks/values/fillReferences.ts',
+  // Atlas 0.19: what a kept area leaves where walls stop it (the sweep from its origin), and the shapes it is measured as.
+  'measure/measureWalls.ts',
+  'measure/measureGeometry.ts',
 ];
 
 /** Floor files the newer Atlas's version replaces (a superset: it only adds what the fog's room logic needs). */

@@ -166,3 +166,27 @@ test("a measure is known by its place in Atlas's record, whatever id it says; a 
   assert.deepEqual(castsOfMeasures(readMeasures({ broken })), []);
   assert.deepEqual(marksOfMeasures(readMeasures({ broken }), { cell: 70, accent: '#7c5cff' }).map((mark) => [mark.id, mark.kind]), [['broken', 'area']]);
 });
+
+test("an area's effect rides on its flat mark (rulers have none), and a measure that passes walls says so", () => {
+  const marks = marksOfMeasures(readMeasures({
+    ...RAW,
+    ruler: { id: 'ruler', kind: 'measure', shape: 'ruler', points: [{ x: 0, y: 0 }, { x: 70, y: 0 }], effect: 'fire' },
+    open: { id: 'open', kind: 'measure', shape: 'square', points: [{ x: 0, y: 0 }, { x: 70, y: 0 }], effect: 'lightning', walls: false },
+    odd: { id: 'odd', kind: 'measure', shape: 'circle', points: [{ x: 0, y: 0 }, { x: 70, y: 0 }], effect: 'plasma', walls: true },
+  }), { cell: 70, accent: '#7c5cff' });
+  const by = (id: string) => marks.find((mark) => mark.id === id)!;
+  assert.equal(by('area').effect, 'frost');
+  assert.equal(by('area').uncut, undefined, 'no field: it stops at walls, as in Atlas before 0.19');
+  assert.equal(by('wide').effect, undefined);
+  assert.equal(by('ruler:0').effect, undefined);
+  assert.equal(by('open').effect, 'lightning');
+  assert.equal(by('open').uncut, true);
+  assert.equal(by('odd').effect, undefined, 'an unknown look draws none');
+  assert.equal(by('odd').uncut, undefined);
+});
+
+test('a kept spell whose measure passes walls is cast uncut', () => {
+  const whole = castsOfMeasures(readMeasures({ s: { ...kept('s', spellToMeasure(spell)), walls: false } }));
+  assert.equal(whole[0]!.spell.uncut, true);
+  assert.equal(castsOfMeasures(readMeasures({ s: kept('s', spellToMeasure(spell)) }))[0]!.spell.uncut, undefined);
+});

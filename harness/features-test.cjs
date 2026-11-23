@@ -3739,6 +3739,117 @@ feature('hidden measures', async ({ page }) => {
   check('hidden measures: a spell no longer hidden is back in the players\' picture', JSON.stringify(seen.after.spells) === JSON.stringify([true, true]), JSON.stringify(seen.after));
 });
 
+// ── Areas with an effect stand in 3D from the floor, and walls stop areas and casts as in Atlas 0.19 ───────────────
+feature('measure effects', async ({ page, shot }) => {
+  const kept = (id, shape, points, extra = {}) => ({ id, record: { id, kind: 'measure', shape, points, ...extra } });
+  const wallAt = (x) => ({ id: 'cut', type: 'solid', p1: { x, y: 0 }, p2: { x, y: 420 }, direction: null, closed: true, locked: false, blocks: null, limited: false, chain: null });
+  const door = (closed) => ({ id: 'cutdoor', type: 'door', p1: { x: 960, y: 0 }, p2: { x: 960, y: 420 }, direction: null, closed, locked: false, blocks: null, limited: false, chain: null });
+  const withWalls = (extra) => page.evaluate(async (add) => {
+    const { board } = window.boardTest;
+    const walls = board.map.walls.filter((wall) => wall.id !== 'cut' && wall.id !== 'cutdoor');
+    await board.load({ ...board.map, walls: [...walls, ...add] });
+  }, extra);
+  const look = () => page.evaluate(() => ({ areas: window.boardTest.board.areaState(), cell: window.boardTest.board.map.grid.size, fog: window.boardTest.host.fogHeight() }));
+  const aim = (x, z, distance = 620) => page.evaluate(([tx, tz, far]) => {
+    const { board } = window.boardTest;
+    Object.assign(board.camera.goal, { target: { x: tx, y: 0, z: tz }, yaw: 0.35, pitch: 0.75, distance: far });
+    board.camera.snap();
+    board.wake(true);
+  }, [x, z, distance]);
+  await page.evaluate(() => window.boardTest.host.setFogHeight(3));
+  await aim(900, 160);
+  // A fire circle on open ground: Atlas's measure with an effect stands as the board's fire, from the floor to the default wall height.
+  await page.evaluate((list) => window.boardTest.setKeptMeasures(list), [kept('fire', 'circle', [{ x: 900, y: 160 }, { x: 1040, y: 160 }], { effect: 'fire', color: '#ec7500' })]);
+  await wait(900);
+  const open = await look();
+  const high = Math.max(0.25, open.fog) * open.cell;
+  check('measure effects: an area with an effect stands in 3D, from the floor up to the default wall height', open.areas.length === 1 && open.areas[0].effect === 'fire' && Math.abs(open.areas[0].height - high) < 0.5, JSON.stringify(open));
+  check('measure effects: it fills the circle\'s footprint', Math.abs(open.areas[0].x[0] - 760) < 2 && Math.abs(open.areas[0].x[1] - 1040) < 2, JSON.stringify(open.areas[0]));
+  await shot('measure-effect-fire-open');
+  // A wall through it: the effect (and its flat outline) stop at the wall, as Atlas stops its kept areas.
+  await withWalls([wallAt(960)]);
+  await wait(900);
+  const cut = await look();
+  check('measure effects: a wall cuts the volume at the wall, the far side stays whole', cut.areas.length === 1 && cut.areas[0].x[1] <= 961 && cut.areas[0].x[0] <= 761, JSON.stringify(cut.areas));
+  await shot('measure-effect-fire-wall');
+  // The flat outline is cut too.
+  const outline = await page.evaluate(() => {
+    let max = -Infinity;
+    const group = window.boardTest.board.marks.templates.children[0];
+    group.traverse((node) => { if (node.isLineLoop) { const at = node.geometry.getAttribute('position'); for (let i = 0; i < at.count; i++) max = Math.max(max, at.getX(i)); } });
+    return max;
+  });
+  check('measure effects: the flat outline stops at the wall too', outline <= 961 && outline > 900, String(outline));
+  // A closed door stops it like a wall; opened, the area is whole.
+  await withWalls([door(true)]);
+  await wait(700);
+  const closed = await look();
+  await shot('measure-effect-door-closed');
+  await withWalls([door(false)]);
+  await wait(700);
+  const opened = await look();
+  await shot('measure-effect-door-open');
+  check('measure effects: a closed door cuts the area, an open door does not', closed.areas[0].x[1] <= 961 && Math.abs(opened.areas[0].x[1] - 1040) < 2, JSON.stringify({ closed: closed.areas[0].x, opened: opened.areas[0].x }));
+  // The measure's own switch: Stops at walls off lets it pass.
+  await withWalls([wallAt(960)]);
+  await page.evaluate((list) => window.boardTest.setKeptMeasures(list), [kept('fire', 'circle', [{ x: 900, y: 160 }, { x: 1040, y: 160 }], { effect: 'fire', color: '#ec7500', walls: false })]);
+  await wait(700);
+  const passes = await look();
+  check('measure effects: a measure that does not stop at walls is whole', Math.abs(passes.areas[0].x[1] - 1040) < 2, JSON.stringify(passes.areas));
+  await shot('measure-effect-passes-walls');
+  // Every shape and every look; mist has none of the damage looks.
+  await page.evaluate((list) => window.boardTest.setKeptMeasures(list), [
+    kept('a', 'circle', [{ x: 700, y: 160 }, { x: 770, y: 160 }], { effect: 'frost', color: '#8ad1f8' }),
+    kept('b', 'square', [{ x: 840, y: 100 }, { x: 910, y: 100 }], { effect: 'lightning', color: '#086ddd' }),
+    kept('c', 'cone', [{ x: 700, y: 330 }, { x: 840, y: 330 }], { effect: 'radiance', color: '#e0ac00' }),
+    kept('d', 'line', [{ x: 960, y: 260 }, { x: 1120, y: 260 }], { effect: 'shadow', color: '#7852ee', width: 70 }),
+    kept('e', 'circle', [{ x: 1040, y: 120 }, { x: 1100, y: 120 }], { effect: 'mist', color: '#ffffff' }),
+    kept('f', 'ruler', [{ x: 640, y: 60 }, { x: 760, y: 60 }], { effect: 'fire' }),
+  ]);
+  await withWalls([]);
+  await aim(900, 220, 760);
+  await wait(1100);
+  const gallery = await look();
+  check('measure effects: every shape and look stands (a ruler has none), mist as a plain volume', JSON.stringify(gallery.areas.map((area) => [area.id, area.effect])) === JSON.stringify([['a', 'cold'], ['b', 'lightning'], ['c', 'radiant'], ['d', 'necrotic'], ['e', null]]), JSON.stringify(gallery.areas.map((area) => [area.id, area.effect])));
+  await shot('measure-effect-gallery');
+  // What Atlas keeps from players is not in their picture; edits and deletes follow live.
+  await page.evaluate((list) => window.boardTest.setKeptMeasures(list), [kept('s', 'circle', [{ x: 900, y: 160 }, { x: 970, y: 160 }], { effect: 'fire', hidden: true })]);
+  await wait(500);
+  const secret = await page.evaluate(() => { const { board } = window.boardTest; board.showFor('player'); const player = board.areaState()[0].visible; board.showFor('gm'); return { player, gm: board.areaState()[0].visible }; });
+  check('measure effects: a hidden area\'s volume is the GM\'s alone', secret.player === false && secret.gm === true, JSON.stringify(secret));
+  await page.evaluate((list) => window.boardTest.setKeptMeasures(list), [kept('s', 'circle', [{ x: 900, y: 160 }, { x: 970, y: 160 }], { effect: 'frost' })]);
+  await wait(400);
+  check('measure effects: another effect changes the look live', (await look()).areas[0].effect === 'cold');
+  await page.evaluate(() => window.boardTest.clearKeptMeasures());
+  await wait(300);
+  check('measure effects: deleting the measure takes the volume away', (await look()).areas.length === 0);
+  // Casts: a point-cast fireball is cut by a wall too, from where Atlas starts its measure; one whose measure passes walls is whole.
+  await withWalls([wallAt(960)]);
+  await aim(900, 160);
+  const cast = (uncut) => page.evaluate((pass) => {
+    const { board } = window.boardTest;
+    board.receiveSpells(board.map.path, [{ id: 'ball', owner: 'gm', color: '#ffffff', spell: { shape: 'sphere', from: 'point', at: { x: 900, y: 160, h: 70 }, yaw: 0, pitch: 0, roll: 0, size: 140, length: 0, angle: 0.9, effect: 'fire', ...(pass ? { uncut: true } : {}) } }]);
+    const view = board.spellViews.get('ball').view;
+    const uniforms = view.material.uniforms;
+    return { mask: uniforms.useMask.value, box: [...uniforms.maskBox.value.toArray()] };
+  }, uncut);
+  const ball = await cast(false);
+  await wait(1400);
+  check('measure effects: a point-cast fireball is cut by the wall (its mask is on)', ball.mask === 1, JSON.stringify(ball));
+  await shot('measure-effect-fireball-wall');
+  const hits = await page.evaluate(() => {
+    const { board } = window.boardTest;
+    const spell = board.castSpells[0].spell;
+    return { near: window.boardTest.spellReaches(spell, 900, 70, 160), behind: window.boardTest.spellReaches(spell, 1010, 70, 160), before: window.boardTest.spellReaches(spell, 940, 70, 160) };
+  });
+  check('measure effects: what the fireball hits follows the cut', hits.near && hits.before && !hits.behind, JSON.stringify(hits));
+  const whole = await cast(true);
+  await wait(900);
+  check('measure effects: a cast whose measure passes walls is not cut', whole.mask === 0, JSON.stringify(whole));
+  await shot('measure-effect-fireball-passes');
+  await page.evaluate(() => { const { board } = window.boardTest; board.receiveSpells(board.map.path, []); });
+});
+
 // ── Drawings and texts the GM hid in Atlas 0.16: drawn for the GM, never in the players' picture ─────────────────
 feature('hidden notes', async ({ page }) => {
   const seen = await page.evaluate(async () => {
@@ -4141,7 +4252,9 @@ feature('spell hit auras', async ({ page, shot }) => {
   const types = ['fire', 'cold', 'lightning', 'acid', 'poison', 'necrotic', 'radiant', 'force', 'psychic', 'thunder', 'bludgeoning', 'piercing', 'slashing', 'explosion'];
   await cast(ids.map((id, k) => [`g${k}`, id, types[k % types.length], 0.4]));
   const gallery = await auras();
-  check('spell auras: every token hit gets a look (the latest spell over it)', ids.every((id) => types.includes(gallery[id])) && Object.values(gallery).filter((type, k, all) => all.indexOf(type) === k).length >= ids.length - 1, JSON.stringify({ ids, gallery }));
+  // The Lurker stands 5 px from a wall of the fogged room: a cast on it is swept from the far side of that wall, as Atlas sweeps an area whose origin lies on a wall (the way the spell faces says which side), so it is left out.
+  const lit = ids.filter((id) => id !== 'lurker');
+  check('spell auras: every token hit gets a look (the latest spell over it)', lit.every((id) => types.includes(gallery[id])) && Object.values(gallery).filter((type, k, all) => all.indexOf(type) === k).length >= lit.length - 1, JSON.stringify({ ids, gallery }));
   await shot('spell-aura-gallery');
   // Each look up close, on the Goblin.
   await page.evaluate(() => { const { board } = window.boardTest; const e = board.tokens.get('gob'); const cell = board.map.grid.size; Object.assign(board.camera.goal, { target: { x: e.at.x, y: cell * 0.4, z: e.at.y }, yaw: 0.5, pitch: 0.4, distance: cell * 4.5 }); board.camera.snap(); board.wake(true); });

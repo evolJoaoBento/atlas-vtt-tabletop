@@ -1,12 +1,14 @@
 /**
  * A spell drawn on the board (`spells.ts`): its shape, see-through in its caster's colour, brighter where it is seen
- * edge on. A shape cast from the caster is cut off by the walls round them: what of it lies outside what they see is
- * not drawn (a mask of their sight from the shape's anchor, laid over the floor, decides it fragment by fragment).
+ * edge on. A shape is cut off by the walls, as Atlas cuts its kept areas (`spells.ts` `spellCut`): what of it lies
+ * outside what a straight way from its origin reaches is not drawn (a mask of that ground, laid over the floor,
+ * decides it fragment by fragment). An area of Atlas with an effect (`areaVolume.ts`) is drawn the same way, its own
+ * footprint standing in for the shape.
  */
 import * as THREE from 'three';
-import { visibilityPolygon } from './lineOfSight';
+import type { WallsLook } from './areaCuts';
 import { smoother } from './camera';
-import { clipped, reachOf, turnOf, type Spell, type SpellShape } from './spells';
+import { clipped, reachOf, spellCut, turnOf, type Spell, type SpellShape } from './spells';
 import { DAMAGE_COLORS, SpellEffect } from './spellEffects';
 import type { BoardWall } from './walls';
 import type { SpellRules, WallLook } from './spellRules';
@@ -77,6 +79,48 @@ function geometryOf(spell: Spell): THREE.BufferGeometry {
   }
 }
 
+type FloorPoint = { x: number; y: number };
+
+/**
+ * An area of Atlas drawn as a volume (`areaVolume.ts`) in a spell's place: its floor shape as the walls leave it, standing
+ * `height` tall from the floor, and `look`, the spell that stands for it in the damage's look (a column or a slab over
+ * it; its particles are cut to the footprint). Its anchor `at.h` is its height in the board's space.
+ */
+export interface Footprint {
+  rings: ReadonlyArray<ReadonlyArray<FloorPoint>>;
+  height: number;
+  look: Spell;
+}
+
+function boundsOf(rings: Footprint['rings']): { x0: number; y0: number; x1: number; y1: number } {
+  let x0 = Infinity; let y0 = Infinity; let x1 = -Infinity; let y1 = -Infinity;
+  for (const ring of rings) for (const { x, y } of ring) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  return { x0, y0, x1, y1 };
+}
+
+/** The footprint's solid about its middle (the object's origin): the rings extruded straight up, the floor at -height/2. */
+function footprintGeometry(footprint: Footprint, middle: FloorPoint): THREE.BufferGeometry {
+  const shapes = footprint.rings.filter((ring) => ring.length > 2).map((ring) => new THREE.Shape(ring.map((point) => new THREE.Vector2(point.x - middle.x, point.y - middle.y))));
+  if (shapes.length === 0) return new THREE.BufferGeometry();
+  const geometry = new THREE.ExtrudeGeometry(shapes, { depth: footprint.height, bevelEnabled: false, curveSegments: 1 });
+  // The shape's y is the map's y (the board's z); its extrusion rises from the floor.
+  geometry.rotateX(Math.PI / 2);
+  geometry.translate(0, footprint.height / 2, 0);
+  return geometry;
+}
+
+/** Where a spell's shape stands in the board's space and how it is turned (a wall along its run). */
+function poseOf(spell: Spell): { position: THREE.Vector3; quaternion: THREE.Quaternion } {
+  if (spell.shape === 'wall') {
+    const to = spell.to!;
+    return {
+      position: new THREE.Vector3((spell.at.x + to.x) / 2, spell.at.h + spell.length / 2, (spell.at.y + to.y) / 2),
+      quaternion: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -Math.atan2(to.y - spell.at.y, to.x - spell.at.x), 0)),
+    };
+  }
+  return { position: new THREE.Vector3(spell.at.x, spell.at.h, spell.at.y), quaternion: turnOf(spell) };
+}
+
 /** Where a shape grows from as it is cast: its centre, its base (a cylinder's, a wall's foot), or its tip (a cone's). */
 export type SpellAnchor = 'centre' | 'base' | 'tip';
 
@@ -112,7 +156,7 @@ export class SpellView {
 
   get spell(): Spell { return this.current; }
 
-  constructor(spell: Spell, color: string, walls: readonly BoardWall[], opacity = 0.5, cell = 50, options: { plain?: boolean } = {}) {
+  constructor(spell: Spell, color: string, walls: readonly BoardWall[], opacity = 0.5, cell = 50, options: { plain?: boolean; look?: WallsLook; footprint?: Footprint } = {}) {
     // With a damage, the shape takes the damage's colours, its caster's at its very edge, and fainter, for what is in it.
     this.current = spell;
     const damage = spell.effect ? DAMAGE_COLORS[spell.effect] : null;
@@ -139,7 +183,9 @@ export class SpellView {
       side: THREE.DoubleSide,
     });
     this.baseOpacity = this.material.uniforms.opacity!.value as number;
-    this.mesh = new THREE.Mesh(geometryOf(spell), this.material);
+    this.footprint = options.footprint ?? null;
+    this.walls = options.look ?? {};
+    this.mesh = new THREE.Mesh(this.footprint ? footprintGeometry(this.footprint, this.middleOf(this.footprint)) : geometryOf(spell), this.material);
     this.mesh.renderOrder = 5;
     this.mesh.raycast = () => {};
     this.mesh.castShadow = false;
@@ -147,12 +193,30 @@ export class SpellView {
     this.object3d.add(this.mesh);
     this.object3d.userData.spell = true;
     this.stand(spell);
-    if (clipped(spell)) this.clip(walls);
+    if (this.footprint) this.cutTo(this.footprint.rings, boundsOf(this.footprint.rings), 2);
+    else if (clipped(spell)) this.clip(walls);
     if (spell.effect && !options.plain) {
       const { mask, maskBox, useMask } = this.material.uniforms;
-      this.effect = new SpellEffect(spell.effect, spell, cell, this.object3d.quaternion, { mask: mask!, maskBox: maskBox!, useMask: useMask! });
+      // A footprint's look stands in its own spell's place, which is not where the object is (its middle, upright).
+      const frame = this.footprint ? poseOf(spell) : null;
+      this.effect = new SpellEffect(spell.effect, spell, cell, frame ? frame.quaternion : this.object3d.quaternion, { mask: mask!, maskBox: maskBox!, useMask: useMask! });
+      if (frame) {
+        this.effect.object3d.position.copy(frame.position).sub(this.object3d.position);
+        this.effect.object3d.quaternion.copy(frame.quaternion);
+      }
       this.object3d.add(this.effect.object3d);
     }
+  }
+
+  /** The area of Atlas this draws, when it stands for one. */
+  private readonly footprint: Footprint | null;
+  /** What of the map the cut depends on besides the walls. */
+  private walls: WallsLook;
+
+  /** The middle of a footprint's bounds, map pixels: where the object stands. */
+  private middleOf(footprint: Footprint): FloorPoint {
+    const box = boundsOf(footprint.rings);
+    return Number.isFinite(box.x0) ? { x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2 } : { x: 0, y: 0 };
   }
 
   /** Where it grows from when cast. */
@@ -218,6 +282,11 @@ export class SpellView {
 
   /** Where it stands and how it is turned. */
   private stand(spell: Spell): void {
+    if (this.footprint) {
+      const middle = this.middleOf(this.footprint);
+      this.object3d.position.set(middle.x, this.footprint.height / 2, middle.y);
+      return;
+    }
     if (spell.shape === 'wall') {
       const to = spell.to!;
       this.object3d.position.set((spell.at.x + to.x) / 2, spell.at.h + spell.length / 2, (spell.at.y + to.y) / 2);
@@ -233,14 +302,15 @@ export class SpellView {
     const a = this.current;
     const run = (s: Spell): number => (s.to ? Math.hypot(s.to.x - s.at.x, s.to.y - s.at.y) : 0);
     return a.shape === spell.shape && a.from === spell.from && a.size === spell.size && a.length === spell.length && a.angle === spell.angle
-      && a.effect === spell.effect && Math.abs(run(a) - run(spell)) < 1e-6;
+      && a.effect === spell.effect && a.uncut === spell.uncut && Math.abs(run(a) - run(spell)) < 1e-6;
   }
 
   /** The same shape moved or turned (`fits`): what the walls cut is worked out again where it is. */
-  moveTo(spell: Spell, walls: readonly BoardWall[]): void {
+  moveTo(spell: Spell, walls: readonly BoardWall[], look: WallsLook = this.walls): void {
     this.current = spell;
     this.stand(spell);
     this.effect?.turned(this.object3d.quaternion);
+    this.walls = look;
     if (clipped(spell)) {
       this.maskTexture?.dispose();
       this.maskTexture = null;
@@ -248,38 +318,64 @@ export class SpellView {
     }
   }
 
-  /** Draws only what the anchor sees: the sight polygon from it, painted over the floor round the shape. */
+  /** Draws only what the walls leave of it (`spellCut`): that ground, painted over the floor round the shape. */
   private clip(walls: readonly BoardWall[]): void {
+    const cut = spellCut(this.spell, walls, this.walls);
+    if (!cut) {
+      this.material.uniforms.useMask!.value = 0;
+      return;
+    }
     const reach = reachOf(this.spell) + 1;
     const box = { x0: this.spell.at.x - reach, y0: this.spell.at.y - reach, x1: this.spell.at.x + reach, y1: this.spell.at.y + reach };
-    const polygon = visibilityPolygon({ x: this.spell.at.x, y: this.spell.at.y }, walls, box);
-    if (typeof document === 'undefined') return;
+    this.cutTo(cut.rings, box, 0);
+  }
+
+  /** Paints `rings` (floor points) white on a black mask over `box`, `grow` mask pixels fatter, and cuts fragments outside them. */
+  private cutTo(rings: Footprint['rings'], box: { x0: number; y0: number; x1: number; y1: number }, grow: number): void {
+    if (typeof document === 'undefined' || !Number.isFinite(box.x0) || !(box.x1 > box.x0) || !(box.y1 > box.y0)) return;
     const canvas = document.createElement('canvas');
     canvas.width = MASK_SIZE;
     canvas.height = MASK_SIZE;
     const context = canvas.getContext('2d');
-    if (!context || polygon.length < 3) return;
-    const scale = MASK_SIZE / (box.x1 - box.x0);
+    if (!context || !rings.some((ring) => ring.length >= 3)) return;
+    const scale = MASK_SIZE / Math.max(box.x1 - box.x0, box.y1 - box.y0);
     context.fillStyle = '#000';
     context.fillRect(0, 0, MASK_SIZE, MASK_SIZE);
     context.fillStyle = '#fff';
-    context.beginPath();
-    polygon.forEach((point, index) => {
-      const x = (point.x - box.x0) * scale;
-      const y = (point.y - box.y0) * scale;
-      if (index === 0) context.moveTo(x, y); else context.lineTo(x, y);
-    });
-    context.closePath();
-    context.fill();
+    context.strokeStyle = '#fff';
+    context.lineWidth = grow * 2;
+    context.lineJoin = 'round';
+    for (const ring of rings) {
+      if (ring.length < 3) continue;
+      context.beginPath();
+      ring.forEach((point, index) => {
+        const x = (point.x - box.x0) * scale;
+        const y = (point.y - box.y0) * scale;
+        if (index === 0) context.moveTo(x, y); else context.lineTo(x, y);
+      });
+      context.closePath();
+      context.fill();
+      if (grow > 0) context.stroke();
+    }
     const texture = new THREE.CanvasTexture(canvas);
     texture.flipY = false;
     texture.colorSpace = THREE.NoColorSpace;
     texture.generateMipmaps = false;
     texture.minFilter = THREE.LinearFilter;
+    this.maskTexture?.dispose();
     this.maskTexture = texture;
     this.material.uniforms.mask!.value = texture;
-    (this.material.uniforms.maskBox!.value as THREE.Vector4).set(box.x0, box.y0, box.x1, box.y1);
+    // The canvas is square and the box is stretched over its longer side: the mask's box is that square.
+    const span = MASK_SIZE / scale;
+    (this.material.uniforms.maskBox!.value as THREE.Vector4).set(box.x0, box.y0, box.x0 + span, box.y0 + span);
     this.material.uniforms.useMask!.value = 1;
+  }
+
+  /** Where the shape's body stands in the board's space (its box), for a look in tests. */
+  bodyBox(): THREE.Box3 {
+    this.object3d.updateMatrixWorld(true);
+    this.mesh.geometry.computeBoundingBox();
+    return (this.mesh.geometry.boundingBox ?? new THREE.Box3()).clone().applyMatrix4(this.mesh.matrixWorld);
   }
 
   /** How far along the ray the shape is met, or null (its cut by the walls aside). */

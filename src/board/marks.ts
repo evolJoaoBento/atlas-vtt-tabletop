@@ -21,6 +21,8 @@ export const MEASURE_PIN_PX = 20;
 const MEASURE_PIN_GAP_PX = 3;
 const LABEL_PX = 22;
 
+const NO_CUTS: ReadonlyMap<string, ReadonlyArray<ReadonlyArray<Point>>> = new Map();
+
 interface Ping { group: THREE.Group; born: number }
 interface Laser { line: THREE.Line; points: Array<Point & { at: number }>; lifted: boolean; color: string }
 
@@ -55,14 +57,18 @@ export class BoardMarks {
     this.object3d.add(this.templates, this.overlay);
   }
 
-  /** The scene's lasting templates. */
-  setTemplates(list: readonly TemplateMark[], coneAngle: number): void {
-    const key = JSON.stringify([list, coneAngle]);
+  /**
+   * The scene's lasting templates. `cuts` holds, by id, the outline of an area as the walls leave it (Atlas stops its
+   * kept areas at walls: `areaCuts.ts`); one without an entry is drawn as its shape says. An area with an effect keeps
+   * its outline and loses its wash: the effect stands over it in 3D (`areaVolume.ts`), as Atlas draws it in the wash's place.
+   */
+  setTemplates(list: readonly TemplateMark[], coneAngle: number, cuts: ReadonlyMap<string, ReadonlyArray<ReadonlyArray<Point>>> = NO_CUTS): void {
+    const key = JSON.stringify([list, coneAngle, [...cuts]]);
     if (key === this.templateKey) return;
     this.templateKey = key;
     clear(this.templates);
     for (const template of list) {
-      const drawn = this.shape(template.shape, template.start, template.end, template.color, coneAngle, 0.18, template.ruler ? undefined : template.width);
+      const drawn = this.shape(template.shape, template.start, template.end, template.color, coneAngle, template.effect ? 0 : 0.18, template.ruler ? undefined : template.width, cuts.get(template.id));
       drawn.userData.gmOnly = template.gmOnly === true;
       this.templates.add(drawn);
     }
@@ -247,19 +253,22 @@ export class BoardMarks {
     return group;
   }
 
-  private shape(shape: TemplateShape | MeasureShape, start: Point, end: Point, color: string, coneAngle: number, fill: number, width?: number): THREE.Group {
+  private shape(shape: TemplateShape | MeasureShape, start: Point, end: Point, color: string, coneAngle: number, fill: number, width?: number, cut?: ReadonlyArray<ReadonlyArray<Point>>): THREE.Group {
     const group = new THREE.Group();
-    const { points, closed } = shapeOutline(shape, start, end, coneAngle, width);
-    const line = closed ? new THREE.LineLoop(flat(points, false), new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85, depthTest: false }))
-      : new THREE.Line(flat(points, false), new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85, depthTest: false }));
-    line.renderOrder = 9;
-    group.add(line);
-    if (closed && points.length >= 3) {
-      const area = new THREE.Shape(points.map((point) => new THREE.Vector2(point.x, point.y)));
-      const mesh = new THREE.Mesh(new THREE.ShapeGeometry(area).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: fill, depthWrite: false, side: THREE.DoubleSide }));
-      mesh.position.y = LIFT;
-      mesh.renderOrder = 8;
-      group.add(mesh);
+    // What the walls leave of an area: its rings, each an outline of its own.
+    const outlines = cut ? cut.filter((ring) => ring.length > 2).map((ring) => ({ points: ring, closed: true })) : [shapeOutline(shape, start, end, coneAngle, width)];
+    for (const { points, closed } of outlines) {
+      const line = closed ? new THREE.LineLoop(flat(points, false), new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85, depthTest: false }))
+        : new THREE.Line(flat(points, false), new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85, depthTest: false }));
+      line.renderOrder = 9;
+      group.add(line);
+      if (closed && points.length >= 3 && fill > 0) {
+        const area = new THREE.Shape(points.map((point) => new THREE.Vector2(point.x, point.y)));
+        const mesh = new THREE.Mesh(new THREE.ShapeGeometry(area).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: fill, depthWrite: false, side: THREE.DoubleSide }));
+        mesh.position.y = LIFT;
+        mesh.renderOrder = 8;
+        group.add(mesh);
+      }
     }
     return group;
   }

@@ -13,7 +13,7 @@
  * its players (a hidden measure, one that started on a token they did not or do not see) is marked the GM's alone.
  */
 import { measureKind, measureToSpell, readExtra, spellToMeasure, type MeasureRecord } from '../../packages/atlas-host/src/spellMeasure';
-import type { MeasureEffect } from '../atlasPort/app/measure/measureEffects';
+import { readMeasureEffect, type MeasureEffect } from '../atlasPort/app/measure/measureEffects';
 import type { MeasureShapeKind } from '../atlasPort/app/measure/measureTypes';
 import type { SpellChange, TemplateChange, TemplateMark } from './playerTools';
 import { readSpellRules } from './spellRules';
@@ -101,6 +101,8 @@ export function castsOfMeasures(measures: readonly BoardMeasure[], look: Measure
     const read = placed ? measureToSpell(placed) : null;
     const spell = read ? readSpell(read.spell) : null;
     if (!read || !spell) continue;
+    // Atlas 0.19's `walls: false` lets the measure pass walls; any other value, and none (older Atlas), stops it.
+    if ((record as { walls?: unknown }).walls === false) spell.uncut = true;
     const rules = readSpellRules(read.meta.rules);
     const about = readSpellAbout(read.meta.about);
     const name = typeof read.meta.name === 'string' ? read.meta.name.trim().slice(0, 60) : '';
@@ -125,8 +127,11 @@ export function marksOfMeasures(measures: readonly BoardMeasure[], look: Measure
     if (kind === 'spell') continue;
     const record = placedMeasure(kept, look.tokenAt);
     if (!record) continue;
+    const effect = record.shape === 'ruler' ? undefined : readMeasureEffect(record.effect);
     const shared = {
       owner: readExtra(record)?.owner ?? GM_MEASURE_OWNER, color: typeof record.color === 'string' ? record.color : look.accent, kind,
+      ...(effect ? { effect } : {}),
+      ...((record as { walls?: unknown }).walls === false ? { uncut: true as const } : {}),
       ...(gmOnly(kept, look.unseen) ? { gmOnly: true as const } : {}),
     };
     if (record.shape === 'ruler') {
