@@ -1734,12 +1734,12 @@ export class BoardView extends ItemView {
       },
       measureHotkeys: () => {
         const bridge = new AtlasBridge(this.app);
-        const fmt = (id: 'measure' | 'measureKeep' | 'gmView'): string | null => {
+        const fmt = (id: 'measure' | 'measureKeep' | 'gmView' | 'diceTray' | 'diceLog'): string | null => {
           // On the board a camera letter takes Shift (D is Shift + D here).
           const key = boardBinding(bridge.hotkey(id));
           return key ? formatHotkey(key) : null;
         };
-        return { measure: fmt('measure'), measureKeep: fmt('measureKeep'), gmView: fmt('gmView') };
+        return { measure: fmt('measure'), measureKeep: fmt('measureKeep'), gmView: fmt('gmView'), diceTray: fmt('diceTray'), diceLog: fmt('diceLog') };
       },
       fogHeight: () => boardData.fogHeight(mapPath()),
       // Saved with Tabletop's data; the board follows through `refresh`, as for a style change.

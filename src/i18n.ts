@@ -25,6 +25,7 @@ const EN = {
   'lighting.occlusionHint': 'Darkens the creases where walls, minis and props meet the floor (ambient occlusion). Costs some frame rate.',
   'toolbar.more': 'More tools',
   'toolbar.measureOptions': 'Measure Tool Options',
+  'toolbar.moveOptions': 'Move Tool Options',
   'toolbar.ruler': 'Ruler',
   'toolbar.circle': 'Circle',
   'toolbar.cone': 'Cone',

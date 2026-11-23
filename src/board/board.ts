@@ -341,7 +341,7 @@ export interface BoardHost {
   openMeasureRules?(): void;
   canOpenMeasureRules?(): boolean;
   /** Atlas's formatted hotkey labels for Measure and Keep. */
-  measureHotkeys?(): { measure: string | null; measureKeep: string | null; gmView: string | null };
+  measureHotkeys?(): { measure: string | null; measureKeep: string | null; gmView: string | null; diceTray?: string | null; diceLog?: string | null };
   /** How tall the map's fog stands, in grid squares; and saving a new height. */
   /** The GM's fog tool (Atlas 0.18's) and its bars, through Atlas's store; absent where the board cannot write fog (a player's, a board with no Atlas). */
   fog?: FogHost;
@@ -1162,6 +1162,7 @@ export class Board {
       }),
       measureShortcut: () => this.host.measureHotkeys?.().measure ?? 'M',
       measureKeepShortcut: () => this.host.measureHotkeys?.().measureKeep ?? 'K',
+      diceShortcut: (which) => this.host.measureHotkeys?.()[which] ?? null,
       templateOn: () => this.tools.tool === 'template',
       templateShape: () => this.tools.templateShape,
       clearTemplates: () => { this.act([{ type: 'template', change: { clear: true } }]); },

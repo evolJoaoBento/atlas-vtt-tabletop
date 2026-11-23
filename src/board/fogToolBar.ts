@@ -130,6 +130,7 @@ export class FogToolBars {
     const opacitySection = el('div', 'atlas-dropdown-section', this.morePanel);
     const opacity = this.sliderRow(opacitySection, at('fog.gmOpacity'), Math.round(GM_FOG_OPACITY_RANGE.min * 100), Math.round(GM_FOG_OPACITY_RANGE.max * 100), 5);
     this.opacityRow = opacity.row;
+    this.tooltip.attach(this.opacityRow, () => (this.actions.gmOpacity() === null ? { label: at('fog.gmOpacity'), subtitle: t('fog.needsNewerAtlas') } : null));
     this.opacityInput = opacity.input;
     this.opacityValue = opacity.value;
     this.opacityInput.addEventListener('input', () => { this.actions.setGmOpacity(Number(this.opacityInput.value) / 100); this.sync(); });
@@ -325,7 +326,6 @@ export class FogToolBars {
     const opacity = this.actions.gmOpacity();
     this.opacityRow.classList.toggle('atlas-dropdown-slider-row--disabled', opacity === null);
     this.opacityInput.disabled = opacity === null;
-    this.opacityRow.title = opacity === null ? t('fog.needsNewerAtlas') : '';
     const percent = Math.round((opacity ?? DEFAULT_GM_FOG_OPACITY) * 100);
     if (this.opacityInput.value !== String(percent)) this.opacityInput.value = String(percent);
     this.opacityValue.textContent = `${percent}%`;

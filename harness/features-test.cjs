@@ -1743,7 +1743,17 @@ feature('line of sight', async ({ page, shot }) => {
 feature('lighting from Atlas', async ({ page, shot }) => {
   // The light level is Atlas's scene lighting: with that off in Atlas, the slider says so and cannot be moved.
   const slider = page.locator('.atlas-tabletop-lighting-extra input[type="range"]').first();
-  const state = () => slider.evaluate((input) => ({ disabled: input.disabled, title: input.getAttribute('title'), shown: input.offsetParent !== null }));
+  // What it says is Atlas's tooltip (no native title): hovered, then read.
+  const state = async () => {
+    const facts = await slider.evaluate((input) => ({ disabled: input.disabled, nativeTitle: input.hasAttribute('title'), shown: input.offsetParent !== null }));
+    await page.mouse.move(5, 5);
+    await wait(450);
+    await slider.hover({ force: true });
+    await wait(700);
+    const title = await page.evaluate(() => { const e = document.querySelector('.tooltip-content.atlas-tabletop-atlas-tooltip:not([hidden]) .tooltip-subtitle:not([hidden])'); return e ? e.textContent : null; });
+    await page.mouse.move(5, 5);
+    return { ...facts, title: facts.nativeTitle ? 'native' : title };
+  };
   await page.evaluate(() => { window.__lightingOff = true; });
   await page.locator('button[aria-label^="Lighting"]').click();
   await wait(400);
@@ -1778,7 +1788,13 @@ feature('forget explored areas', async ({ page, shot }) => {
   await wait(300);
   await page.evaluate(() => { window.__lightingOff = false; window.__noForget = true; });
   await open();
-  const old = await button.evaluate((el) => ({ disabled: el.disabled, title: el.getAttribute('title') }));
+  await page.mouse.move(5, 5);
+  await wait(450);
+  await button.hover({ force: true });
+  await wait(700);
+  const old = await button.evaluate((el) => ({ disabled: el.disabled, title: el.hasAttribute('title') ? 'native' : null }));
+  old.title = old.title ?? await page.evaluate(() => { const e = document.querySelector('.tooltip-content.atlas-tabletop-atlas-tooltip:not([hidden]) .tooltip-subtitle:not([hidden])'); return e ? e.textContent : null; });
+  await page.mouse.move(5, 5);
   check('forget explored: an Atlas without it disables it and says it needs a newer Atlas', old.disabled && old.title === 'This needs a newer Atlas.', JSON.stringify(old));
   await shot('forget-explored-old-atlas');
   await page.locator('button[aria-label^="Lighting"]').click();
@@ -10207,4 +10223,99 @@ server.listen(0, async () => {
   const failed = results.filter((r) => !r.ok).length;
   console.log(`${results.length - failed}/${results.length} checks passed`);
   process.exit(failed ? 1 : 0);
+});
+
+// ── The toolbar's tooltips: every button shows Atlas's tooltip, none the browser's plain one ─────────────────────────
+feature('toolbar tooltips', async ({ page, shot }) => {
+  const row = '.atlas-tabletop-toolbar-row';
+  const offenders = () => page.evaluate((row) => [...document.querySelector(row).querySelectorAll('[title]')].filter((e) => e.matches('[data-toolbar-id]') || !e.closest('.atlas-tabletop-dice-menu, .atlas-tabletop-dice-log-menu')).map((e) => `${e.tagName.toLowerCase()}.${String(e.className).split(' ')[0]}="${e.getAttribute('title').slice(0, 40)}"`), row);
+  const shown = async () => { for (let i = 0; i < 20; i += 1) { const tip = await page.evaluate(() => { const e = document.querySelector('.tooltip-content.atlas-tabletop-atlas-tooltip:not([hidden])'); return e ? { label: e.querySelector('.tooltip-label')?.textContent ?? '', kbd: e.querySelector('.tooltip-kbd:not([hidden])')?.textContent ?? '', subtitle: e.querySelector('.tooltip-subtitle:not([hidden])')?.textContent ?? '', role: e.getAttribute('role'), top: e.getBoundingClientRect().bottom } : null; }); if (tip) return tip; await page.waitForTimeout(100); } return null; };
+  const hover = async (selector) => { await page.mouse.move(5, 5); await page.waitForTimeout(450); await page.hover(selector, { force: true }); const tip = await shown(); return tip; };
+  const setMode = (mode) => page.evaluate((mode) => { const { board, modes } = window.boardTest; modes.on = true; modes.mode = mode; board.refreshToolbar(); }, mode);
+  const bar = `${row} .atlas-tabletop-toolbar`;
+
+  // Atlas's tool buttons, as Atlas words them: the name in the label, the key as a keycap, a description under it.
+  await setMode('play');
+  await page.waitForTimeout(200);
+  const want = [
+    ['[data-toolbar-id="undo"]', 'Undo', 'Ctrl/Cmd + Z', ''],
+    ['[data-toolbar-id="redo"]', 'Redo', /Ctrl\/Cmd \+ Shift \+ Z/, ''],
+    ['[data-toolbar-id="move"]', 'Move/Select', 'V', ''],
+    ['[data-toolbar-id="mode-play"]', 'Play mode', '', /game's tools/],
+    ['[data-toolbar-id="mode-edit"]', 'Edit mode', '', /Wall paint/],
+    ['[data-toolbar-id="mode-cinematic"]', 'Cinematic mode', '', /cutscenes/],
+    ['[data-toolbar-id="move-options"]', 'Move Tool Options', '', ''],
+    ['[data-toolbar-id="atlas-loot"]', 'Random tables', 'L', ''],
+    ['[data-toolbar-id="atlas-assets"]', 'Asset manager', 'Shift+A', ''],
+    ['[data-toolbar-id="atlas-palette"]', 'Command Palette', 'Space', ''],
+    ['[data-toolbar-id="dice"]', 'Dice tray', 'R', ''],
+  ];
+  const got = [];
+  for (const [selector, label, kbd, subtitle] of want) {
+    const tip = await hover(`${bar} ${selector}`);
+    const okKbd = kbd instanceof RegExp ? kbd.test(tip?.kbd ?? '') : (tip?.kbd ?? '') === kbd;
+    const okSub = subtitle instanceof RegExp ? subtitle.test(tip?.subtitle ?? '') : subtitle === '' ? true : (tip?.subtitle ?? '') === subtitle;
+    got.push({ selector, ok: !!tip && tip.role === 'tooltip' && tip.label === label && okKbd && okSub, tip });
+  }
+  check('toolbar tooltips: Undo, Redo, the modes, Move/Select and its menu, the Atlas tools and Dice show Atlas\'s tooltip (label, keycap, description)', got.every((g) => g.ok), JSON.stringify(got.filter((g) => !g.ok)));
+  await page.hover(`${bar} [data-toolbar-id="undo"]`);
+  await shown();
+  await shot('toolbar-tooltip-undo');
+  await page.hover(`${bar} [data-toolbar-id="mode-edit"]`);
+  await page.waitForTimeout(300);
+  await shot('toolbar-tooltip-edit-mode');
+  await page.mouse.move(5, 5);
+
+  // Every button of every mode, its menus and its bars open one after another: none keeps a native title.
+  const seen = new Set();
+  const silent = new Set();
+  for (const mode of ['play', 'edit', 'cinematic']) {
+    await setMode(mode);
+    await page.waitForTimeout(250);
+    const ids = await page.evaluate((bar) => [...document.querySelectorAll(`${bar} button[data-toolbar-id]`)].filter((b) => b.offsetParent !== null).map((b) => b.dataset.toolbarId), bar);
+    for (const id of ids) {
+      const button = page.locator(`${bar} button[data-toolbar-id="${id}"]`).first();
+      if (id === 'gm-view') continue;
+      // Hovered first: every button shows Atlas's tooltip with a name (a button with no title and no tooltip is not enough).
+      await page.mouse.move(5, 5);
+      await page.waitForTimeout(450);
+      await button.hover({ force: true, timeout: 2000 }).catch(() => {});
+      const tip = await shown();
+      // A button the narrow bar has put in the More menu has no box on the bar to hover (it is checked for a title below).
+      const boxed = await button.evaluate((b) => b.getBoundingClientRect().width > 0);
+      if (boxed && (!tip || !tip.label.trim())) silent.add(`${mode}/${id}`);
+      await button.click({ force: true, timeout: 2000 }).catch(() => {});
+      await page.waitForTimeout(150);
+      for (const one of await offenders()) seen.add(`${mode}/${id}: ${one}`);
+      if ((await button.getAttribute('aria-expanded')) === 'true') await button.click({ force: true, timeout: 2000 }).catch(() => {});
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(100);
+    }
+    for (const one of await offenders()) seen.add(`${mode}: ${one}`);
+  }
+  // The fog bars and the measure bars float while their tool is on.
+  await setMode('edit');
+  await page.locator(`${bar} button[aria-label="Fog Tool"]`).click({ force: true }).catch(() => {});
+  await page.waitForTimeout(300);
+  for (const one of await offenders()) seen.add(`fog: ${one}`);
+  await page.locator(`${bar} button[aria-label="Fog Tool"]`).click({ force: true }).catch(() => {});
+  await setMode('play');
+  await page.evaluate(() => { window.boardTest.board.toolbarActions().selectMeasure('line'); window.boardTest.board.refreshToolbar(); });
+  await page.waitForTimeout(300);
+  for (const one of await offenders()) seen.add(`measure: ${one}`);
+  await page.evaluate(() => { window.boardTest.board.toolbarActions().selectMeasure(null); window.boardTest.board.refreshToolbar(); });
+  // A disabled control still tells why, in the same tooltip.
+  await setMode('edit');
+  await page.evaluate(() => { window.__lightingOff = true; window.__noForget = true; });
+  await page.locator('button[aria-label^="Lighting"]').click();
+  await page.waitForTimeout(300);
+  const lightTip = await hover('.atlas-tabletop-lighting-extra input[type="range"]');
+  const forgetTip = await hover('.atlas-tabletop-lighting-extra button[data-lighting-action="forget-explored"]');
+  await page.waitForTimeout(350);
+  await shot('toolbar-tooltip-disabled');
+  await page.locator('button[aria-label^="Lighting"]').click();
+  await page.evaluate(() => { window.__lightingOff = false; window.__noForget = false; });
+  check('toolbar tooltips: a disabled slider and a disabled button say why in the Atlas tooltip', lightTip?.subtitle === 'Turn on lighting in Atlas to set the light level.' && forgetTip?.subtitle === 'This needs a newer Atlas.', JSON.stringify({ lightTip, forgetTip }));
+  check('toolbar tooltips: every visible toolbar button of every mode shows a tooltip with its name', silent.size === 0, [...silent].join(', '));
+  check('toolbar tooltips: no element of the toolbar, its menus or its bars keeps a native title', seen.size === 0, [...seen].slice(0, 12).join(' | '));
 });

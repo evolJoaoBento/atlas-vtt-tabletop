@@ -22,7 +22,7 @@ export class AtlasTooltip {
   private readonly labelEl: HTMLElement;
   private readonly kbdEl: HTMLElement;
   private readonly subtitleEl: HTMLElement;
-  private active: { trigger: HTMLElement; spec: () => AtlasTooltipSpec } | null = null;
+  private active: { trigger: HTMLElement; spec: () => AtlasTooltipSpec | null } | null = null;
   private openTimer: number | null = null;
   private closeTimer: number | null = null;
   private closedAt = -Infinity;
@@ -62,8 +62,9 @@ export class AtlasTooltip {
     this.cleanups.push(() => doc.removeEventListener('keydown', onKey, true));
   }
 
-  /** Wires hover and keyboard focus on `trigger` (use the `<span>` around a button so disabled buttons work too). */
-  attach(trigger: HTMLElement, spec: () => AtlasTooltipSpec): void {
+  /** Wires hover and keyboard focus on `trigger` (use the `<span>` around a button so disabled buttons work too). Returns what unwires it. */
+  /** A spec that gives null shows nothing (the control has no tooltip for now). */
+  attach(trigger: HTMLElement, spec: () => AtlasTooltipSpec | null): () => void {
     trigger.style.setProperty('--no-tooltip', 'true');
     const onEnter = (event: PointerEvent): void => {
       if (event.pointerType === 'touch') return;
@@ -87,19 +88,26 @@ export class AtlasTooltip {
     trigger.addEventListener('pointerdown', onDown);
     trigger.addEventListener('focusin', onFocusIn);
     trigger.addEventListener('focusout', onFocusOut);
-    this.cleanups.push(() => {
+    const detach = (): void => {
+      if (this.active?.trigger === trigger) this.hide();
       trigger.removeEventListener('pointerenter', onEnter);
       trigger.removeEventListener('pointerleave', onLeave);
       trigger.removeEventListener('pointerdown', onDown);
       trigger.removeEventListener('focusin', onFocusIn);
       trigger.removeEventListener('focusout', onFocusOut);
-    });
+      const at = this.cleanups.indexOf(detach);
+      if (at >= 0) this.cleanups.splice(at, 1);
+    };
+    this.cleanups.push(detach);
+    return detach;
   }
 
   /** Re-reads the active trigger's content and repositions the tooltip if it is showing. */
   refresh(): void {
     if (!this.active || this.el.hidden) return;
-    this.render(this.active.trigger, this.active.spec());
+    const spec = this.active.spec();
+    if (spec) this.render(this.active.trigger, spec);
+    else this.hide();
   }
 
   /** Hides the tooltip immediately and cancels any pending hover timer. */
@@ -119,7 +127,7 @@ export class AtlasTooltip {
     this.el.remove();
   }
 
-  private schedule(trigger: HTMLElement, spec: () => AtlasTooltipSpec, immediate: boolean): void {
+  private schedule(trigger: HTMLElement, spec: () => AtlasTooltipSpec | null, immediate: boolean): void {
     this.clearOpenTimer();
     this.clearCloseTimer();
     const warm = !this.el.hidden || this.now() - this.closedAt < SKIP_DELAY_MS;
@@ -134,10 +142,12 @@ export class AtlasTooltip {
     }, OPEN_DELAY_MS);
   }
 
-  private show(trigger: HTMLElement, spec: () => AtlasTooltipSpec): void {
+  private show(trigger: HTMLElement, spec: () => AtlasTooltipSpec | null): void {
     this.clearCloseTimer();
+    const now = spec();
+    if (!now) { this.hide(); return; }
     this.active = { trigger, spec };
-    this.render(trigger, spec());
+    this.render(trigger, now);
   }
 
   private render(trigger: HTMLElement, spec: AtlasTooltipSpec): void {

@@ -690,7 +690,7 @@ async function main(): Promise<void> {
     measureWrites: () => ({ update: measureEdit.update, remove: true }),
     updateMeasure: (id, changes) => updateKept(id, changes),
     deleteMeasure: (id) => { measureEdit.log.push(`delete ${id}`); editKept((list) => list.filter((entry) => entry.id !== id), 'measure removed'); },
-    measureHotkeys: () => ({ measure: 'M', measureKeep: 'K', gmView: 'Shift + D' }),
+    measureHotkeys: () => ({ measure: 'M', measureKeep: 'K', gmView: 'Shift + D', diceTray: 'R', diceLog: 'Enter' }),
     // Atlas's map shortcuts as the shell routes them (src/board/boardAtlasTools.ts): the GM view key, which is Shift + D here.
     atlasKey: (event) => { const action = boardHotkeyAction(event, (id) => DEFAULT_MAP_HOTKEYS[id] ?? null); return action === 'gmView' ? board.toggleGmView() : action === 'peek' ? board.peek(true, event.key.toLowerCase()) : action === 'measure' ? board.measureKey(event) : action === 'delete' ? board.deleteSelection() : false; },
     gmView: () => gmViewSwitch.on,

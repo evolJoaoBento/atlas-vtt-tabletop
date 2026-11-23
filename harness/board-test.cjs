@@ -504,14 +504,14 @@ server.listen(0, async () => {
         const box = panel.getBoundingClientRect();
         return {
           open: !panel.hidden, above: box.bottom < group.top, alignedLeft: Math.abs(box.left - group.left) < 30,
-          swatches: [...panel.querySelectorAll('.atlas-swatch')].map((s) => [s.title, s.classList.contains('atlas-swatch--active'), !!s.querySelector('.atlas-swatch-check')]),
+          swatches: [...panel.querySelectorAll('.atlas-swatch')].map((s) => [s.getAttribute('aria-label'), s.classList.contains('atlas-swatch--active'), !!s.querySelector('.atlas-swatch-check')]),
           text: panel.textContent, size: panel.querySelector('.atlas-dropdown-slider-row__value').textContent,
         };
       });
       check('the laser options are Atlas\'s: eight colours (the chosen one checked) with their hint, and the size in px', options.open && options.swatches.length === 8 && options.swatches[0][1] && options.swatches[0][2] && !options.swatches[1][2] && options.text.includes('colour-blind') && options.text.includes('Laser size') && options.size === '16px', options);
       check('they open above the laser\'s tool group, at its left', options.above && options.alignedLeft, options);
       await page.screenshot({ path: `${shots}/board-15-laser-options.png` });
-      const sky = await page.evaluate(() => { const r = document.querySelector('.atlas-swatch[title="Sky blue"]').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+      const sky = await page.evaluate(() => { const r = document.querySelector('.atlas-swatch[aria-label="Sky blue"]').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
       await page.mouse.click(sky.x, sky.y);
       // Atlas's slider: a press on the track puts the thumb there (its centre runs half a thumb in from each end).
       const at40 = await page.evaluate(() => { const r = document.querySelector('.atlas-tabletop-laser-options .slider-root').getBoundingClientRect(); return { x: r.left + 8 + ((40 - 8) / 92) * (r.width - 16), y: r.top + r.height / 2 }; });
@@ -519,7 +519,7 @@ server.listen(0, async () => {
       await wait(100);
       r = await record();
       check('choosing a colour and a size saves them', JSON.stringify(r.lasers) === JSON.stringify([{ color: '#00a9ff' }, { size: 40 }]), r.lasers);
-      const ticked = await page.evaluate(() => document.querySelector('.atlas-swatch.atlas-swatch--active')?.title);
+      const ticked = await page.evaluate(() => document.querySelector('.atlas-swatch.atlas-swatch--active')?.getAttribute('aria-label'));
       check('the chosen colour is ticked', ticked === 'Sky blue', ticked);
       await page.keyboard.press('Escape');
       await page.mouse.move(from.x, from.y);

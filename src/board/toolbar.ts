@@ -25,7 +25,7 @@ import { DICES_SVG } from '../dice/dicePicker';
 import type { LightingChoice } from './look';
 import { DEFAULT_EDGES, DEFAULT_SEE_THROUGH_SIZE, readSeeThroughSize, DEFAULT_LAYER_LOOK, type LayerLook, type WallEdges } from './quality';
 import { SeeThroughRing, type SeeThroughCircle } from './seeThroughRing';
-import { AtlasTooltip } from './atlasTooltip';
+import { AtlasTooltip, type AtlasTooltipSpec } from './atlasTooltip';
 import { t } from '../i18n';
 import { LASER_COLORS, LASER_COLOR_HINT, LASER_SIZE_MAX, LASER_SIZE_MIN, type LaserSettings } from './laser';
 import { TOOLBAR_BUTTONS, targetModeFor, type ToolbarButtonId, type ToolbarButtonState } from './toolbarButtons';
@@ -147,6 +147,8 @@ export interface ToolbarActions {
   rangesUnavailable?(): string | null;
   measureShortcut?(): string | null;
   measureKeepShortcut?(): string | null;
+  /** The key Atlas opens its dice tray and its dice log with, as shown. */
+  diceShortcut?(which: 'diceTray' | 'diceLog'): string | null;
   /** Atlas's GM view switch: whether the board shows the GM's view (off: Atlas's session view, as players see it), throwing it, and its key as shown. Absent where there is no switch. */
   gmView?(): boolean;
   setGmView?(on: boolean): void;
@@ -337,6 +339,10 @@ export class BoardToolbar {
   private readonly sheetButton: HTMLButtonElement;
   private readonly seeThroughRing: SeeThroughRing;
   private readonly viewTooltip: AtlasTooltip;
+  /** What unwires each control's tooltip (`setTip`), for the ones that are rebuilt. */
+  private readonly tipDetach = new Map<HTMLElement, () => void>();
+  /** What each control's tooltip says now (`setTip`). */
+  private readonly tips = new WeakMap<HTMLElement, AtlasTooltipSpec | (() => AtlasTooltipSpec | null) | null>();
   private sizeMode = false;
   /** Tracks a pointerdown on the canvas during size mode so camera orbit/pan drags keep the bar open. */
   private outsideCanvas: { pointerId: number; x: number; y: number } | null = null;
@@ -529,6 +535,7 @@ export class BoardToolbar {
 
     // Atlas's own class names under a root of Tabletop's: its look is copied in styles.css, without needing its styles.
     this.row = el('div', 'atlas-tabletop-toolbar-row atlas-tabletop-atlas', container);
+    this.viewTooltip = new AtlasTooltip(container);
     this.turnBannerHost = el('div', 'atlas-bottom-toolbar-row__above', this.row);
     this.turnBannerHost.setAttribute('aria-live', 'polite');
     // The main toolbar and, as in Atlas 0.17's bottom row, the bars beside it (the keyboard shortcuts bar at its end).
@@ -557,17 +564,17 @@ export class BoardToolbar {
     this.historyGroup = el('div', 'atlas-tool-group atlas-tabletop-history', bar);
     this.undoButton = this.registerButton('undo', toolIn(this.historyGroup, historyIcon('undo'), () => this.actions.undo?.()));
     this.undoButton.setAttribute('aria-label', TOOLBAR_BUTTONS.undo.label);
-    this.undoButton.title = 'Undo (Ctrl/Cmd + Z)';
+    this.setTip(this.undoButton, { label: 'Undo', shortcut: 'Ctrl/Cmd + Z' });
     this.redoButton = this.registerButton('redo', toolIn(this.historyGroup, historyIcon('redo'), () => this.actions.redo?.()));
     this.redoButton.setAttribute('aria-label', TOOLBAR_BUTTONS.redo.label);
-    this.redoButton.title = 'Redo (Ctrl/Cmd + Shift + Z or Ctrl/Cmd + Y)';
+    this.setTip(this.redoButton, { label: 'Redo', shortcut: 'Ctrl/Cmd + Shift + Z' });
     this.historyGroup.style.display = this.actions.undo ? '' : 'none';
     // The board's modes: Play (the game's tools) and Edit (walls, water, materials, the board's settings).
     this.modeGroup = el('div', 'atlas-tool-group atlas-tabletop-modes', bar);
     for (const [mode, label] of [['play', 'Play mode'], ['edit', 'Edit mode'], ['cinematic', 'Cinematic mode']] as const) {
       const button = this.registerButton(`mode-${mode}`, toolIn(this.modeGroup, modeIcon(mode), () => { if (this.actions.mode?.() !== mode) this.actions.setMode?.(mode); }));
       button.setAttribute('aria-label', label);
-      button.title = mode === 'play' ? 'Play mode: the game\'s tools' : mode === 'edit' ? 'Edit mode: wall paint, water, and wall heights by Ctrl + drag' : 'Cinematic mode: make and run cutscenes';
+      this.setTip(button, { label, subtitle: mode === 'play' ? 'The game\'s tools' : mode === 'edit' ? 'Wall paint, water, and wall heights by Ctrl + drag' : 'Make and run cutscenes' });
       button.dataset.mode = mode;
       this.modeButtons.push({ mode, button });
     }
@@ -579,7 +586,7 @@ export class BoardToolbar {
     setSvg(this.laserMenuButton, CHEVRON_SVG);
     this.laserMenuButton.setAttribute('aria-label', TOOLBAR_BUTTONS['move-options'].label);
     this.laserMenuButton.setAttribute('aria-expanded', 'false');
-    this.laserMenuButton.title = TOOLBAR_BUTTONS['move-options'].label;
+    this.setTip(this.laserMenuButton, { label: t('toolbar.moveOptions') });
     this.laserMenuButton.addEventListener('click', () => (this.laserPanel.hidden ? this.openLaser() : this.closeLaser()));
 
     // Atlas's laser options (`LaserPointerOptions`): the colour swatches with their hint, and the size slider.
@@ -610,7 +617,7 @@ export class BoardToolbar {
       button.type = 'button';
       button.style.backgroundColor = swatch.value;
       button.setAttribute('aria-label', swatch.label);
-      button.title = swatch.label;
+      this.setTip(button, { label: swatch.label });
       button.dataset.value = swatch.value;
       button.addEventListener('click', () => { this.actions.setLaser({ color: swatch.value }); this.showLaser(); });
       this.swatches.push(button);
@@ -663,7 +670,6 @@ export class BoardToolbar {
       if (event.key === 'Escape') { event.preventDefault(); this.closeLaser(); }
     });
     // Connect's Template tool, as its player toolbar has it: the tool, and a chevron to its shapes and to clearing them.
-    this.viewTooltip = new AtlasTooltip(container);
     // Atlas 0.18's fog tool: one button right after Move/Select, as Atlas's toolbar has it; while it is on, two bars float above the toolbar.
     this.fogGroup = el('div', 'atlas-tool-group atlas-tabletop-fog-group', bar);
     this.fogButton = this.registerButton('fog', toolIn(this.fogGroup, fogIcon('fog'), () => {
@@ -1042,7 +1048,7 @@ export class BoardToolbar {
     });
     // The bucket: how near a colour must be to the one clicked to be filled with it.
     const fill = slider(brushSection, 'Fill sensitivity', 0, 100, 1);
-    fill.row.title = 'Fill water: how far from the colour clicked the bucket spreads (Shift + click dries)';
+    this.setTip(fill.row, { label: 'Fill sensitivity', subtitle: 'How far from the colour clicked the bucket spreads (Shift + click dries)' });
     fill.input.addEventListener('input', () => {
       this.actions.setWaterFill?.(Number(fill.input.value));
       this.syncWaterBar();
@@ -1065,6 +1071,7 @@ export class BoardToolbar {
     const tints: HTMLButtonElement[] = [];
     // The swatches are the liquid's own presets: made again when the brush's liquid changes.
     const makeTints = (liquid: LiquidKind): void => {
+      this.forgetTips(tintGrid);
       tintGrid.replaceChildren();
       tints.length = 0;
       for (const preset of LIQUID_TINTS[liquid]) {
@@ -1072,7 +1079,7 @@ export class BoardToolbar {
         button.type = 'button';
         button.style.backgroundColor = preset.tint;
         button.setAttribute('aria-label', preset.name);
-        button.title = preset.name;
+        this.setTip(button, { label: preset.name });
         button.dataset.tint = preset.tint;
         button.addEventListener('click', () => { change({ tint: preset.tint }); this.refresh(); });
         tints.push(button);
@@ -1127,7 +1134,7 @@ export class BoardToolbar {
       const made = el('button', 'btn btn--ghost btn--sm atlas-dropdown-menu-item', lavaStyles);
       made.type = 'button';
       made.dataset.lavaStyle = style.value;
-      made.title = style.hint;
+      this.setTip(made, { label: style.label, subtitle: style.hint });
       el('span', 'atlas-dropdown-menu-item__check', made);
       el('span', '', made, style.label);
       made.addEventListener('click', () => {
@@ -1146,7 +1153,7 @@ export class BoardToolbar {
     this.shapeGroup = el('div', 'atlas-tool-group', bar);
     this.shapeButton = this.registerButton('shapes', toolIn(this.shapeGroup, SHAPES_SVG, () => { this.actions.setShapeTool?.(this.actions.shapeTool?.() !== true); this.refresh(); }));
     this.shapeButton.setAttribute('aria-label', TOOLBAR_BUTTONS.shapes.label);
-    this.shapeButton.title = 'Shapes: draw roofs and hills corner by corner, each corner at its own height';
+    this.setTip(this.shapeButton, { label: TOOLBAR_BUTTONS.shapes.label, subtitle: 'Draw roofs and hills corner by corner, each corner at its own height' });
     this.shapeGroup.style.display = this.actions.setShapeTool ? '' : 'none';
     this.paintGroup = el('div', 'atlas-tool-group', bar);
     this.paintButton = this.registerButton('paint', toolIn(this.paintGroup, modeIcon('paint'), () => {
@@ -1156,13 +1163,13 @@ export class BoardToolbar {
       this.refresh();
     }));
     this.paintButton.setAttribute('aria-label', TOOLBAR_BUTTONS.paint.label);
-    this.paintButton.title = 'Paint walls with a material (Esc or right-click stops)';
+    this.setTip(this.paintButton, { label: TOOLBAR_BUTTONS.paint.label, subtitle: 'Paint walls with a material (Esc or right-click stops)' });
     const paintMenu = el('div', 'atlas-dropdown-menu', this.paintGroup);
     this.paintMenuButton = this.registerButton('paint-options', el('button', 'btn btn--ghost btn--icon atlas-dropdown-trigger btn--toolbar', paintMenu));
     this.paintMenuButton.type = 'button';
     setSvg(this.paintMenuButton, CHEVRON_SVG);
     this.paintMenuButton.setAttribute('aria-label', TOOLBAR_BUTTONS['paint-options'].label);
-    this.paintMenuButton.title = TOOLBAR_BUTTONS['paint-options'].label;
+    this.setTip(this.paintMenuButton, { label: TOOLBAR_BUTTONS['paint-options'].label });
     this.paintPanel = el('div', 'atlas-dropdown-content atlas-dropdown-content--top atlas-dropdown-content--left atlas-tabletop-paint-options', paintMenu);
     this.paintPanel.hidden = true;
     this.paintMenuButton.addEventListener('click', () => (this.paintPanel.hidden ? this.openPaint() : this.closePaint()));
@@ -1171,13 +1178,13 @@ export class BoardToolbar {
     this.templateGroup = el('div', 'atlas-tool-group', bar);
     this.templateButton = this.registerButton('template', toolIn(this.templateGroup, TEMPLATE_SVG, () => this.actions.selectTemplate(this.actions.templateOn() ? null : this.actions.templateShape())));
     this.templateButton.setAttribute('aria-label', TOOLBAR_BUTTONS.template.label);
-    this.templateButton.title = 'Template (players see it)';
+    this.setTip(this.templateButton, { label: TOOLBAR_BUTTONS.template.label, subtitle: 'Players see it' });
     const templateMenu = el('div', 'atlas-dropdown-menu', this.templateGroup);
     this.templateMenuButton = this.registerButton('template-options', el('button', 'btn btn--ghost btn--icon atlas-dropdown-trigger btn--toolbar', templateMenu));
     this.templateMenuButton.type = 'button';
     setSvg(this.templateMenuButton, CHEVRON_SVG);
     this.templateMenuButton.setAttribute('aria-label', TOOLBAR_BUTTONS['template-options'].label);
-    this.templateMenuButton.title = TOOLBAR_BUTTONS['template-options'].label;
+    this.setTip(this.templateMenuButton, { label: TOOLBAR_BUTTONS['template-options'].label });
     this.templatePanel = el('div', 'atlas-dropdown-content atlas-dropdown-content--top atlas-dropdown-content--left atlas-tabletop-template-options', templateMenu);
     this.templatePanel.hidden = true;
     const shapes = el('div', 'atlas-dropdown-section', this.templatePanel);
@@ -1252,7 +1259,7 @@ export class BoardToolbar {
       const box = el('input', 'atlas-tabletop-palette__check', field);
       box.type = 'checkbox';
       el('span', 'atlas-tabletop-palette__label', field, label);
-      field.title = hint;
+      this.setTip(field, { label, subtitle: hint });
       box.addEventListener('change', () => change(box.checked));
       return box;
     };
@@ -1276,7 +1283,7 @@ export class BoardToolbar {
     // Players are shown scenes with the eye on Atlas's scene tabs over the board: no player view or freeze button here.
     this.groundButton = this.registerButton('ground', tool(GROUND_SVG, () => (this.groundPanel.hidden ? this.openGround() : this.closeGround())));
     this.groundButton.setAttribute('aria-label', TOOLBAR_BUTTONS.ground.label);
-    this.groundButton.title = 'Ground: the map board, or a plane or water to the horizon; fog and extra board';
+    this.setTip(this.groundButton, { label: TOOLBAR_BUTTONS.ground.label, subtitle: 'The map board, or a plane or water to the horizon; fog and extra board' });
     this.groundButton.setAttribute('aria-expanded', 'false');
     if (!this.actions.setGround) (this.groundButton.closest('.atlas-tool-button') as HTMLElement).style.display = 'none';
     this.button = this.registerButton('board-settings', tool(WALL_SVG, () => (this.panel.hidden ? this.open() : this.close())));
@@ -1290,7 +1297,7 @@ export class BoardToolbar {
     // Atlas's end slot, where Connect puts its buttons as it does in Atlas's own toolbar; Atlas's styles apply inside it.
     this.endSlot = el('div', 'atlas-toolbar-end atlas-vtt-plugin atlas-tabletop-extensions', bar);
     this.button.setAttribute('aria-label', TOOLBAR_BUTTONS['board-settings'].label);
-    this.button.title = TOOLBAR_BUTTONS['board-settings'].label;
+    this.setTip(this.button, { label: TOOLBAR_BUTTONS['board-settings'].label });
     this.button.setAttribute('aria-expanded', 'false');
 
     this.panel = el('div', 'atlas-tabletop-palette', this.row);
@@ -1408,7 +1415,7 @@ export class BoardToolbar {
     this.tableHint = el('div', 'atlas-tabletop-palette__hint', this.tableSection, '');
     this.tableButton = el('button', 'atlas-tabletop-palette__choice', this.tableSection, 'Fine-tune the AR table…');
     this.tableButton.type = 'button';
-    this.tableButton.title = 'Shows the players\' printed sheets on the map with handles: drag them to where the map should lie on the table.';
+    this.setTip(this.tableButton, { label: 'Fine-tune the AR table', subtitle: 'Shows the players\' printed sheets on the map with handles: drag them to where the map should lie on the table.' });
     this.tableButton.addEventListener('click', () => { this.close(); this.actions.placeArTable?.(); });
     // Snap to grid: tokens and props each on their own.
     const snapping = el('div', 'atlas-tabletop-palette__section', this.panel);
@@ -1419,7 +1426,7 @@ export class BoardToolbar {
       input.type = 'checkbox';
       input.dataset.snap = kind;
       el('span', 'atlas-tabletop-palette__label', row, label);
-      row.title = hint;
+      this.setTip(row, { label, subtitle: hint });
       input.addEventListener('change', () => this.actions.setSnap?.(kind, input.checked));
       this.snapToggles.push({ kind, input });
     }
@@ -1437,7 +1444,7 @@ export class BoardToolbar {
       for (const [value, label, hint] of [['board', 'Map board', 'The map on its table, framed.'], ['horizon', 'Horizon plane', 'The map lies on a plane running to the horizon, tiled with a material and shaped by a pattern past the board.'], ['water', 'Water plane', 'The map lies on water running to the horizon, moving as painted water does.'], ['lava', 'Lava plane', 'The map lies on lava running to the horizon, glowing and moving as painted lava does.'], ['acid', 'Acid plane', 'The map lies on acid running to the horizon, bubbling and moving as painted acid does.'], ['painted', 'Painted', 'The map lies on a background painted in the Tabletop Gallery']] as const) {
         const button = el('button', 'atlas-tabletop-palette__choice', choices, label);
         button.type = 'button';
-        button.title = hint;
+        this.setTip(button, { label, subtitle: hint });
         button.addEventListener('click', () => change({ mode: value }));
         modes.push({ value, button });
       }
@@ -1497,7 +1504,8 @@ export class BoardToolbar {
         this.fillGround();
       };
       const lavaStyle = selectRow('Lava type', 'What kind of lava it is', ['lava']);
-      for (const style of LAVA_STYLES) { const option = el('option', '', lavaStyle, style.label); option.value = style.value; option.title = style.hint; }
+      for (const style of LAVA_STYLES) { const option = el('option', '', lavaStyle, style.label); option.value = style.value; }
+      this.setTip(lavaStyle, () => { const style = LAVA_STYLES.find((one) => one.value === lavaStyle.value); return { label: 'Lava type', ...(style ? { subtitle: style.hint } : {}) }; });
       lavaStyle.addEventListener('change', () => waterChange({ style: lavaStyle.value as LavaStyle }));
       const kind = selectRow('Moves', 'How the liquid moves', ON_WATER);
       for (const value of WATER_MOTION_KINDS) { const option = el('option', '', kind, MOTION_LABELS.water[value]); option.value = value; }
@@ -1523,13 +1531,14 @@ export class BoardToolbar {
       presets.setAttribute('aria-label', 'Liquid tint presets');
       rows.push({ row: presetRow, modes: ON_WATER });
       const makePresets = (liquid: LiquidKind): void => {
+        this.forgetTips(presets);
         presets.replaceChildren();
         for (const preset of LIQUID_TINTS[liquid]) {
           const button = el('button', 'atlas-swatch', presets);
           button.type = 'button';
           button.style.backgroundColor = preset.tint;
           button.setAttribute('aria-label', preset.name);
-          button.title = preset.name;
+          this.setTip(button, { label: preset.name });
           button.dataset.tint = preset.tint;
           button.addEventListener('click', () => waterChange({ tint: preset.tint }));
         }
@@ -1550,7 +1559,7 @@ export class BoardToolbar {
       const margin = rangeRow('Extra board', 'Extra board round the map, in squares', MAX_MARGIN, ALWAYS);
       margin.input.addEventListener('change', () => change({ margin: Number(margin.input.value) }));
       margin.input.addEventListener('input', () => { margin.value.textContent = `${margin.input.value} sq`; });
-      margin.input.closest('label')!.title = 'Room round the map where minis can stand, in squares each way.';
+      this.setTip(margin.input.closest('label')!, { label: 'Extra board', subtitle: 'Room round the map where minis can stand, in squares each way.' });
       this.groundUi = { section, modes, rows, water: { kind, style: lavaStyle, amount: amount.input, direction: direction.input, directionRow: direction.input.closest('label')!, clarity: clarity.input, tint, presets, makePresets }, material, background, noise, strength: strength.input, strengthValue: strength.value, fog: fogRow.input, fogOn, fogValue: fogRow.value, margin: margin.input, marginValue: margin.value, tile: tile.input, tileValue: tile.value };
     }
     const edges = el('div', 'atlas-tabletop-palette__field', fog);
@@ -1568,7 +1577,7 @@ export class BoardToolbar {
       });
       this.edgeButtons.push({ value, button });
     }
-    edges.title = 'Sharp is a plain box; Soft rounds the edges a little so they catch the light; Rounded is more pillowy. Walls are drawn with more triangles when rounded.';
+    this.setTip(edges, { label: 'Wall edges', subtitle: 'Sharp is a plain box; Soft rounds the edges a little so they catch the light; Rounded is more pillowy. Walls are drawn with more triangles when rounded.' });
     el('div', 'atlas-tabletop-palette__hint', fog, 'Walls without a height of their own stand this many grid squares tall, and so does the fog painted in Atlas (0 lays the fog flat on the map).');
     const dice = el('div', 'atlas-tabletop-palette__section', this.panel);
     el('div', 'atlas-tabletop-palette__heading', dice, t('dice.heading'));
@@ -1576,7 +1585,7 @@ export class BoardToolbar {
     this.autoRollToggle = el('input', 'atlas-tabletop-palette__check', auto);
     this.autoRollToggle.type = 'checkbox';
     el('span', 'atlas-tabletop-palette__label', auto, t('dice.autoRoll'));
-    auto.title = t('dice.autoRollHint');
+    this.setTip(auto, { label: t('dice.autoRoll'), subtitle: t('dice.autoRollHint') });
     this.autoRollToggle.addEventListener('change', () => this.actions.setAutoRoll(this.autoRollToggle.checked));
     const apply = (): void => {
       const height = readFogHeight(this.heightInput.value);
@@ -1609,7 +1618,7 @@ export class BoardToolbar {
     this.moreButton = this.registerButton('more', toolIn(this.moreGroup, MORE_SVG, () => (this.moreMenu.hidden ? this.openMore() : this.closeMore())));
     this.moreButton.setAttribute('aria-label', t('toolbar.more'));
     this.moreButton.setAttribute('aria-expanded', 'false');
-    this.moreButton.title = t('toolbar.more');
+    this.setTip(this.moreButton, { label: t('toolbar.more') });
     this.moreMenu = el('div', 'atlas-dropdown-content atlas-dropdown-content--top atlas-dropdown-content--right atlas-tabletop-more-menu', this.moreGroup);
     this.moreMenu.hidden = true;
     this.moreGroup.hidden = true;
@@ -1739,7 +1748,7 @@ export class BoardToolbar {
     const lighting = this.actions.lighting();
     setSvg(this.lightingButton, LIGHTING_ICONS[lighting]);
     this.lightingButton.setAttribute('aria-label', t('lighting.title', { mode: lightingLabel(lighting) }));
-    this.lightingButton.title = t('lighting.title', { mode: lightingLabel(lighting) });
+    this.setTip(this.lightingButton, { label: t('lighting.title', { mode: lightingLabel(lighting) }) });
     for (const choice of this.lightingPanel.querySelectorAll<HTMLElement>('[data-lighting]')) {
       const check = choice.querySelector('.atlas-dropdown-menu-item__check')!;
       setSvg(check, choice.dataset.lighting === lighting ? CHECK_SVG.replace('class="atlas-swatch-check"', 'class="atlas-dropdown-menu-item__tick"') : '');
@@ -1755,7 +1764,7 @@ export class BoardToolbar {
     // One tool in use at a time, as on Atlas's toolbar: the group is lit unless the Measure tool is.
     this.laserButton.classList.toggle('is-active', this.actions.measureOn?.() !== true && !this.actions.waterTool?.() && !this.actions.painting?.() && this.actions.fog?.state().on !== true);
     this.laserButton.setAttribute('aria-label', laser ? 'Laser Pointer' : 'Move/Select');
-    this.laserButton.title = `${laser ? 'Laser Pointer' : 'Move/Select'} (${MOVE_KEY})`;
+    this.setTip(this.laserButton, { label: laser ? 'Laser Pointer' : 'Move/Select', shortcut: MOVE_KEY });
     for (const [entry, chosen] of [[this.moveItem, !laser], [this.laserItem, laser]] as const) {
       const check = entry.querySelector('.atlas-dropdown-menu-item__check')!;
       setSvg(check, chosen ? CHECK_SVG.replace('class="atlas-swatch-check"', 'class="atlas-dropdown-menu-item__tick"') : '');
@@ -1791,7 +1800,7 @@ export class BoardToolbar {
     this.dice?.anchor.remove();
     this.dice = null;
     if (!handlers) return null;
-    this.dice = this.endButton('Dice', DICES_SVG, handlers, 'atlas-tabletop-dice-menu', null);
+    this.dice = this.endButton('Dice', DICES_SVG, handlers, 'atlas-tabletop-dice-menu', null, () => this.keyedTip('Dice tray', this.actions.diceShortcut?.('diceTray')));
     this.registerButton('dice', this.dice.button);
     return this.dice.anchor;
   }
@@ -1801,7 +1810,7 @@ export class BoardToolbar {
     this.diceLog?.anchor.remove();
     this.diceLog = null;
     if (!handlers) return null;
-    this.diceLog = this.endButton('Dice log', LOG_SVG, handlers, 'atlas-tabletop-dice-log-menu', () => this.dice?.anchor ?? null);
+    this.diceLog = this.endButton('Dice log', LOG_SVG, handlers, 'atlas-tabletop-dice-log-menu', () => this.dice?.anchor ?? null, () => this.keyedTip('Dice log', this.actions.diceShortcut?.('diceLog')));
     this.registerButton('dice-log', this.diceLog.button);
     return this.diceLog.anchor;
   }
@@ -1843,7 +1852,6 @@ export class BoardToolbar {
       button.type = 'button';
       setSvg(button, svg);
       button.setAttribute('aria-label', label);
-      button.title = label;
       button.addEventListener('click', () => {
         this.closeDice();
         click();
@@ -1852,6 +1860,7 @@ export class BoardToolbar {
       span.appendChild(button);
       wrapper.appendChild(span);
       anchor.appendChild(wrapper);
+      this.setTip(button, { label });
       return button;
     };
     const live = this.registerButton('cinema-live', make('Players follow my camera', LIVE_SVG, () => handlers.toggleLive()));
@@ -2184,6 +2193,8 @@ export class BoardToolbar {
       parent.appendChild(wrapper);
       return { tool, button };
     };
+    this.forgetTips(this.atlasGroup);
+    if (this.commandSlot) this.forgetTips(this.commandSlot);
     this.atlasGroup.replaceChildren();
     this.atlasButtons = groupTools.map((tool) => makeAtlasButton(this.atlasGroup!, tool));
     this.atlasGroup.hidden = groupTools.length === 0;
@@ -2211,12 +2222,45 @@ export class BoardToolbar {
       button.classList.toggle('is-active', tool.active());
       button.setAttribute('aria-pressed', String(tool.active()));
       button.setAttribute('aria-label', label);
-      button.title = tool.shortcut ? `${label} (${tool.shortcut})` : label;
+      this.setTip(button, { label: tool.label, ...(enabled ? {} : { subtitle: t('atlasTools.needsAtlas') }), ...(tool.shortcut ? { shortcut: tool.shortcut } : {}) });
+    }
+  }
+
+  /**
+   * Gives a control Atlas's tooltip (the browser's plain `title` never shows on the toolbar), or takes it away with null.
+   * A spec may be a function when the words change; a tool button's tooltip stands on the span Atlas wraps it in, so a
+   * disabled one still shows it.
+   */
+  private setTip(control: HTMLElement, spec: AtlasTooltipSpec | (() => AtlasTooltipSpec | null) | null): void {
+    control.removeAttribute('title');
+    const fresh = !this.tips.has(control);
+    this.tips.set(control, spec);
+    if (fresh) {
+      const wrap = control.parentElement;
+      const trigger = wrap?.tagName === 'SPAN' && wrap.parentElement?.classList.contains('atlas-tool-button') ? wrap : control;
+      this.tipDetach.set(control, this.viewTooltip.attach(trigger, () => { const now = this.tips.get(control) ?? null; return typeof now === 'function' ? now() : now; }));
+    } else {
+      this.viewTooltip.refresh();
+    }
+  }
+
+  /** A tooltip's words: the name, and its key as a keycap when it has one. */
+  private keyedTip(label: string, shortcut: string | null | undefined): AtlasTooltipSpec {
+    return shortcut ? { label, shortcut } : { label };
+  }
+
+  /** Takes the tooltips off every control inside `root`, which the caller is about to rebuild. */
+  private forgetTips(root: HTMLElement): void {
+    for (const [control, detach] of this.tipDetach) {
+      if (!root.contains(control)) continue;
+      detach();
+      this.tipDetach.delete(control);
+      this.tips.delete(control);
     }
   }
 
   /** A button in the end slot that opens its panel, the other toolbar panels (and the other end slot panels) shut. */
-  private endButton(label: string, svg: string, handlers: DiceButton, className: string, after: (() => HTMLElement | null) | null): EndButton {
+  private endButton(label: string, svg: string, handlers: DiceButton, className: string, after: (() => HTMLElement | null) | null, tip?: () => AtlasTooltipSpec): EndButton {
     const doc = this.row.ownerDocument;
     const anchor = doc.win.createDiv();
     anchor.className = `atlas-dropdown-menu ${className}`;
@@ -2229,7 +2273,6 @@ export class BoardToolbar {
     button.type = 'button';
     setSvg(button, svg);
     button.setAttribute('aria-label', label);
-    button.title = label;
     button.setAttribute('aria-expanded', 'false');
     const made: EndButton = { handlers, anchor, button };
     button.addEventListener('click', () => {
@@ -2246,6 +2289,7 @@ export class BoardToolbar {
     span.appendChild(button);
     wrapper.appendChild(span);
     anchor.appendChild(wrapper);
+    this.setTip(button, tip ?? { label });
     // Next to the button before it when that is there, else first in the slot.
     const beside = after?.() ?? null;
     if (beside) beside.after(anchor);
@@ -2348,14 +2392,12 @@ export class BoardToolbar {
     // The light level is Atlas's scene lighting: with that off there is no level to set.
     const lit = this.actions.lightingOn?.() ?? true;
     this.ambientInput.disabled = !lit;
-    if (lit) this.ambientInput.removeAttribute('title');
-    else this.ambientInput.title = LIGHTING_OFF_TITLE;
+    this.setTip(this.ambientInput, lit ? null : { label: t('lighting.ambient'), subtitle: LIGHTING_OFF_TITLE });
     // Atlas disables Forget explored areas while its lighting is off; a map Atlas cannot do it on says so.
     if (this.forgetExploredButton) {
       const offered = this.actions.forgetExploredOffered?.() ?? true;
       this.forgetExploredButton.disabled = !lit || !offered;
-      if (offered) this.forgetExploredButton.removeAttribute('title');
-      else this.forgetExploredButton.title = t('fog.needsNewerAtlas');
+      this.setTip(this.forgetExploredButton, offered ? null : { label: this.forgetExploredButton.textContent?.trim() ?? '', subtitle: t('fog.needsNewerAtlas') });
     }
     this.tintInput.value = this.actions.tint() ?? '#ffffff';
     this.tintReset.disabled = this.actions.tint() === null;
@@ -2383,6 +2425,7 @@ export class BoardToolbar {
     this.closeLighting();
     this.closeWater();
     const doc = this.paintPanel.ownerDocument;
+    this.forgetTips(this.paintPanel);
     this.paintPanel.replaceChildren();
     const hint = doc.createElement('div');
     hint.className = 'atlas-tabletop-palette__hint';
@@ -2394,7 +2437,7 @@ export class BoardToolbar {
       made.type = 'button';
       made.className = 'atlas-tabletop-paint-card';
       made.dataset.material = path;
-      made.title = path === UNPAINT ? 'Take the material off walls' : path;
+      this.setTip(made, { label: name, subtitle: path === UNPAINT ? 'Take the material off walls' : path });
       const face = doc.createElement('span');
       face.className = 'atlas-tabletop-paint-thumb';
       if (thumb) { const img = doc.createElement('img'); img.src = thumb; img.alt = ''; img.draggable = false; face.appendChild(img); }
@@ -2655,8 +2698,7 @@ export class BoardToolbar {
     }
     const canRules = this.actions.openMeasureRules !== undefined && this.actions.canOpenMeasureRules?.() !== false;
     this.measureRulesButton.disabled = !canRules;
-    if (canRules) this.measureRulesButton.removeAttribute('title');
-    else this.measureRulesButton.title = t('toolbar.measureRulesAtlasOnly');
+    this.setTip(this.measureRulesButton, canRules ? null : { label: t('toolbar.measureRules'), subtitle: t('toolbar.measureRulesAtlasOnly') });
 
     // Horizontal bars above toolbar while Measure is chosen and no modal panel covers them.
     const showBar = playing && measureOn
