@@ -8141,6 +8141,66 @@ feature('measure release: kept, or two seconds with a pin that keeps it (Atlas 0
   await page.keyboard.press('Escape');
 });
 
+feature('measure tool: every other tool can be chosen after a measurement', async ({ page }) => {
+  await page.evaluate(() => {
+    const { modes, board, clearKeptMeasures } = window.boardTest;
+    clearKeptMeasures();
+    modes.on = true;
+    modes.mode = 'play';
+    board.host.setMeasureTool({ keep: false });
+    board.tools.select('move');
+    board.toolsChanged();
+  });
+  const canvas = await page.locator('canvas').first().boundingBox();
+  const drag = async (shift = false) => {
+    const sx = canvas.x + canvas.width * 0.35;
+    const sy = canvas.y + canvas.height * 0.62;
+    await page.mouse.move(sx, sy);
+    await page.mouse.down();
+    await page.mouse.move(sx + 80, sy + 10, { steps: 4 });
+    await wait(60);
+    if (shift) await page.keyboard.down('Shift');
+    await page.mouse.up();
+    if (shift) await page.keyboard.up('Shift');
+    await wait(80);
+  };
+  const tool = () => page.evaluate(() => window.boardTest.board.tools.tool);
+  const states = {
+    'tap M then a fading ruler': async () => { await page.keyboard.press('m'); await wait(80); await drag(); },
+    'tap M then a kept ruler': async () => { await page.keyboard.press('m'); await wait(80); await drag(true); },
+    'the toolbar button then a fading ruler': async () => { await page.click('button[aria-label="Measure"]'); await wait(80); await drag(); },
+    'held M then a quick ruler': async () => { await page.keyboard.down('m'); await drag(); await page.keyboard.up('m'); await wait(80); },
+    'tap M and nothing drawn': async () => { await page.keyboard.press('m'); await wait(80); },
+  };
+  const leaves = {
+    'the Move/Select button': () => page.click('button[aria-label="Move/Select"]'),
+    'the V key': () => page.keyboard.press('v'),
+    'Escape': () => page.keyboard.press('Escape'),
+  };
+  for (const [stateName, enter] of Object.entries(states)) {
+    for (const [leaveName, leave] of Object.entries(leaves)) {
+      await page.evaluate(() => { window.boardTest.clearKeptMeasures(); const { board } = window.boardTest; board.tools.select('move'); board.setLaser(false); board.toolsChanged(); board.canvas.focus(); });
+      await enter();
+      const held = stateName.startsWith('held');
+      const before = await tool();
+      await leave();
+      await wait(120);
+      const after = await tool();
+      await page.evaluate(() => window.boardTest.board.canvas.focus());
+      const measureLit = await page.evaluate(() => document.querySelector('button[aria-label="Measure"]')?.classList.contains('is-active') === true);
+      const laser = await page.evaluate(() => window.boardTest.board.laser);
+      check(`measure tool: after ${stateName}, ${leaveName} leaves the Measure tool`, (held ? before === 'move' : before === 'measure') && after === 'move' && !measureLit, JSON.stringify({ before, after, measureLit, laser }));
+    }
+  }
+  // The laser in hand, then the Measure tool: the laser goes down (one tool at a time).
+  await page.evaluate(() => { const { board } = window.boardTest; board.tools.select('move'); board.toolsChanged(); board.setLaser(true); board.canvas.focus(); });
+  await page.keyboard.press('m');
+  await wait(100);
+  const laserThenMeasure = await page.evaluate(() => ({ tool: window.boardTest.board.tools.tool, laser: window.boardTest.board.laser }));
+  check('measure tool: picking Measure with the laser in hand puts the laser down', laserThenMeasure.tool === 'measure' && laserThenMeasure.laser === false, JSON.stringify(laserThenMeasure));
+  await page.evaluate(() => { const { board } = window.boardTest; board.tools.select('move'); board.setLaser(false); board.toolsChanged(); });
+});
+
 feature('shortcut help on the board', async ({ page, shot }) => {
   // Atlas's own shortcut help (copied), as the board's ? key opens it: Atlas's shortcuts the board has, with the keys the
   // board takes (a camera letter with Shift), then the board's own keys; Atlas's 2D map tools left out.

@@ -1051,7 +1051,7 @@ export class Board {
       ...(this.host.setWallEdges && { setWallEdges: (edges: WallEdges) => this.host.setWallEdges?.(edges) }),
       playerViewOpen: () => this.host.playerViewOpen(),
       laserOn: () => this.laserOn,
-      selectTool: (tool) => { this.fogTool?.setOn(false); this.waterTool = null; this.shapeEditor?.setActive(false); this.showBrush(); this.stopPainting(); this.setLaser(tool === 'laser'); this.toolbar.refresh(); },
+      selectTool: (tool) => { this.fogTool?.setOn(false); this.waterTool = null; this.shapeEditor?.setActive(false); this.showBrush(); this.stopPainting(); this.putMeasureAway(); this.setLaser(tool === 'laser'); this.toolbar.refresh(); },
       ...(this.audience === 'gm' && {
         mode: () => this.host.boardMode?.() ?? null,
         setMode: (mode: 'play' | 'edit' | 'cinematic') => this.setMode(mode),
@@ -1124,6 +1124,7 @@ export class Board {
           this.fogTool?.setOn(false);
           this.waterTool = null;
           this.stopPainting();
+          if (this.laserOn) this.setLaser(false);
           this.setMeasureOptions({ mode: shape });
         }
         if (shape === null) this.tools.select('move');
@@ -1151,7 +1152,7 @@ export class Board {
       undo: this.host.undo ? () => this.host.undo?.() : undefined,
       redo: this.host.redo ? () => this.host.redo?.() : undefined,
       selectTemplate: (shape) => {
-        if (shape !== null) this.stopPainting();
+        if (shape !== null) { this.stopPainting(); if (this.laserOn) this.setLaser(false); }
         if (shape === null) this.tools.select('move');
         else this.tools.selectTemplateShape(shape as TemplateShape);
         this.toolsChanged();
@@ -7761,8 +7762,16 @@ export class Board {
     return this.laserOn;
   }
 
+  /** One tool at a time: the Measure tool or the Template tool, if in hand, is put down for Move/Select (the hand) or the laser. */
+  private putMeasureAway(): void {
+    if (this.tools.tool === 'move') return;
+    this.tools.select('move');
+    this.toolsChanged();
+  }
+
   /** Turns the laser on (the pointer becomes its dot) or off (its trail fades). */
   setLaser(on: boolean): void {
+    if (on) this.putMeasureAway();
     if (on === this.laserOn) return;
     if (on) this.fogTool?.setOn(false);
     this.laserOn = on;
