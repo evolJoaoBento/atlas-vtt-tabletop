@@ -8824,6 +8824,31 @@ feature('gm view label never shows', async ({ page }) => {
   await page.evaluate(() => { document.getElementById('hostile').remove(); document.getElementById('board').style.width = ''; const { board, modes } = window.boardTest; Object.assign(modes, window.__gmLabelModes); board.refreshToolbar(); });
 });
 
+// Connect puts its group in the bar's `.atlas-toolbar-end` (the one with the GM view switch when that is the one it finds), and
+// its buttons carry Atlas's `sr-only` name, which Atlas's CSS hides only under `.atlas-vtt-plugin`: the name must stay out.
+feature('connect button name hidden in the gm view end', async ({ page }) => {
+  const p = await page.evaluate(() => {
+    const { board, modes } = window.boardTest;
+    const saved = { on: modes.on, mode: modes.mode };
+    modes.on = true; modes.mode = 'play';
+    board.refreshToolbar();
+    const end = document.querySelector('.atlas-tabletop-toolbar .atlas-toolbar-end:not(.atlas-tabletop-extensions)');
+    const group = document.createElement('div');
+    group.className = 'atlas-connect-group relative flex items-center';
+    group.id = 'fake-connect-group';
+    group.innerHTML = '<div class="atlas-toolbar-item atlas-connect-item"><div class="atlas-toolbar-item__content"><div class="atlas-tool-button"><span><button class="btn btn--toolbar btn--icon" aria-label="Online session"><svg width="24" height="24"></svg><span class="sr-only">Online session</span></button></span></div></div></div>';
+    end.insertBefore(group, end.firstChild);
+    const name = group.querySelector('.sr-only').getBoundingClientRect();
+    const button = group.querySelector('button').getBoundingClientRect();
+    const svg = group.querySelector('svg').getBoundingClientRect();
+    group.remove();
+    Object.assign(modes, saved); board.refreshToolbar();
+    return { nameW: name.width, buttonW: button.width, svgInside: svg.left >= button.left && svg.right <= button.right };
+  });
+  check('connect button name is clipped to nothing', p.buttonW > 0 && p.nameW <= 1, JSON.stringify(p));
+  check('connect button icon sits inside its button', p.svgInside, JSON.stringify(p));
+});
+
 // ── Atlas's GM view switch (GM view / session view) on the board's toolbar ───────────────────────────────────────────
 feature('gm view switch', async ({ page, shot }) => {
   const sw = '.atlas-tabletop-toolbar [data-toolbar-id="gm-view"]';

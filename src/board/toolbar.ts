@@ -1627,7 +1627,9 @@ export class BoardToolbar {
     });
     // Atlas's GM view switch (`MainToolbar.tsx`): a switch, named "GM view" whatever its state, its tooltip saying what each state is.
     // It keeps the bar's last place, after "More tools", and never goes into that menu.
-    this.gmViewEnd = el('div', 'atlas-toolbar-end', bar);
+    // Connect can put its group here too (the slot it finds), and Atlas's styles for what it draws (the hidden `sr-only`
+    // name of each button) apply only under `.atlas-vtt-plugin`, as in the end slot above.
+    this.gmViewEnd = el('div', 'atlas-toolbar-end atlas-vtt-plugin', bar);
     const gmViewName = el('span', '', this.gmViewEnd);
     gmViewName.hidden = true;
     // `hidden` is only the browser's own display:none, which any host or theme rule that sets a display on spans overrides (Obsidian's did,
