@@ -8781,6 +8781,33 @@ feature('copy, cut and paste tokens', async ({ page, shot }) => {
   check('duplicate: Ctrl+D sends the selection to Atlas and selects the copies; with nothing selected it sends nothing', JSON.stringify(dup.none) === '[true,0]' && dup.keyed && dup.clip.length === 1 && dup.clip[0][0] === 'duplicate' && dup.clip[0][1].length === 2 && dup.group === 2, JSON.stringify(dup));
 });
 
+// ── The GM view switch's name is its aria label only: the span never shows, at any pane width ────────────────────────
+feature('gm view label never shows', async ({ page }) => {
+  await page.evaluate(() => {
+    const { board, modes } = window.boardTest;
+    window.__gmLabelModes = { on: modes.on, mode: modes.mode };
+    modes.on = true; modes.mode = 'play';
+    board.refreshToolbar();
+  });
+  const probe = () => page.evaluate(() => {
+    const span = document.getElementById('atlas-tabletop-gm-view-name');
+    const r = span.getBoundingClientRect();
+    const sw = document.querySelector('.atlas-tabletop-toolbar [data-toolbar-id="gm-view"]');
+    return { display: getComputedStyle(span).display, w: r.width, h: r.height, rendered: span.getClientRects().length, named: document.getElementById(sw.getAttribute('aria-labelledby'))?.textContent ?? '', more: !document.querySelector('.atlas-tabletop-more')?.hidden };
+  });
+  for (const px of [1600, 1200, 900, 600, 330]) {
+    await page.evaluate((px) => { document.getElementById('board').style.width = `${px}px`; }, px);
+    await wait(500);
+    const p = await probe();
+    check(`gm view label hidden at ${px}px pane (more menu ${p.more})`, p.rendered === 0 && p.w === 0 && p.h === 0 && /GM view/.test(p.named), JSON.stringify(p));
+  }
+  // Whatever stylesheet sets a display on spans (Obsidian's own, a theme's), the label stays out.
+  await page.evaluate(() => { const s = document.createElement('style'); s.id = 'hostile'; s.textContent = '.atlas-tabletop-toolbar span, .atlas-toolbar-end span { display: inline-block; }'; document.head.appendChild(s); });
+  const hostile = await probe();
+  check('gm view label stays hidden under a stylesheet that sets display on spans', hostile.rendered === 0 && hostile.w === 0, JSON.stringify(hostile));
+  await page.evaluate(() => { document.getElementById('hostile').remove(); document.getElementById('board').style.width = ''; const { board, modes } = window.boardTest; Object.assign(modes, window.__gmLabelModes); board.refreshToolbar(); });
+});
+
 // ── Atlas's GM view switch (GM view / session view) on the board's toolbar ───────────────────────────────────────────
 feature('gm view switch', async ({ page, shot }) => {
   const sw = '.atlas-tabletop-toolbar [data-toolbar-id="gm-view"]';

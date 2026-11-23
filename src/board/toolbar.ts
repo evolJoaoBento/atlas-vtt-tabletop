@@ -1621,6 +1621,9 @@ export class BoardToolbar {
     this.gmViewEnd = el('div', 'atlas-toolbar-end', bar);
     const gmViewName = el('span', '', this.gmViewEnd);
     gmViewName.hidden = true;
+    // `hidden` is only the browser's own display:none, which any host or theme rule that sets a display on spans overrides (Obsidian's did,
+    // and the name showed beside the switch); an inline !important is out of every stylesheet's reach, and aria-labelledby still reads it.
+    gmViewName.style.setProperty('display', 'none', 'important');
     gmViewName.id = 'atlas-tabletop-gm-view-name';
     // Atlas's peek button (`PeekButton.tsx`), before the switch: a finger holds it where a keyboard holds the peek key. Its name is its label alone, no tooltip.
     this.peekButton = el('button', 'btn btn--toolbar btn--icon btn--toolbar atlas-peek-button', this.gmViewEnd);
