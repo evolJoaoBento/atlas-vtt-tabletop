@@ -2552,6 +2552,14 @@ body.atlas-tabletop-player-window .view-header {
   border-top: 1px solid var(--background-modifier-border);
 }
 
+/* The Background menu: Lighting's menu, wider for its sliders; it scrolls inside when the board is too short for it. */
+.atlas-tabletop-ground-options {
+  min-width: 320px;
+  max-height: min(62vh, 560px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 /* The right-click row of a die: advantage and disadvantage under its colours. */
 .atlas-tabletop-dice-edges {
   margin-top: var(--size-4-2);
@@ -2860,36 +2868,17 @@ body.atlas-tabletop-player-window .view-header {
   color: var(--text-on-accent);
 }
 
-/* A field whose control takes the panel's width under its label (the ground's five backgrounds). */
+/* A field whose control takes the menu's width under its label (the Background menu's tint presets). */
 .atlas-tabletop-palette__field--stacked {
   flex-direction: column;
   align-items: stretch;
 }
 
-/* The ground's backgrounds: buttons of their own that wrap, three to a row, all inside the panel. */
-.atlas-tabletop-ground-modes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--size-4-1);
-  margin-left: 0;
-  border: 0;
-  overflow: visible;
-}
-
-/* The liquid's tint presets on the Ground panel: the panel's width under their label, six to a row. */
+/* The liquid's tint presets in the Background menu: the menu's width under their label, six to a row. */
 .atlas-tabletop-atlas .atlas-swatch-grid.atlas-tabletop-ground-tints {
   width: 100%;
   grid-template-columns: repeat(6, 1fr);
   gap: 6px;
-}
-
-.atlas-tabletop-ground-modes .atlas-tabletop-palette__choice,
-.atlas-tabletop-ground-modes .atlas-tabletop-palette__choice + .atlas-tabletop-palette__choice {
-  flex: 1 1 30%;
-  padding: 4px 6px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s);
-  white-space: nowrap;
 }
 
 /* The chip that says whose point of view the board is shown from, and stops it. */

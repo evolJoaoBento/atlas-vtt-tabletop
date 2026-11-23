@@ -6758,26 +6758,60 @@ feature('ground', async ({ page, shot }) => {
   // The Ground button's panel (no longer in Board settings): the plane to the horizon (no table), its fog, extra board
   // for minis, and the table grown by it.
   await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2, water: { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 } }; board.refresh(); });
-  const placed0 = await page.evaluate(() => ({ inSettings: !!document.querySelector('[aria-label="Board settings"][role="dialog"] [aria-label="Ground round the map"]'), inGround: !!document.querySelector('[aria-label="Background"][role="dialog"] [aria-label="Ground round the map"]') }));
+  const placed0 = await page.evaluate(() => ({ inSettings: !!document.querySelector('[aria-label="Board settings"][role="dialog"] [data-ground-mode]'), inGround: !!document.querySelector('[aria-label="Background"][role="menu"] [data-ground-mode]') }));
   check('ground: the ground settings have their own panel, out of Board settings', placed0.inGround && !placed0.inSettings, JSON.stringify(placed0));
   await page.getByRole('button', { name: 'Background', exact: true }).click();
   await wait(200);
-  const opened = await page.evaluate(() => { const panel = document.querySelector('[aria-label="Background"][role="dialog"]'); const settings = document.querySelector('[aria-label="Board settings"][role="dialog"]'); return { shown: !panel.hidden, settings: settings.hidden, expanded: document.querySelector('button[aria-label="Background"]').getAttribute('aria-expanded') }; });
+  const opened = await page.evaluate(() => { const panel = document.querySelector('[aria-label="Background"][role="menu"]'); const settings = document.querySelector('[aria-label="Board settings"][role="dialog"]'); return { shown: !panel.hidden, settings: settings.hidden, expanded: document.querySelector('button[aria-label="Background"]').getAttribute('aria-expanded') }; });
   check('ground: the Ground button opens its panel, Board settings stays closed', opened.shown && opened.settings && opened.expanded === 'true', JSON.stringify(opened));
   // Every background is in full sight inside the panel (five of them once ran past its edge, lava and acid cut off).
   const fits = await page.evaluate(() => {
-    // Narrower than here (Obsidian's own fonts and a narrow pane take more room): the choices must still fit.
-    const element = document.querySelector('[aria-label="Background"][role="dialog"]');
-    element.style.width = '280px';
+    const element = document.querySelector('[aria-label="Background"][role="menu"]');
     const panel = element.getBoundingClientRect();
-    const out = [...document.querySelectorAll('[aria-label="Ground round the map"] button')].map((b) => { const r = b.getBoundingClientRect(); return { name: b.textContent, inside: r.width > 20 && r.left >= panel.left - 0.5 && r.right <= panel.right + 0.5 && r.top >= panel.top - 0.5 && r.bottom <= panel.bottom + 0.5 }; });
-    element.style.width = '';
-    return out;
+    return [...element.querySelectorAll('[data-ground-mode]')].map((b) => { const r = b.getBoundingClientRect(); return { name: b.textContent, inside: r.width > 20 && r.left >= panel.left - 0.5 && r.right <= panel.right + 0.5 && r.top >= panel.top - 0.5 && r.bottom <= panel.bottom + 0.5 }; });
   });
-  const shownRows = await page.evaluate(() => [...document.querySelectorAll('[aria-label="Background"][role="dialog"] .atlas-tabletop-palette__field')].filter((row) => row.getBoundingClientRect().height > 0).map((row) => row.querySelector('.atlas-tabletop-palette__label')?.textContent));
+  const shownRows = await page.evaluate(() => [...document.querySelectorAll('[aria-label="Background"][role="menu"] .atlas-tabletop-palette__field')].filter((row) => row.getBoundingClientRect().height > 0).map((row) => row.querySelector('.atlas-tabletop-palette__label')?.textContent));
   check('ground: on the map board only its own rows show (no plane, pattern or liquid settings)', !shownRows.includes('Pattern') && !shownRows.includes('Moves') && !shownRows.includes('Ground material') && shownRows.includes('Extra board'), JSON.stringify(shownRows));
   check('ground: all six backgrounds show in full inside the panel, lava, acid and Painted among them', fits.length === 6 && fits.every((f) => f.inside) && fits.some((f) => f.name === 'Lava plane') && fits.some((f) => f.name === 'Acid plane') && fits.some((f) => f.name === 'Painted'), JSON.stringify(fits));
   await shot('ground-panel');
+  // The menu is built as the Lighting menu is: dropdown content above its button, no title, a checked row with an icon for each mode, the settings in the same grey section.
+  const built = await page.evaluate(() => {
+    const menu = document.querySelector('[aria-label="Background"][role="menu"]');
+    const button = document.querySelector('button[aria-label="Background"]');
+    const light = document.querySelector('.atlas-tabletop-lighting-options');
+    const rows = [...menu.querySelectorAll('.atlas-dropdown-menu-item')];
+    const checked = rows.filter((row) => row.querySelector('.atlas-dropdown-menu-item__check svg'));
+    const box = menu.getBoundingClientRect(), at = button.getBoundingClientRect();
+    return {
+      classes: ['atlas-dropdown-content', 'atlas-dropdown-content--top', 'atlas-dropdown-content--left'].every((c) => menu.classList.contains(c)),
+      sameWrapper: menu.parentElement === button.closest('.atlas-dropdown-menu') && menu.parentElement.className === light.parentElement.className,
+      above: box.bottom <= at.top + 0.5,
+      title: !!menu.querySelector('.atlas-tabletop-palette__title'),
+      rows: rows.map((row) => row.textContent.trim()),
+      icons: rows.every((row) => row.querySelector(':scope > svg')),
+      checked: checked.map((row) => row.dataset.groundMode),
+      section: !!menu.querySelector('.atlas-tabletop-palette__section.atlas-tabletop-lighting-extra'),
+    };
+  });
+  check("ground: the Background menu has the Lighting menu's structure (dropdown above its button, no title, six icon rows with the current one checked, the settings in the grey section)", built.classes && built.sameWrapper && built.above && !built.title && built.rows.join() === 'Map board,Horizon plane,Water plane,Lava plane,Acid plane,Painted' && built.icons && built.checked.join() === 'board' && built.section, JSON.stringify(built));
+  // Closes as Lighting's does: Escape, the button again, a press outside.
+  const closes = [];
+  const isOpen = () => page.evaluate(() => !document.querySelector('[aria-label="Background"][role="menu"]').hidden);
+  await page.focus('[aria-label="Background"][role="menu"] [data-ground-mode="horizon"]');
+  await page.keyboard.press('Escape'); await wait(100); closes.push(['Escape', !(await isOpen())]);
+  await page.getByRole('button', { name: 'Background', exact: true }).click(); await wait(100);
+  await page.getByRole('button', { name: 'Background', exact: true }).click(); await wait(100); closes.push(['button', !(await isOpen())]);
+  await page.getByRole('button', { name: 'Background', exact: true }).click(); await wait(100);
+  await page.mouse.click(40, 120); await wait(100); closes.push(['outside', !(await isOpen())]);
+  await page.getByRole('button', { name: 'Background', exact: true }).click(); await wait(100);
+  check("ground: the Background menu closes with Escape, the button again and a press outside, as Lighting's does", closes.every((c) => c[1]) && (await isOpen()), JSON.stringify(closes));
+  // Inside the board's view: the menu is no taller than the room above the toolbar and scrolls within.
+  const small = await page.evaluate(() => {
+    const menu = document.querySelector('[aria-label="Background"][role="menu"]');
+    const r = menu.getBoundingClientRect();
+    return { top: r.top, left: r.left, right: r.right, win: [innerWidth, innerHeight], max: menu.style.maxHeight, scrolls: getComputedStyle(menu).overflowY };
+  });
+  check('ground: the Background menu stays inside the view and scrolls inside', small.top >= 0 && small.left >= 0 && small.right <= small.win[0] && small.scrolls === 'auto' && /px$/.test(small.max), JSON.stringify(small));
   // Painted: a saved background chosen from a select (the harness holds Isle and Badlands); no material or pattern rows.
   await page.evaluate(() => window.boardTest.backgroundsReady());
   await wait(300);
@@ -6787,7 +6821,7 @@ feature('ground', async ({ page, shot }) => {
     const { groundState } = window.boardTest;
     const select = document.querySelector('[aria-label="Painted background"]');
     const shown = (label) => { const row = document.querySelector(`[aria-label="${label}"]`)?.closest('label'); return !!row && !row.hidden && row.getBoundingClientRect().height > 0; };
-    const rows = [...document.querySelectorAll('[aria-label="Background"][role="dialog"] .atlas-tabletop-palette__field')].filter((row) => row.getBoundingClientRect().height > 0).map((row) => row.querySelector('.atlas-tabletop-palette__label')?.textContent);
+    const rows = [...document.querySelectorAll('[aria-label="Background"][role="menu"] .atlas-tabletop-palette__field')].filter((row) => row.getBoundingClientRect().height > 0).map((row) => row.querySelector('.atlas-tabletop-palette__label')?.textContent);
     return { mode: groundState.value.mode, select: !!select && shown('Painted background'), options: select ? [...select.options].map((o) => o.textContent) : [], pattern: shown('Height pattern past the board'), material: shown('Material the ground is tiled with'), strength: shown('Height pattern strength'), rows };
   });
   check('ground: Painted lists the saved backgrounds in a select and hides Ground material, Pattern and Pattern strength', paintedUi.mode === 'painted' && paintedUi.select && paintedUi.options.includes('Isle') && paintedUi.options.includes('Badlands') && paintedUi.options[0] === 'Choose a background…' && !paintedUi.pattern && !paintedUi.material && !paintedUi.strength && paintedUi.rows.includes('Tile size') && paintedUi.rows.includes('Distance fog') && paintedUi.rows.includes('Extra board'), JSON.stringify(paintedUi));
@@ -6845,6 +6879,37 @@ feature('ground', async ({ page, shot }) => {
   const table = await page.evaluate(() => { const { board } = window.boardTest; const s = board.surface; s.frame.geometry.computeBoundingBox(); const box = s.frame.geometry.boundingBox; return { frame: box.max.x - box.min.x, width: s.width, cell: board.map.grid.size, mat: s.mat?.visible === true, table: s.table.visible, plane: board.groundPlane.object3d.parent !== null }; });
   check('ground: on the map board the table and its mat grow by the extra board', table.table && table.mat && !table.plane && table.frame > table.width + 20 * table.cell - 1, JSON.stringify(table));
   await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2, water: { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 } }; board.refresh(); });
+  // The menu in each mode, and where the pane is narrow (the button then lives in More tools): it opens and stays inside the board.
+  const inView = () => page.evaluate(() => {
+    const menu = document.querySelector('[aria-label="Background"][role="menu"]');
+    const view = document.getElementById('board').getBoundingClientRect();
+    const r = menu.getBoundingClientRect();
+    return { shown: !menu.hidden && r.height > 0, inside: r.left >= view.left - 0.5 && r.right <= view.right + 0.5 && r.top >= view.top - 0.5, box: [r.left, r.top, r.right, r.bottom].map(Math.round), view: [view.left, view.top, view.right, view.bottom].map(Math.round), max: menu.style.maxHeight };
+  });
+  for (const mode of ['board', 'horizon', 'painted']) {
+    await page.evaluate((mode) => { const { board, groundState } = window.boardTest; board.toolbar.closeGround(); groundState.value = { ...groundState.value, mode }; board.refresh(); board.toolbar.openGround(); }, mode);
+    await wait(300);
+    const at = await inView();
+    check(`ground: the Background menu on ${mode} stays inside the board`, at.shown && at.inside, JSON.stringify(at));
+    await shot(`ground-menu-${mode}`);
+  }
+  for (const width of [330, 520]) {
+    await page.evaluate(() => window.boardTest.board.toolbar.closeGround());
+    await page.evaluate((width) => { document.getElementById('board').style.width = `${width}px`; }, width);
+    await wait(600);
+    const direct = await page.evaluate(() => !!document.querySelector('button[aria-label="Background"]')?.closest('.atlas-tabletop-more-menu'));
+    if (direct) await page.getByRole('button', { name: 'More tools' }).click();
+    await wait(200);
+    await page.locator('button[aria-label="Background"]').click();
+    await wait(300);
+    const at = await inView();
+    check(`ground: at a ${width} px pane (${direct ? 'in More tools' : 'on the bar'}) the Background menu opens and stays inside the board`, at.shown && at.inside, JSON.stringify(at));
+    await shot(`ground-menu-${width}`);
+    await page.evaluate(() => window.boardTest.board.toolbar.closeGround());
+    await page.keyboard.press('Escape');
+  }
+  await page.evaluate(() => { document.getElementById('board').style.width = ''; });
+  await wait(500);
 });
 
 feature('painted ground', async ({ page, shot }) => {
@@ -7892,8 +7957,8 @@ feature('toolbar commands and mode switching', async ({ page, shot }) => {
   for (const [query, match, checkFn, desc] of [
     ['Paint walls', 'Paint walls · Edit mode', () => window.boardTest.host.boardMode() === 'edit' && (!document.querySelector('.atlas-tabletop-paint-options')?.hidden || window.boardTest.board.isPainting), 'Play -> Paint walls'],
     ['Lighting', 'Lighting', () => window.boardTest.host.boardMode() === 'edit' && !document.querySelector('.atlas-tabletop-lighting-options')?.hidden, 'Edit -> Lighting (same mode, no mode change)'],
-    ['Background', 'Background', () => window.boardTest.host.boardMode() === 'edit' && !document.querySelector('.atlas-tabletop-ground-panel')?.hidden, 'Edit -> Ground (same mode)'],
-    ['Board settings', 'Board settings', () => window.boardTest.host.boardMode() === 'edit' && !document.querySelector('.atlas-tabletop-palette:not(.atlas-tabletop-ground-panel)')?.hidden, 'Edit -> Board settings'],
+    ['Background', 'Background', () => window.boardTest.host.boardMode() === 'edit' && !document.querySelector('.atlas-tabletop-ground-options')?.hidden, 'Edit -> Ground (same mode)'],
+    ['Board settings', 'Board settings', () => window.boardTest.host.boardMode() === 'edit' && !document.querySelector('.atlas-tabletop-palette')?.hidden, 'Edit -> Board settings'],
   ]) {
     const res = await runPaletteEntry(query, match);
     const ok = await page.evaluate(checkFn);
@@ -7903,8 +7968,8 @@ feature('toolbar commands and mode switching', async ({ page, shot }) => {
   // From Play -> Ground & Board settings & Lighting switch mode from Play to Edit.
   for (const [query, match, sel] of [
     ['Lighting', 'Lighting · Edit mode', '.atlas-tabletop-lighting-options'],
-    ['Background', 'Background · Edit mode', '.atlas-tabletop-ground-panel'],
-    ['Board settings', 'Board settings · Edit mode', '.atlas-tabletop-palette:not(.atlas-tabletop-ground-panel)'],
+    ['Background', 'Background · Edit mode', '.atlas-tabletop-ground-options'],
+    ['Board settings', 'Board settings · Edit mode', '.atlas-tabletop-palette'],
   ]) {
     await page.evaluate(() => { window.boardTest.host.setBoardMode('play'); window.boardTest.board.refreshToolbar(); });
     await wait(120);

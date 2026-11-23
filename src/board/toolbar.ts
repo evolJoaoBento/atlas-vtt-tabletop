@@ -261,6 +261,15 @@ const LIGHTING_ICONS: Readonly<Record<LightingChoice, string>> = {
   day: lucide2('<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>'),
   night: lucide2('<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>'),
 };
+/** Lucide's `map`, `mountain`, `waves`, `flame`, `flask-conical` and `image` icons (ISC): the Background menu's six backgrounds. */
+const GROUND_ICONS: Readonly<Record<GroundMode, string>> = {
+  board: lucide2('<path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/>'),
+  horizon: lucide2('<path d="m8 3 4 8 5-5 5 15H2L8 3z"/>'),
+  water: lucide2('<path d="M2 6c.6.5 1.2 1 2.5 1C7 7 7 5 9.5 5c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M2 12c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M2 18c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/>'),
+  lava: lucide2('<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>'),
+  acid: lucide2('<path d="M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2"/><path d="M6.453 15h11.094"/><path d="M8.5 2h7"/>'),
+  painted: lucide2('<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>'),
+};
 const lightingLabel = (choice: LightingChoice): string => t(`lighting.${choice}`);
 const LIGHTING_ORDER: readonly LightingChoice[] = ['classic', 'dusk', 'day', 'night'];
 
@@ -349,6 +358,7 @@ export class BoardToolbar {
   private outsideCanvas: { pointerId: number; x: number; y: number } | null = null;
   /** The Ground button and its panel: the map's background, kept per map (absent without `setGround`). */
   private readonly groundButton: HTMLButtonElement;
+  private readonly groundGroup: HTMLElement;
   private readonly groundPanel: HTMLElement;
   /** Connect's Template tool, offered only while Connect hosts, and its shapes. */
   private readonly templateButton: HTMLButtonElement;
@@ -1282,11 +1292,18 @@ export class BoardToolbar {
       if (event.key === 'Escape') { event.preventDefault(); this.closeLighting(); }
     });
     // Players are shown scenes with the eye on Atlas's scene tabs over the board: no player view or freeze button here.
-    this.groundButton = this.registerButton('ground', tool(GROUND_SVG, () => (this.groundPanel.hidden ? this.openGround() : this.closeGround())));
+    // The Background menu, built as the Lighting menu is: a dropdown above its button, the six backgrounds as checked rows,
+    // the chosen one's settings in the grey section below.
+    this.groundGroup = el('div', 'atlas-dropdown-menu', bar);
+    this.groundButton = this.registerButton('ground', toolIn(this.groundGroup, GROUND_SVG, () => (this.groundPanel.hidden ? this.openGround() : this.closeGround())));
     this.groundButton.setAttribute('aria-label', TOOLBAR_BUTTONS.ground.label);
     this.setTip(this.groundButton, { label: TOOLBAR_BUTTONS.ground.label, subtitle: 'The map board, or a plane or water to the horizon; fog and extra board' });
     this.groundButton.setAttribute('aria-expanded', 'false');
-    if (!this.actions.setGround) (this.groundButton.closest('.atlas-tool-button') as HTMLElement).style.display = 'none';
+    this.groundPanel = el('div', 'atlas-dropdown-content atlas-dropdown-content--top atlas-dropdown-content--left atlas-tabletop-ground-options', this.groundGroup);
+    this.groundPanel.hidden = true;
+    this.groundPanel.setAttribute('role', 'menu');
+    this.groundPanel.setAttribute('aria-label', TOOLBAR_BUTTONS.ground.label);
+    if (!this.actions.setGround) this.groundGroup.style.display = 'none';
     this.button = this.registerButton('board-settings', tool(WALL_SVG, () => (this.panel.hidden ? this.open() : this.close())));
     this.viewButton = this.registerButton('visibility', tool(modeIcon('view'), () => (this.viewPanel.hidden ? this.openView() : this.closeView())));
     this.viewButton.setAttribute('aria-label', TOOLBAR_BUTTONS.visibility.label);
@@ -1306,11 +1323,6 @@ export class BoardToolbar {
     this.panel.setAttribute('role', 'dialog');
     this.panel.setAttribute('aria-label', 'Board settings');
     el('div', 'atlas-tabletop-palette__title', this.panel, 'Board settings');
-    this.groundPanel = el('div', 'atlas-tabletop-palette atlas-tabletop-ground-panel', this.row);
-    this.groundPanel.hidden = true;
-    this.groundPanel.setAttribute('role', 'dialog');
-    this.groundPanel.setAttribute('aria-label', TOOLBAR_BUTTONS.ground.label);
-    el('div', 'atlas-tabletop-palette__title', this.groundPanel, TOOLBAR_BUTTONS.ground.label);
     this.viewPanel = el('div', 'atlas-vtt-toolbar atlas-tool-bar atlas-tabletop-view-bar', this.row);
     this.viewPanel.hidden = true;
     this.viewPanel.setAttribute('role', 'toolbar');
@@ -1433,18 +1445,18 @@ export class BoardToolbar {
     }
     // Ground (its own panel): the map on its table, or a plane or water to the horizon round it; extra board either way.
     if (this.actions.setGround) {
-      const section = el('div', 'atlas-tabletop-palette__section', this.groundPanel);
+      const modeSection = el('div', 'atlas-dropdown-section', this.groundPanel);
+      const section = el('div', 'atlas-tabletop-palette__section atlas-tabletop-lighting-extra', this.groundPanel);
       const change = (edit: Partial<GroundSettings>): void => { const now = this.actions.ground?.(); if (now) this.actions.setGround?.({ ...now, ...edit }); this.fillGround(); };
-      // Six choices: the label above them, and they wrap (in one row they ran past the panel's edge).
-      const modeRow = el('div', 'atlas-tabletop-palette__field atlas-tabletop-palette__field--stacked', section);
-      el('span', 'atlas-tabletop-palette__label', modeRow, 'Background');
-      const choices = el('span', 'atlas-tabletop-palette__choices atlas-tabletop-ground-modes', modeRow);
-      choices.setAttribute('role', 'group');
-      choices.setAttribute('aria-label', 'Ground round the map');
+      // Six choices, each a checked row with its Lucide icon, as the Lighting menu's. The menu stays open on a pick: the settings below change with it.
       const modes: Array<{ value: GroundMode; button: HTMLButtonElement }> = [];
       for (const [value, label, hint] of [['board', 'Map board', 'The map on its table, framed.'], ['horizon', 'Horizon plane', 'The map lies on a plane running to the horizon, tiled with a material and shaped by a pattern past the board.'], ['water', 'Water plane', 'The map lies on water running to the horizon, moving as painted water does.'], ['lava', 'Lava plane', 'The map lies on lava running to the horizon, glowing and moving as painted lava does.'], ['acid', 'Acid plane', 'The map lies on acid running to the horizon, bubbling and moving as painted acid does.'], ['painted', 'Painted', 'The map lies on a background painted in the Tabletop Gallery']] as const) {
-        const button = el('button', 'atlas-tabletop-palette__choice', choices, label);
+        const button = el('button', 'btn btn--ghost btn--sm atlas-dropdown-menu-item', modeSection);
         button.type = 'button';
+        button.dataset.groundMode = value;
+        el('span', 'atlas-dropdown-menu-item__check', button);
+        setSvg(button, GROUND_ICONS[value], true);
+        el('span', '', button, label);
         this.setTip(button, { label, subtitle: hint });
         button.addEventListener('click', () => change({ mode: value }));
         modes.push({ value, button });
@@ -1675,11 +1687,11 @@ export class BoardToolbar {
       return { label: at(on ? 'toolbar.gmView' : 'toolbar.sessionView', { key: this.actions.gmViewShortcut?.() ?? '' }) };
     });
     // Left to right as they stand; they leave from the right.
-    this.fitOrder.push(laserGroup, this.fogGroup, this.measureGroup, this.waterGroup, this.paintGroup, this.templateGroup, this.lightingGroup, this.groundButton.closest('.atlas-tool-button') as HTMLElement, this.button.closest('.atlas-tool-button') as HTMLElement, this.viewButton.closest('.atlas-tool-button') as HTMLElement, this.endSlot);
+    this.fitOrder.push(laserGroup, this.fogGroup, this.measureGroup, this.waterGroup, this.paintGroup, this.templateGroup, this.lightingGroup, this.groundGroup, this.button.closest('.atlas-tool-button') as HTMLElement, this.viewButton.closest('.atlas-tool-button') as HTMLElement, this.endSlot);
     this.fitWatch = new (doc.defaultView ?? window).ResizeObserver(() => this.fit());
     this.fitWatch.observe(container);
     // Presses on the bar and the panel are not the board's: no camera drag, no deselecting.
-    for (const part of [bar, this.helpBar, this.panel, this.viewPanel, this.groundPanel, this.waterPanel, this.measureBarsPanel, ...(this.fogBars ? [this.fogBars.panel] : [])]) part.addEventListener('pointerdown', (event) => event.stopPropagation());
+    for (const part of [bar, this.helpBar, this.panel, this.viewPanel, this.waterPanel, this.measureBarsPanel, ...(this.fogBars ? [this.fogBars.panel] : [])]) part.addEventListener('pointerdown', (event) => event.stopPropagation());
     this.refresh();
   }
 
@@ -1730,7 +1742,7 @@ export class BoardToolbar {
     this.shapeButton.classList.toggle('is-active', shaping);
     this.shapeButton.setAttribute('aria-pressed', String(shaping));
     show(this.button.closest<HTMLElement>('.atlas-tool-button'), editing);
-    show(this.groundButton.closest<HTMLElement>('.atlas-tool-button'), editing);
+    show(this.groundGroup, editing);
     if (!playing) { this.closeTemplate(); this.closeMeasure(); this.closeDice(); }
     if (!editing) { this.close(); this.closeGround(); this.closeWater(); this.closePaint(); this.closeLighting(); }
     if (cinematic) this.closeView();
@@ -2369,6 +2381,7 @@ export class BoardToolbar {
     this.closeDice();
     this.closeLaser();
     this.closeLighting();
+    this.closeGround();
     this.moreMenu.hidden = false;
     this.moreButton.classList.add('is-active');
     this.moreButton.setAttribute('aria-expanded', 'true');
@@ -2995,11 +3008,30 @@ export class BoardToolbar {
     this.closeWater();
     this.closeLaser();
     this.closeDice();
+    this.closeTemplate();
+    this.closeLighting();
     this.fillGround();
     this.groundPanel.hidden = false;
+    this.keepGroundInView();
     this.groundButton.classList.add('is-active');
     this.groundButton.setAttribute('aria-expanded', 'true');
     this.row.ownerDocument.addEventListener('pointerdown', this.onOutside, true);
+  }
+
+  /** The menu stays inside the board: no taller than the room above the toolbar (it scrolls within), and not past the board's sides. */
+  private keepGroundInView(): void {
+    const panel = this.groundPanel;
+    const area = this.row.parentElement;
+    panel.style.maxHeight = '';
+    panel.style.left = '';
+    if (!area) return;
+    const bounds = area.getBoundingClientRect();
+    const group = this.groundGroup.getBoundingClientRect();
+    if (bounds.height > 0) panel.style.maxHeight = `${Math.max(120, Math.floor(group.top - bounds.top - 16 - 8))}px`;
+    const rect = panel.getBoundingClientRect();
+    if (rect.right > bounds.right - 8) panel.style.left = `${Math.round(panel.offsetLeft - (rect.right - bounds.right + 8))}px`;
+    const at = panel.getBoundingClientRect();
+    if (at.left < bounds.left + 8) panel.style.left = `${Math.round(panel.offsetLeft + (bounds.left + 8 - at.left))}px`;
   }
 
   closeGround(): void {
@@ -3041,7 +3073,10 @@ export class BoardToolbar {
     const ui = this.groundUi;
     const ground = this.actions.ground?.();
     if (!ui || !ground) return;
-    for (const { value, button } of ui.modes) { button.classList.toggle('is-active', value === ground.mode); button.setAttribute('aria-pressed', String(value === ground.mode)); }
+    for (const { value, button } of ui.modes) {
+      button.setAttribute('aria-pressed', String(value === ground.mode));
+      setSvg(button.querySelector('.atlas-dropdown-menu-item__check')!, value === ground.mode ? CHECK_SVG.replace('class="atlas-swatch-check"', 'class="atlas-dropdown-menu-item__tick"') : '');
+    }
     for (const { row, modes } of ui.rows) row.hidden = !modes.includes(ground.mode);
     // The liquid to the horizon's own settings (the water's while the mode is no liquid).
     const liquid: LiquidKind = ground.mode === 'lava' || ground.mode === 'acid' ? ground.mode : 'water';
