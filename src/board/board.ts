@@ -118,13 +118,17 @@ import { WallSet } from './wallPieces';
 import { LightRig } from './lightRig';
 import { DarknessLayer } from './darkness';
 import { BoardMarks } from './marks';
-import { PlayerToolState, type MeasureShape, type PlayerTool, type TemplateChange, type TemplateMark, type TemplateShape, type ToolAction } from './playerTools';
+import { PlayerToolState, templateArea, type MeasureShape, type PlayerTool, type TemplateChange, type TemplateMark, type TemplateShape, type ToolAction } from './playerTools';
 import { DEFAULT_MEASURE_TOOL, isMeasureShape, type MeasureToolOptions } from './measureOptions';
 import { MEASURE_PIN_PX } from './marks';
 import { measureWhileHeld } from '../atlasPort/measureWhileHeld';
 import { nextBoardMeasureMode } from './boardHotkeys';
 import type { MeasureChange } from './boardMeasures';
 import { LIVE_DISSOLVE_MS, MEASURE_FADE_MS, releaseKeeps, releasedAlpha } from './measureRelease';
+import { deleteTargetOf, dragPoints, editableMeasures, handleSpots, hitHandle, mayEditMeasures, samePoints, type Handle, type HandleRef } from './measureEdit';
+import { MeasureHandleMarks, type HandleItem } from './measureHandleMarks';
+import { MeasurePopover } from './measurePopover';
+import { followedToken, placedMeasure } from './boardMeasures';
 import type { FogOperation } from './fog';
 import { isDoor, isWindow, NO_FLIP, segmentFrame, wholeWall, windowSpan, type BoardLight, type BoardWall, type DoorFlip, type WindowSpan } from './walls';
 import { MINI_DRAG_TYPE, MINI_TEXT_PREFIX } from '../assignments';
@@ -325,6 +329,12 @@ export interface BoardHost {
   setMeasureTool?(changes: Partial<MeasureToolOptions>): boolean;
   /** Writes a kept measurement or clears the kept measurements of the shown level. */
   measureAction?(change: MeasureChange): void;
+  /** What Atlas can do with a kept measurement (its `updateMeasure` and `deleteMeasure`); the handles stand only where it can delete. */
+  measureWrites?(): { update: boolean; remove: boolean };
+  /** Changes a kept measurement in one step of Atlas's history (a field given as undefined goes). */
+  updateMeasure?(id: string, changes: Record<string, unknown>): void;
+  /** Takes a kept measurement off the map, in one step of Atlas's history. */
+  deleteMeasure?(id: string): void;
   /** Opens the collection's Measurement rules (Grid settings) in Atlas when reachable. */
   openMeasureRules?(): void;
   canOpenMeasureRules?(): boolean;
@@ -641,7 +651,9 @@ type Press =
   | { kind: 'tool'; x: number; y: number; moved: boolean }
   | { kind: 'water'; last: { x: number; y: number } }
   /** The fog tool's drag under way (`fogTool.ts` keeps it). */
-  | { kind: 'fog' };
+  | { kind: 'fog' }
+  /** A press on a kept measurement's handle: a click opens its popover, a drag moves, resizes or turns it. */
+  | { kind: 'measureHandle'; ref: HandleRef; x: number; y: number; moved: boolean; grabbed: { x: number; y: number } | null; from: { x: number; y: number } | null };
 
 /** Numbers the boards, so each has loop keys of its own on the window's shared sound engine. */
 let nextBoardNumber = 0;
@@ -1187,7 +1199,7 @@ export class Board {
     });
     this.toolbar.setHidden(this.audience === 'player');
     this.tools.eraseAny = this.audience === 'gm';
-    this.scene.add(this.darkness.object3d, this.marks.object3d, this.groupMarks.object3d, this.activeMarks.object3d, this.viewers.object3d, this.tableOutlines);
+    this.scene.add(this.darkness.object3d, this.marks.object3d, this.measureHandles.object3d, this.groupMarks.object3d, this.activeMarks.object3d, this.viewers.object3d, this.tableOutlines);
     this.tableOutlines.name = 'ar-table';
     this.groupBar = new GroupBar(container, { rotate: (delta) => this.rotateGroup(delta), hp: (delta) => this.changeGroupHp(delta), clear: () => this.clearGroup() });
     this.controls = new ResourceControls(container, {
@@ -2758,6 +2770,7 @@ export class Board {
     if ([...this.layerViews.values(), ...this.parked.values()].some((view) => view.object3d.visible && view.fading)) { doorsMoving = true; this.wake(); }
     if (doorsMoving) busy = true;
     if (this.marks.step(this.clock, context.pixel)) busy = true;
+    this.syncMeasureHandles(context.pixel);
     if (this.stepReleased()) busy = true;
     if (this.viewers.step(this.clock, dt, context.pixel)) busy = true;
     this.rig.step(this.clock);
@@ -3842,6 +3855,7 @@ export class Board {
     // normal release `press` is already cleared.
     on('lostpointercapture', () => { if (this.press) this.cancel(); });
     on('pointerleave', () => {
+      this.setMeasureHover(null);
       this.brushAt = null;
       this.showBrush();
       this.tooltip.hidden = true;
@@ -3910,6 +3924,7 @@ export class Board {
         return;
       }
       if (this.audience === 'gm' && this.shapeEditor?.key(key)) { event.preventDefault(); return; }
+      if (key === 'escape' && this.audience === 'gm' && this.measureEscape()) return;
       if (key === 'escape' && this.placing) { this.stopPlacing(); return; }
       if (key === 'escape' && this.painting) { this.paintWith(null); return; }
       if (key === 'escape' && this.laserOn) { this.setLaser(false); return; }
@@ -4165,12 +4180,19 @@ export class Board {
     }
     this.tooltip.hidden = true;
     const { clientX: x, clientY: y } = event;
+    // The press that closed a measurement's popover only did that, for the Measure tool: it measures nothing.
+    if (this.measureClosedBy === event) {
+      this.measureClosedBy = null;
+      if (event.button === 0 && this.audience === 'gm' && (this.tools.tool === 'measure' || this.heldRuler !== null)) { this.press = null; return; }
+    }
     // The pin beside a measurement that fades: a press on it keeps the measurement.
     if (event.button === 0 && this.audience === 'gm' && this.releasedPinAt(x, y)) {
       this.keepReleased();
       this.press = null;
       return;
     }
+    // The handles of the kept measurements take the press from any tool (Atlas: the smallest marks and the topmost).
+    if (event.button === 0 && this.audience === 'gm' && this.beginMeasureHandle(event)) return;
     // The measure key held (Atlas's `holdRuler`): the press is the quick ruler's, whatever tool is in use; that tool waits and has it back after.
     if (event.button === 0 && this.heldRuler !== null && this.audience === 'gm') {
       const at = this.boardPoint(x, y);
@@ -4486,6 +4508,264 @@ export class Board {
     this.toolbar.refresh();
   }
 
+
+  // ---- A kept measurement is edited on the board as in Atlas (`MeasureHandleInteraction`): handles, popover, drag, Delete ----
+
+  /** The handles of the kept measurements: a badge at each origin, on an area its far end and a turn handle. */
+  private readonly measureHandles = new MeasureHandleMarks(() => accent(this.container));
+  private measureHover: HandleRef | null = null;
+  /** The measurement whose popover is open. */
+  private measureOpen: string | null = null;
+  /** Where a measurement being dragged lies now; kept after the let-go until Atlas's store answers with the new points. */
+  private measurePreview: { id: string; points: Array<{ x: number; y: number }>; settled: { measures: unknown; until: number } | null } | null = null;
+  private measurePopoverView: MeasurePopover | null = null;
+  /** The press that closed the popover, which the Measure tool then starts no measurement with. */
+  private measureClosedBy: Event | null = null;
+  private measureSeen: { map: BoardMap; measures: unknown; tokens: unknown; preview: unknown; open: string | null } | null = null;
+  private stopMeasurePresses: (() => void) | null = null;
+
+  /** Whether kept measurements take handles now (Atlas's `mayEditMeasure` for the board): the GM's board of a loaded map, in GM view, with Atlas able to delete. */
+  get measuresEditable(): boolean {
+    return mayEditMeasures({
+      gm: this.audience === 'gm', gmView: !this.sessionView, loaded: this.map !== null, eye: this.eye !== null,
+      cinematic: this.host.boardMode?.() === 'cinematic', writes: this.host.measureWrites?.().remove === true && this.host.deleteMeasure !== undefined,
+    });
+  }
+
+  private editableIds(): string[] {
+    return editableMeasures(this.map?.measures ?? []).map(({ id }) => id);
+  }
+
+  /** Draws the handles again where the measurements, the tokens, a drag or the open popover say; sizes them to the screen; keeps the popover beside its handle. */
+  private syncMeasureHandles(pixel: number): void {
+    const on = this.measuresEditable;
+    this.measureHandles.setVisible(on);
+    if (!on || !this.map) {
+      this.closeMeasurePopover();
+      this.setMeasureHover(null);
+      return;
+    }
+    const map = this.map;
+    const preview = this.measurePreview;
+    if (preview?.settled && (map.measures !== preview.settled.measures || performance.now() > preview.settled.until)) this.measurePreview = null;
+    const seen = this.measureSeen;
+    if (!seen || seen.map !== map || seen.measures !== map.measures || seen.tokens !== map.tokens || seen.preview !== this.measurePreview || seen.open !== this.measureOpen) {
+      this.measureSeen = { map, measures: map.measures, tokens: map.tokens, preview: this.measurePreview, open: this.measureOpen };
+      this.rebuildMeasureHandles(map);
+    }
+    this.measureHandles.step(pixel);
+    this.placeMeasurePopover();
+  }
+
+  private rebuildMeasureHandles(map: BoardMap): void {
+    const preview = this.measurePreview;
+    const editable = editableMeasures(map.measures).map((measure) => (preview?.id === measure.id ? { id: measure.id, record: { ...measure.record, points: preview.points } as typeof measure.record } : measure));
+    const tokens = new Map(map.tokens.map((token) => [token.id, token]));
+    const spots = handleSpots(editable, map.tokens.map(({ id, x, y, size }) => ({ id, x, y, size })), map.grid.size);
+    const items: HandleItem[] = [];
+    for (const { id, record } of editable) {
+      const spot = spots.get(id);
+      if (!spot) continue;
+      const placed = placedMeasure(record, (token) => { const at = tokens.get(token); return at ? { x: at.x, y: at.y } : null; }) ?? record;
+      items.push({
+        id, shape: record.shape, color: typeof record.color === 'string' ? record.color : accent(this.container), spot,
+        points: placed.points.map(({ x, y }) => ({ x, y })), turns: record.shape !== 'circle' && record.shape !== 'ruler' && followedToken(record) === null,
+      });
+    }
+    this.measureHandles.set(items, this.measureOpen);
+    if (this.measureOpen !== null && !items.some(({ id }) => id === this.measureOpen)) this.closeMeasurePopover(); else this.showMeasurePopover();
+    this.wake();
+  }
+
+  /** The handle under a screen point, tested where the handles are drawn on screen. */
+  private measureHandleAt(clientX: number, clientY: number): HandleRef | null {
+    if (!this.measureHandles.visible) return null;
+    this.applyView();
+    const rect = this.canvas.getBoundingClientRect();
+    const places: Handle[] = [];
+    for (const place of this.measureHandles.places()) {
+      const on = new THREE.Vector3(place.x, 1.4, place.y).project(this.view);
+      if (on.z > 1) continue;
+      places.push({ id: place.id, part: place.part, x: rect.left + ((on.x + 1) / 2) * rect.width, y: rect.top + ((1 - on.y) / 2) * rect.height });
+    }
+    return hitHandle(places, clientX, clientY);
+  }
+
+  private setMeasureHover(ref: HandleRef | null): void {
+    if (ref?.id === this.measureHover?.id && ref?.part === this.measureHover?.part) return;
+    this.measureHover = ref;
+    this.measureHandles.setHovered(ref);
+    this.canvas.style.cursor = ref ? 'pointer' : this.laserOn ? 'none' : '';
+    this.wake();
+  }
+
+  /** A press on a handle: its measurement's popover opens when let go in place; a drag changes it. True when a handle took the press. */
+  private beginMeasureHandle(event: PointerEvent): boolean {
+    const ref = this.measureHandleAt(event.clientX, event.clientY);
+    if (!ref || !this.map?.measures.some(({ id }) => id === ref.id)) return false;
+    const from = ref.part === 'turn' ? this.measureHandles.places().find((place) => place.id === ref.id && place.part === 'turn') ?? null : null;
+    this.press = { kind: 'measureHandle', ref, x: event.clientX, y: event.clientY, moved: false, grabbed: this.boardPoint(event.clientX, event.clientY), from: from ? { x: from.x, y: from.y } : null };
+    return true;
+  }
+
+  /** The handle dragged: the measurement is shown where the pointer takes it (nothing is written until it is let go). */
+  private dragMeasureHandle(press: Extract<Press, { kind: 'measureHandle' }>, event: PointerEvent): void {
+    if (!press.moved) {
+      if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < DRAG_PX) return;
+      press.moved = true;
+      this.measureHandles.setDragging(press.ref);
+    }
+    const map = this.map;
+    const entry = map?.measures.find(({ id }) => id === press.ref.id);
+    const at = this.boardPoint(event.clientX, event.clientY);
+    if (!map || !entry || !at || !press.grabbed) return;
+    const grid = map.grid;
+    const points = dragPoints(entry.record, press.ref.part, { x: at.x - press.grabbed.x, y: at.y - press.grabbed.y },
+      { type: grid.type, size: grid.size, offsetX: grid.offsetX, offsetY: grid.offsetY, snap: grid.enabled && grid.snap }, event.altKey, press.from);
+    // Snapped, most moves of the pointer leave it where it is; an aura has no drag.
+    if (!points || samePoints(points, this.measurePreview?.id === entry.id ? this.measurePreview.points : entry.record.points)) return;
+    this.measurePreview = { id: entry.id, points, settled: null };
+    this.wake();
+  }
+
+  /** The handle is let go (`commit`) or the press is lost: a click opens the popover, a drag writes the new points as one step. */
+  private endMeasureHandle(press: Extract<Press, { kind: 'measureHandle' }>, commit: boolean): void {
+    this.measureHandles.setDragging(null);
+    const preview = this.measurePreview;
+    if (press.moved) {
+      if (commit && preview && preview.id === press.ref.id) {
+        // Shown where it was let go until Atlas's store answers.
+        preview.settled = { measures: this.map?.measures, until: performance.now() + 1500 };
+        this.host.updateMeasure?.(preview.id, { points: preview.points.map(({ x, y }) => ({ x, y })) });
+      } else {
+        this.measurePreview = null;
+      }
+    } else if (commit) {
+      this.openMeasurePopover(press.ref.id);
+    }
+    this.measureSeen = null;
+    this.wake();
+  }
+
+  openMeasurePopover(id: string): void {
+    if (!this.editableIds().includes(id)) return;
+    this.measureOpen = id;
+    this.measureSeen = null;
+    if (!this.stopMeasurePresses) {
+      const doc = this.container.ownerDocument;
+      // A press anywhere but in the popover closes it, except one on a handle (that is the popover's own: it moves there). The press is remembered: it closed something.
+      const onPress = (event: PointerEvent): void => {
+        if (this.measureOpen === null || this.measurePopoverView?.element.contains(event.target as Node | null)) return;
+        if (event.target === this.canvas && this.measureHandleAt(event.clientX, event.clientY) !== null) return;
+        this.measureClosedBy = event;
+        this.closeMeasurePopover();
+      };
+      doc.addEventListener('pointerdown', onPress, true);
+      this.stopMeasurePresses = () => doc.removeEventListener('pointerdown', onPress, true);
+    }
+    this.wake();
+  }
+
+  closeMeasurePopover(): void {
+    if (this.measureOpen === null && !this.measurePopoverView?.isOpen) return;
+    this.measureOpen = null;
+    this.measurePopoverView?.hide();
+    this.stopMeasurePresses?.();
+    this.stopMeasurePresses = null;
+    this.measureSeen = null;
+    this.wake();
+  }
+
+  private showMeasurePopover(): void {
+    const id = this.measureOpen;
+    const entry = id === null ? undefined : this.map?.measures.find((measure) => measure.id === id);
+    if (id === null || !entry) { this.measurePopoverView?.hide(); return; }
+    this.measurePopoverView ??= new MeasurePopover(this.container, {
+      cell: () => this.map?.grid.size ?? 70,
+      canUpdate: () => this.host.measureWrites?.().update === true && this.host.updateMeasure !== undefined,
+      update: (measure, changes) => this.host.updateMeasure?.(measure, changes),
+      remove: (measure) => this.removeMeasure(measure),
+      tokensIn: (measure) => this.tokensInMeasure(measure).length,
+      selectTokens: (measure) => this.selectTokensIn(measure),
+      lineWidthChosen: (cells) => { this.host.setMeasureTool?.({ lineWidth: cells }); },
+      distanceText: (cells) => { const size = this.map?.grid.size ?? 70; return this.distanceLabel([{ x: 0, y: 0 }, { x: cells * size, y: 0 }]); },
+      close: () => { this.closeMeasurePopover(); this.canvas.focus(); },
+    });
+    this.measurePopoverView.show(id, entry.record as never);
+  }
+
+  /** Keeps the open popover beside its measurement's badge, clear of the toolbar. */
+  private placeMeasurePopover(): void {
+    const id = this.measureOpen;
+    const popover = this.measurePopoverView;
+    const item = id === null ? null : this.measureHandles.itemOf(id);
+    if (!popover?.isOpen || !item) return;
+    this.applyView();
+    const on = new THREE.Vector3(item.spot.origin.x, 1.4, item.spot.origin.y).project(this.view);
+    const rect = this.canvas.getBoundingClientRect();
+    const box = this.container.getBoundingClientRect();
+    const bar = this.container.querySelector<HTMLElement>('.atlas-tabletop-toolbar')?.getBoundingClientRect();
+    popover.place(rect.left + ((on.x + 1) / 2) * rect.width - box.left, rect.top + ((1 - on.y) / 2) * rect.height - box.top,
+      { width: box.width, height: box.height }, { top: 0, bottom: bar && bar.height > 0 ? Math.max(0, box.bottom - bar.top) : 0 });
+  }
+
+  /** Takes a kept measurement off the map (one undo step); its popover closes with it. */
+  private removeMeasure(id: string): void {
+    this.setMeasureHover(null);
+    this.closeMeasurePopover();
+    this.host.deleteMeasure?.(id);
+    this.wake();
+  }
+
+  /** Atlas's Delete on a handle: the measurement the pointer is over, else the one whose popover is open. False where neither is. */
+  private deleteMeasureByKey(): boolean {
+    if (!this.measuresEditable) return false;
+    const id = deleteTargetOf({ hovered: this.measureHover?.id ?? null, open: this.measureOpen, editable: this.editableIds() });
+    if (id === null) return false;
+    this.removeMeasure(id);
+    return true;
+  }
+
+  /** Escape: a measurement being dragged is put back, else the popover closes. */
+  private measureEscape(): boolean {
+    const press = this.press;
+    if (press?.kind === 'measureHandle' && press.moved) {
+      this.press = null;
+      this.endMeasureHandle(press, false);
+      return true;
+    }
+    if (this.measureOpen === null) return false;
+    this.closeMeasurePopover();
+    return true;
+  }
+
+  /** The tokens whose centre lies in the area of the kept measurement `id`, as it lies now. */
+  private tokensInMeasure(id: string): string[] {
+    const map = this.map;
+    const entry = map?.measures.find((measure) => measure.id === id);
+    if (!map || !entry || entry.record.shape === 'ruler') return [];
+    const tokens = new Map(map.tokens.map((token) => [token.id, token]));
+    const placed = placedMeasure(entry.record, (token) => { const at = tokens.get(token); return at ? { x: at.x, y: at.y } : null; });
+    const [start, end] = placed?.points ?? [];
+    if (!placed || !start || !end) return [];
+    const width = entry.record.shape === 'line' ? (typeof entry.record.width === 'number' && entry.record.width > 0 ? entry.record.width : map.grid.size) : undefined;
+    const area = templateArea({ shape: entry.record.shape, start, end, ...(width !== undefined ? { width } : {}) } as never, this.tools.coneAngle);
+    if (!area) return [];
+    return map.tokens.filter((token) => this.tokens.has(token.id) && area.contains({ x: token.x, y: token.y })).map((token) => token.id);
+  }
+
+  /** Atlas's Select tokens: the tokens in the area are selected. */
+  private selectTokensIn(id: string): void {
+    const ids = this.tokensInMeasure(id);
+    if (ids.length === 0) return;
+    if (ids.length === 1) { this.select(ids[0]); return; }
+    this.select(null);
+    this.group.clear();
+    for (const token of ids) this.group.add(token);
+    this.drawGroup();
+    this.wake();
+  }
+
   /** The measure or template being dragged, drawn; the toolbar told of a change. */
   private showToolOverlay(): void {
     const { measure: live, draft } = this.tools.overlay();
@@ -4594,6 +4874,7 @@ export class Board {
       if (at && this.waterTool !== 'fill') { this.paintWater(press.last, at); press.last = at; }
       return;
     }
+    if (press?.kind === 'measureHandle') { this.dragMeasureHandle(press, event); return; }
     if (press?.kind === 'tool') {
       if (!press.moved && Math.hypot(event.clientX - press.x, event.clientY - press.y) >= DRAG_PX) press.moved = true;
       const at = this.boardPoint(event.clientX, event.clientY);
@@ -4786,6 +5067,7 @@ export class Board {
       if (keeping instanceof Promise) void keeping.then(kept, kept); else kept();
       return;
     }
+    if (press.kind === 'measureHandle') { this.endMeasureHandle(press, true); return; }
     if (press.kind === 'tool') {
       const at = this.boardPoint(x, y);
       const pendingMeasure = at && press.moved && this.audience === 'gm' && this.tools.tool === 'measure' ? this.tools.overlay().measure : null;
@@ -4986,6 +5268,7 @@ export class Board {
     this.press = null;
     // A second finger or a cancelled pointer: a polygon keeps the corners it has (Atlas's `dropDrag`).
     if (press?.kind === 'fog') { this.fogTool?.dropPress(); return; }
+    if (press?.kind === 'measureHandle') { this.endMeasureHandle(press, false); return; }
     if (press?.kind === 'tool') {
       this.tools.cancel();
       this.showToolOverlay();
@@ -6168,6 +6451,8 @@ export class Board {
 
   /** Atlas's Delete key: the selected tokens leave the map (the GM's, one undo step). False with nothing selected. */
   deleteSelection(): boolean {
+    // A kept measurement under the pointer, or whose popover is open, goes before anything selected does (Atlas).
+    if (this.deleteMeasureByKey()) return true;
     if (this.audience !== 'gm' || !this.host.removeTokens) return false;
     const ids = this.selectedTokenIds();
     if (ids.length === 0) return false;
@@ -7849,6 +8134,10 @@ export class Board {
       return;
     }
     this.pointerAt = { x: event.clientX, y: event.clientY };
+    // Over the handle of a kept measurement: it is lifted, and Delete takes its measurement.
+    const overMeasure = this.press === null ? this.measureHandleAt(event.clientX, event.clientY) : null;
+    this.setMeasureHover(overMeasure);
+    if (overMeasure) return;
     this.ctrlHandles(event.altKey ? 'width' : event.ctrlKey || event.metaKey ? 'height' : null);
     if (event.ctrlKey || event.metaKey) {
       const id = this.tokenAt(event.clientX, event.clientY);
@@ -8102,6 +8391,9 @@ export class Board {
   }
 
   dispose(): void {
+    this.closeMeasurePopover();
+    this.measurePopoverView?.destroy();
+    this.measureHandles.dispose();
     this.turnBanners?.destroy();
     this.turnBanners = null;
     this.loadingOverlay.dispose();

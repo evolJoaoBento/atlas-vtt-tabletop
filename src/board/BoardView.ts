@@ -1719,6 +1719,19 @@ export class BoardView extends ItemView {
         const path = this.path;
         if (path) this.gmMeasure(path, change);
       },
+      // A kept measurement edited on the board (its handle and popover): through Atlas's own actions where it has them (0.19 has `updateMeasure`).
+      measureWrites: () => {
+        const state = (this.path ? this.services.writer.holder(this.path)?.atlasStore.getState() : null) as { updateMeasure?: unknown; deleteMeasure?: unknown } | null | undefined;
+        return { update: typeof state?.updateMeasure === 'function', remove: typeof state?.deleteMeasure === 'function' };
+      },
+      updateMeasure: (id, changes) => {
+        const path = this.path;
+        if (path) this.services.writer.updateMeasure(path, id, changes).catch((error: unknown) => this.measureRefused('measure', error));
+      },
+      deleteMeasure: (id) => {
+        const path = this.path;
+        if (path) this.services.writer.removeMeasures(path, [id]).catch((error: unknown) => this.measureRefused('measure', error));
+      },
       measureHotkeys: () => {
         const bridge = new AtlasBridge(this.app);
         const fmt = (id: 'measure' | 'measureKeep' | 'gmView'): string | null => {

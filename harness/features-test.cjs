@@ -8224,6 +8224,214 @@ feature('measure tool: every other tool can be chosen after a measurement', asyn
   await page.evaluate(() => { const { board } = window.boardTest; board.tools.select('move'); board.setLaser(false); board.toolsChanged(); });
 });
 
+feature('measure edit: handles, popover, drag, Delete on kept measurements (Atlas 0.19)', async ({ page, shot }) => {
+  const kept = (id, shape, points, extra = {}) => ({ id, record: { id, kind: 'measure', shape, points, ...extra } });
+  const seed = () => page.evaluate((list) => {
+    const { modes, board, setKeptMeasures, measureEdit } = window.boardTest;
+    modes.on = true;
+    modes.mode = 'play';
+    measureEdit.update = true;
+    measureEdit.log.length = 0;
+    board.tools.select('move');
+    board.toolsChanged();
+    board.closeMeasurePopover();
+    setKeptMeasures(list);
+  }, [
+    kept('a', 'cone', [{ x: 350, y: 140 }, { x: 490, y: 140 }], { color: '#e93147' }),
+    kept('b', 'ruler', [{ x: 805, y: 175 }, { x: 945, y: 175 }]),
+    kept('c', 'circle', [{ x: 1015, y: 315 }, { x: 1085, y: 315 }]),
+    kept('l', 'line', [{ x: 455, y: 595 }, { x: 595, y: 595 }], { width: 140 }),
+  ]);
+  // Where a handle is on screen (the board's own handle list, projected as a press is tested).
+  const spot = (id, part) => page.evaluate(([handleId, handlePart]) => {
+    const { board, Vector3 } = window.boardTest;
+    board.applyView();
+    const rect = board.canvas.getBoundingClientRect();
+    const place = board.measureHandles.places().find((entry) => entry.id === handleId && entry.part === handlePart);
+    if (!place) return null;
+    const on = new Vector3(place.x, 1.4, place.y).project(board.view);
+    return { x: rect.left + ((on.x + 1) / 2) * rect.width, y: rect.top + ((1 - on.y) / 2) * rect.height };
+  }, [id, part]);
+  const state = () => page.evaluate(() => ({
+    ids: window.boardTest.keptMeasures().map((entry) => entry.id),
+    open: window.boardTest.board.measureOpen,
+    popover: !!document.querySelector('.atlas-measure-popover') && !document.querySelector('.atlas-tabletop-measure-popover').hidden,
+    log: [...window.boardTest.measureEdit.log],
+    handles: window.boardTest.board.measureHandles.places().length,
+  }));
+  const record = (id) => page.evaluate((key) => window.boardTest.keptMeasures().find((entry) => entry.id === key)?.record ?? null, id);
+  const click = async (id, part = 'origin') => { const at = await spot(id, part); await page.mouse.click(at.x, at.y); await wait(250); };
+  await seed();
+  await wait(400);
+  const first = await state();
+  // a cone has a badge, a far-end dot and a turn handle; a ruler only a badge; a circle a badge and a far end; a line like a cone.
+  check('measure edit: every kept measurement has handles (a cone 3, a ruler 1, a circle 2, a line 3)', first.handles === 9, JSON.stringify(first));
+  await shot('measure-handles');
+  // A click on a badge opens the measurement's popover, in Atlas's markup.
+  const badge = await spot('a', 'origin');
+  await click('a');
+  const opened = await page.evaluate(() => {
+    const panel = document.querySelector('.atlas-measure-popover');
+    return panel ? {
+      label: panel.getAttribute('aria-label'), swatches: panel.querySelectorAll('.atlas-swatch').length,
+      effects: panel.querySelectorAll('.atlas-light-kind').length, switches: panel.querySelectorAll('[role="switch"]').length,
+      del: panel.querySelector('.atlas-light-popover__delete')?.textContent ?? '', select: !!panel.querySelector('[data-control="select-tokens"]'),
+      width: !!panel.querySelector('.atlas-dungeon-stepper'), pos: panel.getBoundingClientRect().toJSON(), open: window.boardTest.board.measureOpen,
+    } : null;
+  });
+  check("measure edit: a click on a handle opens the measurement's popover (colour, effects, switches, Delete)", !!opened && opened.label === 'Measurement' && opened.swatches >= 8 && opened.effects === 7 && opened.switches === 2 && opened.del.includes('Delete') && opened.select && !opened.width && opened.open === 'a', JSON.stringify(opened));
+  const box = await page.locator('canvas').first().boundingBox();
+  check('measure edit: the popover stands inside the board, beside its handle', !!opened && opened.pos.left >= box.x - 1 && opened.pos.right <= box.x + box.width + 1 && opened.pos.top >= box.y - 1 && opened.pos.bottom <= box.y + box.height + 1 && (opened.pos.left > badge.x || opened.pos.right < badge.x), JSON.stringify({ pos: opened?.pos, badge, box }));
+  await shot('measure-popover');
+  // Its controls write at once.
+  await page.click('.atlas-measure-popover [data-control="effect-fire"]');
+  await wait(150);
+  check('measure edit: an effect chip writes the look', (await record('a')).effect === 'fire', JSON.stringify(await record('a')));
+  await page.click('.atlas-measure-popover [data-control="switch-players"]');
+  await wait(150);
+  const hiddenNow = (await record('a')).hidden === true;
+  await page.click('.atlas-measure-popover [data-control="switch-players"]');
+  await wait(150);
+  check('measure edit: the Players switch hides it from the players, and back on takes the field away', hiddenNow && (await record('a')).hidden === undefined);
+  await page.click('.atlas-measure-popover [data-control="switch-walls"]');
+  await wait(150);
+  check('measure edit: Stops at walls off writes walls false', (await record('a')).walls === false, JSON.stringify(await record('a')));
+  await page.click('.atlas-measure-popover [data-swatch="#ec7500"]');
+  await wait(150);
+  check('measure edit: a colour swatch writes the colour', (await record('a')).color === '#ec7500', JSON.stringify(await record('a')));
+  // Escape closes the popover.
+  await page.keyboard.press('Escape');
+  await wait(150);
+  check('measure edit: Escape closes the popover', (await state()).open === null && !(await state()).popover);
+  // The line has a width stepper that writes the width and the tool's next width.
+  await click('l');
+  await page.click('.atlas-measure-popover [data-control="width-more"]');
+  await wait(200);
+  const wider = await page.evaluate(() => ({ width: window.boardTest.keptMeasures().find((entry) => entry.id === 'l').record.width, tool: window.boardTest.measureTool().lineWidth }));
+  check("measure edit: a line's width stepper widens it a cell, and the tool's next line", wider.width === 210 && wider.tool === 3, JSON.stringify(wider));
+  await page.keyboard.press('Escape');
+  await wait(100);
+  // A click on another handle moves the popover there; a press elsewhere closes it.
+  await click('l');
+  await click('a');
+  check('measure edit: a click on another measurement moves the popover there', (await state()).open === 'a');
+  await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.9);
+  await wait(200);
+  check('measure edit: a press elsewhere closes the popover', (await state()).open === null);
+  // Delete button: the one measurement goes, in one undo step, and the popover with it.
+  await click('c');
+  await page.click('.atlas-measure-popover .atlas-light-popover__delete');
+  await wait(250);
+  const deleted = await state();
+  check('measure edit: Delete in the popover deletes that one measurement only, and the popover closes', !deleted.ids.includes('c') && deleted.ids.length === 3 && deleted.open === null && !deleted.popover, JSON.stringify(deleted));
+  await shot('measure-after-delete');
+  await page.evaluate(() => window.boardTest.history.undo(['map.atlasmap']));
+  await wait(250);
+  check('measure edit: undo brings the measurement back', (await state()).ids.includes('c'));
+  // The Delete and Backspace keys: the one the pointer is over, else the one whose popover is open.
+  const over = await spot('b', 'origin');
+  await page.evaluate(() => window.boardTest.board.canvas.focus());
+  await page.mouse.move(over.x, over.y);
+  await wait(150);
+  await page.keyboard.press('Delete');
+  await wait(250);
+  check('measure edit: Delete over a handle deletes its measurement', !(await state()).ids.includes('b'), JSON.stringify(await state()));
+  await click('a');
+  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.9);
+  await page.evaluate(() => document.querySelector('.atlas-measure-popover').focus());
+  await page.keyboard.press('Backspace');
+  await wait(250);
+  const backspaced = await state();
+  check('measure edit: Backspace with its popover open deletes that measurement', !backspaced.ids.includes('a') && backspaced.open === null, JSON.stringify(backspaced));
+  // A drag moves the whole measurement, snapped, as one step of history.
+  await seed();
+  await wait(300);
+  const grab = await spot('a', 'origin');
+  const before = await record('a');
+  await page.mouse.move(grab.x, grab.y);
+  await page.mouse.down();
+  await page.mouse.move(grab.x + 60, grab.y + 40, { steps: 6 });
+  await wait(100);
+  const during = await page.evaluate(() => ({ kept: window.boardTest.keptMeasures().find((entry) => entry.id === 'a').record.points, log: [...window.boardTest.measureEdit.log], preview: window.boardTest.board.measurePreview?.points ?? null }));
+  check('measure edit: while it is dragged nothing is written, the preview moves', during.log.length === 0 && during.preview !== null && JSON.stringify(during.kept) === JSON.stringify(before.points), JSON.stringify(during));
+  await page.mouse.up();
+  await wait(300);
+  const dragged = await record('a');
+  const log = (await state()).log;
+  const dx = dragged.points[0].x - before.points[0].x;
+  check('measure edit: a drag writes the moved measurement once, snapped to the half cell, its far end kept at its distance', log.length === 1 && dx !== 0 && dragged.points[0].x % 35 === 0 && dragged.points[1].x - dragged.points[0].x === 140 && (await state()).open === null, JSON.stringify({ log, before: before.points, after: dragged.points }));
+  await page.evaluate(() => window.boardTest.history.undo(['map.atlasmap']));
+  await wait(250);
+  check('measure edit: one undo puts the whole drag back', JSON.stringify((await record('a')).points) === JSON.stringify(before.points), JSON.stringify(await record('a')));
+  // Escape in the middle of a drag puts it back and writes nothing.
+  const again = await spot('a', 'origin');
+  await page.mouse.move(again.x, again.y);
+  await page.mouse.down();
+  await page.mouse.move(again.x + 70, again.y + 30, { steps: 5 });
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await wait(250);
+  const escaped = await state();
+  check('measure edit: Escape during a drag puts it back and writes nothing more', escaped.log.length === 1 && JSON.stringify((await record('a')).points) === JSON.stringify(before.points) && escaped.open === null, JSON.stringify(escaped));
+  // The far end resizes (the origin stays); the turn handle turns it (its length stays).
+  const end = await spot('a', 'end');
+  await page.mouse.move(end.x, end.y);
+  await page.mouse.down();
+  await page.mouse.move(end.x + 80, end.y, { steps: 5 });
+  await page.mouse.up();
+  await wait(300);
+  const resized = await record('a');
+  check('measure edit: the far end resizes and turns an area, its origin staying', resized.points[0].x === 350 && resized.points[0].y === 140 && resized.points[1].x > 490, JSON.stringify(resized.points));
+  const turn = await spot('a', 'turn');
+  const lengthBefore = Math.hypot(resized.points[1].x - resized.points[0].x, resized.points[1].y - resized.points[0].y);
+  await page.mouse.move(turn.x, turn.y);
+  await page.mouse.down();
+  await page.mouse.move(turn.x + 5, turn.y + 70, { steps: 6 });
+  await page.mouse.up();
+  await wait(300);
+  const turned = await record('a');
+  const lengthAfter = Math.hypot(turned.points[1].x - turned.points[0].x, turned.points[1].y - turned.points[0].y);
+  check('measure edit: the turn handle turns it about its origin without changing its size', Math.abs(lengthAfter - lengthBefore) < 0.01 && turned.points[1].y !== resized.points[1].y, JSON.stringify({ lengthBefore, lengthAfter, turned: turned.points }));
+  // The Measure tool: a handle still takes its press, and the press that closes the popover measures nothing.
+  await seed();
+  await wait(300);
+  await page.evaluate(() => { const { board } = window.boardTest; board.tools.selectShape('circle'); board.toolsChanged(); });
+  await click('b');
+  check('measure edit: with the Measure tool in hand a handle still opens its popover', (await state()).open === 'b');
+  await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.85);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.88, { steps: 4 });
+  await page.mouse.up();
+  await wait(200);
+  const swallowed = await page.evaluate(() => ({ kept: window.boardTest.keptMeasures().length, drawn: window.boardTest.board.marks.overlay.children.length, released: window.boardTest.board.released !== null, open: window.boardTest.board.measureOpen }));
+  check('measure edit: the press that closes the popover starts no measurement with the Measure tool', swallowed.open === null && swallowed.kept === 4 && swallowed.drawn === 0 && !swallowed.released, JSON.stringify(swallowed));
+  await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.85);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.88, { steps: 4 });
+  await page.mouse.up();
+  await wait(200);
+  check('measure edit: the next press measures as before', await page.evaluate(() => window.boardTest.board.marks.overlay.children.length > 0 || window.boardTest.keptMeasures().length > 4));
+  await page.evaluate(() => { const { board } = window.boardTest; board.tools.select('move'); board.toolsChanged(); });
+  // An Atlas without updateMeasure: handles stand, the popover is the Delete alone, with its reason.
+  await seed();
+  await page.evaluate(() => { window.boardTest.measureEdit.update = false; });
+  await wait(200);
+  await click('b');
+  const old = await page.evaluate(() => { const panel = document.querySelector('.atlas-measure-popover'); return { swatches: panel?.querySelectorAll('.atlas-swatch').length, hint: panel?.querySelector('.atlas-light-popover__hint')?.textContent ?? '', del: !!panel?.querySelector('.atlas-light-popover__delete') }; });
+  check("measure edit: without Atlas's updateMeasure the popover has only Delete and says editing needs a newer Atlas", old.swatches === 0 && old.del && /newer Atlas/.test(old.hint), JSON.stringify(old));
+  await page.keyboard.press('Escape');
+  // GM view off (Atlas's session view): the handles go and the popover with them.
+  await page.evaluate(() => { window.boardTest.measureEdit.update = true; });
+  await click('b');
+  await page.evaluate(() => window.boardTest.board.throwGmView(false));
+  await wait(300);
+  const session = await page.evaluate(() => ({ visible: window.boardTest.board.measureHandles.visible, open: window.boardTest.board.measureOpen }));
+  check('measure edit: in session view the handles are gone and the popover closes', !session.visible && session.open === null, JSON.stringify(session));
+  await page.evaluate(() => window.boardTest.board.throwGmView(true));
+  await wait(200);
+  await page.evaluate(() => window.boardTest.clearKeptMeasures());
+});
+
 feature('shortcut help on the board', async ({ page, shot }) => {
   // Atlas's own shortcut help (copied), as the board's ? key opens it: Atlas's shortcuts the board has, with the keys the
   // board takes (a camera letter with Shift), then the board's own keys; Atlas's 2D map tools left out.

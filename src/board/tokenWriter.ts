@@ -312,6 +312,20 @@ export class TokenWriter {
     return id;
   }
 
+  /**
+   * Changes a kept measure (its points moved, its colour, who sees it, its look…), as Atlas's own `updateMeasure` does, in
+   * one step of its history. A field given as `undefined` goes. One Atlas no longer has is passed over; an Atlas without
+   * `updateMeasure` (before 0.19) refuses.
+   */
+  async updateMeasure(path: string, id: string, changes: Readonly<Record<string, unknown>>): Promise<void> {
+    if (this.holder(path) === null) await this.ready(path);
+    const state = this.store(path);
+    if (!state.updateMeasure) throw TokenWriter.missing('measures');
+    const update = state.updateMeasure;
+    if (!Object.hasOwn(state.objects?.measures ?? {}, id)) return;
+    this.asOneStep(path, () => update(id, { ...changes }));
+  }
+
   /** Takes measures off the map, together in one step of Atlas's history; one Atlas no longer has is passed over. */
   async removeMeasures(path: string, ids: readonly string[]): Promise<void> {
     if (this.holder(path) === null) await this.ready(path);

@@ -343,6 +343,29 @@ async function main(): Promise<void> {
       redo: () => { keptMeasures = after.map((entry) => structuredClone(entry)); syncKeptMeasures(); return true; },
     });
   };
+  // A kept measurement edited on the board (its handle and popover): what Atlas's `updateMeasure` / `deleteMeasure` do, each one step of history; `update: false` stands for an Atlas without `updateMeasure`.
+  const measureEdit = { update: true, log: [] as string[] };
+  const editKept = (change: (list: BoardMeasure[]) => BoardMeasure[], label: string): void => {
+    const before = keptMeasures.map((entry) => structuredClone(entry));
+    keptMeasures = change(keptMeasures);
+    const after = keptMeasures.map((entry) => structuredClone(entry));
+    syncKeptMeasures();
+    history.push({
+      paths: [waterPath], label,
+      undo: () => { keptMeasures = before.map((entry) => structuredClone(entry)); syncKeptMeasures(); return true; },
+      redo: () => { keptMeasures = after.map((entry) => structuredClone(entry)); syncKeptMeasures(); return true; },
+    });
+  };
+  const updateKept = (id: string, changes: Record<string, unknown>): void => {
+    if (!measureEdit.update) return;
+    measureEdit.log.push(`update ${id} ${Object.keys(changes).join(',')}`);
+    editKept((list) => list.map((entry) => {
+      if (entry.id !== id) return entry;
+      const next: Record<string, unknown> = { ...(entry.record as unknown as Record<string, unknown>), ...changes };
+      for (const key of Object.keys(next)) if (next[key] === undefined) delete next[key];
+      return { id, record: next as never };
+    }), 'measure');
+  };
   /** Tokens a Connect player controls (what the GM board asks Connect). */
   const controlled = new Set<string>();
   let wallThickness = 0.12;
@@ -663,9 +686,12 @@ async function main(): Promise<void> {
     measureTool: () => measureTool,
     setMeasureTool: (changes) => { measureTool = readMeasureToolOptions({ ...measureTool, ...changes }); board.refreshToolbar(); },
     measureAction: (change) => applyMeasureChange(change),
+    measureWrites: () => ({ update: measureEdit.update, remove: true }),
+    updateMeasure: (id, changes) => updateKept(id, changes),
+    deleteMeasure: (id) => { measureEdit.log.push(`delete ${id}`); editKept((list) => list.filter((entry) => entry.id !== id), 'measure removed'); },
     measureHotkeys: () => ({ measure: 'M', measureKeep: 'K', gmView: 'Shift + D' }),
     // Atlas's map shortcuts as the shell routes them (src/board/boardAtlasTools.ts): the GM view key, which is Shift + D here.
-    atlasKey: (event) => { const action = boardHotkeyAction(event, (id) => DEFAULT_MAP_HOTKEYS[id] ?? null); return action === 'gmView' ? board.toggleGmView() : action === 'peek' ? board.peek(true, event.key.toLowerCase()) : action === 'measure' ? board.measureKey(event) : false; },
+    atlasKey: (event) => { const action = boardHotkeyAction(event, (id) => DEFAULT_MAP_HOTKEYS[id] ?? null); return action === 'gmView' ? board.toggleGmView() : action === 'peek' ? board.peek(true, event.key.toLowerCase()) : action === 'measure' ? board.measureKey(event) : action === 'delete' ? board.deleteSelection() : false; },
     gmView: () => gmViewSwitch.on,
     coarsePointer: () => pointer.coarse,
     setGmView: (on) => { if (gmViewSwitch.on === null) return false; gmViewSwitch.on = on; gmViewSwitch.sets.push(on); board.gmViewChanged(); return true; },
@@ -1182,7 +1208,7 @@ async function main(): Promise<void> {
     await editor.open(folder);
     return editor;
   };
-  Object.assign(window, { boardTest: { initiativeRules: rules.initiative, trackerSettings, bannerSwitch, announce, gmViewSwitch, pointer, hotkeyHelp, backgrounds, backgroundFiles, backgroundsReady, backgroundKit: { DEFAULT_BACKGROUND, emptyLayers, TERRAINS, backgroundFrame }, openBackgroundEditor, closeBackgroundEditor, backgroundEditor: null, studio: cutsceneHarness, api: { cutscene: channel },Board, FreeCamera, fog: { offers: fogOffers, state: fogState, record: () => fogRecord, reset: () => setFog({}) }, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, savedState, savedSettings, savedListeners, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, keptMeasures: () => keptMeasures, clearKeptMeasures: () => { keptMeasures = []; syncKeptMeasures(); }, measureTool: () => measureTool, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, Matrix4: THREE.Matrix4, Quaternion: THREE.Quaternion, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
+  Object.assign(window, { boardTest: { initiativeRules: rules.initiative, trackerSettings, bannerSwitch, announce, gmViewSwitch, pointer, hotkeyHelp, backgrounds, backgroundFiles, backgroundsReady, backgroundKit: { DEFAULT_BACKGROUND, emptyLayers, TERRAINS, backgroundFrame }, openBackgroundEditor, closeBackgroundEditor, backgroundEditor: null, studio: cutsceneHarness, api: { cutscene: channel },Board, FreeCamera, fog: { offers: fogOffers, state: fogState, record: () => fogRecord, reset: () => setFog({}) }, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, savedState, savedSettings, savedListeners, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, keptMeasures: () => keptMeasures, measureEdit, setKeptMeasures: (list: BoardMeasure[]) => { keptMeasures = list; syncKeptMeasures(); }, clearKeptMeasures: () => { keptMeasures = []; syncKeptMeasures(); }, measureTool: () => measureTool, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, Matrix4: THREE.Matrix4, Quaternion: THREE.Quaternion, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

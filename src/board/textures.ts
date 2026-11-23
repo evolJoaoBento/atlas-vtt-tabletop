@@ -374,3 +374,65 @@ export function downedMarkerTexture(): THREE.CanvasTexture {
     context.fill(new Path2D(glyph));
   });
 }
+
+/** The Lucide paths of the glyph each measure shape has on its handle (Atlas's `MeasureHandles` `SHAPE_GLYPHS`, the Measure tool bar's icons). */
+const MEASURE_HANDLE_GLYPHS: Record<string, readonly string[]> = {
+  ruler: [
+    'M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z',
+    'm14.5 12.5 2-2', 'm11.5 9.5 2-2', 'm8.5 6.5 2-2', 'm17.5 15.5 2-2',
+  ],
+  circle: ['M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z'],
+  cone: ['M13.73 4a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z'],
+  square: ['M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z'],
+  line: ['M22 2 2 22'],
+};
+const HANDLE_PX = 96;
+
+/**
+ * The badge at the origin of a kept measurement (Atlas's `MeasureHandles`): the board's dark plate with the shape's glyph, a
+ * thin ring in the measurement's colour and, while its popover is open, a second ring in the accent.
+ */
+export function measureHandleTexture(shape: string, ring: string, accentRing: string | null): THREE.CanvasTexture {
+  return canvasTexture(HANDLE_PX, HANDLE_PX, (context) => {
+    const centre = HANDLE_PX / 2;
+    const radius = HANDLE_PX / 2 - 6;
+    context.fillStyle = PLATE_COLOR;
+    context.beginPath();
+    context.arc(centre, centre, radius, 0, Math.PI * 2);
+    context.fill();
+    context.lineWidth = 5;
+    context.strokeStyle = ring;
+    context.stroke();
+    if (accentRing) {
+      context.lineWidth = 4;
+      context.strokeStyle = accentRing;
+      context.beginPath();
+      context.arc(centre, centre, radius + 3, 0, Math.PI * 2);
+      context.stroke();
+    }
+    const scale = (HANDLE_PX * 0.5) / 24;
+    context.save();
+    context.translate(centre - 12 * scale, centre - 12 * scale);
+    context.scale(scale, scale);
+    context.lineWidth = 2;
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.strokeStyle = 'rgba(255,255,255,0.92)';
+    for (const path of MEASURE_HANDLE_GLYPHS[shape] ?? MEASURE_HANDLE_GLYPHS.ruler) context.stroke(new Path2D(path));
+    context.restore();
+  });
+}
+
+/** The dot at an area's far end, and the one that only turns it: plain, in the same plate and ring. */
+export function measureDotTexture(ring: string): THREE.CanvasTexture {
+  return canvasTexture(HANDLE_PX, HANDLE_PX, (context) => {
+    const centre = HANDLE_PX / 2;
+    context.fillStyle = PLATE_COLOR;
+    context.beginPath();
+    context.arc(centre, centre, HANDLE_PX / 2 - 6, 0, Math.PI * 2);
+    context.fill();
+    context.lineWidth = 8;
+    context.strokeStyle = ring;
+    context.stroke();
+  });
+}

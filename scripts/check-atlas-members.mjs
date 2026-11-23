@@ -75,6 +75,8 @@ const MEMBERS = [
   ['setGMView', 'gmView.ts (view store action)'],
   ['measureTool', 'atlasMeasureTool.ts (view store field: the Measure tool choices, shared with Atlas toolbar)'],
   ['setMeasureTool', 'atlasMeasureTool.ts (view store action)'],
+  ['updateMeasure', 'tokenWriter.ts (store action: a kept measurement moved, recoloured, deleted from its popover)'],
+  ['deleteMeasure', 'tokenWriter.ts (store action: a kept measurement taken off, also from its popover)'],
   ['isExperimentalOn', 'shims/settingsService.ts (settings service, for the copied hotkeys and statblock counters)'],
   ['atlas-vtt:collection-settings-changed', 'BoardView.ts (workspace event: a collection\'s settings were saved)'],
   // The dice tray's saved rolls (savedRollsAccess.ts): the collection's settings, which only Atlas 0.18 keeps.
