@@ -3923,30 +3923,7 @@ export class Board {
         this.caster.open();
         return;
       }
-      if (this.audience === 'gm' && this.shapeEditor?.key(key)) { event.preventDefault(); return; }
-      if (key === 'escape' && this.audience === 'gm' && this.measureEscape()) return;
-      if (key === 'escape' && this.placing) { this.stopPlacing(); return; }
-      if (key === 'escape' && this.painting) { this.paintWith(null); return; }
-      if (key === 'escape' && this.laserOn) { this.setLaser(false); return; }
-      // Atlas's Move/Select key switches between moving and the laser pointer.
-      // A player's tools are Connect's: Escape goes back to Move, as in its 2D view.
-      if (this.audience === 'gm' && key === 'escape' && this.fogTool?.on) {
-        if (this.fogTool.drawing) this.fogTool.cancel(); else this.fogTool.setOn(false);
-        return;
-      }
-      if (this.audience === 'gm' && key === 'escape' && this.waterTool) { this.waterTool = null; this.showBrush(); this.toolbar.refresh(); return; }
-      if (this.audience === 'gm' && key === 'escape' && this.tools.tool === 'measure') { this.tools.select('move'); this.toolsChanged(); return; }
-      if (this.audience === 'gm' && key === 'k' && this.tools.tool === 'measure' && !event.ctrlKey && !event.metaKey && !event.altKey) {
-        event.preventDefault();
-        this.setMeasureOptions({ keep: !this.measureOptions().keep });
-        return;
-      }
-      if (this.audience === 'player' && key === 'escape' && this.tools.tool !== 'move') { this.tools.select('move'); this.toolsChanged(); return; }
-      if (key === 'v' && this.audience === 'gm' && !event.ctrlKey && !event.metaKey && !event.altKey) {
-        // With the Measure or Template tool in hand the key goes back to Move/Select (the hand); pressed again it is the laser.
-        if (this.tools.tool !== 'move') { this.putMeasureAway(); this.setLaser(false); } else this.setLaser(!this.laserOn);
-        return;
-      }
+      if (this.toolKey(event, key)) return;
       if (key === 'escape' && this.group.size > 0) { this.clearGroup(); return; }
       if (key === 'escape' && this.selectedId !== null) { this.select(null); return; }
       if (key === 'escape' && this.toolbar.isOpen) { this.toolbar.close(); this.toolbar.closeView(); this.toolbar.closeGround(); this.toolbar.closeDice(); return; }
@@ -4061,6 +4038,26 @@ export class Board {
       if (event.type === 'keydown' && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); tool.cancel(); return; }
       if (event.key === 'Shift' || event.key === 'Control' || event.key === 'Meta') tool.rekey({ shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey });
     };
+    // Atlas's keys act on the board wherever the focus is inside its tab, not only on the canvas: a toolbar button that was just
+    // pressed keeps it. Text fields and Atlas's windows keep their own keys. Keys the canvas hears itself are not heard twice.
+    const keysFromFocus = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented || this.audience !== 'gm' || this.eye) return;
+      const target = event.target as HTMLElement | null;
+      if (!target || target === this.canvas || !this.container.contains(target)) return;
+      const leaf = this.container.closest('.workspace-leaf');
+      if (leaf && !leaf.classList.contains('mod-active')) return;
+      if (target.closest('input, textarea, select, [contenteditable="true"], .atlas-tabletop-atlas-ui, .modal-container') !== null) return;
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const key = event.key.toLowerCase();
+      // Escape first closes a menu of the toolbar that is open.
+      if (key === 'escape' && this.toolbar.isOpen) return;
+      if (key !== 'v' && key !== 'k' && key !== 'escape' && this.host.atlasKey?.(event, this.press?.kind === 'token') !== true) return;
+      if (key === 'v' || key === 'k' || key === 'escape') { if (!this.toolKey(event, key)) return; }
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    win?.addEventListener('keydown', keysFromFocus, true);
+    this.stops.push(() => win?.removeEventListener('keydown', keysFromFocus, true));
     win?.addEventListener('keydown', fogKeys, true);
     win?.addEventListener('keyup', fogKeys, true);
     this.stops.push(() => { win?.removeEventListener('keydown', fogKeys, true); win?.removeEventListener('keyup', fogKeys, true); });
@@ -4764,6 +4761,39 @@ export class Board {
     for (const token of ids) this.group.add(token);
     this.drawGroup();
     this.wake();
+  }
+
+  /**
+   * The keys of the tools (the Shapes tool, Escape out of the one in hand, K for Keep, V for Move/Select and the laser): true when
+   * one did something. They are the board's whatever has the focus inside it, so this is called from the canvas and from the
+   * window (`toolKeysFromFocus`), where a toolbar button has it.
+   */
+  private toolKey(event: KeyboardEvent, key: string): boolean {
+    if (this.audience === 'gm' && this.shapeEditor?.key(key)) { event.preventDefault(); return true; }
+    if (key === 'escape' && this.audience === 'gm' && this.measureEscape()) return true;
+    if (key === 'escape' && this.placing) { this.stopPlacing(); return true; }
+    if (key === 'escape' && this.painting) { this.paintWith(null); return true; }
+    if (key === 'escape' && this.laserOn) { this.setLaser(false); return true; }
+    // Atlas's Move/Select key switches between moving and the laser pointer.
+    // A player's tools are Connect's: Escape goes back to Move, as in its 2D view.
+    if (this.audience === 'gm' && key === 'escape' && this.fogTool?.on) {
+      if (this.fogTool.drawing) this.fogTool.cancel(); else this.fogTool.setOn(false);
+      return true;
+    }
+    if (this.audience === 'gm' && key === 'escape' && this.waterTool) { this.waterTool = null; this.showBrush(); this.toolbar.refresh(); return true; }
+    if (this.audience === 'gm' && key === 'escape' && this.tools.tool === 'measure') { this.tools.select('move'); this.toolsChanged(); return true; }
+    if (this.audience === 'gm' && key === 'k' && this.tools.tool === 'measure' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      this.setMeasureOptions({ keep: !this.measureOptions().keep });
+      return true;
+    }
+    if (this.audience === 'player' && key === 'escape' && this.tools.tool !== 'move') { this.tools.select('move'); this.toolsChanged(); return true; }
+    if (key === 'v' && this.audience === 'gm' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      // With the Measure or Template tool in hand the key goes back to Move/Select (the hand); pressed again it is the laser.
+      if (this.tools.tool !== 'move') { this.putMeasureAway(); this.setLaser(false); } else this.setLaser(!this.laserOn);
+      return true;
+    }
+    return false;
   }
 
   /** The measure or template being dragged, drawn; the toolbar told of a change. */

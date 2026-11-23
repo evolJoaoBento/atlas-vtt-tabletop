@@ -8432,6 +8432,56 @@ feature('measure edit: handles, popover, drag, Delete on kept measurements (Atla
   await page.evaluate(() => window.boardTest.clearKeptMeasures());
 });
 
+feature('board keys with focus on a toolbar button (V, M, K, Escape)', async ({ page }) => {
+  const reset = () => page.evaluate(() => {
+    const { modes, board } = window.boardTest;
+    modes.on = true;
+    modes.mode = 'play';
+    board.tools.select('move');
+    board.setLaser(false);
+    board.toolsChanged();
+    board.host.setMeasureTool({ keep: false });
+    board.canvas.focus();
+  });
+  const tool = () => page.evaluate(() => ({ tool: window.boardTest.board.tools.tool, laser: window.boardTest.board.laser, keep: window.boardTest.measureTool().keep, focus: document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.tagName }));
+  for (const [button, label] of [['Measure', 'the Measure button'], ['Move/Select', 'the Move/Select button']]) {
+    await reset();
+    await page.click('button[aria-label="Move/Select"]');
+    await page.click(`button[aria-label="${button}"]`);
+    await page.keyboard.press('m');
+    await wait(150);
+    const m = await tool();
+    check(`board keys: M with focus on ${label} chooses Measure`, m.tool === 'measure', JSON.stringify(m));
+    await page.click(`button[aria-label="${button}"]`).catch(() => undefined);
+    await reset();
+    await page.evaluate(() => { window.boardTest.board.tools.selectShape('ruler'); window.boardTest.board.toolsChanged(); });
+    await page.focus(`button[aria-label="${button}"]`);
+    await page.keyboard.press('v');
+    await wait(150);
+    const v = await tool();
+    check(`board keys: V with focus on ${label} puts Measure down for Move/Select`, v.tool === 'move' && !v.laser, JSON.stringify(v));
+    await page.evaluate(() => { window.boardTest.board.tools.selectShape('ruler'); window.boardTest.board.toolsChanged(); });
+    await page.focus(`button[aria-label="${button}"]`);
+    await page.keyboard.press('k');
+    await wait(150);
+    const k = await tool();
+    check(`board keys: K with focus on ${label} flips Keep`, k.keep === true, JSON.stringify(k));
+    await page.focus(`button[aria-label="${button}"]`);
+    await page.keyboard.press('Escape');
+    await wait(150);
+    const e = await tool();
+    check(`board keys: Escape with focus on ${label} puts Measure down`, e.tool === 'move', JSON.stringify(e));
+  }
+  // A text field keeps its keys.
+  await reset();
+  await page.evaluate(() => { const { board } = window.boardTest; board.tools.selectShape('ruler'); board.toolsChanged(); const input = document.createElement('input'); input.id = 'probe'; board.canvas.parentElement.appendChild(input); input.focus(); });
+  await page.keyboard.press('v');
+  await wait(100);
+  check('board keys: V typed in a text field is left to the field', (await tool()).tool === 'measure');
+  await page.evaluate(() => document.getElementById('probe').remove());
+  await reset();
+});
+
 feature('shortcut help on the board', async ({ page, shot }) => {
   // Atlas's own shortcut help (copied), as the board's ? key opens it: Atlas's shortcuts the board has, with the keys the
   // board takes (a camera letter with Shift), then the board's own keys; Atlas's 2D map tools left out.
