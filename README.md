@@ -105,7 +105,7 @@ with either; it does not depend on one.
   dice (`4dF+1`, thrown as d6s: two faces minus, two blank, two plus) and labels (`2d6[fire]+1d6[cold]`); dice a roll
   sets aside (dropped or thrown again) are dimmed on the table and struck through in the log. The **Dice log** and **Stat sheet** buttons beside it
   show the rolls on the map and the selected token's sheet. A sheet's roll lays its dice on the table for you to throw; tick
-  **Throw stat sheet rolls automatically** under **Tabletop Settings** (the toolbar button, or the command palette's Settings tab) to have them thrown at once. It covers the sheet drawer and the stat block that Ctrl (Cmd) + hover opens, Atlas's own
+  **Throw stat sheet rolls automatically** under **Tabletop Settings** (the first entry of the command palette's Settings tab) to have them thrown at once. It covers the sheet drawer and the stat block that Ctrl (Cmd) + hover opens, Atlas's own
   window included. The sheet drawer has a **pin**: pinned, it stays open under the other panels; unpinned, opening another
   panel (Tabletop Settings, lighting, the dice tray) closes it. The pin is remembered across reloads. Dice packs are read
   from `.obsidian/atlas-dice-packs/`, shared with Interactive Dice for Atlas VTT. Players' windows never show the
