@@ -261,7 +261,7 @@ export interface BoardHost {
   ground?(): GroundSettings;
   setGround?(settings: GroundSettings): void;
   /** The saved painted backgrounds the Painted ground can show: a list the host keeps fresh, so it answers at once. */
-  backgrounds?(): readonly { folder: string; name: string }[];
+  backgrounds?(): readonly { folder: string; name: string; thumb?: string | null }[];
   /** Reads a saved painted background (its painted layers, settings and the materials of its slots); null when it is gone or cannot be read. */
   readBackground?(ref: string): Promise<LoadedBackground | null>;
   saveShape?(shape: TerrainShape): void;

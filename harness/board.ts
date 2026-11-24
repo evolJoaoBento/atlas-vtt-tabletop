@@ -553,7 +553,7 @@ async function main(): Promise<void> {
     notice: (text) => { fogState.notices.push(text); },
   };
   // The saved painted backgrounds the Painted ground offers, kept fresh for the host's synchronous `backgrounds()`.
-  let backgroundList: readonly { folder: string; name: string }[] = [];
+  let backgroundList: readonly { folder: string; name: string; thumb: string | null }[] = [];
   const host: BoardHost = {
     fog: fogHost,
     fogHotkey: () => 'F',
@@ -1179,7 +1179,7 @@ async function main(): Promise<void> {
   const backgroundsReady = (): Promise<void> => (seeded ??= (async () => { await backgrounds.create('Isle'); await backgrounds.create('Badlands'); })());
   const refreshBackgroundList = (): void => {
     backgrounds.list()
-      .then((list) => { backgroundList = list.map(({ folder, name }) => ({ folder, name })); board.refreshToolbar(); })
+      .then((list) => { backgroundList = list.map(({ folder, name, thumb }) => { const bytes = backgroundFiles.get(thumb); return { folder, name, thumb: bytes instanceof ArrayBuffer ? URL.createObjectURL(new Blob([bytes], { type: 'image/png' })) : null }; }); board.refreshToolbar(); })
       .catch((error) => { console.warn('Harness: the background list could not be read:', error); });
   };
   backgrounds.onChange(refreshBackgroundList);

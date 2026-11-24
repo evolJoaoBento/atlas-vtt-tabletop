@@ -24,6 +24,7 @@ import { LAVA_STYLES, LIQUID_KINDS, LIQUID_NAMES, LIQUID_TINTS, MOTION_LABELS, W
 import { DICES_SVG } from '../dice/dicePicker';
 import type { LightingChoice } from './look';
 import { DEFAULT_EDGES, DEFAULT_SEE_THROUGH_SIZE, readSeeThroughSize, DEFAULT_LAYER_LOOK, type LayerLook, type WallEdges } from './quality';
+import { PaintedPicker, type PaintedChoice } from './paintedPicker';
 import { SeeThroughRing, type SeeThroughCircle } from './seeThroughRing';
 import { AtlasTooltip, type AtlasTooltipSpec } from './atlasTooltip';
 import { t } from '../i18n';
@@ -118,7 +119,7 @@ export interface ToolbarActions {
   ground?(): GroundSettings;
   setGround?(settings: GroundSettings): void;
   /** The saved painted backgrounds that can lie round the map (the Painted ground's choices). */
-  backgrounds?(): readonly { folder: string; name: string }[];
+  backgrounds?(): readonly PaintedChoice[];
   shapeTool?(): boolean;
   setShapeTool?(on: boolean): void;
   /** The water bucket's sensitivity, 0 to 100. */
@@ -376,10 +377,11 @@ export class BoardToolbar {
   private readonly modeButtons: Array<{ mode: BoardMode; button: HTMLButtonElement }> = [];
   private readonly paintGroup: HTMLElement;
   private readonly shapeGroup: HTMLElement;
+  private paintedPicker: PaintedPicker | null = null;
   private groundUi: {
     section: HTMLElement; modes: Array<{ value: GroundMode; button: HTMLButtonElement }>; rows: Array<{ row: HTMLElement; modes: GroundMode[] }>;
     water: { kind: HTMLSelectElement; style: HTMLSelectElement; amount: HTMLInputElement; direction: HTMLInputElement; directionRow: HTMLElement; clarity: HTMLInputElement; tint: HTMLInputElement; presets: HTMLElement; makePresets(liquid: LiquidKind): void };
-    material: HTMLSelectElement; background: HTMLSelectElement; noise: HTMLSelectElement; strength: HTMLInputElement; strengthValue: HTMLElement;
+    material: HTMLSelectElement; background: PaintedPicker; noise: HTMLSelectElement; strength: HTMLInputElement; strengthValue: HTMLElement;
     fog: HTMLInputElement; fogOn: HTMLInputElement; fogValue: HTMLElement; margin: HTMLInputElement; marginValue: HTMLElement; tile: HTMLInputElement; tileValue: HTMLElement;
   } | null = null;
   private readonly shapeButton: HTMLButtonElement;
@@ -470,7 +472,7 @@ export class BoardToolbar {
         this.closeView();
       }
     }
-    if (!this.groundPanel.contains(target) && !this.groundButton.contains(target)) this.closeGround();
+    if (!this.groundPanel.contains(target) && !this.groundButton.contains(target) && !this.paintedPicker?.element.contains(target)) this.closeGround();
     if (!this.laserPanel.contains(target) && !this.laserMenuButton.contains(target)) this.closeLaser();
     if (!this.measurePanel.contains(target) && !this.measureMenuButton.contains(target)) this.closeMeasure();
     if (!this.templatePanel.contains(target) && !this.templateMenuButton.contains(target)) this.closeTemplate();
@@ -1492,14 +1494,19 @@ export class BoardToolbar {
         this.actions.setGround?.(material.value ? { ...rest, material: material.value } : rest);
         this.fillGround();
       });
-      const background = selectRow('Painted background', 'Painted background', PAINTED);
-      background.addEventListener('change', () => {
+      // The painted background: a button like the select, opening a grid of thumbnails over the board.
+      const backgroundRow = el('label', 'atlas-tabletop-palette__field', section);
+      el('span', 'atlas-tabletop-palette__label', backgroundRow, 'Painted background');
+      rows.push({ row: backgroundRow, modes: PAINTED });
+      const background = new PaintedPicker(backgroundRow, () => this.row.parentElement, this.row, (folder) => {
         const now = this.actions.ground?.();
         if (!now) return;
         const { background: _old, ...rest } = now;
-        this.actions.setGround?.(background.value ? { ...rest, background: background.value } : rest);
+        this.actions.setGround?.(folder ? { ...rest, background: folder } : rest);
         this.fillGround();
-      });
+      }, () => this.syncPainted());
+      background.trigger.setAttribute('aria-label', 'Painted background');
+      this.paintedPicker = background;
       const tile = rangeRow('Tile size', 'Squares one tile of the ground material spans', MAX_TILE, [...ON_LAND, 'painted']);
       tile.input.min = '1';
       tile.input.addEventListener('change', () => change({ tile: Number(tile.input.value) }));
@@ -1697,6 +1704,7 @@ export class BoardToolbar {
 
   /** Shows the player view's state: open or not, its camera frozen or not (the freeze button only while it is open). */
   refresh(): void {
+    if (this.paintedPicker?.isOpen) this.syncPainted();
     this.refreshAtlasTools();
     this.refreshHelp();
     this.refreshCinema();
@@ -3036,6 +3044,7 @@ export class BoardToolbar {
 
   closeGround(): void {
     if (this.groundPanel.hidden) return;
+    this.paintedPicker?.close(false);
     this.groundPanel.hidden = true;
     this.groundButton.classList.remove('is-active');
     this.groundButton.setAttribute('aria-expanded', 'false');
@@ -3069,6 +3078,12 @@ export class BoardToolbar {
     }
   }
 
+  /** The painted-background chooser as the list and the map's ground are now. */
+  private syncPainted(): void {
+    const ground = this.actions.ground?.();
+    this.paintedPicker?.set(this.actions.backgrounds?.() ?? [], ground?.background ?? '');
+  }
+
   private fillGround(): void {
     const ui = this.groundUi;
     const ground = this.actions.ground?.();
@@ -3099,14 +3114,7 @@ export class BoardToolbar {
     ui.material.append(plain);
     for (const one of this.actions.materials?.() ?? []) { const option = doc.createElement('option'); option.value = one.path; option.textContent = one.name; ui.material.append(option); }
     ui.material.value = ground.material ?? '';
-    ui.background.replaceChildren();
-    const choose = doc.createElement('option');
-    choose.value = '';
-    choose.textContent = 'Choose a background…';
-    ui.background.append(choose);
-    for (const one of this.actions.backgrounds?.() ?? []) { const option = doc.createElement('option'); option.value = one.folder; option.textContent = one.name; ui.background.append(option); }
-    // A folder no longer in the list shows "Choose a background…", not a blank select.
-    ui.background.value = [...ui.background.options].some((option) => option.value === ground.background) ? ground.background ?? '' : '';
+    this.syncPainted();
     ui.noise.value = ground.noise;
     ui.strength.value = String(Math.round(ground.strength * 100));
     ui.strengthValue.textContent = `${ui.strength.value}%`;
@@ -3156,6 +3164,7 @@ export class BoardToolbar {
     this.closeLaser();
     this.row.ownerDocument.removeEventListener('pointerdown', this.onOutside, true);
     this.row.ownerDocument.removeEventListener('keydown', this.onWaterKey, true);
+    this.paintedPicker?.dispose();
     this.fogBars?.dispose();
     this.row.ownerDocument.removeEventListener('keydown', this.onMeasureKey, true);
     this.seeThroughRing.dispose();

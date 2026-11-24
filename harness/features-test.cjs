@@ -6819,16 +6819,102 @@ feature('ground', async ({ page, shot }) => {
   await wait(500);
   const paintedUi = await page.evaluate(() => {
     const { groundState } = window.boardTest;
-    const select = document.querySelector('[aria-label="Painted background"]');
+    const trigger = document.querySelector('button[aria-label="Painted background"]');
     const shown = (label) => { const row = document.querySelector(`[aria-label="${label}"]`)?.closest('label'); return !!row && !row.hidden && row.getBoundingClientRect().height > 0; };
     const rows = [...document.querySelectorAll('[aria-label="Background"][role="menu"] .atlas-tabletop-palette__field')].filter((row) => row.getBoundingClientRect().height > 0).map((row) => row.querySelector('.atlas-tabletop-palette__label')?.textContent);
-    return { mode: groundState.value.mode, select: !!select && shown('Painted background'), options: select ? [...select.options].map((o) => o.textContent) : [], pattern: shown('Height pattern past the board'), material: shown('Material the ground is tiled with'), strength: shown('Height pattern strength'), rows };
+    return { mode: groundState.value.mode, trigger: !!trigger && shown('Painted background'), label: trigger?.textContent.trim(), popup: trigger?.getAttribute('aria-haspopup'), expanded: trigger?.getAttribute('aria-expanded'), select: !!document.querySelector('select[aria-label="Painted background"]'), pattern: shown('Height pattern past the board'), material: shown('Material the ground is tiled with'), strength: shown('Height pattern strength'), rows };
   });
-  check('ground: Painted lists the saved backgrounds in a select and hides Ground material, Pattern and Pattern strength', paintedUi.mode === 'painted' && paintedUi.select && paintedUi.options.includes('Isle') && paintedUi.options.includes('Badlands') && paintedUi.options[0] === 'Choose a background…' && !paintedUi.pattern && !paintedUi.material && !paintedUi.strength && paintedUi.rows.includes('Tile size') && paintedUi.rows.includes('Distance fog') && paintedUi.rows.includes('Extra board'), JSON.stringify(paintedUi));
-  await page.evaluate(() => { const select = document.querySelector('[aria-label="Painted background"]'); select.value = [...select.options].find((o) => o.textContent === 'Isle').value; select.dispatchEvent(new Event('change', { bubbles: true })); });
+  check('ground: Painted shows the background chooser (a button, not a select) reading "Choose a background…", and hides Ground material, Pattern and Pattern strength', paintedUi.mode === 'painted' && paintedUi.trigger && !paintedUi.select && paintedUi.label === 'Choose a background…' && paintedUi.popup === 'listbox' && paintedUi.expanded === 'false' && !paintedUi.pattern && !paintedUi.material && !paintedUi.strength && paintedUi.rows.includes('Tile size') && paintedUi.rows.includes('Distance fog') && paintedUi.rows.includes('Extra board'), JSON.stringify(paintedUi));
+  // The toolbar's list follows the store a moment after a change: wait for it to reach n backgrounds.
+  const waitCount = (n) => page.waitForFunction((n) => window.boardTest.host.backgrounds().length === n, n, { timeout: 20000 }).catch(() => undefined);
+  const pickerButton = page.locator('button[aria-label="Painted background"]');
+  const gridState = () => page.evaluate(() => {
+    const trigger = document.querySelector('button[aria-label="Painted background"]');
+    const popup = document.querySelector('[role="listbox"][aria-label="Painted backgrounds"]');
+    const menu = document.querySelector('[aria-label="Background"][role="menu"]');
+    const rect = (el) => { const r = el.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height }; };
+    const active = document.activeElement;
+    return {
+      open: !!popup && !popup.hidden, expanded: trigger.getAttribute('aria-expanded'), menuOpen: !menu.hidden,
+      names: popup ? [...popup.querySelectorAll('[role="option"]')].map((o) => o.getAttribute('aria-label')) : [],
+      selected: popup ? [...popup.querySelectorAll('[aria-selected="true"]')].map((o) => o.getAttribute('aria-label')) : [],
+      focus: active?.getAttribute('role') === 'option' ? active.getAttribute('aria-label') : active === trigger ? 'trigger' : 'other',
+      box: popup && !popup.hidden ? rect(popup) : null, trig: rect(trigger), menuBox: rect(menu),
+      scroll: popup ? { h: popup.clientHeight, sh: popup.scrollHeight, oy: getComputedStyle(popup).overflowY, top: popup.scrollTop } : null,
+      view: [innerWidth, innerHeight], label: trigger.textContent.trim(), thumbs: popup ? popup.querySelectorAll('img').length : 0, chevron: !!trigger.querySelector('svg'),
+    };
+  });
+  const triggerAt = await gridState();
+  check('ground: the painted chooser sits in the settings row like the select did (a button with a chevron, as wide as a select)', triggerAt.trig.w > 80 && triggerAt.trig.h >= 24 && triggerAt.chevron && triggerAt.trig.l > triggerAt.menuBox.l + 80, JSON.stringify(triggerAt.trig));
+  await shot('painted-picker-trigger');
+  await pickerButton.click();
   await wait(300);
-  const chosen = await page.evaluate(() => ({ background: window.boardTest.groundState.value.background, value: document.querySelector('[aria-label="Painted background"]').value }));
-  check('ground: choosing a background in Painted keeps its folder in the ground settings', typeof chosen.background === 'string' && chosen.background.endsWith('/Isle') && chosen.value === chosen.background, JSON.stringify(chosen));
+  const grid = await gridState();
+  await shot('painted-picker-open');
+  check('painted picker: clicking the button opens a grid of every saved background (Isle, Badlands) with a thumbnail each, none picked yet', grid.open && grid.expanded === 'true' && grid.names.includes('Isle') && grid.names.includes('Badlands') && grid.selected.length === 0 && grid.thumbs === grid.names.length && grid.menuOpen, JSON.stringify(grid));
+  check('painted picker: the grid floats above the trigger, inside the view, wide enough for three tiles', grid.box && grid.box.b <= grid.trig.t && grid.box.t >= 0 && grid.box.l >= 0 && grid.box.r <= grid.view[0] && grid.box.w >= 280, JSON.stringify({ box: grid.box, trig: grid.trig, view: grid.view }));
+  await page.keyboard.press('Escape'); await wait(150);
+  const afterEsc = await gridState();
+  check('painted picker: Escape closes the grid only (the Background menu stays) and focus returns to the button', !afterEsc.open && afterEsc.expanded === 'false' && afterEsc.menuOpen && afterEsc.focus === 'trigger', JSON.stringify(afterEsc));
+  await pickerButton.click(); await wait(200);
+  await page.getByText('Tile size', { exact: true }).click(); await wait(200);
+  const afterMenuPress = await gridState();
+  check('painted picker: a press on the menu outside the grid closes the grid only', !afterMenuPress.open && afterMenuPress.expanded === 'false' && afterMenuPress.menuOpen, JSON.stringify(afterMenuPress));
+  await pickerButton.click(); await wait(200);
+  await page.mouse.click(40, 120); await wait(200);
+  const afterOutside = await gridState();
+  check('painted picker: a press outside the menu closes the grid and the menu', !afterOutside.open && !afterOutside.menuOpen, JSON.stringify(afterOutside));
+  await page.getByRole('button', { name: 'Background', exact: true }).click(); await wait(200);
+  await pickerButton.focus();
+  await page.keyboard.press('ArrowDown'); await wait(200);
+  const kb = await gridState();
+  check('painted picker: ArrowDown on the button opens the grid with the first tile focused', kb.open && kb.focus === kb.names[0], JSON.stringify({ focus: kb.focus, names: kb.names }));
+  await page.keyboard.press('ArrowRight'); await wait(50);
+  const second = (await gridState()).focus;
+  await page.keyboard.press('ArrowLeft'); await wait(50);
+  const first = (await gridState()).focus;
+  await page.keyboard.press('End'); await wait(50);
+  const last = (await gridState()).focus;
+  await page.keyboard.press('Home'); await wait(50);
+  await page.keyboard.press('ArrowRight'); await wait(50);
+  await page.keyboard.press('Enter'); await wait(300);
+  const picked = await page.evaluate(() => ({ background: window.boardTest.groundState.value.background }));
+  const afterKey = await gridState();
+  check('painted picker: arrows, Home and End move between tiles; Enter picks the focused one, writes it, closes the grid and returns focus; the menu stays', second === kb.names[1] && first === kb.names[0] && last === kb.names[kb.names.length - 1] && picked.background.endsWith(`/${kb.names[1]}`) && !afterKey.open && afterKey.menuOpen && afterKey.focus === 'trigger' && afterKey.label === kb.names[1], JSON.stringify({ second, first, last, picked, afterKey: { open: afterKey.open, menu: afterKey.menuOpen, focus: afterKey.focus, label: afterKey.label } }));
+  await pickerButton.click(); await wait(200);
+  const marked = await gridState();
+  check('painted picker: the current background is marked selected, and the button names it', marked.selected.join() === kb.names[1] && marked.label === kb.names[1], JSON.stringify({ selected: marked.selected, label: marked.label }));
+  await page.locator('[role="listbox"][aria-label="Painted backgrounds"] [role="option"][aria-label="Isle"]').click(); await wait(300);
+  const chosen = await page.evaluate(() => ({ background: window.boardTest.groundState.value.background, label: document.querySelector('button[aria-label="Painted background"]').textContent.trim(), thumb: !!document.querySelector('button[aria-label="Painted background"] img'), open: !!document.querySelector('[role="listbox"][aria-label="Painted backgrounds"]:not([hidden])'), menu: !document.querySelector('[aria-label="Background"][role="menu"]').hidden }));
+  check('ground: choosing a background in Painted keeps its folder in the ground settings, closes the grid only, and the button shows its name and thumbnail', typeof chosen.background === 'string' && chosen.background.endsWith('/Isle') && chosen.label === 'Isle' && chosen.thumb && !chosen.open && chosen.menu, JSON.stringify(chosen));
+  await shot('painted-picker-closed');
+  await page.evaluate(async () => { const t = window.boardTest; for (let i = 1; i <= 14; i++) await t.backgrounds.create(`Region ${String(i).padStart(2, '0')}`); });
+  await waitCount(16);
+  await pickerButton.click(); await wait(300);
+  const many = await gridState();
+  check('painted picker: with many backgrounds the grid keeps a maximum height and scrolls inside', many.names.length >= 16 && many.scroll.oy === 'auto' && many.scroll.sh > many.scroll.h + 20 && many.scroll.h <= 300 && many.box.b <= many.trig.t, JSON.stringify(many.scroll));
+  await page.locator('[role="listbox"][aria-label="Painted backgrounds"]').evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await wait(200);
+  await shot('painted-picker-scrolled');
+  const scrolled = await gridState();
+  check('painted picker: the grid scrolls', scrolled.scroll.top > 0, JSON.stringify(scrolled.scroll));
+  await page.evaluate(async () => { await window.boardTest.backgrounds.create('Zzz live'); });
+  await waitCount(17);
+  const live = await gridState();
+  check('painted picker: a background made while the grid is open appears in it', live.open && live.names.includes('Zzz live'), JSON.stringify(live.names.slice(-3)));
+  await page.keyboard.press('Escape'); await wait(150);
+  await page.evaluate(async () => { const t = window.boardTest; const list = await t.backgrounds.list(); await t.backgrounds.rename(list.find((one) => one.name === 'Zzz live').folder, 'Zzz renamed'); await t.backgrounds.remove(list.find((one) => one.name === 'Region 01').folder); });
+  await waitCount(16);
+  await pickerButton.click(); await wait(300);
+  const renamed = await gridState();
+  check('painted picker: a renamed background shows its new name and a removed one is gone', renamed.names.includes('Zzz renamed') && !renamed.names.includes('Zzz live') && !renamed.names.includes('Region 01'), JSON.stringify(renamed.names.slice(-3)));
+  await page.keyboard.press('Escape'); await wait(150);
+  await page.evaluate(async () => { const t = window.boardTest; const list = await t.backgrounds.list(); t.backgroundFiles.delete(list.find((one) => one.name === 'Region 02').thumb); await t.backgrounds.create('Zzz bare'); });
+  await waitCount(17);
+  await pickerButton.click(); await wait(300);
+  const bare = await page.evaluate(() => { const o = document.querySelector('[role="listbox"][aria-label="Painted backgrounds"] [role="option"][aria-label="Region 02"]'); return { found: !!o, img: !!o?.querySelector('img'), placeholder: !!o?.querySelector('.is-empty') }; });
+  check('painted picker: a background with no thumbnail gets a plain placeholder tile', bare.found && !bare.img && bare.placeholder, JSON.stringify(bare));
+  await page.keyboard.press('Escape'); await wait(150);
   await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { ...groundState.value, mode: 'board' }; board.refresh(); });
   await wait(300);
   await page.getByRole('button', { name: 'Horizon plane' }).click();
@@ -6898,13 +6984,26 @@ feature('ground', async ({ page, shot }) => {
     await page.evaluate((width) => { document.getElementById('board').style.width = `${width}px`; }, width);
     await wait(600);
     const direct = await page.evaluate(() => !!document.querySelector('button[aria-label="Background"]')?.closest('.atlas-tabletop-more-menu'));
-    if (direct) await page.getByRole('button', { name: 'More tools' }).click();
+    if (direct && await page.evaluate(() => document.querySelector('.atlas-tabletop-more-menu')?.hidden !== false)) await page.getByRole('button', { name: 'More tools' }).click();
     await wait(200);
+    await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { ...groundState.value, mode: 'painted' }; board.refresh(); });
     await page.locator('button[aria-label="Background"]').click();
     await wait(300);
     const at = await inView();
     check(`ground: at a ${width} px pane (${direct ? 'in More tools' : 'on the bar'}) the Background menu opens and stays inside the board`, at.shown && at.inside, JSON.stringify(at));
     await shot(`ground-menu-${width}`);
+    await page.locator('button[aria-label="Painted background"]').click();
+    await wait(300);
+    const pop = await page.evaluate(() => {
+      const view = document.getElementById('board').getBoundingClientRect();
+      const p = document.querySelector('[role="listbox"][aria-label="Painted backgrounds"]');
+      const r = p.getBoundingClientRect();
+      const t = document.querySelector('button[aria-label="Painted background"]').getBoundingClientRect();
+      return { open: !p.hidden, box: [r.left, r.top, r.right, r.bottom].map(Math.round), view: [view.left, view.top, view.right, view.bottom].map(Math.round), trigger: [t.left, t.top, t.right, t.bottom].map(Math.round), tiles: p.querySelectorAll('[role=option]').length, h: Math.round(r.height) };
+    });
+    check(`painted picker: at a ${width} px pane the grid opens inside the board's view (not clipped by the menu or the pane)`, pop.open && pop.h >= 90 && pop.box[0] >= pop.view[0] - 0.5 && pop.box[2] <= pop.view[2] + 0.5 && pop.box[1] >= pop.view[1] - 0.5 && pop.box[3] <= pop.view[3] + 0.5, JSON.stringify(pop));
+    await shot(`painted-picker-${width}`);
+    await page.keyboard.press('Escape');
     await page.evaluate(() => window.boardTest.board.toolbar.closeGround());
     await page.keyboard.press('Escape');
   }
@@ -7005,8 +7104,8 @@ feature('painted ground', async ({ page, shot }) => {
   await wait(1200);
   await page.evaluate(() => window.boardTest.board.refresh());
   await wait(500);
-  const missing = await page.evaluate(() => { const { board } = window.boardTest; const plane = board.groundPlane.object3d; return { drawn: plane.parent === board.scene, key: plane.material.customProgramCacheKey?.(), liquids: board.paintedLiquids.size, select: document.querySelector('[aria-label="Painted background"]')?.value }; });
-  check('painted ground: a background that is gone leaves the plain horizon plane, no sheets, "Choose a background" in the panel', missing.drawn && missing.key !== 'tabletop-painted-ground' && missing.liquids === 0 && missing.select === '', JSON.stringify(missing));
+  const missing = await page.evaluate(() => { const { board } = window.boardTest; const plane = board.groundPlane.object3d; return { drawn: plane.parent === board.scene, key: plane.material.customProgramCacheKey?.(), liquids: board.paintedLiquids.size, select: document.querySelector('button[aria-label="Painted background"]')?.textContent.trim() }; });
+  check('painted ground: a background that is gone leaves the plain horizon plane, no sheets, "Choose a background" in the panel', missing.drawn && missing.key !== 'tabletop-painted-ground' && missing.liquids === 0 && missing.select === 'Choose a background…', JSON.stringify(missing));
   check('painted ground: a background that is gone is mentioned once and throws nothing', warnings.length === 1 && pageErrors.length === 0, JSON.stringify({ warnings, pageErrors }));
   // Back to the first: drawn again from the cache; then another mode takes the sheets away.
   await page.evaluate((folder) => { const { board, groundState } = window.boardTest; groundState.value = { ...groundState.value, background: folder }; board.refresh(); }, made.folder);

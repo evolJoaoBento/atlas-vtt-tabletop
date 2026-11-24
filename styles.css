@@ -2560,6 +2560,109 @@ body.atlas-tabletop-player-window .view-header {
   overscroll-behavior: contain;
 }
 
+/* The painted-background chooser: a button that reads as Atlas's select (picture, name, up/down chevron), and the grid it
+   opens over the board (Atlas's dropdown surface) with a thumbnail and name for each background. */
+.atlas-tabletop-painted-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 190px;
+  height: var(--input-height, 30px);
+  padding: 0 6px 0 4px;
+  font: inherit;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+  background: var(--interactive-normal, var(--background-modifier-form-field));
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m, 8px);
+  box-shadow: var(--input-shadow, none);
+  cursor: pointer;
+  transition: background-color 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.atlas-tabletop-painted-trigger:hover { background: var(--interactive-hover, var(--background-modifier-hover)); }
+.atlas-tabletop-painted-trigger:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 1px; }
+.atlas-tabletop-painted-trigger.is-empty .atlas-tabletop-painted-trigger__label { color: var(--text-muted); }
+.atlas-tabletop-painted-trigger__thumb {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  overflow: hidden;
+  border-radius: var(--radius-s, 4px);
+  background: var(--background-modifier-border);
+}
+.atlas-tabletop-painted-trigger__thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.atlas-tabletop-painted-trigger__label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.atlas-tabletop-painted-trigger__chevron { flex: none; display: flex; color: var(--text-muted); }
+
+.atlas-tabletop-painted-popup.atlas-tabletop-painted-popup {
+  position: absolute;
+  z-index: 10000;
+  pointer-events: auto;
+  display: grid;
+  grid-auto-rows: max-content;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 4px;
+  align-content: start;
+  width: 336px;
+  max-width: calc(100vw - 16px);
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.atlas-tabletop-painted-popup[hidden] { display: none; }
+.atlas-tabletop-painted-popup__empty { grid-column: 1 / -1; margin: 8px; font-size: var(--font-ui-small); color: var(--text-muted); }
+.atlas-tabletop-painted-popup .atlas-tabletop-painted-option {
+  height: auto;
+  min-height: 0;
+  line-height: 1.3;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px;
+  font: inherit;
+  color: var(--text-normal);
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  box-shadow: none;
+  cursor: pointer;
+  transition: background-color 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.atlas-tabletop-painted-option:hover { background: var(--background-modifier-hover); }
+.atlas-tabletop-painted-option:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: -2px; }
+.atlas-tabletop-painted-option[aria-selected="true"] { background: var(--background-modifier-active-hover); }
+.atlas-tabletop-painted-option__thumb {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: var(--radius-s, 6px);
+  background: var(--background-modifier-border);
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+}
+.atlas-tabletop-painted-option__thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.atlas-tabletop-painted-option[aria-selected="true"] .atlas-tabletop-painted-option__thumb { outline-color: var(--interactive-accent); }
+.atlas-tabletop-painted-option__check {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: var(--text-on-accent, #fff);
+  background: var(--interactive-accent);
+  border-radius: 9999px;
+}
+.atlas-tabletop-painted-option[aria-selected="true"] .atlas-tabletop-painted-option__check { display: flex; }
+.atlas-tabletop-painted-option__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-ui-smaller); text-align: center; }
+
 /* The right-click row of a die: advantage and disadvantage under its colours. */
 .atlas-tabletop-dice-edges {
   margin-top: var(--size-4-2);

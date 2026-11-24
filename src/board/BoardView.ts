@@ -414,7 +414,7 @@ export class BoardView extends ItemView {
   }
 
   /** The saved backgrounds, as the Painted ground's choices; filled when the tab opens and when one is made, renamed or removed. */
-  private backgroundList: readonly { folder: string; name: string }[] = [];
+  private backgroundList: readonly { folder: string; name: string; thumb: string | null }[] = [];
 
   private async listBackgrounds(): Promise<void> {
     const store = this.services.backgrounds;
@@ -422,7 +422,10 @@ export class BoardView extends ItemView {
     try {
       const items = await store.list();
       if (this.closed) return;
-      this.backgroundList = items.map(({ folder, name }) => ({ folder, name }));
+      this.backgroundList = items.map(({ folder, name, thumb }) => {
+        const file = this.app.vault.getAbstractFileByPath(thumb);
+        return { folder, name, thumb: file instanceof TFile ? this.app.vault.getResourcePath(file) : null };
+      });
       this.board?.refreshToolbar();
     } catch (error) {
       this.warn(`Tabletop: cannot list the backgrounds: ${error instanceof Error ? error.message : String(error)}`);
