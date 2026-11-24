@@ -7111,7 +7111,7 @@ feature('ground', async ({ page, shot }) => {
   await wait(300);
   const grid = await gridState();
   await shot('painted-picker-open');
-  check('painted picker: clicking the button opens a grid of every saved background (Isle, Badlands) with a thumbnail each, none picked yet', grid.open && grid.expanded === 'true' && grid.names.includes('Isle') && grid.names.includes('Badlands') && grid.selected.length === 0 && grid.thumbs === grid.names.filter((n) => n !== 'New background').length && grid.menuOpen, JSON.stringify(grid));
+  check('painted picker: clicking the button opens a grid of every saved background (Isle, Badlands) with a thumbnail each, none picked yet', grid.open && grid.expanded === 'true' && grid.names.includes('Isle') && grid.names.includes('Badlands') && grid.selected.length === 0 && grid.thumbs === grid.names.filter((n) => n !== 'Add background').length && grid.menuOpen, JSON.stringify(grid));
   check('painted picker: the grid floats above the trigger, inside the view, wide enough for three tiles', grid.box && grid.box.b <= grid.trig.t && grid.box.t >= 0 && grid.box.l >= 0 && grid.box.r <= grid.view[0] && grid.box.w >= 280, JSON.stringify({ box: grid.box, trig: grid.trig, view: grid.view }));
   await page.keyboard.press('Escape'); await wait(150);
   const afterEsc = await gridState();
@@ -7196,11 +7196,11 @@ feature('ground', async ({ page, shot }) => {
     const thumb = last?.querySelector('.atlas-tabletop-painted-option__thumb');
     return { label: last?.getAttribute('aria-label'), name: last?.querySelector('.atlas-tabletop-painted-option__name')?.textContent, plus: !!thumb?.querySelector('svg'), dashed: thumb ? getComputedStyle(thumb).borderTopStyle : null, img: !!thumb?.querySelector('img') };
   });
-  check('painted picker: the last tile is New background, a dashed frame with a plus', add.label === 'New background' && add.name === 'New background' && add.plus && add.dashed === 'dashed' && !add.img, JSON.stringify(add));
+  check('painted picker: the last tile is Add background, a dashed frame with a plus', add.label === 'Add background' && add.name === 'Add background' && add.plus && add.dashed === 'dashed' && !add.img, JSON.stringify(add));
   const before = await page.evaluate(() => window.boardTest.groundState.value.background);
-  await page.locator('[role="listbox"][aria-label="Painted backgrounds"] [role="option"][aria-label="New background"]').click(); await wait(200);
+  await page.locator('[role="listbox"][aria-label="Painted backgrounds"] [role="option"][aria-label="Add background"]').click(); await wait(200);
   const added = await page.evaluate(() => ({ calls: window.newBackgroundCalls ?? 0, grid: !document.querySelector('[role="listbox"][aria-label="Painted backgrounds"]')?.hidden, menu: !document.querySelector('[aria-label="Background"][role="menu"]').hidden, background: window.boardTest.groundState.value.background }));
-  check('painted picker: New background starts a new one once, closes the grid and the Background menu, and leaves the pick as it was', added.calls === 1 && !added.grid && !added.menu && added.background === before, JSON.stringify(added));
+  check('painted picker: Add background starts a new one once, closes the grid and the Background menu, and leaves the pick as it was', added.calls === 1 && !added.grid && !added.menu && added.background === before, JSON.stringify(added));
   await page.getByRole('button', { name: 'Background', exact: true }).click(); await wait(200);
   await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { ...groundState.value, mode: 'board' }; board.refresh(); });
   await wait(300);
