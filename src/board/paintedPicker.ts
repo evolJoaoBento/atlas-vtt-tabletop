@@ -11,6 +11,9 @@ export interface PaintedChoice { folder: string; name: string; thumb?: string | 
 const CHEVRONS = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>';
 const CHECK = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
 const NONE_LABEL = 'Choose a background…';
+const PLUS = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>';
+/** The add tile's name. */
+export const NEW_BACKGROUND_LABEL = 'New background';
 
 export class PaintedPicker {
   readonly trigger: HTMLButtonElement;
@@ -25,8 +28,11 @@ export class PaintedPicker {
     if (!this.popup.contains(target) && !this.trigger.contains(target)) this.close(false);
   };
 
-  /** `area` is the board's view the grid must stay inside, `host` the toolbar element it is mounted in (it carries Atlas's styles and colours); `onPick` gets the chosen folder. */
-  constructor(parent: HTMLElement, private readonly area: () => HTMLElement | null, private readonly host: HTMLElement, private readonly onPick: (folder: string) => void, private readonly beforeOpen: () => void = () => undefined) {
+  /**
+   * `area` is the board's view the grid must stay inside, `host` the toolbar element it is mounted in (it carries Atlas's
+   * styles and colours); `onPick` gets the chosen folder; `onAdd`, when given, is the last tile's: making a new background.
+   */
+  constructor(parent: HTMLElement, private readonly area: () => HTMLElement | null, private readonly host: HTMLElement, private readonly onPick: (folder: string) => void, private readonly beforeOpen: () => void = () => undefined, private readonly onAdd: (() => void) | null = null) {
     const doc = parent.ownerDocument;
     this.trigger = doc.createElement('button');
     this.trigger.type = 'button';
@@ -140,7 +146,27 @@ export class PaintedPicker {
       option.addEventListener('click', () => { this.close(); this.onPick(one.folder); });
       this.popup.append(option);
     }
-    if (!this.items.length) {
+    if (this.onAdd) {
+      // The add tile: a dashed thumbnail with a plus, after the saved ones, reached by the keys as they are.
+      const add = doc.createElement('button');
+      add.type = 'button';
+      add.className = 'atlas-tabletop-painted-option atlas-tabletop-painted-option--add';
+      add.setAttribute('role', 'option');
+      add.setAttribute('aria-selected', 'false');
+      add.setAttribute('aria-label', NEW_BACKGROUND_LABEL);
+      add.tabIndex = -1;
+      const pic = doc.createElement('span');
+      pic.className = 'atlas-tabletop-painted-option__thumb';
+      pic.innerHTML = PLUS;
+      const name = doc.createElement('span');
+      name.className = 'atlas-tabletop-painted-option__name';
+      name.textContent = NEW_BACKGROUND_LABEL;
+      add.append(pic, name);
+      const onAdd = this.onAdd;
+      add.addEventListener('click', () => { this.close(false); onAdd(); });
+      this.popup.append(add);
+    }
+    if (!this.items.length && !this.onAdd) {
       const empty = doc.createElement('p');
       empty.className = 'atlas-tabletop-painted-popup__empty';
       empty.textContent = 'No painted backgrounds yet.';

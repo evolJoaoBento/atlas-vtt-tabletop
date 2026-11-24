@@ -122,6 +122,8 @@ export interface ToolbarActions {
   setGround?(settings: GroundSettings): void;
   /** The saved painted backgrounds that can lie round the map (the Painted ground's choices). */
   backgrounds?(): readonly PaintedChoice[];
+  /** Makes a new painted background: the Tabletop Gallery's Backgrounds tab, naming it. */
+  newBackground?(): void;
   shapeTool?(): boolean;
   setShapeTool?(on: boolean): void;
   /** The water bucket's sensitivity, 0 to 100. */
@@ -1447,7 +1449,7 @@ export class BoardToolbar {
         const { background: _old, ...rest } = now;
         this.actions.setGround?.(folder ? { ...rest, background: folder } : rest);
         this.fillGround();
-      }, () => this.syncPainted());
+      }, () => this.syncPainted(), this.actions.newBackground ? () => { this.closeGround(); this.actions.newBackground?.(); } : null);
       background.trigger.setAttribute('aria-label', 'Painted background');
       this.paintedPicker = background;
       const tile = rangeRow('Tile size', 'Squares one tile of the ground material spans', MAX_TILE, [...ON_LAND, 'painted']);

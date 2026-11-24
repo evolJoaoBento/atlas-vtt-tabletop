@@ -264,6 +264,8 @@ export interface BoardHost {
   backgrounds?(): readonly { folder: string; name: string; thumb?: string | null }[];
   /** Reads a saved painted background (its painted layers, settings and the materials of its slots); null when it is gone or cannot be read. */
   readBackground?(ref: string): Promise<LoadedBackground | null>;
+  /** Makes a new painted background (the gallery's Backgrounds tab, naming it). */
+  newBackground?(): void;
   saveShape?(shape: TerrainShape): void;
   removeShape?(id: string): void;
   rules(): CollectionRules;
@@ -1107,6 +1109,7 @@ export class Board {
         ground: () => this.groundSettings(),
         setGround: (settings: GroundSettings) => this.host.setGround?.(settings),
         ...(this.host.backgrounds && { backgrounds: () => this.host.backgrounds?.() ?? [] }),
+        ...(this.host.newBackground && { newBackground: () => this.host.newBackground?.() }),
       }),
       ...(this.audience === 'gm' && this.host.saveShape && {
         shapeTool: () => this.shapeEditor?.active === true,

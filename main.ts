@@ -34,7 +34,7 @@ import { TokenWriter } from './src/board/tokenWriter';
 import type { AtlasSceneState } from './src/atlas';
 import { UndoHistory } from './src/board/undoHistory';
 import { recordAtlasWrites, recordTabletopData } from './src/board/undoRecorders';
-import { GALLERY_VIEW_TYPE, GalleryView, importWithNotice, pickFiles } from './src/gallery';
+import { GALLERY_VIEW_TYPE, GalleryView, importWithNotice, pickFiles, type GalleryTab } from './src/gallery';
 import { DEFAULT_MINIS_FOLDER, DEFAULT_PROPS_FOLDER, MiniLibrary, PROPS } from './src/library';
 import { DEFAULT_MATERIALS_FOLDER, MaterialLibrary } from './src/materials';
 import { GpuSettings, currentChip, gpuChoices, type GpuPreference } from './src/gpu';
@@ -376,6 +376,7 @@ export default class TabletopPlugin extends Plugin {
       props: this.props,
       materials: this.materials,
       backgrounds: this.backgrounds,
+      newBackground: () => { void this.openGallery('backgrounds', true); },
       writer,
       quality: () => this.settings.quality,
       tiltShift: () => this.settings.tiltShift === true,
@@ -654,11 +655,13 @@ export default class TabletopPlugin extends Plugin {
     this.save.run();
   }
 
-  async openGallery(): Promise<void> {
+  /** Opens the Tabletop Gallery; on a tab, and with `newBackground` on its Backgrounds tab naming a new background. */
+  async openGallery(tab?: GalleryTab, newBackground = false): Promise<void> {
     const open = this.app.workspace.getLeavesOfType(GALLERY_VIEW_TYPE)[0];
     const leaf = open ?? this.app.workspace.getRightLeaf(false) ?? this.app.workspace.getLeaf('tab');
     if (!open) await leaf.setViewState({ type: GALLERY_VIEW_TYPE, active: true });
     await this.app.workspace.revealLeaf(leaf);
+    if (tab && leaf.view instanceof GalleryView) await leaf.view.show(tab, newBackground);
   }
 
   async setFolder(key: 'folder' | 'propsFolder' | 'materialsFolder', folder: string): Promise<void> {

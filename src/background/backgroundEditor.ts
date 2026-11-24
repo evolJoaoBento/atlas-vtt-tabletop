@@ -499,7 +499,7 @@ export class BackgroundEditor {
       this.button(head, 'Keep', { bgAction: 'cancel-delete' }, () => { this.deleting = false; this.renderListHead(); });
       return;
     }
-    this.button(head, 'New', { bgAction: 'new' }, () => { this.naming = { kind: 'new' }; void this.refreshList(); });
+    this.button(head, 'New', { bgAction: 'new' }, () => this.startNew());
     this.button(head, 'Duplicate', { bgAction: 'duplicate' }, () => this.duplicate()).disabled = !open;
     this.button(head, 'Rename', { bgAction: 'rename' }, () => { if (this.folderPath) { this.naming = { kind: 'rename', folder: this.folderPath }; void this.refreshList(); } }).disabled = !open;
     this.button(head, 'Delete', { bgAction: 'delete' }, () => { this.deleting = true; this.renderListHead(); }).disabled = !open;
@@ -553,6 +553,12 @@ export class BackgroundEditor {
       void commit(name).catch((error) => this.say(messageOf(error), true));
     });
     return input;
+  }
+
+  /** Starts naming a new background, as its New button does. */
+  startNew(): void {
+    this.naming = { kind: 'new' };
+    void this.refreshList();
   }
 
   private async create(name: string): Promise<void> {

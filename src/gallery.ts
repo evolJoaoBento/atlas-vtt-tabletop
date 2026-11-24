@@ -133,7 +133,7 @@ This model has ${model.simplifiedFrom.toLocaleString()} triangles; Tabletop draw
   }
 }
 
-type GalleryTab = 'minis' | 'props' | 'materials' | 'backgrounds';
+export type GalleryTab = 'minis' | 'props' | 'materials' | 'backgrounds';
 
 /** Imports materials and tells the user how it went. */
 async function importMaterials(library: MaterialLibrary, files: readonly File[]): Promise<void> {
@@ -207,6 +207,7 @@ export class GalleryView extends ItemView {
       return { tab, button };
     });
     const sync = (): void => { for (const { tab, button } of buttons) button.toggleClass('is-active', tab === this.tab); };
+    this.syncTabs = sync;
     sync();
     this.body = root.createDiv({ cls: 'atlas-tabletop-gallery-body' });
     // One set of drop listeners for the body, which every tab is drawn into: a drop goes to the tab shown. (Added at each
@@ -235,6 +236,22 @@ export class GalleryView extends ItemView {
       editor.dispose();
     }
     this.thumbUrls.clear();
+  }
+
+  /** Marks the tab shown in the tab row. */
+  private syncTabs: () => void = () => undefined;
+
+  /**
+   * Shows a tab (as its button does: unsaved background changes are asked about first); `newBackground` then starts naming a
+   * new painted background in the Backgrounds tab.
+   */
+  async show(tab: GalleryTab, newBackground = false): Promise<void> {
+    if (tab !== this.tab) {
+      if (this.editor && !(await this.editor.requestLeave())) return;
+      if (!this.body) return;
+      this.tab = tab; this.filter = ''; this.draw(); this.syncTabs();
+    }
+    if (newBackground && tab === 'backgrounds') this.editor?.startNew();
   }
 
   /** The Backgrounds tab: the painted-background editor, filling the view. */

@@ -605,6 +605,8 @@ async function main(): Promise<void> {
     ground: () => groundState.value,
     setGround: (settings) => { groundState.value = settings; queueMicrotask(() => board.refresh()); },
     backgrounds: () => backgroundList,
+    // Making a new background opens the gallery in Obsidian; here it is counted.
+    newBackground: () => { const w = window as unknown as { newBackgroundCalls?: number }; w.newBackgroundCalls = (w.newBackgroundCalls ?? 0) + 1; },
     // A slot naming a material folder the gallery does not hold reads as gone (null).
     readBackground: async (ref) => {
       const loaded = await backgrounds.load(ref);

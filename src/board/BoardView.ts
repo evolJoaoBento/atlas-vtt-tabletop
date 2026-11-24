@@ -153,6 +153,8 @@ export interface BoardServices {
   materials: MaterialLibrary;
   /** The saved painted backgrounds the Painted ground can show; without it (the test harness) the board offers none. */
   backgrounds?: BackgroundStore;
+  /** Opens the Tabletop Gallery's Backgrounds tab on a new background being named. */
+  newBackground?(): void;
   writer: TokenWriter;
   /** The quality setting the board draws with. */
   quality(): Quality;
@@ -1838,6 +1840,7 @@ export class BoardView extends ItemView {
         // A background with the vault folders of its materials as `readMaterial` takes them (null where a folder is gone).
         readBackground: (folder: string) => this.readBackground(folder),
         backgrounds: () => this.backgroundList,
+        ...(this.services.newBackground && { newBackground: () => this.services.newBackground?.() }),
       }),
       readMaterial: (path) => this.services.materials.load(path).catch((error: unknown) => {
         this.warn(`Tabletop: cannot read the material ${path}: ${error instanceof Error ? error.message : String(error)}`);
