@@ -66,7 +66,7 @@ import type { LoadedBackground } from '../background/backgroundData';
 import { ShapesView } from './shapeView';
 import { shapeHeightAt, type TerrainShape } from './terrainShapes';
 import { EDGE_SHARE, ResolutionGovernor, type LayerLook, type QualityPreset, type WallEdges } from './quality';
-import { PostFx, type PostFxLook } from './postFx';
+import { PostFx, spikeTrial, type PostFxLook } from './postFx';
 import { BoardSurface } from './surface';
 import { FogVolume } from './fogVolume';
 import { hasRoomWalls } from '../atlasPort/app/fog/fogRooms';
@@ -1536,7 +1536,7 @@ export class Board {
     if (repaint) this.applyLook();
     // Walls are stood again with their new edges.
     if (rounder) { this.updateWalls(); this.wake(true); }
-    if (!preset.tiltShift && !preset.occlusion) {
+    if (!preset.tiltShift && !preset.occlusion && !spikeTrial()) {
       this.tilt?.dispose();
       this.tilt = null;
       if (this.player) {
@@ -2206,7 +2206,8 @@ export class Board {
 
   /** What the post-processing is asked for now. */
   private looks(): PostFxLook {
-    return { tilt: this.quality.tiltShift, occlusion: this.quality.occlusion && { radius: (this.map?.grid.size ?? 50) * 0.5 } };
+    const trial = spikeTrial();
+    return { tilt: this.quality.tiltShift, occlusion: this.quality.occlusion && { radius: (this.map?.grid.size ?? 50) * 0.5 }, ...(trial && { trial }) };
   }
 
   /** The size and resolution the canvas was last given. */
@@ -2277,7 +2278,7 @@ export class Board {
       // See-through where nothing is drawn, the effects (which fill the picture) left out.
       this.renderer.setClearColor(0x000000, 0);
       this.renderer.render(this.scene, this.view);
-    } else if (this.quality.tiltShift || this.quality.occlusion) {
+    } else if (this.quality.tiltShift || this.quality.occlusion || spikeTrial()) {
       this.tilt ??= new PostFx(this.renderer, this.quality.antialias);
       this.tilt.render(this.scene, this.view, this.looks());
     } else {
@@ -6076,7 +6077,7 @@ export class Board {
         player.renderer.clear();
       } else {
         this.fog.face(player.view.position);
-        if (this.quality.tiltShift || this.quality.occlusion) {
+        if (this.quality.tiltShift || this.quality.occlusion || spikeTrial()) {
           player.tilt ??= new PostFx(player.renderer, this.quality.antialias);
           player.tilt.render(this.scene, player.view, this.looks());
         } else {

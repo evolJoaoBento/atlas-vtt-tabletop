@@ -66,11 +66,40 @@ interface Entry {
   /** A surface light's other lamps, spread over it (none for any other). */
   extra: THREE.PointLight[];
   bulb: THREE.Mesh | null;
+  /** SPIKE: the flame's glow, a soft additive halo round the lamp (Atlas's `HALO`), seen through nothing solid. */
+  halo: THREE.Sprite | null;
+  /** The bright radius, in map pixels. */
+  bright: number;
   seed: number;
   height: number;
 }
 
 const BULB_GEOMETRY = new THREE.SphereGeometry(1, 12, 8);
+
+/** SPIKE: Atlas's halo: its peak over the falloff, and its Gaussian sigma as a share of the bright radius. */
+const HALO = { gain: 0.8, size: 0.25 } as const;
+let haloTexture: THREE.DataTexture | null = null;
+/** A Gaussian spot, 3 sigma to the edge. */
+function haloMap(): THREE.DataTexture {
+  if (haloTexture) return haloTexture;
+  const n = 64;
+  const data = new Uint8Array(n * n * 4);
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const dx = (x + 0.5) / n * 2 - 1, dy = (y + 0.5) / n * 2 - 1;
+    const v = Math.exp(-(dx * dx + dy * dy) * 4.5) * (1 - Math.min(1, Math.hypot(dx, dy)) ** 4);
+    const i = (y * n + x) * 4;
+    data[i] = data[i + 1] = data[i + 2] = 255; data[i + 3] = Math.round(v * 255);
+  }
+  haloTexture = new THREE.DataTexture(data, n, n);
+  haloTexture.magFilter = THREE.LinearFilter; haloTexture.minFilter = THREE.LinearFilter;
+  haloTexture.needsUpdate = true;
+  return haloTexture;
+}
+/** SPIKE: the halo's strength from the trial flag (0: off). */
+function haloGain(): number {
+  const trial = (globalThis as { __tabletopFx?: { halo?: number } }).__tabletopFx;
+  return trial?.halo ?? 0;
+}
 
 export class LightRig {
   readonly object3d = new THREE.Group();
@@ -140,7 +169,14 @@ export class LightRig {
       bulb.userData.gmOnly = true;
       this.object3d.add(bulb);
     }
-    this.entries.set(light.id, { light, lamp, extra: [], bulb, seed: seedOf(light.id), height: layout.heightOf(light) });
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloMap(), color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false }));
+    halo.userData.lightId = light.id;
+    halo.renderOrder = 5;
+    halo.raycast = () => undefined;
+    halo.visible = false;
+    this.object3d.add(halo);
+    const bright = unitsToPx(light.bright, layout.unitDistance, layout.cell);
+    this.entries.set(light.id, { light, lamp, extra: [], bulb, halo, bright, seed: seedOf(light.id), height: layout.heightOf(light) });
   }
 
   /**
@@ -170,7 +206,7 @@ export class LightRig {
     bulb.userData.lightId = light.id;
     bulb.userData.gmOnly = true;
     this.object3d.add(bulb);
-    this.entries.set(light.id, { light, lamp: first, extra, bulb, seed: seedOf(light.id), height });
+    this.entries.set(light.id, { light, lamp: first, extra, bulb, halo: null, bright, seed: seedOf(light.id), height });
   }
 
   /** Moves a light (a token's, as the token moves) to a point of the map. */
@@ -181,6 +217,7 @@ export class LightRig {
     if (entry.lamp.userData.surface) { entry.bulb?.position.set(x, entry.height, y); return; }
     entry.lamp.position.set(x, entry.height, y);
     entry.bulb?.position.set(x, entry.height, y);
+    entry.halo?.position.set(x, entry.height, y);
     this.aim(entry);
   }
 
@@ -194,11 +231,19 @@ export class LightRig {
 
   /** Sets each light's strength at time `t`, flickering. */
   step(t: number): void {
+    const gain = haloGain();
     for (const entry of this.entries.values()) {
+      if (entry.halo) entry.halo.visible = gain > 0 && entry.lamp.visible && entry.bright > 0;
       if (!entry.lamp.visible) continue;
-      const strength = STRENGTH * entry.light.intensity * (this.dark ? flicker(entry.light.animation, t, entry.seed) : 1);
+      const wave = this.dark ? flicker(entry.light.animation, t, entry.seed) : 1;
+      const strength = STRENGTH * entry.light.intensity * wave;
       entry.lamp.intensity = entry.lamp.userData.spare ? 0 : strength;
       for (const lamp of entry.extra) lamp.intensity = strength;
+      if (entry.halo?.visible) {
+        // Six sigma across; brighter in the dark, as a flame reads at night and hardly by day.
+        entry.halo.scale.setScalar(entry.bright * HALO.size * 6);
+        (entry.halo.material as THREE.SpriteMaterial).opacity = Math.min(1, HALO.gain * gain * entry.light.intensity * wave * (this.dark ? 1 : 0.25));
+      }
     }
   }
 
@@ -251,6 +296,10 @@ export class LightRig {
       if (entry.bulb) {
         entry.bulb.removeFromParent();
         (entry.bulb.material as THREE.Material).dispose();
+      }
+      if (entry.halo) {
+        entry.halo.removeFromParent();
+        entry.halo.material.dispose();
       }
     }
     this.entries.clear();

@@ -35,6 +35,14 @@ void main() {
 const FRAGMENT = /* glsl */ `
 uniform sampler2D map;
 uniform sampler2D light;
+uniform sampler2D bloomA;
+uniform sampler2D bloomB;
+uniform float bloom;
+uniform float finalPass;
+uniform float vignette;
+uniform float saturation;
+uniform float contrast;
+uniform float warmth;
 uniform vec2 step;
 uniform float focus;
 uniform float sharp;
@@ -51,7 +59,18 @@ void main() {
   sum += (texture2D(map, vUv + along * 2.0) + texture2D(map, vUv - along * 2.0)) * 0.1216216;
   sum += (texture2D(map, vUv + along * 3.0) + texture2D(map, vUv - along * 3.0)) * 0.0540541;
   sum += (texture2D(map, vUv + along * 4.0) + texture2D(map, vUv - along * 4.0)) * 0.0162162;
-  gl_FragColor = vec4(sum.rgb * texture2D(light, vUv).r, 1.0);
+  vec3 colour = sum.rgb * texture2D(light, vUv).r;
+  if (finalPass > 0.5) {
+    // SPIKE: bloom added in linear light, then grading and a vignette, before the tone mapping.
+    colour += (texture2D(bloomA, vUv).rgb + texture2D(bloomB, vUv).rgb) * bloom;
+    colour *= mix(vec3(1.0), vec3(1.0 + 0.06 * warmth, 1.0 + 0.01 * warmth, 1.0 - 0.06 * warmth), 1.0);
+    float grey = dot(colour, vec3(0.2126, 0.7152, 0.0722));
+    colour = mix(vec3(grey), colour, saturation);
+    colour = max(vec3(0.0), (colour - 0.18) * contrast + 0.18);
+    vec2 off = vUv - 0.5;
+    colour *= 1.0 - vignette * smoothstep(0.25, 0.85, dot(off, off) * 2.2);
+  }
+  gl_FragColor = vec4(colour, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }`;
@@ -101,7 +120,43 @@ void main() {
   gl_FragColor = vec4(vec3(light), 1.0);
 }`;
 
+/** SPIKE: the looks under trial (bloom's threshold and strength, a vignette, colour grading); none when absent. */
+export interface PostFxTrial {
+  bloom?: { threshold: number; strength: number };
+  vignette?: number;
+  saturation?: number;
+  contrast?: number;
+  warmth?: number;
+}
+
+const BRIGHT = /* glsl */ `
+uniform sampler2D map;
+uniform float threshold;
+varying vec2 vUv;
+void main() {
+  vec3 c = texture2D(map, vUv).rgb;
+  float peak = max(c.r, max(c.g, c.b));
+  float knee = threshold * 0.5;
+  float soft = clamp(peak - threshold + knee, 0.0, 2.0 * knee);
+  soft = soft * soft / (4.0 * knee + 1e-4);
+  float keep = max(soft, peak - threshold) / max(peak, 1e-4);
+  gl_FragColor = vec4(c * keep, 1.0);
+}`;
+
+const BLUR = /* glsl */ `
+uniform sampler2D map;
+uniform vec2 step;
+varying vec2 vUv;
+void main() {
+  vec3 sum = texture2D(map, vUv).rgb * 0.2270270;
+  sum += (texture2D(map, vUv + step * 1.3846154).rgb + texture2D(map, vUv - step * 1.3846154).rgb) * 0.3162162;
+  sum += (texture2D(map, vUv + step * 3.2307692).rgb + texture2D(map, vUv - step * 3.2307692).rgb) * 0.0702703;
+  gl_FragColor = vec4(sum, 1.0);
+}`;
+
 export interface PostFxLook {
+  /** SPIKE: looks under trial. */
+  trial?: PostFxTrial;
   /** The miniature look's blur. */
   tilt: boolean;
   /** Contact shadows, with the radius they reach in world units. */
@@ -118,6 +173,11 @@ export class PostFx {
   private readonly shade: THREE.WebGLRenderTarget;
   private readonly occlusion: THREE.ShaderMaterial;
   private readonly flat = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+  private readonly black = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+  /** SPIKE: bloom's targets, half and quarter size, each with a blur partner. */
+  private readonly blooms: THREE.WebGLRenderTarget[] = [];
+  private readonly bright: THREE.ShaderMaterial;
+  private readonly blur: THREE.ShaderMaterial;
 
   constructor(private readonly renderer: THREE.WebGLRenderer, antialias: boolean) {
     const options = { type: THREE.HalfFloatType, depthBuffer: false };
@@ -126,6 +186,10 @@ export class PostFx {
     this.across = new THREE.WebGLRenderTarget(1, 1, options);
     this.shade = new THREE.WebGLRenderTarget(1, 1, options);
     this.flat.needsUpdate = true;
+    this.black.needsUpdate = true;
+    for (let i = 0; i < 4; i++) this.blooms.push(new THREE.WebGLRenderTarget(1, 1, options));
+    this.bright = new THREE.ShaderMaterial({ vertexShader: VERTEX, fragmentShader: BRIGHT, uniforms: { map: { value: null }, threshold: { value: 1 } }, depthTest: false, depthWrite: false });
+    this.blur = new THREE.ShaderMaterial({ vertexShader: VERTEX, fragmentShader: BLUR, uniforms: { map: { value: null }, step: { value: new THREE.Vector2() } }, depthTest: false, depthWrite: false });
     this.occlusion = new THREE.ShaderMaterial({
       vertexShader: VERTEX,
       fragmentShader: AO_FRAGMENT,
@@ -148,6 +212,14 @@ export class PostFx {
       uniforms: {
         map: { value: null },
         light: { value: null },
+        bloomA: { value: null },
+        bloomB: { value: null },
+        bloom: { value: 0 },
+        finalPass: { value: 0 },
+        vignette: { value: 0 },
+        saturation: { value: 1 },
+        contrast: { value: 1 },
+        warmth: { value: 0 },
         step: { value: new THREE.Vector2() },
         focus: { value: 0.5 },
         sharp: { value: SHARP_BAND },
@@ -171,6 +243,7 @@ export class PostFx {
       this.drawn.setSize(width, height);
       this.across.setSize(width, height);
       this.shade.setSize(Math.max(1, Math.round(width / 2)), Math.max(1, Math.round(height / 2)));
+      for (let i = 0; i < 4; i++) { const d = i < 2 ? 2 : 4; this.blooms[i]!.setSize(Math.max(1, Math.round(width / d)), Math.max(1, Math.round(height / d))); }
     }
     const before = renderer.getRenderTarget();
     renderer.setRenderTarget(this.drawn);
@@ -194,7 +267,31 @@ export class PostFx {
       (this.scene.children[0] as THREE.Mesh).material = this.material;
       this.material.uniforms.light.value = this.shade.texture;
     }
+    const trial = look.trial ?? {};
+    const u = this.material.uniforms;
+    u.bloomA.value = this.black; u.bloomB.value = this.black; u.bloom.value = 0;
+    if (trial.bloom) {
+      const quad = this.scene.children[0] as THREE.Mesh;
+      const pass = (material: THREE.ShaderMaterial, target: THREE.WebGLRenderTarget): void => { quad.material = material; renderer.setRenderTarget(target); renderer.render(this.scene, this.camera); };
+      const blurInto = (from: THREE.WebGLRenderTarget, via: THREE.WebGLRenderTarget): void => {
+        this.blur.uniforms.map.value = from.texture; (this.blur.uniforms.step.value as THREE.Vector2).set(1 / from.width, 0); pass(this.blur, via);
+        this.blur.uniforms.map.value = via.texture; (this.blur.uniforms.step.value as THREE.Vector2).set(0, 1 / from.height); pass(this.blur, from);
+      };
+      this.bright.uniforms.map.value = this.drawn.texture; this.bright.uniforms.threshold.value = trial.bloom.threshold;
+      pass(this.bright, this.blooms[0]!);
+      blurInto(this.blooms[0]!, this.blooms[1]!);
+      this.blur.uniforms.map.value = this.blooms[0]!.texture; (this.blur.uniforms.step.value as THREE.Vector2).set(1 / this.blooms[0]!.width, 1 / this.blooms[0]!.height); pass(this.blur, this.blooms[2]!);
+      blurInto(this.blooms[2]!, this.blooms[3]!);
+      blurInto(this.blooms[2]!, this.blooms[3]!);
+      quad.material = this.material;
+      u.bloomA.value = this.blooms[0]!.texture; u.bloomB.value = this.blooms[2]!.texture; u.bloom.value = trial.bloom.strength;
+    }
+    u.vignette.value = trial.vignette ?? 0;
+    u.saturation.value = trial.saturation ?? 1;
+    u.contrast.value = trial.contrast ?? 1;
+    u.warmth.value = trial.warmth ?? 0;
     // Across, in linear light, then down to the screen with the tone mapping.
+    u.finalPass.value = 0;
     this.material.uniforms.map.value = this.drawn.texture;
     (this.material.uniforms.step.value as THREE.Vector2).set(1 / width, 0);
     renderer.setRenderTarget(this.across);
@@ -203,6 +300,7 @@ export class PostFx {
     // The creases were darkened across; down, the picture is only blurred.
     this.material.uniforms.light.value = this.flat;
     (this.material.uniforms.step.value as THREE.Vector2).set(0, 1 / height);
+    u.finalPass.value = 1;
     renderer.setRenderTarget(before);
     renderer.render(this.scene, this.camera);
   }
@@ -213,8 +311,18 @@ export class PostFx {
     this.across.dispose();
     this.shade.dispose();
     this.flat.dispose();
+    this.black.dispose();
+    for (const target of this.blooms) target.dispose();
+    this.bright.dispose();
+    this.blur.dispose();
     this.occlusion.dispose();
     this.material.dispose();
     (this.scene.children[0] as THREE.Mesh).geometry.dispose();
   }
+}
+
+/** SPIKE: the looks under trial, set at run time on `globalThis.__tabletopFx` (with `halo`, the flames' glow); null when none. */
+export function spikeTrial(): (PostFxTrial & { halo?: number }) | null {
+  const trial = (globalThis as { __tabletopFx?: PostFxTrial & { halo?: number } }).__tabletopFx;
+  return trial && (trial.bloom || trial.vignette || trial.saturation !== undefined || trial.contrast !== undefined || trial.warmth) ? trial : null;
 }
