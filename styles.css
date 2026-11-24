@@ -2606,6 +2606,7 @@ body.atlas-tabletop-player-window .view-header {
   border-radius: 10px;
   box-shadow: none;
   cursor: pointer;
+  overflow: hidden;
   transition: background-color 0.1s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .atlas-tabletop-painted-option:hover { background: var(--background-modifier-hover); }
@@ -2638,7 +2639,21 @@ body.atlas-tabletop-player-window .view-header {
   border-radius: 9999px;
 }
 .atlas-tabletop-painted-option[aria-selected="true"] .atlas-tabletop-painted-option__check { display: flex; }
-.atlas-tabletop-painted-option__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-ui-smaller); text-align: center; }
+/* Up to two lines inside the tile, then an ellipsis: stretched to the tile's width, as Obsidian's button centres its children. */
+.atlas-tabletop-painted-option__name {
+  align-self: stretch;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: var(--font-ui-smaller);
+  text-align: center;
+}
 
 /* The right-click row of a die: advantage and disadvantage under its colours. */
 .atlas-tabletop-dice-edges {

@@ -7165,6 +7165,21 @@ feature('ground', async ({ page, shot }) => {
   const bare = await page.evaluate(() => { const o = document.querySelector('[role="listbox"][aria-label="Painted backgrounds"] [role="option"][aria-label="Region 02"]'); return { found: !!o, img: !!o?.querySelector('img'), placeholder: !!o?.querySelector('.is-empty') }; });
   check('painted picker: a background with no thumbnail gets a plain placeholder tile', bare.found && !bare.img && bare.placeholder, JSON.stringify(bare));
   await page.keyboard.press('Escape'); await wait(150);
+  // A long name stays inside its tile: up to two lines, then cut, never running into the next tile.
+  const longName = 'A very long painted background name that runs on';
+  await page.evaluate(async (n) => { await window.boardTest.backgrounds.create(n); }, longName);
+  await waitCount(18);
+  await pickerButton.click(); await wait(300);
+  const long = await page.evaluate((n) => {
+    const o = document.querySelector(`[role="listbox"][aria-label="Painted backgrounds"] [role="option"][aria-label="${n}"]`);
+    const name = o?.querySelector('.atlas-tabletop-painted-option__name');
+    if (!o || !name) return { found: false };
+    const or = o.getBoundingClientRect(); const nr = name.getBoundingClientRect();
+    const line = parseFloat(getComputedStyle(name).lineHeight) || parseFloat(getComputedStyle(name).fontSize) * 1.3;
+    return { found: true, inside: nr.left >= or.left - 0.5 && nr.right <= or.right + 0.5, cut: name.scrollHeight > name.clientHeight, lines: Math.round(nr.height / line) };
+  }, longName);
+  check('painted picker: a long name stays inside its tile on at most two lines, cut after', long.found && long.inside && long.cut && long.lines <= 2, JSON.stringify(long));
+  await page.keyboard.press('Escape'); await wait(150);
   await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { ...groundState.value, mode: 'board' }; board.refresh(); });
   await wait(300);
   await page.getByRole('button', { name: 'Horizon plane' }).click();
