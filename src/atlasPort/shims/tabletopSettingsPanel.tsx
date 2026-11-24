@@ -2,7 +2,7 @@
 // board's old Board settings panel held, drawn as Atlas's settings pages are drawn (their rows, switches and segmented
 // choices, in one column pair under the page header), and written the way the panel wrote it.
 import React from 'react';
-import { Settings2 } from 'lucide-react';
+import { Settings } from 'lucide-react';
 import { Button } from '../app/packages/components/primitives/button';
 import { SegmentedControl } from '../app/packages/components/primitives/SegmentedControl';
 import { SettingChoiceRow, SettingRow, SettingToggleRow } from '../app/react/components/command-palette/SettingRows';
@@ -14,7 +14,7 @@ import { DEFAULT_EDGES, type WallEdges } from '../../board/quality';
 /** The page's id in the palette, its title and icon (the header's). */
 export const TABLETOP_SETTINGS_PANEL = 'tabletop-settings';
 /** Getters: the title is read when the page opens, in the language the plugin has set by then. */
-export const tabletopSettingsMeta = (): { title: string; icon: React.ReactNode } => ({ get title() { return t('tabletopSettings.title'); }, icon: <Settings2 /> });
+export const tabletopSettingsMeta = (): { title: string; icon: React.ReactNode } => ({ get title() { return t('tabletopSettings.title'); }, icon: <Settings /> });
 
 /** A number field as Atlas's rows draw one (`SceneUnitDistanceRow`): written when it is left or Enter is pressed; text that is no value puts the kept one back. */
 function NumberRow({ label, hint, aria, value, read, onCommit }: { label: string; hint: string; aria: string; value: number; read: (text: string) => number | null; onCommit: (value: number) => void }): React.ReactElement {

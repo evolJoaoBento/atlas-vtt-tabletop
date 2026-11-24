@@ -111,8 +111,6 @@ export interface ToolbarActions {
   arTableSheets?(): number | null;
   /** Starts fine-tuning where the players' AR table lies on the map. */
   placeArTable?(): void;
-  /** Opens the command palette on Tabletop Settings (what the Board settings panel was); absent where the palette is not up. */
-  openTabletopSettings?(): void;
   /** The GM's fog tool (Atlas 0.18's: its button and two bars), in Edit mode; absent where the board has no fog tool. */
   fog?: FogBarActions;
   /** The GM's water brush: painting or erasing (null: off), its radius in grid cells, and how all of the map's water moves. */
@@ -252,7 +250,6 @@ const MORE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 // Lucide's tent-tree (0.503.0, Atlas's icon pack): the Background button.
 const GROUND_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="4" r="2"/><path d="m14 5 3-3 3 3"/><path d="m14 10 3-3 3 3"/><path d="M17 14V2"/><path d="M17 14H7l-5 8h20Z"/><path d="M8 14v8"/><path d="m9 14 5 8"/></svg>';
 const SHAPES_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 3 4 8 5-5 5 15H2L8 3z"/></svg>';
-const WALL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 9v6"/><path d="M16 15v6"/><path d="M16 3v6"/><path d="M3 15h18"/><path d="M3 9h18"/><path d="M8 15v6"/><path d="M8 3v6"/></svg>';
 
 
 /** Lucide's `flashlight`, `chevron-down` and `check` icons (ISC): Atlas's laser pointer, its options' chevron, a chosen swatch. */
@@ -338,7 +335,6 @@ export class BoardToolbar {
   private readonly fitWatch: ResizeObserver;
   private lastMode: BoardMode | null | undefined = undefined;
   private readonly registeredButtons = new Map<ToolbarButtonId, HTMLButtonElement>();
-  private readonly button: HTMLButtonElement;
   /** The Visibility icon bar above the main toolbar: see-through walls, window size, upper layers, initiative tracker. */
   private readonly viewPanel: HTMLElement;
   private readonly viewButton: HTMLButtonElement;
@@ -1300,7 +1296,6 @@ export class BoardToolbar {
     this.groundPanel.setAttribute('role', 'menu');
     this.groundPanel.setAttribute('aria-label', TOOLBAR_BUTTONS.ground.label);
     if (!this.actions.setGround) this.groundGroup.style.display = 'none';
-    this.button = this.registerButton('board-settings', tool(WALL_SVG, () => this.openSettings()));
     this.viewButton = this.registerButton('visibility', tool(modeIcon('view'), () => (this.viewPanel.hidden ? this.openView() : this.closeView())));
     this.viewButton.setAttribute('aria-label', TOOLBAR_BUTTONS.visibility.label);
     this.viewButton.setAttribute('aria-expanded', 'false');
@@ -1310,8 +1305,6 @@ export class BoardToolbar {
     }));
     // Atlas's end slot, where Connect puts its buttons as it does in Atlas's own toolbar; Atlas's styles apply inside it.
     this.endSlot = el('div', 'atlas-toolbar-end atlas-vtt-plugin atlas-tabletop-extensions', bar);
-    this.button.setAttribute('aria-label', TOOLBAR_BUTTONS['board-settings'].label);
-    this.setTip(this.button, { label: TOOLBAR_BUTTONS['board-settings'].label });
     this.viewPanel = el('div', 'atlas-vtt-toolbar atlas-tool-bar atlas-tabletop-view-bar', this.row);
     this.viewPanel.hidden = true;
     this.viewPanel.setAttribute('role', 'toolbar');
@@ -1602,7 +1595,7 @@ export class BoardToolbar {
       return { label: at(on ? 'toolbar.gmView' : 'toolbar.sessionView', { key: this.actions.gmViewShortcut?.() ?? '' }) };
     });
     // Left to right as they stand; they leave from the right.
-    this.fitOrder.push(laserGroup, this.fogGroup, this.measureGroup, this.waterGroup, this.paintGroup, this.templateGroup, this.lightingGroup, this.groundGroup, this.button.closest('.atlas-tool-button') as HTMLElement, this.viewButton.closest('.atlas-tool-button') as HTMLElement, this.endSlot);
+    this.fitOrder.push(laserGroup, this.fogGroup, this.measureGroup, this.waterGroup, this.paintGroup, this.templateGroup, this.lightingGroup, this.groundGroup, this.viewButton.closest('.atlas-tool-button') as HTMLElement, this.endSlot);
     this.fitWatch = new (doc.defaultView ?? window).ResizeObserver(() => this.fit());
     this.fitWatch.observe(container);
     // Presses on the bar and the panel are not the board's: no camera drag, no deselecting.
@@ -1657,7 +1650,6 @@ export class BoardToolbar {
     const shaping = this.actions.shapeTool?.() === true;
     this.shapeButton.classList.toggle('is-active', shaping);
     this.shapeButton.setAttribute('aria-pressed', String(shaping));
-    show(this.button.closest<HTMLElement>('.atlas-tool-button'), editing);
     show(this.groundGroup, editing);
     if (!playing) { this.closeTemplate(); this.closeMeasure(); this.closeDice(); }
     if (!editing) { this.closeGround(); this.closeWater(); this.closePaint(); this.closeLighting(); }
@@ -1978,9 +1970,6 @@ export class BoardToolbar {
         break;
       case 'ground':
         if (this.actions.setGround) this.openGround();
-        break;
-      case 'board-settings':
-        this.openSettings();
         break;
       case 'visibility':
         this.openView();
@@ -2751,16 +2740,6 @@ export class BoardToolbar {
       button.classList.toggle('is-active', value === chosen);
       button.setAttribute('aria-pressed', String(value === chosen));
     }
-  }
-
-  /** Opens Tabletop Settings: the command palette on its page. The panels of the end slot (the dice tray, the log, an unpinned sheet) and the other menus give way to it. */
-  private openSettings(): void {
-    this.closeLaser();
-    this.closeView();
-    this.closeWater();
-    this.closeGround();
-    this.closeDice();
-    this.actions.openTabletopSettings?.();
   }
 
   /** Shows the Visibility icon bar above the toolbar. */

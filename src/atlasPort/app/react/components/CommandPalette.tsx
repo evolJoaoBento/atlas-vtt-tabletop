@@ -69,7 +69,7 @@ import { placePalette, placePaletteAtTop, type PalettePosition } from './command
 import { useCoarsePointer } from '../../platform/useCoarsePointer';
 import { visibleViewport } from '../../host/visibleViewport';
 import { customizeToolbarCommand } from './command-palette/customizeToolbarCommand';
-import { tabletopCommands } from '../../../shims/tabletopCommands';
+import { tabletopCommands, tabletopSettingsCommands } from '../../../shims/tabletopCommands';
 import { hotkeyHelpCommand } from './command-palette/hotkeyHelpCommand';
 import { mapTourCommand } from './command-palette/mapTourCommand';
 import { SettingsService } from '../../../shims/settingsService';
@@ -457,6 +457,7 @@ export function CommandPalette({ isOpen, onClose, toolbarRef, onCustomizeToolbar
       },
     } satisfies CommandOption] : []),
     // Settings
+    ...tabletopSettingsCommands(onClose),
     {
       id: "grid-settings",
       icon: <Settings />,

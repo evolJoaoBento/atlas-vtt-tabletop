@@ -156,7 +156,13 @@ export const PATCHES = [
   {
     file: 'react/components/CommandPalette.tsx',
     find: "import { customizeToolbarCommand } from './command-palette/customizeToolbarCommand';",
-    replace: "import { customizeToolbarCommand } from './command-palette/customizeToolbarCommand';\nimport { tabletopCommands } from '@shims/tabletopCommands';",
+    replace: "import { customizeToolbarCommand } from './command-palette/customizeToolbarCommand';\nimport { tabletopCommands, tabletopSettingsCommands } from '@shims/tabletopCommands';",
+  },
+  {
+    // Tabletop Settings heads the palette's Settings, above Atlas's own settings pages.
+    file: 'react/components/CommandPalette.tsx',
+    find: "    // Settings\n    {\n      id: \"grid-settings\",",
+    replace: "    // Settings\n    ...tabletopSettingsCommands(onClose),\n    {\n      id: \"grid-settings\",",
   },
   // Tabletop's own settings page in the palette's Settings section (src/atlasPort/shims/tabletopSettingsPanel.tsx), as a page like Atlas's.
   {

@@ -1098,7 +1098,6 @@ export class Board {
       togglePlayerFreeze: () => this.setPlayerFrozen(this.player?.frozen == null),
       hosting: () => this.host.hosting?.() === true,
       ...(this.audience === 'gm' && {
-        openTabletopSettings: () => this.atlasPalette?.openPage?.('tabletop-settings'),
         arTableSheets: () => this.arTable?.survey.groups.length ?? null,
         placeArTable: () => this.placeTable(true),
       }),

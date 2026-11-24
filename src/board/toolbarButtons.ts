@@ -38,7 +38,6 @@ export const TOOLBAR_BUTTON_IDS = [
   'paint-options',
   'lighting',
   'ground',
-  'board-settings',
   'visibility',
   'see-through',
   'see-through-size',
@@ -232,11 +231,6 @@ export const TOOLBAR_BUTTONS: Readonly<Record<ToolbarButtonId, ToolbarButtonSpec
     id: 'ground', label: 'Background', icon: 'ground', modes: ['edit'],
     keywords: ['ground', 'horizon', 'background', 'fog', 'board', 'plane'],
     available: ({ actions }) => actions.setGround !== undefined,
-  },
-  'board-settings': {
-    id: 'board-settings', label: 'Tabletop Settings', icon: 'bricks', modes: ['edit'],
-    keywords: ['board', 'settings', 'walls', 'fog', 'height', 'thickness', 'snap', 'ar'],
-    available: () => true,
   },
   visibility: {
     id: 'visibility', label: 'Visibility', icon: 'eye', modes: ['play', 'edit'],
