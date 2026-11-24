@@ -21,3 +21,13 @@ export function getLocale(): string {
 export function formatList(items: readonly string[]): string {
   return new Intl.ListFormat(atlasLocale(), { type: 'conjunction' }).format(items);
 }
+
+/** Atlas's text for the pointer in use (`<key>.touch` for a finger): the board is played with a mouse. */
+export function tPointer(key: MessageKey, values?: MessageValues): string {
+  return t(key, values);
+}
+
+/** Atlas's text for the app it runs in (`<key>.mobile` in Obsidian mobile): the board is desktop's. */
+export function tPlatform(key: MessageKey, values?: MessageValues): string {
+  return t(key, values);
+}

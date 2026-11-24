@@ -27,7 +27,6 @@ export const PORT_ENTRIES = [
   // The random tables window (Task 6).
   'react/components/randomTables/RandomTablesPanel.tsx',
   'packages/components/asset-manager/AssetManager.tsx',
-  'react/components/CommandPalette.tsx',
   // Atlas's shortcut help (its `help` key), with the board's keys added by a patch below.
   'keyboard/HotkeyHelp.tsx',
 ];
@@ -80,13 +79,6 @@ export const BOUNDARIES = {
   'services/PlayerWindowService.ts': 'palettePlayer.ts',
   'services/PlayerWindowPresenter.ts': 'palettePlayer.ts',
   'stores/playerWindowStore.ts': 'palettePlayer.ts',
-  'react/components/command-palette/GridSettingsPanel.tsx': 'palettePages.tsx',
-  'react/components/command-palette/TokenSettingsPanel.tsx': 'palettePages.tsx',
-  'react/components/command-palette/WidgetSettingsPanel.tsx': 'palettePages.tsx',
-  'react/components/command-palette/LocalPlayerViewSettingsPanel.tsx': 'palettePages.tsx',
-  'react/components/command-palette/DiceSettingsPanel.tsx': 'palettePages.tsx',
-  'react/components/command-palette/ExperimentalFeaturesPanel.tsx': 'palettePages.tsx',
-  'react/components/command-palette/GraphicsPanel.tsx': 'palettePages.tsx',
   'react/components/command-palette/SceneSnapshotsPanel.tsx': 'palettePages.tsx',
   'react/components/command-palette/SceneLevelsPanel.tsx': 'palettePages.tsx',
   // Atlas 0.14's lighting page writes the scene lighting of Atlas's map view.
@@ -94,6 +86,14 @@ export const BOUNDARIES = {
   'react/components/levels/replaceMapImage.ts': 'palettePages.tsx',
   'react/components/levels/MapImagePickerModal.ts': 'palettePages.tsx',
   'packages/components/shared/useMapProcessing.ts': 'mapProcessing.ts',
+  // Atlas 0.19's settings pages (command-palette/*Panel.tsx) act on the running Atlas's map view; what they take from files that
+  // build Atlas's own map (its store, its dice renderer) is stood in for.
+  // Atlas 0.19's palette entries that act on Atlas's own map (its table mode, floors and map image): the board opens Atlas for them.
+  'tableMode/viewTableMode.ts': 'palettePages.tsx',
+  'react/components/levels/mapImagePicker.tsx': 'palettePages.tsx',
+  'react/components/levels/levelEditing.ts': 'palettePages.tsx',
+  'storeFactory.ts': 'paletteSettings.ts',
+  'dice3d/diceLookRuntime.ts': 'paletteSettings.ts',
 };
 
 /** Packages the copies may import (Tabletop bundles or Obsidian provides them). */
@@ -157,6 +157,27 @@ export const PATCHES = [
     file: 'react/components/CommandPalette.tsx',
     find: "import { customizeToolbarCommand } from './command-palette/customizeToolbarCommand';",
     replace: "import { customizeToolbarCommand } from './command-palette/customizeToolbarCommand';\nimport { tabletopCommands } from '@shims/tabletopCommands';",
+  },
+  // Tabletop's own settings page in the palette's Settings section (src/atlasPort/shims/tabletopSettingsPanel.tsx), as a page like Atlas's.
+  {
+    file: 'react/components/command-palette/types.ts',
+    find: "  'lighting-settings',\n] as const;",
+    replace: "  'lighting-settings',\n  // Tabletop's own page, in the palette like Atlas's.\n  'tabletop-settings',\n] as const;",
+  },
+  {
+    file: 'react/components/CommandPalette.tsx',
+    find: "import { showNotice } from '../../ui/notice';",
+    replace: "import { showNotice } from '../../ui/notice';\nimport { TabletopSettingsPanel, tabletopSettingsMeta } from '@shims/tabletopSettingsPanel';",
+  },
+  {
+    file: 'react/components/CommandPalette.tsx',
+    find: "  'lighting-settings': { title: t('sceneLight.settings'), icon: <SunMoon /> },\n};",
+    replace: "  'lighting-settings': { title: t('sceneLight.settings'), icon: <SunMoon /> },\n  'tabletop-settings': tabletopSettingsMeta(),\n};",
+  },
+  {
+    file: 'react/components/CommandPalette.tsx',
+    find: "      case 'lighting-settings':\n        return <LightingSettingsPanel />;\n",
+    replace: "      case 'lighting-settings':\n        return <LightingSettingsPanel />;\n      case 'tabletop-settings':\n        return <TabletopSettingsPanel onClose={onClose} />;\n",
   },
   // Atlas's shortcut help on the board (`board`, src/atlasPort/shims/boardHotkeyHelp.ts): only the shortcuts the board
   // has, with the keys the board takes (a camera letter with Shift), and the board's own keys as a section of their own.
@@ -236,10 +257,26 @@ export const NEWER_ENTRIES = [
   // Atlas 0.19: what a kept area leaves where walls stop it (the sweep from its origin), and the shapes it is measured as.
   'measure/measureWalls.ts',
   'measure/measureGeometry.ts',
+  // Atlas 0.19's command palette and the settings pages in it (Grid, Token, Widget, Player view, Dice, Experimental, Graphics).
+  'react/components/CommandPalette.tsx',
+  'react/components/command-palette/GridSettingsPanel.tsx',
+  'react/components/command-palette/TokenSettingsPanel.tsx',
+  'react/components/command-palette/WidgetSettingsPanel.tsx',
+  'react/components/command-palette/PlayerViewSettingsPanel.tsx',
+  'react/components/command-palette/DiceSettingsPanel.tsx',
+  'react/components/command-palette/ExperimentalFeaturesPanel.tsx',
+  'react/components/command-palette/GraphicsPanel.tsx',
 ];
 
 /** Floor files the newer Atlas's version replaces (a superset: it only adds what the fog's room logic needs). */
 export const NEWER_OVERRIDES = [
+  // Atlas 0.19's command palette and the files of its folder the palette is made of.
+  'react/components/CommandPalette.tsx',
+  'react/components/command-palette/types.ts',
+  'react/components/command-palette/palettePlacement.ts',
+  'react/components/command-palette/CommandItem.tsx',
+  'react/components/command-palette/SettingsPanelHeader.tsx',
+  'react/components/command-palette/customizeToolbarCommand.tsx',
   'lighting/polygonClip.ts',
   'gameSystems/builtInDiceSets.ts',
   'gameSystems/diceSetResolution.ts',

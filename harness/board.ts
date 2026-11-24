@@ -627,6 +627,7 @@ async function main(): Promise<void> {
     scaleProp: (id, scale) => { record.propScales.push([id, scale]); },
     liftProp: (id, lift) => { record.propLifts.push([id, lift]); },
     snapProps: () => snapping.props,
+    setWallEdges: (edges) => { (board as unknown as { quality: { edges: string } }).quality.edges = edges; },
     setMovement: (value: typeof movement) => { movement = value; },
     setSnap: (kind, on) => { snapping[kind] = on; if (kind === 'tokens') ((board as unknown as { map: BoardMap }).map.grid as { snap: boolean }).snap = on; },
     addProp: (glb, x, y, look) => { record.added.push([glb, x, y, look]); },
@@ -1054,6 +1055,50 @@ async function main(): Promise<void> {
   console.error = (...parts: unknown[]) => { assetErrors.push(parts.map((part) => (part instanceof Error ? part.message : String(part))).join(' ')); logError(...parts); };
   const noAtlasAssets = new AssetWindow(container, { ...lootApp, workspace: { ...(lootApp as { workspace?: object }).workspace, getLeavesOfType: () => [] }, plugins: { plugins: {}, manifests: {} } } as never, spawnHost);
   const spawned = (): Record<string, { x: number; y: number; name: string }> => spawnTokens as never;
+  // Atlas's own map view as the palette's settings pages reach it: its store (grid, tokens, widgets) and its settings service. What a page
+  // writes is recorded in `paletteAtlas.calls`, and the state follows as Atlas's store follows its actions.
+  const paletteAtlasCalls: string[] = [];
+  const paletteAtlasListeners = new Set<() => void>();
+  let paletteAtlasState: Record<string, unknown>;
+  const paletteAtlasSet = (name: string, patch: Record<string, unknown>): void => {
+    paletteAtlasCalls.push(name);
+    paletteAtlasState = { ...paletteAtlasState, ...patch };
+    for (const listener of [...paletteAtlasListeners]) listener();
+  };
+  paletteAtlasState = {
+    mapPath: 'maps/tavern.atlasmap', mapLoaded: true, remoteView: null,
+    grid: { type: 'square', size: 70, visible: true, snapToGrid: true, opacity: 0.5, lineWidth: 1, lineType: 'solid' },
+    setGrid: (grid: object) => paletteAtlasSet(`setGrid:${JSON.stringify(grid)}`, { grid }),
+    setGridVisible: (visible: boolean) => paletteAtlasSet(`setGridVisible:${visible}`, { grid: { ...(paletteAtlasState.grid as object), visible } }),
+    setSnapToGrid: (snap: boolean) => paletteAtlasSet(`setSnapToGrid:${snap}`, { grid: { ...(paletteAtlasState.grid as object), snapToGrid: snap } }),
+    tokenSettings: { showNameplates: false, hiddenResources: [], showInstanceBadges: true, tokenRingSize: 1 },
+    setTokenSettings: (tokenSettings: object) => paletteAtlasSet(`setTokenSettings:${JSON.stringify(tokenSettings)}`, { tokenSettings }),
+    widgetSettings: { widgets: {} },
+    setWidgetSettings: () => {}, updateWidget: () => {}, addWidget: () => {}, removeWidget: () => {}, setWidgetOn: (id: string, on: boolean) => paletteAtlasCalls.push(`setWidgetOn:${id}:${on}`),
+  };
+  const paletteSettingsState: Record<string, unknown> = { playerView: { sharedHiddenResources: [] }, diceVolume: 0.5, diceDisplay: 'both', diceLook: { colour: 'light', font: 'medieval' }, view4k: false, detectGrid: false, experimental: {} };
+  const paletteSettings = {
+    getHotkeys: () => ({ ...DEFAULT_MAP_HOTKEYS }), getSetting: () => ({}), onChange: () => () => {},
+    isExperimentalOn: (feature: string) => (paletteSettingsState.experimental as Record<string, boolean>)[feature] === true,
+    setExperimental: (feature: string, on: boolean) => { (paletteSettingsState.experimental as Record<string, boolean>)[feature] = on; paletteAtlasCalls.push(`setExperimental:${feature}:${on}`); },
+    getLocalPlayerViewSettings: () => paletteSettingsState.playerView,
+    setLocalPlayerViewSettings: (changes: object) => { paletteSettingsState.playerView = { ...(paletteSettingsState.playerView as object), ...changes }; paletteAtlasCalls.push(`setLocalPlayerViewSettings:${JSON.stringify(changes)}`); },
+    isPlayerView4k: () => paletteSettingsState.view4k, setPlayerView4k: (on: boolean) => { paletteSettingsState.view4k = on; paletteAtlasCalls.push(`setPlayerView4k:${on}`); },
+    getDiceVolume: () => paletteSettingsState.diceVolume, setDiceVolume: (volume: number) => { paletteSettingsState.diceVolume = volume; paletteAtlasCalls.push(`setDiceVolume:${volume}`); },
+    getDiceDisplay: () => paletteSettingsState.diceDisplay, setDiceDisplay: (display: string) => { paletteSettingsState.diceDisplay = display; paletteAtlasCalls.push(`setDiceDisplay:${display}`); },
+    getDiceLook: () => paletteSettingsState.diceLook, setDiceLook: (look: object) => { paletteSettingsState.diceLook = { ...(paletteSettingsState.diceLook as object), ...look }; paletteAtlasCalls.push(`setDiceLook:${JSON.stringify(look)}`); },
+    detectsGridOnNewScenes: () => paletteSettingsState.detectGrid, setDetectGridOnNewScenes: (on: boolean) => { paletteSettingsState.detectGrid = on; paletteAtlasCalls.push(`setDetectGridOnNewScenes:${on}`); },
+    getTableTvDevice: () => ({ trueScale: false }),
+    initiativeTurnOptions: () => ({}), setInitiativeTurnOptions: () => {}, initiativeLayout: () => ({ fromTurn: true, dock: 'right', edges: ['right'], facesPlayers: false }), setInitiativeLayout: (layout: object) => { paletteAtlasCalls.push(`setInitiativeLayout:${JSON.stringify(layout)}`); },
+    getGraphics: () => ({}), setGraphics: (choice: object) => { paletteAtlasCalls.push(`setGraphics:${JSON.stringify(choice)}`); }, resetGraphics: () => { paletteAtlasCalls.push('resetGraphics'); }, isLightingQualityPicked: () => false, setLightingQuality: (level: string) => { paletteAtlasCalls.push(`setLightingQuality:${level}`); },
+    shouldShowTutorial: () => false, completeTutorial: () => {}, replayTutorial: () => {},
+  };
+  const paletteApp = { ...lootApp, plugins: { plugins: { 'atlas-vtt': { settingsService: paletteSettings } }, manifests: {} } };
+  const paletteView = {
+    viewId: 'palette-atlas', app: paletteApp, renderer: null,
+    atlasStore: { getState: () => paletteAtlasState, subscribe: (listener: () => void) => { paletteAtlasListeners.add(listener); return () => paletteAtlasListeners.delete(listener); } },
+    serviceManager: { getSettingsService: () => paletteSettings, getAssetService: () => lootAssets },
+  };
   // Atlas's command palette over the board: what each entry asks of the board is recorded.
   const paletteCalls: string[] = [];
   const paletteHost: PaletteHost = {
@@ -1066,8 +1111,10 @@ async function main(): Promise<void> {
     playerViewOpen: () => false, togglePlayerView: () => paletteCalls.push('playerView'), playerFrozen: () => false,
     togglePlayerFreeze: () => paletteCalls.push('freeze'), presentInAtlas: () => paletteCalls.push('present'), openInAtlas: (page) => paletteCalls.push(`atlas:${page ?? ''}`),
     tabletopCommands: () => tabletopCommands(board.toolbarActions(), () => board.refreshToolbar(), board.toolbarCommandHost()),
+    atlasView: () => paletteView,
+    tabletopSettings: () => board.toolbarActions(),
   };
-  const palette = new PaletteWindow(container, lootApp as never, paletteHost, () => board.refreshToolbar());
+  const palette = new PaletteWindow(container, paletteApp as never, paletteHost, () => board.refreshToolbar());
   const hotkeyHelp = new HotkeyHelpWindow(container, lootApp as never, () => board.refreshToolbar());
   board.setHelp({ label: 'Keyboard shortcuts', shortcut: '?', active: () => hotkeyHelp.isOpen(), open: () => hotkeyHelp.toggle() });
   // Attach Atlas's toolbar tools (Random tables & Asset manager in Play mode; Command Palette rightmost in every mode).
@@ -1080,7 +1127,7 @@ async function main(): Promise<void> {
   board.setAtlasTools([
     { id: 'loot', label: 'Random tables', shortcut: 'L', enabled: () => true, active: () => loot.isOpen(), run: () => runAtlasTool('loot') },
     { id: 'assets', label: 'Asset manager', shortcut: 'Shift+A', enabled: () => true, active: () => assets.isOpen(), run: () => runAtlasTool('assets') },
-    { id: 'palette', label: 'Command Palette', shortcut: 'Space', enabled: () => true, active: () => palette.isOpen(), run: () => runAtlasTool('palette') },
+    { id: 'palette', label: 'Command Palette', shortcut: 'Space', enabled: () => true, active: () => palette.isOpen(), run: () => runAtlasTool('palette'), openPage: (page: string) => { palette.open(page); board.refreshToolbar(); } },
   ]);
   window.addEventListener('keydown', (event) => {
     if (event.defaultPrevented) return;
@@ -1209,7 +1256,7 @@ async function main(): Promise<void> {
     await editor.open(folder);
     return editor;
   };
-  Object.assign(window, { boardTest: { initiativeRules: rules.initiative, trackerSettings, bannerSwitch, announce, gmViewSwitch, pointer, hotkeyHelp, backgrounds, backgroundFiles, backgroundsReady, backgroundKit: { DEFAULT_BACKGROUND, emptyLayers, TERRAINS, backgroundFrame }, openBackgroundEditor, closeBackgroundEditor, backgroundEditor: null, studio: cutsceneHarness, api: { cutscene: channel },Board, FreeCamera, fog: { offers: fogOffers, state: fogState, record: () => fogRecord, reset: () => setFog({}) }, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, savedState, savedSettings, savedListeners, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, spellReaches: (spell: Spell, x: number, h: number, y: number) => { const shown = (board as unknown as { map: BoardMap; mapSize: { width: number; height: number } | null }); return spellReaches(spell, new THREE.Vector3(x, h, y), shown.map.walls, { size: shown.mapSize, cell: shown.map.grid.size }); }, keptMeasures: () => keptMeasures, measureEdit, setKeptMeasures: (list: BoardMeasure[]) => { keptMeasures = list; syncKeptMeasures(); }, clearKeptMeasures: () => { keptMeasures = []; syncKeptMeasures(); }, measureTool: () => measureTool, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, Matrix4: THREE.Matrix4, Quaternion: THREE.Quaternion, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, chooseAction, ready: true } });
+  Object.assign(window, { boardTest: { initiativeRules: rules.initiative, trackerSettings, bannerSwitch, announce, gmViewSwitch, pointer, hotkeyHelp, backgrounds, backgroundFiles, backgroundsReady, backgroundKit: { DEFAULT_BACKGROUND, emptyLayers, TERRAINS, backgroundFrame }, openBackgroundEditor, closeBackgroundEditor, backgroundEditor: null, studio: cutsceneHarness, api: { cutscene: channel },Board, FreeCamera, fog: { offers: fogOffers, state: fogState, record: () => fogRecord, reset: () => setFog({}) }, host, sounds, SoundEngine, CustomSounds, CATALOG, loadSound, DEFAULT_SOUND_SETTINGS, controlled, mountSoundControl, webSound, materialDrag, setHeroBase: (base: 'none' | 'round' | 'square') => { heroBase = base; board.refresh(); }, readMap, renderBoardCard, images, boardDice, savedState, savedSettings, savedListeners, atlasBus, atlasListeners, otherAtlas, useAtlasView, atlasRolls, diceWarnings, setHosting: (on: boolean) => { hosting = on; board.refreshToolbar(); }, setSpellNotes, setLiquids, liquids: () => liquids, spellReaches: (spell: Spell, x: number, h: number, y: number) => { const shown = (board as unknown as { map: BoardMap; mapSize: { width: number; height: number } | null }); return spellReaches(spell, new THREE.Vector3(x, h, y), shown.map.walls, { size: shown.mapSize, cell: shown.map.grid.size }); }, keptMeasures: () => keptMeasures, measureEdit, setKeptMeasures: (list: BoardMeasure[]) => { keptMeasures = list; syncKeptMeasures(); }, clearKeptMeasures: () => { keptMeasures = []; syncKeptMeasures(); }, measureTool: () => measureTool, handoutUrl: images['green.png'], board, history, map, record, snapping, panel, rules, doorProps, doorFlips, wallHeights, windowSpans, wallWidthsKept, modes, props, shapes, groundState, stored, project, hero, QUALITY, Raycaster: THREE.Raycaster, Vector3: THREE.Vector3, Box3: THREE.Box3, Matrix4: THREE.Matrix4, Quaternion: THREE.Quaternion, insideFog, dice, loot, lootSaves, lootFiles, assets, noAtlasAssets, assetErrors, hostBar, mapName, HOST_BAR_LABELS, spawned, openedMaps, palette, paletteCalls, paletteAtlas: { calls: paletteAtlasCalls, state: () => paletteAtlasState, settings: paletteSettingsState }, chooseAction, ready: true } });
 }
 
 main().catch((error: unknown) => { (window as unknown as { boardError: string }).boardError = String(error); console.error(error); });

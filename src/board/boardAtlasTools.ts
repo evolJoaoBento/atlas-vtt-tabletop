@@ -64,6 +64,7 @@ export class BoardAtlasTools {
     this.palette = new PaletteWindow(deps.container, deps.app, {
       ...deps.palette,
       setLootRollerOpen: (open) => (open ? this.loot.open() : this.loot.close()),
+      openHotkeyHelp: () => { if (!this.help.isOpen()) this.help.toggle(); },
     }, () => this.deps.board()?.refreshToolbar());
     this.help = new HotkeyHelpWindow(deps.container, deps.app, () => this.deps.board()?.refreshToolbar());
   }
@@ -82,6 +83,7 @@ export class BoardAtlasTools {
       enabled: () => id !== 'assets' || this.assets.available(),
       active: () => (id === 'loot' ? this.loot.isOpen() : id === 'assets' ? this.assets.isOpen() : this.palette.isOpen()),
       run: () => this.run(id),
+      ...(id === 'palette' && { openPage: (page: string) => { this.palette.open(page); this.deps.board()?.refreshToolbar(); } }),
     }));
     board.setAtlasTools(tools);
     const help = this.bridge.hotkey('help');

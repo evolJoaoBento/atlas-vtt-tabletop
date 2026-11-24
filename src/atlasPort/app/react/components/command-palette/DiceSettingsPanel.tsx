@@ -1,0 +1,73 @@
+// Atlas source: src/app/react/components/command-palette/DiceSettingsPanel.tsx @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// @ts-nocheck
+import React from 'react';
+import { SegmentedControl } from '../../../packages/components/primitives/SegmentedControl';
+import { useAtlasUI } from '../../../../shims/atlasUI';
+import { useDiceDisplay, useDiceVolume } from '../../hooks/useDiceDisplay';
+import { useDiceLook } from '../../hooks/useDiceLook';
+import { useDicePreviews } from '../../hooks/useDicePreviews';
+import { useShareRolls } from '../../hooks/useShareRolls';
+import { DICE_DISPLAY_HINTS, DICE_DISPLAY_OPTIONS } from '../../../dice3d/diceDisplay';
+import { DICE_FONT_OPTIONS } from '../../../dice3d/diceLook';
+import { SettingsService } from '../../../../shims/settingsService';
+import { DiceColourStrip } from './DiceColourStrip';
+import { SettingRow, SettingSliderRow, SettingToggleRow } from './SettingRows';
+import { t, tPlatform } from '../../../../shims/i18n';
+
+/** How dice rolls look, for every map: how they are shown, and the dice themselves. */
+export function DiceSettingsPanel(): React.ReactElement {
+  const { app } = useAtlasUI();
+  const display = useDiceDisplay(app ?? undefined);
+  const volume = Math.round(useDiceVolume(app ?? undefined) * 100);
+  const look = useDiceLook(app ?? undefined);
+  const previews = useDicePreviews(app ?? undefined, look.font);
+  const settings = SettingsService.forApp(app ?? undefined);
+  const shareRolls = useShareRolls();
+
+  return (
+    <div className="atlas-command-palette-panel">
+      <div className="atlas-command-palette-panel-column">
+        <h3 className="atlas-command-palette-panel-heading">{t('diceSettings.rolls')}</h3>
+        <SettingRow label={t('diceSettings.display')} hint={DICE_DISPLAY_HINTS[display]}>
+          <SegmentedControl
+            ariaLabel={t('diceSettings.display')}
+            value={display}
+            options={DICE_DISPLAY_OPTIONS}
+            onChange={(value) => settings?.setDiceDisplay(value)}
+          />
+        </SettingRow>
+        <SettingSliderRow
+          label={t('dice.volume')}
+          hint={t('dice.volumeHint')}
+          value={volume}
+          min={0}
+          max={100}
+          step={5}
+          displayValue={volume === 0 ? t('dice.volumeOff') : t('dice.volumePercent', { percent: String(volume) })}
+          onChange={(percent) => settings?.setDiceVolume(percent / 100)}
+        />
+        {shareRolls && (
+          <SettingToggleRow
+            label={t('dice.showRollsToPlayers')}
+            hint={tPlatform('dice.showRollsToPlayersHint')}
+            value={shareRolls.shown}
+            onToggle={shareRolls.onToggle}
+          />
+        )}
+      </div>
+
+      <div className="atlas-command-palette-panel-column">
+        <h3 className="atlas-command-palette-panel-heading">{t('diceSettings.dice')}</h3>
+        <DiceColourStrip value={look.colour} previews={previews} onChange={(colour) => settings?.setDiceLook({ colour })} />
+        <SettingRow label={t('diceSettings.numbers')} hint={t('diceSettings.numbersHint')}>
+          <SegmentedControl
+            ariaLabel={t('diceSettings.diceNumbers')}
+            value={look.font}
+            options={DICE_FONT_OPTIONS}
+            onChange={(font) => settings?.setDiceLook({ font })}
+          />
+        </SettingRow>
+      </div>
+    </div>
+  );
+}

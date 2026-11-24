@@ -1,4 +1,4 @@
-// Atlas source: src/app/react/components/command-palette/customizeToolbarCommand.tsx @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/react/components/command-palette/customizeToolbarCommand.tsx @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import React from 'react';
 import { PanelBottom } from 'lucide-react';

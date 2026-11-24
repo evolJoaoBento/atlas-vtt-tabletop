@@ -40,20 +40,22 @@ test('no lighting entries where the board cannot light', () => {
   const ids = tabletopCommands(made, () => {}).map((entry) => entry.id);
   assert.equal(ids.includes('tabletop-lighting'), false);
   assert.equal(ids.includes('tabletop-toolbar-lighting'), false);
-  assert.equal(ids.includes('tabletop-board-settings'), true);
+  assert.equal(ids.includes('tabletop-settings'), true);
 });
 
-test("the board settings entries run the board settings panel's actions without duplicating toolbar registry entries", () => {
-  const { made, calls } = actions();
+test("Tabletop Settings is one page entry in the palette, not a submenu of quick options or a second toolbar entry", () => {
+  const { made } = actions();
   const entries = tabletopCommands(made, () => {});
-  const board = entries.find((entry) => entry.id === 'tabletop-board-settings')!;
-  assert.equal(board.submenu!.find((entry) => entry.id === 'tabletop-edges-soft')!.active, true);
-  // Initiative lives in the toolbar registry instead of being duplicated inside board settings.
-  assert.equal(board.submenu!.some((entry) => entry.id === 'tabletop-initiative'), false);
+  const page = entries.find((entry) => entry.id === 'tabletop-settings')!;
+  assert.equal(page.label, 'Tabletop Settings');
+  assert.equal(page.page, true);
+  assert.equal(page.submenu, undefined);
+  // The old quick-options submenu and the toolbar button's own entry are gone: the page holds every one of them.
+  assert.equal(entries.some((entry) => entry.id === 'tabletop-board-settings'), false);
+  assert.equal(entries.some((entry) => entry.id === 'tabletop-toolbar-board-settings'), false);
+  assert.equal(entries.some((entry) => /board settings/i.test(entry.label)), false);
+  // Initiative lives in the toolbar registry.
   assert.equal(entries.some((entry) => entry.id === 'tabletop-toolbar-initiative'), true);
-  board.submenu!.find((entry) => entry.id === 'tabletop-edges-round')!.run!();
-  board.submenu!.find((entry) => entry.id === 'tabletop-auto-roll')!.run!();
-  assert.deepEqual(calls, ['edges:round', 'autoRoll:false']);
 });
 
 test('toolbar registry commands route through the toolbar host and show mode suffix when switching modes', () => {

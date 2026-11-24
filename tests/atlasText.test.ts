@@ -19,8 +19,10 @@ test("follows Obsidian's language where Atlas has it", () => {
   assert.equal(at('hotkey.assets'), ATLAS_TEXT.zh['hotkey.assets']);
   assert.notEqual(at('hotkey.assets'), ATLAS_TEXT.en['hotkey.assets']);
   // A text Atlas has not translated is English, as in Atlas.
-  assert.equal(ATLAS_TEXT.zh['toolbarEdit.assets.label'], undefined);
-  assert.equal(at('toolbarEdit.assets.label'), 'Asset manager');
+  const untranslated = Object.keys(ATLAS_TEXT.en).find((key) => ATLAS_TEXT.zh[key] === undefined && typeof ATLAS_TEXT.en[key] === 'string' && !/[{]/.test(ATLAS_TEXT.en[key] as string));
+  assert.ok(untranslated, 'a text Atlas has not translated into Chinese');
+  setLanguage('zh');
+  assert.equal(at(untranslated as never), ATLAS_TEXT.en[untranslated as never]);
 });
 
 test('a language Atlas lacks is English', () => {

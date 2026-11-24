@@ -19,6 +19,11 @@ const server = http.createServer((req, res) => {
 const results = [];
 const check = (name, ok, detail) => { results.push({ name, ok: !!ok, detail }); };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+/** The toolbar's Tabletop Settings button (it opens the command palette on that page), and the page. */
+const SETTINGS_BUTTON = 'button[aria-label="Tabletop Settings"]';
+const SETTINGS_PAGE = '.atlas-tabletop-atlas-ui [data-tabletop-settings]';
+/** Puts the palette away (a click on the toolbar button reaches its backdrop first, as a click on Atlas's own palette button would). */
+const closePalette = (page) => page.evaluate(() => window.boardTest.palette.close());
 /** Moves the pointer over a locator's middle (a disabled control too, which hover would wait on). */
 const window_hover = async (page, locator) => { const box = await locator.boundingBox(); if (box) await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); };
 
@@ -1042,12 +1047,13 @@ feature('light theme', async ({ page, shot }) => {
     return Math.round(((l1 + 0.05) / (l2 + 0.05)) * 10) / 10;
   }, selector);
   const needs = (name, ratio) => check(`38 ${name} reads in the light theme (contrast ${ratio})`, ratio !== null && ratio >= 4.5, String(ratio));
-  // The board settings panel and the lighting menu.
-  await page.getByRole('button', { name: 'Board settings' }).click();
-  await wait(300);
-  for (const [name, selector] of [['panel title', '.atlas-tabletop-palette__title'], ['panel label', '.atlas-tabletop-palette:not(.atlas-tabletop-lighting-options) .atlas-tabletop-palette__label'], ['panel hint', '.atlas-tabletop-palette:not(.atlas-tabletop-lighting-options) .atlas-tabletop-palette__hint'], ['panel heading', '.atlas-tabletop-palette__heading']]) needs(name, await contrast(selector));
+  // The Tabletop Settings page (Atlas's own page styles) and the lighting menu.
+  await page.getByRole('button', { name: 'Tabletop Settings' }).click();
+  await wait(500);
+  for (const [name, selector] of [['page title', '.atlas-command-palette-panel-title h2'], ['page label', `${SETTINGS_PAGE} .atlas-setting-label`], ['page hint', `${SETTINGS_PAGE} .atlas-setting-hint`], ['page heading', `${SETTINGS_PAGE} .atlas-command-palette-panel-heading`]]) needs(name, await contrast(selector));
   await shot('light-settings');
-  await page.keyboard.press('Escape');
+  await closePalette(page);
+  await wait(300);
   await page.locator('button[aria-label^="Lighting"]').click();
   await wait(300);
   needs('lighting menu item', await contrast('.atlas-tabletop-lighting-options .atlas-dropdown-menu-item'));
@@ -1347,9 +1353,9 @@ feature('set-aside dice', async ({ page, shot }) => {
   await shot('set-aside-dice');
 });
 
-// ── Sheet rolls: laid for a manual throw, or thrown at once (the tick in Board settings) ───────────────────────────
+// ── Sheet rolls: laid for a manual throw, or thrown at once (the switch in Tabletop Settings) ───────────────────────────
 feature('auto roll', async ({ page, shot }) => {
-  const settings = page.locator('button[aria-label="Board settings"]').first();
+  const settings = page.locator(SETTINGS_BUTTON).first();
   const openSheet = async () => {
     await page.locator('button[aria-label="Visibility"]').click();
     await wait(100);
@@ -1359,10 +1365,11 @@ feature('auto roll', async ({ page, shot }) => {
   const state = () => page.evaluate(() => ({ dice: window.boardTest.board.dice.object3d.children.length, busy: window.boardTest.board.dice.busy }));
   const clear = () => page.evaluate(() => window.boardTest.boardDice.clearTable?.());
   await settings.click();
-  const tick = page.getByLabel('Throw stat sheet rolls automatically');
-  check('auto roll: Board settings has the tick, off by default', (await tick.count()) === 1 && !(await tick.isChecked()));
+  await page.locator(SETTINGS_PAGE).waitFor({ timeout: 5000 });
+  const tick = page.getByRole('switch', { name: 'Throw stat sheet rolls automatically' });
+  check('auto roll: Tabletop Settings has the switch, off by default', (await tick.count()) === 1 && !(await tick.isChecked()));
   await shot('auto-roll-setting');
-  await settings.click();
+  await closePalette(page);
   await page.evaluate(() => window.boardTest.board.select('hero'));
   await openSheet();
   await wait(400);
@@ -1388,14 +1395,16 @@ feature('auto roll', async ({ page, shot }) => {
   const hoverManual = await state();
   check("auto roll off: a roll in Atlas's hover window lays its d20 for a manual throw", hoverManual.dice === 1 && !hoverManual.busy, JSON.stringify(hoverManual));
   await shot('auto-roll-off-hover');
-  // Opening Board settings closes the unpinned drawer.
+  // Opening Tabletop Settings closes the unpinned drawer.
   await clear();
   await settings.click();
-  check('an unpinned sheet drawer closes when Board settings opens', await drawer.isHidden());
-  await tick.check();
-  check('auto roll: ticking it keeps the tick', await tick.isChecked());
+  await page.locator(SETTINGS_PAGE).waitFor({ timeout: 5000 });
+  check('an unpinned sheet drawer closes when Tabletop Settings opens', await drawer.isHidden());
+  await tick.click();
+  check('auto roll: switching it on keeps it on', await tick.isChecked());
   await shot('auto-roll-ticked');
-  await settings.click();
+  await closePalette(page);
+  await wait(300);
   await page.evaluate(() => document.querySelectorAll('.atlas-statblock-preview-window').forEach((node) => node.remove()));
   await openSheet();
   await wait(300);
@@ -1428,7 +1437,7 @@ feature('auto roll', async ({ page, shot }) => {
 
 // ── The sheet drawer's pin ──────────────────────────────────────────────────────────────────────────────────────
 feature('sheet pin', async ({ page, shot }) => {
-  const settings = page.locator('button[aria-label="Board settings"]').first();
+  const settings = page.locator(SETTINGS_BUTTON).first();
   const drawer = page.locator('.atlas-tabletop-sheet');
   await page.evaluate(() => window.boardTest.board.select('hero'));
   await page.locator('button[aria-label="Visibility"]').click();
@@ -1440,25 +1449,28 @@ feature('sheet pin', async ({ page, shot }) => {
   await pin.click({ force: true });
   check('pin: clicking it pins the drawer', (await pin.getAttribute('aria-pressed')) === 'true' && (await pin.getAttribute('aria-label')) === 'Unpin' && (await drawer.getAttribute('class')).includes('is-pinned'));
   await settings.click();
-  await wait(200);
-  check('pin: a pinned drawer stays open when Board settings opens', await drawer.isVisible());
+  await page.locator(SETTINGS_PAGE).waitFor({ timeout: 5000 });
+  await wait(500);
+  check('pin: a pinned drawer stays open when Tabletop Settings opens', await drawer.isVisible());
   const stack = await page.evaluate(() => {
     const d = document.querySelector('.atlas-tabletop-sheet').getBoundingClientRect();
-    const p = document.querySelector('.atlas-tabletop-palette').getBoundingClientRect();
+    const p = document.querySelector('.atlas-command-palette-surface').getBoundingClientRect();
     const overlaps = Math.max(d.left, p.left) < Math.min(d.right, p.right) && Math.max(d.top, p.top) < Math.min(d.bottom, p.bottom);
     const over = document.elementFromPoint((Math.max(d.left, p.left) + Math.min(d.right, p.right)) / 2, (Math.max(d.top, p.top) + Math.min(d.bottom, p.bottom)) / 2);
-    return { overlaps, panelOnTop: !!over?.closest('.atlas-tabletop-palette') };
+    return { overlaps, panelOnTop: !!over?.closest('.atlas-command-palette-surface') };
   });
-  check('pin: where they overlap, the settings panel is over the pinned drawer', !stack.overlaps || stack.panelOnTop, JSON.stringify(stack));
+  check('pin: where they overlap, the settings page is over the pinned drawer', !stack.overlaps || stack.panelOnTop, JSON.stringify(stack));
   await shot('sheet-pinned-under-settings');
-  await settings.click();
+  await closePalette(page);
+  await wait(300);
   await page.locator('button[aria-label^="Lighting"]').click();
   check('pin: it stays when the lighting menu opens', await drawer.isVisible());
   await page.keyboard.press('Escape');
   await pin.click({ force: true });
   check('pin: clicking again unpins it', (await pin.getAttribute('aria-pressed')) === 'false' && !(await drawer.getAttribute('class')).includes('is-pinned'));
   await settings.click();
-  check('pin: unpinned, it closes when Board settings opens', await drawer.isHidden());
+  await page.locator(SETTINGS_PAGE).waitFor({ timeout: 5000 });
+  check('pin: unpinned, it closes when Tabletop Settings opens', await drawer.isHidden());
   await shot('sheet-unpinned-closed');
 });
 
@@ -1482,9 +1494,11 @@ feature('pin kept across reloads', async ({ page, shot }) => {
   await open();
   check('pin kept: after a reload the drawer is still pinned', (await pin.getAttribute('aria-pressed')) === 'true' && (await drawer.getAttribute('class')).includes('is-pinned'));
   await shot('pin-kept-after-reload');
-  await page.locator('button[aria-label="Board settings"]').first().click();
-  check('pin kept: and it still stays under the settings panel', await drawer.isVisible());
-  await page.locator('button[aria-label="Board settings"]').first().click();
+  await page.locator(SETTINGS_BUTTON).first().click();
+  await page.locator(SETTINGS_PAGE).waitFor({ timeout: 5000 });
+  check('pin kept: and it still stays under the settings page', await drawer.isVisible());
+  await closePalette(page);
+  await wait(300);
   await pin.click({ force: true });
   await page.reload();
   await page.waitForFunction(() => window.boardTest?.ready, null, { timeout: 30000 });
@@ -1806,8 +1820,8 @@ feature('daylight tint', async ({ page, shot }) => {
   const before = await read();
   await page.locator('button[aria-label^="Lighting"]').click();
   await wait(300);
-  const field = page.locator('.atlas-tabletop-lighting-extra input[type="color"]');
-  const reset = page.locator('.atlas-tabletop-lighting-extra button', { hasText: 'Reset' });
+  const field = page.locator('.atlas-tabletop-lighting-options .atlas-tabletop-lighting-extra input[type="color"]');
+  const reset = page.locator('.atlas-tabletop-lighting-options .atlas-tabletop-lighting-extra button', { hasText: 'Reset' });
   check('tint: the lighting menu has a colour and a Reset that is off while nothing is tinted', (await field.count()) === 1 && (await reset.count()) === 1 && await reset.isDisabled(), '');
   // Picking a colour tints the daylight at once and keeps it when let go.
   await field.evaluate((input) => { input.value = '#ff8844'; input.dispatchEvent(new Event('input', { bubbles: true })); });
@@ -2408,9 +2422,9 @@ feature('command palette', async ({ page, shot }) => {
   check('palette lists Atlas\'s entries', /Random tables|random tables/i.test(text) && /Dice log|dice log/i.test(text), text.slice(0, 300));
   check('no raw text keys in the palette', !/\b[a-z]+\.[a-z]+\.[a-z]+\b/i.test(text), text);
   await shot('command-palette');
-  // Under any Atlas stylesheet (0.17's frame is on the container, 0.18's on a wrapper the copy lacks): a frame, and in view.
+  // The palette is Atlas 0.19's own component under Atlas's own stylesheet (nothing restated): a frame, and in view.
   const frame = await page.evaluate(() => {
-    const box = document.querySelector('.atlas-tabletop-atlas-ui .atlas-command-palette-container');
+    const box = document.querySelector('.atlas-tabletop-atlas-ui .atlas-command-palette-surface');
     const anchor = document.querySelector('.atlas-tabletop-atlas-ui .atlas-command-palette-anchor');
     if (!box || !anchor) return null;
     const style = getComputedStyle(box);
@@ -2418,8 +2432,9 @@ feature('command palette', async ({ page, shot }) => {
     return { bg: style.backgroundColor, border: style.borderTopWidth + ' ' + style.borderTopStyle, shadow: style.boxShadow, translate: getComputedStyle(anchor).translate, left: rect.left, right: rect.right, width: innerWidth };
   });
   check('palette window has an opaque background and a border', frame !== null && frame.bg !== 'rgba(0, 0, 0, 0)' && frame.bg !== 'transparent' && parseFloat(frame.border) > 0 && frame.border.endsWith('solid') && frame.shadow !== 'none', JSON.stringify(frame));
-  check('palette window is not shifted by an extra translate and stays inside the page', frame !== null && (frame.translate === 'none' || frame.translate === '0px') && frame.left >= 0 && frame.right <= frame.width, JSON.stringify(frame));
-  await page.keyboard.type('random');
+  check('palette window stays inside the page, centred on it as Atlas centres it (left 50%, translate -50%)', frame !== null && frame.translate !== 'none' && frame.left >= 0 && frame.right <= frame.width, JSON.stringify(frame));
+  // Atlas's own entry (the best match is the first section's, and the toolbar's Random tables button is listed under Settings).
+  await page.keyboard.type('open random');
   await wait(300);
   await page.keyboard.press('Enter');
   await wait(600);
@@ -2430,6 +2445,234 @@ feature('command palette', async ({ page, shot }) => {
   await page.keyboard.press('Escape');
   await wait(600);
   check('Escape closes the palette', (await win.count()) === 0);
+});
+
+// ── Tabletop Settings: what the Board settings panel held, now a page of Atlas's command palette ──────────────────
+feature('tabletop settings', async ({ page, shot }) => {
+  await page.evaluate(() => { const { board, modes } = window.boardTest; modes.mode = 'edit'; board.refreshToolbar(); });
+  await wait(300);
+  const toolbarButton = page.locator(SETTINGS_BUTTON).first();
+  check('tabletop settings: the toolbar button is named Tabletop Settings, and nothing is named Board settings', (await toolbarButton.count()) === 1 && (await page.locator('[aria-label="Board settings"]').count()) === 0 && (await page.locator('.atlas-tabletop-palette[role="dialog"]').count()) === 0);
+  const tip = await page.evaluate(async () => { const b = document.querySelector('button[aria-label="Tabletop Settings"]'); b.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true, pointerType: 'mouse' })); b.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); await new Promise((r) => setTimeout(r, 900)); return document.querySelector('.atlas-tooltip, [role="tooltip"], .atlas-label-tooltip')?.textContent ?? null; });
+  check('tabletop settings: the toolbar button\'s tooltip says Tabletop Settings', tip === null || /Tabletop Settings/.test(tip), String(tip));
+  await toolbarButton.click();
+  await page.locator(SETTINGS_PAGE).waitFor({ timeout: 5000 });
+  await wait(700);
+  await shot('tabletop-settings');
+  const dom = await page.evaluate(() => {
+    const page = document.querySelector('[data-tabletop-settings]');
+    const container = page.closest('.atlas-command-palette-container');
+    const header = container.querySelector('.atlas-command-palette-panel-header');
+    return {
+      listShown: !!document.querySelector('.atlas-command-palette-search'),
+      expanded: container.classList.contains('atlas-command-palette-container--expanded') && container.classList.contains('atlas-command-palette-container--tabletop-settings'),
+      title: header?.querySelector('h2')?.textContent ?? null,
+      icon: !!header?.querySelector('.atlas-command-palette-panel-title-icon svg'),
+      back: !!header?.querySelector('.atlas-close-btn'),
+      columns: page.querySelectorAll(':scope > .atlas-command-palette-panel-column').length,
+      headings: [...page.querySelectorAll('h3.atlas-command-palette-panel-heading')].map((h) => h.textContent),
+      rows: page.querySelectorAll('.atlas-setting-row, .atlas-setting-group').length,
+      switches: page.querySelectorAll('[role="switch"]').length,
+      segmented: page.querySelectorAll('.atlas-segmented [role="radio"], .atlas-segmented button').length,
+      inputs: page.querySelectorAll('input.atlas-setting-input').length,
+      oldMarkup: !!document.querySelector('.atlas-tabletop-atlas-ui .atlas-tabletop-palette__field, .atlas-tabletop-atlas-ui .atlas-tabletop-palette__section'),
+      surface: !!container.closest('.atlas-command-palette-surface'),
+    };
+  });
+  check('tabletop settings: the toolbar button opens the palette straight on the page (no list), as Atlas opens a page', !dom.listShown && dom.expanded, JSON.stringify(dom));
+  check('tabletop settings: the page has Atlas\'s header (icon, title, Back) and its two columns of rows', dom.title === 'Tabletop Settings' && dom.icon && dom.back && dom.columns === 2 && dom.rows >= 7 && dom.surface, JSON.stringify(dom));
+  check('tabletop settings: it holds Atlas\'s controls (switches, a segmented choice, number fields), none of the old panel\'s', dom.switches >= 3 && dom.segmented === 3 && dom.inputs === 2 && !dom.oldMarkup, JSON.stringify(dom));
+  check('tabletop settings: the page names what the Board settings panel had', ['Walls and fog', 'Snap to grid', 'Dice'].every((h) => dom.headings.includes(h)), JSON.stringify(dom.headings));
+
+  // Each control writes what the old panel wrote.
+  const actions = (read) => page.evaluate(read);
+  const height = page.locator('input[aria-label="Default wall height in squares"]');
+  await height.fill('2');
+  await page.keyboard.press('Enter');
+  await wait(150);
+  check('tabletop settings: a wall height and Enter set the default wall height', (await actions(() => window.boardTest.board.toolbarActions().fogHeight())) === 2 && (await height.inputValue()) === '2');
+  await height.fill('tall');
+  await page.keyboard.press('Enter');
+  await wait(150);
+  check('tabletop settings: a height that is no number is refused and marked', (await height.getAttribute('aria-invalid')) === 'true' && (await actions(() => window.boardTest.board.toolbarActions().fogHeight())) === 2 && (await height.inputValue()) === '2');
+  await height.fill('1');
+  await page.keyboard.press('Enter');
+  await wait(150);
+  const thick = page.locator('input[aria-label="Wall thickness in squares"]');
+  await thick.fill('0.3');
+  await thick.blur();
+  await wait(150);
+  check('tabletop settings: a thickness (left with the field) sets the wall thickness', Math.abs((await actions(() => window.boardTest.board.toolbarActions().wallThickness())) - 0.3) < 1e-9);
+  await thick.fill('5');
+  await thick.blur();
+  await wait(150);
+  check('tabletop settings: a thickness past two squares is refused', (await thick.getAttribute('aria-invalid')) === 'true' && Math.abs((await actions(() => window.boardTest.board.toolbarActions().wallThickness())) - 0.3) < 1e-9);
+  await thick.fill('0.12');
+  await thick.blur();
+  await wait(100);
+  const edges = page.locator('[data-tabletop-settings] .atlas-segmented').first();
+  await edges.getByRole('radio', { name: 'Round' }).click();
+  await wait(150);
+  check('tabletop settings: the wall edges choice is applied at once and shows as chosen', (await actions(() => window.boardTest.board.toolbarActions().wallEdges())) === 'round' && (await edges.getByRole('radio', { name: 'Round' }).getAttribute('aria-checked')) === 'true');
+  await edges.getByRole('radio', { name: 'Sharp' }).click();
+  const snapTokens = page.getByRole('switch', { name: 'Snap tokens' });
+  const snapProps = page.getByRole('switch', { name: 'Snap props' });
+  check('tabletop settings: both snap switches start on', (await snapTokens.isChecked()) && (await snapProps.isChecked()));
+  await snapProps.click();
+  await wait(100);
+  check('tabletop settings: Snap props switches props off, on its own', !(await snapProps.isChecked()) && (await snapTokens.isChecked()) && (await actions(() => window.boardTest.board.toolbarActions().snap().props)) === false && (await actions(() => window.boardTest.board.toolbarActions().snap().tokens)) === true);
+  await snapProps.click();
+  const auto = page.getByRole('switch', { name: 'Throw stat sheet rolls automatically' });
+  const autoBefore = await actions(() => window.boardTest.board.toolbarActions().autoRoll());
+  await auto.click();
+  await wait(100);
+  check('tabletop settings: the roll switch flips Throw stat sheet rolls automatically', (await actions(() => window.boardTest.board.toolbarActions().autoRoll())) === !autoBefore && (await auto.isChecked()) === !autoBefore);
+  await auto.click();
+  const ar = await page.evaluate(() => { const row = [...document.querySelectorAll('[data-tabletop-settings] .atlas-setting-row')].find((r) => r.textContent.includes('AR table') || r.textContent.includes('None yet')); return { text: row?.textContent ?? null, disabled: row?.querySelector('button')?.disabled ?? null }; });
+  check('tabletop settings: with no AR table the row says so and its button is off', !!ar.text && /None yet/.test(ar.text) && ar.disabled === true, JSON.stringify(ar));
+
+  // Back returns to the list, and the list's entry opens the page again.
+  await page.locator('.atlas-command-palette-panel-header .atlas-close-btn').click();
+  await wait(600);
+  check('tabletop settings: Back returns to the palette list', (await page.locator('.atlas-command-palette-search').count()) === 1 && (await page.locator('[data-tabletop-settings]').count()) === 0);
+  await shot('tabletop-settings-list');
+  await page.locator('.atlas-command-palette-input').first().fill('tabletop');
+  await wait(200);
+  const entries = await page.locator('.atlas-command-item .atlas-command-item-label').allInnerTexts();
+  check('tabletop settings: the list has the entry in the Settings section, and no Board settings entry', entries.includes('Tabletop Settings') && !entries.some((label) => /board settings/i.test(label)), JSON.stringify(entries));
+  await page.locator('.atlas-command-item', { hasText: 'Tabletop Settings' }).first().click();
+  await page.locator(SETTINGS_PAGE).waitFor({ timeout: 5000 });
+  check('tabletop settings: the entry opens the page', (await page.locator('[data-tabletop-settings]').count()) === 1);
+  // It opens and goes back as Atlas's pages do: the surface springs to the page's size (not a jump) and back.
+  const widths = () => page.evaluate(async () => {
+    const seen = [];
+    for (let i = 0; i < 16; i += 1) { seen.push(Math.round(document.querySelector('.atlas-command-palette-surface')?.getBoundingClientRect().width ?? 0)); await new Promise((r) => setTimeout(r, 40)); }
+    return seen;
+  });
+  const sample = async (press) => { const run = widths(); await press(); return run; };
+  await wait(900);
+  const goBack = await sample(() => page.evaluate(() => document.querySelector('.atlas-command-palette-panel-header .atlas-close-btn').click()));
+  await wait(300);
+  await page.locator('.atlas-command-palette-input').first().fill('tabletop');
+  await wait(200);
+  const goIn = await sample(() => page.locator('.atlas-command-item', { hasText: 'Tabletop Settings' }).first().click());
+  check('tabletop settings: going into the page springs the surface to its size, not a jump, as for Atlas pages', new Set(goIn).size >= 3 && goIn.at(-1) > goIn[0], JSON.stringify(goIn));
+  check('tabletop settings: going back springs the surface back to the list size', new Set(goBack).size >= 3 && goBack.at(-1) < goBack[0], JSON.stringify(goBack));
+  await closePalette(page);
+  await wait(300);
+
+  // The old panel's other doors: the toolbar button from More tools, and the key-less palette entry; Escape twice.
+  await page.evaluate(() => window.boardTest.palette.open('tabletop-settings'));
+  await page.locator(SETTINGS_PAGE).waitFor({ timeout: 5000 });
+  await page.locator('[data-tabletop-settings] input').first().focus();
+  await page.keyboard.press('Escape');
+  await wait(500);
+  check('tabletop settings: Escape goes back to the list, as it does from Atlas\'s pages', (await page.locator('.atlas-command-palette-search').count()) === 1);
+  await page.keyboard.press('Escape');
+  await wait(500);
+  check('tabletop settings: a second Escape puts the palette away', (await page.locator('.atlas-command-palette-window').count()) === 0);
+  await page.evaluate(() => window.boardTest.palette.open());
+  await wait(500);
+  check('tabletop settings: opened plain, the palette opens on its list, not on the page', (await page.locator('.atlas-command-palette-search').count()) === 1 && (await page.locator('[data-tabletop-settings]').count()) === 0);
+  await closePalette(page);
+});
+
+// ── Atlas's settings pages in the command palette, on the board: they open and write Atlas's store ─────────────────
+feature('atlas settings pages', async ({ page, shot }) => {
+  const pages = [
+    // entry words, the page's title, a control to use and what Atlas's store or settings must then have been told.
+    { entry: 'grid settings', title: /Grid/i, id: 'grid-settings' },
+    { entry: 'token settings', title: /Token/i, id: 'token-settings' },
+    { entry: 'widget settings', title: /Widget/i, id: 'widget-settings' },
+    { entry: 'player view settings', title: /Player/i, id: 'local-player-view-settings' },
+    { entry: 'dice settings', title: /Dice/i, id: 'dice-settings' },
+    { entry: 'experimental', title: /Experimental/i, id: 'experimental-features' },
+    { entry: 'graphics settings', title: /Graphics/i, id: 'graphics-settings' },
+  ];
+  const calls = () => page.evaluate(() => window.boardTest.paletteAtlas.calls.slice());
+  const openPage = async (entry) => {
+    await page.evaluate(() => window.boardTest.palette.open());
+    await page.locator('.atlas-tabletop-atlas-ui .atlas-command-palette-window').waitFor({ timeout: 5000 });
+    // (The palette that left a moment ago lets clicks through to the board while it goes: wait for the new one to take them.)
+    await wait(700);
+    await page.locator('.atlas-command-palette-input').first().fill(entry);
+    await wait(300);
+    await page.locator('.atlas-command-item').first().click();
+    await page.locator('.atlas-command-palette-panel').first().waitFor({ timeout: 5000 });
+    await wait(700);
+  };
+  const info = () => page.evaluate(() => {
+    const panel = document.querySelector('.atlas-command-palette-panel');
+    const header = document.querySelector('.atlas-command-palette-panel-header');
+    return {
+      title: header?.querySelector('h2')?.textContent ?? null,
+      icon: !!header?.querySelector('.atlas-command-palette-panel-title-icon svg'),
+      expanded: !!document.querySelector('.atlas-command-palette-container--expanded'),
+      rows: panel ? panel.querySelectorAll('.atlas-setting-row, .atlas-setting-group').length : 0,
+      stub: /open in atlas/i.test(panel?.textContent ?? ''),
+      raw: /\b[a-z]+\.[a-z]+\.?[a-z]*\b/.test(panel?.textContent ?? '') ? panel.textContent.match(/\b[a-z]+\.[a-z]+\.?[a-z]*\b/)[0] : null,
+      switches: panel ? [...panel.querySelectorAll('[role="switch"]')].map((el) => ({ name: document.getElementById(el.getAttribute('aria-labelledby'))?.textContent ?? el.getAttribute('aria-label'), on: el.getAttribute('aria-checked') })) : [],
+    };
+  });
+  const back = async () => {
+    // (A tall page runs past the top of the harness's short window: the button is pressed where it stands.)
+    await page.evaluate(() => document.querySelector('.atlas-command-palette-panel-header .atlas-close-btn').click());
+    await wait(600);
+    return (await page.locator('.atlas-command-palette-search').count()) === 1;
+  };
+  for (const one of pages) {
+    await openPage(one.entry);
+    const got = await info();
+    await shot(`atlas-page-${one.id}`);
+    check(`atlas page ${one.id}: opens inside the palette with Atlas's header and rows, not a hand-off`, one.title.test(got.title ?? '') && got.icon && got.expanded && got.rows >= 1 && !got.stub, JSON.stringify(got));
+    check(`atlas page ${one.id}: shows no raw text key`, got.raw === null, JSON.stringify(got));
+    if (one.id === 'grid-settings') {
+      const before = await calls();
+      const grid = page.getByRole('switch', { name: 'Show grid' });
+      check('atlas page grid-settings: reads Atlas\'s store (the grid is shown)', (await grid.isChecked()) === true);
+      await grid.click();
+      await wait(200);
+      const after = (await calls()).slice(before.length);
+      check('atlas page grid-settings: Show grid writes Atlas\'s store (setGridVisible) and the page follows', after.includes('setGridVisible:false') && !(await grid.isChecked()) && (await page.evaluate(() => window.boardTest.paletteAtlas.state().grid.visible)) === false, JSON.stringify(after));
+      await page.getByRole('switch', { name: /snap/i }).first().click();
+      await wait(200);
+      check('atlas page grid-settings: Snap to grid writes Atlas\'s store too (setSnapToGrid)', (await calls()).includes('setSnapToGrid:false'));
+      await grid.click();
+      await wait(100);
+    }
+    if (one.id === 'token-settings') {
+      const names = got.switches.map((one) => one.name);
+      const target = page.getByRole('switch').first();
+      await target.click();
+      await wait(200);
+      check('atlas page token-settings: a switch writes Atlas\'s store (setTokenSettings)', (await calls()).some((call) => call.startsWith('setTokenSettings:')), JSON.stringify({ names, calls: await calls() }));
+    }
+    if (one.id === 'widget-settings') {
+      check('atlas page widget-settings: the page lists Atlas\'s widget rows (the scene\'s widgets, from Atlas\'s store)', got.rows >= 1, JSON.stringify(got));
+    }
+    if (one.id === 'local-player-view-settings') {
+      const target = page.getByRole('switch').first();
+      await target.click();
+      await wait(200);
+      check('atlas page local-player-view-settings: a switch writes Atlas\'s settings', (await calls()).some((call) => call.startsWith('setLocalPlayerViewSettings:')), JSON.stringify(await calls()));
+    }
+    if (one.id === 'dice-settings') {
+      await page.locator('.atlas-command-palette-panel .atlas-segmented').first().getByRole('radio').last().click();
+      await wait(200);
+      check('atlas page dice-settings: a segmented choice writes Atlas\'s settings (setDiceDisplay)', (await calls()).some((call) => call.startsWith('setDiceDisplay:')), JSON.stringify(await calls()));
+    }
+    if (one.id === 'experimental-features') {
+      await page.getByRole('switch').first().click();
+      await wait(200);
+      check('atlas page experimental-features: a switch writes Atlas\'s settings (setExperimental)', (await calls()).some((call) => call.startsWith('setExperimental:')), JSON.stringify(await calls()));
+    }
+    if (one.id === 'graphics-settings') {
+      check('atlas page graphics-settings: the page has Atlas\'s quality choices', (await page.locator('.atlas-command-palette-panel button, .atlas-command-palette-panel [role="radio"]').count()) >= 3);
+    }
+    check(`atlas page ${one.id}: Back returns to the palette list`, await back());
+    await closePalette(page);
+    await wait(700);
+  }
 });
 
 // ── The GM's Measure tool (Atlas's), drawn thick in the theme's accent ──────────────────────────────────────────
@@ -2582,12 +2825,14 @@ feature('edit-props', async ({ page, shot }) => {
   await page.click('[aria-label="Edit mode"]');
   await wait(300);
   check('Edit mode has the lighting button', await lightingShown());
-  // Settings: two snap toggles.
-  await page.click('[aria-label="Board settings"]');
-  await wait(200);
-  check('Board settings has Snap tokens and Snap props toggles, on', await page.evaluate(() => { const t = document.querySelector('input[data-snap="tokens"]'); const p = document.querySelector('input[data-snap="props"]'); return !!t && !!p && t.checked && p.checked; }));
+  // Settings: two snap switches.
+  await page.click(SETTINGS_BUTTON);
+  await page.locator(SETTINGS_PAGE).waitFor({ timeout: 5000 });
+  await wait(300);
+  check('Tabletop Settings has Snap tokens and Snap props switches, on', await page.evaluate(() => { const on = (name) => [...document.querySelectorAll('[data-tabletop-settings] [role="switch"]')].find((el) => document.getElementById(el.getAttribute('aria-labelledby'))?.textContent === name)?.getAttribute('aria-checked') === 'true'; return on('Snap tokens') && on('Snap props'); }));
   await shot('snap-settings');
-  await page.click('[aria-label="Board settings"]');
+  await closePalette(page);
+  await wait(300);
   at = await propAt();
   await page.mouse.move(at.x, at.y); await page.mouse.down(); await page.mouse.move(at.x + 30, at.y + 20, { steps: 4 });
   await wait(100);
@@ -2627,12 +2872,14 @@ feature('edit-props', async ({ page, shot }) => {
   check('Ctrl + drag up on a prop grows it while dragged, with its scale shown', grown > 1 && /Scale/.test(tip), JSON.stringify({ grown, tip }));
   check('letting go saves the new scale', !!scaled && scaled[0] === 'barrel' && scaled[1] > 1, JSON.stringify(scaled));
   // Snap tokens off: a token dropped stays where let go.
-  await page.click('[aria-label="Board settings"]');
-  await wait(200);
-  await page.click('input[data-snap="tokens"]');
+  await page.click(SETTINGS_BUTTON);
+  await page.locator(SETTINGS_PAGE).waitFor({ timeout: 5000 });
+  await wait(300);
+  await page.getByRole('switch', { name: 'Snap tokens' }).click();
   await wait(100);
-  check("unticking Snap tokens turns off the map's own Snap to grid", await page.evaluate(() => window.boardTest.board.map.grid.snap === false));
-  await page.click('[aria-label="Board settings"]');
+  check("switching Snap tokens off turns off the map's own Snap to grid", await page.evaluate(() => window.boardTest.board.map.grid.snap === false));
+  await closePalette(page);
+  await wait(300);
   await page.evaluate(() => { window.boardTest.record.moves.length = 0; });
   const id = await page.evaluate(() => [...window.boardTest.board.tokens.keys()][0]);
   const tat = await page.evaluate((id) => { const e = window.boardTest.board.tokens.get(id); return window.boardTest.project(e.at.x, e.at.y, 0); }, id);
@@ -3549,14 +3796,14 @@ feature('modes', async ({ page, shot }) => {
   check('a right-click on the board stops painting', (await painting()) === false, '');
   // Modes on: Play shows the game's tools, Edit the building ones.
   await page.evaluate(() => { const { board, modes } = window.boardTest; modes.on = true; modes.mode = 'play'; board.refreshToolbar(); });
-  const seen = () => page.evaluate(() => { const vis = (el) => !!el && el.offsetParent !== null; const q = (s) => document.querySelector(s); return { modes: vis(q('.atlas-tabletop-modes')), water: vis(q('[aria-label="Water"]')), paint: vis(q('[aria-label="Paint walls"]')), measure: vis(q('[aria-label="Measure"]')) || vis(q('[aria-label^="Measure"]')), settings: vis(q('[aria-label="Board settings"]')), view: vis(q('[aria-label="Visibility"]')), move: vis(q('[aria-label="Move/Select"]')), undo: vis(q('[aria-label="Undo"]')) }; });
+  const seen = () => page.evaluate(() => { const vis = (el) => !!el && el.offsetParent !== null; const q = (s) => document.querySelector(s); return { modes: vis(q('.atlas-tabletop-modes')), water: vis(q('[aria-label="Water"]')), paint: vis(q('[aria-label="Paint walls"]')), measure: vis(q('[aria-label="Measure"]')) || vis(q('[aria-label^="Measure"]')), settings: vis(q('[aria-label="Tabletop Settings"]')), view: vis(q('[aria-label="Visibility"]')), move: vis(q('[aria-label="Move/Select"]')), undo: vis(q('[aria-label="Undo"]')) }; });
   let now = await seen();
-  check('Play mode: the mode switch, Move, Undo, Measure and Visibility; no water, wall paint or Board settings', now.modes && now.move && now.undo && now.measure && now.view && !now.settings && !now.water && !now.paint, JSON.stringify(now));
+  check('Play mode: the mode switch, Move, Undo, Measure and Visibility; no water, wall paint or Tabletop Settings', now.modes && now.move && now.undo && now.measure && now.view && !now.settings && !now.water && !now.paint, JSON.stringify(now));
   await shot('mode-play');
   await page.click('[aria-label="Edit mode"]');
   await wait(200);
   now = await seen();
-  check('Edit mode: water, wall paint, Board settings and Visibility, Move and Undo; no Measure', now.move && now.undo && now.water && now.paint && now.settings && now.view && !now.measure, JSON.stringify(now));
+  check('Edit mode: water, wall paint, Tabletop Settings and Visibility, Move and Undo; no Measure', now.move && now.undo && now.water && now.paint && now.settings && now.view && !now.measure, JSON.stringify(now));
   await page.click('[aria-label="Materials"]');
   await wait(200);
   const cards = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-paint-card')].map((card) => card.dataset.material));
@@ -3654,12 +3901,15 @@ feature('ar table', async ({ page, shot }) => {
   await page.evaluate((table) => window.boardTest.board.setArTable(table), table);
   await wait(400);
   check('ar table: not shown until the GM fine-tunes it', await page.evaluate(() => window.boardTest.board.tableOutlines.children.length === 0));
-  // Board settings: the AR table's section says how many sheets, and its button starts fine-tuning.
-  await page.getByRole('button', { name: 'Board settings' }).click();
-  await wait(200);
-  const section = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-palette__section')].find((s) => s.textContent.includes('AR table'))?.textContent ?? null);
-  check('ar table: Board settings has it, with its sheets', section && section.includes('3 sheets'), String(section));
+  // Tabletop Settings: the AR table's row says how many sheets, and its button starts fine-tuning.
+  await page.getByRole('button', { name: 'Tabletop Settings' }).click();
+  await page.locator(SETTINGS_PAGE).waitFor({ timeout: 5000 });
+  await wait(300);
+  const section = await page.evaluate(() => document.querySelector('[data-tabletop-settings]')?.textContent ?? null);
+  check('ar table: Tabletop Settings has it, with its sheets', section && section.includes('AR table') && section.includes('3 sheets'), String(section));
   await page.getByRole('button', { name: 'Fine-tune the AR table…' }).click();
+  await wait(900);
+  check('ar table: fine-tuning puts the palette away', (await page.locator('.atlas-command-palette-window').count()) === 0);
   await wait(600);
   const outlines = await page.evaluate(() => window.boardTest.board.tableOutlines.children.length);
   check('ar table: fine-tuning draws each sheet (outline, wash and name)', outlines === 9, String(outlines));
@@ -5633,7 +5883,7 @@ feature('cinematic board mode', async ({ page, shot }) => {
   const vis = (label) => page.evaluate((label) => { const el = document.querySelector(`[aria-label="${label}"]`); return !!el && el.offsetParent !== null; }, label);
   const seen = async () => ({
     modes: await page.evaluate(() => { const el = document.querySelector('.atlas-tabletop-modes'); return !!el && el.offsetParent !== null; }),
-    live: await vis('Players follow my camera'), water: await vis('Water'), paint: await vis('Paint walls'), settings: await vis('Board settings'),
+    live: await vis('Players follow my camera'), water: await vis('Water'), paint: await vis('Paint walls'), settings: await vis('Tabletop Settings'),
     measure: await vis('Measure'), view: await vis('Visibility'), move: await vis('Move/Select'), undo: await vis('Undo'),
   });
   const active = () => page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-modes button')].filter((b) => b.classList.contains('is-active')).map((b) => b.getAttribute('aria-label')).join());
@@ -6755,15 +7005,15 @@ feature('shapes: painted and stood on', async ({ page }) => {
 });
 
 feature('ground', async ({ page, shot }) => {
-  // The Ground button's panel (no longer in Board settings): the plane to the horizon (no table), its fog, extra board
+  // The Ground button's panel (no longer in Tabletop Settings): the plane to the horizon (no table), its fog, extra board
   // for minis, and the table grown by it.
   await page.evaluate(() => { const { board, groundState } = window.boardTest; groundState.value = { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2, water: { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 } }; board.refresh(); });
-  const placed0 = await page.evaluate(() => ({ inSettings: !!document.querySelector('[aria-label="Board settings"][role="dialog"] [data-ground-mode]'), inGround: !!document.querySelector('[aria-label="Background"][role="menu"] [data-ground-mode]') }));
-  check('ground: the ground settings have their own panel, out of Board settings', placed0.inGround && !placed0.inSettings, JSON.stringify(placed0));
+  const placed0 = await page.evaluate(() => ({ inSettings: !!document.querySelector('[data-tabletop-settings] [data-ground-mode]'), inGround: !!document.querySelector('[aria-label="Background"][role="menu"] [data-ground-mode]') }));
+  check('ground: the ground settings have their own panel, out of Tabletop Settings', placed0.inGround && !placed0.inSettings, JSON.stringify(placed0));
   await page.getByRole('button', { name: 'Background', exact: true }).click();
   await wait(200);
-  const opened = await page.evaluate(() => { const panel = document.querySelector('[aria-label="Background"][role="menu"]'); const settings = document.querySelector('[aria-label="Board settings"][role="dialog"]'); return { shown: !panel.hidden, settings: settings.hidden, expanded: document.querySelector('button[aria-label="Background"]').getAttribute('aria-expanded') }; });
-  check('ground: the Ground button opens its panel, Board settings stays closed', opened.shown && opened.settings && opened.expanded === 'true', JSON.stringify(opened));
+  const opened = await page.evaluate(() => { const panel = document.querySelector('[aria-label="Background"][role="menu"]'); const settings = document.querySelector('.atlas-command-palette-window'); return { shown: !panel.hidden, settings: settings === null, expanded: document.querySelector('button[aria-label="Background"]').getAttribute('aria-expanded') }; });
+  check('ground: the Ground button opens its panel, Tabletop Settings stays closed', opened.shown && opened.settings && opened.expanded === 'true', JSON.stringify(opened));
   // Every background is in full sight inside the panel (five of them once ran past its edge, lava and acid cut off).
   const fits = await page.evaluate(() => {
     const element = document.querySelector('[aria-label="Background"][role="menu"]');
@@ -8052,29 +8302,43 @@ feature('toolbar commands and mode switching', async ({ page, shot }) => {
   }));
   check('mode switch Edit -> Measure switches to Play mode and keeps measure bars open', measureRun.closed && measureRun.clicked === 'Measure · Play mode' && measureState.mode === 'play' && measureState.measureBarsOpen && measureState.measureOn, JSON.stringify({ measureRun, measureState }));
 
-  // Play -> Paint walls (Edit mode), Lighting (Edit mode), Ground (Edit mode), Board settings (Edit mode).
+  // Play -> Paint walls (Edit mode), Lighting (Edit mode), Ground (Edit mode).
   for (const [query, match, checkFn, desc] of [
     ['Paint walls', 'Paint walls · Edit mode', () => window.boardTest.host.boardMode() === 'edit' && (!document.querySelector('.atlas-tabletop-paint-options')?.hidden || window.boardTest.board.isPainting), 'Play -> Paint walls'],
     ['Lighting', 'Lighting', () => window.boardTest.host.boardMode() === 'edit' && !document.querySelector('.atlas-tabletop-lighting-options')?.hidden, 'Edit -> Lighting (same mode, no mode change)'],
     ['Background', 'Background', () => window.boardTest.host.boardMode() === 'edit' && !document.querySelector('.atlas-tabletop-ground-options')?.hidden, 'Edit -> Ground (same mode)'],
-    ['Board settings', 'Board settings', () => window.boardTest.host.boardMode() === 'edit' && !document.querySelector('.atlas-tabletop-palette')?.hidden, 'Edit -> Board settings'],
   ]) {
     const res = await runPaletteEntry(query, match);
     const ok = await page.evaluate(checkFn);
     check(`palette command ${desc} opens and stays open`, res.closed && !!res.clicked && ok, JSON.stringify({ res, ok, mode: await page.evaluate(() => window.boardTest.host.boardMode()) }));
   }
 
-  // From Play -> Ground & Board settings & Lighting switch mode from Play to Edit.
+  // From Play -> Ground & Lighting switch mode from Play to Edit.
   for (const [query, match, sel] of [
     ['Lighting', 'Lighting · Edit mode', '.atlas-tabletop-lighting-options'],
     ['Background', 'Background · Edit mode', '.atlas-tabletop-ground-options'],
-    ['Board settings', 'Board settings · Edit mode', '.atlas-tabletop-palette'],
   ]) {
     await page.evaluate(() => { window.boardTest.host.setBoardMode('play'); window.boardTest.board.refreshToolbar(); });
     await wait(120);
     const res = await runPaletteEntry(query, match);
     const st = await page.evaluate((s) => ({ mode: window.boardTest.host.boardMode(), open: !document.querySelector(s)?.hidden }), sel);
     check(`mode switch Play -> ${query} switches to Edit and opens panel`, res.closed && st.mode === 'edit' && st.open, JSON.stringify({ res, st }));
+  }
+
+  // Tabletop Settings is a page of the palette (as Atlas's Grid settings is): choosing it opens the page in the palette, from either mode, and changes no mode.
+  for (const mode of ['play', 'edit']) {
+    await page.evaluate((mode) => { window.boardTest.host.setBoardMode(mode); window.boardTest.board.refreshToolbar(); }, mode);
+    await wait(120);
+    await page.evaluate(() => window.boardTest.palette.open());
+    await page.locator('.atlas-tabletop-atlas-ui .atlas-command-palette-window').waitFor({ timeout: 5000 });
+    await wait(150);
+    await page.locator('.atlas-command-palette-input').first().fill('tabletop settings');
+    await wait(150);
+    await page.locator('.atlas-command-item', { hasText: 'Tabletop Settings' }).first().click();
+    await page.locator(SETTINGS_PAGE).waitFor({ timeout: 5000 });
+    check(`palette command Tabletop Settings opens its page in the palette (${mode} mode), no mode change`, (await page.locator('.atlas-command-palette-window').count()) === 1 && (await page.evaluate(() => window.boardTest.host.boardMode())) === mode);
+    await closePalette(page);
+    await wait(300);
   }
 
   // Edit -> Template (Play mode) & Dice tray (Play mode) & Visibility (current mode, no change).
@@ -10478,7 +10742,9 @@ feature('toolbar tooltips', async ({ page, shot }) => {
       for (const one of await offenders()) seen.add(`${mode}/${id}: ${one}`);
       if ((await button.getAttribute('aria-expanded')) === 'true') await button.click({ force: true, timeout: 2000 }).catch(() => {});
       await page.keyboard.press('Escape');
-      await page.waitForTimeout(100);
+      // Tabletop Settings and the command button open the palette, whose Escape goes back to its list first: it is put away.
+      await page.evaluate(() => window.boardTest.palette.close());
+      await page.waitForTimeout(250);
     }
     for (const one of await offenders()) seen.add(`${mode}: ${one}`);
   }

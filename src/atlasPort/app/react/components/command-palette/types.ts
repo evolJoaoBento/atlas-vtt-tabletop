@@ -1,4 +1,4 @@
-// Atlas source: src/app/react/components/command-palette/types.ts @ 0.15.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// Atlas source: src/app/react/components/command-palette/types.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
 // @ts-nocheck
 import type React from 'react';
 
@@ -28,6 +28,8 @@ export const SETTINGS_PANEL_IDS = [
   'experimental-features',
   'graphics-settings',
   'lighting-settings',
+  // Tabletop's own page, in the palette like Atlas's.
+  'tabletop-settings',
 ] as const;
 
 export type SettingsPanelId = (typeof SETTINGS_PANEL_IDS)[number];

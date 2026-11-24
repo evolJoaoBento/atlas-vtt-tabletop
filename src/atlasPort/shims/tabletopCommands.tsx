@@ -29,7 +29,10 @@ function option(command: TabletopCommand, onClose: () => void): any {
     label: command.label,
     keywords: command.keywords,
     section: 'settings',
-    ...(command.submenu
+    ...(command.page
+      // A page of the palette, as Atlas's settings entries are: entered like a submenu, opening in place of the list.
+      ? { hasSubmenu: true, submenu: [{ id: `${command.id}-all`, icon: null, label: command.label, section: command.id, hasSubmenu: false }] }
+      : command.submenu
       ? { hasSubmenu: true, submenu: command.submenu.map((child) => option(child, onClose)) }
       : {
           action: () => {

@@ -4,6 +4,7 @@
 import { ATLAS_TEXT_DATA } from './atlasTextData';
 import type { AtlasTextKey } from './atlasTextKeys';
 import { ATLAS_TEXT_FOG } from './atlasTextFog';
+import { ATLAS_TEXT_PALETTE } from './atlasTextPalette';
 
 /** A text whose wording depends on `count`, one form per plural category of the language (`Intl.PluralRules`). */
 export type PluralMessage = { readonly other: string } & Partial<Record<Exclude<Intl.LDMLPluralRule, 'other'>, string>>;
@@ -22,7 +23,7 @@ const SINCE_0_18: Readonly<Record<string, Readonly<Record<string, AtlasMessage>>
 };
 
 export const ATLAS_TEXT = Object.fromEntries(
-  Object.entries(ATLAS_TEXT_DATA).map(([code, texts]) => [code, { ...SINCE_0_18[code], ...ATLAS_TEXT_FOG[code], ...texts }]),
+  Object.entries(ATLAS_TEXT_DATA).map(([code, texts]) => [code, { ...SINCE_0_18[code], ...ATLAS_TEXT_FOG[code], ...texts, ...ATLAS_TEXT_PALETTE[code] }]),
 ) as Readonly<Record<string, Readonly<Partial<Record<AtlasTextKey, AtlasMessage>>>>>;
 export const ATLAS_LANGUAGES = Object.keys(ATLAS_TEXT);
 

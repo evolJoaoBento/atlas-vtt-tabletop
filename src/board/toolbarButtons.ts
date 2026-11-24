@@ -234,7 +234,7 @@ export const TOOLBAR_BUTTONS: Readonly<Record<ToolbarButtonId, ToolbarButtonSpec
     available: ({ actions }) => actions.setGround !== undefined,
   },
   'board-settings': {
-    id: 'board-settings', label: 'Board settings', icon: 'bricks', modes: ['edit'],
+    id: 'board-settings', label: 'Tabletop Settings', icon: 'bricks', modes: ['edit'],
     keywords: ['board', 'settings', 'walls', 'fog', 'height', 'thickness', 'snap', 'ar'],
     available: () => true,
   },

@@ -43,6 +43,8 @@ export interface AtlasToolButton {
   /** Its window is open. */
   active(): boolean;
   run(): void;
+  /** Opens the tool on one of its pages (the command palette's settings pages). */
+  openPage?(page: string): void;
 }
 
 /** Atlas 0.17's keyboard shortcuts button on the board: Atlas's shortcut help (`HotkeyHelpWindow`). */
@@ -109,6 +111,8 @@ export interface ToolbarActions {
   arTableSheets?(): number | null;
   /** Starts fine-tuning where the players' AR table lies on the map. */
   placeArTable?(): void;
+  /** Opens the command palette on Tabletop Settings (what the Board settings panel was); absent where the palette is not up. */
+  openTabletopSettings?(): void;
   /** The GM's fog tool (Atlas 0.18's: its button and two bars), in Edit mode; absent where the board has no fog tool. */
   fog?: FogBarActions;
   /** The GM's water brush: painting or erasing (null: off), its radius in grid cells, and how all of the map's water moves. */
@@ -334,7 +338,6 @@ export class BoardToolbar {
   private readonly fitWatch: ResizeObserver;
   private lastMode: BoardMode | null | undefined = undefined;
   private readonly registeredButtons = new Map<ToolbarButtonId, HTMLButtonElement>();
-  private readonly panel: HTMLElement;
   private readonly button: HTMLButtonElement;
   /** The Visibility icon bar above the main toolbar: see-through walls, window size, upper layers, initiative tracker. */
   private readonly viewPanel: HTMLElement;
@@ -422,7 +425,6 @@ export class BoardToolbar {
   private measureLookOpen = false;
   private readonly templateMenuButton: HTMLButtonElement;
   private readonly templatePanel: HTMLElement;
-  private readonly autoRollToggle: HTMLInputElement;
   private readonly laserButton: HTMLButtonElement;
   /** The lighting button, and the menu above it that chooses the board's lighting. */
   private readonly lightingGroup: HTMLElement;
@@ -437,10 +439,6 @@ export class BoardToolbar {
   private readonly sliderRange: HTMLElement;
   private readonly sliderThumb: HTMLElement;
   private readonly sizeValue: HTMLElement;
-  private readonly heightInput: HTMLInputElement;
-  private readonly thicknessInput: HTMLInputElement;
-  private readonly snapToggles: { kind: 'tokens' | 'props'; input: HTMLInputElement }[] = [];
-  private readonly edgeButtons: Array<{ value: WallEdges; button: HTMLButtonElement }> = [];
   private readonly layerButtons: Array<{ value: LayerLook; button: HTMLButtonElement }> = [];
   private readonly ambientInput: HTMLInputElement;
   private readonly ambientValue: HTMLElement;
@@ -464,7 +462,6 @@ export class BoardToolbar {
   private cinema: { handlers: CinemaButtons; anchor: HTMLElement; live: HTMLButtonElement } | null = null;
   private readonly onOutside = (event: PointerEvent): void => {
     const target = event.target as Node;
-    if (!this.panel.contains(target) && !this.button.contains(target)) this.close();
     if (!this.viewPanel.contains(target) && !this.viewButton.contains(target) && !this.seeThroughRing.contains(target)) {
       if (this.sizeMode && (target as Element | null)?.tagName === 'CANVAS') {
         this.trackOutsideCanvas(event);
@@ -691,7 +688,6 @@ export class BoardToolbar {
       if (fog.state().on) {
         fog.stop();
       } else {
-        this.close();
         this.closeGround();
         this.closeView();
         this.closeLaser();
@@ -720,7 +716,6 @@ export class BoardToolbar {
         this.actions.selectMeasure?.(null);
         this.closeMeasureLook();
       } else {
-        this.close();
         this.closeGround();
         this.closeView();
         this.closeLaser();
@@ -941,7 +936,6 @@ export class BoardToolbar {
         this.actions.setWaterTool?.(null);
         this.closeWater();
       } else {
-        this.close();
         this.closeGround();
         this.closeView();
         this.closeLaser();
@@ -1306,7 +1300,7 @@ export class BoardToolbar {
     this.groundPanel.setAttribute('role', 'menu');
     this.groundPanel.setAttribute('aria-label', TOOLBAR_BUTTONS.ground.label);
     if (!this.actions.setGround) this.groundGroup.style.display = 'none';
-    this.button = this.registerButton('board-settings', tool(WALL_SVG, () => (this.panel.hidden ? this.open() : this.close())));
+    this.button = this.registerButton('board-settings', tool(WALL_SVG, () => this.openSettings()));
     this.viewButton = this.registerButton('visibility', tool(modeIcon('view'), () => (this.viewPanel.hidden ? this.openView() : this.closeView())));
     this.viewButton.setAttribute('aria-label', TOOLBAR_BUTTONS.visibility.label);
     this.viewButton.setAttribute('aria-expanded', 'false');
@@ -1318,13 +1312,6 @@ export class BoardToolbar {
     this.endSlot = el('div', 'atlas-toolbar-end atlas-vtt-plugin atlas-tabletop-extensions', bar);
     this.button.setAttribute('aria-label', TOOLBAR_BUTTONS['board-settings'].label);
     this.setTip(this.button, { label: TOOLBAR_BUTTONS['board-settings'].label });
-    this.button.setAttribute('aria-expanded', 'false');
-
-    this.panel = el('div', 'atlas-tabletop-palette', this.row);
-    this.panel.hidden = true;
-    this.panel.setAttribute('role', 'dialog');
-    this.panel.setAttribute('aria-label', 'Board settings');
-    el('div', 'atlas-tabletop-palette__title', this.panel, 'Board settings');
     this.viewPanel = el('div', 'atlas-vtt-toolbar atlas-tool-bar atlas-tabletop-view-bar', this.row);
     this.viewPanel.hidden = true;
     this.viewPanel.setAttribute('role', 'toolbar');
@@ -1408,43 +1395,6 @@ export class BoardToolbar {
       },
       onClose: () => this.setSizeMode(false),
     });
-    const fog = el('div', 'atlas-tabletop-palette__section', this.panel);
-    el('div', 'atlas-tabletop-palette__heading', fog, 'Walls and fog: size and shape');
-    const field = el('label', 'atlas-tabletop-palette__field', fog);
-    el('span', 'atlas-tabletop-palette__label', field, 'Default wall height');
-    this.heightInput = el('input', 'atlas-tabletop-palette__input', field);
-    this.heightInput.type = 'text';
-    this.heightInput.inputMode = 'decimal';
-    this.heightInput.setAttribute('aria-label', 'Default wall height in squares');
-    el('span', 'atlas-tabletop-palette__unit', field, 'squares');
-    const thick = el('label', 'atlas-tabletop-palette__field', fog);
-    el('span', 'atlas-tabletop-palette__label', thick, 'Wall thickness');
-    this.thicknessInput = el('input', 'atlas-tabletop-palette__input', thick);
-    this.thicknessInput.type = 'text';
-    this.thicknessInput.inputMode = 'decimal';
-    this.thicknessInput.setAttribute('aria-label', 'Wall thickness in squares');
-    el('span', 'atlas-tabletop-palette__unit', thick, 'squares');
-    // The players' AR table: where their printed marker sheets lie on the map, fine-tuned here only.
-    this.tableSection = el('div', 'atlas-tabletop-palette__section', this.panel);
-    el('div', 'atlas-tabletop-palette__heading', this.tableSection, 'AR table');
-    this.tableHint = el('div', 'atlas-tabletop-palette__hint', this.tableSection, '');
-    this.tableButton = el('button', 'atlas-tabletop-palette__choice', this.tableSection, 'Fine-tune the AR table…');
-    this.tableButton.type = 'button';
-    this.setTip(this.tableButton, { label: 'Fine-tune the AR table', subtitle: 'Shows the players\' printed sheets on the map with handles: drag them to where the map should lie on the table.' });
-    this.tableButton.addEventListener('click', () => { this.close(); this.actions.placeArTable?.(); });
-    // Snap to grid: tokens and props each on their own.
-    const snapping = el('div', 'atlas-tabletop-palette__section', this.panel);
-    el('div', 'atlas-tabletop-palette__heading', snapping, 'Snap to grid');
-    for (const [kind, label, hint] of [['tokens', 'Snap tokens', "The map's own Snap to grid (the same as Atlas's): a dropped token goes to the middle of its square. Off: it stays where it is dropped."], ['props', 'Snap props', 'On its own, whatever the map snaps tokens to: a dropped prop goes to the middle of its square. Off: it stays where it is dropped.']] as const) {
-      const row = el('label', 'atlas-tabletop-palette__field', snapping);
-      const input = el('input', 'atlas-tabletop-palette__check', row);
-      input.type = 'checkbox';
-      input.dataset.snap = kind;
-      el('span', 'atlas-tabletop-palette__label', row, label);
-      this.setTip(row, { label, subtitle: hint });
-      input.addEventListener('change', () => this.actions.setSnap?.(kind, input.checked));
-      this.snapToggles.push({ kind, input });
-    }
     // Ground (its own panel): the map on its table, or a plane or water to the horizon round it; extra board either way.
     if (this.actions.setGround) {
       const modeSection = el('div', 'atlas-dropdown-section', this.groundPanel);
@@ -1582,42 +1532,6 @@ export class BoardToolbar {
       this.setTip(margin.input.closest('label')!, { label: 'Extra board', subtitle: 'Room round the map where minis can stand, in squares each way.' });
       this.groundUi = { section, modes, rows, water: { kind, style: lavaStyle, amount: amount.input, direction: direction.input, directionRow: direction.input.closest('label')!, clarity: clarity.input, tint, presets, makePresets }, material, background, noise, strength: strength.input, strengthValue: strength.value, fog: fogRow.input, fogOn, fogValue: fogRow.value, margin: margin.input, marginValue: margin.value, tile: tile.input, tileValue: tile.value };
     }
-    const edges = el('div', 'atlas-tabletop-palette__field', fog);
-    el('span', 'atlas-tabletop-palette__label', edges, 'Wall edges');
-    const edgeChoices = el('span', 'atlas-tabletop-palette__choices', edges);
-    edgeChoices.setAttribute('role', 'group');
-    edgeChoices.setAttribute('aria-label', 'How round the edges of walls and doors are');
-    for (const [value, label] of [['sharp', 'Sharp'], ['soft', 'Soft'], ['round', 'Round']] as const) {
-      const button = el('button', 'atlas-tabletop-palette__choice', edgeChoices, label);
-      button.type = 'button';
-      // Applies at once: the choice shows as chosen now, and the walls follow.
-      button.addEventListener('click', () => {
-        this.actions.setWallEdges?.(value);
-        this.showEdges(value);
-      });
-      this.edgeButtons.push({ value, button });
-    }
-    this.setTip(edges, { label: 'Wall edges', subtitle: 'Sharp is a plain box; Soft rounds the edges a little so they catch the light; Rounded is more pillowy. Walls are drawn with more triangles when rounded.' });
-    el('div', 'atlas-tabletop-palette__hint', fog, 'Walls without a height of their own stand this many grid squares tall, and so does the fog painted in Atlas (0 lays the fog flat on the map).');
-    const dice = el('div', 'atlas-tabletop-palette__section', this.panel);
-    el('div', 'atlas-tabletop-palette__heading', dice, t('dice.heading'));
-    const auto = el('label', 'atlas-tabletop-palette__field', dice);
-    this.autoRollToggle = el('input', 'atlas-tabletop-palette__check', auto);
-    this.autoRollToggle.type = 'checkbox';
-    el('span', 'atlas-tabletop-palette__label', auto, t('dice.autoRoll'));
-    this.setTip(auto, { label: t('dice.autoRoll'), subtitle: t('dice.autoRollHint') });
-    this.autoRollToggle.addEventListener('change', () => this.actions.setAutoRoll(this.autoRollToggle.checked));
-    const apply = (): void => {
-      const height = readFogHeight(this.heightInput.value);
-      this.heightInput.toggleAttribute('aria-invalid', height === null);
-      if (height !== null) this.actions.setFogHeight(height);
-    };
-    this.heightInput.addEventListener('change', apply);
-    this.thicknessInput.addEventListener('change', () => {
-      const thickness = readWallThickness(this.thicknessInput.value);
-      this.thicknessInput.toggleAttribute('aria-invalid', thickness === null);
-      if (thickness !== null) this.actions.setWallThickness(thickness);
-    });
     this.viewPanel.addEventListener('keydown', (event) => {
       event.stopPropagation();
       if (event.key === 'Escape') { event.preventDefault(); this.closeView(); }
@@ -1625,12 +1539,6 @@ export class BoardToolbar {
     this.groundPanel.addEventListener('keydown', (event) => {
       event.stopPropagation();
       if (event.key === 'Escape') { event.preventDefault(); this.closeGround(); }
-    });
-    this.panel.addEventListener('keydown', (event) => {
-      // Typing here must not move the camera.
-      event.stopPropagation();
-      if (event.key === 'Enter') { event.preventDefault(); apply(); }
-      else if (event.key === 'Escape') { event.preventDefault(); this.close(); }
     });
     // Atlas's "More tools": when the pane is too narrow for the bar, the tools farthest from the Move group go into this
     // menu, one by one, and come back as the pane widens.
@@ -1698,7 +1606,7 @@ export class BoardToolbar {
     this.fitWatch = new (doc.defaultView ?? window).ResizeObserver(() => this.fit());
     this.fitWatch.observe(container);
     // Presses on the bar and the panel are not the board's: no camera drag, no deselecting.
-    for (const part of [bar, this.helpBar, this.panel, this.viewPanel, this.waterPanel, this.measureBarsPanel, ...(this.fogBars ? [this.fogBars.panel] : [])]) part.addEventListener('pointerdown', (event) => event.stopPropagation());
+    for (const part of [bar, this.helpBar, this.viewPanel, this.waterPanel, this.measureBarsPanel, ...(this.fogBars ? [this.fogBars.panel] : [])]) part.addEventListener('pointerdown', (event) => event.stopPropagation());
     this.refresh();
   }
 
@@ -1752,7 +1660,7 @@ export class BoardToolbar {
     show(this.button.closest<HTMLElement>('.atlas-tool-button'), editing);
     show(this.groundGroup, editing);
     if (!playing) { this.closeTemplate(); this.closeMeasure(); this.closeDice(); }
-    if (!editing) { this.close(); this.closeGround(); this.closeWater(); this.closePaint(); this.closeLighting(); }
+    if (!editing) { this.closeGround(); this.closeWater(); this.closePaint(); this.closeLighting(); }
     if (cinematic) this.closeView();
     const painting = this.actions.painting?.() ?? null;
     if (painting) this.lastPaint = painting;
@@ -1807,7 +1715,7 @@ export class BoardToolbar {
   }
 
   get isOpen(): boolean {
-    return !this.panel.hidden || !this.viewPanel.hidden || !this.groundPanel.hidden || !this.laserPanel.hidden || !this.lightingPanel.hidden || !this.moreMenu.hidden || this.ends().some((end) => end.handlers.isOpen()) || this.sheetHandlers?.isOpen() === true;
+    return !this.viewPanel.hidden || !this.groundPanel.hidden || !this.laserPanel.hidden || !this.lightingPanel.hidden || !this.moreMenu.hidden || this.ends().some((end) => end.handlers.isOpen()) || this.sheetHandlers?.isOpen() === true;
   }
 
   /** The end slot's buttons there now: Dice (and Dice log if mounted standalone). */
@@ -2008,7 +1916,6 @@ export class BoardToolbar {
         this.openLaser();
         break;
       case 'measure':
-        this.close();
         this.closeGround();
         this.closeView();
         this.closeLaser();
@@ -2033,7 +1940,6 @@ export class BoardToolbar {
         if (this.actions.hosting()) this.openTemplate();
         break;
       case 'water':
-        this.close();
         this.closeGround();
         this.closeView();
         this.closeLaser();
@@ -2045,7 +1951,6 @@ export class BoardToolbar {
         if (!this.actions.waterTool?.()) this.actions.setWaterTool?.(this.lastWaterMode);
         break;
       case 'fog':
-        this.close();
         this.closeGround();
         this.closeView();
         this.closeLaser();
@@ -2075,7 +1980,7 @@ export class BoardToolbar {
         if (this.actions.setGround) this.openGround();
         break;
       case 'board-settings':
-        this.open();
+        this.openSettings();
         break;
       case 'visibility':
         this.openView();
@@ -2108,7 +2013,6 @@ export class BoardToolbar {
         break;
       case 'dice':
         if (this.dice) {
-          this.close();
           this.closeView();
           this.closeLaser();
           this.closeTemplate();
@@ -2121,7 +2025,6 @@ export class BoardToolbar {
         break;
       case 'dice-log':
         if (this.diceLog) {
-          this.close();
           this.closeView();
           this.closeLaser();
           this.closeTemplate();
@@ -2299,7 +2202,6 @@ export class BoardToolbar {
     button.setAttribute('aria-expanded', 'false');
     const made: EndButton = { handlers, anchor, button };
     button.addEventListener('click', () => {
-      this.close();
       this.closeView();
       this.closeLaser();
       this.closeTemplate();
@@ -2328,7 +2230,6 @@ export class BoardToolbar {
 
   /** Shows the laser's options above the toolbar. */
   openLaser(): void {
-    this.close();
     this.closeView();
     this.closeDice();
     this.showLaser();
@@ -2384,7 +2285,6 @@ export class BoardToolbar {
   }
 
   openMore(): void {
-    this.close();
     this.closeView();
     this.closeDice();
     this.closeLaser();
@@ -2405,7 +2305,6 @@ export class BoardToolbar {
 
   /** Shows the lighting choices above the toolbar. */
   openLighting(): void {
-    this.close();
     this.closeView();
     this.closeWater();
     this.closeLaser();
@@ -2443,7 +2342,6 @@ export class BoardToolbar {
 
   /** The paint tool's materials, as the library has them now: each a card; and taking a wall's material off. */
   openPaint(): void {
-    this.close();
     this.closeView();
     this.closeLaser();
     this.closeLighting();
@@ -2538,7 +2436,7 @@ export class BoardToolbar {
     this.waterButton.classList.toggle('is-active', waterMode !== null);
     this.waterButton.setAttribute('aria-pressed', String(waterMode !== null));
     const showBar = editing && waterMode !== null
-      && this.viewPanel.hidden && this.panel.hidden && this.groundPanel.hidden
+      && this.viewPanel.hidden && this.groundPanel.hidden
       && this.paintPanel.hidden && this.lightingPanel.hidden;
     if (!showBar) {
       this.closeWaterPopovers();
@@ -2650,7 +2548,7 @@ export class BoardToolbar {
     this.fogButton.classList.toggle('is-active', state.on);
     this.fogButton.setAttribute('aria-pressed', String(state.on));
     const showBar = editing && state.on
-      && this.viewPanel.hidden && this.panel.hidden && this.groundPanel.hidden
+      && this.viewPanel.hidden && this.groundPanel.hidden
       && this.paintPanel.hidden && this.lightingPanel.hidden;
     this.fogBars.show(showBar);
     this.fogButton.setAttribute('aria-expanded', String(showBar));
@@ -2726,7 +2624,7 @@ export class BoardToolbar {
 
     // Horizontal bars above toolbar while Measure is chosen and no modal panel covers them.
     const showBar = playing && measureOn
-      && this.viewPanel.hidden && this.panel.hidden && this.groundPanel.hidden
+      && this.viewPanel.hidden && this.groundPanel.hidden
       && this.paintPanel.hidden && this.lightingPanel.hidden;
     if (!showBar) {
       this.closeMeasureLook();
@@ -2783,7 +2681,6 @@ export class BoardToolbar {
   }
 
   openMeasure(): void {
-    this.close();
     this.closeView();
     this.closeGround();
     this.closeLaser();
@@ -2846,13 +2743,7 @@ export class BoardToolbar {
     this.row.hidden = hidden;
     // The row lays itself out as flex, which `hidden` alone does not undo.
     this.row.style.display = hidden ? 'none' : '';
-    if (hidden) { this.close(); this.closeView(); }
-  }
-
-  /** Marks the chosen wall edges in the settings. */
-  private showEdges(chosen: WallEdges): void {
-    for (const { value, button } of this.edgeButtons) button.classList.toggle('is-active', value === chosen);
-    for (const { value, button } of this.edgeButtons) button.setAttribute('aria-pressed', String(value === chosen));
+    if (hidden) { this.closeView(); }
   }
 
   private showLayerLook(chosen: LayerLook): void {
@@ -2862,25 +2753,18 @@ export class BoardToolbar {
     }
   }
 
-  open(): void {
+  /** Opens Tabletop Settings: the command palette on its page. The panels of the end slot (the dice tray, the log, an unpinned sheet) and the other menus give way to it. */
+  private openSettings(): void {
     this.closeLaser();
     this.closeView();
     this.closeWater();
     this.closeGround();
-    // The panels of the end slot (the dice tray, the log, an unpinned sheet) give way to this one.
     this.closeDice();
-    this.fill();
-    this.panel.hidden = false;
-    this.button.classList.add('is-active');
-    this.button.setAttribute('aria-expanded', 'true');
-    this.row.ownerDocument.addEventListener('pointerdown', this.onOutside, true);
-    this.heightInput.focus();
-    this.heightInput.select();
+    this.actions.openTabletopSettings?.();
   }
 
   /** Shows the Visibility icon bar above the toolbar. */
   openView(): void {
-    this.close();
     this.closeGround();
     this.closeLaser();
     this.closeLighting();
@@ -3004,14 +2888,13 @@ export class BoardToolbar {
   }
 
   private dropOutsideIfClosed(): void {
-    if (this.panel.hidden && this.viewPanel.hidden && this.groundPanel.hidden && this.laserPanel.hidden && this.measurePanel.hidden && this.lightingPanel.hidden && this.paintPanel.hidden && this.openWaterPopoverName === null && this.fogBars?.popoverOpen !== true && !this.measureLookOpen && this.templatePanel.hidden && this.moreMenu.hidden) {
+    if (this.viewPanel.hidden && this.groundPanel.hidden && this.laserPanel.hidden && this.measurePanel.hidden && this.lightingPanel.hidden && this.paintPanel.hidden && this.openWaterPopoverName === null && this.fogBars?.popoverOpen !== true && !this.measureLookOpen && this.templatePanel.hidden && this.moreMenu.hidden) {
       this.row.ownerDocument.removeEventListener('pointerdown', this.onOutside, true);
     }
   }
 
   /** Shows the Ground panel above the toolbar: the map's background, as it is set now. */
   openGround(): void {
-    this.close();
     this.closeView();
     this.closeWater();
     this.closeLaser();
@@ -3052,9 +2935,6 @@ export class BoardToolbar {
   }
 
   /** The two panels' fields as the board has them now. */
-  private readonly tableSection: HTMLElement;
-  private readonly tableHint: HTMLElement;
-  private readonly tableButton: HTMLButtonElement;
 
   /** The Ground section as the map's settings are now (the material list read again: the gallery may have more). */
   /** The brush's bar named for its liquid: its modes, motions and tint, the liquid's presets, no clarity for lava. */
@@ -3128,34 +3008,7 @@ export class BoardToolbar {
     ui.tileValue.textContent = `${ground.tile} sq`;
   }
 
-  private fill(): void {
-    const sheets = this.actions.arTableSheets?.() ?? null;
-    this.tableSection.hidden = this.actions.placeArTable === undefined;
-    this.tableButton.disabled = sheets === null;
-    this.tableHint.textContent = sheets === null
-      ? 'None yet: a player sends one from their phone (AR menu, Send this table to the GM).'
-      : `${sheets} sheet${sheets === 1 ? '' : 's'} surveyed by the players.`;    this.heightInput.value = String(this.actions.fogHeight());
-    this.heightInput.removeAttribute('aria-invalid');
-    this.thicknessInput.value = String(this.actions.wallThickness());
-    this.thicknessInput.removeAttribute('aria-invalid');
-    this.showEdges(this.actions.wallEdges?.() ?? DEFAULT_EDGES);
-    const snap = this.actions.snap?.() ?? { tokens: true, props: true };
-    for (const { kind, input } of this.snapToggles) { input.checked = snap[kind]; input.closest('.atlas-tabletop-palette__section')?.toggleAttribute('hidden', this.actions.setSnap === undefined); }
-    this.edgeButtons[0]?.button.closest('.atlas-tabletop-palette__field')?.toggleAttribute('hidden', this.actions.setWallEdges === undefined);
-    this.autoRollToggle.checked = this.actions.autoRoll();
-  }
-
-  close(): void {
-    if (this.panel.hidden) return;
-    this.panel.hidden = true;
-    this.button.classList.remove('is-active');
-    this.button.setAttribute('aria-expanded', 'false');
-    this.syncWaterBar();
-    this.dropOutsideIfClosed();
-  }
-
   dispose(): void {
-    this.close();
     this.closeView();
     this.closeWater();
     this.closeMeasure();

@@ -80,6 +80,17 @@ const MEMBERS = [
   ['isExperimentalOn', 'shims/settingsService.ts (settings service, for the copied hotkeys and statblock counters)'],
   ['atlas-vtt:collection-settings-changed', 'BoardView.ts (workspace event: a collection\'s settings were saved)'],
   // The dice tray's saved rolls (savedRollsAccess.ts): the collection's settings, which only Atlas 0.18 keeps.
+  // Atlas's own settings pages, copied into the board's palette (0.19), act on the Atlas view holding the board's map (PaletteWindow.tsx).
+  ['getSettingsService', 'PaletteWindow.tsx (serviceManager: the settings the copied pages read and write)'],
+  ['setGridVisible', 'command-palette/GridSettingsPanel.tsx (view store action)'],
+  ['setSnapToGrid', 'command-palette/GridSettingsPanel.tsx (view store action)'],
+  ['setTokenSettings', 'command-palette/TokenSettingsPanel.tsx (view store action)'],
+  ['setWidgetOn', 'command-palette/WidgetSettingsPanel.tsx (view store action)'],
+  ['getLocalPlayerViewSettings', 'command-palette/PlayerViewSettingsPanel.tsx (settings service)'],
+  ['setLocalPlayerViewSettings', 'command-palette/PlayerViewSettingsPanel.tsx (settings service)'],
+  ['setDiceDisplay', 'command-palette/DiceSettingsPanel.tsx (settings service)'],
+  ['setGraphics', 'command-palette/GraphicsPanel.tsx (settings service)'],
+  ['setExperimental', 'command-palette/ExperimentalFeaturesPanel.tsx (settings service)'],
   ['dicePresets', 'savedRollsAccess.ts (collection setting, 0.18: the saved rolls)'],
   ['diceRow', 'savedRollsAccess.ts (collection setting, 0.18: the tray row, read with the shelf)'],
 ];

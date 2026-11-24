@@ -322,18 +322,20 @@ server.listen(0, async () => {
       check('fog covers the room, not the corridor erased through it', covered.room && !covered.corridor && !covered.outside, covered);
       await page.screenshot({ path: `${shots}/board-8-fog.png` });
 
-      const button = await page.evaluate(() => { const b = document.querySelector('.atlas-tabletop-tool-button[aria-label="Board settings"]').getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; });
+      const button = await page.evaluate(() => { const b = document.querySelector('.atlas-tabletop-tool-button[aria-label="Tabletop Settings"]').getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; });
       const selBefore = await page.evaluate(() => window.boardTest.board.selected);
       await page.mouse.click(button.x, button.y);
-      await wait(150);
+      await page.waitForSelector('[data-tabletop-settings]', { timeout: 5000 });
+      await wait(600);
       const panel = await page.evaluate(() => {
-        const p = document.querySelector('.atlas-tabletop-palette:not(.atlas-tabletop-laser-options)');
+        const p = document.querySelector('[data-tabletop-settings]');
         const input = p.querySelector('input');
-        return { open: !p.hidden, value: input.value, focused: document.activeElement === input, text: p.textContent };
+        return { open: !!p, value: input.value, text: p.textContent };
       });
-      check('the toolbar\'s button opens the board settings with the fog height', panel.open && panel.value === '1' && panel.focused && panel.text.includes('Walls and fog'), panel);
+      check('the toolbar\'s button opens Tabletop Settings with the fog height', panel.open && panel.value === '1' && panel.text.includes('Walls and fog'), panel);
       await page.screenshot({ path: `${shots}/board-9-settings.png` });
       const camera = await goal();
+      await page.locator('[data-tabletop-settings] input[aria-label="Default wall height in squares"]').click();
       await page.keyboard.press('Control+A');
       await page.keyboard.type('w2');
       await page.keyboard.press('Backspace');
@@ -347,20 +349,29 @@ server.listen(0, async () => {
       check('the fog stands two squares tall', Math.abs(f.maxY - f.minY - 175) < 0.01, f);
       const after = await goal();
       check('typing in the settings does not move the camera', JSON.stringify(after.target) === JSON.stringify(camera.target), { camera: camera.target, after: after.target });
+      await page.locator('[data-tabletop-settings] input[aria-label="Default wall height in squares"]').click();
       await page.keyboard.type('x');
       await page.keyboard.press('Enter');
-      const invalid = await page.evaluate(() => document.querySelector('.atlas-tabletop-palette:not(.atlas-tabletop-laser-options) input').hasAttribute('aria-invalid'));
+      await wait(200);
+      const invalid = await page.evaluate(() => document.querySelector('[data-tabletop-settings] input').hasAttribute('aria-invalid'));
       check('a height that is not a number is refused', invalid && (await record()).fogHeights.length === 1, invalid);
+      // Escape goes back to the palette's list (as Atlas's pages do), and a second one puts the palette away.
+      await page.locator('[data-tabletop-settings] input').first().focus();
       await page.keyboard.press('Escape');
-      await wait(100);
-      check('Escape closes the settings', await page.evaluate(() => document.querySelector('.atlas-tabletop-palette:not(.atlas-tabletop-laser-options)').hidden));
+      await wait(400);
+      check('Escape leaves the settings page for the palette list', (await page.locator('[data-tabletop-settings]').count()) === 0 && (await page.locator('.atlas-command-palette-window').count()) === 1);
+      await page.keyboard.press('Escape');
+      await wait(400);
+      check('a second Escape puts the palette away', (await page.locator('.atlas-command-palette-window').count()) === 0);
       check('the toolbar takes no press from the board', (await page.evaluate(() => window.boardTest.board.selected)) === selBefore);
+      await wait(600);
       await page.mouse.click(button.x, button.y);
+      await page.waitForSelector('[data-tabletop-settings]', { timeout: 5000 });
       await wait(100);
-      // The left of the board's canvas, below the scene tabs: clear of the panel whatever the camera.
+      // The left of the board's canvas, below the scene tabs: clear of the page whatever the camera.
       await page.mouse.click(20, 300);
-      await wait(100);
-      check('a click on the board closes the settings', await page.evaluate(() => document.querySelector('.atlas-tabletop-palette:not(.atlas-tabletop-laser-options)').hidden));
+      await wait(900);
+      check('a click on the board closes the settings', (await page.locator('.atlas-command-palette-window').count()) === 0);
     }
 
     // 1k. The local player view: a second window drawing the scene as players see it.
@@ -446,7 +457,7 @@ server.listen(0, async () => {
       const looks = await page.evaluate(() => {
         const style = (el) => getComputedStyle(el);
         const face = document.querySelector('.atlas-tool-group:not(.atlas-tabletop-history):not(.atlas-tabletop-modes) .atlas-tabletop-tool-button');
-        const command = document.querySelector('.atlas-tabletop-tool-button[aria-label="Board settings"]');
+        const command = document.querySelector('.atlas-tabletop-tool-button[aria-label="Tabletop Settings"]');
         return {
           command: { bg: style(command).backgroundColor, border: style(command).borderTopWidth, shadow: style(command).boxShadow, size: command.getBoundingClientRect().width },
           face: { bg: style(face).backgroundColor, color: style(face).color, left: style(face).borderTopLeftRadius, right: style(face).borderTopRightRadius },
@@ -1144,11 +1155,13 @@ server.listen(0, async () => {
       await page.evaluate(() => { window.boardTest.board.toolbar.actions.setAmbient(1, true); });
     }
 
-    // 22b. Board settings: the default wall height (which the fog takes too) and the walls' thickness.
+    // 22b. Tabletop Settings: the default wall height (which the fog takes too) and the walls' thickness.
     {
+      await page.evaluate(() => window.boardTest.palette.open('tabletop-settings'));
+      await page.waitForSelector('[data-tabletop-settings]', { timeout: 5000 });
+      await wait(500);
       const panel = await page.evaluate(() => {
-        window.boardTest.board.toolbar.open();
-        const labels = [...document.querySelectorAll('.atlas-tabletop-palette__label')].map((label) => label.textContent);
+        const labels = [...document.querySelectorAll('[data-tabletop-settings] .atlas-setting-label')].map((label) => label.textContent);
         const thickness = document.querySelector('input[aria-label="Wall thickness in squares"]');
         return { labels, thickness: thickness ? thickness.value : null };
       });
@@ -1156,20 +1169,15 @@ server.listen(0, async () => {
       // The walls are built from their shape: its thickness (map pixels) is the fifth entry of what they were built from.
       const depth = () => page.evaluate(() => JSON.parse(window.boardTest.board.walls.signature)[4]);
       const before = await depth();
-      await page.evaluate(() => {
-        const input = document.querySelector('input[aria-label="Wall thickness in squares"]');
-        input.value = '0.5';
-        input.dispatchEvent(new Event('change'));
-      });
+      await page.locator('input[aria-label="Wall thickness in squares"]').fill('0.5');
+      await page.keyboard.press('Enter');
       await wait(300);
       const after = await depth();
       check('a thicker setting makes the walls thicker (0.12 → 0.5 of a square)', Math.abs(before - 70 * 0.12) < 0.5 && Math.abs(after - 70 * 0.5) < 0.5, { before, after, record: (await record()).thicknesses });
-      await page.evaluate(() => {
-        const input = document.querySelector('input[aria-label="Wall thickness in squares"]');
-        input.value = '0.12';
-        input.dispatchEvent(new Event('change'));
-        window.boardTest.board.toolbar.close();
-      });
+      await page.locator('input[aria-label="Wall thickness in squares"]').fill('0.12');
+      await page.keyboard.press('Enter');
+      await wait(300);
+      await page.evaluate(() => window.boardTest.palette.close());
       await wait(300);
     }
 

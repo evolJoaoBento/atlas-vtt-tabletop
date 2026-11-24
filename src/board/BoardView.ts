@@ -759,10 +759,15 @@ export class BoardView extends ItemView {
     const atlasView = () => (this.path ? tabViewOf(this.app, this.path) : null);
     const openInAtlas = (page?: string): void => {
       const found = atlasView();
-      const state = found?.view.atlasStore.getState() as { setCommandPaletteOpen?: (open: boolean, page?: string) => void } | undefined;
+      const state = found?.view.atlasStore.getState() as { setCommandPaletteOpen?: (open: boolean, page?: string) => void; setDMScreenPage?: (page: string) => void; setDMScreenOpen?: (open: boolean) => void; setDocsOpen?: (open: boolean) => void; openArmarium?: () => void; setGridAlignmentOpen?: (open: boolean) => void } | undefined;
       if (!found || typeof state?.setCommandPaletteOpen !== 'function') { new Notice('Tabletop: this needs Atlas with this map open.'); return; }
       this.app.workspace.setActiveLeaf(found.leaf, { focus: true });
-      state.setCommandPaletteOpen(true, page && page !== 'customize-toolbar' ? page : undefined);
+      // The windows Atlas's palette opens besides its pages (the DM screen, its docs, the armarium): opened in Atlas's view.
+      if (page === 'dm-screen' && state.setDMScreenOpen) { state.setDMScreenOpen(true); return; }
+      if (page === 'docs' && state.setDocsOpen) { state.setDocsOpen(true); return; }
+      if (page === 'armarium' && state.openArmarium) { state.openArmarium(); return; }
+      if (page === 'grid-alignment' && state.setGridAlignmentOpen) { state.setGridAlignmentOpen(true); return; }
+      state.setCommandPaletteOpen(true, page && page !== 'customize-toolbar' && page !== 'dm-screen' && page !== 'docs' && page !== 'armarium' && page !== 'grid-alignment' ? page : undefined);
     };
     return new BoardAtlasTools({
       app: this.app, leaf: this.leaf, container: this.contentEl, writer: this.services.writer,
@@ -788,6 +793,8 @@ export class BoardView extends ItemView {
         togglePlayerFreeze: () => this.board?.setPlayerFrozen(!(this.board?.playerFrozen ?? false)),
         presentInAtlas: () => { if (!this.path || !new AtlasBridge(this.app).runInAtlas(this.path, 'atlas-vtt:send-map-to-player-view', this.leaf)) new Notice('Tabletop: Atlas could not show this scene to players.'); },
         openInAtlas,
+        atlasView: () => (this.path ? this.services.writer.holder(this.path) : null),
+        tabletopSettings: () => this.board?.toolbarActions() ?? null,
         tabletopCommands: () => { const board = this.board; return board ? tabletopCommands(board.toolbarActions(), () => board.refreshToolbar(), board.toolbarCommandHost()) : []; },
       },
       spawn: {

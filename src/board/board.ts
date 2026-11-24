@@ -1098,6 +1098,7 @@ export class Board {
       togglePlayerFreeze: () => this.setPlayerFrozen(this.player?.frozen == null),
       hosting: () => this.host.hosting?.() === true,
       ...(this.audience === 'gm' && {
+        openTabletopSettings: () => this.atlasPalette?.openPage?.('tabletop-settings'),
         arTableSheets: () => this.arTable?.survey.groups.length ?? null,
         placeArTable: () => this.placeTable(true),
       }),
@@ -3933,7 +3934,7 @@ export class Board {
       if (this.toolKey(event, key)) return;
       if (key === 'escape' && this.group.size > 0) { this.clearGroup(); return; }
       if (key === 'escape' && this.selectedId !== null) { this.select(null); return; }
-      if (key === 'escape' && this.toolbar.isOpen) { this.toolbar.close(); this.toolbar.closeView(); this.toolbar.closeGround(); this.toolbar.closeDice(); return; }
+      if (key === 'escape' && this.toolbar.isOpen) { this.toolbar.closeView(); this.toolbar.closeGround(); this.toolbar.closeDice(); return; }
       if (key === 'home') { this.frameMap(); event.preventDefault(); return; }
       // Up and down arrows while carrying a token take it to the layer above or below (shown, not yet the one played).
       if ((key === 'arrowup' || key === 'arrowdown' || key === 'pageup' || key === 'pagedown') && this.press?.kind === 'token' && this.audience === 'gm' && this.layerViews.size > 0) {
@@ -6592,8 +6593,12 @@ export class Board {
     return this.press?.kind === 'token' || (this.press?.kind === 'tool' && this.tools.tool === 'measure' && this.tools.shape === 'ruler');
   }
 
+  /** Atlas's command palette tool, which Tabletop Settings opens on its page. */
+  private atlasPalette: AtlasToolButton | null = null;
+
   /** Shows Atlas's toolbar tools on the board's toolbar (the GM's; src/board/atlasTools.ts). */
   setAtlasTools(tools: readonly AtlasToolButton[]): void {
+    this.atlasPalette = tools.find((tool) => tool.id === 'palette') ?? null;
     if (this.audience === 'gm') this.toolbar.setAtlasTools(tools);
   }
 

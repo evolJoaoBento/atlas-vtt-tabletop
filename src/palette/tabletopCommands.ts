@@ -22,6 +22,8 @@ export interface TabletopCommand {
   active?: boolean;
   run?(): void;
   submenu?: TabletopCommand[];
+  /** A settings page of the palette (Atlas's own kind: the entry opens it in place of the list); `id` is the page's. */
+  page?: boolean;
 }
 
 /** Optional toolbar bridge so palette entries can inspect attached end-slot/atlas buttons and jump via `goTo`. */
@@ -94,6 +96,8 @@ export function tabletopCommands(actions: ToolbarActions, refresh: () => void, h
 
   // Every available toolbar button from the single registry (switches mode when needed).
   for (const entry of toolbarButtonEntries(state)) {
+    // Its page is the Tabletop Settings entry below.
+    if (entry.id === 'board-settings') continue;
     commands.push({
       id: `tabletop-toolbar-${entry.id}`,
       label: entry.label,
@@ -123,21 +127,13 @@ export function tabletopCommands(actions: ToolbarActions, refresh: () => void, h
     });
   }
 
-  // Board settings quick-options submenu (panel-internal settings not already standalone toolbar buttons: wall edges, auto-roll).
-  const board: TabletopCommand[] = [];
-  if (actions.setWallEdges) {
-    const edges = actions.wallEdges?.();
-    for (const [value, label] of [['sharp', 'Sharp'], ['soft', 'Soft'], ['round', 'Round']] as const) {
-      board.push(choice(`tabletop-edges-${value}`, `Wall edges: ${label}`, 'bricks', edges, value, actions.setWallEdges, refresh));
-    }
-  }
-  board.push({ id: 'tabletop-auto-roll', label: t('dice.autoRoll'), icon: 'dice', active: actions.autoRoll(), run: () => { actions.setAutoRoll(!actions.autoRoll()); refresh(); } });
+  // Tabletop's own settings page (what the Board settings panel held), in the Settings section as Atlas's pages are.
   commands.push({
-    id: 'tabletop-board-settings',
-    label: 'Tabletop: board settings',
+    id: 'tabletop-settings',
+    label: t('tabletopSettings.entry'),
     icon: 'settings',
-    keywords: ['walls', 'edges', 'fog', 'dice', 'auto', 'roll', 'board'],
-    submenu: board,
+    keywords: ['walls', 'edges', 'fog', 'height', 'thickness', 'snap', 'dice', 'auto', 'roll', 'ar', 'table', 'board', 'tabletop'],
+    page: true,
   });
 
   return commands;

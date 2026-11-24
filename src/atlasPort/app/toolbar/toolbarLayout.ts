@@ -1,0 +1,187 @@
+// Atlas source: src/app/toolbar/toolbarLayout.ts @ 0.19.0 (AGPL-3.0, copied for Tabletop by npm run sync:atlas; do not edit).
+// @ts-nocheck
+import { isRecord } from '../utils/guards';
+import {
+  DEFAULT_TOOLBAR_ORDER, isHideableToolbarControl, isSideBarId, isToolbarControlId, isToolbarUnitId, SIDE_BAR_IDS, type ToolbarControlId, type ToolbarUnitId,
+} from './toolbarCatalog';
+
+/**
+ * What `AtlasSettings.toolbar` holds: only what differs from the default. Ids
+ * this version does not know (a newer Atlas on another device) are kept. A
+ * hidden bar beside the toolbar (`SIDE_BARS`) is its id in `hidden`; it is never in `order`.
+ */
+export interface StoredToolbarLayout {
+  readonly order?: readonly string[];
+  readonly hidden?: readonly string[];
+}
+
+/**
+ * The layout this version works with: every catalog id once, in order. A
+ * hidden control keeps its slot in the order, which is where it returns to.
+ * `hidden` also holds the id of each hidden bar beside the toolbar (`SIDE_BARS`);
+ * those have places of their own, so none in the order.
+ */
+export interface ToolbarLayout {
+  readonly order: readonly ToolbarControlId[];
+  readonly hidden: ReadonlySet<ToolbarUnitId>;
+}
+
+const MAX_STORED_IDS = 64;
+const MAX_ID_LENGTH = 64;
+
+/** Distinct strings of a sane length, at most `MAX_STORED_IDS`; anything that is not an array gives none. */
+function readIds(value: unknown, keep: (id: string) => boolean): string[] {
+  if (!Array.isArray(value)) return [];
+  const ids = new Set<string>();
+  for (const entry of value as unknown[]) {
+    if (ids.size >= MAX_STORED_IDS) break;
+    if (typeof entry === 'string' && entry.length >= 1 && entry.length <= MAX_ID_LENGTH && keep(entry)) ids.add(entry);
+  }
+  return [...ids];
+}
+
+/** Reads a stored layout defensively; the Command palette can never be hidden, and the bars beside the toolbar have no place in the order. */
+export function readToolbarLayout(stored: unknown): StoredToolbarLayout {
+  if (!isRecord(stored)) return {};
+  const order = readIds(stored.order, id => !isSideBarId(id));
+  const hidden = readIds(stored.hidden, id => !isToolbarUnitId(id) || isHideableToolbarControl(id));
+  return { ...(order.length > 0 && { order }), ...(hidden.length > 0 && { hidden }) };
+}
+
+/**
+ * The order of `defaultIds` with the user's order applied: their order first,
+ * then every control they have not placed (a later version's, say) after the
+ * control that precedes it by default. An empty user order is the default.
+ */
+export function orderedToolbarIds(defaultIds: readonly string[], custom: readonly string[]): string[] {
+  const known = new Set(defaultIds);
+  const order = [...new Set(custom.filter(id => known.has(id)))];
+  defaultIds.forEach((id, index) => {
+    if (order.includes(id)) return;
+    const before = defaultIds.slice(0, index).reverse().find(previous => order.includes(previous));
+    order.splice(before === undefined ? 0 : order.indexOf(before) + 1, 0, id);
+  });
+  return order;
+}
+
+/**
+ * Controls that took in others, each with the ids it took in: Draw is the former Draw and Text
+ * controls. A stored layout may be an older version's (settings are shared between devices), where
+ * the two were hidden apart, and the ids it took in are unknown ids here, kept as stored.
+ */
+const FORMER_CONTROLS: ReadonlyMap<string, readonly string[]> = new Map<ToolbarControlId, readonly string[]>([['draw', ['text']]]);
+
+/**
+ * The ids of a stored hidden list that this version hides: a control that took in others only
+ * where every one of those is hidden too. A GM who hid the pen and kept Text in the bar keeps the
+ * tool, which is now the one that writes.
+ */
+export function hiddenAfterMerges(hidden: readonly string[]): string[] {
+  return hidden.filter(id => (FORMER_CONTROLS.get(id) ?? []).every(former => hidden.includes(former)));
+}
+
+/**
+ * A hidden list as it is stored: with the ids a hidden control took in, so that the control
+ * reads as hidden again (`hiddenAfterMerges`) and a device on an older version hides all of it.
+ */
+export function hiddenWithFormerIds(hidden: readonly string[]): string[] {
+  const former = hidden.flatMap(id => FORMER_CONTROLS.get(id) ?? []).filter(id => !hidden.includes(id));
+  return [...hidden, ...new Set(former)];
+}
+
+/**
+ * The ids taken in by the controls that a stored hidden list hid and `next` shows: they leave the
+ * list with their control, so that showing it again undoes what hiding it stored.
+ */
+function formerIdsShown(hidden: readonly string[], next: ReadonlySet<string>): ReadonlySet<string> {
+  return new Set(hiddenAfterMerges(hidden).filter(id => !next.has(id)).flatMap(id => FORMER_CONTROLS.get(id) ?? []));
+}
+
+export function resolveToolbarLayout(stored: StoredToolbarLayout): ToolbarLayout {
+  const order = orderedToolbarIds(DEFAULT_TOOLBAR_ORDER, stored.order ?? []).filter(isToolbarControlId);
+  const hidden = new Set(hiddenAfterMerges(stored.hidden ?? []).filter(isToolbarUnitId).filter(isHideableToolbarControl));
+  return { order, hidden };
+}
+
+/** `ids` with each unknown id of `previous` back after the id that preceded it there, or at the start. */
+function withUnknownIds(ids: readonly string[], previous: readonly string[]): string[] {
+  const result = [...ids];
+  previous.forEach((id, index) => {
+    if (isToolbarControlId(id) || result.includes(id)) return;
+    const before = previous.slice(0, index).reverse().find(other => result.includes(other));
+    result.splice(before === undefined ? 0 : result.indexOf(before) + 1, 0, id);
+  });
+  return result;
+}
+
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id, index) => id === b[index]);
+}
+
+/** A resolved layout in stored form: only what differs from the default, with the unknown ids of `previous` kept. */
+export function storedToolbarLayout(previous: StoredToolbarLayout, next: ToolbarLayout): StoredToolbarLayout {
+  const order = withUnknownIds(next.order, previous.order ?? []);
+  const shownAgain = formerIdsShown(previous.hidden ?? [], next.hidden);
+  const unknownHidden = (previous.hidden ?? []).filter(id => !isToolbarUnitId(id) && !shownAgain.has(id));
+  const hidden = hiddenWithFormerIds([...SIDE_BAR_IDS.filter(id => next.hidden.has(id)), ...next.order.filter(id => next.hidden.has(id)), ...unknownHidden]);
+  return {
+    ...(!sameIds(order, DEFAULT_TOOLBAR_ORDER) && { order }),
+    ...(hidden.length > 0 && { hidden }),
+  };
+}
+
+function withoutHidden(hidden: ReadonlySet<ToolbarUnitId>, id: ToolbarUnitId): ReadonlySet<ToolbarUnitId> {
+  if (!hidden.has(id)) return hidden;
+  const next = new Set(hidden);
+  next.delete(id);
+  return next;
+}
+
+/** Moves a control right after `after` (`null`: to the start) and shows it. */
+export function withControlAfter(layout: ToolbarLayout, id: ToolbarControlId, after: ToolbarControlId | null): ToolbarLayout {
+  if (after === id) return withControlShown(layout, id);
+  const rest = layout.order.filter(other => other !== id);
+  const index = after === null ? 0 : rest.indexOf(after) + 1;
+  return { order: [...rest.slice(0, index), id, ...rest.slice(index)], hidden: withoutHidden(layout.hidden, id) };
+}
+
+/** Hides a control or a bar beside the toolbar; a control's slot in the order stays, so showing it puts it back there. */
+export function withControlHidden(layout: ToolbarLayout, id: ToolbarUnitId): ToolbarLayout {
+  if (layout.hidden.has(id) || !isHideableToolbarControl(id)) return layout;
+  return { order: layout.order, hidden: new Set([...layout.hidden, id]) };
+}
+
+/** Shows a control at its remembered slot, or a bar beside the toolbar at its own place. */
+export function withControlShown(layout: ToolbarLayout, id: ToolbarUnitId): ToolbarLayout {
+  return { order: layout.order, hidden: withoutHidden(layout.hidden, id) };
+}
+
+export function isDefaultToolbarLayout(layout: ToolbarLayout): boolean {
+  return layout.hidden.size === 0 && sameIds(layout.order, DEFAULT_TOOLBAR_ORDER);
+}
+
+/** What a control remembers between renders to decide whether it may visit the bar. */
+export interface VisitMemory {
+  active: boolean;
+  armed: boolean;
+}
+
+/**
+ * Whether a hidden control may visit the bar. It is armed only when it
+ * becomes active while hidden outside edit mode (its tool is selected, its
+ * menu or panel opens) and disarmed once inactive or in edit mode. Being
+ * active when first seen (at mount, at map open) or when edit mode ends does
+ * not arm it, so a hidden resting tool such as Move stays hidden.
+ */
+export function nextVisitArmed(previous: VisitMemory | undefined, active: boolean, hidden: boolean, editing: boolean): boolean {
+  if (!previous || !active || editing) return false;
+  return previous.armed || (hidden && !previous.active);
+}
+
+export type ControlPlacement = 'bar' | 'visiting' | 'hidden';
+
+/** Where a control shows: in the bar, visiting it at its slot while hidden, or hidden. */
+export function controlPlacement(hidden: boolean, active: boolean, editing: boolean, visitArmed: boolean): ControlPlacement {
+  if (!hidden) return 'bar';
+  return active && visitArmed && !editing ? 'visiting' : 'hidden';
+}
