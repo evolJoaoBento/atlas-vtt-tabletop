@@ -11,6 +11,7 @@ import { CommandPalette } from '../atlasPort/app/react/components/CommandPalette
 import { ContextMenuProvider } from '../atlasPort/app/react/root/ContextMenuContext';
 import { AtlasUIContext } from '../atlasPort/shims/atlasUI';
 import { ViewStoreProvider } from '../atlasPort/shims/viewStore';
+import { atlasViewFor } from './atlasViewProxy';
 import { paletteChanged, setPaletteHost, type PaletteHost } from './paletteHost';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -86,17 +87,6 @@ export function paletteStore(host: PaletteHost, close: () => void, atlasStore: (
     subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener); },
     refresh,
   };
-}
-
-/** Atlas's map view as the palette reads it, with the board's own answers for what would change Atlas's window. */
-function atlasViewFor(atlas: object, own: Record<string, unknown>): Record<string, unknown> {
-  return new Proxy(atlas as Record<string, unknown>, {
-    get(target, key) {
-      if (typeof key === 'string' && key in own) return own[key];
-      const member = Reflect.get(target, key);
-      return typeof member === 'function' ? member.bind(target) : member;
-    },
-  });
 }
 
 export class PaletteWindow {
