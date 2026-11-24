@@ -8,7 +8,7 @@ import type { App, ItemView } from 'obsidian';
 import { setSvg } from './svg';
 import { t } from './i18n';
 import { mapViews, type AtlasView } from './atlas';
-import { TABLETOP_SVG } from './tabletopIcon';
+import { OPEN_3D_SVG } from './tabletopIcon';
 
 const END = '.atlas-main-toolbar > .atlas-toolbar-end';
 const ITEM = 'atlas-tabletop-open3d';
@@ -109,7 +109,7 @@ export class AtlasOpenButton {
     const holder = made('span', '');
     const button = made('button', 'btn btn--toolbar btn--icon');
     button.type = 'button';
-    setSvg(button, TABLETOP_SVG);
+    setSvg(button, OPEN_3D_SVG);
     button.setAttribute('aria-label', t('open3d'));
     button.title = t('open3d');
     button.addEventListener('click', () => {

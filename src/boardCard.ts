@@ -4,7 +4,7 @@
  */
 import { setSvg } from './svg';
 import { t } from './i18n';
-import { TABLETOP_SVG } from './tabletopIcon';
+import { OPEN_3D_SVG } from './tabletopIcon';
 
 export interface BoardCardOptions {
   title: string;
@@ -34,7 +34,7 @@ export function renderBoardCard(parent: HTMLElement, options: BoardCardOptions):
   const button = doc.win.createEl('button');
   button.type = 'button';
   button.className = 'atlas-tabletop-board-card__open';
-  setSvg(button, TABLETOP_SVG);
+  setSvg(button, OPEN_3D_SVG);
   const label = doc.win.createSpan();
   label.textContent = t('open3d');
   button.appendChild(label);
