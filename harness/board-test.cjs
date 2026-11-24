@@ -322,9 +322,8 @@ server.listen(0, async () => {
       check('fog covers the room, not the corridor erased through it', covered.room && !covered.corridor && !covered.outside, covered);
       await page.screenshot({ path: `${shots}/board-8-fog.png` });
 
-      const button = await page.evaluate(() => { const b = document.querySelector('.atlas-tabletop-tool-button[aria-label="Tabletop Settings"]').getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; });
       const selBefore = await page.evaluate(() => window.boardTest.board.selected);
-      await page.mouse.click(button.x, button.y);
+      await page.evaluate(() => window.boardTest.palette.open('tabletop-settings'));
       await page.waitForSelector('[data-tabletop-settings]', { timeout: 5000 });
       await wait(600);
       const panel = await page.evaluate(() => {
@@ -365,7 +364,7 @@ server.listen(0, async () => {
       check('a second Escape puts the palette away', (await page.locator('.atlas-command-palette-window').count()) === 0);
       check('the toolbar takes no press from the board', (await page.evaluate(() => window.boardTest.board.selected)) === selBefore);
       await wait(600);
-      await page.mouse.click(button.x, button.y);
+      await page.evaluate(() => window.boardTest.palette.open('tabletop-settings'));
       await page.waitForSelector('[data-tabletop-settings]', { timeout: 5000 });
       await wait(100);
       // The left of the board's canvas, below the scene tabs: clear of the page whatever the camera.
@@ -457,7 +456,7 @@ server.listen(0, async () => {
       const looks = await page.evaluate(() => {
         const style = (el) => getComputedStyle(el);
         const face = document.querySelector('.atlas-tool-group:not(.atlas-tabletop-history):not(.atlas-tabletop-modes) .atlas-tabletop-tool-button');
-        const command = document.querySelector('.atlas-tabletop-tool-button[aria-label="Tabletop Settings"]');
+        const command = document.querySelector('.atlas-tabletop-tool-button[aria-label="Visibility"]');
         return {
           command: { bg: style(command).backgroundColor, border: style(command).borderTopWidth, shadow: style(command).boxShadow, size: command.getBoundingClientRect().width },
           face: { bg: style(face).backgroundColor, color: style(face).color, left: style(face).borderTopLeftRadius, right: style(face).borderTopRightRadius },
