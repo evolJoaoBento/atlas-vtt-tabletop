@@ -33,6 +33,14 @@ void main() {
 }`;
 
 const FRAGMENT = /* glsl */ `
+#include <packing>
+uniform sampler2D depthMap;
+uniform float near;
+uniform float far;
+uniform float aspect;
+uniform int glowCount;
+uniform vec4 glowAt[16];
+uniform vec4 glowColor[16];
 uniform sampler2D map;
 uniform sampler2D light;
 uniform sampler2D bloomA;
@@ -63,6 +71,28 @@ void main() {
   if (finalPass > 0.5) {
     // SPIKE: bloom added in linear light, then grading and a vignette, before the tone mapping.
     colour += (texture2D(bloomA, vUv).rgb + texture2D(bloomB, vUv).rgb) * bloom;
+    // The flames' glow: a soft Gaussian round each lamp, gone where the lamp is hidden, faded where a surface stands before it.
+    if (glowCount > 0) {
+      float here = -perspectiveDepthToViewZ(texture2D(depthMap, vUv).x, near, far);
+      for (int i = 0; i < 16; i++) {
+        if (i >= glowCount) break;
+        vec4 g = glowAt[i];
+        vec2 off = vUv - g.xy;
+        off.x *= aspect;
+        float r2 = dot(off, off) / (g.w * g.w);
+        if (r2 > 9.0) continue;
+        float seen = 0.0;
+        for (int k = 0; k < 5; k++) {
+          vec2 tap = g.xy + vec2(k == 1 ? 1.0 : k == 2 ? -1.0 : 0.0, k == 3 ? 1.0 : k == 4 ? -1.0 : 0.0) * g.w * 0.25 * vec2(1.0 / aspect, 1.0);
+          float there = -perspectiveDepthToViewZ(texture2D(depthMap, tap).x, near, far);
+          seen += smoothstep(-0.04, 0.0, (there - g.z) / g.z);
+        }
+        seen /= 5.0;
+        float sigmaWorld = glowColor[i].a;
+        float before = smoothstep(-0.35 * sigmaWorld, 0.0, here - g.z);
+        colour += glowColor[i].rgb * exp(-0.5 * r2) * seen * before;
+      }
+    }
     colour *= mix(vec3(1.0), vec3(1.0 + 0.06 * warmth, 1.0 + 0.01 * warmth, 1.0 - 0.06 * warmth), 1.0);
     float grey = dot(colour, vec3(0.2126, 0.7152, 0.0722));
     colour = mix(vec3(grey), colour, saturation);
@@ -122,6 +152,8 @@ void main() {
 
 /** SPIKE: the looks under trial (bloom's threshold and strength, a vignette, colour grading); none when absent. */
 export interface PostFxTrial {
+  /** The flames' glows: each lamp's world point, its colour times its strength, and its Gaussian sigma in world units. */
+  glows?: readonly { x: number; y: number; z: number; color: THREE.Color; sigma: number }[];
   bloom?: { threshold: number; strength: number };
   vignette?: number;
   saturation?: number;
@@ -220,6 +252,13 @@ export class PostFx {
         saturation: { value: 1 },
         contrast: { value: 1 },
         warmth: { value: 0 },
+        depthMap: { value: null },
+        near: { value: 1 },
+        far: { value: 1000 },
+        aspect: { value: 1 },
+        glowCount: { value: 0 },
+        glowAt: { value: Array.from({ length: 16 }, () => new THREE.Vector4()) },
+        glowColor: { value: Array.from({ length: 16 }, () => new THREE.Vector4()) },
         step: { value: new THREE.Vector2() },
         focus: { value: 0.5 },
         sharp: { value: SHARP_BAND },
@@ -290,6 +329,23 @@ export class PostFx {
     u.saturation.value = trial.saturation ?? 1;
     u.contrast.value = trial.contrast ?? 1;
     u.warmth.value = trial.warmth ?? 0;
+    u.glowCount.value = 0;
+    if (trial.glows?.length) {
+      u.depthMap.value = this.drawn.depthTexture; u.near.value = camera.near; u.far.value = camera.far; u.aspect.value = width / height;
+      const at = u.glowAt.value as THREE.Vector4[]; const colours = u.glowColor.value as THREE.Vector4[];
+      const point = new THREE.Vector3();
+      const sorted = trial.glows.map((glow) => ({ glow, depth: point.set(glow.x, glow.y, glow.z).applyMatrix4(camera.matrixWorldInverse).z })).filter((one) => one.depth < -camera.near).sort((a, b) => b.depth - a.depth).slice(0, 16);
+      for (const { glow, depth } of sorted) {
+        point.set(glow.x, glow.y, glow.z).project(camera);
+        const viewDepth = -depth;
+        // Sigma as a share of the picture's height: world size over depth, by the projection's focal scale.
+        const sigma = glow.sigma * camera.projectionMatrix.elements[5] / viewDepth / 2;
+        const i = u.glowCount.value as number;
+        at[i]!.set(point.x * 0.5 + 0.5, point.y * 0.5 + 0.5, viewDepth, sigma);
+        colours[i]!.set(glow.color.r, glow.color.g, glow.color.b, glow.sigma);
+        u.glowCount.value = i + 1;
+      }
+    }
     // Across, in linear light, then down to the screen with the tone mapping.
     u.finalPass.value = 0;
     this.material.uniforms.map.value = this.drawn.texture;
@@ -324,5 +380,5 @@ export class PostFx {
 /** SPIKE: the looks under trial, set at run time on `globalThis.__tabletopFx` (with `halo`, the flames' glow); null when none. */
 export function spikeTrial(): (PostFxTrial & { halo?: number }) | null {
   const trial = (globalThis as { __tabletopFx?: PostFxTrial & { halo?: number } }).__tabletopFx;
-  return trial && (trial.bloom || trial.vignette || trial.saturation !== undefined || trial.contrast !== undefined || trial.warmth) ? trial : null;
+  return trial && (trial.halo || trial.bloom || trial.vignette || trial.saturation !== undefined || trial.contrast !== undefined || trial.warmth) ? trial : null;
 }

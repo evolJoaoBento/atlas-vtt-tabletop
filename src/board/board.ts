@@ -2207,7 +2207,7 @@ export class Board {
   /** What the post-processing is asked for now. */
   private looks(): PostFxLook {
     const trial = spikeTrial();
-    return { tilt: this.quality.tiltShift, occlusion: this.quality.occlusion && { radius: (this.map?.grid.size ?? 50) * 0.5 }, ...(trial && { trial }) };
+    return { tilt: this.quality.tiltShift, occlusion: this.quality.occlusion && { radius: (this.map?.grid.size ?? 50) * 0.5 }, ...(trial && { trial: { ...trial, glows: this.rig.glows() } }) };
   }
 
   /** The size and resolution the canvas was last given. */

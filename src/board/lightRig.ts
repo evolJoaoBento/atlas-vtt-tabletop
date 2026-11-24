@@ -36,7 +36,10 @@ const ATLAS_FALLOFF = `float getDistanceAttenuation( const in float lightDistanc
 	float t = lightDistance / cutoffDistance;
 	float bright = 1.0 - smoothstep( decayExponent * 0.85, decayExponent + 0.04, t );
 	float edge = 1.0 - smoothstep( 0.88, 1.0, t );
-	return mix( ${DIM_SHARE.toFixed(2)}, 1.0, bright ) * edge;
+	// SPIKE: Atlas's halo (lightingConstants HALO): a Gaussian peak on top of the falloff round the flame, sigma a share of the bright radius.
+	float sigma = max( max( decayExponent, 0.25 ) * 0.25, 1e-3 );
+	float halo = 0.8 * exp( -0.5 * ( t * t ) / ( sigma * sigma ) );
+	return ( mix( ${DIM_SHARE.toFixed(2)}, 1.0, bright ) + halo ) * edge;
 }
 
 `;
@@ -94,6 +97,10 @@ function haloMap(): THREE.DataTexture {
   haloTexture.magFilter = THREE.LinearFilter; haloTexture.minFilter = THREE.LinearFilter;
   haloTexture.needsUpdate = true;
   return haloTexture;
+}
+/** SPIKE: the halo drawn as a sprite in the scene (the first try) rather than in the picture. */
+function spriteHalo(): boolean {
+  return (globalThis as { __tabletopFx?: { haloSprite?: boolean } }).__tabletopFx?.haloSprite === true;
 }
 /** SPIKE: the halo's strength from the trial flag (0: off). */
 function haloGain(): number {
@@ -233,7 +240,7 @@ export class LightRig {
   step(t: number): void {
     const gain = haloGain();
     for (const entry of this.entries.values()) {
-      if (entry.halo) entry.halo.visible = gain > 0 && entry.lamp.visible && entry.bright > 0;
+      if (entry.halo) entry.halo.visible = spriteHalo() && gain > 0 && entry.lamp.visible && entry.bright > 0;
       if (!entry.lamp.visible) continue;
       const wave = this.dark ? flicker(entry.light.animation, t, entry.seed) : 1;
       const strength = STRENGTH * entry.light.intensity * wave;
@@ -245,6 +252,21 @@ export class LightRig {
         (entry.halo.material as THREE.SpriteMaterial).opacity = Math.min(1, HALO.gain * gain * entry.light.intensity * wave * (this.dark ? 1 : 0.25));
       }
     }
+  }
+
+  /** SPIKE: each lit flame's glow for the picture: where it is, its colour times its strength now, its Gaussian sigma. */
+  glows(): { x: number; y: number; z: number; color: THREE.Color; sigma: number }[] {
+    const gain = haloGain();
+    if (!gain || spriteHalo()) return [];
+    const out: { x: number; y: number; z: number; color: THREE.Color; sigma: number }[] = [];
+    const at = new THREE.Vector3();
+    for (const entry of this.entries.values()) {
+      if (!entry.lamp.visible || entry.bright <= 0 || entry.lamp.userData.surface) continue;
+      const strength = HALO.gain * gain * (entry.lamp.intensity / STRENGTH) * (this.dark ? 1 : 0.25);
+      entry.lamp.getWorldPosition(at);
+      out.push({ x: at.x, y: at.y, z: at.z, color: new THREE.Color(entry.light.color).multiplyScalar(strength), sigma: entry.bright * HALO.size });
+    }
+    return out;
   }
 
   /** Lets the `count` lights nearest `target` cast shadows; returns whether that changed. */
