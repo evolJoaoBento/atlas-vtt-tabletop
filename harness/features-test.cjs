@@ -5998,6 +5998,21 @@ feature('cinematic board mode', async ({ page, shot }) => {
     return { onTop: !!hit && (hit === button || button.contains(hit)), minPitch: window.boardTest.board.camera.limits.minPitch, maxDistance: window.boardTest.board.camera.limits.maxDistance };
   });
   check('cinematic mode: the toolbar stays above the bars and can be pressed', above.onTop, JSON.stringify(above));
+  // The scene tabs stay above the bars too: the GM switches scenes while making cutscenes.
+  const tabs = await page.evaluate(() => {
+    const tab = [...document.querySelectorAll('.atlas-tabletop-scene-tabs .atlas-scene-tab[role="tab"]')].find((t) => t.offsetParent !== null);
+    if (!tab) return { tab: false };
+    const r = tab.getBoundingClientRect();
+    // The cinema layer takes no presses: made to for the probe, so a tab under its bars is found under them.
+    const layer = document.querySelector('.tabletop-cinema');
+    const bar = document.querySelector('.tabletop-cinema__bar--top');
+    const was = [layer.style.pointerEvents, bar.style.pointerEvents];
+    layer.style.pointerEvents = 'auto'; bar.style.pointerEvents = 'auto';
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    [layer.style.pointerEvents, bar.style.pointerEvents] = was;
+    return { tab: true, onTop: !!hit && tab.contains(hit), hit: String(hit?.className), barShown: !bar.hidden && bar.getBoundingClientRect().height > 0 };
+  });
+  check('cinematic mode: the scene tabs stay above the bars and can be pressed', tabs.tab && tabs.onTop, JSON.stringify(tabs));
   check('cinematic mode: the camera\'s angle limits are lifted (down to the board\'s edge)', above.minPitch < 0.05, JSON.stringify(above));
   check('cinematic mode: entering puts painting away', await page.evaluate(() => window.boardTest.board.isPainting) === false);
   let now = await seen();

@@ -356,6 +356,9 @@
 /* Cinematic mode: the toolbar stays above the bars and the fade (the cinema layer is 200); the palette sits above both. */
 .tabletop-cinematic-mode .atlas-tabletop-toolbar-row { z-index: 205; }
 .tabletop-cinematic-mode .atlas-tabletop-atlas-ui { position: relative; z-index: 220; }
+/* The GM switches scenes while making cutscenes: the scene tabs stay above the bars, in Cinematic mode and the editor. */
+.tabletop-cinematic-mode .atlas-tabletop-scene-tabs,
+.tabletop-authoring .atlas-tabletop-scene-tabs { z-index: 210; }
 
 .atlas-tabletop-toolbar,
 .atlas-tabletop-help-bar,
