@@ -10509,7 +10509,7 @@ feature('toolbar tooltips', async ({ page, shot }) => {
     got.push({ selector, ok: !!tip && tip.role === 'tooltip' && tip.label === label && okKbd && okSub, tip });
   }
   check('toolbar tooltips: Undo, Redo, the modes, Move/Select and its menu, the Atlas tools and Dice show Atlas\'s tooltip (label, keycap, description)', got.every((g) => g.ok), JSON.stringify(got.filter((g) => !g.ok)));
-  await page.hover(`${bar} [data-toolbar-id="undo"]`);
+  await page.hover(`${bar} [data-toolbar-id="undo"]`, { force: true });
   await shown();
   await shot('toolbar-tooltip-undo');
   await page.hover(`${bar} [data-toolbar-id="mode-edit"]`);

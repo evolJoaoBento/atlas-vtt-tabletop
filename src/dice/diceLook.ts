@@ -3,7 +3,7 @@
  * colours a dice set gives its groups. Tabletop keeps its 3D pack, whose faces carry the numerals, so `diceFont` does
  * not reach them; only the body colour follows Atlas.
  */
-import { DEFAULT_DICE_LOOK, DICE_SET_COLOURS, isDiceColour, isDiceFont, isDieColour, parseHex, type DiceLook } from '../../packages/atlas-shared/src/index';
+import { DEFAULT_DICE_LOOK, DICE_SET_COLOURS, isDiceColour, isDiceFont, isDieColour, parseHex, presetDiceHex, type DiceLook } from '../../packages/atlas-shared/src/index';
 
 /** The body of Atlas's dark dice (`dieSkin.ts`, which Atlas keeps to itself: it paints canvases). */
 const DARK_BODY = '#1f1e21';
@@ -18,11 +18,13 @@ export function readDiceLook(raw: unknown): DiceLook {
 
 /**
  * The body colour of a die the look alone decides, as Atlas resolves it: none for light dice (the pack's own colour
- * stays), Atlas's dark body, or the theme's accent (`accent`, '#rrggbb'; Obsidian's default where the theme gives none).
+ * stays), Atlas's dark body, the theme's accent (`accent`, '#rrggbb'; Obsidian's default where the theme gives none),
+ * or one of Atlas 0.20's colour presets (crimson, ember…) as Atlas paints it.
  */
 export function lookBody(look: DiceLook, accent: string | null): string | null {
   if (look.colour === 'dark') return DARK_BODY;
   if (look.colour === 'accent') return accent !== null && parseHex(accent) !== null ? accent.toLowerCase() : FALLBACK_ACCENT;
+  if (look.colour !== 'light') return presetDiceHex(look.colour);
   return null;
 }
 

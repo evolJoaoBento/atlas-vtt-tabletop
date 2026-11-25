@@ -469,7 +469,7 @@ export class BoardToolbar {
     const doc = container.ownerDocument;
 
     // Atlas's own class names under a root of Tabletop's: its look is copied in styles.css, without needing its styles.
-    this.row = el('div', 'atlas-tabletop-toolbar-row atlas-tabletop-atlas', container);
+    this.row = el('div', 'atlas-tabletop-toolbar-row atlas-tabletop-atlas atlas-vtt-plugin', container);
     this.viewTooltip = new AtlasTooltip(container);
     this.turnBannerHost = el('div', 'atlas-bottom-toolbar-row__above', this.row);
     this.turnBannerHost.setAttribute('aria-live', 'polite');

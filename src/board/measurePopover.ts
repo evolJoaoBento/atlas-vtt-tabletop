@@ -56,7 +56,7 @@ export class MeasurePopover {
   private shownKey = '';
 
   constructor(private readonly parent: HTMLElement, private readonly deps: MeasurePopoverDeps) {
-    this.element = make(parent, 'div', 'atlas-tabletop-atlas atlas-tabletop-atlas-ui atlas-tabletop-measure-popover');
+    this.element = make(parent, 'div', 'atlas-tabletop-atlas atlas-vtt-plugin atlas-tabletop-atlas-ui atlas-tabletop-measure-popover');
     this.element.hidden = true;
     this.panel = make(this.element, 'section', 'atlas-light-popover atlas-measure-popover');
     this.panel.setAttribute('role', 'dialog');

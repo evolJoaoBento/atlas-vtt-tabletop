@@ -46,10 +46,10 @@ test('a key rebound in Atlas wins', () => {
 });
 
 test('atlasNewerThanChecked compares with the version the tables were checked against', () => {
-  assert.equal(atlasNewerThanChecked('0.19.1'), true);
-  assert.equal(atlasNewerThanChecked('0.20.0-beta.1'), true);
+  assert.equal(atlasNewerThanChecked('0.20.1'), true);
+  assert.equal(atlasNewerThanChecked('0.21.0-beta.1'), true);
+  assert.equal(atlasNewerThanChecked('0.20.0'), false);
   assert.equal(atlasNewerThanChecked('0.19.0'), false);
-  assert.equal(atlasNewerThanChecked('0.18.0'), false);
   assert.equal(atlasNewerThanChecked('0.15.0'), false);
   assert.equal(atlasNewerThanChecked('0.14.1'), false);
   assert.equal(atlasNewerThanChecked('0.11.4'), false);

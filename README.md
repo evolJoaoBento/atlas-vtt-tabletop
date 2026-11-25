@@ -1,6 +1,6 @@
 # Tabletop for Atlas VTT
 
-**Compatible with Atlas VTT 0.15.0 to 0.19.0.** Needs Atlas VTT 0.15 or later, and Connect for Atlas VTT 0.15.0 (the same fusion release).
+**Compatible with Atlas VTT 0.15.0 to 0.20.0.** Needs Atlas VTT 0.15 or later, and Connect for Atlas VTT 0.15.0 (the same fusion release).
 
 **Atlas VTT 0.16's drawings and texts** are read the way Atlas reads them: a drawing, text or stamp you hide from your players in Atlas is drawn on your board but never in the players' window, nor on a player's board; filled shapes (solid or soft, with the holes you cut), lines of no width, stamps by any pin symbol and turned stamps are drawn as Atlas draws them, in Atlas's order. Not yet: dashed lines, arrowheads, the outline look of a text, and wrapped text (drawn on one line).
 

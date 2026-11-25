@@ -79,7 +79,7 @@ export class InitiativePanel {
 
   constructor(container: HTMLElement, private readonly host: InitiativePanelHost) {
     this.doc = container.ownerDocument;
-    this.root = this.el('div', 'atlas-tabletop-atlas atlas-tabletop-initiative', container);
+    this.root = this.el('div', 'atlas-tabletop-atlas atlas-vtt-plugin atlas-tabletop-initiative', container);
     this.panel = this.el('div', 'tabletop-initiative-tracker', this.root);
     // The board under the panel must not take its clicks, drags or wheel.
     for (const type of ['pointerdown', 'pointerup', 'wheel', 'contextmenu', 'dblclick']) {

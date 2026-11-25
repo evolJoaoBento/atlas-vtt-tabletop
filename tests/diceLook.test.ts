@@ -29,3 +29,10 @@ test("the picker offers Atlas's dice set colours, named as Atlas names them", ()
   assert.deepEqual(DIE_COLOURS[0], { name: 'Crimson', color: '#b91c1c' });
   assert.deepEqual(DIE_COLOURS.at(-1), { name: 'Black', color: '#1f1e21' });
 });
+
+test("Atlas 0.20's dice colour presets paint the body in the preset's colour", () => {
+  const look = readDiceLook({ colour: 'crimson', font: 'scifi' });
+  assert.deepEqual(look, { colour: 'crimson', font: 'scifi' });
+  assert.match(lookBody(look, null) ?? '', /^#[0-9a-f]{6}$/);
+  assert.notEqual(lookBody(look, null), lookBody(readDiceLook({ colour: 'azure' }), null));
+});
