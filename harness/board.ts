@@ -730,6 +730,8 @@ async function main(): Promise<void> {
     setAutoRoll: (on) => keep({ autoRoll: on }),
     setTiltShift: (on) => { board.setQuality({ ...board.quality, tiltShift: on }); },
     setOcclusion: (on) => { board.setQuality({ ...board.quality, occlusion: on }); },
+    setGrade: (on) => { board.setQuality({ ...board.quality, grade: on }); },
+    setHalo: (on) => { board.setQuality({ ...board.quality, halo: on }); },
     setSeeThrough: (on) => { board.setQuality({ ...board.quality, seeThrough: on }); },
     setSeeThroughSize: (squares) => { board.setQuality({ ...board.quality, seeThroughSize: readSeeThroughSize(squares) }); },
     setLayerLook: (look) => { board.setQuality({ ...board.quality, layerLook: look }); },

@@ -40,6 +40,11 @@ uniform float focus;
 uniform float sharp;
 uniform float range;
 uniform float maxPx;
+uniform float grade;
+uniform float saturation;
+uniform float contrast;
+uniform float warmth;
+uniform float vignette;
 varying vec2 vUv;
 void main() {
   float away = max(abs(vUv.y - focus) - sharp, 0.0);
@@ -51,7 +56,17 @@ void main() {
   sum += (texture2D(map, vUv + along * 2.0) + texture2D(map, vUv - along * 2.0)) * 0.1216216;
   sum += (texture2D(map, vUv + along * 3.0) + texture2D(map, vUv - along * 3.0)) * 0.0540541;
   sum += (texture2D(map, vUv + along * 4.0) + texture2D(map, vUv - along * 4.0)) * 0.0162162;
-  gl_FragColor = vec4(sum.rgb * texture2D(light, vUv).r, 1.0);
+  vec3 colour = sum.rgb * texture2D(light, vUv).r;
+  if (grade > 0.5) {
+    // The cinematic grade, in linear light before the tone mapping: a little warmer, richer and firmer, the corners darker.
+    colour *= vec3(1.0 + 0.06 * warmth, 1.0 + 0.01 * warmth, 1.0 - 0.06 * warmth);
+    float grey = dot(colour, vec3(0.2126, 0.7152, 0.0722));
+    colour = mix(vec3(grey), colour, saturation);
+    colour = max(vec3(0.0), (colour - 0.18) * contrast + 0.18);
+    vec2 off = vUv - 0.5;
+    colour *= 1.0 - vignette * smoothstep(0.25, 0.85, dot(off, off) * 2.2);
+  }
+  gl_FragColor = vec4(colour, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }`;
@@ -101,9 +116,14 @@ void main() {
   gl_FragColor = vec4(vec3(light), 1.0);
 }`;
 
+/** The cinematic grade: saturation and contrast (1 leaves them), warmth (0 leaves it) and how dark the vignette makes the corners. */
+export const GRADE = { saturation: 1.1, contrast: 1.05, warmth: 0.25, vignette: 0.2 } as const;
+
 export interface PostFxLook {
   /** The miniature look's blur. */
   tilt: boolean;
+  /** The cinematic grade (`GRADE`). */
+  grade: boolean;
   /** Contact shadows, with the radius they reach in world units. */
   occlusion: false | { radius: number };
 }
@@ -153,6 +173,11 @@ export class PostFx {
         sharp: { value: SHARP_BAND },
         range: { value: BLUR_RANGE },
         maxPx: { value: MAX_BLUR_PX },
+        grade: { value: 0 },
+        saturation: { value: GRADE.saturation },
+        contrast: { value: GRADE.contrast },
+        warmth: { value: GRADE.warmth },
+        vignette: { value: GRADE.vignette },
       },
       depthTest: false,
       depthWrite: false,
@@ -194,7 +219,8 @@ export class PostFx {
       (this.scene.children[0] as THREE.Mesh).material = this.material;
       this.material.uniforms.light.value = this.shade.texture;
     }
-    // Across, in linear light, then down to the screen with the tone mapping.
+    // Across, in linear light, then down to the screen with the grade and the tone mapping.
+    this.material.uniforms.grade.value = 0;
     this.material.uniforms.map.value = this.drawn.texture;
     (this.material.uniforms.step.value as THREE.Vector2).set(1 / width, 0);
     renderer.setRenderTarget(this.across);
@@ -203,6 +229,7 @@ export class PostFx {
     // The creases were darkened across; down, the picture is only blurred.
     this.material.uniforms.light.value = this.flat;
     (this.material.uniforms.step.value as THREE.Vector2).set(0, 1 / height);
+    this.material.uniforms.grade.value = look.grade ? 1 : 0;
     renderer.setRenderTarget(before);
     renderer.render(this.scene, this.camera);
   }

@@ -624,6 +624,11 @@ export class ElevationLayerView {
     this.host.wake();
   }
 
+  /** Turns Atlas's halo round the layer's flames on or off. */
+  setHalo(on: boolean): void {
+    this.rig.setHalo(on);
+  }
+
   /** The look the Upper layers setting gave it, while a token's eyes force it solid. */
   private chosenLook: LayerLook | null = null;
 

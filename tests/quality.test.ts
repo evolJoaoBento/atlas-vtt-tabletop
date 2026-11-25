@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { EDGE_SHARE, MAX_SEE_THROUGH_SIZE, MIN_SEE_THROUGH_SIZE, QUALITY, ResolutionGovernor, readEdges, readLayerLook, readQuality, readSeeThroughSize, withLooks } from '../src/board/quality';
+import { EDGE_SHARE, MAX_SEE_THROUGH_SIZE, MIN_SEE_THROUGH_SIZE, postFxOn, QUALITY, ResolutionGovernor, readEdges, readLayerLook, readQuality, readSeeThroughSize, withLooks } from '../src/board/quality';
 
 test('quality presets go from cheap to sharp, and carry no sight settings (sight follows Atlas)', () => {
-  assert.deepEqual(QUALITY.low, { maxPixelRatio: 1, minPixelRatio: 0.6, antialias: false, shadowMapSize: 1024, miniShadows: 'blob', lightShadows: 0, displaceCuts: 0, tiltShift: false, occlusion: false, painted: false, sky: 'dusk', edges: 'soft', seeThrough: false, seeThroughSize: 1.2, layerLook: 'solid', layerTick: 2 });
-  assert.deepEqual(QUALITY.medium, { maxPixelRatio: 1.5, minPixelRatio: 0.75, antialias: true, shadowMapSize: 2048, miniShadows: 'blob', lightShadows: 2, displaceCuts: 8, tiltShift: false, occlusion: false, painted: false, sky: 'dusk', edges: 'soft', seeThrough: false, seeThroughSize: 1.2, layerLook: 'solid', layerTick: 2 });
-  assert.deepEqual(QUALITY.high, { maxPixelRatio: 2, minPixelRatio: 1, antialias: true, shadowMapSize: 4096, miniShadows: 'real', lightShadows: 4, displaceCuts: 16, tiltShift: false, occlusion: false, painted: false, sky: 'dusk', edges: 'soft', seeThrough: false, seeThroughSize: 1.2, layerLook: 'solid', layerTick: 2 });
+  assert.deepEqual(QUALITY.low, { maxPixelRatio: 1, minPixelRatio: 0.6, antialias: false, shadowMapSize: 1024, miniShadows: 'blob', lightShadows: 0, displaceCuts: 0, tiltShift: false, occlusion: false, grade: false, halo: false, painted: false, sky: 'dusk', edges: 'soft', seeThrough: false, seeThroughSize: 1.2, layerLook: 'solid', layerTick: 2 });
+  assert.deepEqual(QUALITY.medium, { maxPixelRatio: 1.5, minPixelRatio: 0.75, antialias: true, shadowMapSize: 2048, miniShadows: 'blob', lightShadows: 2, displaceCuts: 8, tiltShift: false, occlusion: false, grade: false, halo: false, painted: false, sky: 'dusk', edges: 'soft', seeThrough: false, seeThroughSize: 1.2, layerLook: 'solid', layerTick: 2 });
+  assert.deepEqual(QUALITY.high, { maxPixelRatio: 2, minPixelRatio: 1, antialias: true, shadowMapSize: 4096, miniShadows: 'real', lightShadows: 4, displaceCuts: 16, tiltShift: false, occlusion: false, grade: false, halo: false, painted: false, sky: 'dusk', edges: 'soft', seeThrough: false, seeThroughSize: 1.2, layerLook: 'solid', layerTick: 2 });
   assert.equal(readQuality('high'), 'high');
   assert.equal(readQuality('ultra'), 'medium');
   assert.equal(readQuality(undefined), 'medium');
@@ -73,4 +73,16 @@ test('see-through window size clamps between 0.5 and 8 squares', () => {
   assert.equal(readSeeThroughSize(6.5), 6.5);
   assert.equal(readSeeThroughSize(12), 8);
   assert.equal(readSeeThroughSize(undefined), 1.2);
+});
+
+test('the cinematic grade and the flame halo are own settings: off in every preset, kept by withLooks, the grade needing the post-processing', () => {
+  for (const preset of Object.values(QUALITY)) { assert.equal(preset.grade, false); assert.equal(preset.halo, false); }
+  const looks = { tiltShift: false, occlusion: false, painted: false, sky: 'dusk' as const };
+  assert.equal(withLooks(QUALITY.high, looks), QUALITY.high);
+  const both = withLooks(QUALITY.high, { ...looks, grade: true, halo: true });
+  assert.equal(both.grade, true);
+  assert.equal(both.halo, true);
+  assert.equal(postFxOn(both), true);
+  assert.equal(postFxOn(withLooks(QUALITY.high, { ...looks, halo: true })), false);
+  assert.equal(postFxOn(withLooks(QUALITY.high, { ...looks, occlusion: true })), true);
 });

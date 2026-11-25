@@ -174,6 +174,9 @@ export interface BoardServices {
   layerTick?(): number;
   /** Whether the board gets contact shadows (ambient occlusion). */
   occlusion?(): boolean;
+  /** Whether the board gets the cinematic grade, and the flames Atlas's halo. */
+  grade?(): boolean;
+  halo?(): boolean;
   /** Whether the board gets the painted lighting. */
   painted?(): boolean;
   /** The painted sky's palette. */
@@ -188,6 +191,8 @@ export interface BoardServices {
   setLighting?(choice: LightingChoice): void;
   setTiltShift?(on: boolean): void;
   setOcclusion?(on: boolean): void;
+  setGrade?(on: boolean): void;
+  setHalo?(on: boolean): void;
   /** Changes whether a stat sheet's roll is thrown at once, for every board. */
   setAutoRoll?(on: boolean): void;
   /** Keeps whether the stat sheet drawer is pinned. */
@@ -663,7 +668,7 @@ export class BoardView extends ItemView {
 
   /** The quality setting, with the miniature look if it is on. */
   private preset(): QualityPreset {
-    return withLooks(QUALITY[this.services.quality()], { tiltShift: this.services.tiltShift?.() === true, occlusion: this.services.occlusion?.() === true, painted: this.services.painted?.() === true, sky: this.services.sky?.() ?? DEFAULT_SKY, edges: this.services.wallEdges?.() ?? DEFAULT_EDGES, seeThrough: this.services.seeThrough?.() === true, seeThroughSize: this.services.seeThroughSize?.(), layerLook: this.services.layerLook?.(), layerTick: this.services.layerTick?.() });
+    return withLooks(QUALITY[this.services.quality()], { tiltShift: this.services.tiltShift?.() === true, occlusion: this.services.occlusion?.() === true, grade: this.services.grade?.() === true, halo: this.services.halo?.() === true, painted: this.services.painted?.() === true, sky: this.services.sky?.() ?? DEFAULT_SKY, edges: this.services.wallEdges?.() ?? DEFAULT_EDGES, seeThrough: this.services.seeThrough?.() === true, seeThroughSize: this.services.seeThroughSize?.(), layerLook: this.services.layerLook?.(), layerTick: this.services.layerTick?.() });
   }
 
   /** A board, and the GM's dice on it. */
@@ -1816,6 +1821,8 @@ export class BoardView extends ItemView {
       },
       ...(this.services.setWallEdges && { setWallEdges: (edges: WallEdges) => this.services.setWallEdges?.(edges) }),
       setOcclusion: (on) => this.services.setOcclusion?.(on),
+      setGrade: (on) => this.services.setGrade?.(on),
+      setHalo: (on) => this.services.setHalo?.(on),
       autoRoll: () => this.services.diceSettings().autoRoll,
       setAutoRoll: (on) => this.services.setAutoRoll?.(on),
       playerViewOpen: () => this.services.playerViewOpen(mapPath()),

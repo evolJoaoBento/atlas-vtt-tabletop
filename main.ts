@@ -65,6 +65,7 @@ import { decodeLayer, encodeLayer, renderThumbnail } from './src/background/back
 import { vaultBackgroundFiles } from './src/background/vaultBackgroundFiles';
 import { DEFAULT_DICE_SETTINGS, DIE_SQUARES, MOTION_THRESHOLD, readDiceSettings, TOLERANCE, type TabletopDiceSettings } from './src/dice/diceSettings';
 import { ensureDefaultPack, listPacks, packsFolder, type PackFs } from './src/dice/kit/packs';
+import { paletteChanged } from './src/palette/paletteHost';
 
 export const API_READY_EVENT = 'tabletop-for-atlas:api-ready';
 export const API_UNLOAD_EVENT = 'tabletop-for-atlas:api-unload';
@@ -84,6 +85,9 @@ interface TabletopSettings {
   tiltShift?: boolean;
   /** Contact shadows: darker creases where things meet the floor. */
   occlusion?: boolean;
+  /** The cinematic grade and the flames' halo (Tabletop Settings). */
+  grade?: boolean;
+  halo?: boolean;
   /** How round walls' edges are. */
   wallEdges?: WallEdges;
   /** Walls between the camera and what it looks at fade out. */
@@ -381,6 +385,8 @@ export default class TabletopPlugin extends Plugin {
       quality: () => this.settings.quality,
       tiltShift: () => this.settings.tiltShift === true,
       occlusion: () => this.settings.occlusion === true,
+      grade: () => this.settings.grade === true,
+      halo: () => this.settings.halo === true,
       painted: () => this.settings.painted === true,
       sky: () => readSky(this.settings.sky),
       wallEdges: () => readEdges(this.settings.wallEdges),
@@ -402,6 +408,8 @@ export default class TabletopPlugin extends Plugin {
       setLighting: (choice) => { void this.setLighting(choice); },
       setTiltShift: (on) => { void this.setTiltShift(on); },
       setOcclusion: (on) => { void this.setOcclusion(on); },
+      setGrade: (on) => { void this.setLook('grade', on); },
+      setHalo: (on) => { void this.setLook('halo', on); },
       setAutoRoll: (on) => this.setDice({ autoRoll: on }),
       setSheetPinned: (pinned) => this.setDice({ sheetPinned: pinned }),
       // The laser is Atlas's own (its colour and size, for every map): read from Atlas and changed there.
@@ -546,7 +554,7 @@ export default class TabletopPlugin extends Plugin {
     this.register(this.boardData.onChange((changed) => { const mapPath = changed?.split("#")[0] ?? null; this.boardChanged(mapPath); }));
     this.register(this.materials.onChange(() => { this.materialIndex?.forgetAll(); this.boardChanged(null); }));
     this.players = playerMiniPainter();
-    const board = playerBoardFactory(() => this.settings.quality, () => ({ tiltShift: this.settings.tiltShift === true, occlusion: this.settings.occlusion === true, painted: this.settings.painted === true, sky: readSky(this.settings.sky), edges: readEdges(this.settings.wallEdges), seeThrough: this.settings.seeThrough === true, seeThroughSize: readSeeThroughSize(this.settings.seeThroughSize), layerLook: readLayerLook(this.settings.layerLook) }), { settings: () => this.settings.dice, pack: () => (this.dicePack ??= vendoredPack()) }, () => this.spells(), undefined, { settings: () => this.soundForEngine(), load: () => this.vaultSounds.custom.load, onChange: (listener) => { this.soundListeners.add(listener); return () => { this.soundListeners.delete(listener); }; } });
+    const board = playerBoardFactory(() => this.settings.quality, () => ({ tiltShift: this.settings.tiltShift === true, occlusion: this.settings.occlusion === true, grade: this.settings.grade === true, halo: this.settings.halo === true, painted: this.settings.painted === true, sky: readSky(this.settings.sky), edges: readEdges(this.settings.wallEdges), seeThrough: this.settings.seeThrough === true, seeThroughSize: readSeeThroughSize(this.settings.seeThroughSize), layerLook: readLayerLook(this.settings.layerLook) }), { settings: () => this.settings.dice, pack: () => (this.dicePack ??= vendoredPack()) }, () => this.spells(), undefined, { settings: () => this.soundForEngine(), load: () => this.vaultSounds.custom.load, onChange: (listener) => { this.soundListeners.add(listener); return () => { this.soundListeners.delete(listener); }; } });
     this.builtApi = Object.freeze({
       version: 1 as const,
       fusion: FUSION_PROTOCOL,
@@ -847,6 +855,15 @@ export default class TabletopPlugin extends Plugin {
     this.settings.occlusion = on;
     this.save();
     for (const view of this.boards()) await view.applyQuality();
+  }
+
+  /** The cinematic grade or the flames' halo turned on or off: kept, and every open board follows. */
+  async setLook(look: 'grade' | 'halo', on: boolean): Promise<void> {
+    this.settings[look] = on;
+    this.save();
+    for (const view of this.boards()) await view.applyQuality();
+    // Tabletop Settings shows the board's look: read again once every board has it.
+    paletteChanged();
   }
 
   /** The lighting chosen on a board's toolbar: kept, and every open board follows. */

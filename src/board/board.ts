@@ -65,7 +65,7 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
 import type { LoadedBackground } from '../background/backgroundData';
 import { ShapesView } from './shapeView';
 import { shapeHeightAt, type TerrainShape } from './terrainShapes';
-import { EDGE_SHARE, ResolutionGovernor, type LayerLook, type QualityPreset, type WallEdges } from './quality';
+import { EDGE_SHARE, postFxOn, ResolutionGovernor, type LayerLook, type QualityPreset, type WallEdges } from './quality';
 import { PostFx, type PostFxLook } from './postFx';
 import { BoardSurface } from './surface';
 import { FogVolume } from './fogVolume';
@@ -373,6 +373,9 @@ export interface BoardHost {
   /** The miniature look and the contact shadows, on or off, kept for every board. */
   setTiltShift?(on: boolean): void;
   setOcclusion?(on: boolean): void;
+  /** The cinematic grade and the flames' halo, on or off, kept for every board. */
+  setGrade?(on: boolean): void;
+  setHalo?(on: boolean): void;
   /** How round the walls' edges are, kept for every board. */
   setWallEdges?(edges: WallEdges): void;
   /** Whether walls between the camera and what it looks at fade out, kept for every board. */
@@ -1009,6 +1012,7 @@ export class Board {
 
   constructor(private readonly container: HTMLElement, private readonly host: BoardHost, private quality: QualityPreset, options: { audience?: BoardAudience } = {}) {
     this.audience = options.audience ?? 'gm';
+    this.rig.setHalo(quality.halo);
     const doc = container.ownerDocument;
     this.canvas = doc.win.createEl('canvas');
     this.canvas.className = 'atlas-tabletop-board';
@@ -1087,6 +1091,10 @@ export class Board {
       setTiltShift: (on) => this.host.setTiltShift?.(on),
       occlusion: () => this.quality.occlusion,
       setOcclusion: (on) => this.host.setOcclusion?.(on),
+      grade: () => this.quality.grade,
+      setGrade: (on) => this.host.setGrade?.(on),
+      halo: () => this.quality.halo,
+      setHalo: (on) => this.host.setHalo?.(on),
       autoRoll: () => this.host.autoRoll?.() ?? false,
       setAutoRoll: (on) => this.host.setAutoRoll?.(on),
       setLaser: (changes) => { this.host.setLaser(changes); this.wake(); },
@@ -1358,6 +1366,7 @@ export class Board {
         if (warm) this.park(layer.path, view, true);
         else this.layerViews.set(layer.path, view);
       }
+      view.setHalo(this.quality.halo);
       view.update(layer, layer.elevation > 0 ? shape : { ...shape, look: 'solid' });
       // A layer the GM hid is not drawn (and so stands between the camera and nothing), whatever the Upper layers look.
       if (!warm) view.object3d.visible = this.host.layerHidden?.(layer.path) !== true;
@@ -1530,13 +1539,19 @@ export class Board {
     if (preset.layerTick !== this.quality.layerTick) this.layerRuler?.setTick(preset.layerTick);
     const restack = (this.layerViews.size > 0 || this.stackData.length > 0)
       && (preset.layerLook !== this.quality.layerLook || rounder || preset.miniShadows !== this.quality.miniShadows);
+    const haloChanged = preset.halo !== this.quality.halo;
     this.quality = preset;
+    if (haloChanged) {
+      this.rig.setHalo(preset.halo);
+      for (const view of [...this.layerViews.values(), ...this.parked.values()]) view.setHalo(preset.halo);
+      this.wake(true);
+    }
     if (restack) this.applyStack();
     if (seeing) this.wake(true);
     if (repaint) this.applyLook();
     // Walls are stood again with their new edges.
     if (rounder) { this.updateWalls(); this.wake(true); }
-    if (!preset.tiltShift && !preset.occlusion) {
+    if (!postFxOn(preset)) {
       this.tilt?.dispose();
       this.tilt = null;
       if (this.player) {
@@ -2206,7 +2221,7 @@ export class Board {
 
   /** What the post-processing is asked for now. */
   private looks(): PostFxLook {
-    return { tilt: this.quality.tiltShift, occlusion: this.quality.occlusion && { radius: (this.map?.grid.size ?? 50) * 0.5 } };
+    return { tilt: this.quality.tiltShift, grade: this.quality.grade, occlusion: this.quality.occlusion && { radius: (this.map?.grid.size ?? 50) * 0.5 } };
   }
 
   /** The size and resolution the canvas was last given. */
@@ -2277,7 +2292,7 @@ export class Board {
       // See-through where nothing is drawn, the effects (which fill the picture) left out.
       this.renderer.setClearColor(0x000000, 0);
       this.renderer.render(this.scene, this.view);
-    } else if (this.quality.tiltShift || this.quality.occlusion) {
+    } else if (postFxOn(this.quality)) {
       this.tilt ??= new PostFx(this.renderer, this.quality.antialias);
       this.tilt.render(this.scene, this.view, this.looks());
     } else {
@@ -6076,7 +6091,7 @@ export class Board {
         player.renderer.clear();
       } else {
         this.fog.face(player.view.position);
-        if (this.quality.tiltShift || this.quality.occlusion) {
+        if (postFxOn(this.quality)) {
           player.tilt ??= new PostFx(player.renderer, this.quality.antialias);
           player.tilt.render(this.scene, player.view, this.looks());
         } else {

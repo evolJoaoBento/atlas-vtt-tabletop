@@ -190,6 +190,11 @@ export interface ToolbarActions {
   setTiltShift(on: boolean): void;
   occlusion(): boolean;
   setOcclusion(on: boolean): void;
+  /** The cinematic grade and the flames' halo, on or off, kept for every board (Tabletop Settings). */
+  grade?(): boolean;
+  setGrade?(on: boolean): void;
+  halo?(): boolean;
+  setHalo?(on: boolean): void;
   /** Whether a stat sheet's roll is thrown at once, or its dice lie on the table; changing it. Absent where dice are not the GM's. */
   autoRoll(): boolean;
   setAutoRoll(on: boolean): void;

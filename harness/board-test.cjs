@@ -371,6 +371,26 @@ server.listen(0, async () => {
       await page.mouse.click(20, 300);
       await wait(900);
       check('a click on the board closes the settings', (await page.locator('.atlas-command-palette-window').count()) === 0);
+      {
+        await page.evaluate(() => window.boardTest.palette.open('tabletop-settings'));
+        await page.waitForSelector('[data-tabletop-settings]', { timeout: 5000 });
+        await wait(300);
+        const toggle = (label) => page.locator('[data-tabletop-settings] .atlas-setting-row', { hasText: label }).locator('button, [role="switch"], input[type="checkbox"]').first();
+        const lookText = await page.evaluate(() => document.querySelector('[data-tabletop-settings]').textContent);
+        check('Tabletop Settings has the Look toggles (Cinematic grade, Flame halo)', lookText.includes('Look') && lookText.includes('Cinematic grade') && lookText.includes('Flame halo'), lookText.slice(0, 300));
+        await toggle('Cinematic grade').click();
+        await toggle('Flame halo').click();
+        await wait(300);
+        const on = await page.evaluate(() => ({ grade: window.boardTest.board.quality.grade, halo: window.boardTest.board.quality.halo }));
+        check('the Look toggles turn the grade and the halo on', on.grade === true && on.halo === true, on);
+        await toggle('Cinematic grade').click();
+        await toggle('Flame halo').click();
+        await wait(300);
+        const off = await page.evaluate(() => ({ grade: window.boardTest.board.quality.grade, halo: window.boardTest.board.quality.halo }));
+        check('and off again', off.grade === false && off.halo === false, off);
+        await page.mouse.click(20, 300);
+        await wait(600);
+      }
     }
 
     // 1k. The local player view: a second window drawing the scene as players see it.

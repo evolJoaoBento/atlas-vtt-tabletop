@@ -103,6 +103,13 @@ export function TabletopSettingsPanel({ onClose }: { onClose?: () => void }): Re
             <SettingToggleRow label={t('tabletopSettings.snapProps')} hint={t('tabletopSettings.snapPropsHint')} value={snap.props} onToggle={() => write(() => settings.setSnap?.('props', !snap.props))} />
           </>
         )}
+        {settings.setGrade && settings.setHalo && (
+          <>
+            <h3 className="atlas-command-palette-panel-heading">{t('tabletopSettings.lookHeading')}</h3>
+            <SettingToggleRow label={t('tabletopSettings.grade')} hint={t('tabletopSettings.gradeHint')} value={settings.grade?.() === true} onToggle={() => write(() => settings.setGrade?.(settings.grade?.() !== true))} />
+            <SettingToggleRow label={t('tabletopSettings.halo')} hint={t('tabletopSettings.haloHint')} value={settings.halo?.() === true} onToggle={() => write(() => settings.setHalo?.(settings.halo?.() !== true))} />
+          </>
+        )}
         <h3 className="atlas-command-palette-panel-heading">{t('dice.heading')}</h3>
         <SettingToggleRow label={t('dice.autoRoll')} hint={t('dice.autoRollHint')} value={settings.autoRoll()} onToggle={() => write(() => settings.setAutoRoll(!settings.autoRoll()))} />
         {settings.placeArTable && (

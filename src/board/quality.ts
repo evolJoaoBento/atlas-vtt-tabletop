@@ -45,6 +45,10 @@ export interface QualityPreset {
   tiltShift: boolean;
   /** Contact shadows: darker creases where walls, minis and props meet the floor (postFx.ts). Its own setting too. */
   occlusion: boolean;
+  /** The cinematic grade: a little warmer, richer and firmer colour, darker corners (postFx.ts). Its own setting too. */
+  grade: boolean;
+  /** Atlas's halo round each flame, on top of its falloff (lightRig.ts). Its own setting too. */
+  halo: boolean;
   /** The painted lighting: a warm key and cool fill, a tone mapper, softer shadows, a vignette (look.ts). Its own setting too. */
   painted: boolean;
   /** The painted sky's palette (look.ts). */
@@ -88,19 +92,21 @@ export function readSeeThroughSize(value: unknown): number {
 }
 
 export const QUALITY: Readonly<Record<Quality, QualityPreset>> = {
-  low: { maxPixelRatio: 1, minPixelRatio: 0.6, antialias: false, shadowMapSize: 1024, miniShadows: 'blob', lightShadows: 0, displaceCuts: 0, tiltShift: false, occlusion: false, painted: false, sky: 'dusk', edges: DEFAULT_EDGES, seeThrough: false, seeThroughSize: DEFAULT_SEE_THROUGH_SIZE, layerLook: DEFAULT_LAYER_LOOK, layerTick: DEFAULT_LAYER_TICK },
-  medium: { maxPixelRatio: 1.5, minPixelRatio: 0.75, antialias: true, shadowMapSize: 2048, miniShadows: 'blob', lightShadows: 2, displaceCuts: 8, tiltShift: false, occlusion: false, painted: false, sky: 'dusk', edges: DEFAULT_EDGES, seeThrough: false, seeThroughSize: DEFAULT_SEE_THROUGH_SIZE, layerLook: DEFAULT_LAYER_LOOK, layerTick: DEFAULT_LAYER_TICK },
-  high: { maxPixelRatio: 2, minPixelRatio: 1, antialias: true, shadowMapSize: 4096, miniShadows: 'real', lightShadows: 4, displaceCuts: 16, tiltShift: false, occlusion: false, painted: false, sky: 'dusk', edges: DEFAULT_EDGES, seeThrough: false, seeThroughSize: DEFAULT_SEE_THROUGH_SIZE, layerLook: DEFAULT_LAYER_LOOK, layerTick: DEFAULT_LAYER_TICK },
+  low: { maxPixelRatio: 1, minPixelRatio: 0.6, antialias: false, shadowMapSize: 1024, miniShadows: 'blob', lightShadows: 0, displaceCuts: 0, tiltShift: false, occlusion: false, grade: false, halo: false, painted: false, sky: 'dusk', edges: DEFAULT_EDGES, seeThrough: false, seeThroughSize: DEFAULT_SEE_THROUGH_SIZE, layerLook: DEFAULT_LAYER_LOOK, layerTick: DEFAULT_LAYER_TICK },
+  medium: { maxPixelRatio: 1.5, minPixelRatio: 0.75, antialias: true, shadowMapSize: 2048, miniShadows: 'blob', lightShadows: 2, displaceCuts: 8, tiltShift: false, occlusion: false, grade: false, halo: false, painted: false, sky: 'dusk', edges: DEFAULT_EDGES, seeThrough: false, seeThroughSize: DEFAULT_SEE_THROUGH_SIZE, layerLook: DEFAULT_LAYER_LOOK, layerTick: DEFAULT_LAYER_TICK },
+  high: { maxPixelRatio: 2, minPixelRatio: 1, antialias: true, shadowMapSize: 4096, miniShadows: 'real', lightShadows: 4, displaceCuts: 16, tiltShift: false, occlusion: false, grade: false, halo: false, painted: false, sky: 'dusk', edges: DEFAULT_EDGES, seeThrough: false, seeThroughSize: DEFAULT_SEE_THROUGH_SIZE, layerLook: DEFAULT_LAYER_LOOK, layerTick: DEFAULT_LAYER_TICK },
 };
 
 /** A preset with the miniature look, the contact shadows and the painted lighting on or off. */
-export function withLooks(preset: QualityPreset, looks: { tiltShift: boolean; occlusion: boolean; painted: boolean; sky: Sky; edges?: WallEdges; seeThrough?: boolean; seeThroughSize?: number; layerLook?: LayerLook; layerTick?: number }): QualityPreset {
+export function withLooks(preset: QualityPreset, looks: { tiltShift: boolean; occlusion: boolean; painted: boolean; sky: Sky; edges?: WallEdges; seeThrough?: boolean; seeThroughSize?: number; layerLook?: LayerLook; layerTick?: number; grade?: boolean; halo?: boolean }): QualityPreset {
+  const grade = looks.grade ?? preset.grade;
+  const halo = looks.halo ?? preset.halo;
   const edges = looks.edges ?? preset.edges;
   const seeThrough = looks.seeThrough ?? preset.seeThrough;
   const seeThroughSize = looks.seeThroughSize ?? preset.seeThroughSize;
   const layerLook = looks.layerLook ?? preset.layerLook;
   const layerTick = looks.layerTick ?? preset.layerTick;
-  return preset.tiltShift === looks.tiltShift && preset.occlusion === looks.occlusion && preset.painted === looks.painted && preset.sky === looks.sky && preset.edges === edges && preset.seeThrough === seeThrough && preset.seeThroughSize === seeThroughSize && preset.layerLook === layerLook && preset.layerTick === layerTick ? preset : { ...preset, ...looks, edges, seeThrough, seeThroughSize, layerLook, layerTick };
+  return preset.tiltShift === looks.tiltShift && preset.occlusion === looks.occlusion && preset.painted === looks.painted && preset.sky === looks.sky && preset.edges === edges && preset.seeThrough === seeThrough && preset.seeThroughSize === seeThroughSize && preset.layerLook === layerLook && preset.layerTick === layerTick && preset.grade === grade && preset.halo === halo ? preset : { ...preset, ...looks, edges, seeThrough, seeThroughSize, layerLook, layerTick, grade, halo };
 }
 
 export const DEFAULT_QUALITY: Quality = 'medium';
@@ -161,4 +167,9 @@ export class ResolutionGovernor {
     this.ratio = next;
     return next;
   }
+}
+
+/** Whether a preset needs the post-processing pass (postFx.ts): the miniature look, contact shadows or the grade. */
+export function postFxOn(preset: Pick<QualityPreset, 'tiltShift' | 'occlusion' | 'grade'>): boolean {
+  return preset.tiltShift || preset.occlusion || preset.grade;
 }

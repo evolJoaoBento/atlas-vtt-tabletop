@@ -8,7 +8,9 @@
  * Atlas's light is full inside its bright radius and dim (half) out to its dim radius. three.js lights fall off by
  * distance instead, so its falloff is replaced once (`getDistanceAttenuation`, before anything is drawn): Atlas's
  * lights are the only point and spot lights on the board, and each carries its bright radius, as a share of its dim
- * one, in `decay`, which nothing else reads.
+ * one, in `decay`, which nothing else reads. With the flame halo on, `decay` also carries `HALO_FLAG`: Atlas's halo
+ * (`lightingConstants` `HALO`, a Gaussian peak round the flame on top of the falloff) is then added, lit only where the
+ * light reaches, so walls and shadows stop it as they stop the light.
  *
  * A light that glows from a whole surface (lava, Atlas's `area`) is a few lamps spread over it (`areaGlow.ts`), low over
  * the surface, casting no shadows; the board holds at most `AREA_LAMPS` such lamps, the largest surfaces first.
@@ -30,13 +32,27 @@ export interface LightLayout {
 /** How strong dim light is against bright. */
 const DIM_SHARE = 0.5;
 
-/** Atlas's falloff: full inside the bright share (`decayExponent`), dim in the band beyond, fading out at each edge. */
+/** Atlas's halo: its peak over the falloff, and its Gaussian sigma as a share of the bright radius (at least a quarter of the dim one). */
+export const HALO = { gain: 0.8, size: 0.25 } as const;
+/** Added to a lamp's `decay` (its bright share, 0 to 1) when the halo is on. */
+export const HALO_FLAG = 10;
+
+/** A lamp's `decay`: its bright share, flagged for the halo when that is on. */
+export function decayOf(brightShare: number, halo: boolean): number {
+  return brightShare + (halo ? HALO_FLAG : 0);
+}
+
+/** Atlas's falloff: full inside the bright share (`decayExponent`), dim in the band beyond, fading out at each edge; plus Atlas's halo when flagged. */
 const ATLAS_FALLOFF = `float getDistanceAttenuation( const in float lightDistance, const in float cutoffDistance, const in float decayExponent ) {
 	if ( cutoffDistance <= 0.0 ) return 1.0;
+	bool flagged = decayExponent >= ${(HALO_FLAG / 2).toFixed(1)};
+	float share = flagged ? decayExponent - ${HALO_FLAG.toFixed(1)} : decayExponent;
 	float t = lightDistance / cutoffDistance;
-	float bright = 1.0 - smoothstep( decayExponent * 0.85, decayExponent + 0.04, t );
+	float bright = 1.0 - smoothstep( share * 0.85, share + 0.04, t );
 	float edge = 1.0 - smoothstep( 0.88, 1.0, t );
-	return mix( ${DIM_SHARE.toFixed(2)}, 1.0, bright ) * edge;
+	float sigma = max( max( share, 0.25 ) * ${HALO.size.toFixed(2)}, 1e-3 );
+	float halo = flagged ? ${HALO.gain.toFixed(2)} * exp( -0.5 * ( t * t ) / ( sigma * sigma ) ) : 0.0;
+	return ( mix( ${DIM_SHARE.toFixed(2)}, 1.0, bright ) + halo ) * edge;
 }
 
 `;
@@ -68,6 +84,8 @@ interface Entry {
   bulb: THREE.Mesh | null;
   seed: number;
   height: number;
+  /** The bright radius's share of the dim one (a surface light's lamps: null, they get no halo). */
+  share: number | null;
 }
 
 const BULB_GEOMETRY = new THREE.SphereGeometry(1, 12, 8);
@@ -78,9 +96,18 @@ export class LightRig {
   private signature = '';
   /** Below the lit threshold: only then do flames flicker (in daylight nobody sees it, and it would cost frames). */
   private dark = false;
+  /** Whether flames get Atlas's halo. */
+  private halo = false;
 
   constructor() {
     this.object3d.name = 'lights';
+  }
+
+  /** Turns Atlas's halo round each flame on or off. */
+  setHalo(on: boolean): void {
+    if (on === this.halo) return;
+    this.halo = on;
+    for (const entry of this.entries.values()) if (entry.share !== null) entry.lamp.decay = decayOf(entry.share, on);
   }
 
   /** Whether any light flickers: the board then redraws a few times a second. */
@@ -124,8 +151,8 @@ export class LightRig {
     // `decay` carries the bright radius's share of the dim one (see the falloff above).
     const brightShare = light.dim > 0 ? light.bright / light.dim : 0;
     const lamp = light.angle === null
-      ? new THREE.PointLight(color, 0, reach, brightShare)
-      : new THREE.SpotLight(color, 0, reach, THREE.MathUtils.degToRad(light.angle / 2), 0.35, brightShare);
+      ? new THREE.PointLight(color, 0, reach, decayOf(brightShare, this.halo))
+      : new THREE.SpotLight(color, 0, reach, THREE.MathUtils.degToRad(light.angle / 2), 0.35, decayOf(brightShare, this.halo));
     lamp.shadow.mapSize.set(SHADOW_PX, SHADOW_PX);
     lamp.shadow.bias = -0.002;
     lamp.shadow.camera.near = layout.cell * 0.05;
@@ -140,7 +167,7 @@ export class LightRig {
       bulb.userData.gmOnly = true;
       this.object3d.add(bulb);
     }
-    this.entries.set(light.id, { light, lamp, extra: [], bulb, seed: seedOf(light.id), height: layout.heightOf(light) });
+    this.entries.set(light.id, { light, lamp, extra: [], bulb, seed: seedOf(light.id), height: layout.heightOf(light), share: brightShare });
   }
 
   /**
@@ -170,7 +197,7 @@ export class LightRig {
     bulb.userData.lightId = light.id;
     bulb.userData.gmOnly = true;
     this.object3d.add(bulb);
-    this.entries.set(light.id, { light, lamp: first, extra, bulb, seed: seedOf(light.id), height });
+    this.entries.set(light.id, { light, lamp: first, extra, bulb, seed: seedOf(light.id), height, share: null });
   }
 
   /** Moves a light (a token's, as the token moves) to a point of the map. */
