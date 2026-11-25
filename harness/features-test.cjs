@@ -2576,7 +2576,7 @@ feature('tabletop settings', async ({ page, shot }) => {
       return { headings: [...col.querySelectorAll('h3')].map((h) => h.textContent), height: Math.round(bottom - top) };
     });
   });
-  check('tabletop settings: Visibility, Look and Dice on the left, Walls and Snap on the right, the columns about as tall', spread.length === 2 && spread[0].headings[0] === 'Visibility' && spread[0].headings.includes('Look') && spread[0].headings.includes('Dice') && spread[1].headings[0] === 'Walls and fog' && Math.abs(spread[0].height - spread[1].height) <= 0.25 * Math.max(spread[0].height, spread[1].height), JSON.stringify(spread));
+  check('tabletop settings: Visibility and Look on the left, Walls, Snap and Dice on the right, the columns about as tall', spread.length === 2 && spread[0].headings[0] === 'Visibility' && spread[0].headings.includes('Look') && spread[1].headings[0] === 'Walls and fog' && spread[1].headings.includes('Dice') && Math.abs(spread[0].height - spread[1].height) <= 0.15 * Math.max(spread[0].height, spread[1].height), JSON.stringify(spread));
   check('tabletop settings: no AR table section (its fine-tuning is a palette command)', await page.evaluate(() => !document.querySelector('[data-tabletop-settings]').textContent.includes('AR table')));
 
   // Back returns to the list, and the list's entry opens the page again (pressed in the page: a short harness window can put the header above its top).

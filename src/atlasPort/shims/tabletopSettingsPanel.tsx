@@ -1,7 +1,7 @@
 // Tabletop's own settings page in the copied command palette (added by the patches in scripts/atlasPortList.mjs): what the
 // board's old Board settings panel held, drawn as Atlas's settings pages are drawn (their rows, switches and segmented
 // choices, in one column pair under the page header), and written the way the panel wrote it. The left column is what the
-// board shows (the Visibility bar's settings and the Look), the right one the board itself (walls, snapping, dice).
+// board shows (the Visibility bar's settings and the Look), the right one the board itself (walls, snapping) and dice.
 import React from 'react';
 import { Settings } from 'lucide-react';
 import { SegmentedControl } from '../app/packages/components/primitives/SegmentedControl';
@@ -109,8 +109,6 @@ export function TabletopSettingsPanel({ onClose }: { onClose?: () => void }): Re
             <SettingToggleRow label={t('tabletopSettings.halo')} hint={t('tabletopSettings.haloHint')} value={settings.halo?.() === true} onToggle={() => write(() => settings.setHalo?.(settings.halo?.() !== true))} />
           </>
         )}
-        <h3 className="atlas-command-palette-panel-heading">{t('dice.heading')}</h3>
-        <SettingToggleRow label={t('dice.autoRoll')} hint={t('dice.autoRollHint')} value={settings.autoRoll()} onToggle={() => write(() => settings.setAutoRoll(!settings.autoRoll()))} />
       </div>
 
       <div className="atlas-command-palette-panel-column">
@@ -148,6 +146,8 @@ export function TabletopSettingsPanel({ onClose }: { onClose?: () => void }): Re
             <SettingToggleRow label={t('tabletopSettings.snapProps')} hint={t('tabletopSettings.snapPropsHint')} value={snap.props} onToggle={() => write(() => settings.setSnap?.('props', !snap.props))} />
           </>
         )}
+        <h3 className="atlas-command-palette-panel-heading">{t('dice.heading')}</h3>
+        <SettingToggleRow label={t('dice.autoRoll')} hint={t('dice.autoRollHint')} value={settings.autoRoll()} onToggle={() => write(() => settings.setAutoRoll(!settings.autoRoll()))} />
       </div>
     </div>
   );
