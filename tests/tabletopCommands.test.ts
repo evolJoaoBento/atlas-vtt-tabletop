@@ -119,3 +119,19 @@ test("the AR table's fine-tuning is a palette command, there before a phone has 
   const page = withTable.find((entry) => entry.id === 'tabletop-settings')!;
   assert.equal(page.keywords?.includes('ar'), false);
 });
+
+test("Atlas 0.20's Appearance page is a palette command that opens it in Atlas", async () => {
+  const { setPaletteHost } = await import('../src/palette/paletteHost');
+  const opened: (string | undefined)[] = [];
+  setPaletteHost({ openInAtlas: (page?: string) => opened.push(page) } as never);
+  try {
+    const { made } = actions();
+    const entry = tabletopCommands(made, () => {}).find((command) => command.id === 'tabletop-atlas-appearance')!;
+    assert.equal(entry.label, 'Appearance settings');
+    assert.equal(entry.icon, 'paintbrush');
+    entry.run!();
+    assert.deepEqual(opened, ['appearance']);
+  } finally {
+    setPaletteHost(null);
+  }
+});

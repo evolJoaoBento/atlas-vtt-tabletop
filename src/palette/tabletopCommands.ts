@@ -5,6 +5,7 @@
  * draws them with Lucide icons.
  */
 import { t } from '../i18n';
+import { paletteHost } from './paletteHost';
 import type { ToolbarActions } from '../board/toolbar';
 import {
   toolbarButtonEntries,
@@ -129,6 +130,16 @@ export function tabletopCommands(actions: ToolbarActions, refresh: () => void, h
       run: () => actions.placeArTable?.(),
     });
   }
+
+  // Atlas 0.20's Appearance page (its looks, accent, glass, square corners): Atlas's own, kept by the running Atlas, so it
+  // opens in Atlas's palette (the board's bars follow the look Atlas puts on the window).
+  commands.push({
+    id: 'tabletop-atlas-appearance',
+    label: t('palette.appearance'),
+    icon: 'paintbrush',
+    keywords: ['appearance', 'look', 'theme', 'medieval', 'sci-fi', 'scifi', 'accent', 'colour', 'color', 'glass', 'transparency', 'corners'],
+    run: () => paletteHost()?.openInAtlas('appearance'),
+  });
 
   // Tabletop's own settings page (what the Board settings panel held), in the Settings section as Atlas's pages are.
   commands.push({

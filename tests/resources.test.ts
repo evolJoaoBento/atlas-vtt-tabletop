@@ -129,3 +129,21 @@ test('the hidden list: the two old switches decide for HP and the secondary bar'
   assert.deepEqual(hiddenResourcesOf({ showResources: false }), ['hp', 'stress']);
   assert.deepEqual(hiddenResourcesOf(undefined), []);
 });
+
+test("Atlas 0.20's player audience: a resource shown to the party's or the opponents' tokens only, by the token's side", () => {
+  const [party, enemies] = parseResourceDefinitions([
+    { key: 'hp', name: 'HP', field: 'hp', direction: 'drains', color: '#22c55e', visibleToPlayers: false, visibleOnSide: 'players' },
+    { key: 'ac', name: 'AC', field: 'ac', direction: 'static', color: '#3b82f6', visibleToPlayers: false, visibleOnSide: 'opponents' },
+  ]);
+  assert.equal(party?.visibleOnSide, 'players');
+  assert.equal(enemies?.visibleOnSide, 'opponents');
+  const values = { resources: { hp: { current: 4, max: 9 }, ac: { current: 15, max: 15 } } };
+  const seen = (token: { side?: 'players' | 'opponents' | null; sees?: boolean }) => visibleResources({ ...values, ...token }, [party!, enemies!], [], 'player').map((r) => r.definition.key);
+  assert.deepEqual(seen({ side: 'players' }), ['hp']);
+  assert.deepEqual(seen({ side: 'opponents' }), ['ac']);
+  // No side given: one that sees is the party's, as Atlas's sideOf has it; else the opponents'.
+  assert.deepEqual(seen({ sees: true }), ['hp']);
+  assert.deepEqual(seen({}), ['ac']);
+  // The GM sees both.
+  assert.deepEqual(visibleResources({ ...values, side: 'players' }, [party!, enemies!], []).map((r) => r.definition.key), ['hp', 'ac']);
+});

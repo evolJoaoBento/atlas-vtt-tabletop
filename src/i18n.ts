@@ -121,6 +121,7 @@ const EN = {
   'tabletopSettings.snapProps': 'Snap props',
   'tabletopSettings.snapPropsHint': 'On its own, whatever the map snaps tokens to: a dropped prop goes to the middle of its square. Off: it stays where it is dropped.',
   'arTable.fineTune': 'Fine-tune the AR table',
+  'palette.appearance': 'Appearance settings',
   'arTable.none': 'no AR table on this map yet. A player sends one from their phone (AR menu, Send this table to the GM).',
   'dice.heading': 'Dice',
   'dice.autoRoll': 'Throw stat sheet rolls automatically',

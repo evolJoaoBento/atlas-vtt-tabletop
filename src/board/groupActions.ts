@@ -77,7 +77,7 @@ export class GroupBar {
       made.addEventListener('click', onClick);
       return made;
     };
-    this.element = make('div', 'atlas-tabletop-group-bar atlas-tabletop-atlas', container);
+    this.element = make('div', 'atlas-tabletop-group-bar atlas-tabletop-atlas atlas-vtt-plugin', container);
     this.element.hidden = true;
     this.element.setAttribute('role', 'toolbar');
     this.element.setAttribute('aria-label', t('group.selected', { n: '' }).trim());

@@ -26,6 +26,7 @@ import {
   type ResourceDefinition,
   type ResourceHolder,
   type ResourceValue,
+  type SideId,
   type VisibleResource,
 } from '../../packages/atlas-shared/src/index';
 
@@ -64,6 +65,8 @@ function parseResourceDefinition(raw: unknown): ResourceDefinition | null {
     key, name, field: field.trim(), direction: raw.direction, color: raw.color,
     ...(raw.defeatedWhenSpent === true && raw.direction !== 'static' && { defeatedWhenSpent: true }),
     visibleToPlayers: raw.visibleToPlayers === true,
+    // Atlas 0.20: players see it only on one side's tokens (kept beside `visibleToPlayers: false`).
+    ...((raw.visibleOnSide === 'players' || raw.visibleOnSide === 'opponents') && { visibleOnSide: raw.visibleOnSide }),
     ...(isSocket(raw.slot) && { slot: raw.slot }),
   };
 }
@@ -105,11 +108,14 @@ export function mapDefinitions(settings: Raw | null, inCollection: boolean): Res
 
 /**
  * The resources a viewer sees on a token, in socket order: the GM those the map does not hide; players those the
- * collection shows them (`visibleToPlayers`), whatever the map hides from the GM, as Atlas's player window does.
+ * collection shows them on this token (Atlas 0.20's audience: every token, the party's, the opponents' or none, by the
+ * token's side), whatever the map hides from the GM, as Atlas's player window does.
  */
-export function visibleResources(token: ResourceHolder, definitions: readonly ResourceDefinition[], hidden: readonly string[], viewer: 'gm' | 'player' = 'gm'): VisibleResource[] {
-  // Atlas decides what shows, in which socket; the map's hidden list then takes the GM's away (sockets stay put).
-  const shown = atlasVisibleResources(token, definitions, viewer === 'gm' ? 'dm' : 'player');
+export function visibleResources(token: ResourceHolder & { side?: SideId | null; sees?: boolean }, definitions: readonly ResourceDefinition[], hidden: readonly string[], viewer: 'gm' | 'player' = 'gm'): VisibleResource[] {
+  // Atlas decides what shows, in which socket (and on whose tokens, by the side it reads as `sideOf` does); the map's
+  // hidden list then takes the GM's away (sockets stay put).
+  const sided = { ...token, side: token.side ?? undefined, vision: { enabled: token.sees === true } };
+  const shown = atlasVisibleResources(sided as never, definitions, viewer === 'gm' ? 'dm' : 'player');
   return viewer === 'gm' ? shown.filter(({ definition }) => !hidden.includes(definition.key)) : shown;
 }
 

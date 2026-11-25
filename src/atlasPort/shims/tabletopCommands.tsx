@@ -3,7 +3,7 @@
 // with lucide icons, in the Settings tab; Tabletop Settings, a page like Atlas's, heads that tab (`tabletopSettingsCommands`).
 import {
   Blend, BrickWall, CircleDashed, Clapperboard, Cloud, Command, Dices, Ellipsis, Eye, EyeOff, Flashlight, Focus,
-  Hammer, Hand, Image as ImageIcon, Lamp, Layers, ListOrdered, Moon, Mountain, NotebookText, PaintRoller, Plug, Radio,
+  Hammer, Hand, Image as ImageIcon, Lamp, Layers, ListOrdered, Moon, Mountain, NotebookText, Paintbrush, PaintRoller, Plug, Radio,
   Redo2, Ruler, Scan, ScanEye, ScrollText, Settings, Shapes, SlidersHorizontal, SquareStack, Sun, Sunset, Swords, TentTree, Undo2, Waves,
 } from 'lucide-react';
 import { CoinIcon } from '../app/react/components/CoinIcon';
@@ -17,7 +17,7 @@ const ICONS: Readonly<Record<ToolbarCommandIcon, React.ComponentType>> = {
   swords: Swords, hammer: Hammer, clapperboard: Clapperboard, dice: Dices, scroll: ScrollText, notebook: NotebookText,
   'list-ordered': ListOrdered, settings: Settings, undo: Undo2, redo: Redo2, hand: Hand, flashlight: Flashlight,
   sliders: SlidersHorizontal, ruler: Ruler, shapes: Shapes, waves: Waves, mountain: Mountain, 'paint-roller': PaintRoller,
-  cloud: Cloud, ground: TentTree, radio: Radio, coin: CoinIcon, image: ImageIcon, command: Command, ellipsis: Ellipsis, plug: Plug, scan: Scan,
+  cloud: Cloud, ground: TentTree, radio: Radio, coin: CoinIcon, image: ImageIcon, command: Command, ellipsis: Ellipsis, plug: Plug, scan: Scan, paintbrush: Paintbrush,
 };
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
