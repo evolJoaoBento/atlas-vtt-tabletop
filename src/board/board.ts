@@ -98,7 +98,6 @@ import { aboutElement, rulesWords } from './spellPicker';
 import { difficultGround } from './spellView';
 import type { ToolbarCommandHost } from '../palette/tabletopCommands';
 import { BoardToolbar, type AtlasToolButton, type CinemaButtons, type DiceButton, type ToolbarActions, type ToolbarHelp, UNPAINT } from './toolbar';
-import type { SeeThroughCircle } from './seeThroughRing';
 import { pinTitle } from './pinIcons';
 import { insideFog, pinsShown, playerSees, shownToPlayers } from './playerView';
 import { instanceBadgeNumbers } from './levels';
@@ -120,7 +119,7 @@ import { DarknessLayer } from './darkness';
 import { BoardMarks } from './marks';
 import { AreaVolumes, areaVolumeOf, markShape, type AreaVolume } from './areaVolume';
 import { ringsOf, type WallsLook } from './areaCuts';
-import { PlayerToolState, templateArea, type MeasureShape, type PlayerTool, type TemplateChange, type TemplateMark, type TemplateShape, type ToolAction } from './playerTools';
+import { PlayerToolState, templateArea, type MeasureShape, type PlayerTool, type TemplateMark, type ToolAction } from './playerTools';
 import { DEFAULT_MEASURE_TOOL, isMeasureShape, type MeasureToolOptions } from './measureOptions';
 import { MEASURE_PIN_PX } from './marks';
 import { measureWhileHeld } from '../atlasPort/measureWhileHeld';
@@ -237,7 +236,7 @@ export interface BoardHost {
   redo?(): void;
   canUndo?(): boolean;
   canRedo?(): boolean;
-  /** Records a change the board made that no store records by itself (a template placed while Connect hosts). */
+  /** Records a change the board made that no store records by itself. */
   recordUndo?(step: { label: string; undo(): boolean; redo(): boolean }): void;
   /** Whether a scene of the stack is hidden on the board (the GM hid it from its pill's menu). */
   layerHidden?(path: string): boolean;
@@ -483,7 +482,7 @@ export interface BoardHost {
   spellBook?(): SpellBook | null;
   /** The tool, shape or colour changed on the board (Escape too): Connect's toolbar follows. */
   toolsChanged?(): void;
-  /** Whether Connect hosts a session (the GM's board offers the Template tool then). */
+  /** Whether Connect hosts a session . */
   hosting?(): boolean;
   /** The board left a token's eyes by itself (Escape, the Leave button): Connect's eye button follows. */
   eyeChanged?(): void;
@@ -1066,7 +1065,6 @@ export class Board {
       wallEdges: () => this.quality.edges,
       seeThrough: () => this.quality.seeThrough,
       seeThroughSize: () => this.quality.seeThroughSize,
-      seeThroughCircle: () => this.seeThroughCircle(),
       ...(this.host.setSeeThroughSize && { setSeeThroughSize: (squares: number) => this.host.setSeeThroughSize?.(squares) }),
       layerLook: () => this.quality.layerLook,
       ...(this.host.setLayerLook && { setLayerLook: (look: LayerLook) => this.host.setLayerLook?.(look) }),
@@ -1174,20 +1172,10 @@ export class Board {
       measureShortcut: () => this.host.measureHotkeys?.().measure ?? 'M',
       measureKeepShortcut: () => this.host.measureHotkeys?.().measureKeep ?? 'K',
       diceShortcut: (which) => this.host.measureHotkeys?.()[which] ?? null,
-      templateOn: () => this.tools.tool === 'template',
-      templateShape: () => this.tools.templateShape,
-      clearTemplates: () => { this.act([{ type: 'template', change: { clear: true } }]); },
       canUndo: () => this.host.canUndo?.() === true,
       canRedo: () => this.host.canRedo?.() === true,
       undo: this.host.undo ? () => this.host.undo?.() : undefined,
       redo: this.host.redo ? () => this.host.redo?.() : undefined,
-      selectTemplate: (shape) => {
-        if (shape !== null) { this.stopPainting(); if (this.laserOn) this.setLaser(false); }
-        if (shape === null) this.tools.select('move');
-        else this.tools.selectTemplateShape(shape as TemplateShape);
-        this.toolsChanged();
-        this.toolbar.refresh();
-      },
       initiativeOpen: () => this.host.initiativeOpen(),
       toggleInitiative: () => this.host.toggleInitiative(),
       ambient: () => this.ambientShown ?? this.host.ambient(),
@@ -2771,7 +2759,6 @@ export class Board {
     // The fog brush's ring keeps its width on screen and its place under a still pointer while the camera moves (after the
     // camera is placed, so the frame that settles it draws the ring settled too).
     this.fogTool?.frame();
-    this.toolbar.syncOverlay();
     this.spellTick();
     const viewHeight = this.renderer.domElement.clientHeight || 1;
     const context: PoseContext = {
@@ -2970,31 +2957,6 @@ export class Board {
     this.cutaway.pivot.value.set(target.x, target.y, target.z);
     this.cutaway.radius.value = (this.map?.grid.size ?? 50) * this.quality.seeThroughSize;
     this.cutaway.strength.value = this.quality.seeThrough ? 1 : 0;
-  }
-
-  /** Projects the see-through window at the camera's pivot to CSS pixels relative to the canvas, or null in views without a cut. */
-  seeThroughCircle(): SeeThroughCircle | null {
-    if (this.room !== null || this.augmented !== null || this.eye !== null) return null;
-    const rect = this.canvas.getBoundingClientRect();
-    if (!(rect.width > 0 && rect.height > 0)) return null;
-    this.applyView();
-    const target = this.camera.pose.target;
-    const pivot = new THREE.Vector3(target.x, target.y, target.z);
-    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.view.quaternion);
-    if (pivot.clone().sub(this.view.position).dot(forward) <= 0) return null;
-    const right = new THREE.Vector3().setFromMatrixColumn(this.view.matrixWorld, 0).normalize();
-    const gridSize = this.map?.grid.size ?? 50;
-    const project = (world: THREE.Vector3): { x: number; y: number } => {
-      const ndc = world.clone().project(this.view);
-      return { x: (ndc.x * 0.5 + 0.5) * rect.width, y: (-ndc.y * 0.5 + 0.5) * rect.height };
-    };
-    const center = project(pivot);
-    const edge = project(pivot.clone().addScaledVector(right, gridSize * this.quality.seeThroughSize));
-    const oneSquare = project(pivot.clone().addScaledVector(right, gridSize));
-    const radius = Math.hypot(edge.x - center.x, edge.y - center.y);
-    const pxPerSquare = Math.hypot(oneSquare.x - center.x, oneSquare.y - center.y);
-    if (!Number.isFinite(radius) || !(pxPerSquare > 0)) return null;
-    return { x: center.x, y: center.y, radius, pxPerSquare };
   }
 
   private ray(clientX: number, clientY: number): void {
@@ -3951,7 +3913,7 @@ export class Board {
       if (this.toolKey(event, key)) return;
       if (key === 'escape' && this.group.size > 0) { this.clearGroup(); return; }
       if (key === 'escape' && this.selectedId !== null) { this.select(null); return; }
-      if (key === 'escape' && this.toolbar.isOpen) { this.toolbar.closeView(); this.toolbar.closeGround(); this.toolbar.closeDice(); return; }
+      if (key === 'escape' && this.toolbar.isOpen) { this.toolbar.closeGround(); this.toolbar.closeDice(); return; }
       if (key === 'home') { this.frameMap(); event.preventDefault(); return; }
       // Up and down arrows while carrying a token take it to the layer above or below (shown, not yet the one played).
       if ((key === 'arrowup' || key === 'arrowdown' || key === 'pageup' || key === 'pagedown') && this.press?.kind === 'token' && this.audience === 'gm' && this.layerViews.size > 0) {
@@ -4279,19 +4241,6 @@ export class Board {
         return;
       }
     }
-    // While Connect hosts, the GM's Template tool: a drag places one, a tap erases any.
-    if (event.button === 0 && this.tools.tool === 'template' && this.host.hosting?.() === true) {
-      const at = this.boardPoint(x, y);
-      // A tap on a spell erases it.
-      const spell = at ? [...this.castSpells].reverse().find((cast) => spellUnder(cast.spell, at)) : undefined;
-      if (spell) { this.host.playerAction?.({ type: 'spell', change: { remove: spell.id } }); return; }
-      if (at) {
-        this.press = { kind: 'tool', x, y, moved: false };
-        this.tools.down(at, this.now());
-        this.showToolOverlay();
-        return;
-      }
-    }
     // Alt + drag on a prop: its standing height; Alt + double click puts it back on what is under it.
     if (event.button === 0 && event.altKey && !event.shiftKey && this.editing && this.host.liftProp && !this.painting && !this.waterTool && !this.placing) {
       const id = this.tokenAt(x, y) ? null : this.propAt(x, y);
@@ -4435,34 +4384,7 @@ export class Board {
   /** The tools' actions go to Connect. */
   private act(actions: readonly ToolAction[]): void {
     for (const action of actions) {
-      if (action.type === 'template') this.recordTemplate(action.change);
       this.host.playerAction?.(action);
-    }
-  }
-
-  /** A template the GM placed, erased or cleared becomes an undo step: Connect is asked for the opposite change. */
-  private recordTemplate(change: TemplateChange): void {
-    if (this.audience !== 'gm' || !this.host.recordUndo) return;
-    type Shape = { shape: TemplateShape; start: { x: number; y: number }; end: { x: number; y: number } };
-    const send = (next: TemplateChange): void => this.host.playerAction?.({ type: 'template', change: next });
-    const near = (a: { x: number; y: number }, b: { x: number; y: number }): boolean => Math.hypot(a.x - b.x, a.y - b.y) < 0.5;
-    const placed = (shape: Shape): TemplateMark | undefined => [...this.tools.shown].reverse().find((mark) => mark.shape === shape.shape && near(mark.start, shape.start) && near(mark.end, shape.end));
-    const add = (shape: Shape): boolean => { send({ add: { shape: shape.shape, start: { ...shape.start }, end: { ...shape.end } } }); return true; };
-    const remove = (shape: Shape): boolean => { const mark = placed(shape); if (!mark) return false; send({ remove: mark.id }); return true; };
-    const copy = (mark: Shape): Shape => ({ shape: mark.shape, start: { ...mark.start }, end: { ...mark.end } });
-    if ('add' in change) {
-      const shape = copy(change.add);
-      this.host.recordUndo({ label: 'template', undo: () => remove(shape), redo: () => add(shape) });
-    } else if ('remove' in change) {
-      const mark = this.tools.shown.find((entry) => entry.id === change.remove);
-      if (!mark) return;
-      const shape = copy(mark);
-      this.host.recordUndo({ label: 'template erased', undo: () => add(shape), redo: () => remove(shape) });
-    } else {
-      const self = this.tools.selfId;
-      const gone = this.tools.shown.filter((mark) => self === null || mark.owner === self).map(copy);
-      if (gone.length === 0) return;
-      this.host.recordUndo({ label: 'templates cleared', undo: () => { for (const shape of gone) add(shape); return true; }, redo: () => { send({ clear: true }); return true; } });
     }
   }
 
@@ -4817,7 +4739,7 @@ export class Board {
     }
     if (this.audience === 'player' && key === 'escape' && this.tools.tool !== 'move') { this.tools.select('move'); this.toolsChanged(); return true; }
     if (key === 'v' && this.audience === 'gm' && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      // With the Measure or Template tool in hand the key goes back to Move/Select (the hand); pressed again it is the laser.
+      // With the Measure tool in hand the key goes back to Move/Select (the hand); pressed again it is the laser.
       if (this.tools.tool !== 'move') { this.putMeasureAway(); this.setLaser(false); } else this.setLaser(!this.laserOn);
       return true;
     }
@@ -8092,7 +8014,7 @@ export class Board {
     const current = this.host.boardMode?.();
     if (material && (current === 'play' || current === 'cinematic')) this.setMode('edit');
     if (material) {
-      // One tool at a time: painting puts the water brush, the Shapes tool, the ruler and the template away.
+      // One tool at a time: painting puts the water brush, the Shapes tool, and the ruler away.
       if (this.waterTool) { this.waterTool = null; this.showBrush(); }
       this.fogTool?.setOn(false);
       this.shapeEditor?.setActive(false);
@@ -8157,7 +8079,7 @@ export class Board {
     return this.laserOn;
   }
 
-  /** One tool at a time: the Measure tool or the Template tool, if in hand, is put down for Move/Select (the hand) or the laser. */
+  /** One tool at a time: the Measure tool, if in hand, is put down for Move/Select (the hand) or the laser. */
   private putMeasureAway(): void {
     if (this.tools.tool === 'move') return;
     this.tools.select('move');

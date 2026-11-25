@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spellToMeasure, templateToMeasure, type SpellLike } from '../packages/atlas-host/src/index';
-import { castsOfMeasures, marksOfMeasures, readMeasures, spellWrite, templateWrite } from '../src/board/boardMeasures';
+import { castsOfMeasures, marksOfMeasures, readMeasures, spellWrite } from '../src/board/boardMeasures';
 import { readMapState } from '../src/board/mapModel';
 import { shapeOutline } from '../src/board/marks';
 import { templateHit } from '../src/board/playerTools';
@@ -105,16 +105,6 @@ test("the GM's clear takes the GM's own spells only: a player's spell, a templat
   assert.deepEqual(spellWrite({ clear: true }, measures, null), { remove: ['g1', 'g2'] });
   assert.deepEqual(spellWrite({ remove: 'cast' }, measures, null), { remove: ['cast'] });
   assert.equal(spellWrite({ decline: 'x' }, measures, null), null);
-  assert.deepEqual(templateWrite({ clear: true }, measures, null), { remove: ['t1'] });
-  assert.deepEqual(templateWrite({ remove: 'mine' }, measures, null), { remove: ['mine'] });
-  // An area made in Atlas, a kept ruler's leg and a spell are not the Template tool's to take off.
-  assert.deepEqual(templateWrite({ remove: 'area' }, measures, null), { remove: [] });
-  assert.deepEqual(templateWrite({ remove: 'path:0' }, measures, null), { remove: [] });
-  assert.deepEqual(templateWrite({ remove: 'cast' }, measures, null), { remove: [] });
-  const placed = templateWrite({ add: { shape: 'cone', start: { x: 1, y: 2 }, end: { x: 71, y: 2 } } }, measures, 'upper');
-  assert.deepEqual(placed, { add: { shape: 'cone', points: [{ x: 1, y: 2 }, { x: 71, y: 2 }], tabletop: { v: 1, kind: 'template', owner: 'gm' }, level: 'upper' } });
-  // What it places reads back as the GM's template, drawn flat.
-  assert.deepEqual(marksOfMeasures(readMeasures({ t: { ...(placed as { add: object }).add, id: 't' } }), { cell: 70, accent: '#7c5cff' }).map((mark) => [mark.kind, mark.owner]), [['template', 'gm']]);
 });
 
 test("the walls Atlas holds for a spell are not the map's walls: the board stands a spell's walls from the spell itself, and draws none of stone for them", () => {

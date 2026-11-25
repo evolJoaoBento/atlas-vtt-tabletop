@@ -54,8 +54,9 @@ test("Tabletop Settings is one page entry in the palette, not a submenu of quick
   assert.equal(entries.some((entry) => entry.id === 'tabletop-board-settings'), false);
   assert.equal(entries.some((entry) => entry.id === 'tabletop-toolbar-board-settings'), false);
   assert.equal(entries.some((entry) => /board settings/i.test(entry.label)), false);
-  // Initiative lives in the toolbar registry.
-  assert.equal(entries.some((entry) => entry.id === 'tabletop-toolbar-initiative'), true);
+  // The Visibility bar's settings (see-through walls, window size, upper layers, initiative tracker) are on the page.
+  assert.equal(entries.some((entry) => entry.id === 'tabletop-toolbar-initiative'), false);
+  for (const word of ['visibility', 'see-through', 'layers', 'initiative']) assert.ok(page.keywords?.includes(word), word);
 });
 
 test('toolbar registry commands route through the toolbar host and show mode suffix when switching modes', () => {

@@ -29,7 +29,7 @@ import type { LoadedMini, MiniLibrary } from '../library';
 import type { MaterialLibrary } from '../materials';
 import { Board, GM_SPELL_OWNER, type BoardHost } from './board';
 import { isInstantaneous, readCastSpells, type CastSpell, type SpellAsk } from './spells';
-import { castsOfMeasures, marksOfMeasures, measureWrite, spellWrite, templateWrite, type MeasureChange, type MeasureWrite } from './boardMeasures';
+import { castsOfMeasures, marksOfMeasures, measureWrite, spellWrite, type MeasureChange, type MeasureWrite } from './boardMeasures';
 import { readAtlasMeasureTool, writeAtlasMeasureTool } from './atlasMeasureTool';
 import type { MeasureToolOptions } from './measureOptions';
 import { formatHotkey } from '../atlasPort/app/keyboard/mapHotkeys';
@@ -37,7 +37,7 @@ import { boardBinding } from './boardHotkeys';
 import { readGmView, writeGmView } from './gmView';
 import { pointerNow } from './lightingPeek';
 import type { SpellBook } from './spellPicker';
-import type { SpellChange, TemplateChange } from './playerTools';
+import type { SpellChange } from './playerTools';
 import { isVideoPath } from './textures';
 import type { BoardData, PropLook, PropVariant } from './boardData';
 import { lookOf } from './boardData';
@@ -1904,12 +1904,11 @@ export class BoardView extends ItemView {
       },
       cameraMoved: () => this.services.cameraMoved?.(this),
       hosting: () => this.services.session?.()?.hosting() === true,
-      // The GM's spells and Template tool: kept in Atlas's measures, where every player of the map's scene gets them.
+      // The GM's spells: kept in Atlas's measures, where every player of the map's scene gets them.
       playerAction: (action) => {
         const path = this.path;
         if (!path) return;
         if (action.type === 'spell') this.gmSpell(path, action.change);
-        else if (action.type === 'template') this.gmTemplate(path, action.change);
       },
     };
   }
@@ -2634,8 +2633,7 @@ export class BoardView extends ItemView {
   }
 
   /**
-   * A spell change from the GM's board: one cast through a token's eyes, one erased (the Template tool's tap, Ctrl +
-   * click), or the GM's own cleared. A spell that lasts is one of Atlas's kept measures (in one step of its history),
+   * A spell change from the GM's board: one cast through a token's eyes, one erased (Ctrl + click), or the GM's own cleared. A spell that lasts is one of Atlas's kept measures (in one step of its history),
    * hosting or not: the board, Atlas and every player get it from there. An instantaneous one goes off and is kept
    * nowhere: shown here, and flashed to the players while Connect hosts.
    */
@@ -2651,14 +2649,6 @@ export class BoardView extends ItemView {
       return;
     }
     this.writeMeasures(path, write, 'spell');
-  }
-
-  /**
-   * The GM's Template tool: a template placed is one of Atlas's kept measures, as wide and as long as Atlas shapes it;
-   * a tap takes anyone's off, and the clear the GM's own (each in one step of Atlas's history).
-   */
-  private gmTemplate(path: string, change: TemplateChange): void {
-    this.writeMeasures(path, templateWrite(change, this.map?.measures ?? [], this.map?.level ?? null), 'template');
   }
 
   /**

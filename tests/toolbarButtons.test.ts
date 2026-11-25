@@ -27,7 +27,6 @@ function makeState(over: Partial<ToolbarButtonState> = {}, actionsOver: Record<s
     setSeeThrough: () => {},
     seeThroughSize: () => 2,
     setSeeThroughSize: () => {},
-    seeThroughCircle: () => ({ x: 100, y: 100, radius: 50, pxPerSquare: 25 }),
     layerLook: () => 'solid' as const,
     setLayerLook: () => {},
     hosting: () => false,
@@ -42,10 +41,6 @@ function makeState(over: Partial<ToolbarButtonState> = {}, actionsOver: Record<s
     selectMeasure: () => {},
     measureOn: () => false,
     measureShape: () => 'line' as const,
-    templateOn: () => false,
-    templateShape: () => 'circle',
-    selectTemplate: () => {},
-    clearTemplates: () => {},
     playerViewOpen: () => false,
     togglePlayerView: () => {},
     playerFrozen: () => false,
@@ -123,19 +118,18 @@ test('toolbarButtonEntries suffixes the mode when switching modes and hides unav
   assert.equal(byId.get('measure')?.switchTo, null);
 
   // Unavailable buttons are omitted.
-  assert.equal(byId.has('template'), false, 'Template hidden while not hosting');
   assert.equal(byId.has('cinema-live'), false, 'Live toggle hidden while not hosting');
   assert.equal(byId.has('dice-log'), false, 'Dice log hidden when not attached');
   assert.equal(byId.has('more'), false, 'More hidden when not overflowed');
 
-  // Hosting turns Template and Live toggle on, and Connect end-slot buttons appear.
+  // Hosting turns the Live toggle on, and Connect end-slot buttons appear.
   const hosting = toolbarButtonEntries(makeState({
     hasMore: true,
     extraEndButtons: [{ id: 'end-slot:connect', label: 'Session' }],
   }, { hosting: () => true }));
   const hostIds = new Set(hosting.map((entry) => entry.id));
-  assert.equal(hostIds.has('template'), true);
-  assert.equal(hostIds.has('template-options'), true);
+  // The Template tool is gone: the Measure tool's kept measures are the board's templates.
+  assert.equal(hostIds.has('template'), false);
   assert.equal(hostIds.has('cinema-live'), true);
   assert.equal(hostIds.has('more'), true);
   assert.equal(hostIds.has('end-slot:connect'), true);
@@ -155,20 +149,21 @@ test('in Edit mode Play tools show Play mode suffix, and in Cinematic mode live 
   const cinById = new Map(inCinematic.map((entry) => [entry.id, entry]));
   assert.equal(cinById.get('cinema-live')?.label, 'Players follow my camera');
   assert.equal(cinById.get('cinema-live')?.switchTo, null);
-  assert.equal(cinById.get('visibility')?.label, 'Visibility · Play mode');
-  assert.equal(cinById.get('visibility')?.switchTo, 'play');
+  assert.equal(cinById.get('measure')?.label, 'Measure · Play mode');
+  assert.equal(cinById.get('measure')?.switchTo, 'play');
+  // The Visibility bar's settings are on the Tabletop Settings page now.
+  assert.equal(cinById.has('visibility'), false);
 });
 
 test('every toolbar button created in toolbar.ts is registered in TOOLBAR_BUTTON_IDS and vice versa', () => {
   const source = readFileSync('src/board/toolbar.ts', 'utf8');
   const registered = new Set<string>();
   for (const match of source.matchAll(/registerButton\(\s*'([^']+)'/g)) registered.add(match[1]!);
-  // Dynamic atlas tool ids (`atlas-${tool.id}`) and mode buttons (`mode-${mode}`) and layer buttons (`layers-${value}`)
+  // Dynamic atlas tool ids (`atlas-${tool.id}`) and mode buttons (`mode-${mode}`)
   // are registered with template strings; verify those families too.
   assert.match(source, /registerButton\(`mode-\$\{mode\}`/, 'mode buttons must call registerButton');
-  assert.match(source, /registerButton\(`layers-\$\{value\}`/, 'layer buttons must call registerButton');
   assert.match(source, /registerButton\(`atlas-\$\{tool\.id\}`/, 'atlas tool buttons must call registerButton');
-  for (const id of ['mode-play', 'mode-edit', 'mode-cinematic', 'layers-solid', 'layers-faded', 'layers-transparent', 'atlas-loot', 'atlas-assets', 'atlas-palette']) {
+  for (const id of ['mode-play', 'mode-edit', 'mode-cinematic', 'atlas-loot', 'atlas-assets', 'atlas-palette']) {
     registered.add(id);
   }
   // `laser` shares the Move/Select button face in the DOM.

@@ -69,14 +69,8 @@ function fallbackRun(id: string, actions: ToolbarActions, refresh: () => void): 
     case 'move': actions.selectTool('move'); break;
     case 'laser': actions.selectTool('laser'); break;
     case 'measure': actions.selectMeasure?.(actions.measureShape?.() ?? 'line'); break;
-    case 'template': actions.selectTemplate(actions.templateShape()); break;
     case 'water': actions.setWaterTool?.('paint'); break;
     case 'shapes': actions.setShapeTool?.(true); break;
-    case 'see-through': actions.setSeeThrough?.(!(actions.seeThrough?.() ?? false)); break;
-    case 'layers-solid': actions.setLayerLook?.('solid'); break;
-    case 'layers-faded': actions.setLayerLook?.('faded'); break;
-    case 'layers-transparent': actions.setLayerLook?.('transparent'); break;
-    case 'initiative': actions.toggleInitiative(); break;
     default: break;
   }
   refresh();
@@ -132,7 +126,7 @@ export function tabletopCommands(actions: ToolbarActions, refresh: () => void, h
     id: 'tabletop-settings',
     label: t('tabletopSettings.entry'),
     icon: 'settings',
-    keywords: ['walls', 'edges', 'fog', 'height', 'thickness', 'snap', 'dice', 'auto', 'roll', 'ar', 'table', 'board', 'tabletop'],
+    keywords: ['walls', 'edges', 'fog', 'height', 'thickness', 'snap', 'dice', 'auto', 'roll', 'ar', 'table', 'board', 'tabletop', 'visibility', 'see-through', 'window', 'upper', 'layers', 'initiative', 'tracker', 'look', 'grade', 'halo'],
     page: true,
   });
 

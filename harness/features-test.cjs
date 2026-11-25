@@ -1011,7 +1011,7 @@ feature('narrow toolbar', async ({ page, shot }) => {
   await paneWidth(1000);
   await wait(300);
   const wide = await bar();
-  check('36 wide pane: every button is on the bar', wide.buttons.includes('Dice') && wide.buttons.includes('Visibility') && !wide.buttons.includes('More tools'), JSON.stringify(wide.buttons));
+  check('36 wide pane: every button is on the bar', wide.buttons.includes('Dice') && wide.buttons.includes('Stat sheet') && !wide.buttons.includes('More tools'), JSON.stringify(wide.buttons));
   await paneWidth(330);
   await wait(600);
   const narrow = await bar();
@@ -1362,9 +1362,9 @@ feature('set-aside dice', async ({ page, shot }) => {
 feature('auto roll', async ({ page, shot }) => {
   const settings = { click: () => openSettingsByHand(page) };
   const openSheet = async () => {
-    await page.locator('button[aria-label="Visibility"]').click();
+    await page.evaluate(() => { const { board, modes } = window.boardTest; if (modes.mode === 'edit') { modes.mode = 'play'; board.refreshToolbar(); } });
     await wait(100);
-    await page.locator('.atlas-tabletop-view-bar button[aria-label="Stat sheet"]').click();
+    await page.locator('.atlas-toolbar-end button[aria-label="Stat sheet"]').click();
   };
   const drawer = page.locator('.atlas-tabletop-sheet');
   const state = () => page.evaluate(() => ({ dice: window.boardTest.board.dice.object3d.children.length, busy: window.boardTest.board.dice.busy }));
@@ -1410,7 +1410,7 @@ feature('auto roll', async ({ page, shot }) => {
   await closePalette(page);
   await wait(300);
   await page.evaluate(() => document.querySelectorAll('.atlas-statblock-preview-window').forEach((node) => node.remove()));
-  if (await drawer.isVisible()) await page.evaluate(() => document.querySelector('.atlas-tabletop-view-bar button[aria-label="Stat sheet"]').click());
+  if (await drawer.isVisible()) await page.evaluate(() => document.querySelector('.atlas-toolbar-end button[aria-label="Stat sheet"]').click());
   await wait(300);
   await openSheet();
   await wait(300);
@@ -1446,9 +1446,9 @@ feature('sheet pin', async ({ page, shot }) => {
   const settings = { click: () => openSettingsByHand(page) };
   const drawer = page.locator('.atlas-tabletop-sheet');
   await page.evaluate(() => window.boardTest.board.select('hero'));
-  await page.locator('button[aria-label="Visibility"]').click();
+  await page.evaluate(() => { const { board, modes } = window.boardTest; if (modes.mode === 'edit') { modes.mode = 'play'; board.refreshToolbar(); } });
   await wait(100);
-  await page.locator('.atlas-tabletop-view-bar button[aria-label="Stat sheet"]').click();
+  await page.locator('.atlas-toolbar-end button[aria-label="Stat sheet"]').click();
   await wait(400);
   const pin = drawer.locator('.atlas-tabletop-sheet__pin');
   check('pin: the drawer has a Pin button, not pinned', (await pin.count()) === 1 && (await pin.getAttribute('aria-pressed')) === 'false' && (await pin.getAttribute('aria-label')) === 'Pin');
@@ -1484,9 +1484,9 @@ feature('pin kept across reloads', async ({ page, shot }) => {
   const drawer = page.locator('.atlas-tabletop-sheet');
   const open = async () => {
     await page.evaluate(() => window.boardTest.board.select('hero'));
-    await page.locator('button[aria-label="Visibility"]').click();
+    await page.evaluate(() => { const { board, modes } = window.boardTest; if (modes.mode === 'edit') { modes.mode = 'play'; board.refreshToolbar(); } });
     await wait(100);
-    await page.locator('.atlas-tabletop-view-bar button[aria-label="Stat sheet"]').click();
+    await page.locator('.atlas-toolbar-end button[aria-label="Stat sheet"]').click();
     await wait(400);
   };
   await open();
@@ -2482,9 +2482,9 @@ feature('tabletop settings', async ({ page, shot }) => {
     };
   });
   check('tabletop settings: opening it from the palette host goes straight to the page (no list), as Atlas opens a page', !dom.listShown && dom.expanded, JSON.stringify(dom));
-  check('tabletop settings: the page has Atlas\'s header (icon, title, Back) and its two columns of rows', dom.title === 'Tabletop Settings' && dom.icon && dom.back && dom.columns === 2 && dom.rows >= 7 && dom.surface, JSON.stringify(dom));
-  check('tabletop settings: it holds Atlas\'s controls (switches, a segmented choice, number fields), none of the old panel\'s', dom.switches >= 3 && dom.segmented === 3 && dom.inputs === 2 && !dom.oldMarkup, JSON.stringify(dom));
-  check('tabletop settings: the page names what the Board settings panel had', ['Walls and fog', 'Snap to grid', 'Dice'].every((h) => dom.headings.includes(h)), JSON.stringify(dom.headings));
+  check('tabletop settings: the page has Atlas\'s header (icon, title, Back) and its two columns of rows', dom.title === 'Tabletop Settings' && dom.icon && dom.back && dom.columns === 2 && dom.rows >= 11 && dom.surface, JSON.stringify(dom));
+  check('tabletop settings: it holds Atlas\'s controls (switches, a segmented choice, number fields), none of the old panel\'s', dom.switches >= 5 && dom.segmented === 6 && dom.inputs === 2 && !dom.oldMarkup, JSON.stringify(dom));
+  check('tabletop settings: the page names what the Board settings panel had', ['Visibility', 'Walls and fog', 'Snap to grid', 'Dice'].every((h) => dom.headings.includes(h)), JSON.stringify(dom.headings));
 
   // Each control writes what the old panel wrote.
   const actions = (read) => page.evaluate(read);
@@ -2512,7 +2512,7 @@ feature('tabletop settings', async ({ page, shot }) => {
   await thick.fill('0.12');
   await thick.blur();
   await wait(100);
-  const edges = page.locator('[data-tabletop-settings] .atlas-segmented').first();
+  const edges = page.getByRole('radiogroup', { name: 'How round the edges of walls and doors are' });
   await edges.getByRole('radio', { name: 'Round' }).click();
   await wait(150);
   check('tabletop settings: the wall edges choice is applied at once and shows as chosen', (await actions(() => window.boardTest.board.toolbarActions().wallEdges())) === 'round' && (await edges.getByRole('radio', { name: 'Round' }).getAttribute('aria-checked')) === 'true');
@@ -2530,11 +2530,58 @@ feature('tabletop settings', async ({ page, shot }) => {
   await wait(100);
   check('tabletop settings: the roll switch flips Throw stat sheet rolls automatically', (await actions(() => window.boardTest.board.toolbarActions().autoRoll())) === !autoBefore && (await auto.isChecked()) === !autoBefore);
   await auto.click();
+  // The Visibility bar's settings: see-through walls, its window's size, the upper layers' look, the initiative tracker.
+  const see = page.getByRole('switch', { name: 'See-through walls' });
+  const seeBefore = await actions(() => window.boardTest.board.toolbarActions().seeThrough());
+  const sizeRow = page.locator('[data-tabletop-settings] .atlas-setting-group', { hasText: 'Window size' });
+  const sizeOff = async () => (await sizeRow.locator('[data-disabled]').count()) > 0;
+  check('tabletop settings: the Window size slider is off while see-through walls are', (await sizeOff()) === !seeBefore, String(seeBefore));
+  await see.click();
+  await wait(150);
+  check('tabletop settings: See-through walls flips the see-through walls', (await actions(() => window.boardTest.board.toolbarActions().seeThrough())) === !seeBefore && (await see.isChecked()) === !seeBefore);
+  if (seeBefore) { await see.click(); await wait(150); }
+  const slider = sizeRow.locator('[role="slider"]');
+  const sizeBefore = await actions(() => window.boardTest.board.toolbarActions().seeThroughSize());
+  await slider.focus();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await wait(150);
+  const sizeAfter = await actions(() => window.boardTest.board.toolbarActions().seeThroughSize());
+  const readout = await sizeRow.locator('.atlas-setting-value').textContent();
+  check('tabletop settings: the Window size slider sets the window in tenths of a square, and reads them out', Math.abs(sizeAfter - sizeBefore - 0.2) < 1e-9 && readout === `${sizeAfter.toFixed(1)} sq`, JSON.stringify({ sizeBefore, sizeAfter, readout }));
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowLeft');
+  await wait(100);
+  await see.click();
+  await wait(100);
+  const layers = page.getByRole('radiogroup', { name: 'How the upper layers are drawn' });
+  await layers.getByRole('radio', { name: 'Faded' }).click();
+  await wait(150);
+  check('tabletop settings: Upper layers Faded draws them faded', (await actions(() => window.boardTest.board.toolbarActions().layerLook())) === 'faded' && (await layers.getByRole('radio', { name: 'Faded' }).getAttribute('aria-checked')) === 'true');
+  await layers.getByRole('radio', { name: 'Solid' }).click();
+  const tracker = page.getByRole('switch', { name: 'Initiative tracker' });
+  const trackerBefore = await actions(() => window.boardTest.board.toolbarActions().initiativeOpen());
+  await tracker.click();
+  await wait(150);
+  check('tabletop settings: Initiative tracker shows or hides the tracker', (await actions(() => window.boardTest.board.toolbarActions().initiativeOpen())) === !trackerBefore && (await tracker.isChecked()) === !trackerBefore);
+  await tracker.click();
+  await wait(100);
+  // Well spread: what the board shows on the left, the board itself on the right, the two columns about as tall.
+  const spread = await page.evaluate(() => {
+    const cols = [...document.querySelectorAll('[data-tabletop-settings] > .atlas-command-palette-panel-column')];
+    return cols.map((col) => {
+      const kids = [...col.children];
+      const top = kids[0]?.getBoundingClientRect().top ?? 0;
+      const bottom = kids.at(-1)?.getBoundingClientRect().bottom ?? 0;
+      return { headings: [...col.querySelectorAll('h3')].map((h) => h.textContent), height: Math.round(bottom - top) };
+    });
+  });
+  check('tabletop settings: Visibility, Look and Dice on the left, Walls, Snap and AR on the right, the columns about as tall', spread.length === 2 && spread[0].headings[0] === 'Visibility' && spread[0].headings.includes('Look') && spread[0].headings.includes('Dice') && spread[1].headings[0] === 'Walls and fog' && Math.abs(spread[0].height - spread[1].height) <= 0.25 * Math.max(spread[0].height, spread[1].height), JSON.stringify(spread));
   const ar = await page.evaluate(() => { const row = [...document.querySelectorAll('[data-tabletop-settings] .atlas-setting-row')].find((r) => r.textContent.includes('AR table') || r.textContent.includes('None yet')); return { text: row?.textContent ?? null, disabled: row?.querySelector('button')?.disabled ?? null }; });
   check('tabletop settings: with no AR table the row says so and its button is off', !!ar.text && /None yet/.test(ar.text) && ar.disabled === true, JSON.stringify(ar));
 
-  // Back returns to the list, and the list's entry opens the page again.
-  await page.locator('.atlas-command-palette-panel-header .atlas-close-btn').click();
+  // Back returns to the list, and the list's entry opens the page again (pressed in the page: a short harness window can put the header above its top).
+  await page.evaluate(() => document.querySelector('.atlas-command-palette-panel-header .atlas-close-btn').click());
   await wait(600);
   check('tabletop settings: Back returns to the palette list', (await page.locator('.atlas-command-palette-search').count()) === 1 && (await page.locator('[data-tabletop-settings]').count()) === 0);
   await shot('tabletop-settings-list');
@@ -3806,14 +3853,14 @@ feature('modes', async ({ page, shot }) => {
   check('a right-click on the board stops painting', (await painting()) === false, '');
   // Modes on: Play shows the game's tools, Edit the building ones.
   await page.evaluate(() => { const { board, modes } = window.boardTest; modes.on = true; modes.mode = 'play'; board.refreshToolbar(); });
-  const seen = () => page.evaluate(() => { const vis = (el) => !!el && el.offsetParent !== null; const q = (s) => document.querySelector(s); return { modes: vis(q('.atlas-tabletop-modes')), water: vis(q('[aria-label="Water"]')), paint: vis(q('[aria-label="Paint walls"]')), measure: vis(q('[aria-label="Measure"]')) || vis(q('[aria-label^="Measure"]')), view: vis(q('[aria-label="Visibility"]')), move: vis(q('[aria-label="Move/Select"]')), undo: vis(q('[aria-label="Undo"]')) }; });
+  const seen = () => page.evaluate(() => { const vis = (el) => !!el && el.offsetParent !== null; const q = (s) => document.querySelector(s); return { modes: vis(q('.atlas-tabletop-modes')), water: vis(q('[aria-label="Water"]')), paint: vis(q('[aria-label="Paint walls"]')), measure: vis(q('[aria-label="Measure"]')) || vis(q('[aria-label^="Measure"]')), move: vis(q('[aria-label="Move/Select"]')), undo: vis(q('[aria-label="Undo"]')) }; });
   let now = await seen();
-  check('Play mode: the mode switch, Move, Undo, Measure and Visibility; no water or wall paint', now.modes && now.move && now.undo && now.measure && now.view && !now.water && !now.paint, JSON.stringify(now));
+  check('Play mode: the mode switch, Move, Undo and Measure; no water or wall paint', now.modes && now.move && now.undo && now.measure && !now.water && !now.paint, JSON.stringify(now));
   await shot('mode-play');
   await page.click('[aria-label="Edit mode"]');
   await wait(200);
   now = await seen();
-  check('Edit mode: water, wall paint and Visibility, Move and Undo; no Measure', now.move && now.undo && now.water && now.paint && now.view && !now.measure, JSON.stringify(now));
+  check('Edit mode: water, wall paint, Move and Undo; no Measure', now.move && now.undo && now.water && now.paint && !now.measure, JSON.stringify(now));
   await page.click('[aria-label="Materials"]');
   await wait(200);
   const cards = await page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-paint-card')].map((card) => card.dataset.material));
@@ -5894,7 +5941,7 @@ feature('cinematic board mode', async ({ page, shot }) => {
   const seen = async () => ({
     modes: await page.evaluate(() => { const el = document.querySelector('.atlas-tabletop-modes'); return !!el && el.offsetParent !== null; }),
     live: await vis('Players follow my camera'), water: await vis('Water'), paint: await vis('Paint walls'),
-    measure: await vis('Measure'), view: await vis('Visibility'), move: await vis('Move/Select'), undo: await vis('Undo'),
+    measure: await vis('Measure'), move: await vis('Move/Select'), undo: await vis('Undo'),
   });
   const active = () => page.evaluate(() => [...document.querySelectorAll('.atlas-tabletop-modes button')].filter((b) => b.classList.contains('is-active')).map((b) => b.getAttribute('aria-label')).join());
   const state = () => page.evaluate(() => window.boardTest.studio.studio.state);
@@ -5937,7 +5984,7 @@ feature('cinematic board mode', async ({ page, shot }) => {
   check('cinematic mode: the camera\'s angle limits are lifted (down to the board\'s edge)', above.minPitch < 0.05, JSON.stringify(above));
   check('cinematic mode: entering puts painting away', await page.evaluate(() => window.boardTest.board.isPainting) === false);
   let now = await seen();
-  check('cinematic mode: only the mode switch and the live toggle show', now.modes && now.live && !now.water && !now.paint && !now.measure && !now.view && !now.move && !now.undo, JSON.stringify(now));
+  check('cinematic mode: only the mode switch and the live toggle show', now.modes && now.live && !now.water && !now.paint && !now.measure && !now.move && !now.undo, JSON.stringify(now));
   check('cinematic mode: Cinematic does not count as editing (the board reports it, the remembered mode stays Edit)', await mode() === 'cinematic' && await page.evaluate(() => window.boardTest.modes.mode) === 'edit');
   await shot('mode-cinematic');
 
@@ -7772,313 +7819,6 @@ feature('loading veil', async ({ page, shot }) => {
   check('loading veil: a board whose files are all at hand shows none', quick);
 }, PLAYER_URL);
 
-// ── Visibility icon bar and on-board see-through window resize ring ──────────────────────────────────────────────
-feature('visibility bar', async ({ page, shot }) => {
-  const settled = async () => {
-    await wait(250);
-    await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {}))));
-    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-  };
-
-  // Aim the camera at the walled room at a low angle so walls stand between the camera and the pivot.
-  await page.evaluate(() => {
-    const { board } = window.boardTest;
-    board.camera.goal.target = { x: 560, y: 0, z: 910 };
-    board.camera.goal.yaw = 0;
-    board.camera.goal.pitch = 0.48;
-    board.camera.goal.distance = 620;
-    board.camera.snap();
-    board.wake(true);
-  });
-  await wait(300);
-
-  // 1. Visibility button opens a horizontal icon-only bar above the main toolbar.
-  await page.click('button[aria-label="Visibility"]');
-  await settled();
-  const barInfo = await page.evaluate(() => {
-    const bar = document.querySelector('.atlas-tabletop-view-bar');
-    const main = document.querySelector('.atlas-tabletop-toolbar');
-    const br = bar?.getBoundingClientRect();
-    const mr = main?.getBoundingClientRect();
-    const buttons = bar ? [...bar.querySelectorAll('button')].filter((b) => b.offsetParent !== null) : [];
-    const seps = bar ? [...bar.querySelectorAll('.atlas-tabletop-view-bar__sep')].filter((s) => s.offsetParent !== null) : [];
-    return {
-      shown: !!bar && !bar.hidden && bar.offsetParent !== null,
-      role: bar?.getAttribute('role'),
-      aria: bar?.getAttribute('aria-label'),
-      horizontal: !!br && br.width > br.height,
-      aboveMain: !!br && !!mr && br.bottom <= mr.top + 1,
-      oldText: /What shows|Window size|Upper layers|Initiative tracker/.test(bar?.textContent ?? ''),
-      count: buttons.length,
-      seps: seps.length,
-      allNoText: buttons.every((b) => b.textContent.trim() === ''),
-      allAriaNoNativeTitle: buttons.every((b) => Boolean(b.getAttribute('aria-label')?.trim()) && !b.hasAttribute('title')),
-      noObsidianTip: bar ? getComputedStyle(bar).getPropertyValue('--no-tooltip').trim() === 'true' : false,
-    };
-  });
-  check('visibility bar: opens as a horizontal icon-only bar above the main toolbar with no old panel labels', barInfo.shown && barInfo.role === 'toolbar' && barInfo.aria === 'Visibility' && barInfo.horizontal && barInfo.aboveMain && !barInfo.oldText && barInfo.count === 7 && barInfo.seps === 2 && barInfo.allNoText && barInfo.allAriaNoNativeTitle && barInfo.noObsidianTip, JSON.stringify(barInfo));
-  await shot('visibility-bar');
-
-  // 1b. Hovering buttons shows Atlas-styled tooltip above the bar (label, subtitle, shortcut keycap).
-  await page.hover('.atlas-tabletop-view-bar [data-visibility="see-through"]');
-  await wait(380);
-  await settled();
-  const hoverSee = await page.evaluate(() => {
-    const tip = document.querySelector('.tooltip-content.atlas-tabletop-atlas-tooltip');
-    const bar = document.querySelector('.atlas-tabletop-view-bar');
-    const tr = tip?.getBoundingClientRect();
-    const br = bar?.getBoundingClientRect();
-    return {
-      shown: !!tip && !tip.hidden && tip.dataset.state === 'open',
-      aboveBar: !!tr && !!br && tr.bottom <= br.top,
-      label: tip?.querySelector('.tooltip-label')?.textContent ?? '',
-      subtitle: tip?.querySelector('.tooltip-subtitle')?.textContent ?? '',
-    };
-  });
-  await shot('visibility-bar-tooltip');
-  await page.hover('.atlas-tabletop-view-bar [data-visibility="initiative"]');
-  await wait(120);
-  const hoverInit = await page.evaluate(() => {
-    const tip = document.querySelector('.tooltip-content.atlas-tabletop-atlas-tooltip');
-    return {
-      shown: !!tip && !tip.hidden,
-      label: tip?.querySelector('.tooltip-label')?.textContent ?? '',
-      kbd: tip?.querySelector('.tooltip-kbd')?.textContent ?? '',
-    };
-  });
-  check('visibility bar: hover shows Atlas-styled tooltip above the bar with label, subtitle and shortcut keycap', hoverSee.shown && hoverSee.aboveBar && hoverSee.label === 'See-through walls' && hoverSee.subtitle.length > 0 && hoverInit.shown && hoverInit.label === 'Initiative tracker' && hoverInit.kbd === 'I', JSON.stringify({ hoverSee, hoverInit }));
-  await page.mouse.move(10, 10);
-  await wait(150);
-
-  // 2. Button 1 flips board.quality.seeThrough and is-active / aria-pressed follow.
-  const seeState = () => page.evaluate(() => {
-    const b = document.querySelector('.atlas-tabletop-view-bar [data-visibility="see-through"]');
-    return { q: window.boardTest.board.quality.seeThrough, active: b?.classList.contains('is-active'), pressed: b?.getAttribute('aria-pressed') };
-  });
-  await page.click('.atlas-tabletop-view-bar [data-visibility="see-through"]');
-  await wait(150);
-  const seeOn = await seeState();
-  check('visibility bar: button 1 turns see-through walls on and marks active/pressed', seeOn.q === true && seeOn.active === true && seeOn.pressed === 'true', JSON.stringify(seeOn));
-  await page.click('.atlas-tabletop-view-bar [data-visibility="see-through"]');
-  await wait(150);
-  const seeOff = await seeState();
-  check('visibility bar: button 1 turns see-through walls off again', seeOff.q === false && seeOff.active === false && seeOff.pressed === 'false', JSON.stringify(seeOff));
-  // Turn it back on so walls fade visibly under the ring.
-  await page.click('.atlas-tabletop-view-bar [data-visibility="see-through"]');
-  await wait(250);
-
-  // 3. Buttons 3-5 set board.quality.layerLook with exactly one active, persisted across reopen.
-  const layerState = () => page.evaluate(() => {
-    const buttons = [...document.querySelectorAll('.atlas-tabletop-view-bar [data-layer-look]')];
-    const active = buttons.filter((b) => b.classList.contains('is-active')).map((b) => b.dataset.layerLook);
-    return { q: window.boardTest.board.quality.layerLook, active };
-  });
-  for (const look of ['faded', 'transparent', 'solid', 'faded']) {
-    await page.click(`.atlas-tabletop-view-bar [data-layer-look="${look}"]`);
-    await wait(100);
-    const st = await layerState();
-    check(`visibility bar: upper layers "${look}" sets layerLook and is the sole active button`, st.q === look && st.active.length === 1 && st.active[0] === look, JSON.stringify(st));
-  }
-  await page.click('button[aria-label="Visibility"]');
-  await wait(100);
-  await page.click('button[aria-label="Visibility"]');
-  await wait(100);
-  const reopened = await layerState();
-  check('visibility bar: upper layers choice stays active when the bar is reopened', reopened.q === 'faded' && reopened.active.length === 1 && reopened.active[0] === 'faded', JSON.stringify(reopened));
-  await page.click('.atlas-tabletop-view-bar [data-layer-look="solid"]');
-  await wait(100);
-
-  // 4. Button 6 matches the initiative panel's open state, and the I key still works.
-  const initState = () => page.evaluate(() => {
-    const b = document.querySelector('.atlas-tabletop-view-bar [data-visibility="initiative"]');
-    const root = document.querySelector('.atlas-tabletop-initiative');
-    const panelOpen = !!root && !root.hidden && root.offsetParent !== null;
-    return { open: panelOpen, active: b?.classList.contains('is-active'), pressed: b?.getAttribute('aria-pressed') };
-  });
-  const init0 = await initState();
-  await page.click('.atlas-tabletop-view-bar [data-visibility="initiative"]');
-  await wait(150);
-  const init1 = await initState();
-  await page.keyboard.press('i');
-  await wait(150);
-  const init2 = await initState();
-  check('visibility bar: button 6 toggles the initiative tracker and stays in sync with the I key', init0.open === false && init0.active === false && init1.open === true && init1.active === true && init1.pressed === 'true' && init2.open === false && init2.active === false && init2.pressed === 'false', JSON.stringify({ init0, init1, init2 }));
-
-  // 5. Size mode: ring centred on pivot, drag edge outward/inward/clamped, no board leak, orbit follows, Escape exits.
-  await page.click('.atlas-tabletop-view-bar [data-visibility="see-through-size"]');
-  await settled();
-  const ringGeom = () => page.evaluate(() => {
-    const root = document.querySelector('.atlas-tabletop-seethrough-ring');
-    const c = root?.querySelector('.atlas-tabletop-seethrough-ring__circle');
-    const handle = root?.querySelector('.atlas-tabletop-seethrough-ring__handle');
-    const readout = root?.querySelector('.atlas-tabletop-seethrough-ring__readout')?.textContent?.trim() ?? '';
-    const proj = window.boardTest.board.seeThroughCircle();
-    const canvas = window.boardTest.board.canvas.getBoundingClientRect();
-    const btn = document.querySelector('.atlas-tabletop-view-bar [data-visibility="see-through-size"]');
-    return {
-      open: !!root && !root.hidden,
-      active: btn?.classList.contains('is-active') === true,
-      cx: Number(c?.getAttribute('cx')), cy: Number(c?.getAttribute('cy')), r: Number(c?.getAttribute('r')),
-      hx: Number(handle?.getAttribute('cx')), hy: Number(handle?.getAttribute('cy')),
-      readout,
-      tooltip: btn?.getAttribute('aria-label') ?? '',
-      proj,
-      canvas: { left: canvas.left, top: canvas.top, width: canvas.width, height: canvas.height },
-      size: window.boardTest.board.quality.seeThroughSize,
-    };
-  });
-  const g0 = await ringGeom();
-  check('visibility bar: size mode draws ring centred on pivot within 2 px of projected window radius', g0.open && g0.active && !!g0.proj && Math.abs(g0.cx - g0.proj.x) <= 2 && Math.abs(g0.cy - g0.proj.y) <= 2 && Math.abs(g0.r - g0.proj.radius) <= 2 && Math.abs(g0.cx - g0.canvas.width / 2) <= 2 && Math.abs(g0.cy - g0.canvas.height / 2) <= 2, JSON.stringify(g0));
-  await shot('visibility-ring');
-
-  const boardBeforeDrag = await page.evaluate(() => {
-    const { board } = window.boardTest;
-    return { selected: board.selectedId, yaw: board.camera.pose.yaw, pitch: board.camera.pose.pitch, tx: board.camera.pose.target.x, tz: board.camera.pose.target.z };
-  });
-  const dragHandleTo = async (targetRadiusPx) => {
-    const g = await ringGeom();
-    const startX = g.canvas.left + g.hx;
-    const startY = g.canvas.top + g.hy;
-    const endX = g.canvas.left + g.cx + targetRadiusPx;
-    await page.mouse.move(startX, startY);
-    await page.mouse.down();
-    await page.mouse.move(endX, startY, { steps: 8 });
-    await page.mouse.up();
-    await wait(150);
-    return ringGeom();
-  };
-  const gOut = await dragHandleTo(g0.proj.pxPerSquare * 2.5);
-  const gIn = await dragHandleTo(g0.proj.pxPerSquare * 1.1);
-  // Zoom out briefly so the 8-square ring's right handle fits inside the 1000 px viewport while testing clamping.
-  await page.evaluate(() => { const { board } = window.boardTest; board.camera.goal.distance = 1350; board.camera.snap(); board.wake(true); });
-  await wait(200);
-  const gWide = await ringGeom();
-  const gMax = await dragHandleTo(gWide.proj.pxPerSquare * 10);
-  const gMin = await dragHandleTo(4);
-  await page.evaluate(() => { const { board } = window.boardTest; board.camera.goal.distance = 620; board.camera.snap(); board.wake(true); });
-  await wait(200);
-  const isTenth = (n) => Math.abs(n * 10 - Math.round(n * 10)) < 1e-6;
-  check('visibility bar: dragging the ring edge outward and inward changes seeThroughSize in 0.1 steps and clamps to 0.5-8', gOut.size > g0.size && gOut.size <= 8 && isTenth(gOut.size) && gIn.size < gOut.size && gIn.size >= 0.5 && isTenth(gIn.size) && gMax.size === 8 && gMin.size === 0.5 && gOut.readout.includes(gOut.size.toFixed(1)) && gOut.tooltip.includes(gOut.size.toFixed(1)), JSON.stringify({ start: g0.size, out: gOut.size, in: gIn.size, max: gMax.size, min: gMin.size, readout: gOut.readout, tooltip: gOut.tooltip }));
-
-  const boardAfterDrag = await page.evaluate(() => {
-    const { board } = window.boardTest;
-    return { selected: board.selectedId, yaw: board.camera.pose.yaw, pitch: board.camera.pose.pitch, tx: board.camera.pose.target.x, tz: board.camera.pose.target.z };
-  });
-  check('visibility bar: dragging the ring does not select tokens or move the camera underneath', boardAfterDrag.selected === boardBeforeDrag.selected && Math.abs(boardAfterDrag.yaw - boardBeforeDrag.yaw) < 1e-4 && Math.abs(boardAfterDrag.pitch - boardBeforeDrag.pitch) < 1e-4 && Math.abs(boardAfterDrag.tx - boardBeforeDrag.tx) < 1e-3 && Math.abs(boardAfterDrag.tz - boardBeforeDrag.tz) < 1e-3, JSON.stringify({ before: boardBeforeDrag, after: boardAfterDrag }));
-
-  // Keyboard arrow keys step size in 0.1 / 0.5 increments.
-  await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('Shift+ArrowRight');
-  await wait(100);
-  const gKey = await ringGeom();
-  check('visibility bar: arrow keys adjust window size by 0.1 (Shift: 0.5) in size mode', Math.abs(gKey.size - 1.1) < 1e-6, JSON.stringify({ size: gKey.size }));
-
-  // Orbiting the camera keeps the ring open and locked on the pivot.
-  await page.mouse.move(100, 140);
-  await page.mouse.down();
-  await page.mouse.move(220, 170, { steps: 6 });
-  await page.mouse.up();
-  await wait(250);
-  const gOrbit = await ringGeom();
-  check('visibility bar: orbiting the camera keeps size mode open and the ring on the pivot', gOrbit.open && !!gOrbit.proj && Math.abs(gOrbit.cx - gOrbit.proj.x) <= 2 && Math.abs(gOrbit.cy - gOrbit.proj.y) <= 2 && Math.abs(gOrbit.r - gOrbit.proj.radius) <= 2, JSON.stringify(gOrbit));
-
-  // Escape ends size mode and removes the ring.
-  await page.keyboard.press('Escape');
-  await wait(150);
-  const gEsc = await ringGeom();
-  check('visibility bar: Escape ends size mode and hides the ring', !gEsc.open && !gEsc.active, JSON.stringify(gEsc));
-
-  // First-person view disables button 2 and drops out of size mode.
-  await page.click('.atlas-tabletop-view-bar [data-visibility="see-through-size"]');
-  await wait(100);
-  await page.evaluate(() => window.boardTest.board.seeFrom('hero'));
-  await wait(150);
-  const inEyes = await page.evaluate(() => ({
-    ringHidden: document.querySelector('.atlas-tabletop-seethrough-ring')?.hidden === true,
-    disabled: document.querySelector('.atlas-tabletop-view-bar [data-visibility="see-through-size"]')?.disabled === true,
-  }));
-  await page.evaluate(() => window.boardTest.board.seeFrom(null));
-  await wait(150);
-  check('visibility bar: first-person view ends size mode and disables window size', inEyes.ringHidden && inEyes.disabled, JSON.stringify(inEyes));
-
-  // 6a. Narrow board width (~400 px): bar fits without clipping.
-  await page.evaluate(() => {
-    document.getElementById('board').style.width = '400px';
-    window.boardTest.board.toolbar.fit();
-  });
-  await wait(200);
-  const viewHiddenInMore = await page.evaluate(() => document.querySelector('button[aria-label="Visibility"]')?.offsetParent === null);
-  if (viewHiddenInMore) {
-    await page.click('button[aria-label="More tools"]');
-    await wait(150);
-  }
-  await page.click('button[aria-label="Visibility"]');
-  await settled();
-  const narrow = await page.evaluate(() => {
-    const boardRect = document.getElementById('board').getBoundingClientRect();
-    const barRect = document.querySelector('.atlas-tabletop-view-bar').getBoundingClientRect();
-    return { barLeft: barRect.left, barRight: barRect.right, barWidth: barRect.width, boardLeft: boardRect.left, boardRight: boardRect.right };
-  });
-  check('visibility bar: fits inside a 400 px narrow board without clipping', narrow.barLeft >= narrow.boardLeft && narrow.barRight <= narrow.boardRight && narrow.barWidth > 0, JSON.stringify(narrow));
-  await shot('visibility-bar-narrow', { x: 0, y: 0, width: 400, height: 640 });
-  await page.evaluate(() => { document.getElementById('board').style.width = '1000px'; });
-  await wait(300);
-
-  // 6b. Light theme screenshots (bar open and size mode ring).
-  await page.addStyleTag({ content: ':root{--mono-100:black;--background-primary:#ffffff;--background-secondary:#f6f6f6;--background-modifier-hover:rgba(0,0,0,.05);--text-normal:#222222;--text-muted:#5c5c5c;--text-faint:#ababab;--background-modifier-border:#e0e0e0;--divider-color:#e0e0e0;--background-secondary-alt:#fcfcfc;--shadow-l:0 8px 24px rgba(0,0,0,.15)} body{background:#e8e8e8}' });
-  await page.evaluate(() => {
-    document.body.classList.add('theme-light');
-    const { board } = window.boardTest;
-    board.camera.goal.target = { x: 560, y: 0, z: 910 };
-    board.camera.goal.yaw = 0;
-    board.camera.goal.pitch = 0.48;
-    board.camera.goal.distance = 620;
-    board.camera.snap();
-    board.setQuality({ ...board.quality, seeThrough: true, seeThroughSize: 2.0 });
-    board.wake(true);
-  });
-  await settled();
-  await page.hover('.atlas-tabletop-view-bar [data-visibility="see-through-size"]');
-  await wait(380);
-  await settled();
-  await shot('visibility-bar-light');
-  await page.click('.atlas-tabletop-view-bar [data-visibility="see-through-size"]');
-  await settled();
-  await shot('visibility-ring-light');
-  await page.keyboard.press('Escape');
-  await page.keyboard.press('Escape');
-
-  // 7. Stat sheet button lives in the Visibility bar, and Dice log opens on a tab inside the Stat sheet card.
-  await page.evaluate(() => { document.body.classList.remove('theme-light'); });
-  const toolbarLogCount = await page.locator('.atlas-tabletop-toolbar > .atlas-tabletop-extensions > .atlas-tabletop-dice-log-menu').count();
-  const toolbarSheetCount = await page.locator('.atlas-tabletop-toolbar > .atlas-tabletop-extensions > .atlas-tabletop-sheet-menu').count();
-  await page.click('button[aria-label="Visibility"]');
-  await wait(150);
-  await page.click('.atlas-tabletop-view-bar [data-visibility="sheet"]');
-  await wait(200);
-  const sheetOpened = await page.evaluate(() => ({
-    open: !document.querySelector('.atlas-tabletop-sheet')?.hidden,
-    tab: document.querySelector('.atlas-tabletop-sheet__tab.atlas-active')?.dataset.tab,
-    btnActive: document.querySelector('.atlas-tabletop-view-bar [data-visibility="sheet"]')?.classList.contains('is-active'),
-  }));
-  await page.click('.atlas-tabletop-extensions button[aria-label="Dice"]');
-  await wait(250);
-  const trayLogBtn = page.locator('.atlas-tabletop-dice-picker button[aria-label="Dice log"]');
-  const trayHasLog = await trayLogBtn.isVisible();
-  await shot('dice-tray-log');
-  await trayLogBtn.click();
-  await wait(200);
-  const logTabState = await page.evaluate(() => ({
-    sheetOpen: !document.querySelector('.atlas-tabletop-sheet')?.hidden,
-    tab: document.querySelector('.atlas-tabletop-sheet__tab.atlas-active')?.dataset.tab,
-    logVisible: document.querySelector('.atlas-tabletop-sheet .atlas-tabletop-dice-log')?.offsetParent !== null,
-    trayClosed: document.querySelector('.atlas-tabletop-dice-picker')?.hidden === true,
-  }));
-  await shot('sheet-dice-log-tab');
-  check('dice tray & visibility bar: Stat sheet is in Visibility bar and Dice log opens on a tab of the Stat sheet card', toolbarLogCount === 0 && toolbarSheetCount === 0 && sheetOpened.open && sheetOpened.tab === 'sheet' && sheetOpened.btnActive && trayHasLog && logTabState.sheetOpen && logTabState.tab === 'log' && logTabState.logVisible && logTabState.trayClosed, JSON.stringify({ toolbarLogCount, toolbarSheetCount, sheetOpened, trayHasLog, logTabState }));
-  await page.keyboard.press('Escape');
-});
-
 // ── Spec 2 Job A: Command button rightmost in Play, Edit and Cinematic, never overflows, hotkey in all modes ──
 feature('command button', async ({ page, shot }) => {
   const LIGHT_VARS = ':root{--mono-100:black;--background-primary:#ffffff;--background-secondary:#f6f6f6;--background-modifier-hover:rgba(0,0,0,.05);--background-modifier-active-hover:rgba(124,92,255,.14);--text-normal:#222222;--text-muted:#5c5c5c;--text-faint:#ababab;--background-modifier-border:#e0e0e0;--divider-color:#e0e0e0;--background-secondary-alt:#fcfcfc;--shadow-l:0 8px 24px rgba(0,0,0,.15)} body{background:#e8e8e8}';
@@ -8237,9 +7977,9 @@ feature('toolbar commands and mode switching', async ({ page, shot }) => {
   });
   await wait(200);
 
-  // 1. Collect every visible toolbar button across Play, Edit, Visibility bar, and Cinematic, and verify registry + palette coverage.
+  // 1. Collect every visible toolbar button across Play, Edit and Cinematic, and verify registry + palette coverage.
   const collectVisibleButtons = () => page.evaluate(() => {
-    const roots = [document.querySelector('.atlas-tabletop-toolbar'), document.querySelector('.atlas-tabletop-view-bar')].filter(Boolean);
+    const roots = [document.querySelector('.atlas-tabletop-toolbar')].filter(Boolean);
     const found = [];
     for (const root of roots) {
       for (const btn of root.querySelectorAll('button')) {
@@ -8255,14 +7995,10 @@ feature('toolbar commands and mode switching', async ({ page, shot }) => {
   for (const mode of ['play', 'edit']) {
     await page.evaluate((m) => { window.boardTest.host.setBoardMode(m); window.boardTest.board.refreshToolbar(); }, mode);
     await wait(150);
-    await page.click('button[aria-label="Visibility"]');
-    await wait(150);
     for (const b of await collectVisibleButtons()) allDomButtons.set(b.aria, b);
-    await page.click('button[aria-label="Visibility"]');
-    await wait(100);
   }
   const missingId = [...allDomButtons.values()].filter((b) => !b.toolbarId && !b.isConnect);
-  check('registry vs DOM: every toolbar and visibility button is registered', missingId.length === 0 && allDomButtons.size >= 18, JSON.stringify({ count: allDomButtons.size, missingId }));
+  check('registry vs DOM: every toolbar button is registered', missingId.length === 0 && allDomButtons.size >= 12, JSON.stringify({ count: allDomButtons.size, missingId }));
 
   // Check every DOM button is searchable in the command palette by its name.
   const searchNames = [...allDomButtons.keys()].map((aria) => aria.split(':')[0].replace(/\s*\([^)]*\)\s*$/, '').trim());
@@ -8378,14 +8114,9 @@ feature('toolbar commands and mode switching', async ({ page, shot }) => {
     await wait(300);
   }
 
-  // Edit -> Template (Play mode) & Dice tray (Play mode) & Visibility (current mode, no change).
-  const visSame = await runPaletteEntry('Visibility', 'Visibility');
-  const visState = await page.evaluate(() => ({ mode: window.boardTest.host.boardMode(), open: !document.querySelector('.atlas-tabletop-view-bar')?.hidden }));
-  check('same-mode entry Visibility opens without mode change', visSame.closed && visSame.clicked === 'Visibility' && visState.mode === 'edit' && visState.open, JSON.stringify({ visSame, visState }));
-
-  const tplRun = await runPaletteEntry('Template', 'Template · Play mode');
-  const tplState = await page.evaluate(() => ({ mode: window.boardTest.host.boardMode(), on: window.boardTest.board.toolbarActions().templateOn() }));
-  check('mode switch Edit -> Template switches to Play and turns Template on', tplRun.closed && tplState.mode === 'play' && tplState.on, JSON.stringify({ tplRun, tplState }));
+  // Edit -> Dice tray (Play mode); no Visibility or Template button any more (Tabletop Settings and the Measure tool hold them).
+  const gone = await page.evaluate(() => ['Visibility', 'Template'].map((label) => !!document.querySelector(`.atlas-tabletop-toolbar button[aria-label="${label}"]`)));
+  check('no Visibility or Template button is on the toolbar', JSON.stringify(gone) === '[false,false]', JSON.stringify(gone));
 
   await page.evaluate(() => { window.boardTest.host.setBoardMode('edit'); window.boardTest.board.refreshToolbar(); });
   await wait(120);
@@ -8407,11 +8138,11 @@ feature('toolbar commands and mode switching', async ({ page, shot }) => {
   const cinState = await page.evaluate(() => ({ mode: window.boardTest.host.boardMode(), state: window.boardTest.studio.studio.state }));
   check('palette command Cinematic mode enters Cinematic mode', cinModeRun.closed && cinState.mode === 'cinematic' && cinState.state === 'gallery', JSON.stringify({ cinModeRun, cinState }));
 
-  // From Cinematic -> Visibility switches back to Play and opens Visibility bar.
-  const fromCin = await runPaletteEntry('Visibility', 'Visibility · Play mode');
+  // From Cinematic -> Measure switches back to Play.
+  const fromCin = await runPaletteEntry('Measure', 'Measure · Play mode');
   await page.waitForFunction(() => window.boardTest.studio.studio.state === 'idle', null, { timeout: 8000 });
-  const afterCin = await page.evaluate(() => ({ mode: window.boardTest.host.boardMode(), open: !document.querySelector('.atlas-tabletop-view-bar')?.hidden }));
-  check('mode switch Cinematic -> Visibility switches to Play and opens Visibility bar', fromCin.closed && afterCin.mode === 'play' && afterCin.open, JSON.stringify({ fromCin, afterCin }));
+  const afterCin = await page.evaluate(() => ({ mode: window.boardTest.host.boardMode(), on: window.boardTest.board.toolbarActions().measureOn?.() === true }));
+  check('mode switch Cinematic -> Measure switches to Play and takes up the Measure tool', fromCin.closed && afterCin.mode === 'play' && afterCin.on, JSON.stringify({ fromCin, afterCin }));
   await page.evaluate(() => { document.querySelector('[data-connect-test="1"]')?.remove(); });
 });
 
@@ -8793,7 +8524,6 @@ feature('measure tool: every other tool can be chosen after a measurement', asyn
   const takes = {
     'the Fog Tool': () => page.evaluate(() => window.boardTest.board.toolbarActions().fog.start('draw')),
     'the Water tool': () => page.evaluate(() => window.boardTest.board.toolbarActions().setWaterTool('paint')),
-    'the Template tool': () => page.evaluate(() => window.boardTest.board.toolbarActions().selectTemplate('circle')),
     'the laser': () => page.evaluate(() => window.boardTest.board.toolbarActions().selectTool('laser')),
   };
   for (const stateName of ['tap M then a fading ruler', 'tap M then a kept ruler', 'held M then a quick ruler']) {

@@ -7,7 +7,7 @@ import type { TabletopCommand } from './tabletopCommands';
 import type { ToolbarActions } from '../board/toolbar';
 
 /** What Tabletop's settings page in the palette reads and writes (the board's toolbar actions for the old Board settings panel). */
-export type TabletopSettingsHost = Pick<ToolbarActions, 'fogHeight' | 'setFogHeight' | 'wallThickness' | 'setWallThickness' | 'wallEdges' | 'setWallEdges' | 'snap' | 'setSnap' | 'arTableSheets' | 'placeArTable' | 'autoRoll' | 'setAutoRoll' | 'grade' | 'setGrade' | 'halo' | 'setHalo'>;
+export type TabletopSettingsHost = Pick<ToolbarActions, 'fogHeight' | 'setFogHeight' | 'wallThickness' | 'setWallThickness' | 'wallEdges' | 'setWallEdges' | 'snap' | 'setSnap' | 'arTableSheets' | 'placeArTable' | 'autoRoll' | 'setAutoRoll' | 'grade' | 'setGrade' | 'halo' | 'setHalo' | 'seeThrough' | 'setSeeThrough' | 'seeThroughSize' | 'setSeeThroughSize' | 'layerLook' | 'setLayerLook' | 'initiativeOpen' | 'toggleInitiative'>;
 
 export interface PaletteHost {
   /** Atlas's tools: `move` and `measure` are the board's, the rest open in Atlas. */

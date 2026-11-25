@@ -1,15 +1,16 @@
 // Tabletop's own settings page in the copied command palette (added by the patches in scripts/atlasPortList.mjs): what the
 // board's old Board settings panel held, drawn as Atlas's settings pages are drawn (their rows, switches and segmented
-// choices, in one column pair under the page header), and written the way the panel wrote it.
+// choices, in one column pair under the page header), and written the way the panel wrote it. The left column is what the
+// board shows (the Visibility bar's settings and the Look), the right one the board itself (walls, snapping, dice, AR).
 import React from 'react';
 import { Settings } from 'lucide-react';
 import { Button } from '../app/packages/components/primitives/button';
 import { SegmentedControl } from '../app/packages/components/primitives/SegmentedControl';
-import { SettingChoiceRow, SettingRow, SettingToggleRow } from '../app/react/components/command-palette/SettingRows';
+import { SettingChoiceRow, SettingRow, SettingSliderRow, SettingToggleRow } from '../app/react/components/command-palette/SettingRows';
 import { paletteHost, onPaletteChange } from '../../palette/paletteHost';
 import { readFogHeight, readWallThickness } from '../../board/toolbar';
 import { t } from '../../i18n';
-import { DEFAULT_EDGES, type WallEdges } from '../../board/quality';
+import { DEFAULT_EDGES, DEFAULT_LAYER_LOOK, DEFAULT_SEE_THROUGH_SIZE, MAX_SEE_THROUGH_SIZE, MIN_SEE_THROUGH_SIZE, readSeeThroughSize, type LayerLook, type WallEdges } from '../../board/quality';
 
 /** The page's id in the palette, its title and icon (the header's). */
 export const TABLETOP_SETTINGS_PANEL = 'tabletop-settings';
@@ -52,6 +53,12 @@ const EDGES = (): ReadonlyArray<{ value: WallEdges; label: string }> => [
   { value: 'round', label: t('tabletopSettings.round') },
 ];
 
+const LAYER_LOOKS = (): ReadonlyArray<{ value: LayerLook; label: string }> => [
+  { value: 'solid', label: t('tabletopSettings.layersSolid') },
+  { value: 'faded', label: t('tabletopSettings.layersFaded') },
+  { value: 'transparent', label: t('tabletopSettings.layersHidden') },
+];
+
 /** The page: Atlas's page markup (`atlas-command-palette-panel`, two columns), Tabletop's settings in it. */
 export function TabletopSettingsPanel({ onClose }: { onClose?: () => void }): React.ReactElement {
   // The settings live in the board; a change asks the page to read them again.
@@ -63,8 +70,51 @@ export function TabletopSettingsPanel({ onClose }: { onClose?: () => void }): Re
   const snap = settings.snap?.() ?? { tokens: true, props: true };
   const sheets = settings.arTableSheets?.() ?? null;
   const edges = settings.wallEdges?.() ?? DEFAULT_EDGES;
+  const seeThrough = settings.seeThrough?.() === true;
+  const windowSize = readSeeThroughSize(settings.seeThroughSize?.() ?? DEFAULT_SEE_THROUGH_SIZE);
+  const layerLook = settings.layerLook?.() ?? DEFAULT_LAYER_LOOK;
   return (
     <div className="atlas-command-palette-panel" data-tabletop-settings="">
+      <div className="atlas-command-palette-panel-column">
+        <h3 className="atlas-command-palette-panel-heading">{t('tabletopSettings.visibilityHeading')}</h3>
+        {settings.setSeeThrough && (
+          <SettingToggleRow label={t('tabletopSettings.seeThrough')} hint={t('tabletopSettings.seeThroughHint')} value={seeThrough} onToggle={() => write(() => settings.setSeeThrough?.(!seeThrough))} />
+        )}
+        {settings.setSeeThroughSize && (
+          <SettingSliderRow
+            label={t('tabletopSettings.windowSize')}
+            hint={t('tabletopSettings.windowSizeHint')}
+            value={windowSize}
+            min={MIN_SEE_THROUGH_SIZE}
+            max={MAX_SEE_THROUGH_SIZE}
+            step={0.1}
+            disabled={!seeThrough}
+            displayValue={t('tabletopSettings.squares', { n: windowSize.toFixed(1) })}
+            onChange={(value) => write(() => settings.setSeeThroughSize?.(readSeeThroughSize(Math.round(value * 10) / 10)))}
+          />
+        )}
+        {settings.setLayerLook && (
+          <SettingChoiceRow label={t('tabletopSettings.layers')} hint={t('tabletopSettings.layersHint')}>
+            <SegmentedControl
+              ariaLabel={t('tabletopSettings.layersAria')}
+              value={layerLook}
+              options={LAYER_LOOKS()}
+              onChange={(value: LayerLook) => write(() => settings.setLayerLook?.(value))}
+            />
+          </SettingChoiceRow>
+        )}
+        <SettingToggleRow label={t('tabletopSettings.initiative')} hint={t('tabletopSettings.initiativeHint')} value={settings.initiativeOpen()} onToggle={() => write(() => settings.toggleInitiative())} />
+        {settings.setGrade && settings.setHalo && (
+          <>
+            <h3 className="atlas-command-palette-panel-heading">{t('tabletopSettings.lookHeading')}</h3>
+            <SettingToggleRow label={t('tabletopSettings.grade')} hint={t('tabletopSettings.gradeHint')} value={settings.grade?.() === true} onToggle={() => write(() => settings.setGrade?.(settings.grade?.() !== true))} />
+            <SettingToggleRow label={t('tabletopSettings.halo')} hint={t('tabletopSettings.haloHint')} value={settings.halo?.() === true} onToggle={() => write(() => settings.setHalo?.(settings.halo?.() !== true))} />
+          </>
+        )}
+        <h3 className="atlas-command-palette-panel-heading">{t('dice.heading')}</h3>
+        <SettingToggleRow label={t('dice.autoRoll')} hint={t('dice.autoRollHint')} value={settings.autoRoll()} onToggle={() => write(() => settings.setAutoRoll(!settings.autoRoll()))} />
+      </div>
+
       <div className="atlas-command-palette-panel-column">
         <h3 className="atlas-command-palette-panel-heading">{t('tabletopSettings.walls')}</h3>
         <NumberRow
@@ -93,9 +143,6 @@ export function TabletopSettingsPanel({ onClose }: { onClose?: () => void }): Re
             />
           </SettingChoiceRow>
         )}
-      </div>
-
-      <div className="atlas-command-palette-panel-column">
         {settings.setSnap && (
           <>
             <h3 className="atlas-command-palette-panel-heading">{t('tabletopSettings.snapHeading')}</h3>
@@ -103,15 +150,6 @@ export function TabletopSettingsPanel({ onClose }: { onClose?: () => void }): Re
             <SettingToggleRow label={t('tabletopSettings.snapProps')} hint={t('tabletopSettings.snapPropsHint')} value={snap.props} onToggle={() => write(() => settings.setSnap?.('props', !snap.props))} />
           </>
         )}
-        {settings.setGrade && settings.setHalo && (
-          <>
-            <h3 className="atlas-command-palette-panel-heading">{t('tabletopSettings.lookHeading')}</h3>
-            <SettingToggleRow label={t('tabletopSettings.grade')} hint={t('tabletopSettings.gradeHint')} value={settings.grade?.() === true} onToggle={() => write(() => settings.setGrade?.(settings.grade?.() !== true))} />
-            <SettingToggleRow label={t('tabletopSettings.halo')} hint={t('tabletopSettings.haloHint')} value={settings.halo?.() === true} onToggle={() => write(() => settings.setHalo?.(settings.halo?.() !== true))} />
-          </>
-        )}
-        <h3 className="atlas-command-palette-panel-heading">{t('dice.heading')}</h3>
-        <SettingToggleRow label={t('dice.autoRoll')} hint={t('dice.autoRollHint')} value={settings.autoRoll()} onToggle={() => write(() => settings.setAutoRoll(!settings.autoRoll()))} />
         {settings.placeArTable && (
           <>
             <h3 className="atlas-command-palette-panel-heading">{t('tabletopSettings.arTable')}</h3>

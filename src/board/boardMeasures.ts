@@ -6,7 +6,7 @@
  *   each read back as the cast the board draws in 3D, where its measure lies now.
  * - `marksOfMeasures`: every other measure flat on the map: an area made in Atlas, a kept ruler as its legs, a
  *   template with its owner, and a spell that no longer reads as one (as the area its points say).
- * - `spellWrite`, `templateWrite`: what a change asked on the GM's board writes to Atlas's measures.
+ * - `spellWrite`: what a change asked on the GM's board writes to Atlas's measures.
  *
  * Two things of Atlas's are read with every measure (`MeasureLook`): one that follows a token (an aura, or a spell the
  * GM made follow its caster) lies around that token, not where its points were last written; and what Atlas keeps from
@@ -15,7 +15,7 @@
 import { measureKind, measureToSpell, readExtra, spellToMeasure, type MeasureRecord } from '../../packages/atlas-host/src/spellMeasure';
 import { readMeasureEffect, type MeasureEffect } from '../atlasPort/app/measure/measureEffects';
 import type { MeasureShapeKind } from '../atlasPort/app/measure/measureTypes';
-import type { SpellChange, TemplateChange, TemplateMark } from './playerTools';
+import type { SpellChange, TemplateMark } from './playerTools';
 import { readSpellRules } from './spellRules';
 import { isInstantaneous, readSpell, readSpellAbout, type CastSpell } from './spells';
 
@@ -147,7 +147,7 @@ export function marksOfMeasures(measures: readonly BoardMeasure[], look: Measure
 }
 
 /** The measures of `measures` that are the GM's of `kind`: those that name no owner, or the GM. */
-function gmOwned(measures: readonly BoardMeasure[], kind: 'spell' | 'template'): string[] {
+function gmOwned(measures: readonly BoardMeasure[], kind: 'spell'): string[] {
   return measures.filter(({ record }) => {
     const extra = readExtra(record);
     return extra?.kind === kind && (extra.owner ?? GM_MEASURE_OWNER) === GM_MEASURE_OWNER;
@@ -178,20 +178,6 @@ export function spellWrite(change: SpellChange, measures: readonly BoardMeasure[
   if ('remove' in change) return { remove: [change.remove] };
   if ('clear' in change) return { remove: gmOwned(measures, 'spell') };
   return null;
-}
-
-/**
- * What the GM's Template tool comes to: a template placed is one measure to keep (the GM's, lasting until taken off),
- * shaped by Atlas from its two points; a tap takes anyone's template off, and nothing that is not one; the clear takes
- * the GM's own.
- */
-export function templateWrite(change: TemplateChange, measures: readonly BoardMeasure[], level: string | null): MeasureWrite {
-  if ('add' in change) {
-    const { shape, start, end } = change.add;
-    return { add: { shape, points: [{ x: start.x, y: start.y }, { x: end.x, y: end.y }], tabletop: { v: 1, kind: 'template', owner: GM_MEASURE_OWNER }, ...onLevel(level) } };
-  }
-  if ('remove' in change) return { remove: measures.filter(({ id, record }) => id === change.remove && readExtra(record)?.kind === 'template').map(({ id }) => id) };
-  return { remove: gmOwned(measures, 'template') };
 }
 
 /** A change from the GM's Measure tool: keep one measurement on the map, or clear all kept measurements on the shown level. */

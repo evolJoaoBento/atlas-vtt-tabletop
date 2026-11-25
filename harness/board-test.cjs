@@ -476,7 +476,7 @@ server.listen(0, async () => {
       const looks = await page.evaluate(() => {
         const style = (el) => getComputedStyle(el);
         const face = document.querySelector('.atlas-tool-group:not(.atlas-tabletop-history):not(.atlas-tabletop-modes) .atlas-tabletop-tool-button');
-        const command = document.querySelector('.atlas-tabletop-tool-button[aria-label="Visibility"]');
+        const command = [...document.querySelectorAll('.atlas-tabletop-toolbar .atlas-tabletop-tool-button')].filter((b) => b.offsetParent !== null && !b.closest('.atlas-toolbar-end, .atlas-tabletop-history, .atlas-tabletop-modes, .atlas-tabletop-more')).at(-1);
         return {
           command: { bg: style(command).backgroundColor, border: style(command).borderTopWidth, shadow: style(command).boxShadow, size: command.getBoundingClientRect().width },
           face: { bg: style(face).backgroundColor, color: style(face).color, left: style(face).borderTopLeftRadius, right: style(face).borderTopRightRadius },
@@ -1206,50 +1206,15 @@ server.listen(0, async () => {
       return !!slot && slot.classList.contains('atlas-vtt-plugin');
     }));
 
-    // 22c. While Connect hosts: the Template tool, players' templates and marks, the handout, and the banner.
+    // 22c. While Connect hosts: players' templates and marks, the handout, and the banner. No Template tool: the Measure tool's kept measures are the GM's.
     {
-      const before = await page.evaluate(() => [...document.querySelectorAll('button[aria-label="Template"]')].filter((b) => b.offsetParent !== null).length);
-      check('no Template tool while not hosting', before === 0, before);
       await page.evaluate(() => { window.boardTest.setHosting(true); });
-      const shown = await page.evaluate(() => [...document.querySelectorAll('button[aria-label="Template"]')].filter((b) => b.offsetParent !== null).length);
-      check('hosting: the toolbar offers the Template tool', shown === 1, shown);
+      const shown = await page.evaluate(() => [...document.querySelectorAll('button[aria-label="Template"], button[aria-label="Template options"]')].length);
+      check('hosting: no Template tool on the toolbar (the Measure tool keeps measures instead)', shown === 0, shown);
       await page.evaluate(() => {
         window.boardTest.board.receiveTemplates([{ id: 'pt', owner: 'anna', shape: 'circle', start: { x: 560, y: 200 }, end: { x: 630, y: 200 }, color: '#ff9f2e' }]);
-        document.querySelector('button[aria-label="Template"]').click();
       });
-      // Earlier checks moved the camera: the whole map in view again.
-      await page.evaluate(() => { const board = window.boardTest.board; board.frameMap(); board.camera.snap(); board.wake(); });
-      await wait(400);
-      const a = await project(300, 200);
-      const b = await project(370, 200);
-      await page.mouse.move(a.x, a.y);
-      await page.mouse.down();
-      for (let i = 1; i <= 8; i++) await page.mouse.move(a.x + ((b.x - a.x) * i) / 8, a.y + ((b.y - a.y) * i) / 8);
-      await page.mouse.up();
-      await wait(200);
-      const tap = await project(560, 200);
-      await page.mouse.click(tap.x, tap.y);
-      await wait(200);
-      const actions = (await record()).toolActions;
-      check('the GM places a template and erases a player\'s with a tap', actions.length === 2 && actions[0].change?.add?.shape === 'circle' && actions[1].change?.remove === 'pt', actions);
-      await page.evaluate(() => { document.querySelector('button[aria-label="Template"]').click(); });
-      // As Connect's player toolbar: a chevron opens the shapes, with their icons, and clearing the templates.
-      const menu = await page.evaluate(() => {
-        document.querySelector('button[aria-label="Template options"]').click();
-        const items = [...document.querySelectorAll('.atlas-tabletop-template-options .atlas-dropdown-menu-item')];
-        return { labels: items.map((item) => item.textContent.trim()), icons: items.map((item) => !!item.querySelector('svg')) };
-      });
-      check('the Template menu is Connect\'s: Line, Circle/Sphere, Square/Cube, Cone, then clearing', JSON.stringify(menu.labels) === JSON.stringify(['Line', 'Circle/Sphere', 'Square/Cube', 'Cone', 'Clear templates']) && menu.icons.every(Boolean), menu);
-      await page.evaluate(() => {
-        [...document.querySelectorAll('.atlas-tabletop-template-options .atlas-dropdown-menu-item')].find((item) => item.textContent.includes('Square/Cube')).click();
-      });
-      check('choosing a shape turns the Template tool on with it', await page.evaluate(() => window.boardTest.board.tools.tool === 'template' && window.boardTest.board.tools.templateShape === 'square'));
-      await page.evaluate(() => {
-        document.querySelector('button[aria-label="Template options"]').click();
-        [...document.querySelectorAll('.atlas-tabletop-template-options .atlas-dropdown-menu-item')].find((item) => item.textContent.includes('Clear templates')).click();
-      });
-      check('Clear templates asks for every template on the map to go', JSON.stringify((await record()).toolActions.at(-1)) === JSON.stringify({ type: 'template', change: { clear: true } }), (await record()).toolActions.at(-1));
-      await page.evaluate(() => { document.querySelector('button[aria-label="Template"]').click(); });
+      check("a player's template is drawn on the GM's board", await page.evaluate(() => window.boardTest.board.marks.templates.children.length === 1));
       await page.evaluate(() => {
         window.boardTest.board.receivePing(400, 400, '#00a9ff');
         window.boardTest.board.setHandout({ title: 'Old map', url: window.boardTest.handoutUrl });
@@ -1810,14 +1775,10 @@ server.listen(0, async () => {
     // ability clicked is thrown with the board's dice and logged as the hero's; a roll the dice cannot throw rolls nothing.
     {
       await page.evaluate(() => window.boardTest.boardDice.picker.close());
-      const openView = async () => {
-        if (await page.locator('.atlas-tabletop-view-bar').isHidden()) {
-          await page.locator('button[aria-label="Visibility"]').click();
-          await wait(100);
-        }
-      };
-      const sheetButton = page.locator('.atlas-tabletop-view-bar button[aria-label="Stat sheet"]');
-      check('the Visibility bar has a Stat sheet button (none standalone on the main toolbar)', await sheetButton.count() === 1 && await page.locator('.atlas-tabletop-sheet-menu').count() === 0);
+      // The Stat sheet button stands in the end slot, after the dice buttons (Play mode).
+      const openView = async () => {};
+      const sheetButton = page.locator('.atlas-toolbar-end .atlas-tabletop-sheet-menu button[aria-label="Stat sheet"]');
+      check('the end slot has a Stat sheet button, after the dice buttons', await sheetButton.count() === 1 && await page.evaluate(() => { const slot = document.querySelector('.atlas-toolbar-end'); const order = [...slot.querySelectorAll('button')].map((b) => b.getAttribute('aria-label')); return order.indexOf('Stat sheet') > order.indexOf('Dice'); }));
       const drawer = page.locator('.atlas-tabletop-sheet');
       await page.evaluate(() => window.boardTest.board.select(null));
       await openView();
@@ -1827,7 +1788,7 @@ server.listen(0, async () => {
       await page.evaluate(() => window.boardTest.board.select('hero'));
       await wait(300);
       await openView();
-      const shown = await page.evaluate(() => ({ text: document.querySelector('.atlas-tabletop-sheet').textContent, imgs: document.querySelectorAll('.atlas-tabletop-sheet img').length, xss: window.sheetXss ?? null, active: document.querySelector('.atlas-tabletop-view-bar button[aria-label="Stat sheet"]').classList.contains('is-active') }));
+      const shown = await page.evaluate(() => ({ text: document.querySelector('.atlas-tabletop-sheet').textContent, imgs: document.querySelectorAll('.atlas-tabletop-sheet img').length, xss: window.sheetXss ?? null, active: document.querySelector('.atlas-toolbar-end button[aria-label="Stat sheet"]').classList.contains('is-active') }));
       check('selecting the hero shows its sheet, its note text as text', shown.text.includes('Hero') && shown.text.includes('Longsword') && shown.text.includes('STR') && shown.text.includes('<img') && shown.imgs === 0 && shown.xss === null && shown.active, shown);
       await page.screenshot({ path: `${shots}/board-26b1-sheet-drawer.png` });
       // A roll the dice cannot throw (a subtracted die): a notice, nothing thrown, nothing logged.
