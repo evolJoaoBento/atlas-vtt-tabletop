@@ -168,6 +168,9 @@ test('every toolbar button created in toolbar.ts is registered in TOOLBAR_BUTTON
   }
   // `laser` shares the Move/Select button face in the DOM.
   registered.add('laser');
+  // The Stat sheet has no button: only the command palette's Stat sheet command opens it.
+  assert.equal(registered.has('sheet'), false, 'the Stat sheet has no toolbar button');
+  registered.add('sheet');
 
   for (const id of registered) {
     assert.ok((TOOLBAR_BUTTON_IDS as readonly string[]).includes(id), `toolbar.ts registers unregistered button id "${id}"`);

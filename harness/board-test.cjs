@@ -1775,10 +1775,10 @@ server.listen(0, async () => {
     // ability clicked is thrown with the board's dice and logged as the hero's; a roll the dice cannot throw rolls nothing.
     {
       await page.evaluate(() => window.boardTest.boardDice.picker.close());
-      // The Stat sheet button stands in the end slot, after the dice buttons (Play mode).
+      // No Stat sheet button: the command palette's Stat sheet command (the toolbar's 'sheet' route) opens the drawer.
       const openView = async () => {};
-      const sheetButton = page.locator('.atlas-toolbar-end .atlas-tabletop-sheet-menu button[aria-label="Stat sheet"]');
-      check('the end slot has a Stat sheet button, after the dice buttons', await sheetButton.count() === 1 && await page.evaluate(() => { const slot = document.querySelector('.atlas-toolbar-end'); const order = [...slot.querySelectorAll('button')].map((b) => b.getAttribute('aria-label')); return order.indexOf('Stat sheet') > order.indexOf('Dice'); }));
+      const sheetButton = { click: () => page.evaluate(() => window.boardTest.board.toolbar.goTo('sheet')) };
+      check('no Stat sheet button on the toolbar; the palette has the Stat sheet command', await page.locator('button[aria-label="Stat sheet"]').count() === 0 && await page.evaluate(() => window.boardTest.board.toolbar.toolbarState().hasSheet === true));
       const drawer = page.locator('.atlas-tabletop-sheet');
       await page.evaluate(() => window.boardTest.board.select(null));
       await openView();
@@ -1788,7 +1788,7 @@ server.listen(0, async () => {
       await page.evaluate(() => window.boardTest.board.select('hero'));
       await wait(300);
       await openView();
-      const shown = await page.evaluate(() => ({ text: document.querySelector('.atlas-tabletop-sheet').textContent, imgs: document.querySelectorAll('.atlas-tabletop-sheet img').length, xss: window.sheetXss ?? null, active: document.querySelector('.atlas-toolbar-end button[aria-label="Stat sheet"]').classList.contains('is-active') }));
+      const shown = await page.evaluate(() => ({ text: document.querySelector('.atlas-tabletop-sheet').textContent, imgs: document.querySelectorAll('.atlas-tabletop-sheet img').length, xss: window.sheetXss ?? null, active: window.boardTest.board.toolbar.toolbarState().sheetOpen }));
       check('selecting the hero shows its sheet, its note text as text', shown.text.includes('Hero') && shown.text.includes('Longsword') && shown.text.includes('STR') && shown.text.includes('<img') && shown.imgs === 0 && shown.xss === null && shown.active, shown);
       await page.screenshot({ path: `${shots}/board-26b1-sheet-drawer.png` });
       // A roll the dice cannot throw (a subtracted die): a notice, nothing thrown, nothing logged.

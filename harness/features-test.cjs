@@ -1011,7 +1011,7 @@ feature('narrow toolbar', async ({ page, shot }) => {
   await paneWidth(1000);
   await wait(300);
   const wide = await bar();
-  check('36 wide pane: every button is on the bar', wide.buttons.includes('Dice') && wide.buttons.includes('Stat sheet') && !wide.buttons.includes('More tools'), JSON.stringify(wide.buttons));
+  check('36 wide pane: every button is on the bar', wide.buttons.includes('Dice') && !wide.buttons.includes('Stat sheet') && !wide.buttons.includes('More tools'), JSON.stringify(wide.buttons));
   await paneWidth(330);
   await wait(600);
   const narrow = await bar();
@@ -1364,7 +1364,7 @@ feature('auto roll', async ({ page, shot }) => {
   const openSheet = async () => {
     await page.evaluate(() => { const { board, modes } = window.boardTest; if (modes.mode === 'edit') { modes.mode = 'play'; board.refreshToolbar(); } });
     await wait(100);
-    await page.locator('.atlas-toolbar-end button[aria-label="Stat sheet"]').click();
+    await page.evaluate(() => window.boardTest.board.toolbar.goTo('sheet'));
   };
   const drawer = page.locator('.atlas-tabletop-sheet');
   const state = () => page.evaluate(() => ({ dice: window.boardTest.board.dice.object3d.children.length, busy: window.boardTest.board.dice.busy }));
@@ -1410,7 +1410,7 @@ feature('auto roll', async ({ page, shot }) => {
   await closePalette(page);
   await wait(300);
   await page.evaluate(() => document.querySelectorAll('.atlas-statblock-preview-window').forEach((node) => node.remove()));
-  if (await drawer.isVisible()) await page.evaluate(() => document.querySelector('.atlas-toolbar-end button[aria-label="Stat sheet"]').click());
+  if (await drawer.isVisible()) await page.evaluate(() => window.boardTest.board.toolbar.goTo('sheet'));
   await wait(300);
   await openSheet();
   await wait(300);
@@ -1448,7 +1448,7 @@ feature('sheet pin', async ({ page, shot }) => {
   await page.evaluate(() => window.boardTest.board.select('hero'));
   await page.evaluate(() => { const { board, modes } = window.boardTest; if (modes.mode === 'edit') { modes.mode = 'play'; board.refreshToolbar(); } });
   await wait(100);
-  await page.locator('.atlas-toolbar-end button[aria-label="Stat sheet"]').click();
+  await page.evaluate(() => window.boardTest.board.toolbar.goTo('sheet'));
   await wait(400);
   const pin = drawer.locator('.atlas-tabletop-sheet__pin');
   check('pin: the drawer has a Pin button, not pinned', (await pin.count()) === 1 && (await pin.getAttribute('aria-pressed')) === 'false' && (await pin.getAttribute('aria-label')) === 'Pin');
@@ -1486,7 +1486,7 @@ feature('pin kept across reloads', async ({ page, shot }) => {
     await page.evaluate(() => window.boardTest.board.select('hero'));
     await page.evaluate(() => { const { board, modes } = window.boardTest; if (modes.mode === 'edit') { modes.mode = 'play'; board.refreshToolbar(); } });
     await wait(100);
-    await page.locator('.atlas-toolbar-end button[aria-label="Stat sheet"]').click();
+    await page.evaluate(() => window.boardTest.board.toolbar.goTo('sheet'));
     await wait(400);
   };
   await open();

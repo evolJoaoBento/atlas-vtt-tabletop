@@ -214,6 +214,7 @@ export const TOOLBAR_BUTTONS: Readonly<Record<ToolbarButtonId, ToolbarButtonSpec
     available: ({ actions }) => actions.setGround !== undefined,
   },
   sheet: {
+    // No toolbar button: this command alone opens the drawer.
     id: 'sheet', label: 'Stat sheet', icon: 'notebook', modes: ['play'],
     keywords: ['stat', 'sheet', 'character', 'monster', 'dice', 'log'],
     available: ({ hasSheet }) => hasSheet,

@@ -5579,9 +5579,9 @@ export class Board {
     return this.toolbar.setCinema(this.audience === 'gm' ? handlers : null);
   }
 
-  /** The toolbar's Stat sheet button, opening the selected token's sheet; null takes it away. */
-  sheetButton(handlers: DiceButton | null): HTMLElement | null {
-    if (this.disposed) return null;
+  /** The selected token's Stat sheet drawer, opened from the command palette (the GM's only); null takes it away. Returns whether it is on. */
+  sheetButton(handlers: DiceButton | null): boolean {
+    if (this.disposed) return false;
     return this.toolbar.setSheet(this.audience === 'gm' ? handlers : null);
   }
 

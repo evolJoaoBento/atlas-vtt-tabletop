@@ -124,9 +124,9 @@ export class BoardDice {
         board.refreshToolbar();
       },
     });
-    // The selected token's sheet drawer (its button lives in the Visibility bar) also hosts the Dice log tab.
+    // The selected token's sheet drawer (the command palette's Stat sheet command opens it) also hosts the Dice log tab.
     if (deps.sheetOf) {
-      const sheetAnchor = board.sheetButton({
+      const sheetOn = board.sheetButton({
         isOpen: () => this.sheet?.isOpen === true,
         toggle: () => {
           if (!this.sheet) return;
@@ -136,7 +136,7 @@ export class BoardDice {
         // Other panels closing the end-slot panels leave a pinned sheet where it is.
         close: () => this.sheet?.closeUnlessPinned(),
       });
-      if (sheetAnchor) {
+      if (sheetOn) {
         this.sheet = new SheetDrawer(container, {
           onRoll: (formula, label, advantage) => this.sheetRoll(formula, label, advantage),
           pinned: deps.settings().sheetPinned,

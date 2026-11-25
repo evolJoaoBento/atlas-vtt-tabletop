@@ -232,9 +232,6 @@ interface EndButton {
 /** Lucide's `scroll-text` (ISC): the dice log's button. */
 const LOG_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></svg>';
 
-/** Lucide's `notebook-text` (ISC): the stat sheet's button. */
-const SHEET_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h4"/><path d="M2 10h4"/><path d="M2 14h4"/><path d="M2 18h4"/><rect width="16" height="20" x="4" y="2" rx="2"/><path d="M9.5 8h5"/><path d="M9.5 12H16"/><path d="M9.5 16H14"/></svg>';
-
 /** Lucide's `radio` (ISC): players following the GM's camera. */
 const LIVE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19.1"/></svg>';
 
@@ -412,7 +409,8 @@ export class BoardToolbar {
   private peekHeld = false;
   private dice: EndButton | null = null;
   private diceLog: EndButton | null = null;
-  private sheet: EndButton | null = null;
+  /** The Stat sheet drawer's handlers: no button, the command palette's Stat sheet command opens it. */
+  private sheet: DiceButton | null = null;
   /** The cutscenes button and the live toggle, in the end slot after the dice buttons. */
   private cinema: { handlers: CinemaButtons; anchor: HTMLElement; live: HTMLButtonElement } | null = null;
   private readonly onOutside = (event: PointerEvent): void => {
@@ -1476,12 +1474,17 @@ export class BoardToolbar {
   }
 
   get isOpen(): boolean {
-    return !this.groundPanel.hidden || !this.laserPanel.hidden || !this.lightingPanel.hidden || !this.moreMenu.hidden || this.ends().some((end) => end.handlers.isOpen());
+    return !this.groundPanel.hidden || !this.laserPanel.hidden || !this.lightingPanel.hidden || !this.moreMenu.hidden || this.endPanels().some((panel) => panel.isOpen());
   }
 
-  /** The end slot's buttons there now: Dice, the Stat sheet, and Dice log if mounted standalone. */
+  /** The end slot's buttons there now: Dice, and Dice log if mounted standalone. */
   private ends(): EndButton[] {
-    return [this.dice, this.diceLog, this.sheet].filter((end): end is EndButton => end !== null);
+    return [this.dice, this.diceLog].filter((end): end is EndButton => end !== null);
+  }
+
+  /** Every end-slot panel's handlers, the buttonless Stat sheet's included. */
+  private endPanels(): DiceButton[] {
+    return [...this.ends().map((end) => end.handlers), ...(this.sheet ? [this.sheet] : [])];
   }
 
   /**
@@ -1507,14 +1510,14 @@ export class BoardToolbar {
     return this.diceLog.anchor;
   }
 
-  /** Puts the Stat sheet button in the end slot, after the dice buttons; null takes it away. Returns its anchor. */
-  setSheet(handlers: DiceButton | null): HTMLElement | null {
-    this.sheet?.anchor.remove();
-    this.sheet = null;
-    if (!handlers) return null;
-    this.sheet = this.endButton('Stat sheet', SHEET_SVG, handlers, 'atlas-tabletop-sheet-menu', () => this.diceLog?.anchor ?? this.dice?.anchor ?? null, () => ({ label: 'Stat sheet', subtitle: "Selected token's sheet and dice log" }));
-    this.registerButton('sheet', this.sheet.button);
-    return this.sheet.anchor;
+  /**
+   * Gives the board the Stat sheet drawer (null takes it away). It has no toolbar button: the command palette's Stat sheet
+   * command opens and closes it. Returns whether the board has it.
+   */
+  setSheet(handlers: DiceButton | null): boolean {
+    this.sheet = handlers;
+    this.refresh();
+    return handlers !== null;
   }
 
   /**
@@ -1606,7 +1609,7 @@ export class BoardToolbar {
       hasDice: this.dice !== null,
       hasDiceLog: this.diceLog !== null,
       hasSheet: this.sheet !== null,
-      sheetOpen: this.sheet?.handlers.isOpen() === true,
+      sheetOpen: this.sheet?.isOpen() === true,
       hasCinema: this.cinema !== null,
       cinemaLive: this.cinema !== null && this.actions.hosting() && this.cinema.handlers.live(),
       hasMore: !this.moreGroup.hidden,
@@ -1730,7 +1733,7 @@ export class BoardToolbar {
           this.closeMeasure();
           this.dice?.handlers.close();
           this.diceLog?.handlers.close();
-          this.sheet.handlers.toggle();
+          this.sheet.toggle();
         }
         break;
       case 'dice':
@@ -1739,7 +1742,7 @@ export class BoardToolbar {
           this.closeLighting();
           this.closeMeasure();
           this.diceLog?.handlers.close();
-          this.sheet?.handlers.close();
+          this.sheet?.close();
           if (!this.dice.handlers.isOpen()) this.dice.handlers.toggle();
         }
         break;
@@ -1749,7 +1752,7 @@ export class BoardToolbar {
           this.closeLighting();
           this.closeMeasure();
           this.dice?.handlers.close();
-          this.sheet?.handlers.close();
+          this.sheet?.close();
           if (!this.diceLog.handlers.isOpen()) this.diceLog.handlers.toggle();
         }
         break;
@@ -1922,7 +1925,7 @@ export class BoardToolbar {
     button.addEventListener('click', () => {
       this.closeLaser();
       this.closeLighting();
-      for (const other of this.ends()) if (other !== made) other.handlers.close();
+      for (const other of this.endPanels()) if (other !== handlers) other.close();
       handlers.toggle();
       this.refresh();
     });
@@ -1939,7 +1942,7 @@ export class BoardToolbar {
   }
 
   closeDice(): void {
-    for (const end of this.ends()) end.handlers.close();
+    for (const panel of this.endPanels()) panel.close();
   }
 
   /** Shows the laser's options above the toolbar. */

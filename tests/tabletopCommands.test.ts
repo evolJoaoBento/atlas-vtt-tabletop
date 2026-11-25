@@ -89,5 +89,10 @@ test('toolbar registry commands route through the toolbar host and show mode suf
   assert.ok(measure);
   assert.equal(measure.label, 'Measure');
   measure.run!();
-  assert.deepEqual(jumped, ['water', 'measure']);
+  // The Stat sheet has no toolbar button: its palette command opens the drawer.
+  const sheet = entries.find((entry) => entry.id === 'tabletop-toolbar-sheet');
+  assert.ok(sheet);
+  assert.equal(sheet.label, 'Stat sheet');
+  sheet.run!();
+  assert.deepEqual(jumped, ['water', 'measure', 'sheet']);
 });
