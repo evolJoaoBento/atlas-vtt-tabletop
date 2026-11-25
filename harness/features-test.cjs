@@ -2576,9 +2576,8 @@ feature('tabletop settings', async ({ page, shot }) => {
       return { headings: [...col.querySelectorAll('h3')].map((h) => h.textContent), height: Math.round(bottom - top) };
     });
   });
-  check('tabletop settings: Visibility, Look and Dice on the left, Walls, Snap and AR on the right, the columns about as tall', spread.length === 2 && spread[0].headings[0] === 'Visibility' && spread[0].headings.includes('Look') && spread[0].headings.includes('Dice') && spread[1].headings[0] === 'Walls and fog' && Math.abs(spread[0].height - spread[1].height) <= 0.25 * Math.max(spread[0].height, spread[1].height), JSON.stringify(spread));
-  const ar = await page.evaluate(() => { const row = [...document.querySelectorAll('[data-tabletop-settings] .atlas-setting-row')].find((r) => r.textContent.includes('AR table') || r.textContent.includes('None yet')); return { text: row?.textContent ?? null, disabled: row?.querySelector('button')?.disabled ?? null }; });
-  check('tabletop settings: with no AR table the row says so and its button is off', !!ar.text && /None yet/.test(ar.text) && ar.disabled === true, JSON.stringify(ar));
+  check('tabletop settings: Visibility, Look and Dice on the left, Walls and Snap on the right, the columns about as tall', spread.length === 2 && spread[0].headings[0] === 'Visibility' && spread[0].headings.includes('Look') && spread[0].headings.includes('Dice') && spread[1].headings[0] === 'Walls and fog' && Math.abs(spread[0].height - spread[1].height) <= 0.25 * Math.max(spread[0].height, spread[1].height), JSON.stringify(spread));
+  check('tabletop settings: no AR table section (its fine-tuning is a palette command)', await page.evaluate(() => !document.querySelector('[data-tabletop-settings]').textContent.includes('AR table')));
 
   // Back returns to the list, and the list's entry opens the page again (pressed in the page: a short harness window can put the header above its top).
   await page.evaluate(() => document.querySelector('.atlas-command-palette-panel-header .atlas-close-btn').click());
@@ -3958,13 +3957,15 @@ feature('ar table', async ({ page, shot }) => {
   await page.evaluate((table) => window.boardTest.board.setArTable(table), table);
   await wait(400);
   check('ar table: not shown until the GM fine-tunes it', await page.evaluate(() => window.boardTest.board.tableOutlines.children.length === 0));
-  // Tabletop Settings: the AR table's row says how many sheets, and its button starts fine-tuning.
-  await openSettings(page);
-  await page.locator(SETTINGS_PAGE).waitFor({ timeout: 5000 });
-  await wait(300);
-  const section = await page.evaluate(() => document.querySelector('[data-tabletop-settings]')?.textContent ?? null);
-  check('ar table: Tabletop Settings has it, with its sheets', section && section.includes('AR table') && section.includes('3 sheets'), String(section));
-  await page.getByRole('button', { name: 'Fine-tune the AR table…' }).click();
+  // The palette's Fine-tune the AR table command (with its icon) starts fine-tuning.
+  await page.evaluate(() => window.boardTest.palette.open());
+  await page.locator('.atlas-tabletop-atlas-ui .atlas-command-palette-window').waitFor({ timeout: 5000 });
+  await wait(150);
+  await page.locator('.atlas-command-palette-search input, .atlas-command-palette-input').first().fill('Fine-tune');
+  await wait(200);
+  const command = page.locator('.atlas-command-item', { hasText: 'Fine-tune the AR table' });
+  check('ar table: the palette has Fine-tune the AR table, with its icon', (await command.count()) === 1 && (await command.locator('.atlas-command-item-icon svg').count()) === 1);
+  await command.click();
   await wait(900);
   check('ar table: fine-tuning puts the palette away', (await page.locator('.atlas-command-palette-window').count()) === 0);
   await wait(600);

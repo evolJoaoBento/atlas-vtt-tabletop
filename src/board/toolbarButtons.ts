@@ -16,7 +16,7 @@ export type ToolbarCommandIcon =
   | 'swords' | 'hammer' | 'clapperboard' | 'dice' | 'scroll' | 'notebook'
   | 'list-ordered' | 'settings' | 'undo' | 'redo' | 'hand' | 'flashlight'
   | 'sliders' | 'ruler' | 'shapes' | 'waves' | 'mountain' | 'paint-roller'
-  | 'cloud' | 'ground' | 'radio' | 'coin' | 'image' | 'command' | 'ellipsis' | 'plug';
+  | 'cloud' | 'ground' | 'radio' | 'coin' | 'image' | 'command' | 'ellipsis' | 'plug' | 'scan';
 
 export const TOOLBAR_BUTTON_IDS = [
   'undo',

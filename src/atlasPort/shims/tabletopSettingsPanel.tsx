@@ -1,10 +1,9 @@
 // Tabletop's own settings page in the copied command palette (added by the patches in scripts/atlasPortList.mjs): what the
 // board's old Board settings panel held, drawn as Atlas's settings pages are drawn (their rows, switches and segmented
 // choices, in one column pair under the page header), and written the way the panel wrote it. The left column is what the
-// board shows (the Visibility bar's settings and the Look), the right one the board itself (walls, snapping, dice, AR).
+// board shows (the Visibility bar's settings and the Look), the right one the board itself (walls, snapping, dice).
 import React from 'react';
 import { Settings } from 'lucide-react';
-import { Button } from '../app/packages/components/primitives/button';
 import { SegmentedControl } from '../app/packages/components/primitives/SegmentedControl';
 import { SettingChoiceRow, SettingRow, SettingSliderRow, SettingToggleRow } from '../app/react/components/command-palette/SettingRows';
 import { paletteHost, onPaletteChange } from '../../palette/paletteHost';
@@ -68,7 +67,6 @@ export function TabletopSettingsPanel({ onClose }: { onClose?: () => void }): Re
   if (!settings) return <div className="atlas-command-palette-panel" />;
   const write = (change: () => void): void => { change(); redraw(); };
   const snap = settings.snap?.() ?? { tokens: true, props: true };
-  const sheets = settings.arTableSheets?.() ?? null;
   const edges = settings.wallEdges?.() ?? DEFAULT_EDGES;
   const seeThrough = settings.seeThrough?.() === true;
   const windowSize = readSeeThroughSize(settings.seeThroughSize?.() ?? DEFAULT_SEE_THROUGH_SIZE);
@@ -148,19 +146,6 @@ export function TabletopSettingsPanel({ onClose }: { onClose?: () => void }): Re
             <h3 className="atlas-command-palette-panel-heading">{t('tabletopSettings.snapHeading')}</h3>
             <SettingToggleRow label={t('tabletopSettings.snapTokens')} hint={t('tabletopSettings.snapTokensHint')} value={snap.tokens} onToggle={() => write(() => settings.setSnap?.('tokens', !snap.tokens))} />
             <SettingToggleRow label={t('tabletopSettings.snapProps')} hint={t('tabletopSettings.snapPropsHint')} value={snap.props} onToggle={() => write(() => settings.setSnap?.('props', !snap.props))} />
-          </>
-        )}
-        {settings.placeArTable && (
-          <>
-            <h3 className="atlas-command-palette-panel-heading">{t('tabletopSettings.arTable')}</h3>
-            <SettingRow
-              label={t('tabletopSettings.arTableSheetsLabel')}
-              hint={`${sheets === null ? t('tabletopSettings.arTableNone') : sheets === 1 ? t('tabletopSettings.arTableOne') : t('tabletopSettings.arTableMany', { n: sheets })} ${t('tabletopSettings.arTableFineHint')}`}
-            >
-              <Button variant="secondary" size="sm" disabled={sheets === null} onClick={() => { onClose?.(); settings.placeArTable?.(); }}>
-                {t('tabletopSettings.arTableFine')}
-              </Button>
-            </SettingRow>
           </>
         )}
       </div>

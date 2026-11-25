@@ -121,12 +121,23 @@ export function tabletopCommands(actions: ToolbarActions, refresh: () => void, h
     });
   }
 
+  // The players' AR table, once a phone has sent one: the board shows its sheets with handles to drag into place.
+  if (actions.placeArTable && (actions.arTableSheets?.() ?? null) !== null) {
+    commands.push({
+      id: 'tabletop-ar-table',
+      label: t('arTable.fineTune'),
+      icon: 'scan',
+      keywords: ['ar', 'augmented', 'reality', 'table', 'sheets', 'phone', 'fine-tune', 'place', 'calibrate', 'align'],
+      run: () => actions.placeArTable?.(),
+    });
+  }
+
   // Tabletop's own settings page (what the Board settings panel held), in the Settings section as Atlas's pages are.
   commands.push({
     id: 'tabletop-settings',
     label: t('tabletopSettings.entry'),
     icon: 'settings',
-    keywords: ['walls', 'edges', 'fog', 'height', 'thickness', 'snap', 'dice', 'auto', 'roll', 'ar', 'table', 'board', 'tabletop', 'visibility', 'see-through', 'window', 'upper', 'layers', 'initiative', 'tracker', 'look', 'grade', 'halo'],
+    keywords: ['walls', 'edges', 'fog', 'height', 'thickness', 'snap', 'dice', 'auto', 'roll', 'board', 'tabletop', 'visibility', 'see-through', 'window', 'upper', 'layers', 'initiative', 'tracker', 'look', 'grade', 'halo'],
     page: true,
   });
 
