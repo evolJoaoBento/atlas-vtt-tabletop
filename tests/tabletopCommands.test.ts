@@ -93,6 +93,9 @@ test('toolbar registry commands route through the toolbar host and show mode suf
   const sheet = entries.find((entry) => entry.id === 'tabletop-toolbar-sheet');
   assert.ok(sheet);
   assert.equal(sheet.label, 'Stat sheet');
+  // Not a toggle: Atlas's palette draws a toggle's checkbox in place of the icon, and the command has its notebook.
+  assert.equal(sheet.active, undefined);
+  assert.equal(sheet.icon, 'notebook');
   sheet.run!();
   assert.deepEqual(jumped, ['water', 'measure', 'sheet']);
 });

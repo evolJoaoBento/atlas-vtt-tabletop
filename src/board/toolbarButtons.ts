@@ -217,9 +217,8 @@ export const TOOLBAR_BUTTONS: Readonly<Record<ToolbarButtonId, ToolbarButtonSpec
     // No toolbar button: this command alone opens the drawer.
     id: 'sheet', label: 'Stat sheet', icon: 'notebook', modes: ['play'],
     keywords: ['stat', 'sheet', 'character', 'monster', 'dice', 'log'],
+    // A plain command, not a toggle: Atlas's palette draws a toggle's checkbox where its icon would be.
     available: ({ hasSheet }) => hasSheet,
-    toggle: true,
-    active: ({ sheetOpen }) => sheetOpen === true,
   },
   dice: {
     id: 'dice', label: 'Dice tray', icon: 'dice', modes: ['play'],
