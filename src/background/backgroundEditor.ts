@@ -16,6 +16,7 @@ import { buildSettingsPanel,type SettingsPanel } from './backgroundSettingsPanel
 import type { BackgroundStore } from './backgroundStore';
 import { LayerHistory, floodFill, paintStroke, type PixelBox } from './layerPaint';
 import { BRUSH_COLORS, renderPropBrushPanel } from './propBrushPanel';
+import { paintedLift, UNPAINTED } from './terrainHeight';
 
 /** What the editor needs from the plugin around it. */
 export interface BackgroundEditorHost {
@@ -370,8 +371,9 @@ export class BackgroundEditor {
     if (save) save.disabled = !open || !this.changed;
     this.heightGroup.hidden = this.layer !== 'height';
     const { low, high } = this.config.height;
+    const lift = paintedLift(this.config, this.heightValue / 255);
     const squares = low + (this.heightValue / 255) * (high - low);
-    this.heightLabel.textContent = `Height ${this.heightValue} (${squares.toFixed(1)} sq)`;
+    this.heightLabel.textContent = `Height ${this.heightValue} (${lift >= 0 ? '+' : ''}${lift.toFixed(1)} sq; topography ${squares.toFixed(1)} sq)`;
     this.statusEl.textContent = this.message?.text ?? (open ? (this.changed ? 'Unsaved changes' : '') : 'Pick or create a background.');
     this.statusEl.classList.toggle('is-error', !!this.message?.error);
     this.statusEl.classList.toggle('is-dirty', this.changed && !this.message);
@@ -453,7 +455,7 @@ export class BackgroundEditor {
         restructured: () => this.brushesChanged(),
       });
     } else {
-      this.el(box, 'p', 'atlas-tabletop-bg-hint', 'Paint with the height value above: lighter is higher, darker is lower. Soft makes the brush blend into what is there.');
+      this.el(box, 'p', 'atlas-tabletop-bg-hint', `Paint with the height value above: lighter is higher, darker is lower. It adds to the ground's own hills (${UNPAINTED} adds nothing); on painted topography it is the height itself. Soft makes the brush blend into what is there.`);
     }
   }
 

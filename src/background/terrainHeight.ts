@@ -111,6 +111,17 @@ export function typeHeight(id: TerrainId, x: number, y: number, settings: Backgr
   }
 }
 
+/** The painted height a cell has when nothing was painted: it adds nothing to the ground under it. */
+export const UNPAINTED = 128;
+
+/**
+ * What the painted height layer adds on top of a kind of land, in squares: nothing at `UNPAINTED`, up to the height
+ * range's top above it and down to its bottom below, as far either way as painted topography reaches from its middle.
+ */
+export function paintedLift(settings: BackgroundSettings, height01: number): number {
+  return (height01 - UNPAINTED / 255) * (settings.height.high - settings.height.low);
+}
+
 /** Where a stored terrain number sits in `TERRAINS`; a number nobody knows is plains. */
 const terrainIndex = (stored: number): number => Math.max(0, TERRAINS.findIndex((t) => t.id === terrainOf(stored)));
 
@@ -229,7 +240,10 @@ export function backgroundHeight(x: number, y: number, settings: BackgroundSetti
   }
   let land = 0;
   for (let k = 0; k < COUNT.length; k++) {
-    if (COUNT[k] > 0) land += typeHeight(TERRAINS[k].id, x, y, settings, PAINTED[k] / COUNT[k]) * COUNT[k];
+    if (COUNT[k] === 0) continue;
+    const id = TERRAINS[k].id, painted = PAINTED[k] / COUNT[k];
+    // Painted topography is the painted height itself; every other kind of land carries the painted height on top.
+    land += (typeHeight(id, x, y, settings, painted) + (id === 'topography' ? 0 : paintedLift(settings, painted))) * COUNT[k];
   }
   land = found > 0 ? land / found : SHELF;
   // Near the shore the land comes to the shelf, up from lower ground or down from higher, smoothly either way. The board's

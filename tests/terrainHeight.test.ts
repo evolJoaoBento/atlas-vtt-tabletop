@@ -57,6 +57,18 @@ test('painted topography runs from low to high', () => {
   assert.ok(Math.abs(backgroundHeight(30, 60, range, fill('topography', 0), frame, strip) + 2) < 1e-9);
 });
 
+test('painted height lifts any land on top of its own hills', () => {
+  const frame = backgroundFrame(60, 10, 1, SIZE);
+  const range = settings({ height: { low: -2, high: 6 } });
+  const plain = backgroundHeight(30, 60, range, fill('plains', 255), frame, strip);
+  assert.ok(Math.abs(plain - 127 / 255 * 8) < 1e-9, `${plain}`);
+  assert.ok(Math.abs(backgroundHeight(30, 60, range, fill('plains', 128), frame, strip)) < 1e-9);
+  const base = backgroundHeight(30, 60, range, fill('rolling', 128), frame, strip);
+  const lifted = backgroundHeight(30, 60, range, fill('rolling', 200), frame, strip);
+  assert.ok(Math.abs(lifted - base - 72 / 255 * 8) < 1e-9, `${lifted} vs ${base}`);
+  assert.ok(backgroundHeight(30, 60, range, fill('rolling', 0), frame, strip) < base - 3);
+});
+
 test('neighbouring hills and dunes meet softly', () => {
   const frame = backgroundFrame(60, 10, 1, SIZE);
   const layers = emptyLayers(SIZE);
