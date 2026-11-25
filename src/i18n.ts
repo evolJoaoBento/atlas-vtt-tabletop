@@ -17,6 +17,7 @@ const EN = {
   'lighting.ambient': 'Ambient light',
   'lighting.tint': 'Tint',
   'lighting.tintReset': 'Reset',
+  'lighting.tintNone': 'None',
   'lighting.tintHint': "Colours the board's daylight (a warm gold, a cold blue). Atlas's lights keep their own colours. Reset takes it off.",
   'lighting.ambientHint': "Lower it and the map goes dark: Atlas's lights shine in it. Right-click a light's bulb to set how high it hangs.",
   'lighting.tilt': 'Miniature look',

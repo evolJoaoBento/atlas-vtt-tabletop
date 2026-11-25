@@ -102,13 +102,15 @@ export function TabletopSettingsPanel({ onClose }: { onClose?: () => void }): Re
           </SettingChoiceRow>
         )}
         <SettingToggleRow label={t('tabletopSettings.initiative')} hint={t('tabletopSettings.initiativeHint')} value={settings.initiativeOpen()} onToggle={() => write(() => settings.toggleInitiative())} />
+        <h3 className="atlas-command-palette-panel-heading">{t('tabletopSettings.lookHeading')}</h3>
         {settings.setGrade && settings.setHalo && (
           <>
-            <h3 className="atlas-command-palette-panel-heading">{t('tabletopSettings.lookHeading')}</h3>
             <SettingToggleRow label={t('tabletopSettings.grade')} hint={t('tabletopSettings.gradeHint')} value={settings.grade?.() === true} onToggle={() => write(() => settings.setGrade?.(settings.grade?.() !== true))} />
             <SettingToggleRow label={t('tabletopSettings.halo')} hint={t('tabletopSettings.haloHint')} value={settings.halo?.() === true} onToggle={() => write(() => settings.setHalo?.(settings.halo?.() !== true))} />
           </>
         )}
+        <SettingToggleRow label={t('lighting.tilt')} hint={t('lighting.tiltHint')} value={settings.tiltShift()} onToggle={() => write(() => settings.setTiltShift(!settings.tiltShift()))} />
+        <SettingToggleRow label={t('lighting.occlusion')} hint={t('lighting.occlusionHint')} value={settings.occlusion()} onToggle={() => write(() => settings.setOcclusion(!settings.occlusion()))} />
       </div>
 
       <div className="atlas-command-palette-panel-column">

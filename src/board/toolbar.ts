@@ -206,6 +206,8 @@ export interface ToolbarActions {
 
 /** Lucide's `rotate-ccw` (ISC), the icon of Atlas's Forget explored areas button. */
 const FORGET_EXPLORED_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
+/** Lucide's `sun-dim` (ISC): the light level. */
+const SUN_DIM_SVG = lucide2('<circle cx="12" cy="12" r="4"/><path d="M12 4h.01"/><path d="M20 12h.01"/><path d="M12 20h.01"/><path d="M4 12h.01"/><path d="M17.657 6.343h.01"/><path d="M17.657 17.657h.01"/><path d="M6.343 17.657h.01"/><path d="M6.343 6.343h.01"/>');
 /** What the light level's slider says while the scene's lighting is off in Atlas. */
 export const LIGHTING_OFF_TITLE = 'Turn on lighting in Atlas to set the light level.';
 
@@ -269,6 +271,12 @@ const GROUND_ICONS: Readonly<Record<GroundMode, string>> = {
 };
 const lightingLabel = (choice: LightingChoice): string => t(`lighting.${choice}`);
 const LIGHTING_ORDER: readonly LightingChoice[] = ['classic', 'dusk', 'day', 'night'];
+const LIGHTING_SUBTITLES: Readonly<Record<LightingChoice, string>> = {
+  classic: "Atlas's lights on the map as it is",
+  dusk: 'A painted sky at dusk',
+  day: 'A painted sky by day',
+  night: 'A painted sky at night',
+};
 
 /** Atlas's Move/Select key, which also switches to the laser pointer and back. */
 const MOVE_KEY = 'V';
@@ -279,6 +287,20 @@ const THUMB_PX = 16;
 
 /** Lucide's `presentation` and `snowflake` icons (ISC): Atlas's player view, and a frozen camera. */
 const lucide = (body: string): string => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+
+/** The popovers on the option bars above the toolbar: the Water bar's and the Lighting bar's. */
+type BarPopover = 'brush' | 'tint' | 'motion' | 'light' | 'light-tint';
+const WATER_POPOVERS: readonly BarPopover[] = ['brush', 'tint', 'motion'];
+const LIGHTING_POPOVERS: readonly BarPopover[] = ['light', 'light-tint'];
+
+/** An element of the class given, made in its parent's window and put last in it (and its text, when given). */
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, parent: HTMLElement, text?: string): HTMLElementTagNameMap[K] {
+  const made = parent.ownerDocument.win.createEl(tag);
+  made.className = className;
+  if (text !== undefined) made.textContent = text;
+  parent.appendChild(made);
+  return made;
+}
 
 function lucide2(body: string): string {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
@@ -352,8 +374,9 @@ export class BoardToolbar {
   /** The Water painter's horizontal Fog-style option bars above the main toolbar (liquids on the left, tools and popovers on the right). */
   private readonly waterPanel: HTMLElement;
   private lastWaterMode: 'paint' | 'erase' | 'fill' = 'paint';
-  private readonly waterPopovers: Record<'brush' | 'tint' | 'motion', { trigger: HTMLButtonElement; panel: HTMLElement }>;
-  private openWaterPopoverName: 'brush' | 'tint' | 'motion' | null = null;
+  /** The compact popovers on the Water and Lighting bars, by name; one open at a time. */
+  private readonly barPopovers = {} as Record<BarPopover, { trigger: HTMLButtonElement; panel: HTMLElement }>;
+  private openPopoverName: BarPopover | null = null;
   private readonly waterSizeDot: HTMLElement;
   private readonly waterTintDot: HTMLElement;
   private readonly waterValues: { brush: HTMLElement; fill: HTMLElement; amount: HTMLElement; direction: HTMLElement; clarity: HTMLElement };
@@ -379,7 +402,7 @@ export class BoardToolbar {
   private readonly measureClearButton: HTMLButtonElement;
   private measureLookOpen = false;
   private readonly laserButton: HTMLButtonElement;
-  /** The lighting button, and the menu above it that chooses the board's lighting. */
+  /** The lighting button, and the bar above the toolbar that chooses the board's lighting. */
   private readonly lightingGroup: HTMLElement;
   private readonly lightingButton: HTMLButtonElement;
   private readonly lightingPanel: HTMLElement;
@@ -397,8 +420,8 @@ export class BoardToolbar {
   private readonly tintInput: HTMLInputElement;
   private readonly tintReset: HTMLButtonElement;
   private readonly forgetExploredButton: HTMLButtonElement | null = null;
-  private readonly tiltInput: HTMLInputElement;
-  private readonly occlusionInput: HTMLInputElement;
+  private readonly ambientRow: HTMLElement;
+  private readonly lightTintDot: HTMLElement;
   /** Atlas's end slot, and the Dice button in it while the board has dice. */
   private readonly endSlot: HTMLElement;
   /** Atlas's GM view switch, at the bar's last place after "More tools" (its `end` control). */
@@ -418,11 +441,10 @@ export class BoardToolbar {
     if (!this.groundPanel.contains(target) && !this.groundButton.contains(target) && !this.paintedPicker?.element.contains(target)) this.closeGround();
     if (!this.laserPanel.contains(target) && !this.laserMenuButton.contains(target)) this.closeLaser();
     if (!this.measurePanel.contains(target) && !this.measureMenuButton.contains(target)) this.closeMeasure();
-    if (!this.lightingPanel.contains(target) && !this.lightingButton.contains(target)) this.closeLighting();
     if (!this.paintPanel.contains(target) && !this.paintMenuButton.contains(target)) this.closePaint();
-    if (this.openWaterPopoverName !== null) {
-      const pop = this.waterPopovers[this.openWaterPopoverName];
-      if (!pop.panel.contains(target) && !pop.trigger.contains(target)) this.closeWaterPopovers();
+    if (this.openPopoverName !== null) {
+      const pop = this.barPopovers[this.openPopoverName];
+      if (!pop.panel.contains(target) && !pop.trigger.contains(target)) this.closePopovers();
     }
     this.fogBars?.pressed(target);
     if (this.measureLookOpen && !this.measureLookPanel.contains(target) && !this.measureLookTrigger.contains(target)) {
@@ -430,11 +452,11 @@ export class BoardToolbar {
     }
     if (!this.moreMenu.contains(target) && !this.moreButton.contains(target)) this.closeMore();
   };
-  private readonly onWaterKey = (event: KeyboardEvent): void => {
-    if (event.key !== 'Escape' || this.openWaterPopoverName === null) return;
+  private readonly onPopoverKey = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' || this.openPopoverName === null) return;
     event.preventDefault();
     event.stopPropagation();
-    this.closeWaterPopovers();
+    this.closePopovers();
   };
   private readonly onMeasureKey = (event: KeyboardEvent): void => {
     if (event.key !== 'Escape' || !this.measureLookOpen) return;
@@ -445,13 +467,6 @@ export class BoardToolbar {
 
   constructor(container: HTMLElement, private readonly actions: ToolbarActions) {
     const doc = container.ownerDocument;
-    const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className: string, parent: HTMLElement, text?: string): HTMLElementTagNameMap[K] => {
-      const made = doc.win.createEl(tag);
-      made.className = className;
-      if (text !== undefined) made.textContent = text;
-      parent.appendChild(made);
-      return made;
-    };
 
     // Atlas's own class names under a root of Tabletop's: its look is copied in styles.css, without needing its styles.
     this.row = el('div', 'atlas-tabletop-toolbar-row atlas-tabletop-atlas', container);
@@ -901,45 +916,10 @@ export class BoardToolbar {
         return { label: currentLabel, subtitle: tip, ...(shortcut ? { shortcut } : {}) };
       });
     }
-    const waterSep = el('div', 'atlas-tabletop-view-bar__sep', toolsBar);
+    const waterSep = el('div', 'atlas-tabletop-bar-sep', toolsBar);
     waterSep.setAttribute('aria-hidden', 'true');
-    const makePopover = (
-      name: 'brush' | 'tint' | 'motion',
-      ariaLabel: string,
-      align: 'center' | 'right',
-    ): { trigger: HTMLButtonElement; panel: HTMLElement } => {
-      const menu = el('div', 'atlas-dropdown-menu atlas-tabletop-water-popover-anchor', toolsBar);
-      const wrap = el('div', 'atlas-tool-button', menu);
-      const span = el('span', '', wrap);
-      const trigger = el('button', 'btn btn--ghost btn--icon btn--toolbar atlas-tabletop-tool-button atlas-tool-bar__choice', span);
-      trigger.type = 'button';
-      trigger.dataset.waterPopover = name;
-      trigger.setAttribute('aria-label', ariaLabel);
-      trigger.setAttribute('aria-expanded', 'false');
-      trigger.addEventListener('click', () => this.toggleWaterPopover(name));
-      const alignClass = align === 'right' ? 'atlas-dropdown-content--right' : 'atlas-tabletop-water-popover--center';
-      const panel = el('div', `atlas-dropdown-content atlas-dropdown-content--top ${alignClass} atlas-tabletop-water-popover atlas-tabletop-water-popover--${name}`, menu);
-      panel.hidden = true;
-      panel.addEventListener('pointerdown', (event) => event.stopPropagation());
-      panel.addEventListener('keydown', (event) => {
-        event.stopPropagation();
-        if (event.key === 'Escape') { event.preventDefault(); this.closeWaterPopovers(); }
-      });
-      return { trigger, panel };
-    };
-    const slider = (parent: HTMLElement, label: string, min: number, max: number, step: number): { input: HTMLInputElement; row: HTMLElement; value: HTMLElement } => {
-      const row = el('label', 'atlas-tabletop-water-slider', parent);
-      const head = el('div', 'atlas-tabletop-water-slider__head', row);
-      el('span', 'atlas-tabletop-palette__label', head, label);
-      const value = el('span', 'atlas-tabletop-water-slider__value', head, '');
-      const input = el('input', 'atlas-tabletop-palette__range', row);
-      input.type = 'range';
-      input.min = String(min);
-      input.max = String(max);
-      input.step = String(step);
-      input.setAttribute('aria-label', label);
-      return { input, row, value };
-    };
+    const makePopover = (name: BarPopover, ariaLabel: string, align: 'center' | 'right') => this.barPopover(toolsBar, name, ariaLabel, align);
+    const slider = (parent: HTMLElement, label: string, min: number, max: number, step: number) => this.barSlider(parent, label, min, max, step);
     // Popover 1: Brush size (growing dot, matching Atlas's FogToolBar) + Fill sensitivity.
     const brushPop = makePopover('brush', 'Brush size and fill sensitivity', 'center');
     this.waterSizeDot = el('span', 'atlas-fog-size-dot', brushPop.trigger);
@@ -1053,7 +1033,6 @@ export class BoardToolbar {
         this.refresh();
       });
     }
-    this.waterPopovers = { brush: brushPop, tint: tintPop, motion: motionPop };
     this.waterValues = { brush: brush.value, fill: fill.value, amount: amount.value, direction: direction.value, clarity: clarity.value };
     this.liquidUi = { modes: modeButtons, motions: motionNames, motionLabel, tintLabel, tintGrid, tintsOf: 'water', clarityRow: clarity.row, makeTints };
     this.waterInputs = { brush: brush.input, amount: amount.input, direction: direction.input, directionRow: direction.row, clarity: clarity.input, tint: waterTint, tints };
@@ -1085,88 +1064,78 @@ export class BoardToolbar {
     this.paintMenuButton.addEventListener('click', () => (this.paintPanel.hidden ? this.openPaint() : this.closePaint()));
     this.paintPanel.addEventListener('keydown', (event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); this.closePaint(); } });
     this.paintGroup.style.display = this.actions.setPainting ? '' : 'none';
-    // The board's lighting, chosen here: the classic look or the painted one under a dusk, day or night sky.
-    this.lightingGroup = el('div', 'atlas-dropdown-menu', bar);
+    // The board's lighting, chosen on a bar above the toolbar as the Water painter's options are: the four looks on the
+    // left (filled), the light level, its tint and Forget explored areas on the right (tinted). The Miniature look and
+    // Contact shadows are on the Tabletop Settings page (Look).
+    this.lightingGroup = el('div', 'atlas-tool-group', bar);
     this.lightingButton = this.registerButton('lighting', toolIn(this.lightingGroup, LIGHTING_ICONS.classic, () => (this.lightingPanel.hidden ? this.openLighting() : this.closeLighting())));
     this.lightingButton.setAttribute('aria-expanded', 'false');
-    this.lightingPanel = el('div', 'atlas-dropdown-content atlas-dropdown-content--top atlas-dropdown-content--left atlas-tabletop-lighting-options', this.lightingGroup);
+    this.lightingPanel = el('div', 'atlas-tool-bars atlas-tabletop-water-bars atlas-tabletop-lighting-options', this.row);
     this.lightingPanel.hidden = true;
-    this.lightingPanel.setAttribute('role', 'menu');
-    const choices = el('div', 'atlas-dropdown-section', this.lightingPanel);
+    const looksBar = el('div', 'atlas-vtt-toolbar atlas-tool-bar atlas-tool-bar--modes atlas-tabletop-water-bar', this.lightingPanel);
+    looksBar.setAttribute('role', 'toolbar');
+    looksBar.setAttribute('aria-label', 'Lighting');
     for (const choice of LIGHTING_ORDER) {
-      const made = el('button', 'btn btn--ghost btn--sm atlas-dropdown-menu-item', choices);
-      made.type = 'button';
+      const made = toolIn(looksBar, LIGHTING_ICONS[choice], () => { this.actions.setLighting(choice); this.refresh(); });
       made.dataset.lighting = choice;
-      el('span', 'atlas-dropdown-menu-item__check', made);
-      setSvg(made, LIGHTING_ICONS[choice], true);
-      el('span', '', made, lightingLabel(choice));
-      made.addEventListener('click', () => { this.actions.setLighting(choice); this.closeLighting(); this.refresh(); });
+      made.setAttribute('aria-label', lightingLabel(choice));
+      this.viewTooltip.attach(made.parentElement!, () => ({ label: lightingLabel(choice), subtitle: LIGHTING_SUBTITLES[choice] }));
     }
+    const lightBar = el('div', 'atlas-vtt-toolbar atlas-tool-bar atlas-tool-bar--tools atlas-tabletop-water-bar', this.lightingPanel);
+    lightBar.setAttribute('role', 'toolbar');
+    lightBar.setAttribute('aria-label', 'Lighting options');
     // The board's own daylight: in the dark only Atlas's lights show the map.
-    const light = el('div', 'atlas-tabletop-palette__section atlas-tabletop-lighting-extra', this.lightingPanel);
-    const ambient = el('label', 'atlas-tabletop-palette__field', light);
-    el('span', 'atlas-tabletop-palette__label', ambient, t('lighting.ambient'));
-    this.ambientInput = el('input', 'atlas-tabletop-palette__range', ambient);
-    this.ambientInput.type = 'range';
-    this.ambientInput.min = '0';
-    this.ambientInput.max = '100';
-    this.ambientInput.step = '1';
-    this.ambientInput.setAttribute('aria-label', t('lighting.ambient'));
-    this.ambientValue = el('span', 'atlas-tabletop-palette__unit', ambient, '');
-    el('div', 'atlas-tabletop-palette__hint', light, t('lighting.ambientHint'));
-    // A tint over the daylight, with a button that takes it off.
-    const tint = el('label', 'atlas-tabletop-palette__field', light);
+    const levelPop = this.barPopover(lightBar, 'light', t('lighting.ambient'), 'center');
+    setSvg(levelPop.trigger, SUN_DIM_SVG);
+    this.viewTooltip.attach(levelPop.trigger.parentElement!, () => (this.ambientInput.disabled
+      ? { label: t('lighting.ambient'), subtitle: LIGHTING_OFF_TITLE }
+      : { label: t('lighting.ambient'), subtitle: `${Math.round(this.actions.ambient() * 100)}%` }));
+    const levelSection = el('div', 'atlas-dropdown-section atlas-tabletop-water-sliders', levelPop.panel);
+    const level = this.barSlider(levelSection, t('lighting.ambient'), 0, 100, 1);
+    this.ambientInput = level.input;
+    this.ambientValue = level.value;
+    this.ambientRow = level.row;
+    el('div', 'atlas-tabletop-palette__hint', levelSection, t('lighting.ambientHint'));
+    const setLevel = (keep: boolean): void => {
+      const value = Number(this.ambientInput.value) / 100;
+      this.ambientValue.textContent = `${Math.round(value * 100)}%`;
+      this.actions.setAmbient(value, keep);
+    };
+    this.ambientInput.addEventListener('input', () => setLevel(false));
+    this.ambientInput.addEventListener('change', () => setLevel(true));
+    // A tint over the daylight (its dot shows it), with a button that takes it off.
+    const lightTintPop = this.barPopover(lightBar, 'light-tint', t('lighting.tint'), 'center');
+    this.lightTintDot = el('span', 'atlas-tool-bar__dot', lightTintPop.trigger);
+    this.viewTooltip.attach(lightTintPop.trigger.parentElement!, () => ({ label: t('lighting.tint'), subtitle: this.actions.tint() ?? t('lighting.tintNone') }));
+    const tintSection = el('div', 'atlas-dropdown-section atlas-tabletop-water-sliders', lightTintPop.panel);
+    const tint = el('label', 'atlas-tabletop-palette__field atlas-tabletop-water-tint-row', tintSection);
     el('span', 'atlas-tabletop-palette__label', tint, t('lighting.tint'));
     this.tintInput = el('input', 'atlas-tabletop-palette__color', tint);
     this.tintInput.type = 'color';
     this.tintInput.setAttribute('aria-label', t('lighting.tint'));
     this.tintReset = el('button', 'atlas-tabletop-palette__button', tint, t('lighting.tintReset'));
     this.tintReset.type = 'button';
-    this.tintInput.addEventListener('input', () => { this.actions.setTint(this.tintInput.value, false); this.tintReset.disabled = false; });
+    this.tintInput.addEventListener('input', () => { this.actions.setTint(this.tintInput.value, false); this.tintReset.disabled = false; this.syncLightingBar(); });
     this.tintInput.addEventListener('change', () => this.actions.setTint(this.tintInput.value, true));
     this.tintReset.addEventListener('click', (event) => {
       event.preventDefault();
       this.actions.resetTint();
       this.tintInput.value = '#ffffff';
       this.tintReset.disabled = true;
+      this.syncLightingBar();
     });
-    el('div', 'atlas-tabletop-palette__hint', light, t('lighting.tintHint'));
-    const level = (keep: boolean): void => {
-      const value = Number(this.ambientInput.value) / 100;
-      this.ambientValue.textContent = `${Math.round(value * 100)}%`;
-      this.actions.setAmbient(value, keep);
-    };
-    this.ambientInput.addEventListener('input', () => level(false));
-    this.ambientInput.addEventListener('change', () => level(true));
-    // The two extra looks: each a checkbox, kept for every board.
-    const toggleIn = (label: string, hint: string, change: (on: boolean) => void): HTMLInputElement => {
-      const field = el('label', 'atlas-tabletop-palette__field', light);
-      const box = el('input', 'atlas-tabletop-palette__check', field);
-      box.type = 'checkbox';
-      el('span', 'atlas-tabletop-palette__label', field, label);
-      this.setTip(field, { label, subtitle: hint });
-      box.addEventListener('change', () => change(box.checked));
-      return box;
-    };
-    // Atlas's Lighting settings button, as Atlas draws it: a ghost button with the rotate icon in the settings' action row.
+    el('div', 'atlas-tabletop-palette__hint', tintSection, t('lighting.tintHint'));
+    // Atlas's Lighting settings action, Forget explored areas, after a divider.
     if (this.actions.forgetExplored) {
-      const actions = el('div', 'atlas-setting-actions', light);
-      const forget = el('button', 'btn btn--ghost btn--sm', actions);
-      forget.type = 'button';
+      el('div', 'atlas-tabletop-bar-sep', lightBar).setAttribute('aria-hidden', 'true');
+      const forget = toolIn(lightBar, FORGET_EXPLORED_SVG, () => { this.actions.forgetExplored?.(); this.closeLighting(); });
       forget.dataset.lightingAction = 'forget-explored';
-      setSvg(forget, FORGET_EXPLORED_SVG, true);
-      el('span', '', forget, at('sceneLight.forgetExplored'));
-      forget.addEventListener('click', () => { this.actions.forgetExplored?.(); this.closeLighting(); });
+      const forgetLabel = at('sceneLight.forgetExplored');
+      forget.setAttribute('aria-label', forgetLabel);
       this.forgetExploredButton = forget;
     }
-    this.tiltInput = toggleIn(t('lighting.tilt'), t('lighting.tiltHint'), (on) => this.actions.setTiltShift(on));
-    this.occlusionInput = toggleIn(t('lighting.occlusion'), t('lighting.occlusionHint'), (on) => this.actions.setOcclusion(on));
-    this.lightingPanel.addEventListener('keydown', (event) => {
-      event.stopPropagation();
-      if (event.key === 'Escape') { event.preventDefault(); this.closeLighting(); }
-    });
     // Players are shown scenes with the eye on Atlas's scene tabs over the board: no player view or freeze button here.
-    // The Background menu, built as the Lighting menu is: a dropdown above its button, the six backgrounds as checked rows,
+    // The Background menu: a dropdown above its button, the six backgrounds as checked rows,
     // the chosen one's settings in the grey section below.
     this.groundGroup = el('div', 'atlas-dropdown-menu', bar);
     this.groundButton = this.registerButton('ground', toolIn(this.groundGroup, GROUND_SVG, () => (this.groundPanel.hidden ? this.openGround() : this.closeGround())));
@@ -1183,9 +1152,9 @@ export class BoardToolbar {
     // Ground (its own panel): the map on its table, or a plane or water to the horizon round it; extra board either way.
     if (this.actions.setGround) {
       const modeSection = el('div', 'atlas-dropdown-section', this.groundPanel);
-      const section = el('div', 'atlas-tabletop-palette__section atlas-tabletop-lighting-extra', this.groundPanel);
+      const section = el('div', 'atlas-tabletop-palette__section atlas-tabletop-menu-extra', this.groundPanel);
       const change = (edit: Partial<GroundSettings>): void => { const now = this.actions.ground?.(); if (now) this.actions.setGround?.({ ...now, ...edit }); this.fillGround(); };
-      // Six choices, each a checked row with its Lucide icon, as the Lighting menu's. The menu stays open on a pick: the settings below change with it.
+      // Six choices, each a checked row with its Lucide icon. The menu stays open on a pick: the settings below change with it.
       const modes: Array<{ value: GroundMode; button: HTMLButtonElement }> = [];
       for (const [value, label, hint] of [['board', 'Map board', 'The map on its table, framed.'], ['horizon', 'Horizon plane', 'The map lies on a plane running to the horizon, tiled with a material and shaped by a pattern past the board.'], ['water', 'Water plane', 'The map lies on water running to the horizon, moving as painted water does.'], ['lava', 'Lava plane', 'The map lies on lava running to the horizon, glowing and moving as painted lava does.'], ['acid', 'Acid plane', 'The map lies on acid running to the horizon, bubbling and moving as painted acid does.'], ['painted', 'Painted', 'The map lies on a background painted in the Tabletop Gallery']] as const) {
         const button = el('button', 'btn btn--ghost btn--sm atlas-dropdown-menu-item', modeSection);
@@ -1387,7 +1356,7 @@ export class BoardToolbar {
     this.fitWatch = new (doc.defaultView ?? window).ResizeObserver(() => this.fit());
     this.fitWatch.observe(container);
     // Presses on the bar and the panel are not the board's: no camera drag, no deselecting.
-    for (const part of [bar, this.helpBar, this.waterPanel, this.measureBarsPanel, ...(this.fogBars ? [this.fogBars.panel] : [])]) part.addEventListener('pointerdown', (event) => event.stopPropagation());
+    for (const part of [bar, this.helpBar, this.waterPanel, this.lightingPanel, this.measureBarsPanel, ...(this.fogBars ? [this.fogBars.panel] : [])]) part.addEventListener('pointerdown', (event) => event.stopPropagation());
     this.refresh();
   }
 
@@ -1446,10 +1415,7 @@ export class BoardToolbar {
     setSvg(this.lightingButton, LIGHTING_ICONS[lighting]);
     this.lightingButton.setAttribute('aria-label', t('lighting.title', { mode: lightingLabel(lighting) }));
     this.setTip(this.lightingButton, { label: t('lighting.title', { mode: lightingLabel(lighting) }) });
-    for (const choice of this.lightingPanel.querySelectorAll<HTMLElement>('[data-lighting]')) {
-      const check = choice.querySelector('.atlas-dropdown-menu-item__check')!;
-      setSvg(check, choice.dataset.lighting === lighting ? CHECK_SVG.replace('class="atlas-swatch-check"', 'class="atlas-dropdown-menu-item__tick"') : '');
-    }
+    this.syncLightingBar();
     for (const end of this.ends()) {
       const open = end.handlers.isOpen();
       end.button.classList.toggle('is-active', open);
@@ -2008,39 +1974,62 @@ export class BoardToolbar {
     this.moreButton.setAttribute('aria-expanded', 'false');
   }
 
-  /** Shows the lighting choices above the toolbar. */
+  /** Shows the Lighting bar above the toolbar; the other option bars and menus give way to it. */
   openLighting(): void {
     this.closeWater();
     this.closeLaser();
     this.closeDice();
+    this.closeGround();
+    this.closePaint();
+    this.closeMeasure();
+    this.closeMore();
     this.ambientInput.value = String(Math.round(this.actions.ambient() * 100));
     this.ambientValue.textContent = `${this.ambientInput.value}%`;
-    // The light level is Atlas's scene lighting: with that off there is no level to set.
-    const lit = this.actions.lightingOn?.() ?? true;
-    this.ambientInput.disabled = !lit;
-    this.setTip(this.ambientInput, lit ? null : { label: t('lighting.ambient'), subtitle: LIGHTING_OFF_TITLE });
-    // Atlas disables Forget explored areas while its lighting is off; a map Atlas cannot do it on says so.
-    if (this.forgetExploredButton) {
-      const offered = this.actions.forgetExploredOffered?.() ?? true;
-      this.forgetExploredButton.disabled = !lit || !offered;
-      this.setTip(this.forgetExploredButton, offered ? null : { label: this.forgetExploredButton.textContent?.trim() ?? '', subtitle: t('fog.needsNewerAtlas') });
-    }
     this.tintInput.value = this.actions.tint() ?? '#ffffff';
     this.tintReset.disabled = this.actions.tint() === null;
-    this.tiltInput.checked = this.actions.tiltShift();
-    this.occlusionInput.checked = this.actions.occlusion();
     this.lightingPanel.hidden = false;
     this.lightingButton.classList.add('is-active');
     this.lightingButton.setAttribute('aria-expanded', 'true');
-    this.row.ownerDocument.addEventListener('pointerdown', this.onOutside, true);
+    this.syncLightingBar();
+    this.syncWaterBar();
+    this.syncFogBar();
+    this.syncMeasureBar();
   }
 
+  /** Takes the Lighting bar (and its open popover) away. */
   closeLighting(): void {
+    this.closePopovers(LIGHTING_POPOVERS);
     if (this.lightingPanel.hidden) return;
     this.lightingPanel.hidden = true;
     this.lightingButton.classList.remove('is-active');
     this.lightingButton.setAttribute('aria-expanded', 'false');
+    this.viewTooltip.hide();
     this.syncWaterBar();
+    this.syncFogBar();
+    this.syncMeasureBar();
+  }
+
+  /** The Lighting bar as the board has it now: its look lit, the light level and the tint's dot. */
+  private syncLightingBar(): void {
+    const lighting = this.actions.lighting();
+    for (const choice of this.lightingPanel.querySelectorAll<HTMLButtonElement>('[data-lighting]')) {
+      const active = choice.dataset.lighting === lighting;
+      choice.classList.toggle('is-active', active);
+      choice.setAttribute('aria-pressed', String(active));
+    }
+    // The light level is Atlas's scene lighting: with that off there is no level to set.
+    const lit = this.actions.lightingOn?.() ?? true;
+    this.ambientInput.disabled = !lit;
+    this.ambientRow.classList.toggle('is-disabled', !lit);
+    // Atlas disables Forget explored areas while its lighting is off; a map Atlas cannot do it on says so.
+    this.setTip(this.ambientInput, lit ? null : { label: t('lighting.ambient'), subtitle: LIGHTING_OFF_TITLE });
+    if (this.forgetExploredButton) {
+      const offered = this.actions.forgetExploredOffered?.() ?? true;
+      const label = at('sceneLight.forgetExplored');
+      this.forgetExploredButton.disabled = !lit || !offered;
+      this.setTip(this.forgetExploredButton, offered ? { label } : { label, subtitle: t('fog.needsNewerAtlas') });
+    }
+    this.lightTintDot.style.backgroundColor = this.actions.tint() ?? '#ffffff';
   }
 
   /** The paint tool's materials, as the library has them now: each a card; and taking a wall's material off. */
@@ -2098,34 +2087,74 @@ export class BoardToolbar {
     this.syncWaterBar();
   }
 
-  /** Opens or closes one of the Water bar's compact popovers (brush size, tint, motion). */
-  private toggleWaterPopover(name: 'brush' | 'tint' | 'motion'): void {
-    if (this.openWaterPopoverName === name) {
-      this.closeWaterPopovers();
+  /** A compact popover on an option bar: a toolbar-style trigger with its dropdown above it. */
+  private barPopover(bar: HTMLElement, name: BarPopover, ariaLabel: string, align: 'center' | 'right' | 'left'): { trigger: HTMLButtonElement; panel: HTMLElement } {
+    const menu = el('div', 'atlas-dropdown-menu atlas-tabletop-water-popover-anchor', bar);
+    const wrap = el('div', 'atlas-tool-button', menu);
+    const span = el('span', '', wrap);
+    const trigger = el('button', 'btn btn--ghost btn--icon btn--toolbar atlas-tabletop-tool-button atlas-tool-bar__choice', span);
+    trigger.type = 'button';
+    trigger.dataset.barPopover = name;
+    if (WATER_POPOVERS.includes(name)) trigger.dataset.waterPopover = name;
+    trigger.setAttribute('aria-label', ariaLabel);
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.addEventListener('click', () => this.togglePopover(name));
+    const alignClass = align === 'right' ? 'atlas-dropdown-content--right' : align === 'left' ? 'atlas-dropdown-content--left' : 'atlas-tabletop-water-popover--center';
+    const panel = el('div', `atlas-dropdown-content atlas-dropdown-content--top ${alignClass} atlas-tabletop-water-popover atlas-tabletop-water-popover--${name}`, menu);
+    panel.hidden = true;
+    panel.addEventListener('pointerdown', (event) => event.stopPropagation());
+    panel.addEventListener('keydown', (event) => {
+      event.stopPropagation();
+      if (event.key === 'Escape') { event.preventDefault(); this.closePopovers(); }
+    });
+    const made = { trigger, panel };
+    this.barPopovers[name] = made;
+    return made;
+  }
+
+  /** A labelled slider with its value at the right, as the option bars' popovers draw them. */
+  private barSlider(parent: HTMLElement, label: string, min: number, max: number, step: number): { input: HTMLInputElement; row: HTMLElement; value: HTMLElement } {
+    const row = el('label', 'atlas-tabletop-water-slider', parent);
+    const head = el('div', 'atlas-tabletop-water-slider__head', row);
+    el('span', 'atlas-tabletop-palette__label', head, label);
+    const value = el('span', 'atlas-tabletop-water-slider__value', head, '');
+    const input = el('input', 'atlas-tabletop-palette__range', row);
+    input.type = 'range';
+    input.min = String(min);
+    input.max = String(max);
+    input.step = String(step);
+    input.setAttribute('aria-label', label);
+    return { input, row, value };
+  }
+
+  /** Opens or closes one of the option bars' compact popovers (the Water bar's brush, tint, motion; the Lighting bar's light and tint). */
+  private togglePopover(name: BarPopover): void {
+    if (this.openPopoverName === name) {
+      this.closePopovers();
       return;
     }
-    this.closeWaterPopovers();
+    this.closePopovers();
     this.viewTooltip.hide();
-    const pop = this.waterPopovers[name];
+    const pop = this.barPopovers[name];
     pop.panel.hidden = false;
     pop.trigger.classList.add('atlas-is-active');
     pop.trigger.setAttribute('aria-expanded', 'true');
-    this.openWaterPopoverName = name;
+    this.openPopoverName = name;
     this.syncWaterBar();
     const doc = this.row.ownerDocument;
     doc.addEventListener('pointerdown', this.onOutside, true);
-    doc.addEventListener('keydown', this.onWaterKey, true);
+    doc.addEventListener('keydown', this.onPopoverKey, true);
   }
 
-  /** Closes whichever Water bar popover is open, leaving the horizontal Water bar itself visible. */
-  private closeWaterPopovers(): void {
-    if (this.openWaterPopoverName === null) return;
-    const pop = this.waterPopovers[this.openWaterPopoverName];
+  /** Closes whichever bar popover is open (of `only`, when given), leaving the bar itself visible. */
+  private closePopovers(only?: readonly BarPopover[]): void {
+    if (this.openPopoverName === null || (only && !only.includes(this.openPopoverName))) return;
+    const pop = this.barPopovers[this.openPopoverName];
     pop.panel.hidden = true;
     pop.trigger.classList.remove('atlas-is-active');
     pop.trigger.setAttribute('aria-expanded', 'false');
-    this.openWaterPopoverName = null;
-    this.row.ownerDocument.removeEventListener('keydown', this.onWaterKey, true);
+    this.openPopoverName = null;
+    this.row.ownerDocument.removeEventListener('keydown', this.onPopoverKey, true);
     this.dropOutsideIfClosed();
   }
 
@@ -2141,7 +2170,7 @@ export class BoardToolbar {
       && this.groundPanel.hidden
       && this.paintPanel.hidden && this.lightingPanel.hidden;
     if (!showBar) {
-      this.closeWaterPopovers();
+      this.closePopovers(WATER_POPOVERS);
       if (!this.waterPanel.hidden) this.viewTooltip.hide();
     }
     this.waterPanel.hidden = !showBar;
@@ -2258,7 +2287,7 @@ export class BoardToolbar {
   }
 
   closeWater(): void {
-    this.closeWaterPopovers();
+    this.closePopovers(WATER_POPOVERS);
     if (this.waterPanel.hidden) return;
     this.waterPanel.hidden = true;
     this.waterButton.setAttribute('aria-expanded', 'false');
@@ -2439,7 +2468,7 @@ export class BoardToolbar {
   }
 
   private dropOutsideIfClosed(): void {
-    if (this.groundPanel.hidden && this.laserPanel.hidden && this.measurePanel.hidden && this.lightingPanel.hidden && this.paintPanel.hidden && this.openWaterPopoverName === null && this.fogBars?.popoverOpen !== true && !this.measureLookOpen && this.moreMenu.hidden) {
+    if (this.groundPanel.hidden && this.laserPanel.hidden && this.measurePanel.hidden && this.paintPanel.hidden && this.openPopoverName === null && this.fogBars?.popoverOpen !== true && !this.measureLookOpen && this.moreMenu.hidden) {
       this.row.ownerDocument.removeEventListener('pointerdown', this.onOutside, true);
     }
   }
@@ -2564,7 +2593,7 @@ export class BoardToolbar {
     this.closeGround();
     this.closeLaser();
     this.row.ownerDocument.removeEventListener('pointerdown', this.onOutside, true);
-    this.row.ownerDocument.removeEventListener('keydown', this.onWaterKey, true);
+    this.row.ownerDocument.removeEventListener('keydown', this.onPopoverKey, true);
     this.paintedPicker?.dispose();
     this.fogBars?.dispose();
     this.row.ownerDocument.removeEventListener('keydown', this.onMeasureKey, true);

@@ -102,21 +102,19 @@ export function tabletopCommands(actions: ToolbarActions, refresh: () => void, h
     });
   }
 
-  // Lighting quick-presets submenu (Classic/Dusk/Day/Night, Miniature look, Contact shadows).
+  // Lighting quick-presets submenu (Classic/Dusk/Day/Night); the Miniature look and Contact shadows are on the settings page.
   if (actions.canLight()) {
     const lighting = actions.lighting();
     commands.push({
       id: 'tabletop-lighting',
       label: 'Tabletop: lighting',
       icon: 'sun',
-      keywords: ['light', 'sky', 'day', 'night', 'dusk', 'shadows', 'tilt', 'board', 'presets'],
+      keywords: ['light', 'sky', 'day', 'night', 'dusk', 'board', 'presets'],
       submenu: [
         choice('tabletop-lighting-classic', t('lighting.classic'), 'lamp', lighting, 'classic', (value) => actions.setLighting(value), refresh),
         choice('tabletop-lighting-dusk', t('lighting.dusk'), 'sunset', lighting, 'dusk', (value) => actions.setLighting(value), refresh),
         choice('tabletop-lighting-day', t('lighting.day'), 'sun', lighting, 'day', (value) => actions.setLighting(value), refresh),
         choice('tabletop-lighting-night', t('lighting.night'), 'moon', lighting, 'night', (value) => actions.setLighting(value), refresh),
-        { id: 'tabletop-lighting-tilt', label: t('lighting.tilt'), icon: 'blur', active: actions.tiltShift(), run: () => { actions.setTiltShift(!actions.tiltShift()); refresh(); } },
-        { id: 'tabletop-lighting-occlusion', label: t('lighting.occlusion'), icon: 'shadow', active: actions.occlusion(), run: () => { actions.setOcclusion(!actions.occlusion()); refresh(); } },
       ],
     });
   }
@@ -137,7 +135,7 @@ export function tabletopCommands(actions: ToolbarActions, refresh: () => void, h
     id: 'tabletop-settings',
     label: t('tabletopSettings.entry'),
     icon: 'settings',
-    keywords: ['walls', 'edges', 'fog', 'height', 'thickness', 'snap', 'dice', 'auto', 'roll', 'board', 'tabletop', 'visibility', 'see-through', 'window', 'upper', 'layers', 'initiative', 'tracker', 'look', 'grade', 'halo'],
+    keywords: ['walls', 'edges', 'fog', 'height', 'thickness', 'snap', 'dice', 'auto', 'roll', 'board', 'tabletop', 'visibility', 'see-through', 'window', 'upper', 'layers', 'initiative', 'tracker', 'look', 'grade', 'halo', 'miniature', 'tilt', 'tilt-shift', 'contact', 'shadows', 'occlusion'],
     page: true,
   });
 

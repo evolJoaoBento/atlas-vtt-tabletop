@@ -1061,12 +1061,13 @@ feature('light theme', async ({ page, shot }) => {
   await wait(300);
   await page.locator('button[aria-label^="Lighting"]').click();
   await wait(300);
-  needs('lighting menu item', await contrast('.atlas-tabletop-lighting-options .atlas-dropdown-menu-item'));
-  needs('lighting menu ambient label', await contrast('.atlas-tabletop-lighting-extra .atlas-tabletop-palette__label'));
-  needs('lighting menu hint', await contrast('.atlas-tabletop-lighting-extra .atlas-tabletop-palette__hint'));
+  needs('lighting bar look', await contrast('.atlas-tabletop-lighting-options [data-lighting]:not(.is-active)'));
+  await page.locator('.atlas-tabletop-lighting-options [data-bar-popover="light"]').click(); await wait(200);
+  needs('lighting bar level label', await contrast('.atlas-tabletop-water-popover--light .atlas-tabletop-palette__label'));
+  needs('lighting bar level hint', await contrast('.atlas-tabletop-water-popover--light .atlas-tabletop-palette__hint'));
   await shot('light-lighting');
   await page.keyboard.press('Escape');
-  await page.mouse.click(700, 120);
+  await page.locator('button[aria-label^="Lighting"]').click();
   // The group bar.
   const at = (id) => page.evaluate((id) => { const e = window.boardTest.board.tokens.get(id); return window.boardTest.project(e.at.x, e.at.y, 0); }, id);
   const hero = await at('hero'); const gob = await at('gob');
@@ -1761,7 +1762,7 @@ feature('line of sight', async ({ page, shot }) => {
 // ── Placing a scene of a stack on the plane beyond its height: handles in the middle of the view ───────────────
 feature('lighting from Atlas', async ({ page, shot }) => {
   // The light level is Atlas's scene lighting: with that off in Atlas, the slider says so and cannot be moved.
-  const slider = page.locator('.atlas-tabletop-lighting-extra input[type="range"]').first();
+  const slider = page.locator('.atlas-tabletop-water-popover--light input[type="range"]').first();
   // What it says is Atlas's tooltip (no native title): hovered, then read.
   const state = async () => {
     const facts = await slider.evaluate((input) => ({ disabled: input.disabled, nativeTitle: input.hasAttribute('title'), shown: input.offsetParent !== null }));
@@ -1776,6 +1777,7 @@ feature('lighting from Atlas', async ({ page, shot }) => {
   await page.evaluate(() => { window.__lightingOff = true; });
   await page.locator('button[aria-label^="Lighting"]').click();
   await wait(400);
+  await page.locator('.atlas-tabletop-lighting-options [data-bar-popover="light"]').click(); await wait(200);
   const off = await state();
   check('lighting from Atlas: with lighting off in Atlas the slider is disabled and says why', off.shown && off.disabled && off.title === 'Turn on lighting in Atlas to set the light level.', JSON.stringify(off));
   await shot('lighting-from-atlas-off');
@@ -1784,21 +1786,23 @@ feature('lighting from Atlas', async ({ page, shot }) => {
   await page.evaluate(() => { window.__lightingOff = false; });
   await page.locator('button[aria-label^="Lighting"]').click();
   await wait(400);
+  await page.locator('.atlas-tabletop-lighting-options [data-bar-popover="light"]').click(); await wait(200);
   const on = await state();
   check('lighting from Atlas: the light level can be set while the scene is lit in Atlas', on.shown && !on.disabled && on.title === null, JSON.stringify(on));
+  await page.locator('button[aria-label^="Lighting"]').click();
 });
 
 feature('forget explored areas', async ({ page, shot }) => {
-  // Atlas 0.18's Forget explored areas, in the lighting menu where Atlas has it on its Lighting settings page: a ghost button with its rotate icon.
+  // Atlas 0.18's Forget explored areas, on the lighting bar after a divider: an icon button with Atlas's rotate icon and its name.
   const open = async () => { await page.locator('button[aria-label^="Lighting"]').click(); await wait(300); };
-  const button = page.locator('.atlas-tabletop-lighting-extra button[data-lighting-action="forget-explored"]');
+  const button = page.locator('.atlas-tabletop-lighting-options button[data-lighting-action="forget-explored"]');
   await open();
-  const facts = await button.evaluate((el) => ({ text: el.textContent.trim(), icon: !!el.querySelector('svg'), ghost: el.classList.contains('btn--ghost'), row: el.parentElement.className, disabled: el.disabled }));
-  check('forget explored: the lighting menu has the Atlas button, with its text and icon', facts.text === 'Forget explored areas' && facts.icon && facts.ghost && facts.row === 'atlas-setting-actions' && !facts.disabled, JSON.stringify(facts));
+  const facts = await button.evaluate((el) => ({ name: el.getAttribute('aria-label'), icon: !!el.querySelector('svg'), divided: !!el.closest('.atlas-tool-bar')?.querySelector('.atlas-tabletop-bar-sep'), disabled: el.disabled }));
+  check('forget explored: the lighting bar has the Atlas action, with its name and icon, after a divider', facts.name === 'Forget explored areas' && facts.icon && facts.divided && !facts.disabled, JSON.stringify(facts));
   await shot('forget-explored-menu');
   await button.click();
   await wait(300);
-  check('forget explored: pressing it asks the host once (no confirmation, as in Atlas) and closes the menu', (await page.evaluate(() => window.boardTest.record.forgets)) === 1 && (await page.locator('.atlas-tabletop-lighting-options').isHidden()), '');
+  check('forget explored: pressing it asks the host once (no confirmation, as in Atlas) and closes the bar', (await page.evaluate(() => window.boardTest.record.forgets)) === 1 && (await page.locator('.atlas-tabletop-lighting-options').isHidden()), '');
   // Lighting off in Atlas: Atlas disables it.
   await page.evaluate(() => { window.__lightingOff = true; });
   await open();
@@ -1825,9 +1829,10 @@ feature('daylight tint', async ({ page, shot }) => {
   const before = await read();
   await page.locator('button[aria-label^="Lighting"]').click();
   await wait(300);
-  const field = page.locator('.atlas-tabletop-lighting-options .atlas-tabletop-lighting-extra input[type="color"]');
-  const reset = page.locator('.atlas-tabletop-lighting-options .atlas-tabletop-lighting-extra button', { hasText: 'Reset' });
-  check('tint: the lighting menu has a colour and a Reset that is off while nothing is tinted', (await field.count()) === 1 && (await reset.count()) === 1 && await reset.isDisabled(), '');
+  await page.locator('.atlas-tabletop-lighting-options [data-bar-popover="light-tint"]').click(); await wait(200);
+  const field = page.locator('.atlas-tabletop-water-popover--light-tint input[type="color"]');
+  const reset = page.locator('.atlas-tabletop-water-popover--light-tint button', { hasText: 'Reset' });
+  check('tint: the lighting bar\'s tint popover has a colour and a Reset that is off while nothing is tinted', (await field.count()) === 1 && (await reset.count()) === 1 && await reset.isDisabled(), '');
   // Picking a colour tints the daylight at once and keeps it when let go.
   await field.evaluate((input) => { input.value = '#ff8844'; input.dispatchEvent(new Event('input', { bubbles: true })); });
   await wait(300);
@@ -1843,6 +1848,7 @@ feature('daylight tint', async ({ page, shot }) => {
   await wait(300);
   const after = await read();
   check('tint: Reset takes it off, and the daylight is as it was', after.sky === before.sky && after.sun === before.sun && String(after.backdrop) === String(before.backdrop) && after.fog === before.fog && after.tints.at(-1) === null && await reset.isDisabled(), after);
+  await page.locator('button[aria-label^="Lighting"]').click();
 });
 
 feature('scene tabs 0.15', async ({ page, shot }) => {
@@ -2566,6 +2572,16 @@ feature('tabletop settings', async ({ page, shot }) => {
   check('tabletop settings: Initiative tracker shows or hides the tracker', (await actions(() => window.boardTest.board.toolbarActions().initiativeOpen())) === !trackerBefore && (await tracker.isChecked()) === !trackerBefore);
   await tracker.click();
   await wait(100);
+  // The Look's Miniature look and Contact shadows (no longer on the lighting bar or in the palette's lighting submenu).
+  for (const [name, read] of [['Miniature look', () => window.boardTest.board.toolbarActions().tiltShift()], ['Contact shadows', () => window.boardTest.board.toolbarActions().occlusion()]]) {
+    const row = page.getByRole('switch', { name });
+    const was = await actions(read);
+    await row.click();
+    await wait(150);
+    check(`tabletop settings: the Look's ${name} switch turns it on and off`, (await actions(read)) === !was && (await row.isChecked()) === !was);
+    await row.click();
+    await wait(100);
+  }
   // Well spread: what the board shows on the left, the board itself on the right, the two columns about as tall.
   const spread = await page.evaluate(() => {
     const cols = [...document.querySelectorAll('[data-tabletop-settings] > .atlas-command-palette-panel-column')];
@@ -2869,7 +2885,7 @@ feature('end slot active button', async ({ page, shot }) => {
 
 // ── Edit mode: the lighting button, props picked up and scaled, and the snap toggles ──────────
 feature('edit-props', async ({ page, shot }) => {
-  const lightingShown = () => page.evaluate(() => { const g = document.querySelector('.atlas-tabletop-lighting-options')?.closest('.atlas-dropdown-menu'); return !!g && g.offsetParent !== null && !g.classList.contains('atlas-tabletop-off-mode'); });
+  const lightingShown = () => page.evaluate(() => { const g = document.querySelector('button[aria-label^="Lighting"]')?.closest('.atlas-tool-group'); return !!g && g.offsetParent !== null && !g.classList.contains('atlas-tabletop-off-mode'); });
   await page.evaluate(() => { const { board, modes, record, snapping } = window.boardTest; modes.on = true; modes.mode = 'play'; snapping.tokens = true; snapping.props = true; record.propMoves.length = 0; record.propScales.length = 0; board.refresh(); board.refreshToolbar(); });
   await wait(300);
   check('Play mode has no lighting button', !(await lightingShown()));
@@ -3122,14 +3138,14 @@ feature('water', async ({ page, shot }) => {
   check('the water keeps moving (the board keeps drawing frames)', frames[1] > frames[0], JSON.stringify(frames));
   check('the tint and clarity are the ones set', await page.evaluate(() => { const water = window.boardTest.board.water; return water.currentMotion.tint === '#1fa3a8' && Math.abs(water.uniforms.uWaterClarity.value - 0.7) < 1e-6; }));
   check('the water is see-through (refracts the ground under it)', await page.evaluate(() => window.boardTest.board.water.object3d.material.transmission > 0));
-  check('the water bar floats above the toolbar without a chevron menu', (await page.locator('.atlas-tabletop-water-bars').isVisible()) && (await page.locator('.atlas-tabletop-toolbar button[aria-label="Water options"]').count()) === 0);
+  check('the water bar floats above the toolbar without a chevron menu', (await page.locator('.atlas-tabletop-water-options').isVisible()) && (await page.locator('.atlas-tabletop-toolbar button[aria-label="Water options"]').count()) === 0);
   await shot('water-bar');
-  await page.locator('.atlas-tabletop-water-bars [data-water-popover="tint"]').click();
+  await page.locator('.atlas-tabletop-water-options [data-water-popover="tint"]').click();
   check('the water tint popover has the tint and clarity', (await page.locator('.atlas-tabletop-water-options .atlas-swatch').count()) >= 6 && (await page.locator('.atlas-tabletop-water-options input[aria-label="Clarity"]').count()) === 1);
   await page.locator('.atlas-tabletop-water-options .atlas-swatch[aria-label="Swamp"]').click();
   check('a tint swatch tints all the map\'s water', await page.evaluate(() => window.boardTest.board.water.currentMotion.tint === '#4f5a2c'));
   await shot('water-menu');
-  await page.locator('.atlas-tabletop-water-bars [data-water-popover="tint"]').click();
+  await page.locator('.atlas-tabletop-water-options [data-water-popover="tint"]').click();
   await page.evaluate(() => window.boardTest.board.toolbarActions().setWaterMotion({ kind: 'flow', amount: 0.8, direction: 90, tint: '#1fa3a8', clarity: 0.7 }));
   await wait(300);
   await shot('water');
@@ -3193,12 +3209,12 @@ feature('water', async ({ page, shot }) => {
   check('Alt with the eraser chosen leaves it the eraser', (await page.evaluate(() => window.boardTest.board.toolbarActions().waterTool())) === 'erase');
   await page.evaluate(() => window.boardTest.board.toolbarActions().setWaterTool(null));
   await page.locator('.atlas-tabletop-toolbar button[aria-label="Water"]').click();
-  await page.locator('.atlas-tabletop-water-bars [data-water-popover="brush"]').click();
+  await page.locator('.atlas-tabletop-water-options [data-water-popover="brush"]').click();
   const opened = await page.locator('.atlas-tabletop-water-popover--brush').isVisible();
   await page.mouse.click(canvas.x + canvas.width * 0.85, canvas.y + canvas.height * 0.15);
   await wait(100);
   const stillOpen = await page.locator('.atlas-tabletop-water-popover--brush').isVisible();
-  const barStillOpen = await page.locator('.atlas-tabletop-water-bars').isVisible();
+  const barStillOpen = await page.locator('.atlas-tabletop-water-options').isVisible();
   check('a click outside closes the popover while keeping the Fog-style water bar open', opened && !stillOpen && barStillOpen, JSON.stringify({ opened, stillOpen, barStillOpen }));
   await page.locator('.atlas-tabletop-toolbar button[aria-label="Water"]').click();
   // The bucket: fills the area of like colour joined to the click, as far as the sensitivity lets it.
@@ -3276,7 +3292,7 @@ feature('lava and acid', async ({ page, shot }) => {
   // The bar: a liquid picker; the modes, motions and presets named for the liquid chosen.
   await page.locator('.atlas-tabletop-toolbar button[aria-label^="Water"]').click();
   await page.locator('.atlas-tabletop-water-options [data-liquid="lava"]').click();
-  await page.locator('.atlas-tabletop-water-bars [data-water-popover="tint"]').click();
+  await page.locator('.atlas-tabletop-water-options [data-water-popover="tint"]').click();
   await wait(100);
   const menu = await page.evaluate(() => {
     const panel = document.querySelector('.atlas-tabletop-water-options');
@@ -3347,7 +3363,7 @@ feature('lava types', async ({ page, shot }) => {
   await page.evaluate(() => window.boardTest.board.toolbarActions().setWaterTool(null));
   // The motion popover: the lava's kinds, only while the brush paints lava.
   await page.locator('.atlas-tabletop-toolbar button[aria-label^="Water"]').click();
-  await page.locator('.atlas-tabletop-water-bars [data-water-popover="motion"]').click();
+  await page.locator('.atlas-tabletop-water-options [data-water-popover="motion"]').click();
   const menu = await page.evaluate(() => { const section = document.querySelector('.atlas-tabletop-lava-styles'); return { shown: section.getBoundingClientRect().height > 0, kinds: [...section.querySelectorAll('[data-lava-style]')].map((b) => b.dataset.lavaStyle) }; });
   check('lava types: the motion popover offers the kinds of lava', menu.shown && menu.kinds.join() === 'crust,ropey,rubble,lake,magma', JSON.stringify(menu));
   await page.locator('.atlas-tabletop-water-options [data-lava-style="lake"]').click();
@@ -7082,26 +7098,25 @@ feature('ground', async ({ page, shot }) => {
   check('ground: on the map board only its own rows show (no plane, pattern or liquid settings)', !shownRows.includes('Pattern') && !shownRows.includes('Moves') && !shownRows.includes('Ground material') && shownRows.includes('Extra board'), JSON.stringify(shownRows));
   check('ground: all six backgrounds show in full inside the panel, lava, acid and Painted among them', fits.length === 6 && fits.every((f) => f.inside) && fits.some((f) => f.name === 'Lava plane') && fits.some((f) => f.name === 'Acid plane') && fits.some((f) => f.name === 'Painted'), JSON.stringify(fits));
   await shot('ground-panel');
-  // The menu is built as the Lighting menu is: dropdown content above its button, no title, a checked row with an icon for each mode, the settings in the same grey section.
+  // The menu: dropdown content above its button, no title, a checked row with an icon for each mode, the settings in a grey section.
   const built = await page.evaluate(() => {
     const menu = document.querySelector('[aria-label="Background"][role="menu"]');
     const button = document.querySelector('button[aria-label="Background"]');
-    const light = document.querySelector('.atlas-tabletop-lighting-options');
     const rows = [...menu.querySelectorAll('.atlas-dropdown-menu-item')];
     const checked = rows.filter((row) => row.querySelector('.atlas-dropdown-menu-item__check svg'));
     const box = menu.getBoundingClientRect(), at = button.getBoundingClientRect();
     return {
       classes: ['atlas-dropdown-content', 'atlas-dropdown-content--top', 'atlas-dropdown-content--left'].every((c) => menu.classList.contains(c)),
-      sameWrapper: menu.parentElement === button.closest('.atlas-dropdown-menu') && menu.parentElement.className === light.parentElement.className,
+      sameWrapper: menu.parentElement === button.closest('.atlas-dropdown-menu') && menu.parentElement.className === 'atlas-dropdown-menu',
       above: box.bottom <= at.top + 0.5,
       title: !!menu.querySelector('.atlas-tabletop-palette__title'),
       rows: rows.map((row) => row.textContent.trim()),
       icons: rows.every((row) => row.querySelector(':scope > svg')),
       checked: checked.map((row) => row.dataset.groundMode),
-      section: !!menu.querySelector('.atlas-tabletop-palette__section.atlas-tabletop-lighting-extra'),
+      section: !!menu.querySelector('.atlas-tabletop-palette__section.atlas-tabletop-menu-extra'),
     };
   });
-  check("ground: the Background menu has the Lighting menu's structure (dropdown above its button, no title, six icon rows with the current one checked, the settings in the grey section)", built.classes && built.sameWrapper && built.above && !built.title && built.rows.join() === 'Map board,Horizon plane,Water plane,Lava plane,Acid plane,Painted' && built.icons && built.checked.join() === 'board' && built.section, JSON.stringify(built));
+  check("ground: the Background menu is a dropdown menu (dropdown above its button, no title, six icon rows with the current one checked, the settings in the grey section)", built.classes && built.sameWrapper && built.above && !built.title && built.rows.join() === 'Map board,Horizon plane,Water plane,Lava plane,Acid plane,Painted' && built.icons && built.checked.join() === 'board' && built.section, JSON.stringify(built));
   // Closes as Lighting's does: Escape, the button again, a press outside.
   const closes = [];
   const isOpen = () => page.evaluate(() => !document.querySelector('[aria-label="Background"][role="menu"]').hidden);
@@ -8057,7 +8072,7 @@ feature('toolbar commands and mode switching', async ({ page, shot }) => {
   const waterRun = await runPaletteEntry('Water', 'Water · Edit mode');
   const waterState = await page.evaluate(() => ({
     mode: window.boardTest.host.boardMode(),
-    waterBarOpen: !document.querySelector('.atlas-tabletop-water-bars')?.hidden,
+    waterBarOpen: !document.querySelector('.atlas-tabletop-water-options')?.hidden,
     waterActive: window.boardTest.board.toolbarActions().waterTool() !== null,
     activeToolbarIds: [...document.querySelectorAll('.atlas-tabletop-toolbar button.is-active')].map((b) => b.dataset.toolbarId),
   }));
@@ -10532,8 +10547,10 @@ feature('toolbar tooltips', async ({ page, shot }) => {
   await page.evaluate(() => { window.__lightingOff = true; window.__noForget = true; });
   await page.locator('button[aria-label^="Lighting"]').click();
   await page.waitForTimeout(300);
-  const lightTip = await hover('.atlas-tabletop-lighting-extra input[type="range"]');
-  const forgetTip = await hover('.atlas-tabletop-lighting-extra button[data-lighting-action="forget-explored"]');
+  await page.locator('.atlas-tabletop-lighting-options [data-bar-popover="light"]').click();
+  await page.waitForTimeout(200);
+  const lightTip = await hover('.atlas-tabletop-water-popover--light input[type="range"]');
+  const forgetTip = await hover('.atlas-tabletop-lighting-options button[data-lighting-action="forget-explored"]');
   await page.waitForTimeout(350);
   await shot('toolbar-tooltip-disabled');
   await page.locator('button[aria-label^="Lighting"]').click();

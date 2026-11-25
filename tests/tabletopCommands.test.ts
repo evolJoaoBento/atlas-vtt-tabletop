@@ -30,9 +30,12 @@ test('the lighting entries are the lighting menu, with the current one marked', 
   const night = lighting.submenu!.find((entry) => entry.id === 'tabletop-lighting-night')!;
   assert.equal(lighting.submenu!.find((entry) => entry.id === 'tabletop-lighting-classic')!.active, true);
   night.run!();
-  lighting.submenu!.find((entry) => entry.id === 'tabletop-lighting-tilt')!.run!();
-  assert.deepEqual(calls, ['lighting:night', 'tilt:true']);
-  assert.equal(refreshed, 2);
+  assert.deepEqual(calls, ['lighting:night']);
+  assert.equal(refreshed, 1);
+  // The Miniature look and Contact shadows are on the Tabletop Settings page, not in the lighting submenu.
+  assert.equal(lighting.submenu!.some((entry) => entry.id === 'tabletop-lighting-tilt' || entry.id === 'tabletop-lighting-occlusion'), false);
+  const page = tabletopCommands(made, () => {}).find((entry) => entry.id === 'tabletop-settings')!;
+  for (const word of ['miniature', 'tilt', 'contact', 'shadows']) assert.ok(page.keywords?.includes(word), word);
 });
 
 test('no lighting entries where the board cannot light', () => {
@@ -113,5 +116,5 @@ test("the AR table's fine-tuning is a palette command once a phone has sent a ta
   ar.run!();
   assert.deepEqual(placed, ['place']);
   const page = withTable.find((entry) => entry.id === 'tabletop-settings')!;
-  assert.equal(page.keywords.includes('ar'), false);
+  assert.equal(page.keywords?.includes('ar'), false);
 });

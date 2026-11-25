@@ -400,7 +400,8 @@
   padding: 8px;
 }
 
-/* The Water painter's Fog-style horizontal bars above the main toolbar (`FogToolBar` / `ToolOptionsBar`). */
+/* The Water painter's Fog-style horizontal bars above the main toolbar (`FogToolBar` / `ToolOptionsBar`); the Lighting bar
+   is built from the same classes. */
 .atlas-tabletop-atlas .atlas-tabletop-water-bars {
   order: 1;
   display: flex;
@@ -522,6 +523,19 @@
 
 .atlas-tabletop-water-tint-row {
   padding: 6px 2px 0;
+}
+
+/* The divider between an option bar's tools and its last action. */
+.atlas-tabletop-bar-sep {
+  width: 1px;
+  height: 18px;
+  margin-inline: 2px;
+  background: var(--divider-color, var(--background-modifier-border));
+  flex-shrink: 0;
+}
+
+.atlas-tabletop-bar-sep[hidden] {
+  display: none;
 }
 
 /* The fog tool's bars above the main toolbar (Atlas's `FogToolBar`): the same look as the Water painter's. */
@@ -2379,12 +2393,8 @@ body.atlas-tabletop-player-window .view-header {
 .atlas-tabletop-no-webgl strong { color: var(--text-normal); font-size: var(--font-ui-large); }
 .atlas-tabletop-no-webgl p { max-width: 36em; margin: 0; }
 
-/* The lighting menu: its choices, then ambient light and the two extra looks. */
-.atlas-tabletop-lighting-options {
-  min-width: 260px;
-}
-
-.atlas-tabletop-lighting-extra {
+/* A dropdown menu's settings under its choices, in a grey section (the Background menu's). */
+.atlas-tabletop-menu-extra {
   display: flex;
   flex-direction: column;
   gap: var(--size-4-2);
@@ -2392,7 +2402,7 @@ body.atlas-tabletop-player-window .view-header {
   border-top: 1px solid var(--background-modifier-border);
 }
 
-/* The Background menu: Lighting's menu, wider for its sliders; it scrolls inside when the board is too short for it. */
+/* The Background menu: a dropdown with its sliders; it scrolls inside when the board is too short for it. */
 .atlas-tabletop-ground-options {
   min-width: 320px;
   max-height: min(62vh, 560px);

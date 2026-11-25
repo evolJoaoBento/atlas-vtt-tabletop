@@ -3913,7 +3913,7 @@ export class Board {
       if (this.toolKey(event, key)) return;
       if (key === 'escape' && this.group.size > 0) { this.clearGroup(); return; }
       if (key === 'escape' && this.selectedId !== null) { this.select(null); return; }
-      if (key === 'escape' && this.toolbar.isOpen) { this.toolbar.closeGround(); this.toolbar.closeDice(); return; }
+      if (key === 'escape' && this.toolbar.isOpen) { this.toolbar.closeGround(); this.toolbar.closeDice(); this.toolbar.closeLighting(); return; }
       if (key === 'home') { this.frameMap(); event.preventDefault(); return; }
       // Up and down arrows while carrying a token take it to the layer above or below (shown, not yet the one played).
       if ((key === 'arrowup' || key === 'arrowdown' || key === 'pageup' || key === 'pagedown') && this.press?.kind === 'token' && this.audience === 'gm' && this.layerViews.size > 0) {
