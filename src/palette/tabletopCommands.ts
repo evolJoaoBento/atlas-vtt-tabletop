@@ -119,8 +119,8 @@ export function tabletopCommands(actions: ToolbarActions, refresh: () => void, h
     });
   }
 
-  // The players' AR table, once a phone has sent one: the board shows its sheets with handles to drag into place.
-  if (actions.placeArTable && (actions.arTableSheets?.() ?? null) !== null) {
+  // The players' AR table: the board shows its sheets with handles to drag into place (before a phone has sent one, it says how).
+  if (actions.placeArTable) {
     commands.push({
       id: 'tabletop-ar-table',
       label: t('arTable.fineTune'),

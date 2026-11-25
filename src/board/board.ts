@@ -148,6 +148,7 @@ import type { DiceObstacle, DiceTable, DiceTableHost } from '../dice/diceTable';
 import { underBox } from './ink';
 import { LoadProgress } from './loadProgress';
 import { LoadingOverlay } from './loadingOverlay';
+import { t } from '../i18n';
 
 /** The map's image as the bucket reads it: the image, its size in its own pixels, and the affine carrying those into the world. */
 interface FillSource { image: CanvasImageSource; width: number; height: number; transform: [number, number, number, number, number, number] }
@@ -1107,7 +1108,7 @@ export class Board {
       hosting: () => this.host.hosting?.() === true,
       ...(this.audience === 'gm' && {
         arTableSheets: () => this.arTable?.survey.groups.length ?? null,
-        placeArTable: () => this.placeTable(true),
+        placeArTable: () => { if (this.arTable) this.placeTable(true); else this.host.warn(t('arTable.none')); },
       }),
       ...(this.fogTool && { fog: this.fogBarActions() }),
       waterTool: () => this.waterTool,

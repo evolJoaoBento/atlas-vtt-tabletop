@@ -103,18 +103,19 @@ test('toolbar registry commands route through the toolbar host and show mode suf
   assert.deepEqual(jumped, ['water', 'measure', 'sheet']);
 });
 
-test("the AR table's fine-tuning is a palette command once a phone has sent a table, not a Tabletop Settings row", () => {
+test("the AR table's fine-tuning is a palette command, there before a phone has sent a table too, not a Tabletop Settings row", () => {
   const placed: string[] = [];
   const { made } = actions();
   const without = tabletopCommands({ ...(made as object), arTableSheets: () => null, placeArTable: () => placed.push('place') } as never, () => {});
-  assert.equal(without.some((entry) => entry.id === 'tabletop-ar-table'), false);
+  without.find((entry) => entry.id === 'tabletop-ar-table')!.run!();
+  assert.deepEqual(placed, ['place']);
   const withTable = tabletopCommands({ ...(made as object), arTableSheets: () => 3, placeArTable: () => placed.push('place') } as never, () => {});
   const ar = withTable.find((entry) => entry.id === 'tabletop-ar-table')!;
   assert.equal(ar.label, 'Fine-tune the AR table');
   assert.equal(ar.icon, 'scan');
   assert.equal(ar.active, undefined);
   ar.run!();
-  assert.deepEqual(placed, ['place']);
+  assert.deepEqual(placed, ['place', 'place']);
   const page = withTable.find((entry) => entry.id === 'tabletop-settings')!;
   assert.equal(page.keywords?.includes('ar'), false);
 });
