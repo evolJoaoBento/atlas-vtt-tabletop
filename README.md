@@ -77,6 +77,8 @@ with either; it does not depend on one.
   the camera, the floor fading into it; tilt the camera nearly level to see the horizon). The same menu has the
   ambient light slider, **Miniature look** (a tilt-shift blur towards the top and bottom edges) and **Contact shadows**
   (darker creases where walls, minis and props meet the floor). They cost some frame rate on slow graphics cards.
+  **Tabletop Settings → Look** adds a **Cinematic grade** (warmer, richer colour, darker corners) and a **Flame halo**
+  (Atlas's bright glow round each light, stopped by walls and shadows as the light is).
 - **Groups of tokens:** Shift-click tokens to select several (rings show under them) and drag any to move them all.
   A bar over the board turns them (45° a click), hurts or heals each one that tracks HP by an amount, or clears the
   selection (Esc does too).
