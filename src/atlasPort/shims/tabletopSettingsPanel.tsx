@@ -17,7 +17,7 @@ export const TABLETOP_SETTINGS_PANEL = 'tabletop-settings';
 export const tabletopSettingsMeta = (): { title: string; icon: React.ReactNode } => ({ get title() { return t('tabletopSettings.title'); }, icon: <Settings /> });
 
 /** A number field as Atlas's rows draw one (`SceneUnitDistanceRow`): written when it is left or Enter is pressed; text that is no value puts the kept one back. */
-function NumberRow({ label, hint, aria, value, read, onCommit }: { label: string; hint: string; aria: string; value: number; read: (text: string) => number | null; onCommit: (value: number) => void }): React.ReactElement {
+function NumberRow({ label, hint, aria, value, read, onCommit, disabled = false }: { label: string; hint: string; aria: string; value: number; read: (text: string) => number | null; onCommit: (value: number) => void; disabled?: boolean }): React.ReactElement {
   const [draft, setDraft] = React.useState<string | null>(null);
   const [invalid, setInvalid] = React.useState(false);
   const commit = (): void => {
@@ -34,8 +34,9 @@ function NumberRow({ label, hint, aria, value, read, onCommit }: { label: string
         type="text"
         inputMode="decimal"
         className="atlas-setting-input atlas-setting-input--sm"
-        value={draft ?? String(value)}
+        value={draft ?? String(Math.round(value * 1000) / 1000)}
         aria-label={aria}
+        disabled={disabled}
         aria-invalid={invalid || undefined}
         onFocus={() => setDraft(String(value))}
         onChange={(event) => setDraft(event.target.value)}
@@ -71,6 +72,8 @@ export function TabletopSettingsPanel({ onClose }: { onClose?: () => void }): Re
   const seeThrough = settings.seeThrough?.() === true;
   const windowSize = readSeeThroughSize(settings.seeThroughSize?.() ?? DEFAULT_SEE_THROUGH_SIZE);
   const layerLook = settings.layerLook?.() ?? DEFAULT_LAYER_LOOK;
+  // Walls reaching the level above: the default height is worked out, shown but not typed.
+  const reach = settings.wallsReachNext?.() === true;
   return (
     <div className="atlas-command-palette-panel" data-tabletop-settings="">
       <div className="atlas-command-palette-panel-column">
@@ -115,6 +118,9 @@ export function TabletopSettingsPanel({ onClose }: { onClose?: () => void }): Re
 
       <div className="atlas-command-palette-panel-column">
         <h3 className="atlas-command-palette-panel-heading">{t('tabletopSettings.walls')}</h3>
+        {settings.setWallsReachNext && (
+          <SettingToggleRow label={t('tabletopSettings.wallsReachNext')} hint={t('tabletopSettings.wallsReachNextHint')} value={reach} onToggle={() => write(() => settings.setWallsReachNext?.(!reach))} />
+        )}
         <NumberRow
           label={t('tabletopSettings.wallHeight')}
           hint={t('tabletopSettings.wallHeightHint')}
@@ -122,6 +128,7 @@ export function TabletopSettingsPanel({ onClose }: { onClose?: () => void }): Re
           value={settings.fogHeight()}
           read={readFogHeight}
           onCommit={(value) => write(() => settings.setFogHeight(value))}
+          disabled={reach}
         />
         <NumberRow
           label={t('tabletopSettings.wallThickness')}

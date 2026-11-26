@@ -9,7 +9,7 @@ import { defaultsUsed, materialWith, type MaterialDefaults } from './materialDef
 import type { TFile, Vault } from 'obsidian';
 import type { BoardData } from './board/boardData';
 import { readMap, type BoardMap } from './board/mapModel';
-import { levelRise, onFirstLevel, propsOnLevel, resolveLevel } from './board/levels';
+import { levelRise, onFirstLevel, propsOnLevel, resolveLevel, sceneUnits } from './board/levels';
 import type { BoardLayerLook } from './connectContract';
 import type { TerrainShape } from './board/terrainShapes';
 import { shapeLook, shapeMaterials } from './boardLook';
@@ -113,11 +113,9 @@ export function layersFor(data: BoardData, materials: MaterialView, scenes: Pick
   return [];
 }
 
-/** Game units a square of the scene spans (its own override, else its grid's distance); five where it says none. */
+/** Game units a square of the scene spans (`sceneUnits`). */
 function unitsOf(map: BoardMap): number {
-  const grid = (map.rawGrid ?? {}) as { unitDistanceOverride?: unknown; unitDistance?: unknown };
-  for (const value of [grid.unitDistanceOverride, grid.unitDistance]) if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
-  return 5;
+  return sceneUnits(map.rawGrid);
 }
 
 /** The other levels of a scene with Atlas levels, as Connect sends them, lowest first: each at its height above the level shown. */
@@ -159,7 +157,7 @@ function levelLayersFor(data: BoardData, materials: MaterialView, scenes: Pick<L
       })),
       props: propsOnLevel(data.props(mapPath), level.id, own.levels).map((prop) => ({ id: prop.id, path: prop.glb, x: prop.x, y: prop.y, scale: prop.scale, turn: prop.rotation, ...(prop.solid ? { solid: true } : {}), ...(prop.lift ? { lift: prop.lift } : {}) })),
       materials: used,
-      fogHeight: data.fogHeight(mapPath),
+      fogHeight: data.defaultWallHeight(mapPath, own.levels, level.id, units),
       wallThickness: data.wallThickness(mapPath),
       ...water,
       ...(shapes.length > 0 ? { shapes: shapes.map(shapeLook) } : {}),

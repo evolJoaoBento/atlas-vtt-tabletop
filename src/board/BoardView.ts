@@ -905,6 +905,11 @@ export class BoardView extends ItemView {
     return measured > 0 ? measured : 5;
   }
 
+  /** How tall a wall with no height of its own stands on the level shown, in grid squares (`BoardData.defaultWallHeight`). */
+  private defaultWallHeight(path: string): number {
+    return this.services.boardData.defaultWallHeight(path, this.map?.levels ?? [], this.map?.level ?? null, this.unitDistance());
+  }
+
   /**
    * The other levels of a scene with Atlas levels, as layers: the same file read for each level (its own floor image,
    * walls, lights and tokens), standing at its height above the level shown, on the scene's one grid.
@@ -941,7 +946,7 @@ export class BoardView extends ItemView {
         elevation: levelRise(shown.levels, shown.level, level.id, unit),
         map,
         ...layerExtras(extrasOf(map, boardData.legacyExtras(path))),
-        fogHeight: boardData.fogHeight(path),
+        fogHeight: boardData.defaultWallHeight(path, shown.levels, level.id, unit),
         wallThickness: boardData.wallThickness(path),
         props: propsOnLevel(boardData.props(path), level.id, shown.levels),
         shapes: propsOnLevel(boardData.shapes(path), level.id, shown.levels),
@@ -1793,7 +1798,9 @@ export class BoardView extends ItemView {
         };
         return { measure: fmt('measure'), measureKeep: fmt('measureKeep'), gmView: fmt('gmView'), diceTray: fmt('diceTray'), diceLog: fmt('diceLog') };
       },
-      fogHeight: () => boardData.fogHeight(mapPath()),
+      fogHeight: () => this.defaultWallHeight(mapPath()),
+      wallsReachNext: () => boardData.wallsReachNext(mapPath()),
+      setWallsReachNext: (on) => boardData.setWallsReachNext(mapPath(), on),
       // Saved with Tabletop's data; the board follows through `refresh`, as for a style change.
       setFogHeight: (height) => boardData.setFogHeight(mapPath(), height),
       wallThickness: () => boardData.wallThickness(mapPath()),
@@ -2184,7 +2191,7 @@ export class BoardView extends ItemView {
       const list: MenuEntry[] = [];
       // Its own height, by quarter squares; until set, as tall as the fog (a low wall half that).
       const own = this.extras().wallHeight(id);
-      const fog = boardData.fogHeight(path);
+      const fog = this.defaultWallHeight(path);
       const height = own ?? (wall.limited ? fog / 2 : fog);
       const setHeight = (next: number): void => this.setExtras(path, [id], { height: Math.max(0, Math.round(next * 4) / 4) });
       list.push({

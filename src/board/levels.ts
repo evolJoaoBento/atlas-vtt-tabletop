@@ -52,6 +52,31 @@ export function levelRise(levels: readonly BoardLevel[], from: string | null, id
   return Math.round(((bottom(id) - bottom(from)) / units) * 100) / 100;
 }
 
+/** A millimetre, as a share of a grid square (a 5-foot square is 1,524 mm). */
+export const MILLIMETRE_SQUARES = 1 / 1524;
+
+/**
+ * How tall a wall with no height of its own stands on level `id` when walls reach the level above: the rise to the next
+ * level up less a millimetre, so the walls meet that level's floor without poking through it. Null on the top level, on
+ * a scene without levels, or where the next level stands less than a millimetre up.
+ */
+export function reachToNext(levels: readonly BoardLevel[], id: string | null, unitDistance: number): number | null {
+  if (levels.length === 0) return null;
+  const here = levels.find((level) => level.id === id) ?? levels[0];
+  const above = levels.filter((level) => level.bottom > here.bottom).sort((a, b) => a.bottom - b.bottom)[0];
+  if (!above) return null;
+  const units = unitDistance > 0 ? unitDistance : 5;
+  const squares = (above.bottom - here.bottom) / units - MILLIMETRE_SQUARES;
+  return squares > 0 ? squares : null;
+}
+
+/** Game units a square of the scene spans (its own override, else its grid's distance); five where it says none. */
+export function sceneUnits(rawGrid: unknown): number {
+  const grid = (typeof rawGrid === 'object' && rawGrid !== null ? rawGrid : {}) as { unitDistanceOverride?: unknown; unitDistance?: unknown };
+  for (const value of [grid.unitDistanceOverride, grid.unitDistance]) if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+  return 5;
+}
+
 /** The props on level `levelId` (a prop without a level stands on the first, as Atlas's objects do). */
 export function propsOnLevel<T extends { level?: string }>(props: readonly T[], levelId: string | null, levels: readonly BoardLevel[]): T[] {
   if (levelId === null || levels.length === 0) return [...props];

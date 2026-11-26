@@ -4,7 +4,7 @@
  * rest from Tabletop's own data. Materials are listed only once their settings are read
  * (`MaterialIndex`), so nothing is guessed; Connect hears when they are.
  */
-import { onFirstLevel, propsOnLevel, resolveLevel, type BoardLevel } from './board/levels';
+import { onFirstLevel, propsOnLevel, resolveLevel, sceneUnits, type BoardLevel } from './board/levels';
 import { readMapState, type BoardMap } from './board/mapModel';
 import type { TFile, TFolder, Vault } from 'obsidian';
 import type { BoardData } from './board/boardData';
@@ -37,19 +37,19 @@ const isDefault = (tuning: MaterialTuning): boolean => tuning.relief === DEFAULT
  * A map Atlas holds is read from Atlas's store (`held`: its state), so what was just set, or undone, is in the look at
  * once, saved or not; any other map from its file as last read (`scenes`).
  */
-export function lookMaps(mapPath: string, viewedLevel: string | null, scenes: { map(path: string): BoardMap | null; mapAt(path: string, level: string): BoardMap | null }, held: unknown): { own: BoardMap | null; shown: { levels: readonly BoardLevel[]; level: string | null } | undefined; levelMap: BoardMap | null } {
+export function lookMaps(mapPath: string, viewedLevel: string | null, scenes: { map(path: string): BoardMap | null; mapAt(path: string, level: string): BoardMap | null }, held: unknown): { own: BoardMap | null; shown: { levels: readonly BoardLevel[]; level: string | null; units: number } | undefined; levelMap: BoardMap | null } {
   const fromStore = (level?: string | null): BoardMap | null => {
     if (held === null || held === undefined) return null;
     try { return readMapState(mapPath, held, level); } catch { return null; }
   };
   const stored = fromStore();
   const own = stored ?? scenes.map(mapPath);
-  const shown = own && own.levels.length > 1 ? { levels: own.levels, level: resolveLevel(own.levels, viewedLevel) } : undefined;
+  const shown = own && own.levels.length > 1 ? { levels: own.levels, level: resolveLevel(own.levels, viewedLevel), units: sceneUnits(own.rawGrid) } : undefined;
   const levelMap = shown?.level ? (stored ? fromStore(shown.level) : scenes.mapAt(mapPath, shown.level)) : null;
   return { own, shown, levelMap };
 }
 
-export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: string, layers: ReadonlyArray<BoardLayerLook> = [], shown: { levels: readonly BoardLevel[]; level: string | null } = { levels: [], level: null }, defaults: { walls: readonly BoardWall[]; chosen: MaterialDefaults } | null = null, extras: RecordExtras = extrasOf(null, data.legacyExtras(mapPath)), water: { water?: BoardWater } = waterOf(null, onFirstLevel(shown.levels, shown.level) ? data.legacyWater(mapPath) : null), background: (folder: string) => BackgroundSettings | null = () => null): BoardLook {
+export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: string, layers: ReadonlyArray<BoardLayerLook> = [], shown: { levels: readonly BoardLevel[]; level: string | null; units?: number } = { levels: [], level: null }, defaults: { walls: readonly BoardWall[]; chosen: MaterialDefaults } | null = null, extras: RecordExtras = extrasOf(null, data.legacyExtras(mapPath)), water: { water?: BoardWater } = waterOf(null, onFirstLevel(shown.levels, shown.level) ? data.legacyWater(mapPath) : null), background: (folder: string) => BackgroundSettings | null = () => null): BoardLook {
   // Walls with no material painted wear their kind's default, for players too.
   const wallsById = new Map((defaults?.walls ?? []).map((wall) => [wall.id, wall]));
   const wallMaterial = (id: string): string | null => {
@@ -68,7 +68,8 @@ export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: 
     .map((id) => ({ id, info: materials.info(id) }))
     .filter((entry): entry is { id: string; info: MaterialInfo } => entry.info !== null)
     .map(({ id, info }) => ({ id, scale: info.scale, maps: { ...info.maps }, ...(!info.tuning || isDefault(info.tuning) ? {} : { tuning: { ...info.tuning } }) }));
-  const fog = data.fogHeight(mapPath);
+  // Walls that reach the level above stand up to it, for players too.
+  const fog = data.defaultWallHeight(mapPath, shown.levels, shown.level, shown.units ?? 5);
   return Object.freeze({
     wallHeight: extras.wallHeight,
     wallMaterial,

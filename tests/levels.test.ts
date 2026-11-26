@@ -72,3 +72,17 @@ test('copy numbers are Atlas 0.10\'s: counted per level, hidden copies included'
   assert.equal(numbers.has('orc'), false);
   assert.equal(instanceBadgeNumbers(tokens, false).size, 0);
 });
+
+test('walls reaching the level above stand up to it less a millimetre; the top level reaches nothing', async () => {
+  const { MILLIMETRE_SQUARES, reachToNext, sceneUnits } = await import('../src/board/levels');
+  const floors = readLevels([{ id: 'g', elevation: { bottom: 0 } }, { id: 'u', elevation: { bottom: 15 } }, { id: 't', elevation: { bottom: 25 } }]);
+  assert.equal(reachToNext(floors, 'g', 5), 3 - MILLIMETRE_SQUARES);
+  assert.equal(reachToNext(floors, 'u', 5), 2 - MILLIMETRE_SQUARES);
+  assert.equal(reachToNext(floors, 't', 5), null);
+  // An unset or unknown level is the first, as Atlas reads it.
+  assert.equal(reachToNext(floors, null, 5), 3 - MILLIMETRE_SQUARES);
+  assert.equal(reachToNext([], null, 5), null);
+  assert.equal(sceneUnits({ unitDistance: 1.5 }), 1.5);
+  assert.equal(sceneUnits({ unitDistanceOverride: 10, unitDistance: 5 }), 10);
+  assert.equal(sceneUnits(null), 5);
+});

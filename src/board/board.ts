@@ -351,6 +351,9 @@ export interface BoardHost {
   fogHotkey?(): string | null;
   fogHeight(): number;
   setFogHeight(height: number): void;
+  /** Whether walls with no height of their own reach the level above (less a millimetre); `fogHeight` is then that height. */
+  wallsReachNext?(): boolean;
+  setWallsReachNext?(on: boolean): void;
   /** How thick the walls stand, as a share of a grid square. */
   wallThickness(): number;
   setWallThickness(thickness: number): void;
@@ -1057,6 +1060,7 @@ export class Board {
     this.toolbar = new BoardToolbar(container, {
       fogHeight: () => this.host.fogHeight(),
       setFogHeight: (height) => this.host.setFogHeight(height),
+      ...(this.host.setWallsReachNext && { wallsReachNext: () => this.host.wallsReachNext?.() === true, setWallsReachNext: (on: boolean) => this.host.setWallsReachNext?.(on) }),
       wallThickness: () => this.host.wallThickness(),
       setWallThickness: (thickness) => this.host.setWallThickness(thickness),
       wallEdges: () => this.quality.edges,

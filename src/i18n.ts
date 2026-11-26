@@ -87,6 +87,8 @@ const EN = {
   'tabletopSettings.wallHeight': 'Default wall height',
   'tabletopSettings.wallHeightHint': 'Walls without a height of their own stand this many grid squares tall, and so does the fog painted in Atlas (0 lays the fog flat on the map).',
   'tabletopSettings.wallHeightAria': 'Default wall height in squares',
+  'tabletopSettings.wallsReachNext': 'Walls reach the level above',
+  'tabletopSettings.wallsReachNextHint': 'Walls without a height of their own stand up to the next level, less a millimetre, so floors meet without clipping. The top level keeps the default wall height.',
   'tabletopSettings.wallThickness': 'Wall thickness',
   'tabletopSettings.wallThicknessHint': 'In grid squares, more than none and at most two.',
   'tabletopSettings.wallThicknessAria': 'Wall thickness in squares',

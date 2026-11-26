@@ -18,6 +18,7 @@ const moveOf = (frame: Frame) => (point: { x: number; y: number }): { x: number;
 import { dropShotMaps, readCutscenes, renameShotMaps, type Cutscene } from '../cutscene/cutsceneData';
 import { readShapes, type TerrainShape } from './terrainShapes';
 import { isDefaultGround, readGround, type GroundSettings } from './ground';
+import { reachToNext, type BoardLevel } from './levels';
 
 export type TokenStyle = 'disc' | 'standee';
 
@@ -44,6 +45,8 @@ export interface MapData {
   props?: PropPlacement[];
   /** How tall the fog stands, in grid squares; kept only when it is not the default. */
   fogHeight?: number;
+  /** Walls with no height of their own reach the level above (less a millimetre) instead of the fog height, where there is one. */
+  wallsReachNext?: true;
   /** Wall (or door) id to the vault folder of the material painted on it. */
   wallMaterials?: Record<string, string>;
   /** Door id to the vault path of the prop GLB that stands in for its leaf. */
@@ -195,6 +198,7 @@ function tidy(map: MapData): MapData | null {
   if (map.styles && Object.keys(map.styles).length > 0) out.styles = map.styles;
   if (map.props && map.props.length > 0) out.props = map.props;
   if (map.fogHeight !== undefined && map.fogHeight !== DEFAULT_FOG_HEIGHT) out.fogHeight = map.fogHeight;
+  if (map.wallsReachNext === true) out.wallsReachNext = true;
   if (map.wallMaterials && Object.keys(map.wallMaterials).length > 0) out.wallMaterials = map.wallMaterials;
   if (map.doorProps && Object.keys(map.doorProps).length > 0) out.doorProps = map.doorProps;
   if (map.lightHeights && Object.keys(map.lightHeights).length > 0) out.lightHeights = map.lightHeights;
@@ -300,7 +304,7 @@ export function readBoardData(raw: unknown): BoardDataJSON {
       cutscenes,
       shapes: readShapes(value.shapes),
       ...(isObj(value.ground) && { ground: readGround(value.ground) }),
-      styles, props, ...(layer && { layer }), ...(value.hidden === true && { hidden: true as const }), ...(readWater(value.water) && { water: readWater(value.water)! }), ...(fogHeight !== undefined && { fogHeight }),
+      styles, props, ...(layer && { layer }), ...(value.hidden === true && { hidden: true as const }), ...(readWater(value.water) && { water: readWater(value.water)! }), ...(fogHeight !== undefined && { fogHeight }), ...(value.wallsReachNext === true && { wallsReachNext: true as const }),
       wallMaterials: strings(value.wallMaterials), doorProps: strings(value.doorProps), lightHeights: heights(value.lightHeights),
       wallHeights: heights(value.wallHeights), wallWidths: widths(value.wallWidths), windows: windows(value.windows), doorFlips: flips(value.doorFlips),
       ...(wallThickness !== undefined && { wallThickness }),
@@ -407,6 +411,26 @@ export class BoardData {
   setFogHeight(mapPath: string, height: number): void {
     if (!Number.isFinite(height) || height < 0 || this.fogHeight(mapPath) === height) return;
     this.put(mapPath, { ...(this.data[mapPath] ?? {}), fogHeight: height });
+  }
+
+  /** Whether the map's walls with no height of their own reach the level above. */
+  wallsReachNext(mapPath: string): boolean {
+    return this.data[mapPath]?.wallsReachNext === true;
+  }
+
+  setWallsReachNext(mapPath: string, on: boolean): void {
+    if (this.wallsReachNext(mapPath) === on) return;
+    const { wallsReachNext: _was, ...rest } = this.data[mapPath] ?? {};
+    this.put(mapPath, on ? { ...rest, wallsReachNext: true } : rest);
+  }
+
+  /**
+   * How tall a wall with no height of its own stands on a level (and the fog with it), in grid squares: up to the level
+   * above less a millimetre when the map's walls reach it and there is one, else the map's fog height.
+   */
+  defaultWallHeight(mapPath: string, levels: readonly BoardLevel[], levelId: string | null, unitDistance: number): number {
+    const reach = this.wallsReachNext(mapPath) ? reachToNext(levels, levelId, unitDistance) : null;
+    return reach ?? this.fogHeight(mapPath);
   }
 
   /** How thick the map's walls stand, as a share of a grid square. */

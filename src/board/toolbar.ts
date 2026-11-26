@@ -85,6 +85,9 @@ export interface ToolbarActions {
   /** How tall the fog stands, in grid squares. */
   fogHeight(): number;
   setFogHeight(height: number): void;
+  /** Whether walls with no height of their own reach the level above (less a millimetre); the fog height then shows that height. */
+  wallsReachNext?(): boolean;
+  setWallsReachNext?(on: boolean): void;
   /** How thick the walls stand, as a share of a grid square. */
   wallThickness(): number;
   setWallThickness(thickness: number): void;

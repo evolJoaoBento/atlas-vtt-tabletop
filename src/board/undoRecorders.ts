@@ -28,7 +28,7 @@ function changedKeys(before: object | undefined, after: object | undefined): str
 const LABELS: Record<string, string> = {
   water: 'water', waterLook: 'water look', props: 'props', wallHeights: 'wall height', wallWidths: 'wall width', windows: 'window', wallMaterials: 'wall material', lightHeights: 'light height',
   styles: 'token style', placement: 'scene placement', hidden: 'layer visibility', ambient: 'ambient light', tint: 'light tint',
-  fogHeight: 'fog height', wallThickness: 'wall thickness', doorFlips: 'door',
+  fogHeight: 'fog height', wallsReachNext: 'wall height', wallThickness: 'wall thickness', doorFlips: 'door',
 };
 
 /** A snapshot step of one store's record of a map. */

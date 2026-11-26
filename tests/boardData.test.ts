@@ -304,3 +304,20 @@ test('ground settings: defaults until set, kept per map, dropped when back to th
   data.setGround('m', { mode: 'board', noise: 'rolling', strength: 0.5, fog: 40, margin: 0, tile: 2, water: { kind: 'ripples', amount: 0.5, direction: 90, tint: '#2d6b78', clarity: 0.6 } });
   assert.equal(data.toJSON().m, undefined);
 });
+
+test("walls reaching the level above: kept per map, and the default wall height then is the gap to the next level less a millimetre", async () => {
+  const { MILLIMETRE_SQUARES, readLevels } = await import('../src/board/levels');
+  const floors = readLevels([{ id: 'g', elevation: { bottom: 0 } }, { id: 'u', elevation: { bottom: 10 } }]);
+  const data = new BoardData();
+  data.setFogHeight('m', 3);
+  assert.equal(data.defaultWallHeight('m', floors, 'g', 5), 3);
+  data.setWallsReachNext('m', true);
+  assert.equal(data.wallsReachNext('m'), true);
+  assert.equal(data.defaultWallHeight('m', floors, 'g', 5), 2 - MILLIMETRE_SQUARES);
+  // The top level, and a scene of one level, keep the fog height.
+  assert.equal(data.defaultWallHeight('m', floors, 'u', 5), 3);
+  assert.equal(data.defaultWallHeight('m', [], null, 5), 3);
+  assert.equal(new BoardData(readBoardData(JSON.parse(JSON.stringify(data.toJSON())))).wallsReachNext('m'), true);
+  data.setWallsReachNext('m', false);
+  assert.deepEqual(JSON.parse(JSON.stringify(data.toJSON())), { m: { fogHeight: 3 } });
+});
