@@ -31,23 +31,42 @@ export function deviceQuaternion(alpha: number, beta: number, gamma: number, scr
 }
 
 /** How far a phone must lean from lying flat (degrees) for its gravity to tell which way the screen is turned. */
-const UPRIGHT_ENOUGH = 25;
+const UPRIGHT_ENOUGH = 30;
 
 /**
  * How far the screen is turned from the phone's portrait (degrees, as `screen.orientation.angle` should say: 90 with the
- * phone's top to the left), for `deviceQuaternion`, whose readings are always in the portrait frame. The browser's own
- * angle is taken where it agrees with the window's shape (none at all: a browser without either says nothing); an iPad's Safari calls its landscape 0 (its own natural
- * way up), which turned the view a quarter (upright looked sideways). Where it does not agree, the phone's lean says
- * which side is up (`beta`, `gamma` in degrees); lying flat, it cannot, and `last` (the angle found before) stays.
+ * phone's top to the left), for `deviceQuaternion`, whose readings are always in the portrait frame.
+ * The browser's own angle is taken where it fits the window's shape. An iPad's Safari gets it a quarter wrong (it calls
+ * its landscape 0), which turned the view sideways: there the device's lean says which side is up, read once while it
+ * is held upright enough to tell, then kept, so looking about never flips it. It is found again only when the screen
+ * turns (the browser's angle or the window's shape changes).
  */
-export function screenTurn(reported: number | null, portraitWindow: boolean, beta: number, gamma: number, last: number | null): number {
-  const angle = reported === null ? null : ((reported % 360) + 360) % 360;
-  if (angle !== null && (angle === 0 || angle === 180) === portraitWindow) return angle;
-  if (last !== null && (last === 0 || last === 180) === portraitWindow && Math.abs(beta) < UPRIGHT_ENOUGH && Math.abs(gamma) < UPRIGHT_ENOUGH) return last;
-  // Upright in portrait the top is up (beta 90), upside down beta is -90; in landscape with the top to the left the
-  // right side is up (gamma below 0), with the top to the right it is down.
-  if (portraitWindow) return beta < 0 ? 180 : 0;
-  return gamma < 0 ? 90 : 270;
+export class ScreenTurn {
+  private key = '';
+  private turn = 0;
+  private sure = false;
+
+  /** The turn for this reading: `reported` the browser's angle (null: it gives none), `beta`, `gamma` the lean in degrees. */
+  read(reported: number | null, portraitWindow: boolean, beta: number, gamma: number): number {
+    const angle = reported === null ? null : ((reported % 360) + 360) % 360;
+    if (angle !== null && (angle === 0 || angle === 180) === portraitWindow) return angle;
+    const key = `${angle}|${portraitWindow}`;
+    if (key !== this.key) {
+      this.key = key;
+      this.sure = false;
+      this.turn = portraitWindow ? 0 : 90;
+    }
+    if (this.sure) return this.turn;
+    // Upright in portrait the top is up (beta 90), upside down beta is -90; in landscape with the top to the left the
+    // right side is up (gamma below 0), with the top to the right it is down. Lying flat it cannot tell: a guess, kept
+    // until the device is held up.
+    const lean = portraitWindow ? beta : gamma;
+    if (Math.abs(lean) >= UPRIGHT_ENOUGH) {
+      this.turn = portraitWindow ? (beta < 0 ? 180 : 0) : (gamma < 0 ? 90 : 270);
+      this.sure = true;
+    }
+    return this.turn;
+  }
 }
 
 /** The heading of a camera turn: where its forward (-Z) points, about the vertical axis. */
@@ -66,8 +85,8 @@ export class EyeView {
   private offset: number | null = null;
   private readonly shown = new THREE.Quaternion();
   private fresh = true;
-  /** The screen's turn found at the last reading (`screenTurn`). */
-  private screen: number | null = null;
+  /** Which way the screen is turned (`ScreenTurn`). */
+  private readonly screen = new ScreenTurn();
   private readonly stop: () => void;
 
   constructor(readonly tokenId: string, startYaw: number, readonly gyro: boolean, win: Window, private readonly wake: () => void) {
@@ -76,8 +95,8 @@ export class EyeView {
     const read = (event: DeviceOrientationEvent): void => {
       if (event.alpha === null || event.beta === null || event.gamma === null) return;
       const reported = win.screen?.orientation?.angle ?? (win as unknown as { orientation?: number }).orientation ?? null;
-      this.screen = screenTurn(reported, win.innerHeight >= win.innerWidth, event.beta, event.gamma, this.screen);
-      this.device = deviceQuaternion(event.alpha, event.beta, event.gamma, this.screen);
+      const screen = this.screen.read(reported, win.innerHeight >= win.innerWidth, event.beta, event.gamma);
+      this.device = deviceQuaternion(event.alpha, event.beta, event.gamma, screen);
       if (this.offset === null) this.offset = this.yaw - headingOf(this.device);
       this.wake();
     };
