@@ -85,17 +85,17 @@ const instant = { line: '3rd-level', properties: [['Duration', 'Instantaneous']]
 const gmSpell = (id: string) => kept(id, spellToMeasure(spell, { name: 'Fog Cloud' }));
 const gmTemplate = (id: string) => ({ id, kind: 'measure', shape: 'circle', points: [{ x: 0, y: 0 }, { x: 70, y: 0 }], tabletop: { v: 1, kind: 'template', owner: 'gm' } });
 
-test("the GM's cast that lasts is written as one measure, on the level shown; an instantaneous one goes off and is written nowhere", () => {
+test("the GM's cast is written as one measure, on the level shown, an instantaneous one too: it stays until it is taken off", () => {
   const kept = spellWrite({ add: spell as never, name: 'Web', about: lasting, rules: { difficult: true } }, [], 'upper');
   assert.ok(kept && 'add' in kept);
   assert.equal(kept.add.level, 'upper');
   const back = castsOfMeasures(readMeasures({ a: { ...kept.add, id: 'a' } }));
   assert.deepEqual([back[0]!.owner, back[0]!.name, back[0]!.rules, back[0]!.about?.text], ['gm', 'Web', { difficult: true }, 'It lasts.']);
   assert.equal('level' in (spellWrite({ add: spell as never }, [], null) as { add: object }).add, false);
-  const off = spellWrite({ add: spell as never, name: 'Fireball', about: instant, rules: { push: 10 } }, [], null);
-  assert.ok(off && 'flash' in off);
-  assert.deepEqual([off.flash.owner, off.flash.name, off.flash.rules], ['gm', 'Fireball', { push: 10 }]);
-  // A summoning spell is kept though instantaneous: its going is what offers to take its summons off.
+  const fireball = spellWrite({ add: spell as never, name: 'Fireball', about: instant, rules: { push: 10 } }, [], null);
+  assert.ok(fireball && 'add' in fireball);
+  const again = castsOfMeasures(readMeasures({ f: { ...fireball.add, id: 'f' } }));
+  assert.deepEqual([again[0]!.owner, again[0]!.name, again[0]!.rules], ['gm', 'Fireball', { push: 10 }]);
   const familiar = spellWrite({ add: spell as never, name: 'Find Familiar', about: instant, rules: { summon: { name: 'Owl', count: 1 } } }, [], null);
   assert.ok(familiar && 'add' in familiar);
 });

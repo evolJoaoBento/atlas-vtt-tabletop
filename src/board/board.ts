@@ -181,9 +181,7 @@ const LAYER_GLIDE_SECONDS = 0.9;
 const DOUBLE_CLICK_MS = 400;
 /** How far past its ring a press still grabs a token the player may move, on a player's board (1.5: half as far again). */
 const GRAB_SLACK = 1.5;
-/** An instantaneous spell (Fireball) stays this long after its cast, seconds, for everyone to see where it went off… */
-const INSTANT_HOLD_SECONDS = 3;
-/** …then fades out over this long. */
+/** An instantaneous spell (Fireball) taken off fades out over this long, seconds. */
 const INSTANT_FADE_SECONDS = 1.5;
 
 /** Obsidian's accent colour, for highlights; Atlas's purple outside Obsidian. */
@@ -687,10 +685,6 @@ export class Board {
   private readonly spellViews = new Map<string, { key: string; view: SpellView; instant: boolean }>();
   /** Instantaneous spells taken off the scene, fading out (`start` in seconds, the page's clock). */
   private fadingSpells: Array<{ view: SpellView; start: number }> = [];
-  /** The casts seen, for timing this board's own instantaneous ones (null before the first list: those are left be). */
-  private timedCasts: Set<string> | null = null;
-  /** This board's own instantaneous casts waiting to be taken off, by id: their timers. */
-  private readonly instantTimers = new Map<string, number>();
   /** The spell being cast, drawn while it is aimed, moved and confirmed. */
   private spellPreview: { key: string; view: SpellView; spell: Spell } | null = null;
   /** The red lines round what the spells hit, by target. */
@@ -7220,7 +7214,6 @@ export class Board {
     }
     this.castSpells = readCastSpells(list);
     this.noteCasts(scene);
-    this.timeInstantaneous();
     this.drawSpells();
     if (this.audience === 'gm') this.landSpells();
     this.spellHitsAt = 0;
@@ -7382,35 +7375,6 @@ export class Board {
     return (this.container.ownerDocument.defaultView ?? window).performance.now() / 1000;
   }
 
-  /**
-   * This board's own instantaneous spells (the GM's on the GM's board, the player's on theirs), newly cast: each is taken
-   * off the scene a moment after, for everyone, and fades. Spells with a duration stay until they are taken off.
-   */
-  private timeInstantaneous(): void {
-    const present = new Set(this.castSpells.map((cast) => cast.id));
-    const win = this.container.ownerDocument.defaultView ?? window;
-    for (const [id, timer] of [...this.instantTimers]) if (!present.has(id)) { win.clearTimeout(timer); this.instantTimers.delete(id); }
-    if (this.timedCasts === null) { this.timedCasts = present; return; }
-    for (const id of [...this.timedCasts]) if (!present.has(id)) this.timedCasts.delete(id);
-    const me = this.spellOwner();
-    for (const cast of this.castSpells) {
-      if (this.timedCasts.has(cast.id)) continue;
-      this.timedCasts.add(cast.id);
-      // A summoning spell stays, though instantaneous (Find Familiar): its going is what offers to take its summons off.
-      if (me === null || cast.owner !== me || !isInstantaneous(cast) || cast.rules?.summon) continue;
-      const later = (): void => {
-        this.instantTimers.set(cast.id, win.setTimeout(() => {
-          this.instantTimers.delete(cast.id);
-          if (!this.castSpells.some((each) => each.id === cast.id)) return;
-          // Its review still open (Thunderwave's push, Misty Step's teleport): the mark waits for the answer.
-          if (this.rulePanel?.pendingFor(cast.id)) { later(); return; }
-          this.host.playerAction?.({ type: 'spell', change: { remove: cast.id } });
-        }, INSTANT_HOLD_SECONDS * 1000));
-      };
-      later();
-    }
-  }
-
   /** The walls, lights and darkness the cast spells' rules make, worked out again when the spells or the scale change. */
   private applyRules(): void {
     const map = this.map;
@@ -7457,7 +7421,6 @@ export class Board {
    */
   forgetCasts(): void {
     this.seenCasts = null;
-    this.timedCasts = null;
     this.announcedCasts = null;
     this.growingSpells.clear();
     this.newCasts = new Set();
@@ -8457,8 +8420,6 @@ export class Board {
     this.areas.dispose();
     for (const fading of this.fadingSpells) fading.view.dispose();
     this.fadingSpells = [];
-    for (const timer of this.instantTimers.values()) (this.container.ownerDocument.defaultView ?? window).clearTimeout(timer);
-    this.instantTimers.clear();
     for (const kept of this.spellOutlines.values()) kept.outline.dispose();
     for (const aura of this.spellAuras.values()) aura.effect.dispose();
     this.spellAuras.clear();

@@ -281,7 +281,6 @@ export class BoardView extends ItemView {
    * for a moment, kept nowhere. A timer takes a player's off; the board takes the GM's own off after its cast.
    */
   private flashes: Array<{ cast: CastSpell; timer: number | null }> = [];
-  private nextFlash = 1;
   /** The map and level whose measures the board was last given. */
   private measuresOf: string | null = null;
   /** Atlas's initiative tracker on the board. */
@@ -2673,21 +2672,14 @@ export class BoardView extends ItemView {
   }
 
   /**
-   * A spell change from the GM's board: one cast through a token's eyes, one erased (Ctrl + click), or the GM's own cleared. A spell that lasts is one of Atlas's kept measures (in one step of its history),
-   * hosting or not: the board, Atlas and every player get it from there. An instantaneous one goes off and is kept
-   * nowhere: shown here, and flashed to the players while Connect hosts.
+   * A spell change from the GM's board: one cast through a token's eyes, one erased (Ctrl + click), or the GM's own cleared. Every cast, instantaneous or not, is one of Atlas's kept measures (in one step of its history),
+   * hosting or not: the board, Atlas and every player get it from there, and it stays until it is taken off.
    */
   private gmSpell(path: string, change: SpellChange): void {
     if ('remove' in change && this.endFlash(change.remove)) return;
     if ('clear' in change) for (const { cast } of [...this.flashes]) if (cast.owner === GM_SPELL_OWNER) this.endFlash(cast.id);
     const write = spellWrite(change, this.map?.measures ?? [], this.map?.level ?? null);
     if (!write) return;
-    if ('flash' in write) {
-      this.flash({ id: `flash:${this.nextFlash++}`, ...write.flash }, null);
-      const session = this.services.session?.();
-      if ('add' in change && session?.hosting()) session.flashSpell?.(path, change.add, change.rules, change.name ? { name: change.name, ...(change.about ? { about: change.about } : {}) } : undefined);
-      return;
-    }
     this.writeMeasures(path, write, 'spell');
   }
 

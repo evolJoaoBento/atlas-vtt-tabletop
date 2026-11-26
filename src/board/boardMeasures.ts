@@ -17,7 +17,7 @@ import { readMeasureEffect, type MeasureEffect } from '../atlasPort/app/measure/
 import type { MeasureShapeKind } from '../atlasPort/app/measure/measureTypes';
 import type { SpellChange, TemplateMark } from './playerTools';
 import { readSpellRules } from './spellRules';
-import { isInstantaneous, readSpell, readSpellAbout, type CastSpell } from './spells';
+import { readSpell, readSpellAbout, type CastSpell } from './spells';
 
 /** A measure of the map's shown level: its id in Atlas (its place in Atlas's record) and the record as Atlas keeps it. */
 export interface BoardMeasure { id: string; record: MeasureRecord }
@@ -161,18 +161,15 @@ const onLevel = (level: string | null): { level?: string } => (level ? { level }
 export type MeasureWrite = { add: Record<string, unknown> } | { remove: string[] };
 
 /**
- * What a spell change on the GM's board comes to. A cast that lasts is one measure to keep, on the level shown; an
- * instantaneous one goes off (`flash`) and is written nowhere, unless it summons (Find Familiar: its going is what
- * offers to take its summons off). One erased is that measure taken off; a clear takes the GM's own spells of the
- * shown level, never a player's, a template or an area made in Atlas. Null for what is no write (an ask turned down).
+ * What a spell change on the GM's board comes to. A cast is one measure to keep, on the level shown, an instantaneous
+ * one (Fireball) too: every cast stays on the map until the GM or its player takes it off. One erased is that measure
+ * taken off; a clear takes the GM's own spells of the shown level, never a player's, a template or an area made in
+ * Atlas. Null for what is no write (an ask turned down).
  */
-export function spellWrite(change: SpellChange, measures: readonly BoardMeasure[], level: string | null): MeasureWrite | { flash: Omit<CastSpell, 'id'> } | null {
+export function spellWrite(change: SpellChange, measures: readonly BoardMeasure[], level: string | null): MeasureWrite | null {
   if ('add' in change) {
     const words = change.name ? { name: change.name, ...(change.about ? { about: change.about } : {}) } : {};
     const rules = change.rules ? { rules: change.rules } : {};
-    if (isInstantaneous({ about: change.about }) && !change.rules?.summon) {
-      return { flash: { owner: GM_MEASURE_OWNER, color: PLAIN_SPELL, spell: change.add, ...rules, ...words } };
-    }
     return { add: { ...spellToMeasure(change.add, { ...rules, ...words }), ...onLevel(level) } };
   }
   if ('remove' in change) return { remove: [change.remove] };
