@@ -2478,6 +2478,12 @@ feature('command palette', async ({ page, shot }) => {
   check('palette lists Atlas\'s entries', /Random tables|random tables/i.test(text) && /Dice log|dice log/i.test(text), text.slice(0, 300));
   check('no raw text keys in the palette', !/\b[a-z]+\.[a-z]+\.[a-z]+\b/i.test(text), text);
   await shot('command-palette');
+  // Tabletop's switches (Fog Tool, GM view, the modes, lighting presets) keep their icon, accent-coloured while on, not a checkbox.
+  const switches = await page.evaluate(() => [...document.querySelectorAll('.atlas-command-item')]
+    .filter((item) => /^(Fog Tool|GM view)$/.test(item.querySelector('.atlas-command-item-label')?.textContent ?? '') && !item.querySelector('kbd'))
+    .map((item) => ({ label: item.textContent.trim(), icon: !!item.querySelector('.atlas-command-item-icon .atlas-tabletop-command-icon svg'), box: !!item.querySelector('.atlas-command-item-checkbox'), on: !!item.querySelector('.atlas-tabletop-command-icon.is-on') })));
+  check('Tabletop\'s switches in the palette show their icon, not a checkbox', switches.length >= 2 && switches.every((s) => s.icon && !s.box), JSON.stringify(switches));
+  check('a switch that is on has its icon marked on (GM view)', switches.some((s) => /GM view/.test(s.label) && s.on), JSON.stringify(switches));
   // The palette is Atlas 0.19's own component under Atlas's own stylesheet (nothing restated): a frame, and in view.
   const frame = await page.evaluate(() => {
     const box = document.querySelector('.atlas-tabletop-atlas-ui .atlas-command-palette-surface');

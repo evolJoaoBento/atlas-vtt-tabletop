@@ -22,10 +22,14 @@ const ICONS: Readonly<Record<ToolbarCommandIcon, React.ComponentType>> = {
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function option(command: TabletopCommand, onClose: () => void): any {
-  const Icon = ICONS[command.icon];
+  // A switch or a choice keeps its icon (Atlas would swap it for a checkbox): coloured with the accent while on.
+  const on = command.active === true;
+  const Icon = command.icon === 'eye' && command.active === false ? EyeOff : ICONS[command.icon];
   return {
     id: command.id,
-    icon: <Icon />,
+    icon: command.active === undefined
+      ? <Icon />
+      : <span className={on ? 'atlas-tabletop-command-icon is-on' : 'atlas-tabletop-command-icon'} aria-hidden="true"><Icon /></span>,
     label: command.label,
     keywords: command.keywords,
     section: 'settings',
@@ -39,8 +43,8 @@ function option(command: TabletopCommand, onClose: () => void): any {
             onClose();
             command.run?.();
           },
-          isToggle: command.active !== undefined,
-          isActive: command.active === true,
+          isToggle: false,
+          isActive: on,
         }),
   };
 }
