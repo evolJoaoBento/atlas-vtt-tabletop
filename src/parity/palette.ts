@@ -21,7 +21,7 @@ export const ATLAS_PALETTE: readonly ParityRow[] = [
   { id: 'grid-all-settings', status: 'native', note: "Sub-entry of grid settings." },
   { id: 'token-settings', status: 'native', note: "Atlas 0.19's own Token settings page, in the board's palette; it writes the Atlas map view's store." },
   { id: 'token-all-settings', status: 'native', note: "Sub-entry of token settings." },
-  { id: 'widget-settings', status: 'native', note: "Atlas 0.19's own Widgets page, in the board's palette; it reads and writes the Atlas map view's store and the collection's widgets (the widgets themselves are Atlas's 2D overlay)." },
+  { id: 'widget-settings', status: 'native', note: "Atlas 0.19's own Widgets page, in the board's palette; it reads and writes the Atlas map view's store and the collection's widgets. The widgets themselves stand at the board's top right: Atlas's own widget bar on the same store (board/widgetBar.tsx)." },
   { id: 'local-player-view-settings', status: 'native', note: "Atlas 0.19's own player view settings page, in the board's palette; it writes Atlas's settings. Atlas 0.20's new switches (Shared Vision, players open doors) and the redesigned sections are on Atlas's own page until the board's copies move to 0.20." },
   { id: 'local-player-view-all-settings', status: 'native', note: "Sub-entry of local player view settings." },
   { id: 'dice-settings', status: 'native', note: "Atlas 0.19's own dice settings page, in the board's palette; it writes Atlas's settings (its colour strip has no Atlas dice renderer behind it on the board)." },

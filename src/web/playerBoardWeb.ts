@@ -1,15 +1,17 @@
 /**
  * Tabletop's player board for a plain browser: Connect's join page loads this (as a chunk of its own) to draw the 3D
  * board for a player who joined from a browser, as Connect's player tab in Obsidian draws it with the Tabletop plugin.
- * three.js is left out: the page gives its own. On a phone the board draws at the low quality, which is light on memory;
- * a device that ran out of memory with it (its page reloading) draws it leaner still (`memoryGuard.ts`).
+ * three.js is left out: the page gives its own. On a phone the board draws at the low quality and starts lean on memory
+ * (maps to 4096 pixels, other pictures to 1024, the screen's own resolution at most), a small phone leanest; a device that
+ * ran out of memory with it (its page reloading) draws it leaner still, and one that died at the leanest opens on the 2D
+ * map (`boardGaveOut`, `memoryGuard.ts`).
  */
 import './webDom';
 import { playerBoardFactory, type PlayerBoardFactory, type PlayerBoardHandle } from '../playerBoard';
 import { vendoredPack } from '../dice/dicePack';
 import { DEFAULT_DICE_SETTINGS } from '../dice/diceSettings';
 import type { MemoryMode, Quality } from '../board/quality';
-import { guardMemory } from './memoryGuard';
+import { boardGaveOut, guardMemory } from './memoryGuard';
 import { mountSoundControl, webSound } from './soundControl';
 import { DEFAULT_SKY } from '../board/look';
 
@@ -36,7 +38,7 @@ export function webPlayerBoard(quality: Quality = onPhone() ? 'low' : 'medium'):
     ...factory,
     create: (parent: HTMLElement, host: Parameters<PlayerBoardFactory['create']>[1]): PlayerBoardHandle => {
       // Each board marks itself running while it is up; the mode is read from the marks the last ones left.
-      const guard = guardMemory(window);
+      const guard = guardMemory(window, onPhone());
       memory = guard.mode;
       const handle = factory.create(parent, host);
       const unmount = mountSoundControl(parent, sound);
@@ -45,4 +47,9 @@ export function webPlayerBoard(quality: Quality = onPhone() ? 'low' : 'medium'):
       return handle;
     },
   });
+}
+
+/** Whether the board died in this browser even drawn its leanest: the page opens on the 2D map, and 3D waits for the player. */
+export function boardDiedLeanest(): boolean {
+  return boardGaveOut(window, onPhone());
 }

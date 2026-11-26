@@ -113,6 +113,7 @@ import { conditionSound } from '../sound/conditionSounds';
 import { staggerOffsets } from '../sound/thinning';
 import type { PlayOptions, SoundEngine, SoundId } from '../sound/soundEngine';
 import { isVideoPath, loadImageTexture, loadMapTexture, MAX_MAP_TEXTURE, mapImageSize, mapTextureFromPicture, plateTexture, screenScale } from './textures';
+import { capObjectTextures, capTexture } from './textureCap';
 import { WallSet } from './wallPieces';
 import { LightRig } from './lightRig';
 import { DarknessLayer } from './darkness';
@@ -2061,7 +2062,11 @@ export class Board {
   private artTexture(path: string): Promise<THREE.Texture | null> {
     let art = this.arts.get(path);
     if (!art) {
-      art = this.loads.track(this.host.readImage(path).then((url) => (url ? loadImageTexture(url) : null)).catch(() => null));
+      // On a device short of memory (a phone) the art is kept small: a token is a small thing on the screen.
+      art = this.loads.track(this.host.readImage(path).then((url) => (url ? loadImageTexture(url) : null)).then((texture) => {
+        if (texture) capTexture(texture, this.quality.imageSide);
+        return texture;
+      }).catch(() => null));
       this.arts.set(path, art);
     }
     return art;
@@ -2141,7 +2146,11 @@ export class Board {
   private model(path: string): Promise<LoadedMini | null> {
     let found = this.models.get(path);
     if (!found) {
-      found = this.loads.track(this.host.readMini(path).catch((error: unknown) => {
+      // On a device short of memory (a phone) the model's own textures are kept small before they are drawn.
+      found = this.loads.track(this.host.readMini(path).then((mini) => {
+        capObjectTextures(mini.scene, this.quality.imageSide);
+        return mini;
+      }).catch((error: unknown) => {
         this.host.warn(`Tabletop: cannot show ${path}: ${error instanceof Error ? error.message : String(error)}`);
         return null;
       }), 2);

@@ -56,6 +56,7 @@ import { SpellAskModal } from '../spellAskModal';
 import { conditionChange, conditionStep, resetChange, type ConditionFields } from './tokenEdits';
 import { currentTokenIds, delayedTokens, emptyInitiative, ownModifier, readInitiative, statblockModifier, turnAnnouncement, type InitiativeAction, type InitiativeState } from './initiative';
 import { InitiativePanel, type InitiativePanelHost } from './initiativePanel';
+import { BoardWidgets } from './widgetBar';
 import { trackerCompact, trackerOptionEntries } from './trackerOptions';
 import { bannerStateOf, TurnAnnouncer, turnBannerEnabled, type TurnBannerState } from './turnBanner';
 import { wholeWall, isWindow, mirroredDoor, rotatedDoor, windowSpan, WINDOW_STEP, type DoorFlip } from './walls';
@@ -283,6 +284,8 @@ export class BoardView extends ItemView {
   private measuresOf: string | null = null;
   /** Atlas's initiative tracker on the board. */
   private initiative: InitiativePanel | null = null;
+  /** Atlas's widgets (counters, clocks, timers) at the board's top right, on the store of the Atlas view holding the map. */
+  private widgets: BoardWidgets | null = null;
   /** The Atlas view holding this map, whose store is followed so its tracker shows each change at once. */
   private watched: { view: AtlasView; stop: () => void } | null = null;
   /** What Atlas shows players of the lit scene, followed in the tab that holds the map (fusion 4D). */
@@ -385,6 +388,7 @@ export class BoardView extends ItemView {
       this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => { if (leaf === this.leaf) this.followHost(); }));
     }
     this.initiative = new InitiativePanel(this.contentEl, this.initiativeHost());
+    this.widgets = new BoardWidgets(this.contentEl, this.app);
     // The Compact view and Turn banner switches are Atlas's own settings: a change made in Atlas's map or here redraws the tracker.
     this.register(new AtlasBridge(this.app).onSettingsChange(() => { this.initiative?.render(); }));
     this.studio = new CutsceneStudio(this.contentEl, this.studioHost());
@@ -524,6 +528,8 @@ export class BoardView extends ItemView {
     this.releaseHost?.();
     this.releaseHost = null;
     this.initiative?.dispose();
+    this.widgets?.dispose();
+    this.widgets = null;
     this.initiative = null;
     this.reload.cancel();
     // Before the board goes: a cutscene being made gives the camera back.
@@ -2252,6 +2258,7 @@ export class BoardView extends ItemView {
   private watchAtlas(): void {
     const view = this.path && !this.closed ? this.services.writer.holder(this.path) : null;
     this.followSight();
+    this.widgets?.setView(view);
     // The host's own changes say when Atlas comes to hold the map, or lets go of it (`host.onChange`, in `onOpen`).
     if (this.watched?.view === view) return;
     this.watched?.stop();
