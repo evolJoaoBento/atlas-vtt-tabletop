@@ -70,6 +70,11 @@ export function reachToNext(levels: readonly BoardLevel[], id: string | null, un
   return squares > 0 ? squares : null;
 }
 
+/** A wall's own height with walls reaching the level above: no taller than the reach (`reachToNext`), so none pokes through the floor above. */
+export function capToReach(height: number | null, reach: number | null): number | null {
+  return height !== null && reach !== null && height > reach ? reach : height;
+}
+
 /** Game units a square of the scene spans (its own override, else its grid's distance); five where it says none. */
 export function sceneUnits(rawGrid: unknown): number {
   const grid = (typeof rawGrid === 'object' && rawGrid !== null ? rawGrid : {}) as { unitDistanceOverride?: unknown; unitDistance?: unknown };

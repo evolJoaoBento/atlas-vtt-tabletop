@@ -9,7 +9,7 @@ import { defaultsUsed, materialWith, type MaterialDefaults } from './materialDef
 import type { TFile, Vault } from 'obsidian';
 import type { BoardData } from './board/boardData';
 import { readMap, type BoardMap } from './board/mapModel';
-import { levelRise, onFirstLevel, propsOnLevel, resolveLevel, sceneUnits } from './board/levels';
+import { capToReach, levelRise, onFirstLevel, propsOnLevel, resolveLevel, sceneUnits } from './board/levels';
 import type { BoardLayerLook } from './connectContract';
 import type { TerrainShape } from './board/terrainShapes';
 import { shapeLook, shapeMaterials } from './boardLook';
@@ -148,7 +148,7 @@ function levelLayersFor(data: BoardData, materials: MaterialView, scenes: Pick<L
       grid: { size: map.grid.size, offsetX: map.grid.offsetX, offsetY: map.grid.offsetY, ...(map.grid.mapStretch ? { mapStretch: { ...map.grid.mapStretch } } : {}) },
       walls: map.walls.map((wall) => ({
         id: wall.id, type: wall.type, p1: { ...wall.p1 }, p2: { ...wall.p2 }, closed: wall.closed, direction: wall.direction, blocks: wall.blocks, limited: wall.limited, chain: wall.chain,
-        height: extras.wallHeight(wall.id), window: extras.windowOf(wall.id), width: extras.wallWidth(wall.id), material: materialWith(extras.wallMaterial(wall.id), wall, defaults), doorProp: extras.doorProp(wall.id), flip: extras.doorFlip(wall.id),
+        height: capToReach(extras.wallHeight(wall.id), data.wallReach(mapPath, own.levels, level.id, units)), window: extras.windowOf(wall.id), width: extras.wallWidth(wall.id), material: materialWith(extras.wallMaterial(wall.id), wall, defaults), doorProp: extras.doorProp(wall.id), flip: extras.doorFlip(wall.id),
       })),
       lights: map.lights.filter((light) => light.tokenId === null && !light.hidden && !lit.has(light.id)).map((light) => ({
         id: light.id, x: light.x, y: light.y, height: extras.lightHeight(light.id), bright: light.bright, dim: light.dim, color: light.color, intensity: light.intensity,

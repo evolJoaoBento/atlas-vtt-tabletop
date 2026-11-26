@@ -429,8 +429,12 @@ export class BoardData {
    * above less a millimetre when the map's walls reach it and there is one, else the map's fog height.
    */
   defaultWallHeight(mapPath: string, levels: readonly BoardLevel[], levelId: string | null, unitDistance: number): number {
-    const reach = this.wallsReachNext(mapPath) ? reachToNext(levels, levelId, unitDistance) : null;
-    return reach ?? this.fogHeight(mapPath);
+    return this.wallReach(mapPath, levels, levelId, unitDistance) ?? this.fogHeight(mapPath);
+  }
+
+  /** How high walls on a level may stand, in grid squares, when the map's walls reach the level above; null when they do not (or it is the top). */
+  wallReach(mapPath: string, levels: readonly BoardLevel[], levelId: string | null, unitDistance: number): number | null {
+    return this.wallsReachNext(mapPath) ? reachToNext(levels, levelId, unitDistance) : null;
   }
 
   /** How thick the map's walls stand, as a share of a grid square. */

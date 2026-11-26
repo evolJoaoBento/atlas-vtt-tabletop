@@ -86,3 +86,13 @@ test('walls reaching the level above stand up to it less a millimetre; the top l
   assert.equal(sceneUnits({ unitDistanceOverride: 10, unitDistance: 5 }), 10);
   assert.equal(sceneUnits(null), 5);
 });
+
+test('a wall set as tall as the level above, or taller, is cut to the reach; lower ones and no reach keep theirs', async () => {
+  const { capToReach } = await import('../src/board/levels');
+  const reach = 2 - 1 / 1524;
+  assert.equal(capToReach(2, reach), reach);
+  assert.equal(capToReach(3, reach), reach);
+  assert.equal(capToReach(1, reach), 1);
+  assert.equal(capToReach(null, reach), null);
+  assert.equal(capToReach(2, null), 2);
+});

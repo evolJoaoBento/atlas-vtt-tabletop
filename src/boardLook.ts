@@ -4,7 +4,7 @@
  * rest from Tabletop's own data. Materials are listed only once their settings are read
  * (`MaterialIndex`), so nothing is guessed; Connect hears when they are.
  */
-import { onFirstLevel, propsOnLevel, resolveLevel, sceneUnits, type BoardLevel } from './board/levels';
+import { capToReach, onFirstLevel, propsOnLevel, resolveLevel, sceneUnits, type BoardLevel } from './board/levels';
 import { readMapState, type BoardMap } from './board/mapModel';
 import type { TFile, TFolder, Vault } from 'obsidian';
 import type { BoardData } from './board/boardData';
@@ -70,8 +70,9 @@ export function boardLookFor(data: BoardData, materials: MaterialView, mapPath: 
     .map(({ id, info }) => ({ id, scale: info.scale, maps: { ...info.maps }, ...(!info.tuning || isDefault(info.tuning) ? {} : { tuning: { ...info.tuning } }) }));
   // Walls that reach the level above stand up to it, for players too.
   const fog = data.defaultWallHeight(mapPath, shown.levels, shown.level, shown.units ?? 5);
+  const reach = data.wallReach(mapPath, shown.levels, shown.level, shown.units ?? 5);
   return Object.freeze({
-    wallHeight: extras.wallHeight,
+    wallHeight: (id: string) => capToReach(extras.wallHeight(id), reach),
     wallMaterial,
     doorProp: extras.doorProp,
     doorFlip: extras.doorFlip,

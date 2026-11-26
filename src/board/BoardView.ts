@@ -43,7 +43,7 @@ import type { BoardData, PropLook, PropVariant } from './boardData';
 import { lookOf } from './boardData';
 import type { UndoHistory } from './undoHistory';
 import { ASSETS_METADATA_PATH, collectionOf, emptyRules, readCollectionRules, type CollectionRules } from './conditions';
-import { levelName, levelRise, onFirstLevel, onLevelRecord, propsOnLevel, resolveLevel } from './levels';
+import { capToReach, levelName, levelRise, onFirstLevel, onLevelRecord, propsOnLevel, resolveLevel } from './levels';
 import { mapStateChanged, readMap, readMapMeasures, readMapState, type BoardMap, type BoardToken } from './mapModel';
 import { feetPerSquare, readMeasurement } from './measure';
 import { reconcileSpells } from './spellReconciler';
@@ -945,7 +945,7 @@ export class BoardView extends ItemView {
         path: levelKey(level.id),
         elevation: levelRise(shown.levels, shown.level, level.id, unit),
         map,
-        ...layerExtras(extrasOf(map, boardData.legacyExtras(path))),
+        ...layerExtras(extrasOf(map, boardData.legacyExtras(path)), boardData.wallReach(path, shown.levels, level.id, unit)),
         fogHeight: boardData.defaultWallHeight(path, shown.levels, level.id, unit),
         wallThickness: boardData.wallThickness(path),
         props: propsOnLevel(boardData.props(path), level.id, shown.levels),
@@ -1872,7 +1872,8 @@ export class BoardView extends ItemView {
       toggleInitiative: () => this.initiative?.setOpen(!this.initiative.isOpen),
       wallMaterial: (id) => this.extras().wallMaterial(id),
       materialDefaults: () => this.services.materialDefaults?.() ?? {},
-      wallHeight: (id) => this.extras().wallHeight(id),
+      // A wall's own height, no taller than the level above where walls reach it.
+      wallHeight: (id) => capToReach(this.extras().wallHeight(id), this.services.boardData.wallReach(mapPath(), this.map?.levels ?? [], this.map?.level ?? null, this.unitDistance())),
       windowOf: (id) => this.extras().windowOf(id),
       wallWidth: (id) => this.extras().wallWidth(id),
       setWallHeight: (id, squares, whole) => this.setExtras(mapPath(), whole ? wholeWall(this.map?.walls ?? [], id) : [id], { height: squares }),
@@ -2835,9 +2836,9 @@ function levelOfKey(key: string): string | null {
 }
 
 /** A layer's extras as its drawing asks for them (`ElevationLayerData`). */
-function layerExtras(extras: RecordExtras): Pick<ElevationLayerData, 'wallHeight' | 'windowOf' | 'wallWidth' | 'wallMaterial' | 'doorProp' | 'doorFlip' | 'lightHeight'> {
+function layerExtras(extras: RecordExtras, reach: number | null = null): Pick<ElevationLayerData, 'wallHeight' | 'windowOf' | 'wallWidth' | 'wallMaterial' | 'doorProp' | 'doorFlip' | 'lightHeight'> {
   return {
-    wallHeight: extras.wallHeight, windowOf: extras.windowOf, wallWidth: extras.wallWidth, wallMaterial: extras.wallMaterial,
+    wallHeight: (id) => capToReach(extras.wallHeight(id), reach), windowOf: extras.windowOf, wallWidth: extras.wallWidth, wallMaterial: extras.wallMaterial,
     doorProp: extras.doorProp, doorFlip: extras.doorFlip, lightHeight: (id) => extras.lightHeight(id) ?? DEFAULT_LIGHT_SQUARES,
   };
 }

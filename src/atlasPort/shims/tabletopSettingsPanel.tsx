@@ -118,9 +118,6 @@ export function TabletopSettingsPanel({ onClose }: { onClose?: () => void }): Re
 
       <div className="atlas-command-palette-panel-column">
         <h3 className="atlas-command-palette-panel-heading">{t('tabletopSettings.walls')}</h3>
-        {settings.setWallsReachNext && (
-          <SettingToggleRow label={t('tabletopSettings.wallsReachNext')} hint={t('tabletopSettings.wallsReachNextHint')} value={reach} onToggle={() => write(() => settings.setWallsReachNext?.(!reach))} />
-        )}
         <NumberRow
           label={t('tabletopSettings.wallHeight')}
           hint={t('tabletopSettings.wallHeightHint')}
@@ -130,6 +127,12 @@ export function TabletopSettingsPanel({ onClose }: { onClose?: () => void }): Re
           onCommit={(value) => write(() => settings.setFogHeight(value))}
           disabled={reach}
         />
+        {settings.setWallsReachNext && (
+          // A setting of the default wall height's: drawn under it, set in.
+          <div className="atlas-tabletop-sub-setting">
+            <SettingToggleRow label={t('tabletopSettings.wallsReachNext')} hint={t('tabletopSettings.wallsReachNextHint')} value={reach} onToggle={() => write(() => settings.setWallsReachNext?.(!reach))} />
+          </div>
+        )}
         <NumberRow
           label={t('tabletopSettings.wallThickness')}
           hint={t('tabletopSettings.wallThicknessHint')}
