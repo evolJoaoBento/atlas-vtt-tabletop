@@ -1,34 +1,53 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { oldDevice, readMark, startMemory } from '../src/web/memoryGuard';
+import { deviceFloor, gaveOut, oldDevice, readMark, startMemory } from '../src/web/memoryGuard';
 import { leaner, QUALITY } from '../src/board/quality';
 import { feetPerSquare } from '../src/board/measure';
 
 const DAY = 24 * 60 * 60 * 1000;
 
 test('a page that died with the board up draws it leaner at each reload; a clean leave keeps the mode; days later it forgets', () => {
-  const first = startMemory(null, 1000, false);
+  const first = startMemory(null, 1000, 0);
   assert.equal(first.mode, 'normal');
   assert.deepEqual(first.mark, { running: true, crashes: 0, last: 0 });
   // Killed for memory: the mark was never cleared.
-  const second = startMemory(first.mark, 2000, false);
+  const second = startMemory(first.mark, 2000, 0);
   assert.equal(second.mode, 'lean');
-  const third = startMemory(second.mark, 3000, false);
+  const third = startMemory(second.mark, 3000, 0);
   assert.equal(third.mode, 'leanest');
-  assert.equal(startMemory(third.mark, 4000, false).mode, 'leanest');
+  assert.equal(startMemory(third.mark, 4000, 0).mode, 'leanest');
   // Left cleanly: the same mode next time, not leaner.
-  assert.equal(startMemory({ ...second.mark, running: false }, 5000, false).mode, 'lean');
+  assert.equal(startMemory({ ...second.mark, running: false }, 5000, 0).mode, 'lean');
   // Three days on without a death: as usual again.
-  assert.equal(startMemory({ ...third.mark, running: false }, 3000 + 4 * DAY, false).mode, 'normal');
+  assert.equal(startMemory({ ...third.mark, running: false }, 3000 + 4 * DAY, 0).mode, 'normal');
 });
 
 test('an old device starts lean, one death from the leanest', () => {
-  assert.equal(startMemory(null, 0, true).mode, 'lean');
-  assert.equal(startMemory({ running: true, crashes: 0, last: 0 }, 1, true).mode, 'leanest');
+  assert.equal(startMemory(null, 0, 1).mode, 'lean');
+  assert.equal(startMemory({ running: true, crashes: 0, last: 0 }, 1, 1).mode, 'leanest');
   assert.equal(oldDevice({ hardwareConcurrency: 2 }), true);
   assert.equal(oldDevice({ hardwareConcurrency: 6, deviceMemory: 2 }), true);
   assert.equal(oldDevice({ hardwareConcurrency: 8, deviceMemory: 8 }), false);
   assert.equal(oldDevice({}), false);
+});
+
+test('a phone starts lean, a small phone (four cores or less, 4 GB or less) leanest; a computer as usual', () => {
+  assert.equal(deviceFloor({ hardwareConcurrency: 8, deviceMemory: 8 }, false), 0);
+  assert.equal(deviceFloor({ hardwareConcurrency: 2 }, false), 1);
+  assert.equal(deviceFloor({ hardwareConcurrency: 6 }, true), 1);
+  assert.equal(deviceFloor({ hardwareConcurrency: 8, deviceMemory: 4 }, true), 2);
+  assert.equal(deviceFloor({ hardwareConcurrency: 4 }, true), 2);
+  assert.equal(startMemory(null, 0, deviceFloor({ hardwareConcurrency: 6 }, true)).mode, 'lean');
+  assert.equal(startMemory(null, 0, deviceFloor({ hardwareConcurrency: 4 }, true)).mode, 'leanest');
+});
+
+test('a board that died drawn its leanest is not started again by itself; one that died leaner than usual, or left cleanly, is', () => {
+  // A phone (one step lean) whose board died once at lean, then again at leanest.
+  assert.equal(gaveOut({ running: true, crashes: 0, last: 0 }, 1), false);
+  assert.equal(gaveOut({ running: true, crashes: 1, last: 5 }, 1), true);
+  assert.equal(gaveOut({ running: false, crashes: 1, last: 5 }, 1), false);
+  assert.equal(gaveOut({ running: true, crashes: 0, last: 0 }, 2), true);
+  assert.equal(gaveOut(null, 2), false);
 });
 
 test('a mark not well formed reads as none or as clean', () => {

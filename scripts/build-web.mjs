@@ -26,7 +26,7 @@ await build({
 });
 copyFileSync('styles.css', `${out}/tabletop-player-board.css`);
 const head = (() => { try { return execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(); } catch { return 'unknown'; } })();
-const dirty = (() => { try { return execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim() !== ''; } catch { return true; } })();
+const dirty = (() => { try { return execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' }).trim() !== ''; } catch { return true; } })();
 const { version } = JSON.parse(readFileSync('manifest.json', 'utf8'));
 writeFileSync(`${out}/SOURCE.json`, `${JSON.stringify({ name: 'atlas-vtt-tabletop', version, commit: head, dirty, built: new Date().toISOString() }, null, 2)}\n`);
 console.log(`${out}/tabletop-player-board.js ${Math.round(statSync(`${out}/tabletop-player-board.js`).size / 1024)} KB`);

@@ -28,6 +28,9 @@ with either; it does not depend on one.
 - **Initiative:** Atlas's initiative tracker stands at the board's right edge. **I** shows or hides it (or the
   **Initiative tracker** switch under **Tabletop Settings → Visibility**). Add tokens from their right-click menu. While a fight runs, the up and down arrows pass the turn
   instead of moving the camera. When Atlas has the map open, the tracker is Atlas's own, changed through Atlas.
+- **Widgets:** Atlas's counters, clocks and timers stand at the board's top right, as on Atlas's map: Atlas's own widget
+  bar, on the map Atlas has open, so a counter stepped or a timer started on the board is the same one in Atlas (and for
+  your players). Hold 1 to 5 over the board to step one with the keyboard, as in Atlas. They show while Atlas has the map open.
 - **Walls and doors:** Atlas's walls stand on the board as tall as the fog (a low wall half that). Click a door to
   open or shut it; it swings on its hinge and is saved through Atlas (or the map file). Right-click a door to lock it,
   to **Rotate 180°** it (it hangs from the other end and opens to the other side, as if turned half a turn about its middle) or **Mirror** it (only the hinge moves to the other end; it still opens to the same side), or to replace it with a prop from the gallery, which is fitted to the opening and swings the same way. How a door hangs is kept in Tabletop's data, so it shows on your board and the players' window, not on Connect players' 3D boards yet. A secret door
@@ -328,6 +331,14 @@ Player board harness (Tabletop's 3D board as Connect for Atlas VTT mounts it in 
 npx esbuild harness/playerBoard.ts --bundle --outfile=<dir>/playerBoard.js --alias:obsidian=./harness/obsidian-stub.ts --loader:.png=binary
 sed 's/board\.js/playerBoard.js/' harness/board.html > <dir>/playerBoard.html && cp styles.css <dir>/
 node harness/playerBoard-test.cjs <dir> <screenshot dir>
+```
+
+Phone memory probe (the player board on a heavy scene, drawn as a computer and as a phone draws it, held to a texture budget):
+
+```
+npx esbuild harness/phoneMemory.ts --bundle --outfile=<dir>/phoneMemory.js --alias:obsidian=./harness/obsidian-stub.ts --loader:.png=binary --loader:.mp3=binary
+sed 's/board\.js/phoneMemory.js/' harness/board.html > <dir>/phoneMemory.html && cp styles.css <dir>/
+node harness/phoneMemory-test.cjs <dir>
 ```
 
 ## Language

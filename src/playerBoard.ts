@@ -18,6 +18,7 @@ import { NO_FLIP } from './board/walls';
 import { framesAnew } from './board/playerView';
 import type { CameraKeep } from './board/camera';
 import { materialFromUrls, type LoadedMaterial } from './materials';
+import { smallPicture } from './board/smallPicture';
 import { readGround } from './board/ground';
 import { settlesWithin, STALL_MS } from './board/loadProgress';
 import { decodeLayer } from './background/backgroundCodec';
@@ -933,6 +934,12 @@ class PlayerBoard implements PlayerBoardHandle {
         await this.arrival(id, () => this.host.image(id) !== null);
         return this.host.image(id);
       },
+      // A map larger than the board draws it is decoded straight to that size, never whole (a phone runs out of memory).
+      readPicture: async (id, maxSide) => {
+        await this.arrival(id, () => this.host.image(id) !== null);
+        const url = this.host.image(id);
+        return url ? smallPicture(url, maxSide) : null;
+      },
       readMini: async (id): Promise<LoadedMini> => {
         await this.arrival(id, () => this.host.model(id) !== null);
         const bytes = this.host.model(id);
@@ -947,7 +954,7 @@ class PlayerBoard implements PlayerBoardHandle {
         const url = (role: string): string | null => (record.maps[role] ? this.host.image(record.maps[role]) : null);
         return materialFromUrls('', {
           color: url('color'), normal: url('normal') ?? url('normal-dx'), roughness: url('roughness'), ao: url('ao'), arm: url('arm'), metalness: url('metalness'), height: url('height'),
-        }, record.scale, record.maps['normal-dx'] !== undefined && record.maps.normal === undefined, record.tuning);
+        }, record.scale, record.maps['normal-dx'] !== undefined && record.maps.normal === undefined, record.tuning, this.preset.imageSide);
       },
       // The GM's painted background, by its ref (`paintedRef`: its three pictures and settings): its pictures once they have come, decoded as the vault's are.
       readBackground: async (ref): Promise<LoadedBackground | null> => {

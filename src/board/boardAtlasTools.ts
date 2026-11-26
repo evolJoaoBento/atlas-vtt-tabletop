@@ -14,6 +14,7 @@ import type { PaletteHost } from '../palette/paletteHost';
 import { PaletteWindow } from '../palette/PaletteWindow';
 import { HotkeyHelpWindow } from './HotkeyHelpWindow';
 import { atlasPlayToolButtons, boardKey, type AtlasToolId } from './atlasTools';
+import { widgetTakes } from './widgetKeys';
 import { boardBinding, boardHotkeyAction } from './boardHotkeys';
 import type { Board } from './board';
 import type { AtlasToolButton } from './toolbar';
@@ -54,7 +55,8 @@ export class BoardAtlasTools {
     // while a text field or one of Atlas's windows has the key.
     const win = deps.container.ownerDocument.defaultView ?? window;
     const onKey = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented || !deps.container.closest('.workspace-leaf')?.classList.contains('mod-active')) return;
+      // A widget's number held (Atlas's widget bar): its keys (Space among them) step the widget, as in Atlas's map.
+      if (event.defaultPrevented || widgetTakes(event) || !deps.container.closest('.workspace-leaf')?.classList.contains('mod-active')) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest?.('input, textarea, select, [contenteditable=""], [contenteditable="true"], .atlas-tabletop-atlas-ui, .modal-container')) return;
       if (this.key(event, deps.board()?.carryingToken ?? false)) { event.preventDefault(); event.stopPropagation(); }

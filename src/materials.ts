@@ -9,6 +9,7 @@ import { normalizePath, TFile, TFolder, type App } from 'obsidian';
 import * as THREE from 'three';
 import { unzipSync } from 'three/examples/jsm/libs/fflate.module.js';
 import { addParallax, PARALLAX_TILE_SHARE, type ParallaxUniforms } from './parallax';
+import { capTexture } from './board/textureCap';
 import { DEFAULT_TUNING, MATERIAL_SETTINGS_FILE, materialName, pickMaps, readMaterialSettings, roleOf, tuningOf, type MaterialMaps, type MaterialSettings, type MaterialTuning } from './materialMaps';
 
 export const DEFAULT_MATERIALS_FOLDER = 'atlas-vtt/assets/materials';
@@ -104,8 +105,14 @@ export interface MaterialUrls {
  * A material from its maps' URLs: the vault's (the GM's board) or the files Connect brought (a player's board). Walls
  * are mapped one tile to a grid square: a tile `scale` squares wide repeats 1 / scale times a square.
  */
-export async function materialFromUrls(name: string, urls: MaterialUrls, scale: number, normalDirectX: boolean, tuning: MaterialTuning = DEFAULT_TUNING): Promise<LoadedMaterial> {
-  const texture = async (at: string | null, color = false): Promise<THREE.Texture | null> => (at ? readTexture(at, color) : null);
+export async function materialFromUrls(name: string, urls: MaterialUrls, scale: number, normalDirectX: boolean, tuning: MaterialTuning = DEFAULT_TUNING, maxSide?: number): Promise<LoadedMaterial> {
+  // `maxSide`: on a device short of memory (a phone) each map is kept to it (`QualityPreset.imageSide`).
+  const texture = async (at: string | null, color = false): Promise<THREE.Texture | null> => {
+    if (!at) return null;
+    const read = await readTexture(at, color);
+    capTexture(read, maxSide);
+    return read;
+  };
   const [color, normal, roughness, ao, arm, metalness, height] = await Promise.all([
     texture(urls.color, true), texture(urls.normal), texture(urls.roughness), texture(urls.ao), texture(urls.arm), texture(urls.metalness), texture(urls.height ?? null),
   ]);

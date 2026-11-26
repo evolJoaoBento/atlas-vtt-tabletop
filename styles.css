@@ -3553,3 +3553,9 @@ body.atlas-tabletop-player-window .view-header {
 .atlas-tabletop-measure-popover .btn--ghost:disabled{background:transparent;opacity:.5;cursor:not-allowed}
 .atlas-tabletop-measure-popover .btn--sm{height:var(--input-height, 30px);padding:0 12px;border-radius:10px;font-size:var(--font-ui-small)}
 .atlas-tabletop-measure-popover .atlas-dungeon-stepper__button.btn{width:var(--atlas-button-height-s, 24px);height:100%;padding:0}
+
+/* Atlas's widgets (counters, clocks, timers) at the board's top right, where Atlas's map has them (widgetBar.tsx). Atlas
+   fixes its bar to the window's corner; on the board it stands in the board's corner instead. */
+.atlas-tabletop-widgets { position: absolute; top: 0; left: 0; right: 0; height: 0; z-index: 8; pointer-events: none; }
+.atlas-tabletop-widgets .atlas-widget-bar { position: absolute; top: var(--size-4-2, 8px); right: var(--size-4-2, 8px); max-width: calc(100% - 16px); }
+.atlas-tabletop-widgets[hidden] { display: none; }
