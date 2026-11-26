@@ -517,6 +517,8 @@ function showing(object: THREE.Object3D): boolean {
 export type BoardAudience = 'gm' | 'player';
 
 const FOV = 35;
+/** The orbit camera's near plane as a share of its distance, once that is past the map's own near plane (`fitNear`): the camera only looks down steeply from that far, so nothing comes this close. */
+const NEAR_SHARE = 0.03;
 /** A press that moves less than this is a click (TacticalEngine). */
 const DRAG_PX = 6;
 const ORBIT_X = 0.006;
@@ -2910,6 +2912,7 @@ export class Board {
     const aim = this.cinematicDriver ? this.drivenAim : null;
     if (aim) {
       const eye = this.camera.position();
+      this.fitNear(this.camera.pose.distance);
       this.view.position.set(eye.x, eye.y, eye.z);
       this.view.lookAt(aim.x, aim.y, aim.z);
       // Augmented reality had its own projection; the driven camera has the board's.
@@ -2956,10 +2959,23 @@ export class Board {
     }
     const eye = this.camera.position();
     const target = this.camera.pose.target;
+    this.fitNear(this.camera.pose.distance);
     this.view.position.set(eye.x, eye.y, eye.z);
     this.view.lookAt(target.x, target.y, target.z);
     this.view.updateMatrixWorld();
     this.aimCutaway(eye, target);
+  }
+
+  /**
+   * The near plane follows the orbit camera out: the depth a frame tells apart grows with the square of the distance over
+   * the near plane, so a near plane kept close lets far walls flicker through floors a hair above them (walls reaching
+   * the level above stop a millimetre short of its floor). Never nearer than the map's own near plane.
+   */
+  private fitNear(distance: number): void {
+    const near = Math.max(this.baseNear, distance * NEAR_SHARE);
+    if (Math.abs(near - this.view.near) <= this.view.near * 0.01) return;
+    this.view.near = near;
+    this.view.updateProjectionMatrix();
   }
 
   /** Aims the see-through cut from a camera at the point it looks at, for the drawing about to be made. */
