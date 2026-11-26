@@ -76,6 +76,9 @@ for (const [name, tag] of [['createDiv', 'div'], ['createSpan', 'span'], ['creat
 elementProto.addClass ??= function (this: HTMLElement, ...names: string[]): void { this.classList.add(...names); };
 elementProto.removeClass ??= function (this: HTMLElement, ...names: string[]): void { this.classList.remove(...names); };
 elementProto.hasClass ??= function (this: HTMLElement, name: string): boolean { return this.classList.contains(name); };
+elementProto.empty ??= function (this: HTMLElement): void { this.replaceChildren(); };
+elementProto.hide ??= function (this: HTMLElement): void { this.style.display = 'none'; };
+elementProto.show ??= function (this: HTMLElement): void { this.style.display = ''; };
 
 // Obsidian's globals for the window that has the focus.
 (globalThis as unknown as { activeDocument: Document; activeWindow: Window }).activeDocument = document;

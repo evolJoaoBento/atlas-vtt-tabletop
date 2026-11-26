@@ -57,6 +57,8 @@ import { conditionChange, conditionStep, resetChange, type ConditionFields } fro
 import { currentTokenIds, delayedTokens, emptyInitiative, ownModifier, readInitiative, statblockModifier, turnAnnouncement, type InitiativeAction, type InitiativeState } from './initiative';
 import { InitiativePanel, type InitiativePanelHost } from './initiativePanel';
 import { BoardWidgets, PlayerWindowWidgets } from './widgetBar';
+import { PlayerWindowInitiative } from './playerInitiative';
+import { withArtViewBox } from '../atlasPort/app/initiative/art/artInset';
 import { trackerCompact, trackerOptionEntries } from './trackerOptions';
 import { bannerStateOf, TurnAnnouncer, turnBannerEnabled, type TurnBannerState } from './turnBanner';
 import { wholeWall, isWindow, mirroredDoor, rotatedDoor, windowSpan, WINDOW_STEP, type DoorFlip } from './walls';
@@ -288,6 +290,7 @@ export class BoardView extends ItemView {
   private widgets: BoardWidgets | null = null;
   /** The same in the local player window, as Atlas's player window shows them (only those shown to players). */
   private playerWidgets: PlayerWindowWidgets | null = null;
+  private playerInitiative: PlayerWindowInitiative | null = null;
   /** The Atlas view holding the map, which the widgets follow. */
   private widgetHolder: AtlasView | null = null;
   /** The Atlas view holding this map, whose store is followed so its tracker shows each change at once. */
@@ -393,6 +396,7 @@ export class BoardView extends ItemView {
       this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => { if (leaf === this.leaf) this.followHost(); }));
     }
     this.initiative = new InitiativePanel(this.contentEl, this.initiativeHost());
+    this.initiative.onOpenChange = () => this.playerInitiative?.trackerChanged();
     this.widgets = new BoardWidgets(this.contentEl, this.app);
     // The Compact view and Turn banner switches are Atlas's own settings: a change made in Atlas's map or here redraws the tracker.
     this.register(new AtlasBridge(this.app).onSettingsChange(() => { this.initiative?.render(); }));
@@ -564,7 +568,7 @@ export class BoardView extends ItemView {
     return this.board?.playerPose() ?? null;
   }
 
-  /** Atlas's widgets in the local player window while there is one, on the store the board's widgets follow. */
+  /** Atlas's widgets and initiative list in the local player window while there is one, on the store the board's widgets follow. */
   private syncPlayerWidgets(): void {
     const stage = this.closed ? null : this.playerWindow?.stage ?? null;
     if (this.playerWidgets && this.playerWidgets.parent !== stage) {
@@ -573,6 +577,13 @@ export class BoardView extends ItemView {
     }
     if (stage && !this.playerWidgets) this.playerWidgets = new PlayerWindowWidgets(stage, this.app);
     this.playerWidgets?.setView(this.widgetHolder);
+    // Atlas's players' initiative list, across the top of the same window
+    if (this.playerInitiative && this.playerInitiative.parent !== stage) {
+      this.playerInitiative.dispose();
+      this.playerInitiative = null;
+    }
+    if (stage && !this.playerInitiative) this.playerInitiative = new PlayerWindowInitiative(stage, this.app, () => this.initiative?.isOpen ?? false);
+    this.playerInitiative?.setView(this.widgetHolder);
   }
 
   /** Draws this board into the local player view too. */
@@ -2574,6 +2585,7 @@ export class BoardView extends ItemView {
       tokenSettings: () => this.map?.tokenSettings ?? { showNameplates: false, showInstanceBadges: true, hiddenResources: [] },
       definitions: () => this.rules.definitions,
       imageUrl: (path) => this.portraitUrl(path) ?? '',
+      artViewBox: (path, apply) => withArtViewBox(this.app, path, apply),
       icon: (element, name) => setIcon(element, name),
       roll: (entryId) => { void this.rollInitiative(entryId); },
       act: (action) => this.initiativeAct(action),

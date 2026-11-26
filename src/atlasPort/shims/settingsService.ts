@@ -47,3 +47,21 @@ export const SettingsService = {
     }) as SettingsService;
   },
 };
+
+/**
+ * How the board's player window lays out Atlas's players' initiative list: a row across the top edge, whatever the GM's
+ * Horizontal and Mirrored initiative switches say (Atlas follows them in its own player window), read the right way up. The
+ * widgets read it too: with a row across the top they stand as a column down the right edge (`PlayerWidgetBar`).
+ */
+const TOP_ROW_LAYOUT = { fromTurn: true, dock: 'top', edges: ['top'], facesPlayers: false } as const;
+
+export function playerWindowSettings(app: App | undefined): SettingsService | undefined {
+  const settings = SettingsService.forApp(app);
+  if (!settings) return settings;
+  return new Proxy(settings, {
+    get(target, key) {
+      if (key === 'initiativeLayout') return () => TOP_ROW_LAYOUT;
+      return Reflect.get(target, key);
+    },
+  });
+}

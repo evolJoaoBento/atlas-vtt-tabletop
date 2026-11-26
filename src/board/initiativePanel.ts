@@ -1,12 +1,14 @@
 /**
- * Atlas's initiative tracker (0.8.0's `InitiativeTracker`, `InitiativeCard`, `EditInitiativePopup` and the card's
- * menu, `initiativeCardMenu`) on the 3D board, one to one: the panel at the board's right edge with Roll, Start or End
- * combat and Clear above, a card per combatant (its portrait in its ring, the skull when defeated, its copy number,
- * the eye when hidden from players, its number, the bars of the resources that defeat it), and the turn's arrows and
- * round below. In a fight by sides the cards stand under their side's name and have no number. A card's click shows
- * its token, a drag reorders, a right-click opens its menu, and Edit Initiative opens the popup with the total and
- * the GM's modifier. Atlas 0.8's class names, renamed `tabletop-initiative-*` so Atlas 0.9's own tracker styles do not
- * reach it, styled in styles.css as Atlas 0.8 styles them, under Tabletop's root.
+ * Atlas's initiative tracker on the 3D board: Atlas 0.20's GM tracker (`InitiativeTracker`, `InitiativeCard`, its header and
+ * turn controls) drawn as a row across the top of the board, Baldur's Gate fashion, instead of Atlas's column at the right
+ * edge. The markup and class names are Atlas's own (`atlas-initiative-panel--row`, `atlas-initiative-card--tile`, `__art`,
+ * `__marks`, the wound red rising in the art, the side headings and the round over the row's end), so Atlas's live styles give
+ * the look; Tabletop's `styles.css` only places the row on the board. A card shows its token's art with the copy number and
+ * the eye of a combatant hidden from players on its top left, its number on its top right and the skull when defeated; in a fight by
+ * sides the cards stand under their side's name and have no number. A card's click shows its token, a drag reorders, a
+ * right-click opens its menu, and its number or Edit Initiative opens the popup with the total and the GM's modifier. Roll,
+ * Start or End combat and the options (at the row's start) and the turn's arrows (at its end) float below it while the pointer
+ * is near; the round stands over the row's end.
  *
  * The panel only draws and reports: `host` gives the tracker, the tokens and the rules, and carries out each change.
  */
@@ -17,7 +19,13 @@ import {
 } from './initiative';
 import type { BoardToken, TokenSettings } from './mapModel';
 import { at } from '../atlasPort/atlasText';
-import { isDefeated, resourceColor, visibleResources, type ResourceDefinition } from './resources';
+import { t } from '../atlasPort/shims/i18n';
+import { isDefeated, visibleResources, type ResourceDefinition } from './resources';
+import { woundShare } from '../atlasPort/app/initiative/woundShare';
+import { turnColor } from '../atlasPort/app/initiative/turnColor';
+import { TURN_KEY_ATTRIBUTE, adoptGhosts, ghostsOf, playTurnMotion, snapshotTurn } from '../atlasPort/app/initiative/motion/turnMotion';
+import { scrollWithin } from '../atlasPort/app/utils/scrollWithin';
+import { TURN_FLASH_MS } from '../atlasPort/app/services/playerInitiativeList';
 
 export interface InitiativePanelHost {
   /** The tracker as Atlas (or the map file) holds it now. */
@@ -34,6 +42,8 @@ export interface InitiativePanelHost {
   definitions(): readonly ResourceDefinition[];
   /** A vault image's URL. */
   imageUrl(path: string): string;
+  /** Hands `apply` the `object-view-box` that shows an image's art without its transparent margins (Atlas's `withArtViewBox`); absent: the whole image. */
+  artViewBox?(imagePath: string, apply: (viewBox: string) => void): void;
   /** Draws an Obsidian (Lucide) icon into an element. */
   icon(element: HTMLElement, name: string): void;
   /** Rolls everyone, or one combatant, with their statblocks' modifiers. */
@@ -76,6 +86,12 @@ export class InitiativePanel {
   private popup: HTMLElement | null = null;
   /** The turn the list last scrolled to, so it scrolls only when the turn moves. */
   private shownTurn = '';
+  /** The list was drawn once: a turn first seen then is no turn beginning. */
+  private drawn = false;
+  /** When the turn the list shows began, while its holder flashes. */
+  private flashedAt: number | null = null;
+  /** Called when the tracker opens or closes: the players' list in the player window follows it. */
+  onOpenChange: (() => void) | null = null;
 
   constructor(container: HTMLElement, private readonly host: InitiativePanelHost) {
     this.doc = container.ownerDocument;
@@ -98,6 +114,7 @@ export class InitiativePanel {
     this.root.hidden = !open;
     if (!open) this.closePopup();
     this.render();
+    this.onOpenChange?.();
   }
 
   /** A turn key's press, shown on its arrow for a moment. */
@@ -123,16 +140,91 @@ export class InitiativePanel {
     const entries = sortedEntries(state);
     const tokens = new Map(this.host.tokens().map((token) => [token.id, token]));
     const shown = entries.filter((entry) => this.listed(entry));
-    const scrollTop = this.panel.querySelector('.tabletop-initiative-tracker__content')?.scrollTop ?? 0;
+    // What the list was before: where it was scrolled, and where each card stood (the cards glide from there)
+    const before = this.panel.querySelector<HTMLElement>('.atlas-initiative-panel__list');
+    const scrollLeft = before?.scrollLeft ?? 0;
+    const stood = snapshotTurn(before);
+    const ghosts = ghostsOf(before);
     this.panel.replaceChildren();
     const compact = this.host.compact?.() === true;
-    this.panel.classList.toggle('tabletop-initiative-tracker--compact', compact);
+    this.panel.className = [
+      'atlas-initiative-panel atlas-initiative-panel--row atlas-initiative-tracker tabletop-initiative-tracker',
+      compact && 'atlas-initiative-tracker--named atlas-initiative-tracker--compact',
+    ].filter(Boolean).join(' ');
 
-    const controls = this.el('div', 'tabletop-initiative-tracker__controls', this.panel);
+    // Its surface is a layer of its own, so a theme's ivy can lie behind it; near it, its bars show
+    this.el('div', 'atlas-initiative-panel__surface', this.panel).setAttribute('aria-hidden', 'true');
+    this.el('div', 'atlas-initiative-tracker__reach', this.panel).setAttribute('aria-hidden', 'true');
+    this.header(state, rules, bySides, entries.length === 0);
+
+    // The turn the list shows: it flashes where it begins, and stays in view
+    const turn = state.isActive ? `${state.round}:${state.sides?.active ?? state.entries.find((entry) => entry.isActive)?.id ?? ''}` : '';
+    const turnMoved = turn !== this.shownTurn;
+    // The turn passing on (or back) wraps the cards round the row; a fight starting or ending only rearranges them
+    const turnPassed = turnMoved && turn !== '' && this.shownTurn !== '';
+    if (turnMoved && turn && this.drawn) this.flashedAt = performance.now();
+    this.shownTurn = turn;
+    this.drawn = true;
+
+    const content = this.el('div', 'atlas-initiative-panel__list', this.panel);
+    content.setAttribute('role', 'list');
+    if (shown.length === 0) this.el('p', 'tabletop-initiative-tracker__empty', content, 'Right-click a token to add it');
+    // `index` is the card's place among all combatants, which is what a drag reorders.
+    const sides = fightSides(state, rules);
+    const card = (entry: InitiativeEntry, index: number, parent: HTMLElement): void => {
+      if (this.listed(entry)) this.card(entry, index, parent, tokens, bySides, compact, sides);
+    };
+    if (shown.length > 0 && bySides) {
+      // Atlas 0.9 may name sides of its own and order them: the sections follow the fight's order.
+      const named = state.sides?.order ?? rules.sides ?? [];
+      for (const side of sides) {
+        const active = state.sides?.active === side;
+        const section = this.el('section', `atlas-initiative-side${active ? ' atlas-initiative-side--active' : ''}`, content);
+        if (active) section.setAttribute('aria-current', 'true');
+        this.el('h4', 'atlas-initiative-side__label', section, sideLabel(side, named));
+        entries.forEach((entry, index) => { if (this.sideOfEntry(entry, tokens, sides) === side) card(entry, index, section); });
+      }
+    } else if (shown.length > 0) {
+      entries.forEach((entry, index) => card(entry, index, content));
+    }
+    // The turn's holder lights up once, taken up where it was when the list is drawn again meanwhile
+    const flashing = this.flashedAt === null ? null : performance.now() - this.flashedAt;
+    if (state.isActive && flashing !== null && flashing < TURN_FLASH_MS) {
+      for (const holder of content.querySelectorAll<HTMLElement>('.atlas-initiative-card--active, .atlas-initiative-side--active .atlas-initiative-card:not(.atlas-initiative-card--sitting-out)')) {
+        holder.classList.add('atlas-initiative-card--turn-flash');
+        holder.style.setProperty('--atlas-turn-flash-delay', `${-Math.round(flashing)}ms`);
+      }
+    }
+
+    // The shade over the row's start, once it is scrolled; at its end the round, else a shade while more lies beyond
+    this.el('div', 'atlas-initiative-panel__top-shade', this.panel).setAttribute('aria-hidden', 'true');
+    if (state.isActive) this.el('div', 'atlas-initiative-panel__round', this.panel, t('playerInit.round', { round: state.round }));
+    else this.el('div', 'atlas-initiative-panel__bottom-shade', this.panel).setAttribute('aria-hidden', 'true');
+    if (state.isActive) this.turnControls();
+
+    // The list is drawn anew: it is put back where it was at once (not glided there from the start), once the panel
+    // around it is whole and the list has its width.
+    content.setCssStyles({ scrollBehavior: 'auto' });
+    content.scrollLeft = scrollLeft;
+    content.setCssStyles({ scrollBehavior: '' });
+    adoptGhosts(content, ghosts);
+    // The cards glide from where they stood to their places as the turn passes, a reorder going straight there
+    playTurnMotion(content, stood, { wrap: turnPassed });
+
+    // The turn stays in view in a row wider than the panel: its card, or the start of its side.
+    if (turnMoved && turn) {
+      const target = content.querySelector<HTMLElement>('.atlas-initiative-side--active') ?? content.querySelector<HTMLElement>('.atlas-initiative-card--active');
+      if (target) scrollWithin(content, target, target.classList.contains('atlas-initiative-side') ? 'start' : 'nearest', 0, 'x');
+    }
+  }
+
+  /** The bar at the row's start (Atlas's `InitiativeTrackerHeader`, floating above its column): Roll, Start or End combat and the options. */
+  private header(state: InitiativeState, rules: InitiativeRules, bySides: boolean, empty: boolean): void {
+    const bar = this.el('div', 'atlas-initiative-tracker__float atlas-initiative-tracker__float--top', this.panel);
     // Nothing is rolled where the sides take turns.
-    if (!bySides) this.button(controls, 'dices', 'Roll initiative', entries.length === 0, () => this.host.roll());
-    if (!state.isActive) this.button(controls, 'swords', 'Start combat', entries.length === 0, () => this.host.act({ type: 'start', rules }));
-    else this.button(controls, '', 'End combat', false, () => this.host.act({ type: 'end' }), 'tabletop-initiative-tracker__btn--end').appendChild(this.truce());
+    if (!bySides) this.button(bar, 'dices', 'Roll initiative', empty, () => this.host.roll());
+    if (!state.isActive) this.button(bar, 'swords', 'Start combat', empty, () => this.host.act({ type: 'start', rules }));
+    else this.button(bar, '', 'End combat', false, () => this.host.act({ type: 'end' }), 'atlas-initiative-tracker__btn--end').appendChild(this.truce());
     // Atlas 0.18's options button (the ellipsis, last): its menu holds the Compact view and Turn banner switches and, as Atlas 0.18
     // moved them there, Reset initiative (numbers emptied, everyone kept) and Clear initiative. An Atlas without the switches keeps
     // the two as buttons, as before; each is offered only where Atlas has it.
@@ -140,54 +232,22 @@ export class InitiativePanel {
     const offersReset = this.host.offers('resetNumbers');
     const offersClear = this.host.offers('reset');
     if (switches.length === 0) {
-      if (offersReset) this.button(controls, 'rotate-ccw', at('initiative.resetNumbers'), entries.length === 0, () => this.host.act({ type: 'resetNumbers' }));
-      if (offersClear) this.button(controls, 'trash-2', at('initiative.clear'), entries.length === 0, () => this.host.act({ type: 'reset' }));
+      if (offersReset) this.button(bar, 'rotate-ccw', at('initiative.resetNumbers'), empty, () => this.host.act({ type: 'resetNumbers' }));
+      if (offersClear) this.button(bar, 'trash-2', at('initiative.clear'), empty, () => this.host.act({ type: 'reset' }));
     } else {
-      const button = this.button(controls, 'ellipsis', at('initiative.options'), false, () => {
+      const button = this.button(bar, 'ellipsis', at('initiative.options'), false, () => {
         const rect = button.getBoundingClientRect();
         this.host.menu(() => this.optionsMenu(), { x: rect.left, y: rect.bottom });
       }, 'tabletop-initiative-tracker__btn--options');
       button.setAttribute('aria-haspopup', 'menu');
     }
+  }
 
-    const content = this.el('div', 'tabletop-initiative-tracker__content', this.panel);
-    content.setAttribute('role', 'list');
-    if (shown.length === 0) this.el('p', 'tabletop-initiative-tracker__empty', content, 'Right-click a token to add it');
-    // `index` is the card's place among all combatants, which is what a drag reorders.
-    const card = (entry: InitiativeEntry, index: number, parent: HTMLElement): void => {
-      if (this.listed(entry)) this.card(entry, index, parent, tokens, bySides, compact);
-    };
-    if (shown.length > 0 && bySides) {
-      // Atlas 0.9 may name sides of its own and order them: the sections follow the fight's order.
-      const named = state.sides?.order ?? rules.sides ?? [];
-      const sides = fightSides(state, rules);
-      for (const side of sides) {
-        const section = this.el('section', `tabletop-initiative-side${state.sides?.active === side ? ' tabletop-initiative-side--active' : ''}`, content);
-        if (state.sides?.active === side) section.setAttribute('aria-current', 'true');
-        this.el('h4', 'tabletop-initiative-side__label', section, sideLabel(side, named));
-        entries.forEach((entry, index) => { if (this.sideOfEntry(entry, tokens, sides) === side) card(entry, index, section); });
-      }
-    } else if (shown.length > 0) {
-      entries.forEach((entry, index) => card(entry, index, content));
-    }
-
-    const turns = this.el('div', 'tabletop-initiative-tracker__turn-controls', this.panel);
-    this.button(turns, 'chevron-up', '', !state.isActive, () => this.host.act({ type: 'previous' }), this.pressed === 'prev' ? 'tabletop-initiative-tracker__btn--pressed' : '');
-    this.el('span', 'tabletop-initiative-tracker__round', turns, state.isActive ? `R${state.round}` : '—');
-    this.button(turns, 'chevron-down', '', !state.isActive, () => this.host.act({ type: 'next' }), this.pressed === 'next' ? 'tabletop-initiative-tracker__btn--pressed' : '');
-    // The list is drawn anew: it is put back where it was at once (not glided there from the top), once the panel
-    // around it is whole and the list has its height.
-    content.setCssStyles({ scrollBehavior: 'auto' });
-    content.scrollTop = scrollTop;
-    content.setCssStyles({ scrollBehavior: '' });
-
-    // The turn stays in view in a list longer than the panel: its card, or the top of its side.
-    const turn = state.isActive ? `${state.round}:${state.sides?.active ?? state.entries.find((entry) => entry.isActive)?.id ?? ''}` : '';
-    if (turn !== this.shownTurn) {
-      this.shownTurn = turn;
-      const target = content.querySelector<HTMLElement>('.tabletop-initiative-side--active') ?? content.querySelector<HTMLElement>('.tabletop-initiative-card--active');
-      if (turn && target) this.scrollWithin(content, target, target.classList.contains('tabletop-initiative-side') ? 'start' : 'nearest');
-    }
+  /** The bar at the row's end during a fight (Atlas's `InitiativeTurnControls`, floating below its column): the previous and next turn. */
+  private turnControls(): void {
+    const bar = this.el('div', 'atlas-initiative-tracker__float atlas-initiative-tracker__float--bottom', this.panel);
+    this.button(bar, 'chevron-left', 'Previous turn', false, () => this.host.act({ type: 'previous' }), this.pressed === 'prev' ? 'atlas-initiative-tracker__btn--pressed' : '');
+    this.button(bar, 'chevron-right', 'Next turn', false, () => this.host.act({ type: 'next' }), this.pressed === 'next' ? 'atlas-initiative-tracker__btn--pressed' : '');
   }
 
   /** Whether the entry gets a card: one without a token (a party member, an enemy) always does. */
@@ -201,93 +261,82 @@ export class InitiativePanel {
     return sideOf(entry.tokenId === undefined ? undefined : tokens.get(entry.tokenId), known);
   }
 
-  private card(entry: InitiativeEntry, index: number, parent: HTMLElement, tokens: Map<string, BoardToken>, bySides: boolean, compact: boolean): void {
+  /** A combatant's card (Atlas's `InitiativeCard`): a tile filled with its token's art, or the compact list's line. */
+  private card(entry: InitiativeEntry, index: number, parent: HTMLElement, tokens: Map<string, BoardToken>, bySides: boolean, compact: boolean, sides: readonly string[]): void {
     const token = entry.tokenId === undefined ? undefined : tokens.get(entry.tokenId);
     const definitions = this.host.definitions();
     const defeated = token !== undefined && token.kind === 'character' && isDefeated(token, definitions);
-    const hidden = token?.hidden === true;
+    // A hidden token's entry, or one the GM hid, is left out of the players' list
+    const hidden = token?.hidden === true || entry.hiddenFromPlayers === true;
+    const name = token?.name || entry.name;
     const classes = [
-      'tabletop-initiative-card',
-      entry.isActive && !bySides && 'tabletop-initiative-card--active',
-      defeated && 'tabletop-initiative-card--defeated',
-      hidden && 'tabletop-initiative-card--hidden',
-      entry.sitsOut && 'tabletop-initiative-card--sitting-out',
+      'atlas-initiative-card',
+      !compact && 'atlas-initiative-card--tile',
+      this.sideOfEntry(entry, tokens, sides) === 'players' && 'atlas-initiative-card--ally',
+      entry.isActive && !bySides && 'atlas-initiative-card--active',
+      defeated && 'atlas-initiative-card--defeated',
+      hidden && 'atlas-initiative-card--hidden',
+      token?.offMap === true && 'atlas-initiative-card--off-map',
+      entry.sitsOut && 'atlas-initiative-card--sitting-out',
+      entry.delayed && 'atlas-initiative-card--delayed',
     ].filter(Boolean).join(' ');
     const card = this.el('div', classes, parent);
     card.draggable = true;
     card.setAttribute('role', 'listitem');
     card.setAttribute('aria-roledescription', 'initiative card');
+    card.setAttribute('aria-label', name);
+    card.setAttribute(TURN_KEY_ATTRIBUTE, entry.id);
     card.dataset.entry = entry.id;
+    // Its turn flashes in its token's ring colour
+    const flash = turnColor(token);
+    if (flash) card.style.setProperty('--atlas-turn-color', flash);
 
-    this.icon(this.el('div', 'tabletop-initiative-card__drag-handle', card), 'grip-vertical');
+    // The life it lost rises in red over its art (`woundShare`, of the resources that defeat it)
+    const lost = token ? woundShare(visibleResources(token, definitions, [], 'gm').filter(({ definition }) => definition.defeatedWhenSpent)) : null;
+    const art = (frame: HTMLElement, imagePath: string): void => {
+      const img = this.el('img', '', frame);
+      img.src = this.host.imageUrl(imagePath);
+      img.alt = '';
+      img.draggable = false;
+      img.decoding = 'async';
+      // Its art alone, where the image has transparent margins, so it fills the card
+      this.host.artViewBox?.(imagePath, (viewBox) => img.style.setProperty('--atlas-art-view-box', viewBox));
+      if (lost !== null) this.el('div', 'atlas-initiative-wound', frame).style.setProperty('--atlas-wound', String(lost));
+      frame.setAttribute('aria-hidden', 'true');
+    };
+    const imagePath = token?.imagePath ?? entry.imagePath;
+    // Its badge number and what the players do not see of it, at the art's corner or beside the name
+    const marks = (parent: HTMLElement): void => {
+      const badge = this.instanceBadge(token);
+      if (badge !== null) this.el('span', 'atlas-initiative-card__instance-badge', parent, String(badge));
+      if (hidden) {
+        const eye = this.el('span', 'atlas-initiative-card__hidden-badge', parent);
+        eye.setAttribute('aria-label', 'Hidden from players');
+        this.icon(eye, 'eye-off');
+      }
+    };
     if (compact) {
-      // Atlas 0.18's compact line: the token's art faded in from the right end, the name beside the number, the marks last.
-      const art = token?.imagePath ?? entry.imagePath;
-      if (art) {
-        const backdrop = this.el('div', `tabletop-initiative-card__backdrop${token?.showRing === false ? ' tabletop-initiative-card__backdrop--framed' : ''}`, card);
-        backdrop.setAttribute('aria-hidden', 'true');
-        const img = this.el('img', '', backdrop);
-        img.src = this.host.imageUrl(art);
-        img.alt = '';
-        img.draggable = false;
-        img.decoding = 'async';
-      }
-      const marks = this.el('span', 'tabletop-initiative-card__marks', card);
-      if (defeated) this.icon(this.el('span', 'tabletop-initiative-card__defeated-mark', marks), 'skull');
-      const badge = this.instanceBadge(token);
-      if (badge !== null) this.el('span', 'tabletop-initiative-card__instance-badge', marks, String(badge));
-      if (hidden) {
-        const eye = this.el('span', 'tabletop-initiative-card__hidden-badge', marks);
-        eye.setAttribute('aria-label', 'Hidden from players');
-        this.icon(eye, 'eye-off');
-      }
-      this.el('span', 'tabletop-initiative-card__name', card, token?.name || entry.name).setAttribute('aria-hidden', 'true');
+      // The compact line: the token's art faded in from the right end, the name beside the number, the marks last.
+      if (imagePath) art(this.el('div', `atlas-initiative-card__backdrop${token?.showRing === false ? ' atlas-initiative-card__backdrop--framed' : ''}`, card), imagePath);
+      const line = this.el('span', 'atlas-initiative-card__marks', card);
+      if (defeated) this.icon(this.el('span', 'atlas-initiative-card__defeated-mark', line), 'skull');
+      marks(line);
     } else {
-      const avatar = this.el('div', 'tabletop-initiative-card__avatar-wrapper', card);
-      const imagePath = token?.imagePath ?? entry.imagePath;
-      if (imagePath) {
-        const portrait = this.el('div', `atlas-token-portrait ${token?.showRing === false ? 'atlas-token-portrait--unframed' : ''} tabletop-initiative-card__portrait`, avatar);
-        const art = this.el('div', 'atlas-token-image-wrapper', portrait);
-        const img = this.el('img', '', art);
-        img.src = this.host.imageUrl(imagePath);
-        img.alt = token?.name ?? entry.name;
-        img.draggable = false;
-        img.decoding = 'async';
-        if (token?.showRing !== false) {
-          const ring = this.el('div', 'atlas-token-ring', portrait);
-          if (token?.ringColor) ring.style.setProperty('--atlas-token-ring-color', token.ringColor);
-        }
-      } else {
-        this.icon(this.el('div', 'tabletop-initiative-card__avatar', avatar), entry.isNPC ? 'bot' : 'user');
-      }
-      if (defeated) this.icon(this.el('div', 'tabletop-initiative-card__defeated-overlay', avatar), 'skull');
-      const badge = this.instanceBadge(token);
-      if (badge !== null) this.el('span', 'tabletop-initiative-card__instance-badge', avatar, String(badge));
-      if (hidden) {
-        const eye = this.el('span', 'tabletop-initiative-card__hidden-badge', avatar);
-        eye.setAttribute('aria-label', 'Hidden from players');
-        eye.setAttribute('data-tooltip-position', 'left');
-        this.icon(eye, 'eye-off');
-      }
+      if (imagePath) art(this.el('div', `atlas-initiative-card__art${token?.showRing === false ? ' atlas-initiative-card__art--framed' : ''}`, card), imagePath);
+      else this.icon(this.el('div', 'atlas-initiative-card__avatar', card), entry.isNPC ? 'bot' : 'user');
+      if (defeated) this.icon(this.el('div', 'atlas-initiative-card__defeated-overlay', card), 'skull');
+      marks(this.el('span', 'atlas-initiative-card__marks', card));
     }
-    // A combatant added and not yet rolled (Atlas 0.9's `awaitingInitiative`) shows an empty slot; by cards, its card.
-    const card09 = typeof entry.card === 'number' ? entry.card : null;
-    if (!bySides) this.el('span', 'tabletop-initiative-card__initiative', card, card09 !== null ? String(card09) : entry.awaitingInitiative === true ? '–' : String(entry.initiative));
+    if (compact) this.el('span', 'atlas-initiative-card__name', card, name).setAttribute('aria-hidden', 'true');
 
-    const bars = token ? visibleResources(token, definitions, [], 'gm').filter(({ definition }) => definition.defeatedWhenSpent) : [];
-    if (bars.length > 0) {
-      const list = this.el('div', 'tabletop-initiative-card__resources', card);
-      for (const { definition, value } of bars) {
-        const bar = this.el('div', 'tabletop-initiative-card__hp-bar', list);
-        bar.setAttribute('role', 'meter');
-        bar.setAttribute('aria-label', definition.name);
-        bar.setAttribute('aria-valuemin', '0');
-        bar.setAttribute('aria-valuenow', String(value.current));
-        bar.setAttribute('aria-valuemax', String(value.max));
-        const fill = this.el('div', 'tabletop-initiative-card__hp-fill', bar);
-        fill.style.width = `${Math.max(0, Math.min(100, value.max > 0 ? (value.current / value.max) * 100 : 0))}%`;
-        fill.style.setProperty('--atlas-resource-color', resourceColor(definition, value));
-      }
+    // A combatant added and not yet rolled (Atlas 0.9's `awaitingInitiative`) shows an empty slot; by cards, its card.
+    const dealt = typeof entry.card === 'number' ? entry.card : null;
+    if (!bySides) {
+      const empty = dealt === null && entry.awaitingInitiative === true;
+      const number = this.el('button', `atlas-initiative-card__initiative${empty ? ' atlas-initiative-card__initiative--empty' : ''}`, card, dealt !== null ? String(dealt) : empty ? '–' : String(entry.initiative));
+      number.type = 'button';
+      number.setAttribute('aria-label', empty ? 'Type a number' : `Edit initiative ${entry.initiative}`);
+      number.addEventListener('click', (event) => { event.stopPropagation(); this.openPopup(entry, card); });
     }
 
     // A combatant without a token has none to show.
@@ -310,15 +359,15 @@ export class InitiativePanel {
       event.preventDefault();
       if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
       const rect = card.getBoundingClientRect();
-      const above = event.clientY < rect.top + rect.height / 2;
-      card.classList.toggle('tabletop-initiative-card--drop-above', above);
-      card.classList.toggle('tabletop-initiative-card--drop-below', !above);
+      const first = event.clientX < rect.left + rect.width / 2;
+      card.classList.toggle('tabletop-initiative-card--drop-before', first);
+      card.classList.toggle('tabletop-initiative-card--drop-after', !first);
       this.dragOver = index;
     });
-    card.addEventListener('dragleave', () => card.classList.remove('tabletop-initiative-card--drop-above', 'tabletop-initiative-card--drop-below'));
+    card.addEventListener('dragleave', () => card.classList.remove('tabletop-initiative-card--drop-before', 'tabletop-initiative-card--drop-after'));
     card.addEventListener('drop', (event) => {
       event.preventDefault();
-      card.classList.remove('tabletop-initiative-card--drop-above', 'tabletop-initiative-card--drop-below');
+      card.classList.remove('tabletop-initiative-card--drop-before', 'tabletop-initiative-card--drop-after');
       this.endDrag();
     });
     card.addEventListener('dragend', () => { this.dragFrom = null; this.dragOver = null; });
@@ -382,15 +431,13 @@ export class InitiativePanel {
     const view = this.doc.defaultView ?? window;
     const anchor = card.getBoundingClientRect();
     const padding = 16;
-    const height = 72;
-    const top = Math.max(padding, Math.min(view.innerHeight - height - padding, anchor.top + anchor.height / 2 - height / 2));
     // On the page's body, as Atlas portals it, under Tabletop's root for its styles.
     const layer = this.el('div', 'atlas-tabletop-atlas', this.doc.body);
     const backdrop = this.el('div', 'tabletop-initiative-edit-backdrop', layer);
     const popup = this.el('div', 'tabletop-initiative-edit-popup', layer);
     popup.setCssStyles({ position: 'fixed' });
-    popup.style.top = `${top}px`;
-    popup.style.right = `${view.innerWidth - anchor.left + padding}px`;
+    // Below the card, centred on it and kept on the page: the row stands at the board's top.
+    popup.style.top = `${anchor.bottom + padding}px`;
     const fields = this.el('div', 'tabletop-initiative-edit-popup__fields', popup);
     const field = (caption: string, value: string, extra: string, placeholder: string): HTMLInputElement => {
       const label = this.el('label', 'tabletop-initiative-edit-popup__field', fields);
@@ -418,6 +465,7 @@ export class InitiativePanel {
     backdrop.addEventListener('pointerdown', (event) => event.stopPropagation());
     backdrop.addEventListener('click', () => this.closePopup());
     this.popup = layer;
+    popup.style.left = `${Math.max(padding, Math.min(view.innerWidth - popup.offsetWidth - padding, anchor.left + anchor.width / 2 - popup.offsetWidth / 2))}px`;
     view.setTimeout(() => { total.focus(); total.select(); }, 50);
   }
 
@@ -433,22 +481,14 @@ export class InitiativePanel {
     return same >= 2 ? token.instanceNumber : null;
   }
 
-  /** Scrolls `list` so `target` shows, without scrolling anything around it. */
-  private scrollWithin(list: HTMLElement, target: HTMLElement, block: 'start' | 'nearest'): void {
-    const top = target.offsetTop - list.offsetTop;
-    const bottom = top + target.offsetHeight;
-    if (block === 'start') list.scrollTop = top;
-    else if (top < list.scrollTop) list.scrollTop = top;
-    else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
-  }
-
+  /** A button of one of the bars above and below the row: Atlas's ghost icon button. */
   private button(parent: HTMLElement, icon: string, tooltip: string, disabled: boolean, onClick: () => void, extra = ''): HTMLButtonElement {
-    const button = this.el('button', `clickable-icon tabletop-initiative-tracker__btn${extra ? ` ${extra}` : ''}`, parent);
+    const button = this.el('button', `btn btn--ghost btn--icon atlas-initiative-tracker__btn${extra ? ` ${extra}` : ''}`, parent);
     button.type = 'button';
     button.disabled = disabled;
     if (tooltip) {
       button.setAttribute('aria-label', tooltip);
-      button.setAttribute('data-tooltip-position', 'left');
+      button.setAttribute('data-tooltip-position', 'bottom');
     }
     if (icon) this.icon(button, icon);
     button.addEventListener('click', (event) => { event.stopPropagation(); onClick(); });

@@ -25,9 +25,9 @@ with either; it does not depend on one.
   - Drag a token to move it. It snaps to the grid like in Atlas and is saved to the map. When Atlas has the same map
     open, the move goes through Atlas.
   - Right-click a token to assign a mini, or to show it as a disc or a standee.
-- **Initiative:** Atlas's initiative tracker stands at the board's right edge. **I** shows or hides it (or the
+- **Initiative:** Atlas's initiative tracker stands as a row across the board's top, Baldur's Gate style, in Atlas 0.20's own look (its cards, side headings and round; Atlas's styles draw them): portraits side by side, the turn lit, scrolling sideways when there are more than fit. Its buttons (Roll, Start or End combat, the options, the turn arrows) show while the pointer is near it. **I** shows or hides it (or the
   **Initiative tracker** switch under **Tabletop Settings → Visibility**). Add tokens from their right-click menu. While a fight runs, the up and down arrows pass the turn
-  instead of moving the camera. When Atlas has the map open, the tracker is Atlas's own, changed through Atlas.
+  instead of moving the camera. When Atlas has the map open, the tracker is Atlas's own, changed through Atlas. The player window shows Atlas's players' list too, in a row across its top (Atlas 0.20's own list: only what players may see, from the turn on), while the board's tracker or Atlas's is open.
 - **Widgets:** Atlas's counters, clocks and timers stand at the board's top right, as on Atlas's map: Atlas's own widget
   bar, on the map Atlas has open, so a counter stepped or a timer started on the board is the same one in Atlas (and for
   your players). Hold 1 to 5 over the board to step one with the keyboard, as in Atlas. They show while Atlas has the map open.

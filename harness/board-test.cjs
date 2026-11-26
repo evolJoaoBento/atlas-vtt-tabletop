@@ -812,29 +812,33 @@ server.listen(0, async () => {
       check('a combatant kept beside the map is not drawn on the board', beside === false);
     }
 
-    // 13. Atlas's initiative tracker at the board's right edge: I shows it; cards, a fight, turns by the arrows, the
+    // 13. Atlas's initiative tracker as a row across the board's top: I shows it; cards, a fight, turns by the arrows, the
     //     card's menu, the edit popup, rolling, dragging, a fight by sides, Clear.
     {
-      const cards = () => page.evaluate(() => [...document.querySelectorAll('.tabletop-initiative-card')].map((card) => {
+      const cards = () => page.evaluate(() => [...document.querySelectorAll('.atlas-initiative-card')].filter((card) => !card.closest('.atlas-initiative-ghost')).map((card) => {
         const r = card.getBoundingClientRect();
         return {
           id: card.dataset.entry, x: r.left + r.width / 2, y: r.top + r.height / 2, cls: card.className,
-          number: card.querySelector('.tabletop-initiative-card__initiative')?.textContent ?? null,
-          badge: card.querySelector('.tabletop-initiative-card__instance-badge')?.textContent ?? null,
-          hidden: !!card.querySelector('.tabletop-initiative-card__hidden-badge'),
-          bars: [...card.querySelectorAll('.tabletop-initiative-card__hp-fill')].map((fill) => fill.style.width),
-          ring: card.querySelector('.atlas-token-ring')?.style.getPropertyValue('--atlas-token-ring-color') ?? null,
-          side: card.closest('.tabletop-initiative-side')?.querySelector('.tabletop-initiative-side__label')?.textContent ?? null,
+          number: card.querySelector('.atlas-initiative-card__initiative')?.textContent ?? null,
+          badge: card.querySelector('.atlas-initiative-card__instance-badge')?.textContent ?? null,
+          hidden: !!card.querySelector('.atlas-initiative-card__hidden-badge'),
+          wound: card.querySelector('.atlas-initiative-wound')?.style.getPropertyValue('--atlas-wound') ?? null,
+          art: !!card.querySelector('.atlas-initiative-card__art img'),
+          ring: card.style.getPropertyValue('--atlas-turn-color') || null,
+          side: card.closest('.atlas-initiative-side')?.querySelector('.atlas-initiative-side__label')?.textContent ?? null,
         };
       }));
       const tracker = () => page.evaluate(() => {
         const panel = document.querySelector('.tabletop-initiative-tracker');
         if (!panel || panel.closest('[hidden]')) return null;
-        const buttons = [...panel.querySelectorAll('.tabletop-initiative-tracker__btn')].map((button) => ({ icon: button.dataset.icon ?? (button.querySelector('svg') ? 'truce' : ''), label: button.getAttribute('aria-label'), disabled: button.disabled, pressed: button.classList.contains('tabletop-initiative-tracker__btn--pressed') }));
-        return { buttons, round: panel.querySelector('.tabletop-initiative-tracker__round')?.textContent, empty: panel.querySelector('.tabletop-initiative-tracker__empty')?.textContent ?? null, rect: panel.getBoundingClientRect().toJSON() };
+        const buttons = [...panel.querySelectorAll('.atlas-initiative-tracker__btn')].map((button) => ({ icon: button.dataset.icon ?? (button.querySelector('svg') ? 'truce' : ''), label: button.getAttribute('aria-label'), disabled: button.disabled, pressed: button.classList.contains('atlas-initiative-tracker__btn--pressed') }));
+        return { buttons, round: panel.querySelector('.atlas-initiative-panel__round')?.textContent ?? null, row: panel.classList.contains('atlas-initiative-panel--row'), empty: panel.querySelector('.tabletop-initiative-tracker__empty')?.textContent ?? null, rect: panel.getBoundingClientRect().toJSON() };
       });
       const click = async (selector) => {
         const at = await page.evaluate((selector) => { const r = document.querySelector(selector).getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, selector);
+        // Atlas's bars show while the pointer is near the tracker (`.atlas-initiative-tracker:hover`): it arrives first.
+        await page.mouse.move(at.x, at.y);
+        await wait(60);
         await page.mouse.click(at.x, at.y);
         await wait(100);
       };
@@ -847,20 +851,24 @@ server.listen(0, async () => {
       await page.keyboard.press('i');
       await wait(100);
       let shown = await tracker();
-      check('I shows the tracker at the board\'s right edge, centred', shown !== null && Math.abs(shown.rect.right - 988) < 2 && Math.abs((shown.rect.top + shown.rect.bottom) / 2 - 320) < 2, shown && shown.rect);
-      check('its controls are Atlas\'s: Roll, Start combat, Clear; the turn arrows idle, no round', shown && JSON.stringify(shown.buttons.map((b) => [b.icon, b.label, b.disabled])) === JSON.stringify([['dices', 'Roll initiative', false], ['swords', 'Start combat', false], ['trash-2', 'Clear initiative', false], ['chevron-up', null, true], ['chevron-down', null, true]]) && shown.round === '—', shown);
+      check('I shows the tracker as Atlas\'s row across the board\'s top, centred, under the scene tabs', shown !== null && shown.row && Math.abs((shown.rect.left + shown.rect.right) / 2 - 500) < 2 && shown.rect.top >= 44 && shown.rect.top < 60 && shown.rect.height < 130 && shown.rect.width > shown.rect.height, shown && shown.rect);
+      check('the cards stand side by side along the row, as tiles of Atlas\'s card, filled with their art', await page.evaluate(() => { const cards = [...document.querySelectorAll('.atlas-initiative-card')].map((c) => c.getBoundingClientRect()); return cards.length === 4 && cards.every((r, i) => r.width > 70 && Math.abs(r.height - r.width) < 2 && (i === 0 || (r.left > cards[i - 1].left && Math.abs(r.top - cards[0].top) < 1))) && document.querySelectorAll('.atlas-initiative-card--tile .atlas-initiative-card__art img').length === 4; }));
+      const clear = await page.evaluate(() => { const row = document.querySelector('.tabletop-initiative-tracker').getBoundingClientRect(); const widgets = document.querySelector('.atlas-tabletop-widgets .atlas-widget-bar')?.getBoundingClientRect(); const toolbar = document.querySelector('.atlas-tabletop-toolbar-row')?.getBoundingClientRect(); return { row: row.toJSON(), widgets: widgets?.toJSON() ?? null, toolbar: toolbar?.toJSON() ?? null }; });
+      check('the row\'s hover zone leaves the scene tabs above it clickable', await page.evaluate(() => { const bar = document.querySelector('.atlas-scene-tab-bar')?.getBoundingClientRect(); const row = document.querySelector('.tabletop-initiative-tracker').getBoundingClientRect(); if (!bar) return true; const hit = document.elementFromPoint(Math.max(bar.left, row.left) + 4, (bar.top + bar.bottom) / 2); return !!hit && !hit.closest('.tabletop-initiative-tracker'); }));
+      check('the row stays clear of the widget bar at the top right and of the toolbar', (!clear.widgets || clear.row.right <= clear.widgets.left || clear.row.bottom <= clear.widgets.top || clear.row.top >= clear.widgets.bottom) && (!clear.toolbar || clear.row.bottom <= clear.toolbar.top), clear);
+      check('its controls are Atlas\'s: Roll, Start combat, the options (Reset and Clear are in its menu); no turn arrows and no round before a fight', shown && JSON.stringify(shown.buttons.map((b) => [b.icon, b.label, b.disabled])) === JSON.stringify([['dices', 'Roll initiative', false], ['swords', 'Start combat', false], ['ellipsis', 'Tracker options', false]]) && shown.round === null, shown);
       let list = await cards();
       check('a card per combatant in order, with its number', list.map((c) => `${c.id}:${c.number}`).join() === 'e-hero:18,e-gob:12,e-gob2:9,e-orc:5', list);
-      check('copies show their number; the hidden orc its eye; bars of the resources that defeat; the ring in the token\'s colour', list[1].badge === '1' && list[2].badge === '2' && list[0].badge === null && list[3].hidden && list[3].cls.includes('--hidden') && list[0].bars.length === 1 && Math.abs(parseFloat(list[0].bars[0]) - 74.07) < 0.1 && list[0].ring === '#ffffff', list);
+      check('copies show their number; the hidden orc its eye; the red of the life lost rises in the art; the turn colour is the token\'s ring', list[1].badge === '1' && list[2].badge === '2' && list[0].badge === null && list[3].hidden && list[3].cls.includes('--hidden') && list[0].art && Math.abs(parseFloat(list[0].wound) - 0.2593) < 0.001 && list[0].ring === '#ffffff', list);
 
       await click('[aria-label="Start combat"]');
       shown = await tracker();
-      check('Start combat: round 1, the first combatant\'s turn, End combat in red', (await active()) === 'e-hero' && shown.round === 'R1' && shown.buttons[1].label === 'End combat' && shown.buttons[1].icon === 'truce', shown);
+      check('Start combat: round 1, the first combatant\'s turn, End combat in red', (await active()) === 'e-hero' && /Round 1|R1/.test(shown.round) && shown.buttons[1].label === 'End combat' && shown.buttons[1].icon === 'truce', shown);
       await page.evaluate(() => window.boardTest.board.canvas.focus());
       const camBefore = await page.evaluate(() => ({ ...window.boardTest.board.camera.goal.target }));
       await page.keyboard.press('ArrowDown');
       await wait(30);
-      const pressed = (await tracker()).buttons[4].pressed;
+      const pressed = (await tracker()).buttons.find((b) => b.icon === 'chevron-right').pressed;
       await wait(300);
       const camAfter = await page.evaluate(() => ({ ...window.boardTest.board.camera.goal.target }));
       check('↓ passes the turn (the arrow shows the press) and does not move the camera in a fight', (await active()) === 'e-gob' && pressed && camBefore.x === camAfter.x && camBefore.z === camAfter.z, { pressed, camBefore, camAfter });
@@ -901,13 +909,17 @@ server.listen(0, async () => {
       await page.screenshot({ path: `${shots}/board-18-initiative.png` });
       // A redraw keeps a scrolled list where it was (not glided back from the top).
       const scrolled = await page.evaluate(() => {
-        const content = document.querySelector('.tabletop-initiative-tracker__content');
+        // The row is wider than four cards only when the board is: narrowed, it scrolls sideways.
+        document.querySelector('.tabletop-initiative-tracker').style.maxWidth = '240px';
+        const content = document.querySelector('.atlas-initiative-panel__list');
         content.style.scrollBehavior = 'auto';
-        content.scrollTop = content.scrollHeight;
+        content.scrollLeft = content.scrollWidth;
         content.style.scrollBehavior = '';
-        const before = content.scrollTop;
+        const before = content.scrollLeft;
         window.boardTest.panel.render();
-        return { before, after: document.querySelector('.tabletop-initiative-tracker__content').scrollTop };
+        const after = document.querySelector('.atlas-initiative-panel__list').scrollLeft;
+        document.querySelector('.tabletop-initiative-tracker').style.maxWidth = '';
+        return { before, after };
       });
       check('the list overflows here, and a redraw keeps its scroll at once', scrolled.before > 0 && scrolled.after === scrolled.before, scrolled);
       // A combatant whose token is gone (deleted while Atlas's tracker was closed) gets no card.
@@ -937,7 +949,7 @@ server.listen(0, async () => {
         const transfer = new DataTransfer();
         const r = target.getBoundingClientRect();
         source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: transfer }));
-        target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer, clientY: r.top + 2 }));
+        target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer, clientX: r.left + 2 }));
         target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
         source.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: transfer }));
       }, [list[3].id, list[0].id]);
@@ -949,11 +961,13 @@ server.listen(0, async () => {
       await click('[aria-label="End combat"]');
       await page.evaluate(() => { window.boardTest.rules.initiative = { mode: 'sides', roll: '1d20', firstSide: 'players' }; window.boardTest.panel.render(); });
       await choose('e-hero', 'Move to Players');
+      // The cards glide to their places under their side's heading (Atlas's turn motion).
+      await wait(700);
       list = await cards();
       shown = await tracker();
       check('by sides: Players then Opponents, no numbers, no Roll', list.find((c) => c.id === 'e-hero').side === 'Players' && list.filter((c) => c.side === 'Opponents').length === 3 && list.every((c) => c.number === null) && shown.buttons[0].label === 'Start combat', { list, shown });
       await click('[aria-label="Start combat"]');
-      const sideState = () => page.evaluate(() => ({ active: document.querySelector('.tabletop-initiative-side--active .tabletop-initiative-side__label')?.textContent, round: document.querySelector('.tabletop-initiative-tracker__round')?.textContent, cards: document.querySelectorAll('.tabletop-initiative-card--active').length }));
+      const sideState = () => page.evaluate(() => ({ active: document.querySelector('.atlas-initiative-side--active .atlas-initiative-side__label')?.textContent, round: document.querySelector('.atlas-initiative-panel__round')?.textContent?.replace('Round ', 'R'), cards: document.querySelectorAll('.atlas-initiative-card--active').length }));
       check('the players\' side acts first; no card has the turn by itself', JSON.stringify(await sideState()) === JSON.stringify({ active: 'Players', round: 'R1', cards: 0 }), await sideState());
       const sitRows = await choose('e-gob', 'Sit Out This Round');
       check('in a running fight by sides a card can sit the round out', sitRows.some((r) => r.text === 'Sit Out This Round') && (await cards()).find((c) => c.id === 'e-gob').cls.includes('--sitting-out'), sitRows.map((r) => r.text));
@@ -964,9 +978,12 @@ server.listen(0, async () => {
       check('the turns pass side to side into round 2, which clears sitting out', JSON.stringify(await sideState()) === JSON.stringify({ active: 'Players', round: 'R2', cards: 0 }) && !(await cards()).find((c) => c.id === 'e-gob').cls.includes('--sitting-out'), await sideState());
       await page.screenshot({ path: `${shots}/board-19-initiative-sides.png` });
 
-      await click('[aria-label="Clear initiative"]');
+      await click('.tabletop-initiative-tracker__btn--options');
+      const clearRow = (await menuRows()).find((r) => r.text.startsWith('Clear initiative'));
+      await page.mouse.click(clearRow.x, clearRow.y);
+      await wait(150);
       shown = await tracker();
-      check('Clear empties the tracker and ends the fight', shown.empty === 'Right-click a token to add it' && shown.round === '—' && (await cards()).length === 0, shown);
+      check('Clear empties the tracker and ends the fight', shown.empty === 'Right-click a token to add it' && shown.round === null && (await cards()).length === 0, shown);
       await page.evaluate(() => window.boardTest.board.canvas.focus());
       await page.keyboard.press('i');
       await wait(50);

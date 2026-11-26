@@ -2296,12 +2296,12 @@ feature('initiative tokenless entries', async ({ page, shot }) => {
     board.map.initiative.entries[1].isActive = true;
     panel.setOpen(true);
     panel.render();
-    const cards = [...document.querySelectorAll('.tabletop-initiative-card')];
-    const info = cards.map((card) => ({ name: card.querySelector('img')?.alt ?? card.dataset.entry, entry: card.dataset.entry, img: !!card.querySelector('img'), active: card.classList.contains('tabletop-initiative-card--active') }));
+    const cards = [...document.querySelectorAll('.atlas-initiative-card')];
+    const info = cards.map((card) => ({ name: card.getAttribute('aria-label'), entry: card.dataset.entry, img: !!card.querySelector('img'), active: card.classList.contains('atlas-initiative-card--active') }));
     record.shown.length = 0;
     cards[1].click();
     cards[0].click();
-    return { info, shown: [...record.shown], reset: [...document.querySelectorAll('.tabletop-initiative-tracker__controls button')].map((b) => b.getAttribute('aria-label') ?? b.title ?? '') };
+    return { info, shown: [...record.shown], reset: [...document.querySelectorAll('.atlas-initiative-tracker__float--top button')].map((b) => b.getAttribute('aria-label') ?? b.title ?? '') };
   });
   check('tokenless initiative: every entry gets a card, in Atlas order', seen.info.map((c) => c.entry).join() === 'Hero,Mira,Enemy 1', JSON.stringify(seen));
   check('tokenless initiative: the party member shows its portrait and has the turn', seen.info[1].img === true && seen.info[1].active === true && seen.info[0].active === false, JSON.stringify(seen));
@@ -2319,7 +2319,7 @@ feature('initiative sides in the dragged order', async ({ page, shot }) => {
     board.map.initiative = { entries: [entry('Hero', { tokenId: 'hero', isNPC: false }, 0), entry('Enemy 1', { awaitingInitiative: true }, 1)], currentIndex: -1, round: 0, isActive: false, config: { autoSort: true }, ...(order ? { sideOrder: order } : {}) };
     panel.setOpen(true);
     panel.render();
-    return [...document.querySelectorAll('.tabletop-initiative-side__label')].map((label) => label.textContent);
+    return [...document.querySelectorAll('.atlas-initiative-side__label')].map((label) => label.textContent);
   }, sideOrder);
   const rules = await heading(undefined);
   check('sides: without a dragged order they stand as the rules have them', rules.join() === 'Players,Opponents', rules.join());
@@ -2343,25 +2343,27 @@ feature('initiative compact layout and options menu', async ({ page, shot }) => 
   const look = () => page.evaluate(() => {
     const tracker = document.querySelector('.tabletop-initiative-tracker');
     const rect = tracker.getBoundingClientRect();
-    const first = tracker.querySelector('.tabletop-initiative-card');
-    const cards = [...tracker.querySelectorAll('.tabletop-initiative-card')];
+    const first = tracker.querySelector('.atlas-initiative-card');
+    const cards = [...tracker.querySelectorAll('.atlas-initiative-card')];
     return {
-      compact: tracker.classList.contains('tabletop-initiative-tracker--compact'), width: Math.round(rect.width), rect: rect.toJSON(),
+      compact: tracker.classList.contains('atlas-initiative-tracker--compact'), width: Math.round(rect.width), rect: rect.toJSON(), row: tracker.classList.contains('atlas-initiative-panel--row'),
+      cardWidth: first ? Math.round(first.getBoundingClientRect().width) : 0, oneRow: cards.every((card) => Math.abs(card.getBoundingClientRect().top - first.getBoundingClientRect().top) < 1),
       grid: first ? getComputedStyle(first).display : null, height: first ? Math.round(first.getBoundingClientRect().height) : 0,
-      names: cards.map((card) => card.querySelector('.tabletop-initiative-card__name')?.textContent ?? null),
-      numbers: cards.map((card) => card.querySelector('.tabletop-initiative-card__initiative')?.textContent ?? null),
-      backdrops: cards.filter((card) => card.querySelector('.tabletop-initiative-card__backdrop img')).length, portraits: cards.filter((card) => card.querySelector('.atlas-token-portrait')).length,
-      cards: cards.length, activeCards: cards.filter((card) => card.classList.contains('tabletop-initiative-card--active')).length,
+      names: cards.map((card) => card.querySelector('.atlas-initiative-card__name')?.textContent ?? null),
+      numbers: cards.map((card) => card.querySelector('.atlas-initiative-card__initiative')?.textContent ?? null),
+      backdrops: cards.filter((card) => card.querySelector('.atlas-initiative-card__backdrop img')).length, portraits: cards.filter((card) => card.querySelector('.atlas-initiative-card__art img')).length,
+      cards: cards.length, activeCards: cards.filter((card) => card.classList.contains('atlas-initiative-card--active')).length,
       options: !!tracker.querySelector('.tabletop-initiative-tracker__btn--options'),
     };
   });
   const rows = () => page.evaluate(() => [...document.querySelectorAll('.atlas-ctx-item')].map((row) => ({ text: row.textContent, checked: row.getAttribute('aria-checked'), icon: row.querySelector('.atlas-ctx-icon')?.dataset.icon ?? null, title: row.title })));
-  const openOptions = async () => { await page.locator('.tabletop-initiative-tracker__btn--options').click(); await wait(150); };
+  // Atlas's bars show while the pointer is near the tracker: the pointer goes to its first card, then to the button.
+  const openOptions = async () => { await page.locator('.atlas-initiative-card').first().hover(); await page.locator('.tabletop-initiative-tracker__btn--options').click(); await wait(150); };
 
   await prepare();
   await wait(200);
   const before = await look();
-  check('28 the tracker starts as today: tiles in a 96 px column, with an options button', !before.compact && before.width === 96 && before.portraits === before.cards && before.options, JSON.stringify(before));
+  check('28 the tracker starts as tiles in a row across the top, with an options button', !before.compact && before.row && before.oneRow && before.cardWidth === 85 && before.portraits === before.cards && before.options, JSON.stringify(before));
   await shot('initiative-tiles');
 
   await openOptions();
@@ -2369,7 +2371,7 @@ feature('initiative compact layout and options menu', async ({ page, shot }) => 
   check('28 the options menu holds Atlas rows: Compact view (list icon) and Turn banner (flag icon), with their hints, then Reset and Clear as Atlas 0.18 has them', menu.length === 4 && menu[2].text === 'Reset initiative' && menu[2].icon === 'rotate-ccw' && menu[3].text === 'Clear initiative' && menu[3].icon === 'trash-2' && menu[0].text === 'Compact view' && menu[0].icon === 'list' && /plain list without portraits/.test(menu[0].title) && menu[1].text === 'Turn banner' && menu[1].icon === 'flag' && /whose turn it is/.test(menu[1].title), JSON.stringify(menu));
   check('28 Compact view is off and Turn banner on, as Atlas has them', menu[0].checked === 'false' && menu[1].checked === 'true', JSON.stringify(menu));
   await shot('initiative-options-menu');
-  check('28 with the menu, Reset and Clear are no longer buttons in the narrow tracker', (await page.locator('.tabletop-initiative-tracker__controls button').count()) === 3, String(await page.locator('.tabletop-initiative-tracker__controls button').count()));
+  check('28 with the menu, Reset and Clear are no longer buttons in the narrow tracker', (await page.locator('.atlas-initiative-tracker__float--top button').count()) === 3, String(await page.locator('.atlas-initiative-tracker__float--top button').count()));
 
   // Compact view: Atlas's setting is written, and the tracker is the list of lines.
   await page.locator('.atlas-ctx-item', { hasText: 'Compact view' }).click();
@@ -2377,9 +2379,9 @@ feature('initiative compact layout and options menu', async ({ page, shot }) => 
   const compact = await look();
   const written = await page.evaluate(() => window.boardTest.trackerSettings.compact);
   check('28 choosing Compact view writes the Atlas setting', written === true);
-  check('28 the tracker becomes the compact list: 216 px wide, a grid line of 34 px per combatant, names beside the numbers', compact.compact && compact.width === 216 && compact.grid === 'grid' && compact.height === 34 && compact.names.every((name) => name && name.length > 0) && compact.numbers.length === compact.cards, JSON.stringify(compact));
+  check('28 the tracker becomes the compact list: a grid line of 34 px per combatant side by side in the row, names beside the numbers', compact.compact && compact.row && compact.oneRow && compact.grid === 'grid' && compact.height === 34 && compact.names.every((name) => name && name.length > 0) && compact.numbers.length === compact.cards, JSON.stringify(compact));
   check('28 the compact line has the token art behind it and no portrait tile; the turn line is marked', compact.portraits === 0 && compact.backdrops > 0 && compact.activeCards === 1, JSON.stringify(compact));
-  check('28 the compact tracker stays inside the board, clear of the top bars', compact.rect.right <= 1000 && compact.rect.left > 600 && compact.rect.top >= 60 && compact.rect.bottom <= 600, JSON.stringify(compact.rect));
+  check('28 the compact tracker stays inside the board, centred under the top bars and clear of the sides', compact.rect.right <= 1000 - 168 && compact.rect.left >= 168 && compact.rect.top >= 44 && compact.rect.bottom <= 600, JSON.stringify(compact.rect));
   await page.mouse.move(5, 5);
   await shot('initiative-compact');
 
@@ -2404,10 +2406,10 @@ feature('initiative compact layout and options menu', async ({ page, shot }) => 
   await page.evaluate(() => { window.boardTest.trackerSettings.compact = true; window.boardTest.panel.render(); });
   await wait(200);
   await page.evaluate(() => {
-    const first = document.querySelector('.tabletop-initiative-card .tabletop-initiative-card__name');
+    const first = document.querySelector('.atlas-initiative-card .atlas-initiative-card__name');
     if (first) first.textContent = 'A combatant with a very long name indeed';
   });
-  const clipped = await page.evaluate(() => { const name = document.querySelector('.tabletop-initiative-card__name'); return { overflow: getComputedStyle(name).textOverflow, fits: name.getBoundingClientRect().right <= name.closest('.tabletop-initiative-card').getBoundingClientRect().right }; });
+  const clipped = await page.evaluate(() => { const name = document.querySelector('.atlas-initiative-card__name'); return { overflow: getComputedStyle(name).textOverflow, fits: name.getBoundingClientRect().right <= name.closest('.atlas-initiative-card').getBoundingClientRect().right }; });
   check('28 a long name is clipped with an ellipsis inside the line', clipped.overflow === 'ellipsis' && clipped.fits, JSON.stringify(clipped));
   await shot('initiative-compact-long-name');
 
@@ -2419,9 +2421,52 @@ feature('initiative compact layout and options menu', async ({ page, shot }) => 
   await page.keyboard.press('Escape');
   await page.evaluate(() => { const { trackerSettings, panel } = window.boardTest; trackerSettings.without = new Set(['showsCompactInitiative', 'setCompactInitiative', 'initiativeTurnOptions', 'setInitiativeTurnOptions']); panel.render(); });
   const none = await look();
-  check('28 with neither setting there is no options button, and Reset and Clear stay buttons: the layout as before', !none.options && !none.compact && none.width === 96 && (await page.locator('.tabletop-initiative-tracker__controls [aria-label="Clear initiative"]').count()) === 1 && (await page.locator('.tabletop-initiative-tracker__controls [aria-label="Reset initiative"]').count()) === 1, JSON.stringify(none));
+  check('28 with neither setting there is no options button, and Reset and Clear stay buttons: the layout as before', !none.options && !none.compact && none.cardWidth === 85 && (await page.locator('.atlas-initiative-tracker__float--top [aria-label="Clear initiative"]').count()) === 1 && (await page.locator('.atlas-initiative-tracker__float--top [aria-label="Reset initiative"]').count()) === 1, JSON.stringify(none));
   await page.evaluate(() => { const { trackerSettings, panel } = window.boardTest; trackerSettings.without.clear(); trackerSettings.compact = false; panel.render(); });
 });
+
+// ── The local player window's initiative list: Atlas 0.20's players' list, in a row across the top ─────────────────
+feature('player window initiative row', async ({ page, shot }) => {
+  const look = () => page.evaluate(() => {
+    const panel = document.querySelector('.atlas-player-initiative');
+    if (!panel) return null;
+    const rect = panel.getBoundingClientRect();
+    const cards = [...panel.querySelectorAll('.atlas-initiative-card')];
+    return {
+      rect: rect.toJSON(), top: panel.classList.contains('atlas-player-initiative--top'), row: panel.classList.contains('atlas-initiative-panel--row'),
+      edge: panel.dataset.edge, container: !!panel.closest('.atlas-player-initiative-container'),
+      cards: cards.map((card) => ({ key: card.getAttribute('data-turn-key'), top: Math.round(card.getBoundingClientRect().top), left: Math.round(card.getBoundingClientRect().left), width: Math.round(card.getBoundingClientRect().width), active: card.classList.contains('atlas-initiative-card--active'), ally: card.classList.contains('atlas-initiative-card--ally'), art: !!card.querySelector('.atlas-initiative-card__art img'), number: !!card.querySelector('.atlas-initiative-card__initiative'), wound: card.querySelector('.atlas-initiative-wound')?.style.getPropertyValue('--atlas-wound') ?? null })),
+      round: panel.querySelector('.atlas-initiative-panel__round')?.textContent ?? null,
+    };
+  });
+  await wait(1200);
+  const row = await look();
+  check('player window: the list stands in a row across the top whatever Atlas\'s layout says (it says the right edge)', row !== null && row.top && row.row && row.edge === 'top' && row.container, JSON.stringify(row));
+  check('player window: the row is centred at the window\'s top, as Atlas\'s top row is', row !== null && Math.abs((row.rect.left + row.rect.right) / 2 - 500) < 2 && row.rect.top >= 8 && row.rect.top <= 16 && row.rect.width > row.rect.height, JSON.stringify(row?.rect));
+  check('player window: the cards of what players see, from the turn: the hidden orc is left out, the cards side by side', row !== null && row.cards.map((c) => c.key).join() === 'hero,gob,bat,mira' && row.cards.every((c, i) => c.top === row.cards[0].top && (i === 0 || c.left > row.cards[i - 1].left) && c.width === 85), JSON.stringify(row?.cards));
+  check('player window: the turn holder is marked, the players\' side framed, art in every card, no initiative numbers', row !== null && row.cards[0].active && row.cards.filter((c) => c.active).length === 1 && row.cards[0].ally && row.cards[3].ally && !row.cards[1].ally && row.cards.every((c) => c.art && !c.number), JSON.stringify(row?.cards));
+  check('player window: the round stands at the row\'s end', row !== null && /2/.test(row.round ?? ''), String(row?.round));
+  await shot('player-initiative-row');
+
+  // The turn passes: the list is drawn from the new turn.
+  await page.evaluate(() => {
+    const { store } = window.listTest;
+    const initiative = store.getState().initiative;
+    store.setState({ initiative: { ...initiative, currentIndex: 1, entries: initiative.entries.map((e) => ({ ...e, isActive: e.id === 'e-gob' })) } });
+  });
+  await wait(900);
+  const next = await look();
+  check('player window: the next turn lights its card and the list runs on from it', next !== null && next.cards.find((c) => c.active)?.key === 'gob', JSON.stringify(next?.cards));
+  await shot('player-initiative-turn');
+
+  // The board's tracker opens and closes the list where Atlas's own is closed.
+  await page.evaluate(() => { window.listTest.store.setState({ initiativeTrackerOpen: false }); window.listTest.tracker(false); });
+  await wait(1200);
+  check('player window: neither tracker open, no list', (await look()) === null);
+  await page.evaluate(() => window.listTest.tracker(true));
+  await wait(1200);
+  check('player window: the board\'s tracker opening brings the list back', (await look()) !== null);
+}, '/playerInitiative.html');
 
 feature('command palette', async ({ page, shot }) => {
   await page.evaluate(() => window.boardTest.palette.open());
@@ -10399,8 +10444,8 @@ feature('fog review fixes', async ({ page, shot }) => {
 
 server.listen(0, async () => {
   const errors = [];
-  const bundles = { 'board.js': affected.inventory(path.join(root, 'board.js')), 'playerBoard.js': affected.inventory(path.join(root, 'playerBoard.js')) };
-  const bundleOf = (one) => (one.url === '/playerBoard.html' ? 'playerBoard.js' : 'board.js');
+  const bundles = { 'board.js': affected.inventory(path.join(root, 'board.js')), 'playerBoard.js': affected.inventory(path.join(root, 'playerBoard.js')), 'playerInitiative.js': affected.inventory(path.join(root, 'playerInitiative.js')) };
+  const bundleOf = (one) => (one.url === '/playerBoard.html' ? 'playerBoard.js' : one.url === '/playerInitiative.html' ? 'playerInitiative.js' : 'board.js');
   const testHash = (one) => cache.hashText(`${one.name}\n${one.url ?? '/'}\n${one.run.toString()}`);
   const global = globalHash();
   const kept = cache.load('features');
@@ -10427,7 +10472,7 @@ server.listen(0, async () => {
       await cdp.send('Profiler.startPreciseCoverage', { callCount: false, detailed: false });
       try {
         await page.goto(`http://127.0.0.1:${server.address().port}${one.url ?? '/'}`);
-        await page.waitForFunction(() => window.boardTest?.ready || window.playerTest?.ready || window.boardError, null, { timeout: 30000 });
+        await page.waitForFunction(() => window.boardTest?.ready || window.playerTest?.ready || window.listTest?.ready || window.boardError, null, { timeout: 30000 });
         const boot = await page.evaluate(() => window.boardError ?? null);
         if (boot) throw new Error(boot);
         await wait(1200);

@@ -1,12 +1,12 @@
-// Atlas source: src/app/services/PlayerSceneOverlay.ts @ 0.19.0 (AGPL-3.0, hand-copied for Tabletop: the board's player window shows Atlas's player window's widgets; only the imports differ).
+// Atlas source: src/app/services/PlayerSceneOverlay.ts @ 0.20.0 (AGPL-3.0, hand-copied for Tabletop: the board's player window shows Atlas's own initiative list; only the imports differ).
 // @ts-nocheck
-import type { EventEmitter } from '../utils/typedEmitter';
+import type { EventEmitter } from '../../shims/atlasTypes';
 import type { StoreApi } from 'zustand';
 import { shallow } from 'zustand/vanilla/shallow';
-import type { ViewAtlasState } from '../storeFactory';
-import type { AtlasSettings, SettingsService } from './SettingsService';
-import type { PlayerRollSources } from './playerRollSource';
-import type { PlayerBadgeNumbers } from '../pixi/token-renderer/PlayerBadgeNumbers';
+import type { ViewAtlasState } from '../../shims/paletteSettings';
+import type { AtlasSettings, SettingsService } from '../../shims/settingsService';
+import type { PlayerRollSources } from '../../shims/atlasTypes';
+import type { PlayerBadgeNumbers } from '../../shims/atlasTypes';
 
 export type PlayerSettings = AtlasSettings['localPlayerView'];
 
@@ -38,6 +38,8 @@ export abstract class PlayerSceneOverlay<Scene extends object> implements Player
   private scene: Scene | undefined;
   private playerSettings: PlayerSettings;
   private unsubscribeStore: (() => void) | undefined;
+  /** Picks the scene again from the presented store; none while nothing is presented or the scene is held. */
+  private selectAgain: (() => void) | undefined;
   private readonly unsubscribeSettings: () => void;
 
   protected constructor(private readonly containerInfo: DomElementInfo, settings: SettingsService) {
@@ -64,12 +66,19 @@ export abstract class PlayerSceneOverlay<Scene extends object> implements Player
     this.unsubscribeStore?.();
     this.scene = this.select(store.getState());
     this.refresh();
-    this.unsubscribeStore = store.subscribe((state) => {
+    const take = (state: ViewAtlasState): void => {
       const scene = this.select(state);
       if (shallow(this.scene, scene)) return;
       this.scene = scene;
       this.refresh();
-    });
+    };
+    this.unsubscribeStore = store.subscribe(take);
+    this.selectAgain = () => take(store.getState());
+  }
+
+  /** Picks the scene again for what `select` reads besides the store (the map's rules): drawn anew where it changed. */
+  protected reselect(): void {
+    this.selectAgain?.();
   }
 
   /**
@@ -79,6 +88,7 @@ export abstract class PlayerSceneOverlay<Scene extends object> implements Player
   hold(): void {
     this.unsubscribeStore?.();
     this.unsubscribeStore = undefined;
+    this.selectAgain = undefined;
   }
 
   destroy(): void {

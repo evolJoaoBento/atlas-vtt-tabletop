@@ -15,7 +15,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { ResponsiveWidgetBar } from '../atlasPort/app/react/components/ResponsiveWidgetBar';
 import { AtlasUIContext } from '../atlasPort/shims/atlasUI';
 import { matchesMapHotkey } from '../atlasPort/app/keyboard/mapHotkeys';
-import { SettingsService } from '../atlasPort/shims/settingsService';
+import { SettingsService, playerWindowSettings } from '../atlasPort/shims/settingsService';
 import { giveToWidgets } from './widgetKeys';
 import { PlayerWidgetBar } from '../atlasPort/app/services/PlayerWidgetBar';
 
@@ -110,7 +110,8 @@ export class PlayerWindowWidgets {
   private view: WidgetBarView | null = null;
 
   constructor(readonly parent: HTMLElement, app: App) {
-    this.bar = new PlayerWidgetBar(SettingsService.forApp(app));
+    // The players' list stands across the top (`playerWindowSettings`): the widgets come down the right edge, clear of it.
+    this.bar = new PlayerWidgetBar(playerWindowSettings(app) as never);
     this.bar.mount(parent);
   }
 

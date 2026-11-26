@@ -15,8 +15,11 @@ mkdirSync(`${out}/shots`, { recursive: true });
 await build({ entryPoints: ['harness/board.ts'], bundle: true, outfile: `${out}/board.js`, alias: { obsidian: './harness/obsidian-stub.ts' }, loader: { '.png': 'binary', '.mp3': 'binary' }, logLevel: 'warning', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"development"' } });
 // The player board harness, as Connect mounts it: a feature can use the url `/playerBoard.html`.
 await build({ entryPoints: ['harness/playerBoard.ts'], bundle: true, outfile: `${out}/playerBoard.js`, alias: { obsidian: './harness/obsidian-stub.ts' }, loader: { '.png': 'binary', '.mp3': 'binary' }, logLevel: 'warning', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"development"' } });
+// The local player window's initiative list: a feature can use the url `/playerInitiative.html`.
+await build({ entryPoints: ['harness/playerInitiative.ts'], bundle: true, outfile: `${out}/playerInitiative.js`, alias: { obsidian: './harness/obsidian-stub.ts' }, loader: { '.png': 'binary', '.mp3': 'binary' }, logLevel: 'warning', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"development"' } });
 copyFileSync('harness/board.html', `${out}/index.html`);
 writeFileSync(`${out}/playerBoard.html`, readFileSync('harness/board.html', 'utf8').replace('board.js', 'playerBoard.js'));
+writeFileSync(`${out}/playerInitiative.html`, readFileSync('harness/board.html', 'utf8').replace('board.js', 'playerInitiative.js'));
 copyFileSync('styles.css', `${out}/styles.css`);
 // Atlas's own styles, when the vault has them (the screenshots then look as Atlas's toolbar does).
 const atlas = process.env.ATLAS_CSS ?? '../../atlas-vtt/styles.css';
