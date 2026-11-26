@@ -114,6 +114,7 @@ import { staggerOffsets } from '../sound/thinning';
 import type { PlayOptions, SoundEngine, SoundId } from '../sound/soundEngine';
 import { isVideoPath, loadImageTexture, loadMapTexture, MAX_MAP_TEXTURE, mapImageSize, mapTextureFromPicture, plateTexture, screenScale } from './textures';
 import { capObjectTextures, capTexture } from './textureCap';
+import { widgetTakes } from './widgetKeys';
 import { WallSet } from './wallPieces';
 import { LightRig } from './lightRig';
 import { DarknessLayer } from './darkness';
@@ -3905,6 +3906,8 @@ export class Board {
       this.wake();
     }, { passive: false });
     on('keydown', (event) => {
+      // A widget's number held (Atlas's widget bar): its keys step the widget, not the board.
+      if (widgetTakes(event)) return;
       const key = event.key.toLowerCase();
       this.showName(null);
       // Escape first takes away a spell's review still waiting over the board (it would sit over the next cast).
@@ -4038,7 +4041,7 @@ export class Board {
     // Atlas's keys act on the board wherever the focus is inside its tab, not only on the canvas: a toolbar button that was just
     // pressed keeps it. Text fields and Atlas's windows keep their own keys. Keys the canvas hears itself are not heard twice.
     const keysFromFocus = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented || this.audience !== 'gm' || this.eye) return;
+      if (event.defaultPrevented || widgetTakes(event) || this.audience !== 'gm' || this.eye) return;
       const target = event.target as HTMLElement | null;
       // Focus inside the board's tab, or fallen to the page (a pressed button that was removed, as the measure
       // popover's Delete is) while the board's tab is the active one.

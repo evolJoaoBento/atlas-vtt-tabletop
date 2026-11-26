@@ -24,3 +24,14 @@ test('a map that fits, one of unknown size, or a browser that cannot decode smal
   assert.equal(await smallPicture('blob:map', 4096, tools(null)), null);
   assert.equal(await smallPicture('blob:map', 4096, tools({ width: 9000, height: 9000 }, false)), null);
 });
+
+test('a browser that ignores the size asked for (the whole map comes back) is let go, and the map read as before', async () => {
+  let closed = false;
+  const t: PictureTools = {
+    fetchBlob: async () => new Blob([new Uint8Array(4)]),
+    size: async () => ({ width: 8192, height: 8192 }),
+    decode: async () => ({ width: 8192, height: 8192, close: () => { closed = true; } }) as unknown as ImageBitmap,
+  };
+  assert.equal(await smallPicture('blob:map', 4096, t), null);
+  assert.equal(closed, true);
+});

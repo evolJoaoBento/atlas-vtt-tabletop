@@ -35,5 +35,11 @@ export async function smallPicture(url: string, maxSide: number, tools: PictureT
   const fit = fitTexture(size.width, size.height, maxSide);
   if (fit.width === size.width && fit.height === size.height) return null;
   const bitmap = await tools.decode(blob, fit.width, fit.height);
+  // A browser that ignores the size asked for gives the whole map: let it go, and the board reads it the usual way (and
+  // draws it smaller), rather than drawing it whole.
+  if (bitmap.width > fit.width + 1 || bitmap.height > fit.height + 1) {
+    bitmap.close();
+    return null;
+  }
   return { bitmap, width: size.width, height: size.height };
 }
