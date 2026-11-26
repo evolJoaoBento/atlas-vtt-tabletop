@@ -79,3 +79,18 @@ test("a spell's feet on any scale: feet, yards, metres as D&D counts them, five 
   assert.equal(scale('feet', 5, 'abstract'), 5);
   assert.equal(scale('feet', 0), 5);
 });
+
+test('graphics that take no texture over 4096 pixels (an old iPad, whose Safari tells neither memory nor true cores) are an old device: a tablet starts leanest', () => {
+  assert.equal(oldDevice({ hardwareConcurrency: 8 }, 4096), true);
+  assert.equal(oldDevice({ hardwareConcurrency: 8 }, 16384), false);
+  assert.equal(oldDevice({ hardwareConcurrency: 8 }, undefined), false);
+  assert.equal(deviceFloor({ hardwareConcurrency: 8 }, true, 4096), 2);
+  assert.equal(deviceFloor({ hardwareConcurrency: 8 }, true, 16384), 1);
+  assert.equal(deviceFloor({ hardwareConcurrency: 8, deviceMemory: 8 }, false, 4096), 1);
+});
+
+test('the leanest memory draws bare (flat materials, no liquids, nothing round the table); the others do not', () => {
+  assert.equal(leaner(QUALITY.low, 'leanest').bare, true);
+  assert.equal(leaner(QUALITY.low, 'lean').bare, undefined);
+  assert.equal(leaner(QUALITY.low, 'normal').bare, undefined);
+});

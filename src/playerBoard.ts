@@ -18,6 +18,7 @@ import { NO_FLIP } from './board/walls';
 import { framesAnew } from './board/playerView';
 import type { CameraKeep } from './board/camera';
 import { materialFromUrls, type LoadedMaterial } from './materials';
+import { flatMaterial } from './board/flatMaterial';
 import { smallPicture } from './board/smallPicture';
 import { readGround } from './board/ground';
 import { settlesWithin, STALL_MS } from './board/loadProgress';
@@ -949,6 +950,12 @@ class PlayerBoard implements PlayerBoardHandle {
       readMaterial: async (id): Promise<LoadedMaterial | null> => {
         const record = look()?.materials.find((material) => material.id === id);
         if (!record) return null;
+        // A bare board (the leanest memory) draws each material as its colour map's average colour: only that map is waited for.
+        if (this.preset.bare) {
+          const colorId = record.maps.color;
+          if (colorId) await this.arrival(colorId, () => this.host.image(colorId) !== null);
+          return flatMaterial('', colorId ? this.host.image(colorId) : null);
+        }
         const ids = Object.values(record.maps);
         await Promise.all(ids.map((asset) => this.arrival(asset, () => this.host.image(asset) !== null)));
         const url = (role: string): string | null => (record.maps[role] ? this.host.image(record.maps[role]) : null);

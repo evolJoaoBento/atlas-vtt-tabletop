@@ -2,7 +2,9 @@
  * Tabletop's player board for a plain browser: Connect's join page loads this (as a chunk of its own) to draw the 3D
  * board for a player who joined from a browser, as Connect's player tab in Obsidian draws it with the Tabletop plugin.
  * three.js is left out: the page gives its own. On a phone the board draws at the low quality and starts lean on memory
- * (maps to 4096 pixels, other pictures to 1024, the screen's own resolution at most), a small phone leanest; a device that
+ * (maps to 4096 pixels, other pictures to 1024, the screen's own resolution at most); a small phone, or an old phone or
+ * tablet (its graphics take no texture over 4096 pixels), leanest and bare (flat-coloured materials, no liquids, nothing
+ * round the table); a device that
  * ran out of memory with it (its page reloading) draws it leaner still, and one that died at the leanest opens on the 2D
  * map (`boardGaveOut`, `memoryGuard.ts`).
  */

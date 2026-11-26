@@ -1751,11 +1751,13 @@ export class Board {
     // The painted background, once it is read and made; until then (or if it cannot be), the plain horizon plane.
     // Out to a little past where the fog hides everything, from anywhere over the map.
     const reach = planeReach(ground.fog, this.span);
-    const paintedLook = ground.mode === 'painted' && !this.seeThrough
+    // A bare board (the leanest memory) keeps only the table: no painted background, horizon plane or sea.
+    const bare = this.quality.bare === true;
+    const paintedLook = ground.mode === 'painted' && !this.seeThrough && !bare
       ? this.painted.look(ground.background, { width: this.size.width, height: this.size.height, cell, margin: ground.margin, tile: ground.tile, reach })
       : (this.painted.clear(), null);
-    const horizon = (ground.mode === 'horizon' || ground.mode === 'painted') && !this.seeThrough;
-    const sea = (ground.mode === 'water' || ground.mode === 'lava' || ground.mode === 'acid') && !this.seeThrough;
+    const horizon = (ground.mode === 'horizon' || ground.mode === 'painted') && !this.seeThrough && !bare;
+    const sea = (ground.mode === 'water' || ground.mode === 'lava' || ground.mode === 'acid') && !this.seeThrough && !bare;
     this.surface.setMargin(ground.mode === 'board' ? ground.margin * map.grid.size : 0);
     this.surface.showTable(!horizon && !sea);
     const lowest = Math.min(0, ...this.stackData.map((layer) => layer.elevation)) * map.grid.size;
@@ -6088,7 +6090,8 @@ export class Board {
     this.chosenWaterMotion = {};
     const saved = this.host.water?.() ?? null;
     this.waterKey = waterKeyOf(saved);
-    if (!saved || !this.size) return;
+    // A bare board (the leanest memory) draws no liquids.
+    if (!saved || !this.size || this.quality.bare) return;
     const motions = motionsOf(saved);
     for (const liquid of LIQUID_KINDS) {
       const mask = maskOfSource(saved, this.size.width, this.size.height, map.grid.size, liquid);

@@ -53,6 +53,9 @@ server.listen(0, async () => {
     const normal = results.find((row) => row.engine === engine && row.memory === 'normal');
     const lean = results.find((row) => row.engine === engine && row.memory === 'lean');
     if (normal && lean && !(lean.mb < normal.mb)) { failed++; console.log(`FAIL ${engine}: a phone does not hold less than a computer`); }
+    // The leanest draws bare: the material's maps (on the wall and the ground) are gone, its average colour left.
+    const leanest = results.find((row) => row.engine === engine && row.memory === 'leanest');
+    if (lean && leanest && !(leanest.textures <= lean.textures - 2)) { failed++; console.log(`FAIL ${engine}: the leanest board still wears the material's textures (${leanest.textures} vs ${lean.textures})`); }
   }
   process.exit(failed ? 1 : 0);
 });

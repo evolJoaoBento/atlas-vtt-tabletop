@@ -3,9 +3,10 @@
  * 3D board fills it, the tab is killed and the page loads again, and again. So the board marks itself running while it
  * is up, and clears the mark when the page is left (`pagehide`, hidden) or the board closes; a mark found at the next
  * load means the last one died. Each such death draws the board leaner (`MemoryMode`): smaller textures, a lower
- * resolution, then no layers. Three days without one, it draws as usual again. A phone, or a device with two cores or
- * less (an old iPad mini) or that says it has 2 GB or less, starts lean; a small phone (four cores or less, or 4 GB or
- * less where it says) starts leanest. A board that died even at the leanest is not started again by itself: the page
+ * resolution, then no layers and bare. Three days without one, it draws as usual again. A phone, or a device with two
+ * cores or less (an old iPad mini), that says it has 2 GB or less, or whose graphics take no texture over 4096 pixels (an
+ * old iPad: Safari tells neither its memory nor, truly, its cores), starts lean; a small phone (four cores or less, or 4 GB
+ * or less where it says) or an old phone or tablet starts leanest. A board that died even at the leanest is not started again by itself: the page
  * opens on the 2D map (`boardGaveOut`) and the player chooses 3D.
  */
 import type { MemoryMode } from '../board/quality';
@@ -46,8 +47,9 @@ export function readMark(raw: string | null): MemoryMark | null {
   }
 }
 
-/** Whether this browser is an old, small device: two cores or less, or 2 GB or less where it says. */
-export function oldDevice(nav: DeviceNavigator | undefined): boolean {
+/** Whether this browser is an old, small device: two cores or less, 2 GB or less where it says, or graphics whose largest texture is 4096 pixels or less. */
+export function oldDevice(nav: DeviceNavigator | undefined, gpuSide?: number): boolean {
+  if (typeof gpuSide === 'number' && gpuSide > 0 && gpuSide <= SMALL_GPU_SIDE) return true;
   if (!nav) return false;
   const cores = nav.hardwareConcurrency;
   const memory = nav.deviceMemory;
@@ -56,12 +58,32 @@ export function oldDevice(nav: DeviceNavigator | undefined): boolean {
 
 type DeviceNavigator = { hardwareConcurrency?: number; deviceMemory?: number };
 
+/** Graphics whose largest texture is this or less are an old device's (an iPad before the A9 chip, an old Android). */
+export const SMALL_GPU_SIDE = 4096;
+
+/** The largest texture this browser's WebGL takes, read once from a throwaway context; undefined when it cannot tell. */
+let gpuSideRead: number | undefined | null = null;
+export function gpuTextureSide(doc: Document): number | undefined {
+  if (gpuSideRead !== null) return gpuSideRead;
+  gpuSideRead = undefined;
+  try {
+    const gl = doc.createElement('canvas').getContext('webgl') as WebGLRenderingContext | null;
+    if (gl) {
+      const side = Number(gl.getParameter(gl.MAX_TEXTURE_SIZE));
+      gpuSideRead = Number.isFinite(side) && side > 0 ? side : undefined;
+      gl.getExtension('WEBGL_lose_context')?.loseContext();
+    }
+  } catch { /* no WebGL: the board will say so itself */ }
+  return gpuSideRead;
+}
+
 /**
  * How many steps leaner than usual a board starts on this device: none on a computer; one on a phone or an old, small
- * device; two on a small phone (four cores or less, or 4 GB or less where the browser says).
+ * device; two on a small phone (four cores or less, or 4 GB or less where the browser says) or an old phone or tablet.
+ * `gpuSide`: the largest texture its graphics take (`gpuTextureSide`).
  */
-export function deviceFloor(nav: DeviceNavigator | undefined, phone: boolean): number {
-  const old = oldDevice(nav);
+export function deviceFloor(nav: DeviceNavigator | undefined, phone: boolean, gpuSide?: number): number {
+  const old = oldDevice(nav, gpuSide);
   if (!phone) return old ? 1 : 0;
   const cores = nav?.hardwareConcurrency;
   const memory = nav?.deviceMemory;
@@ -90,7 +112,7 @@ function readStored(storage: Storage | null): MemoryMark | null {
 
 /** `gaveOut` for this browser: the last board died even at the leanest (and was not left cleanly since). */
 export function boardGaveOut(win: Window, phone: boolean): boolean {
-  return gaveOut(readStored(storageOf(win)), deviceFloor(win.navigator as Navigator & DeviceNavigator, phone));
+  return gaveOut(readStored(storageOf(win)), deviceFloor(win.navigator as Navigator & DeviceNavigator, phone, gpuTextureSide(win.document)));
 }
 
 /**
@@ -102,7 +124,7 @@ export function guardMemory(win: Window, phone = false): { mode: MemoryMode; sto
   const write = (mark: MemoryMark): void => {
     try { storage?.setItem(MEMORY_KEY, JSON.stringify(mark)); } catch { /* full or blocked: no mark kept */ }
   };
-  const start = startMemory(readStored(storage), Date.now(), deviceFloor(win.navigator as Navigator & DeviceNavigator, phone));
+  const start = startMemory(readStored(storage), Date.now(), deviceFloor(win.navigator as Navigator & DeviceNavigator, phone, gpuTextureSide(win.document)));
   let mark = start.mark;
   write(mark);
   const left = (): void => { mark = { ...mark, running: false }; write(mark); };

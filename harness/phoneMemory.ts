@@ -1,6 +1,6 @@
 /**
  * The phone memory probe: Tabletop's player board mounted as Connect mounts it, on a heavy scene (an 8192-pixel map,
- * large token art, a large wall material, a mini whose texture is 4096 pixels), drawn as a phone draws it
+ * large token art, a large wall material also on the ground to the horizon, a mini whose texture is 4096 pixels), drawn as a phone draws it
  * (`?memory=lean`, `leanest`) or as a computer does (`normal`). It reports how many bytes the textures it uploaded
  * hold (`window.memoryProbe`), for harness/phoneMemory-test.cjs to hold to a budget.
  */
@@ -63,6 +63,9 @@ const extras: BoardExtras = {
   props: [], materials: [{ id: TEX, scale: 1, maps: { color: TEX } }],
   ambient: 0.6, fogHeight: 1, wallThickness: 0.12,
   lighting: { enabled: false, ambient: 0.6, ambientColor: null },
+  // The ground to the horizon in the wall's material: drawn as a phone draws it, not at all bare (the leanest).
+  ground: { mode: 'horizon', material: TEX, noise: 'none', strength: 0, fog: 40, margin: 0, tile: 1,
+    water: { kind: 'calm', amount: 0.5, direction: 0, tint: '#3366aa', clarity: 0.5 }, lava: { kind: 'calm', amount: 0.5, direction: 0, tint: '#ff5500', clarity: 0.5 }, acid: { kind: 'calm', amount: 0.5, direction: 0, tint: '#66ff00', clarity: 0.5 } },
 } as never;
 
 /** The bytes the textures the renderer holds take, counted from the scene's materials (each once, mipmaps as a third more). */
