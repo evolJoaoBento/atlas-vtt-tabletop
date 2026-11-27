@@ -5,6 +5,15 @@
  */
 import type { TabletopCommand } from './tabletopCommands';
 import type { ToolbarActions } from '../board/toolbar';
+import type { SoundChanges, SoundSettings } from '../sound/soundSettings';
+
+/** What the palette's Sound Settings page reads and writes: the board sounds of this device. */
+export interface BoardSoundHost {
+  settings(): SoundSettings;
+  set(changes: SoundChanges): void;
+  /** Opens Obsidian's settings on Tabletop's tab, where each sound has its level. */
+  openPluginSettings?(): void;
+}
 
 /** What Tabletop's settings page in the palette reads and writes (the board's toolbar actions for the old Board settings panel). */
 export type TabletopSettingsHost = Pick<ToolbarActions, 'fogHeight' | 'setFogHeight' | 'wallsReachNext' | 'setWallsReachNext' | 'wallThickness' | 'setWallThickness' | 'wallEdges' | 'setWallEdges' | 'snap' | 'setSnap' | 'autoRoll' | 'setAutoRoll' | 'grade' | 'setGrade' | 'tiltShift' | 'setTiltShift' | 'occlusion' | 'setOcclusion' | 'halo' | 'setHalo' | 'seeThrough' | 'setSeeThrough' | 'seeThroughSize' | 'setSeeThroughSize' | 'layerLook' | 'setLayerLook' | 'initiativeOpen' | 'toggleInitiative'>;
@@ -33,6 +42,8 @@ export interface PaletteHost {
   atlasView?(): unknown;
   /** Shows the board's shortcut help (Atlas's palette entry for it). */
   openHotkeyHelp?(): void;
+  /** The board sounds the palette's Sound Settings page reads and writes; null without them. */
+  boardSound?(): BoardSoundHost | null;
   /** Shows Atlas's Sound page over the board; false when there is none to show (Atlas's DM screen opens in Atlas then). */
   openSoundPage?(): boolean;
 }

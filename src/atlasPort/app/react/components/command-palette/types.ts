@@ -28,8 +28,9 @@ export const SETTINGS_PANEL_IDS = [
   'experimental-features',
   'graphics-settings',
   'lighting-settings',
-  // Tabletop's own page, in the palette like Atlas's.
+  // Tabletop's own pages, in the palette like Atlas's.
   'tabletop-settings',
+  'tabletop-sound-settings',
 ] as const;
 
 export type SettingsPanelId = (typeof SETTINGS_PANEL_IDS)[number];

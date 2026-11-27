@@ -92,7 +92,7 @@ import type { ChosenPack } from '../dice/dicePack';
 import type { TabletopDiceSettings } from '../dice/diceSettings';
 import { loadSound } from '../sound/catalog';
 import { SoundEngine } from '../sound/soundEngine';
-import type { SoundSettings } from '../sound/soundSettings';
+import type { SoundChanges, SoundSettings } from '../sound/soundSettings';
 import type { SoundLoader } from '../sound/customSounds';
 import { documentHasWebgl, NO_WEBGL_HELP, NO_WEBGL_TITLE } from '../webgl';
 import { buildPlayerSheet, linkedCreatures, type AtlasFloor, type AtlasHost, type LinkedCreatures, type PlayerSheet } from '../../packages/atlas-host/src/index';
@@ -226,8 +226,13 @@ export interface BoardServices {
   dicePack(): ChosenPack;
   /** The body colour Atlas's dice look gives a die no dice set colours (null: the pack's own). */
   diceBody?(): string | null;
-  /** What the player chose for board sounds (per device). */
+  /** What the player chose for board sounds (per device), as an engine plays them. */
   soundSettings(): SoundSettings;
+  /** The board sounds as the player set them, for the palette's Sound Settings, and a change to them. */
+  boardSound?(): SoundSettings;
+  setBoardSound?(changes: SoundChanges): void;
+  /** Opens Obsidian's settings on Tabletop's tab. */
+  openPluginSettings?(): void;
   /** Where the sound files come from: the vault's custom sounds folder first, the bundled sounds otherwise. */
   soundLoader?(): SoundLoader;
 }
@@ -837,6 +842,10 @@ export class BoardView extends ItemView {
         openInAtlas,
         atlasView: () => (this.path ? this.services.writer.holder(this.path) : null),
         tabletopSettings: () => this.board?.toolbarActions() ?? null,
+        boardSound: () => {
+          const { boardSound, setBoardSound, openPluginSettings } = this.services;
+          return boardSound && setBoardSound ? { settings: () => boardSound(), set: (changes) => setBoardSound(changes), ...(openPluginSettings && { openPluginSettings }) } : null;
+        },
         tabletopCommands: () => { const board = this.board; return board ? tabletopCommands(board.toolbarActions(), () => board.refreshToolbar(), board.toolbarCommandHost()) : []; },
       },
       spawn: {

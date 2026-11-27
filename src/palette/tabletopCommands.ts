@@ -150,5 +150,14 @@ export function tabletopCommands(actions: ToolbarActions, refresh: () => void, h
     page: true,
   });
 
+  // Tabletop's board sounds (volume, mute, each kind), a page beside it; Atlas's music and ambience are on Atlas's Sound page.
+  commands.push({
+    id: 'tabletop-sound-settings',
+    label: t('soundSettings.entry'),
+    icon: 'volume',
+    keywords: ['sound', 'sounds', 'audio', 'volume', 'mute', 'silence', 'loud', 'quiet', 'effects', 'dice', 'minis', 'spells', 'conditions', 'turns', 'horn', 'fog', 'doors', 'water'],
+    page: true,
+  });
+
   return commands;
 }

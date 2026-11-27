@@ -15,7 +15,8 @@ import { MAX_LAYER_TICK, MIN_LAYER_TICK, readLayerTick } from './src/board/layer
 import { TABLETOP_ICON, TABLETOP_ICON_BODY } from './src/tabletopIcon';
 import { lookOf, readSky, type LightingChoice, type Sky } from './src/board/look';
 import { AtlasOpenButton } from './src/atlasButton';
-import { setLanguage } from './src/i18n';
+import { setLanguage, t } from './src/i18n';
+import { soundGroupText, SWITCHED_SOUND_GROUPS } from './src/sound/soundGroupText';
 import { BOARD_PROTOCOL_ACTION, boardLink, DEFAULT_SNAPSHOT_FOLDER, latestSnapshot, parseBoardBlock, readBoardLink, snapshotPath } from './src/boardLinks';
 import { renderBoardCard } from './src/boardCard';
 import { resolveLaser, type LaserSettings } from './src/board/laser';
@@ -50,7 +51,7 @@ import { CutsceneChannel } from './src/cutscene/cutsceneRun';
 import { DEFAULT_PACK, defaultPackFiles, releaseDefaultPackSheets } from './src/dice/defaultPack';
 import { choosePack, vendoredPack, type ChosenPack } from './src/dice/dicePack';
 import { SpellLibrary } from './src/spellLibrary';
-import { DEFAULT_SOUND_SETTINGS, readSoundSettings, SOUND_GROUPS, type SoundGroup, type SoundSettings } from './src/sound/soundSettings';
+import { DEFAULT_SOUND_SETTINGS, readSoundSettings, SOUND_GROUPS, type SoundChanges, type SoundGroup, type SoundSettings } from './src/sound/soundSettings';
 import { DEFAULT_CINEMATIC_SETTINGS, readCinematicSettings, type CinematicSettings } from './src/cutscene/cinematicSettings';
 import { CATALOG, type SoundId } from './src/sound/catalog';
 import { cleanFolder, DEFAULT_SOUNDS_FOLDER } from './src/sound/customSounds';
@@ -436,6 +437,9 @@ export default class TabletopPlugin extends Plugin {
       materialDefaults: () => readMaterialDefaults(this.settings.materialDefaults),
       diceSettings: () => this.settings.dice,
       soundSettings: () => this.soundForEngine(),
+      boardSound: () => this.settings.sound,
+      setBoardSound: (changes) => this.setSound(changes),
+      openPluginSettings: () => this.openSettingsTab(),
       cinematicSettings: () => this.settings.cinematic,
       setCinematicSettings: (changes) => this.setCinematic(changes),
       soundLoader: () => this.vaultSounds.custom.load,
@@ -796,11 +800,20 @@ export default class TabletopPlugin extends Plugin {
   }
 
   /** A sound setting changed: saved, and every board's engine follows. */
-  setSound(changes: Partial<Omit<SoundSettings, 'groups'>> & { groups?: Partial<Record<SoundGroup, boolean>> }): void {
+  setSound(changes: SoundChanges): void {
     this.settings.sound = readSoundSettings({ ...this.settings.sound, ...changes, groups: { ...this.settings.sound.groups, ...changes.groups } });
     this.save();
     for (const view of this.boards()) view.refreshSound();
     for (const listener of [...this.soundListeners]) listener();
+    // The palette's Sound Settings page shows them: read again.
+    paletteChanged();
+  }
+
+  /** Opens Obsidian's settings on Tabletop's tab (the palette's Sound Settings sends the GM there for each sound's level). */
+  openSettingsTab(): void {
+    const setting = (this.app as unknown as { setting?: { open(): void; openTabById(id: string): void } }).setting;
+    setting?.open();
+    setting?.openTabById(this.manifest.id);
   }
 
   /** A cinematic setting changed: saved. */
@@ -1251,25 +1264,15 @@ class TabletopSettingTab extends PluginSettingTab {
   /** Board sounds, on this device: the volume, a mute, and a switch for each kind of sound. */
   private soundRows(): SettingRow[] {
     const { plugin } = this;
-    const names: Record<SoundGroup, [string, string]> = {
-      dice: ['Dice sounds', 'Dice hitting the table and each other.'],
-      minis: ['Mini sounds', 'Picking a mini up and putting it down.'],
-      spells: ['Spell sounds', 'Spells cast on the board.'],
-      conditions: ['Condition sounds', 'A condition put on a token.'],
-      turns: ['Turn sounds', 'The horn when a turn begins.'],
-      fog: ['Fog sounds', 'Fog being revealed.'],
-      doors: ['Door sounds', 'Doors opening, closing and locked; walls crumbling.'],
-      water: ['Water sounds', 'Painted water, by how it moves.'],
-    };
     return [
-      this.row('Sound volume', 'How loud board sounds are, on this device.', (setting) => {
+      this.row(t('soundSettings.volume'), t('soundSettings.volumeHint'), (setting) => {
         setting.addSlider((slider) => slider.setLimits(0, 1, 0.05).setValue(plugin.settings.sound.volume).setDynamicTooltip().onChange((volume) => plugin.setSound({ volume })));
       }, ['audio', 'loud', 'effects']),
-      this.row('Mute board sounds', 'Silences every board sound, on this device.', (setting) => {
+      this.row(t('soundSettings.mute'), t('soundSettings.muteHint'), (setting) => {
         setting.addToggle((toggle) => toggle.setValue(plugin.settings.sound.muted).onChange((muted) => plugin.setSound({ muted })));
       }, ['audio', 'silent']),
       // Dice have no switch here: they are as loud as Atlas plays its dice (Atlas's own Dice volume).
-      ...SOUND_GROUPS.filter((group) => group !== 'dice').map((group) => this.row(names[group][0], names[group][1], (setting) => {
+      ...SWITCHED_SOUND_GROUPS.map((group) => this.row(soundGroupText(group).name, soundGroupText(group).hint, (setting) => {
         setting.addToggle((toggle) => toggle.setValue(plugin.settings.sound.groups[group]).onChange((on) => plugin.setSound({ groups: { [group]: on } })));
       }, ['audio'])),
     ];

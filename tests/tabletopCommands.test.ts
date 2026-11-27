@@ -135,3 +135,15 @@ test("Atlas 0.20's Appearance page is a palette command that opens it in Atlas",
     setPaletteHost(null);
   }
 });
+
+test('Sound Settings is a page of its own in the palette, found by the words for sound', () => {
+  const { made } = actions();
+  const entries = tabletopCommands(made, () => {});
+  const page = entries.find((entry) => entry.id === 'tabletop-sound-settings')!;
+  assert.equal(page.label, 'Sound Settings');
+  assert.equal(page.page, true);
+  assert.equal(page.icon, 'volume');
+  for (const word of ['sound', 'volume', 'mute', 'audio']) assert.ok(page.keywords?.includes(word), word);
+  // It follows Tabletop Settings, both pages heading the palette's Settings.
+  assert.ok(entries.indexOf(page) > entries.findIndex((entry) => entry.id === 'tabletop-settings'));
+});

@@ -168,22 +168,22 @@ export const PATCHES = [
   {
     file: 'react/components/command-palette/types.ts',
     find: "  'lighting-settings',\n] as const;",
-    replace: "  'lighting-settings',\n  // Tabletop's own page, in the palette like Atlas's.\n  'tabletop-settings',\n] as const;",
+    replace: "  'lighting-settings',\n  // Tabletop's own pages, in the palette like Atlas's.\n  'tabletop-settings',\n  'tabletop-sound-settings',\n] as const;",
   },
   {
     file: 'react/components/CommandPalette.tsx',
     find: "import { showNotice } from '../../ui/notice';",
-    replace: "import { showNotice } from '../../ui/notice';\nimport { TabletopSettingsPanel, tabletopSettingsMeta } from '@shims/tabletopSettingsPanel';",
+    replace: "import { showNotice } from '../../ui/notice';\nimport { TabletopSettingsPanel, tabletopSettingsMeta } from '@shims/tabletopSettingsPanel';\nimport { TabletopSoundPanel, tabletopSoundMeta } from '@shims/tabletopSoundPanel';",
   },
   {
     file: 'react/components/CommandPalette.tsx',
     find: "  'lighting-settings': { title: t('sceneLight.settings'), icon: <SunMoon /> },\n};",
-    replace: "  'lighting-settings': { title: t('sceneLight.settings'), icon: <SunMoon /> },\n  'tabletop-settings': tabletopSettingsMeta(),\n};",
+    replace: "  'lighting-settings': { title: t('sceneLight.settings'), icon: <SunMoon /> },\n  'tabletop-settings': tabletopSettingsMeta(),\n  'tabletop-sound-settings': tabletopSoundMeta(),\n};",
   },
   {
     file: 'react/components/CommandPalette.tsx',
     find: "      case 'lighting-settings':\n        return <LightingSettingsPanel />;\n",
-    replace: "      case 'lighting-settings':\n        return <LightingSettingsPanel />;\n      case 'tabletop-settings':\n        return <TabletopSettingsPanel onClose={onClose} />;\n",
+    replace: "      case 'lighting-settings':\n        return <LightingSettingsPanel />;\n      case 'tabletop-settings':\n        return <TabletopSettingsPanel onClose={onClose} />;\n      case 'tabletop-sound-settings':\n        return <TabletopSoundPanel />;\n",
   },
   // Atlas's shortcut help on the board (`board`, src/atlasPort/shims/boardHotkeyHelp.ts): only the shortcuts the board
   // has, with the keys the board takes (a camera letter with Shift), and the board's own keys as a section of their own.

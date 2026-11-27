@@ -20,6 +20,9 @@ export interface SoundSettings {
   diceVolume?: number;
 }
 
+/** A change to the sound settings: any of them, the groups one by one. */
+export type SoundChanges = Partial<Omit<SoundSettings, 'groups' | 'diceVolume'>> & { groups?: Partial<Record<SoundGroup, boolean>> };
+
 /** The level a sound starts at before the player moves its slider: 1, except the water loops, which stay in the background. */
 export const DEFAULT_SOUND_LEVELS: Readonly<Record<string, number>> = Object.freeze({
   'water.ripples': 0.05,

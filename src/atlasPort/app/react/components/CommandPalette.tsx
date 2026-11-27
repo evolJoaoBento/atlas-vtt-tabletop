@@ -79,6 +79,7 @@ import { isSettingsPanelId, type CommandOption, type SettingsPanelId } from './c
 import { t, tPointer } from '../../../shims/i18n';
 import { showNotice } from '../../ui/notice';
 import { TabletopSettingsPanel, tabletopSettingsMeta } from '../../../shims/tabletopSettingsPanel';
+import { TabletopSoundPanel, tabletopSoundMeta } from '../../../shims/tabletopSoundPanel';
 
 /** Where the palette stands, and the width of the frame it stands in (its centre is the settings pages' centre). */
 type PalettePlace = PalettePosition & { frameWidth: number };
@@ -119,6 +120,7 @@ const SETTINGS_PANEL_META: Record<SettingsPanelId, { title: string; icon: React.
   'graphics-settings': { title: t('graphics.title'), icon: <Gauge /> },
   'lighting-settings': { title: t('sceneLight.settings'), icon: <SunMoon /> },
   'tabletop-settings': tabletopSettingsMeta(),
+  'tabletop-sound-settings': tabletopSoundMeta(),
 };
 
 export function CommandPalette({ isOpen, onClose, toolbarRef, onCustomizeToolbar }: CommandPaletteProps): React.ReactElement | null {
@@ -1007,6 +1009,8 @@ export function CommandPalette({ isOpen, onClose, toolbarRef, onCustomizeToolbar
         return <LightingSettingsPanel />;
       case 'tabletop-settings':
         return <TabletopSettingsPanel onClose={onClose} />;
+      case 'tabletop-sound-settings':
+        return <TabletopSoundPanel />;
     }
   };
 
