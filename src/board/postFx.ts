@@ -2,7 +2,8 @@ import * as THREE from 'three';
 
 /**
  * The board's post-processing. The miniature look: the picture is blurred towards its top and bottom edges and sharp in a band across the middle,
- * the way a lens that shifts and tilts shows a model. Depth of field: what the middle of the view rests on is sharp and
+ * the way a lens that shifts and tilts shows a model. Depth of field: where the camera aims (the orbit's target, a
+ * cutscene's aim; for other cameras what the middle of the view rests on) is sharp and
  * what lies nearer or farther blurs, by how far it is from that as a share of the focus distance (so a big map and a small
  * one look alike), the way a camera lens focuses; the sky is blurred fully. Contact shadows: a screen-space ambient occlusion from the depth
  * of the picture darkens creases (walls, minis and props where they meet the floor). The scene is drawn into a
@@ -69,6 +70,7 @@ uniform float dof;
 uniform float dofSharp;
 uniform float dofRange;
 uniform float dofPx;
+uniform float focusFixed;
 uniform float near;
 uniform float far;
 uniform sampler2D light;
@@ -89,7 +91,7 @@ float depthAt(vec2 uv) {
 }
 // Depth of field (\`dofBlurAt\`, \`focusOf\`): the focus is what the middle of the view rests on, else the nearest thing beside it.
 float dofAmount() {
-  float focusAt = depthAt(vec2(0.5));
+  float focusAt = focusFixed > 0.0 ? focusFixed : depthAt(vec2(0.5));
   if (focusAt < 0.0) {
     float around[4];
     around[0] = depthAt(vec2(0.45, 0.5));
@@ -187,6 +189,8 @@ export interface PostFxLook {
   grade: boolean;
   /** Depth of field (`dofBlurAt`). */
   depthOfField?: boolean;
+  /** Its focus distance where the camera aims at a point (the orbit's target); absent or null: what the middle of the view rests on (`focusOf`). */
+  focus?: number | null;
   /** Contact shadows, with the radius they reach in world units. */
   occlusion: false | { radius: number };
 }
@@ -236,6 +240,7 @@ export class PostFx {
         dofSharp: { value: DOF_SHARP },
         dofRange: { value: DOF_RANGE },
         dofPx: { value: MAX_DOF_PX },
+        focusFixed: { value: 0 },
         near: { value: 1 },
         far: { value: 1000 },
         step: { value: new THREE.Vector2() },
@@ -276,6 +281,7 @@ export class PostFx {
     this.material.uniforms.light.value = this.flat;
     // Depth of field reads the depth as it was drawn; the camera's near plane moves with its distance (Board.fitNear).
     this.material.uniforms.dof.value = look.depthOfField === true ? 1 : 0;
+    this.material.uniforms.focusFixed.value = look.focus != null && look.focus > 0 ? look.focus : 0;
     this.material.uniforms.near.value = camera.near;
     this.material.uniforms.far.value = camera.far;
     if (look.occlusion) {

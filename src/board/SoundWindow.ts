@@ -81,19 +81,28 @@ export class SoundWindow {
       return false;
     }
     backdrop.addEventListener('click', () => this.close());
-    // The screen fills the board, the page inset in it: a click on that margin, outside the page, closes it as the backdrop would.
-    for (const margin of [screen, stage, page, view.contentEl]) margin.addEventListener('click', (event) => { if (event.target === margin) this.close(); });
-    // Escape closes it, as it closes Atlas's DM screen, unless a field or one of the page's own menus has it.
+    // The screen fills the board, the page inset in it: a click on that margin, outside the page, closes it as the backdrop
+    // would; only one pressed there too (a fader or a drag let go over the margin is no click on it).
+    const margins: EventTarget[] = [screen, stage, page, view.contentEl];
+    let pressedOnMargin = false;
+    const onDown = (event: PointerEvent): void => { pressedOnMargin = margins.includes(event.target as EventTarget); };
+    const onClick = (event: MouseEvent): void => { if (pressedOnMargin && margins.includes(event.target as EventTarget)) this.close(); };
+    el.addEventListener('pointerdown', onDown, true);
+    el.addEventListener('click', onClick);
+    // Escape closes it, as it closes Atlas's DM screen, unless a field or one of the page's own menus has it; also with the
+    // focus fallen to the page's body (after a menu closed), where the board's own keys stand down while it is open.
+    const win = doc.defaultView ?? window;
     const onKey = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       const target = event.target as HTMLElement | null;
+      if (target !== doc.body && !el.contains(target)) return;
       if (target?.closest('input, textarea, select, [contenteditable="true"], .modal-container, [role="menu"], [role="listbox"]')) return;
       event.preventDefault();
       event.stopPropagation();
       this.close();
     };
-    el.addEventListener('keydown', onKey);
-    this.shown = { view, el, stopKeys: () => el.removeEventListener('keydown', onKey) };
+    win.addEventListener('keydown', onKey);
+    this.shown = { view, el, stopKeys: () => { win.removeEventListener('keydown', onKey); el.removeEventListener('pointerdown', onDown, true); el.removeEventListener('click', onClick); } };
     this.opening = false;
     wrapper.focus({ preventScroll: true });
     this.onChange?.();

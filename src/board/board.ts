@@ -2224,9 +2224,12 @@ export class Board {
     this.shadowsDirty = true;
   }
 
-  /** What the post-processing is asked for now. */
-  private looks(): PostFxLook {
-    return { tilt: this.quality.tiltShift, grade: this.quality.grade, depthOfField: this.quality.depthOfField, occlusion: this.quality.occlusion && { radius: (this.map?.grid.size ?? 50) * 0.5 } };
+  /** How far the board's own camera is from where it aims, for depth of field; null for a camera that aims at no point (the eyes, AR, a room). */
+  private focusDistance: number | null = null;
+
+  /** What the post-processing is asked for now; `focus` is the camera's focus distance for depth of field (null: what the middle of the view rests on). */
+  private looks(focus: number | null = null): PostFxLook {
+    return { tilt: this.quality.tiltShift, grade: this.quality.grade, depthOfField: this.quality.depthOfField, focus, occlusion: this.quality.occlusion && { radius: (this.map?.grid.size ?? 50) * 0.5 } };
   }
 
   /** The size and resolution the canvas was last given. */
@@ -2299,7 +2302,7 @@ export class Board {
       this.renderer.render(this.scene, this.view);
     } else if (postFxOn(this.quality)) {
       this.tilt ??= new PostFx(this.renderer, this.quality.antialias);
-      this.tilt.render(this.scene, this.view, this.looks());
+      this.tilt.render(this.scene, this.view, this.looks(this.focusDistance));
     } else {
       this.renderer.render(this.scene, this.view);
     }
@@ -2914,9 +2917,12 @@ export class Board {
   private applyView(): void {
     // A cutscene's camera wins over the orbit camera, the eyes, augmented reality and a room-tracking session alike.
     const aim = this.cinematicDriver ? this.drivenAim : null;
+    // Depth of field focuses where the camera aims (the orbit's target, the cutscene's aim); other cameras focus on what the middle of the view rests on.
+    this.focusDistance = null;
     if (aim) {
       const eye = this.camera.position();
       this.fitNear(this.camera.pose.distance);
+      this.focusDistance = Math.hypot(aim.x - eye.x, aim.y - eye.y, aim.z - eye.z);
       this.view.position.set(eye.x, eye.y, eye.z);
       this.view.lookAt(aim.x, aim.y, aim.z);
       // Augmented reality had its own projection; the driven camera has the board's.
@@ -2964,6 +2970,7 @@ export class Board {
     const eye = this.camera.position();
     const target = this.camera.pose.target;
     this.fitNear(this.camera.pose.distance);
+    this.focusDistance = this.camera.pose.distance;
     this.view.position.set(eye.x, eye.y, eye.z);
     this.view.lookAt(target.x, target.y, target.z);
     this.view.updateMatrixWorld();
@@ -4070,6 +4077,8 @@ export class Board {
       const leaf = this.container.closest('.workspace-leaf');
       if (leaf && !leaf.classList.contains('mod-active')) return;
       if (target.closest('input, textarea, select, [contenteditable="true"], .atlas-tabletop-atlas-ui, .modal-container') !== null) return;
+      // Atlas's Sound page over the board (SoundWindow) has the keys, also with the focus fallen to the page's body.
+      if (this.container.querySelector('.atlas-tabletop-sound') !== null) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       const key = event.key.toLowerCase();
       // Escape first closes a menu of the toolbar that is open.

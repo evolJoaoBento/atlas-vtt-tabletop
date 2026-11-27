@@ -59,6 +59,8 @@ export class BoardAtlasTools {
     const onKey = (event: KeyboardEvent): void => {
       // A widget's number held (Atlas's widget bar): its keys (Space among them) step the widget, as in Atlas's map.
       if (event.defaultPrevented || widgetTakes(event) || !deps.container.closest('.workspace-leaf')?.classList.contains('mod-active')) return;
+      // Atlas's Sound page over the board has the keys, wherever the focus fell.
+      if (this.sound?.isOpen()) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest?.('input, textarea, select, [contenteditable=""], [contenteditable="true"], .atlas-tabletop-atlas-ui, .modal-container')) return;
       if (this.key(event, deps.board()?.carryingToken ?? false)) { event.preventDefault(); event.stopPropagation(); }
