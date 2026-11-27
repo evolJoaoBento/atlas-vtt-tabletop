@@ -71,6 +71,9 @@ export class SoundWindow {
       page.appendChild(view.contentEl);
       this.container.appendChild(el);
       await (view as unknown as { onOpen(): Promise<void> }).onOpen();
+      // A page of the DM screen, not a tab: without the tab's own look (Obsidian's view background), the board blurred under it.
+      view.contentEl.removeClass('view-content', 'atlas-sound-view');
+      view.contentEl.addClass('atlas-tabletop-sound-page');
     } catch (error) {
       console.error('[Tabletop] Atlas\'s Sound page could not be shown on the board:', error);
       el.remove();
@@ -78,6 +81,8 @@ export class SoundWindow {
       return false;
     }
     backdrop.addEventListener('click', () => this.close());
+    // The screen fills the board, the page inset in it: a click on that margin, outside the page, closes it as the backdrop would.
+    for (const margin of [screen, stage]) margin.addEventListener('click', (event) => { if (event.target === margin) this.close(); });
     // Escape closes it, as it closes Atlas's DM screen, unless a field or one of the page's own menus has it.
     const onKey = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
