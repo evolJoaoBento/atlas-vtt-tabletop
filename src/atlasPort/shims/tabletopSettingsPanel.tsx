@@ -9,7 +9,7 @@ import { SettingChoiceRow, SettingRow, SettingSliderRow, SettingToggleRow } from
 import { paletteHost, onPaletteChange } from '../../palette/paletteHost';
 import { readFogHeight, readWallThickness } from '../../board/toolbar';
 import { t } from '../../i18n';
-import { DEFAULT_EDGES, DEFAULT_LAYER_LOOK, DEFAULT_SEE_THROUGH_SIZE, MAX_SEE_THROUGH_SIZE, MIN_SEE_THROUGH_SIZE, readSeeThroughSize, type LayerLook, type WallEdges } from '../../board/quality';
+import { DEFAULT_DOF_STRENGTH, MAX_DOF_STRENGTH, MIN_DOF_STRENGTH, readDofStrength, DEFAULT_EDGES, DEFAULT_LAYER_LOOK, DEFAULT_SEE_THROUGH_SIZE, MAX_SEE_THROUGH_SIZE, MIN_SEE_THROUGH_SIZE, readSeeThroughSize, type LayerLook, type WallEdges } from '../../board/quality';
 
 /** The page's id in the palette, its title and icon (the header's). */
 export const TABLETOP_SETTINGS_PANEL = 'tabletop-settings';
@@ -74,6 +74,8 @@ export function TabletopSettingsPanel({ onClose }: { onClose?: () => void }): Re
   const layerLook = settings.layerLook?.() ?? DEFAULT_LAYER_LOOK;
   // Walls reaching the level above: the default height is worked out, shown but not typed.
   const reach = settings.wallsReachNext?.() === true;
+  const dof = settings.depthOfField?.() === true;
+  const dofStrength = readDofStrength(settings.dofStrength?.() ?? DEFAULT_DOF_STRENGTH);
   return (
     <div className="atlas-command-palette-panel" data-tabletop-settings="">
       <div className="atlas-command-palette-panel-column">
@@ -113,7 +115,27 @@ export function TabletopSettingsPanel({ onClose }: { onClose?: () => void }): Re
           </>
         )}
         {settings.setDepthOfField && (
-          <SettingToggleRow label={t('tabletopSettings.depthOfField')} hint={t('tabletopSettings.depthOfFieldHint')} value={settings.depthOfField?.() === true} onToggle={() => write(() => settings.setDepthOfField?.(settings.depthOfField?.() !== true))} />
+          <SettingToggleRow label={t('tabletopSettings.depthOfField')} hint={t('tabletopSettings.depthOfFieldHint')} value={dof} onToggle={() => write(() => settings.setDepthOfField?.(!dof))} />
+        )}
+        {settings.setDofStrength && (
+          <div className="atlas-tabletop-sub-setting">
+            <SettingSliderRow
+              label={t('tabletopSettings.dofStrength')}
+              hint={t('tabletopSettings.dofStrengthHint')}
+              value={dofStrength}
+              min={MIN_DOF_STRENGTH}
+              max={MAX_DOF_STRENGTH}
+              step={0.05}
+              disabled={!dof}
+              displayValue={`${Math.round(dofStrength * 100)}%`}
+              onChange={(value) => write(() => settings.setDofStrength?.(readDofStrength(Math.round(value * 20) / 20)))}
+            />
+          </div>
+        )}
+        {settings.setDofCenter && (
+          <div className="atlas-tabletop-sub-setting">
+            <SettingToggleRow label={t('tabletopSettings.dofCenter')} hint={t('tabletopSettings.dofCenterHint')} value={settings.dofCenter?.() === true} disabled={!dof} onToggle={() => write(() => settings.setDofCenter?.(settings.dofCenter?.() !== true))} />
+          </div>
         )}
         <SettingToggleRow label={t('lighting.tilt')} hint={t('lighting.tiltHint')} value={settings.tiltShift()} onToggle={() => write(() => settings.setTiltShift(!settings.tiltShift()))} />
         <SettingToggleRow label={t('lighting.occlusion')} hint={t('lighting.occlusionHint')} value={settings.occlusion()} onToggle={() => write(() => settings.setOcclusion(!settings.occlusion()))} />

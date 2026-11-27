@@ -37,3 +37,26 @@ test('depth of field is off in every preset, added without changing the preset, 
   assert.equal(postFxOn(QUALITY.high), false);
   assert.equal(postFxOn(on), true);
 });
+
+test('the intensity is held to 25%..250% (anything else is 100%), and makes the blur bigger and nearer the focus', async () => {
+  const { readDofStrength, MIN_DOF_STRENGTH, MAX_DOF_STRENGTH, DEFAULT_DOF_STRENGTH } = await import('../src/board/quality');
+  const { dofParams, MAX_DOF_PX, DOF_RANGE } = await import('../src/board/postFx');
+  assert.equal(DEFAULT_DOF_STRENGTH, 1);
+  assert.equal(readDofStrength(1.5), 1.5);
+  assert.equal(readDofStrength(9), MAX_DOF_STRENGTH);
+  assert.equal(readDofStrength(0), MIN_DOF_STRENGTH);
+  assert.equal(readDofStrength('x'), 1);
+  assert.deepEqual(dofParams(1), { px: MAX_DOF_PX, range: DOF_RANGE });
+  const strong = dofParams(2);
+  assert.ok(strong.px > MAX_DOF_PX && strong.range < DOF_RANGE);
+  const soft = dofParams(0.5);
+  assert.ok(soft.px < MAX_DOF_PX && soft.range > DOF_RANGE);
+  assert.ok(dofBlurAt(130, 100, 2) > dofBlurAt(130, 100, 1));
+});
+
+test('the intensity and the centre focus are kept in the preset, unchanged when the same', () => {
+  const looks = { tiltShift: false, occlusion: false, painted: false, sky: 'dusk' as const };
+  for (const preset of Object.values(QUALITY)) { assert.equal(preset.dofStrength, 1); assert.equal(preset.dofCenter, false); }
+  assert.equal(withLooks(QUALITY.high, { ...looks, dofStrength: 1, dofCenter: false }), QUALITY.high);
+  assert.deepEqual(withLooks(QUALITY.high, { ...looks, dofStrength: 2, dofCenter: true }), { ...QUALITY.high, dofStrength: 2, dofCenter: true });
+});

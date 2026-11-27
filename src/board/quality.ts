@@ -49,6 +49,10 @@ export interface QualityPreset {
   grade: boolean;
   /** Depth of field: what the middle of the view rests on sharp, nearer and farther blurred (postFx.ts). Its own setting too. */
   depthOfField: boolean;
+  /** How strong depth of field is: 1 as made, more blurs more and nearer the focus (`postFx.dofParams`). */
+  dofStrength: number;
+  /** Depth of field focuses on what the middle of the view rests on, not on the point the camera turns round. */
+  dofCenter: boolean;
   /** Atlas's halo round each flame, on top of its falloff (lightRig.ts). Its own setting too. */
   halo: boolean;
   /** The painted lighting: a warm key and cool fill, a tone mapper, softer shadows, a vignette (look.ts). Its own setting too. */
@@ -101,23 +105,35 @@ export function readSeeThroughSize(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.min(MAX_SEE_THROUGH_SIZE, Math.max(MIN_SEE_THROUGH_SIZE, value)) : DEFAULT_SEE_THROUGH_SIZE;
 }
 
+/** Depth of field's intensity: as made, and what its slider offers. */
+export const DEFAULT_DOF_STRENGTH = 1;
+export const MIN_DOF_STRENGTH = 0.25;
+export const MAX_DOF_STRENGTH = 2.5;
+
+/** A stored depth-of-field intensity, kept within what the slider offers. */
+export function readDofStrength(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.min(MAX_DOF_STRENGTH, Math.max(MIN_DOF_STRENGTH, value)) : DEFAULT_DOF_STRENGTH;
+}
+
 export const QUALITY: Readonly<Record<Quality, QualityPreset>> = {
-  low: { maxPixelRatio: 1, minPixelRatio: 0.6, antialias: false, shadowMapSize: 1024, miniShadows: 'blob', lightShadows: 0, displaceCuts: 0, tiltShift: false, occlusion: false, grade: false, depthOfField: false, halo: false, painted: false, sky: 'dusk', edges: DEFAULT_EDGES, seeThrough: false, seeThroughSize: DEFAULT_SEE_THROUGH_SIZE, layerLook: DEFAULT_LAYER_LOOK, layerTick: DEFAULT_LAYER_TICK },
-  medium: { maxPixelRatio: 1.5, minPixelRatio: 0.75, antialias: true, shadowMapSize: 2048, miniShadows: 'blob', lightShadows: 2, displaceCuts: 8, tiltShift: false, occlusion: false, grade: false, depthOfField: false, halo: false, painted: false, sky: 'dusk', edges: DEFAULT_EDGES, seeThrough: false, seeThroughSize: DEFAULT_SEE_THROUGH_SIZE, layerLook: DEFAULT_LAYER_LOOK, layerTick: DEFAULT_LAYER_TICK },
-  high: { maxPixelRatio: 2, minPixelRatio: 1, antialias: true, shadowMapSize: 4096, miniShadows: 'real', lightShadows: 4, displaceCuts: 16, tiltShift: false, occlusion: false, grade: false, depthOfField: false, halo: false, painted: false, sky: 'dusk', edges: DEFAULT_EDGES, seeThrough: false, seeThroughSize: DEFAULT_SEE_THROUGH_SIZE, layerLook: DEFAULT_LAYER_LOOK, layerTick: DEFAULT_LAYER_TICK },
+  low: { maxPixelRatio: 1, minPixelRatio: 0.6, antialias: false, shadowMapSize: 1024, miniShadows: 'blob', lightShadows: 0, displaceCuts: 0, tiltShift: false, occlusion: false, grade: false, depthOfField: false, dofStrength: DEFAULT_DOF_STRENGTH, dofCenter: false, halo: false, painted: false, sky: 'dusk', edges: DEFAULT_EDGES, seeThrough: false, seeThroughSize: DEFAULT_SEE_THROUGH_SIZE, layerLook: DEFAULT_LAYER_LOOK, layerTick: DEFAULT_LAYER_TICK },
+  medium: { maxPixelRatio: 1.5, minPixelRatio: 0.75, antialias: true, shadowMapSize: 2048, miniShadows: 'blob', lightShadows: 2, displaceCuts: 8, tiltShift: false, occlusion: false, grade: false, depthOfField: false, dofStrength: DEFAULT_DOF_STRENGTH, dofCenter: false, halo: false, painted: false, sky: 'dusk', edges: DEFAULT_EDGES, seeThrough: false, seeThroughSize: DEFAULT_SEE_THROUGH_SIZE, layerLook: DEFAULT_LAYER_LOOK, layerTick: DEFAULT_LAYER_TICK },
+  high: { maxPixelRatio: 2, minPixelRatio: 1, antialias: true, shadowMapSize: 4096, miniShadows: 'real', lightShadows: 4, displaceCuts: 16, tiltShift: false, occlusion: false, grade: false, depthOfField: false, dofStrength: DEFAULT_DOF_STRENGTH, dofCenter: false, halo: false, painted: false, sky: 'dusk', edges: DEFAULT_EDGES, seeThrough: false, seeThroughSize: DEFAULT_SEE_THROUGH_SIZE, layerLook: DEFAULT_LAYER_LOOK, layerTick: DEFAULT_LAYER_TICK },
 };
 
 /** A preset with the miniature look, the contact shadows and the painted lighting on or off. */
-export function withLooks(preset: QualityPreset, looks: { tiltShift: boolean; occlusion: boolean; painted: boolean; sky: Sky; edges?: WallEdges; seeThrough?: boolean; seeThroughSize?: number; layerLook?: LayerLook; layerTick?: number; grade?: boolean; halo?: boolean; depthOfField?: boolean }): QualityPreset {
+export function withLooks(preset: QualityPreset, looks: { tiltShift: boolean; occlusion: boolean; painted: boolean; sky: Sky; edges?: WallEdges; seeThrough?: boolean; seeThroughSize?: number; layerLook?: LayerLook; layerTick?: number; grade?: boolean; halo?: boolean; depthOfField?: boolean; dofStrength?: number; dofCenter?: boolean }): QualityPreset {
   const grade = looks.grade ?? preset.grade;
   const depthOfField = looks.depthOfField ?? preset.depthOfField;
+  const dofStrength = looks.dofStrength ?? preset.dofStrength;
+  const dofCenter = looks.dofCenter ?? preset.dofCenter;
   const halo = looks.halo ?? preset.halo;
   const edges = looks.edges ?? preset.edges;
   const seeThrough = looks.seeThrough ?? preset.seeThrough;
   const seeThroughSize = looks.seeThroughSize ?? preset.seeThroughSize;
   const layerLook = looks.layerLook ?? preset.layerLook;
   const layerTick = looks.layerTick ?? preset.layerTick;
-  return preset.tiltShift === looks.tiltShift && preset.occlusion === looks.occlusion && preset.painted === looks.painted && preset.sky === looks.sky && preset.edges === edges && preset.seeThrough === seeThrough && preset.seeThroughSize === seeThroughSize && preset.layerLook === layerLook && preset.layerTick === layerTick && preset.grade === grade && preset.halo === halo && preset.depthOfField === depthOfField ? preset : { ...preset, ...looks, edges, seeThrough, seeThroughSize, layerLook, layerTick, grade, halo, depthOfField };
+  return preset.tiltShift === looks.tiltShift && preset.occlusion === looks.occlusion && preset.painted === looks.painted && preset.sky === looks.sky && preset.edges === edges && preset.seeThrough === seeThrough && preset.seeThroughSize === seeThroughSize && preset.layerLook === layerLook && preset.layerTick === layerTick && preset.grade === grade && preset.halo === halo && preset.depthOfField === depthOfField && preset.dofStrength === dofStrength && preset.dofCenter === dofCenter ? preset : { ...preset, ...looks, edges, seeThrough, seeThroughSize, layerLook, layerTick, grade, halo, depthOfField, dofStrength, dofCenter };
 }
 
 export const DEFAULT_QUALITY: Quality = 'medium';

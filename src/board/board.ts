@@ -380,6 +380,9 @@ export interface BoardHost {
   setGrade?(on: boolean): void;
   /** Depth of field, on or off, kept for every board. */
   setDepthOfField?(on: boolean): void;
+  /** Its intensity and centre focus, kept for every board. */
+  setDofStrength?(strength: number): void;
+  setDofCenter?(on: boolean): void;
   setHalo?(on: boolean): void;
   /** How round the walls' edges are, kept for every board. */
   setWallEdges?(edges: WallEdges): void;
@@ -1100,6 +1103,10 @@ export class Board {
       setHalo: (on) => this.host.setHalo?.(on),
       depthOfField: () => this.quality.depthOfField,
       setDepthOfField: (on) => this.host.setDepthOfField?.(on),
+      dofStrength: () => this.quality.dofStrength,
+      setDofStrength: (strength) => this.host.setDofStrength?.(strength),
+      dofCenter: () => this.quality.dofCenter,
+      setDofCenter: (on) => this.host.setDofCenter?.(on),
       autoRoll: () => this.host.autoRoll?.() ?? false,
       setAutoRoll: (on) => this.host.setAutoRoll?.(on),
       setLaser: (changes) => { this.host.setLaser(changes); this.wake(); },
@@ -2229,7 +2236,7 @@ export class Board {
 
   /** What the post-processing is asked for now; `focus` is the camera's focus distance for depth of field (null: what the middle of the view rests on). */
   private looks(focus: number | null = null): PostFxLook {
-    return { tilt: this.quality.tiltShift, grade: this.quality.grade, depthOfField: this.quality.depthOfField, focus, occlusion: this.quality.occlusion && { radius: (this.map?.grid.size ?? 50) * 0.5 } };
+    return { tilt: this.quality.tiltShift, grade: this.quality.grade, depthOfField: this.quality.depthOfField, dofStrength: this.quality.dofStrength, focus, occlusion: this.quality.occlusion && { radius: (this.map?.grid.size ?? 50) * 0.5 } };
   }
 
   /** The size and resolution the canvas was last given. */
@@ -2302,7 +2309,7 @@ export class Board {
       this.renderer.render(this.scene, this.view);
     } else if (postFxOn(this.quality)) {
       this.tilt ??= new PostFx(this.renderer, this.quality.antialias);
-      this.tilt.render(this.scene, this.view, this.looks(this.focusDistance));
+      this.tilt.render(this.scene, this.view, this.looks(this.quality.dofCenter ? null : this.focusDistance));
     } else {
       this.renderer.render(this.scene, this.view);
     }

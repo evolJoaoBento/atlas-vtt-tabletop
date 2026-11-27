@@ -24,13 +24,18 @@ export const DOF_RANGE = 0.6;
 /** The most the depth of field blurs, in pixels at the drawing resolution. */
 export const MAX_DOF_PX = 8;
 
-/** How a depth-of-field blur grows: none within the sharp share, smoothly to its most beyond it. Pure. */
-export function dofBlurAt(distance: number, focus: number | null): number {
+/** Depth of field at an intensity (1 as made): its most blur in pixels, and the share of the focus distance it grows over. Pure. */
+export function dofParams(strength: number): { px: number; range: number } {
+  return { px: MAX_DOF_PX * strength, range: DOF_RANGE / strength };
+}
+
+/** How a depth-of-field blur grows: none within the sharp share, smoothly to its most beyond it (sooner the stronger it is). Pure. */
+export function dofBlurAt(distance: number, focus: number | null, strength = 1): number {
   if (focus === null || !(focus > 0)) return 0;
   if (!Number.isFinite(distance)) return 1;
   const away = Math.abs(distance - focus) / focus - DOF_SHARP;
   if (away <= 0) return 0;
-  const t = Math.min(1, away / DOF_RANGE);
+  const t = Math.min(1, away / dofParams(strength).range);
   return t * t * (3 - 2 * t);
 }
 
@@ -191,6 +196,8 @@ export interface PostFxLook {
   depthOfField?: boolean;
   /** Its focus distance where the camera aims at a point (the orbit's target); absent or null: what the middle of the view rests on (`focusOf`). */
   focus?: number | null;
+  /** Its intensity (`dofParams`); absent: 1. */
+  dofStrength?: number;
   /** Contact shadows, with the radius they reach in world units. */
   occlusion: false | { radius: number };
 }
@@ -282,6 +289,9 @@ export class PostFx {
     // Depth of field reads the depth as it was drawn; the camera's near plane moves with its distance (Board.fitNear).
     this.material.uniforms.dof.value = look.depthOfField === true ? 1 : 0;
     this.material.uniforms.focusFixed.value = look.focus != null && look.focus > 0 ? look.focus : 0;
+    const dof = dofParams(look.dofStrength ?? 1);
+    this.material.uniforms.dofPx.value = dof.px;
+    this.material.uniforms.dofRange.value = dof.range;
     this.material.uniforms.near.value = camera.near;
     this.material.uniforms.far.value = camera.far;
     if (look.occlusion) {

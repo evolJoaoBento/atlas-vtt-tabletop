@@ -190,6 +190,11 @@ export interface ToolbarActions {
   /** Depth of field, on or off, kept for every board (Tabletop Settings). */
   depthOfField?(): boolean;
   setDepthOfField?(on: boolean): void;
+  /** Its intensity (1 as made) and whether it focuses on the middle of the view rather than the pivot. */
+  dofStrength?(): number;
+  setDofStrength?(strength: number): void;
+  dofCenter?(): boolean;
+  setDofCenter?(on: boolean): void;
   halo?(): boolean;
   setHalo?(on: boolean): void;
   /** Whether a stat sheet's roll is thrown at once, or its dice lie on the table; changing it. Absent where dice are not the GM's. */

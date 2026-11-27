@@ -10,7 +10,7 @@ import { onFirstLevel, resolveLevel } from './src/board/levels';
 import { BOARD_VIEW_TYPE, BoardView, HOVER_SOURCE } from './src/board/BoardView';
 import { PLAYER_VIEW_TYPE, PlayerView } from './src/board/PlayerWindow';
 import { BoardData, readBoardData, readVariants, type BoardDataJSON, type PropLook } from './src/board/boardData';
-import { DEFAULT_QUALITY, readEdges, readQuality, readSeeThroughSize, readLayerLook, MAX_SEE_THROUGH_SIZE, MIN_SEE_THROUGH_SIZE, type LayerLook, type Quality, type WallEdges } from './src/board/quality';
+import { DEFAULT_QUALITY, readDofStrength, readEdges, readQuality, readSeeThroughSize, readLayerLook, MAX_SEE_THROUGH_SIZE, MIN_SEE_THROUGH_SIZE, type LayerLook, type Quality, type WallEdges } from './src/board/quality';
 import { MAX_LAYER_TICK, MIN_LAYER_TICK, readLayerTick } from './src/board/layerRuler';
 import { TABLETOP_ICON, TABLETOP_ICON_BODY } from './src/tabletopIcon';
 import { lookOf, readSky, type LightingChoice, type Sky } from './src/board/look';
@@ -91,6 +91,9 @@ interface TabletopSettings {
   halo?: boolean;
   /** Depth of field: what the middle of the view rests on sharp, nearer and farther blurred (Tabletop Settings). */
   depthOfField?: boolean;
+  /** Its intensity (1 as made) and whether it focuses on the middle of the view rather than the camera's pivot. */
+  dofStrength?: number;
+  dofCenter?: boolean;
   /** How round walls' edges are. */
   wallEdges?: WallEdges;
   /** Walls between the camera and what it looks at fade out. */
@@ -391,6 +394,8 @@ export default class TabletopPlugin extends Plugin {
       grade: () => this.settings.grade === true,
       halo: () => this.settings.halo === true,
       depthOfField: () => this.settings.depthOfField === true,
+      dofStrength: () => readDofStrength(this.settings.dofStrength),
+      dofCenter: () => this.settings.dofCenter === true,
       painted: () => this.settings.painted === true,
       sky: () => readSky(this.settings.sky),
       wallEdges: () => readEdges(this.settings.wallEdges),
@@ -415,6 +420,8 @@ export default class TabletopPlugin extends Plugin {
       setGrade: (on) => { void this.setLook('grade', on); },
       setHalo: (on) => { void this.setLook('halo', on); },
       setDepthOfField: (on) => { void this.setLook('depthOfField', on); },
+      setDofStrength: (strength) => { void this.setDof({ dofStrength: readDofStrength(strength) }); },
+      setDofCenter: (on) => { void this.setDof({ dofCenter: on }); },
       setAutoRoll: (on) => this.setDice({ autoRoll: on }),
       setSheetPinned: (pinned) => this.setDice({ sheetPinned: pinned }),
       // The laser is Atlas's own (its colour and size, for every map): read from Atlas and changed there.
@@ -562,7 +569,7 @@ export default class TabletopPlugin extends Plugin {
     this.register(this.boardData.onChange((changed) => { const mapPath = changed?.split("#")[0] ?? null; this.boardChanged(mapPath); }));
     this.register(this.materials.onChange(() => { this.materialIndex?.forgetAll(); this.boardChanged(null); }));
     this.players = playerMiniPainter();
-    const board = playerBoardFactory(() => this.settings.quality, () => ({ tiltShift: this.settings.tiltShift === true, occlusion: this.settings.occlusion === true, grade: this.settings.grade === true, halo: this.settings.halo === true, depthOfField: this.settings.depthOfField === true, painted: this.settings.painted === true, sky: readSky(this.settings.sky), edges: readEdges(this.settings.wallEdges), seeThrough: this.settings.seeThrough === true, seeThroughSize: readSeeThroughSize(this.settings.seeThroughSize), layerLook: readLayerLook(this.settings.layerLook) }), { settings: () => this.settings.dice, pack: () => (this.dicePack ??= vendoredPack()) }, () => this.spells(), undefined, { settings: () => this.soundForEngine(), load: () => this.vaultSounds.custom.load, onChange: (listener) => { this.soundListeners.add(listener); return () => { this.soundListeners.delete(listener); }; } });
+    const board = playerBoardFactory(() => this.settings.quality, () => ({ tiltShift: this.settings.tiltShift === true, occlusion: this.settings.occlusion === true, grade: this.settings.grade === true, halo: this.settings.halo === true, depthOfField: this.settings.depthOfField === true, dofStrength: readDofStrength(this.settings.dofStrength), dofCenter: this.settings.dofCenter === true, painted: this.settings.painted === true, sky: readSky(this.settings.sky), edges: readEdges(this.settings.wallEdges), seeThrough: this.settings.seeThrough === true, seeThroughSize: readSeeThroughSize(this.settings.seeThroughSize), layerLook: readLayerLook(this.settings.layerLook) }), { settings: () => this.settings.dice, pack: () => (this.dicePack ??= vendoredPack()) }, () => this.spells(), undefined, { settings: () => this.soundForEngine(), load: () => this.vaultSounds.custom.load, onChange: (listener) => { this.soundListeners.add(listener); return () => { this.soundListeners.delete(listener); }; } });
     this.builtApi = Object.freeze({
       version: 1 as const,
       fusion: FUSION_PROTOCOL,
@@ -880,6 +887,14 @@ export default class TabletopPlugin extends Plugin {
     this.save();
     for (const view of this.boards()) await view.applyQuality();
     // Tabletop Settings shows the board's look: read again once every board has it.
+    paletteChanged();
+  }
+
+  /** Depth of field's intensity or its centre focus changed: kept, and every open board follows. */
+  async setDof(changes: { dofStrength?: number; dofCenter?: boolean }): Promise<void> {
+    Object.assign(this.settings, changes);
+    this.save();
+    for (const view of this.boards()) await view.applyQuality();
     paletteChanged();
   }
 

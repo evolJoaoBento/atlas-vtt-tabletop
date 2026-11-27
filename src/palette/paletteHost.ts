@@ -16,7 +16,7 @@ export interface BoardSoundHost {
 }
 
 /** What Tabletop's settings page in the palette reads and writes (the board's toolbar actions for the old Board settings panel). */
-export type TabletopSettingsHost = Pick<ToolbarActions, 'fogHeight' | 'setFogHeight' | 'wallsReachNext' | 'setWallsReachNext' | 'wallThickness' | 'setWallThickness' | 'wallEdges' | 'setWallEdges' | 'snap' | 'setSnap' | 'autoRoll' | 'setAutoRoll' | 'grade' | 'setGrade' | 'tiltShift' | 'setTiltShift' | 'occlusion' | 'setOcclusion' | 'halo' | 'setHalo' | 'depthOfField' | 'setDepthOfField' | 'seeThrough' | 'setSeeThrough' | 'seeThroughSize' | 'setSeeThroughSize' | 'layerLook' | 'setLayerLook' | 'initiativeOpen' | 'toggleInitiative'>;
+export type TabletopSettingsHost = Pick<ToolbarActions, 'fogHeight' | 'setFogHeight' | 'wallsReachNext' | 'setWallsReachNext' | 'wallThickness' | 'setWallThickness' | 'wallEdges' | 'setWallEdges' | 'snap' | 'setSnap' | 'autoRoll' | 'setAutoRoll' | 'grade' | 'setGrade' | 'tiltShift' | 'setTiltShift' | 'occlusion' | 'setOcclusion' | 'halo' | 'setHalo' | 'depthOfField' | 'setDepthOfField' | 'dofStrength' | 'setDofStrength' | 'dofCenter' | 'setDofCenter' | 'seeThrough' | 'setSeeThrough' | 'seeThroughSize' | 'setSeeThroughSize' | 'layerLook' | 'setLayerLook' | 'initiativeOpen' | 'toggleInitiative'>;
 
 export interface PaletteHost {
   /** Atlas's tools: `move` and `measure` are the board's, the rest open in Atlas. */
