@@ -89,6 +89,8 @@ interface TabletopSettings {
   /** The cinematic grade and the flames' halo (Tabletop Settings). */
   grade?: boolean;
   halo?: boolean;
+  /** Depth of field: what the middle of the view rests on sharp, nearer and farther blurred (Tabletop Settings). */
+  depthOfField?: boolean;
   /** How round walls' edges are. */
   wallEdges?: WallEdges;
   /** Walls between the camera and what it looks at fade out. */
@@ -388,6 +390,7 @@ export default class TabletopPlugin extends Plugin {
       occlusion: () => this.settings.occlusion === true,
       grade: () => this.settings.grade === true,
       halo: () => this.settings.halo === true,
+      depthOfField: () => this.settings.depthOfField === true,
       painted: () => this.settings.painted === true,
       sky: () => readSky(this.settings.sky),
       wallEdges: () => readEdges(this.settings.wallEdges),
@@ -411,6 +414,7 @@ export default class TabletopPlugin extends Plugin {
       setOcclusion: (on) => { void this.setOcclusion(on); },
       setGrade: (on) => { void this.setLook('grade', on); },
       setHalo: (on) => { void this.setLook('halo', on); },
+      setDepthOfField: (on) => { void this.setLook('depthOfField', on); },
       setAutoRoll: (on) => this.setDice({ autoRoll: on }),
       setSheetPinned: (pinned) => this.setDice({ sheetPinned: pinned }),
       // The laser is Atlas's own (its colour and size, for every map): read from Atlas and changed there.
@@ -558,7 +562,7 @@ export default class TabletopPlugin extends Plugin {
     this.register(this.boardData.onChange((changed) => { const mapPath = changed?.split("#")[0] ?? null; this.boardChanged(mapPath); }));
     this.register(this.materials.onChange(() => { this.materialIndex?.forgetAll(); this.boardChanged(null); }));
     this.players = playerMiniPainter();
-    const board = playerBoardFactory(() => this.settings.quality, () => ({ tiltShift: this.settings.tiltShift === true, occlusion: this.settings.occlusion === true, grade: this.settings.grade === true, halo: this.settings.halo === true, painted: this.settings.painted === true, sky: readSky(this.settings.sky), edges: readEdges(this.settings.wallEdges), seeThrough: this.settings.seeThrough === true, seeThroughSize: readSeeThroughSize(this.settings.seeThroughSize), layerLook: readLayerLook(this.settings.layerLook) }), { settings: () => this.settings.dice, pack: () => (this.dicePack ??= vendoredPack()) }, () => this.spells(), undefined, { settings: () => this.soundForEngine(), load: () => this.vaultSounds.custom.load, onChange: (listener) => { this.soundListeners.add(listener); return () => { this.soundListeners.delete(listener); }; } });
+    const board = playerBoardFactory(() => this.settings.quality, () => ({ tiltShift: this.settings.tiltShift === true, occlusion: this.settings.occlusion === true, grade: this.settings.grade === true, halo: this.settings.halo === true, depthOfField: this.settings.depthOfField === true, painted: this.settings.painted === true, sky: readSky(this.settings.sky), edges: readEdges(this.settings.wallEdges), seeThrough: this.settings.seeThrough === true, seeThroughSize: readSeeThroughSize(this.settings.seeThroughSize), layerLook: readLayerLook(this.settings.layerLook) }), { settings: () => this.settings.dice, pack: () => (this.dicePack ??= vendoredPack()) }, () => this.spells(), undefined, { settings: () => this.soundForEngine(), load: () => this.vaultSounds.custom.load, onChange: (listener) => { this.soundListeners.add(listener); return () => { this.soundListeners.delete(listener); }; } });
     this.builtApi = Object.freeze({
       version: 1 as const,
       fusion: FUSION_PROTOCOL,
@@ -870,8 +874,8 @@ export default class TabletopPlugin extends Plugin {
     for (const view of this.boards()) await view.applyQuality();
   }
 
-  /** The cinematic grade or the flames' halo turned on or off: kept, and every open board follows. */
-  async setLook(look: 'grade' | 'halo', on: boolean): Promise<void> {
+  /** The cinematic grade, the flames' halo or depth of field turned on or off: kept, and every open board follows. */
+  async setLook(look: 'grade' | 'halo' | 'depthOfField', on: boolean): Promise<void> {
     this.settings[look] = on;
     this.save();
     for (const view of this.boards()) await view.applyQuality();

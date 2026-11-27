@@ -146,7 +146,7 @@ export function tabletopCommands(actions: ToolbarActions, refresh: () => void, h
     id: 'tabletop-settings',
     label: t('tabletopSettings.entry'),
     icon: 'settings',
-    keywords: ['walls', 'edges', 'fog', 'height', 'thickness', 'snap', 'dice', 'auto', 'roll', 'board', 'tabletop', 'visibility', 'see-through', 'window', 'upper', 'layers', 'initiative', 'tracker', 'look', 'grade', 'halo', 'miniature', 'tilt', 'tilt-shift', 'contact', 'shadows', 'occlusion'],
+    keywords: ['walls', 'edges', 'fog', 'height', 'thickness', 'snap', 'dice', 'auto', 'roll', 'board', 'tabletop', 'visibility', 'see-through', 'window', 'upper', 'layers', 'initiative', 'tracker', 'look', 'grade', 'halo', 'miniature', 'tilt', 'tilt-shift', 'contact', 'shadows', 'occlusion', 'depth', 'field', 'focus', 'bokeh', 'blur', 'dof'],
     page: true,
   });
 

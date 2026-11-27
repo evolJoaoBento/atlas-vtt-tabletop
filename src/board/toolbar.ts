@@ -187,6 +187,9 @@ export interface ToolbarActions {
   /** The cinematic grade and the flames' halo, on or off, kept for every board (Tabletop Settings). */
   grade?(): boolean;
   setGrade?(on: boolean): void;
+  /** Depth of field, on or off, kept for every board (Tabletop Settings). */
+  depthOfField?(): boolean;
+  setDepthOfField?(on: boolean): void;
   halo?(): boolean;
   setHalo?(on: boolean): void;
   /** Whether a stat sheet's roll is thrown at once, or its dice lie on the table; changing it. Absent where dice are not the GM's. */

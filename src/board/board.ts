@@ -378,6 +378,8 @@ export interface BoardHost {
   setOcclusion?(on: boolean): void;
   /** The cinematic grade and the flames' halo, on or off, kept for every board. */
   setGrade?(on: boolean): void;
+  /** Depth of field, on or off, kept for every board. */
+  setDepthOfField?(on: boolean): void;
   setHalo?(on: boolean): void;
   /** How round the walls' edges are, kept for every board. */
   setWallEdges?(edges: WallEdges): void;
@@ -1096,6 +1098,8 @@ export class Board {
       setGrade: (on) => this.host.setGrade?.(on),
       halo: () => this.quality.halo,
       setHalo: (on) => this.host.setHalo?.(on),
+      depthOfField: () => this.quality.depthOfField,
+      setDepthOfField: (on) => this.host.setDepthOfField?.(on),
       autoRoll: () => this.host.autoRoll?.() ?? false,
       setAutoRoll: (on) => this.host.setAutoRoll?.(on),
       setLaser: (changes) => { this.host.setLaser(changes); this.wake(); },
@@ -2222,7 +2226,7 @@ export class Board {
 
   /** What the post-processing is asked for now. */
   private looks(): PostFxLook {
-    return { tilt: this.quality.tiltShift, grade: this.quality.grade, occlusion: this.quality.occlusion && { radius: (this.map?.grid.size ?? 50) * 0.5 } };
+    return { tilt: this.quality.tiltShift, grade: this.quality.grade, depthOfField: this.quality.depthOfField, occlusion: this.quality.occlusion && { radius: (this.map?.grid.size ?? 50) * 0.5 } };
   }
 
   /** The size and resolution the canvas was last given. */

@@ -179,7 +179,7 @@ export interface PlayerBoardSounds {
   onChange?(listener: () => void): () => void;
 }
 
-export function playerBoardFactory(quality: () => Quality, looks: () => { tiltShift: boolean; occlusion: boolean; grade?: boolean; halo?: boolean; painted: boolean; sky: Sky; edges?: WallEdges; seeThrough?: boolean; seeThroughSize?: number; layerLook?: LayerLook; layerTick?: number }, dice: PlayerBoardDice, book: () => SpellBook | null = () => null, memory: () => MemoryMode = () => 'normal', sound: PlayerBoardSounds | null = null): PlayerBoardFactory {
+export function playerBoardFactory(quality: () => Quality, looks: () => { tiltShift: boolean; occlusion: boolean; grade?: boolean; halo?: boolean; depthOfField?: boolean; painted: boolean; sky: Sky; edges?: WallEdges; seeThrough?: boolean; seeThroughSize?: number; layerLook?: LayerLook; layerTick?: number }, dice: PlayerBoardDice, book: () => SpellBook | null = () => null, memory: () => MemoryMode = () => 'normal', sound: PlayerBoardSounds | null = null): PlayerBoardFactory {
   return Object.freeze({
     version: 1 as const,
     create: (parent: HTMLElement, host: PlayerBoardHost): PlayerBoardHandle => new PlayerBoard(parent, host, leaner(withLooks(QUALITY[quality()], looks()), memory()), dice, book, sound),

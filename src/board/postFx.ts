@@ -2,7 +2,9 @@ import * as THREE from 'three';
 
 /**
  * The board's post-processing. The miniature look: the picture is blurred towards its top and bottom edges and sharp in a band across the middle,
- * the way a lens that shifts and tilts shows a model. Contact shadows: a screen-space ambient occlusion from the depth
+ * the way a lens that shifts and tilts shows a model. Depth of field: what the middle of the view rests on is sharp and
+ * what lies nearer or farther blurs, by how far it is from that as a share of the focus distance (so a big map and a small
+ * one look alike), the way a camera lens focuses; the sky is blurred fully. Contact shadows: a screen-space ambient occlusion from the depth
  * of the picture darkens creases (walls, minis and props where they meet the floor). The scene is drawn into a
  * half-float target, the occlusion is worked out at half size, and two passes (across, then down) carry the picture to
  * the screen, blurred or not, where the tone mapping and colour space are applied as usual.
@@ -14,6 +16,33 @@ export const SHARP_BAND = 0.16;
 export const BLUR_RANGE = 0.34;
 /** The most the blur reaches, in pixels at the drawing resolution. */
 export const MAX_BLUR_PX = 7;
+/** Depth of field: the share of the focus distance, nearer or farther, that stays sharp. */
+export const DOF_SHARP = 0.06;
+/** The share of the focus distance beyond that over which the blur grows to its most. */
+export const DOF_RANGE = 0.6;
+/** The most the depth of field blurs, in pixels at the drawing resolution. */
+export const MAX_DOF_PX = 8;
+
+/** How a depth-of-field blur grows: none within the sharp share, smoothly to its most beyond it. Pure. */
+export function dofBlurAt(distance: number, focus: number | null): number {
+  if (focus === null || !(focus > 0)) return 0;
+  if (!Number.isFinite(distance)) return 1;
+  const away = Math.abs(distance - focus) / focus - DOF_SHARP;
+  if (away <= 0) return 0;
+  const t = Math.min(1, away / DOF_RANGE);
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * The focus distance from the depths at the picture's middle and four points round it, a twentieth of the picture away
+ * (Infinity for the sky): the middle's, else the nearest of the others; null when all are sky. Pure: the shader does the same.
+ */
+export function focusOf(depths: readonly number[]): number | null {
+  if (Number.isFinite(depths[0])) return depths[0]!;
+  const near = depths.slice(1).filter((depth) => Number.isFinite(depth));
+  return near.length > 0 ? Math.min(...near) : null;
+}
+
 /** How dark the deepest crease gets, 0 to 1. */
 export const AO_STRENGTH = 0.75;
 
@@ -33,7 +62,15 @@ void main() {
 }`;
 
 const FRAGMENT = /* glsl */ `
+#include <packing>
 uniform sampler2D map;
+uniform sampler2D depthMap;
+uniform float dof;
+uniform float dofSharp;
+uniform float dofRange;
+uniform float dofPx;
+uniform float near;
+uniform float far;
 uniform sampler2D light;
 uniform vec2 step;
 uniform float focus;
@@ -46,10 +83,34 @@ uniform float contrast;
 uniform float warmth;
 uniform float vignette;
 varying vec2 vUv;
+float depthAt(vec2 uv) {
+  float raw = texture2D(depthMap, uv).x;
+  return raw >= 1.0 ? -1.0 : -perspectiveDepthToViewZ(raw, near, far);
+}
+// Depth of field (\`dofBlurAt\`, \`focusOf\`): the focus is what the middle of the view rests on, else the nearest thing beside it.
+float dofAmount() {
+  float focusAt = depthAt(vec2(0.5));
+  if (focusAt < 0.0) {
+    float around[4];
+    around[0] = depthAt(vec2(0.45, 0.5));
+    around[1] = depthAt(vec2(0.55, 0.5));
+    around[2] = depthAt(vec2(0.5, 0.45));
+    around[3] = depthAt(vec2(0.5, 0.55));
+    for (int i = 0; i < 4; i++) {
+      if (around[i] >= 0.0 && (focusAt < 0.0 || around[i] < focusAt)) focusAt = around[i];
+    }
+  }
+  if (focusAt <= 0.0) return 0.0;
+  float here = depthAt(vUv);
+  if (here < 0.0) return 1.0;
+  float t = clamp((abs(here - focusAt) / focusAt - dofSharp) / dofRange, 0.0, 1.0);
+  return t * t * (3.0 - 2.0 * t);
+}
 void main() {
   float away = max(abs(vUv.y - focus) - sharp, 0.0);
   float t = clamp(away / range, 0.0, 1.0);
   float amount = t * t * (3.0 - 2.0 * t) * maxPx;
+  if (dof > 0.5) amount = max(amount, dofAmount() * dofPx);
   vec2 along = step * amount * 0.25;
   vec4 sum = texture2D(map, vUv) * 0.2270270;
   sum += (texture2D(map, vUv + along) + texture2D(map, vUv - along)) * 0.1945946;
@@ -124,6 +185,8 @@ export interface PostFxLook {
   tilt: boolean;
   /** The cinematic grade (`GRADE`). */
   grade: boolean;
+  /** Depth of field (`dofBlurAt`). */
+  depthOfField?: boolean;
   /** Contact shadows, with the radius they reach in world units. */
   occlusion: false | { radius: number };
 }
@@ -168,6 +231,13 @@ export class PostFx {
       uniforms: {
         map: { value: null },
         light: { value: null },
+        depthMap: { value: this.drawn.depthTexture },
+        dof: { value: 0 },
+        dofSharp: { value: DOF_SHARP },
+        dofRange: { value: DOF_RANGE },
+        dofPx: { value: MAX_DOF_PX },
+        near: { value: 1 },
+        far: { value: 1000 },
         step: { value: new THREE.Vector2() },
         focus: { value: 0.5 },
         sharp: { value: SHARP_BAND },
@@ -204,6 +274,10 @@ export class PostFx {
     this.material.uniforms.maxPx.value = look.tilt ? MAX_BLUR_PX : 0;
     this.material.uniforms.sharp.value = look.tilt ? SHARP_BAND : 1;
     this.material.uniforms.light.value = this.flat;
+    // Depth of field reads the depth as it was drawn; the camera's near plane moves with its distance (Board.fitNear).
+    this.material.uniforms.dof.value = look.depthOfField === true ? 1 : 0;
+    this.material.uniforms.near.value = camera.near;
+    this.material.uniforms.far.value = camera.far;
     if (look.occlusion) {
       const uniforms = this.occlusion.uniforms;
       uniforms.near.value = camera.near;

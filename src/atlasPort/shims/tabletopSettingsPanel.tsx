@@ -112,6 +112,9 @@ export function TabletopSettingsPanel({ onClose }: { onClose?: () => void }): Re
             <SettingToggleRow label={t('tabletopSettings.halo')} hint={t('tabletopSettings.haloHint')} value={settings.halo?.() === true} onToggle={() => write(() => settings.setHalo?.(settings.halo?.() !== true))} />
           </>
         )}
+        {settings.setDepthOfField && (
+          <SettingToggleRow label={t('tabletopSettings.depthOfField')} hint={t('tabletopSettings.depthOfFieldHint')} value={settings.depthOfField?.() === true} onToggle={() => write(() => settings.setDepthOfField?.(settings.depthOfField?.() !== true))} />
+        )}
         <SettingToggleRow label={t('lighting.tilt')} hint={t('lighting.tiltHint')} value={settings.tiltShift()} onToggle={() => write(() => settings.setTiltShift(!settings.tiltShift()))} />
         <SettingToggleRow label={t('lighting.occlusion')} hint={t('lighting.occlusionHint')} value={settings.occlusion()} onToggle={() => write(() => settings.setOcclusion(!settings.occlusion()))} />
       </div>

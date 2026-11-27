@@ -116,6 +116,8 @@ const EN = {
   'tabletopSettings.lookHeading': 'Look',
   'tabletopSettings.grade': 'Cinematic grade',
   'tabletopSettings.gradeHint': 'A little warmer, richer colour with darker corners. Costs some frame rate.',
+  'tabletopSettings.depthOfField': 'Depth of field',
+  'tabletopSettings.depthOfFieldHint': 'Keeps what the middle of the view rests on sharp and blurs what lies nearer or farther, as a camera lens does. Costs some frame rate.',
   'tabletopSettings.halo': 'Flame halo',
   'tabletopSettings.haloHint': 'A bright glow round each light, as Atlas draws it; walls and shadows stop it as they stop the light.',
   'tabletopSettings.snapTokens': 'Snap tokens',
