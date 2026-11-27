@@ -82,7 +82,7 @@ export class SoundWindow {
     }
     backdrop.addEventListener('click', () => this.close());
     // The screen fills the board, the page inset in it: a click on that margin, outside the page, closes it as the backdrop would.
-    for (const margin of [screen, stage]) margin.addEventListener('click', (event) => { if (event.target === margin) this.close(); });
+    for (const margin of [screen, stage, page, view.contentEl]) margin.addEventListener('click', (event) => { if (event.target === margin) this.close(); });
     // Escape closes it, as it closes Atlas's DM screen, unless a field or one of the page's own menus has it.
     const onKey = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
