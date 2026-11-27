@@ -33,6 +33,8 @@ export interface PaletteHost {
   atlasView?(): unknown;
   /** Shows the board's shortcut help (Atlas's palette entry for it). */
   openHotkeyHelp?(): void;
+  /** Shows Atlas's Sound page over the board; false when there is none to show (Atlas's DM screen opens in Atlas then). */
+  openSoundPage?(): boolean;
 }
 
 let current: PaletteHost | null = null;

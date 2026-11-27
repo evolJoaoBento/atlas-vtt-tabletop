@@ -35,7 +35,7 @@ export const ATLAS_PALETTE: readonly ParityRow[] = [
   { id: 'experimental-all-features', status: 'native', note: "Sub-entry of experimental features." },
   // Atlas 0.17: the DM screen and the sound page (its `s` key is not on the board: Shift+S there is Silence).
   { id: 'open-dm-screen', status: 'atlas', addedIn: '0.17.0', note: "Atlas's DM screen; opened in Atlas." },
-  { id: 'open-sound-page', status: 'atlas', addedIn: '0.17.0', note: "Atlas's sound page; opened in Atlas. The board has Next mood and Silence." },
+  { id: 'open-sound-page', status: 'native', addedIn: '0.17.0', note: "Atlas's own Sound page (the view Atlas registers for its Sound tab), shown over the board in the frame of Atlas's DM screen (board/SoundWindow.ts); Atlas's one sound director plays, so closing it stops nothing. Without an Atlas Sound page, Atlas's DM screen opens in Atlas. The board also has Next mood and Silence." },
   // Atlas 0.18: positioning a floor under the others, and the table mode.
   { id: 'position-floor', status: 'atlas', addedIn: '0.18.0', note: "Atlas's floor positioning (it writes the level alignment the board already reads); done in Atlas." },
   { id: 'table-mode', status: 'atlas', addedIn: '0.18.0', note: "Atlas's table mode (hides Obsidian's chrome while on); Atlas only." },

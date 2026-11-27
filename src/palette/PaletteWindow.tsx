@@ -31,7 +31,7 @@ const NO_ATLAS_STATE: any = {
 /**
  * The store the palette reads: Atlas's own store of the map view holding the board's map (so its pages read and write the map
  * as Atlas's do, and Atlas's map and the board agree), with the few entries that are the board's own on top (its tools, dice
- * log, random tables, initiative tracker, DM screen, shortcut help). Without an Atlas view the pages show Atlas's defaults.
+ * log, random tables, initiative tracker, DM screen's Sound page, shortcut help). Without an Atlas view the pages show Atlas's defaults.
  */
 export function paletteStore(host: PaletteHost, close: () => void, atlasStore: () => any | null = () => null, help: () => void = () => {}): any {
   const listeners = new Set<() => void>();
@@ -40,6 +40,7 @@ export function paletteStore(host: PaletteHost, close: () => void, atlasStore: (
   let held: any = null;
   let stopHeld: (() => void) | null = null;
   let merged: any = null;
+  let dmPage: string | null = null;
   let mergedFor: [any, any] = [null, null];
   /** Follows whichever Atlas store holds the map now, telling the palette's pages when it or the board's own state changes. */
   const follow = (): void => {
@@ -68,8 +69,15 @@ export function paletteStore(host: PaletteHost, close: () => void, atlasStore: (
     // Grid alignment is done on Atlas's own map: the palette gives way and Atlas's view takes it from there.
     isGridAlignmentOpen: false,
     setGridAlignmentOpen: (open: boolean) => { if (open) { close(); host.openInAtlas('grid-alignment'); } },
-    setDMScreenPage: () => {},
-    setDMScreenOpen: (open: boolean) => { if (open) host.openInAtlas('dm-screen'); },
+    // The DM screen's Sound page is shown on the board (Atlas's own page, `SoundWindow`); its other pages open in Atlas.
+    setDMScreenPage: (page: string) => { dmPage = page; },
+    setDMScreenOpen: (open: boolean) => {
+      if (!open) return;
+      const page = dmPage;
+      dmPage = null;
+      if (page === 'sound' && host.openSoundPage?.() === true) return;
+      host.openInAtlas('dm-screen');
+    },
     setDocsOpen: (open: boolean) => { if (open) host.openInAtlas('docs'); },
     openArmarium: () => host.openInAtlas('armarium'),
   };

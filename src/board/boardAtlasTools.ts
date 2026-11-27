@@ -13,6 +13,7 @@ import { LootWindow } from '../loot/LootWindow';
 import type { PaletteHost } from '../palette/paletteHost';
 import { PaletteWindow } from '../palette/PaletteWindow';
 import { HotkeyHelpWindow } from './HotkeyHelpWindow';
+import { SoundWindow } from './SoundWindow';
 import { atlasPlayToolButtons, boardKey, type AtlasToolId } from './atlasTools';
 import { widgetTakes } from './widgetKeys';
 import { boardBinding, boardHotkeyAction } from './boardHotkeys';
@@ -40,6 +41,7 @@ export class BoardAtlasTools {
   readonly assets: AssetWindow;
   readonly palette: PaletteWindow;
   readonly help: HotkeyHelpWindow;
+  readonly sound: SoundWindow;
   private readonly stopKeys: () => void;
 
   constructor(private readonly deps: BoardAtlasToolsDeps) {
@@ -67,7 +69,9 @@ export class BoardAtlasTools {
       ...deps.palette,
       setLootRollerOpen: (open) => (open ? this.loot.open() : this.loot.close()),
       openHotkeyHelp: () => { if (!this.help.isOpen()) this.help.toggle(); },
+      openSoundPage: () => this.openSound(),
     }, () => this.deps.board()?.refreshToolbar());
+    this.sound = new SoundWindow(deps.container, deps.app, () => this.deps.board()?.refreshToolbar());
     this.help = new HotkeyHelpWindow(deps.container, deps.app, () => this.deps.board()?.refreshToolbar());
   }
 
@@ -156,6 +160,13 @@ export class BoardAtlasTools {
     }
   }
 
+  /** Shows Atlas's Sound page over the board: false when no Atlas has one (its DM screen opens in Atlas then). */
+  openSound(): boolean {
+    if (!this.sound.available()) return false;
+    void this.sound.open().then((shown) => { if (!shown) new Notice("Tabletop: Atlas's Sound page could not be shown on the board."); });
+    return true;
+  }
+
   /** Runs one of Atlas's own commands on this scene's Atlas view (the dashboard, the sound desk). */
   private inAtlas(command: string): boolean {
     const path = this.deps.mapPath();
@@ -174,5 +185,6 @@ export class BoardAtlasTools {
     this.assets.dispose();
     this.palette.dispose();
     this.help.dispose();
+    this.sound.dispose();
   }
 }
