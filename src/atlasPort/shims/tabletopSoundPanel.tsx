@@ -18,7 +18,8 @@ export function TabletopSoundPanel(): React.ReactElement {
   // The settings live in the plugin; a change (here, in the plugin's tab, on another board) asks the page to read them again.
   const [, redraw] = React.useReducer((n: number) => n + 1, 0);
   React.useEffect(() => onPaletteChange(redraw), []);
-  const host = paletteHost()?.boardSound?.();
+  const palette = paletteHost();
+  const host = palette?.boardSound?.();
   if (!host) return <div className="atlas-command-palette-panel" />;
   const sound = host.settings();
   const volume = Math.round(sound.volume * 100);
@@ -38,9 +39,9 @@ export function TabletopSoundPanel(): React.ReactElement {
           onChange={(value) => host.set({ volume: Math.round(value * 20) / 20 })}
         />
         <SettingToggleRow label={t('soundSettings.mute')} hint={t('soundSettings.muteHint')} value={sound.muted} onToggle={() => host.set({ muted: !sound.muted })} />
-        {host.openPluginSettings && (
+        {palette?.openSoundFiles && (
           <SettingRow label={t('soundSettings.each')} hint={t('soundSettings.eachHint')}>
-            <Button variant="default" size="sm" onClick={() => host.openPluginSettings?.()}>{t('soundSettings.open')}</Button>
+            <Button variant="default" size="sm" onClick={() => palette.openSoundFiles?.()}>{t('soundSettings.open')}</Button>
           </SettingRow>
         )}
       </div>

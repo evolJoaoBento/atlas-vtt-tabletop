@@ -51,12 +51,11 @@ import { CutsceneChannel } from './src/cutscene/cutsceneRun';
 import { DEFAULT_PACK, defaultPackFiles, releaseDefaultPackSheets } from './src/dice/defaultPack';
 import { choosePack, vendoredPack, type ChosenPack } from './src/dice/dicePack';
 import { SpellLibrary } from './src/spellLibrary';
-import { DEFAULT_SOUND_SETTINGS, readSoundSettings, SOUND_GROUPS, type SoundChanges, type SoundGroup, type SoundSettings } from './src/sound/soundSettings';
+import { DEFAULT_SOUND_SETTINGS, readSoundSettings, type SoundChanges, type SoundSettings } from './src/sound/soundSettings';
 import { DEFAULT_CINEMATIC_SETTINGS, readCinematicSettings, type CinematicSettings } from './src/cutscene/cinematicSettings';
-import { CATALOG, type SoundId } from './src/sound/catalog';
-import { cleanFolder, DEFAULT_SOUNDS_FOLDER } from './src/sound/customSounds';
-import { SOUND_INFO } from './src/sound/soundInfo';
-import { drawSoundControls } from './src/sound/soundRow';
+import type { SoundId } from './src/sound/catalog';
+import { DEFAULT_SOUNDS_FOLDER, SOUND_EXTENSIONS } from './src/sound/customSounds';
+import type { SoundFilesHost } from './src/sound/SoundFilesWindow';
 import { SoundEngine } from './src/sound/soundEngine';
 import { VaultSounds } from './src/sound/vaultSounds';
 import { BackgroundStore } from './src/background/backgroundStore';
@@ -450,7 +449,7 @@ export default class TabletopPlugin extends Plugin {
       soundSettings: () => this.soundForEngine(),
       boardSound: () => this.settings.sound,
       setBoardSound: (changes) => this.setSound(changes),
-      openPluginSettings: () => this.openSettingsTab(),
+      soundFiles: () => this.soundFiles(),
       cinematicSettings: () => this.settings.cinematic,
       setCinematicSettings: (changes) => this.setCinematic(changes),
       soundLoader: () => this.vaultSounds.custom.load,
@@ -820,11 +819,58 @@ export default class TabletopPlugin extends Plugin {
     paletteChanged();
   }
 
-  /** Opens Obsidian's settings on Tabletop's tab (the palette's Sound Settings sends the GM there for each sound's level). */
-  openSettingsTab(): void {
-    const setting = (this.app as unknown as { setting?: { open(): void; openTabById(id: string): void } }).setting;
-    setting?.open();
-    setting?.openTabById(this.manifest.id);
+  /** The sound engine each window's Sound files window holds for its previews, until it closes. */
+  private readonly previewEngines = new Map<Window, SoundEngine>();
+
+  /** What the board's Sound files window reads and asks: each sound's level, preview and custom file, the folder, the export. */
+  soundFiles(): SoundFilesHost {
+    const files = this.vaultSounds;
+    const failed = (what: string, error: unknown): void => { new Notice(`Tabletop: could not ${what}: ${error instanceof Error ? error.message : String(error)}`); };
+    return {
+      levels: () => this.settings.sound.levels,
+      setLevel: (id, level) => this.setSoundLevel(id, level),
+      muted: () => this.settings.sound.muted,
+      isCustom: (id) => files.custom.isCustom(id),
+      isFailed: (id) => files.custom.isFailed(id),
+      onChange: (listener) => {
+        const stopFiles = files.onChange(listener);
+        this.soundListeners.add(listener);
+        return () => { stopFiles(); this.soundListeners.delete(listener); };
+      },
+      preview: (id, win) => {
+        if (this.settings.sound.muted) { new Notice(t('soundFiles.muted')); return; }
+        let engine = this.previewEngines.get(win);
+        if (!engine) {
+          engine = SoundEngine.shared(win, files.custom.load) ?? undefined;
+          if (!engine) return;
+          this.previewEngines.set(win, engine);
+        }
+        engine.configure(this.soundForEngine());
+        void engine.preview(id);
+      },
+      release: (win) => {
+        this.previewEngines.get(win)?.dispose();
+        this.previewEngines.delete(win);
+      },
+      replace: async (id, file) => {
+        try {
+          if (!(await files.replace(id, { name: file.name, arrayBuffer: () => file.arrayBuffer() }))) new Notice(`Tabletop: use an ${SOUND_EXTENSIONS.join(', ')} file.`);
+        } catch (error) { failed('save the sound', error); }
+      },
+      reset: async (id) => {
+        try { await files.reset(id); } catch (error) { failed('reset the sound', error); }
+      },
+      folderSetting: () => this.settings.soundsFolder ?? '',
+      folder: () => files.folder,
+      defaultFolder: () => DEFAULT_SOUNDS_FOLDER,
+      setFolder: (value) => this.setSoundsFolder(value),
+      exportBuiltIn: async () => {
+        try {
+          const count = await files.exportBuiltIn();
+          new Notice(`Tabletop: wrote ${count} sounds and a README to ${files.folder}.`);
+        } catch (error) { failed('export the sounds', error); }
+      },
+    };
   }
 
   /** A cinematic setting changed: saved. */
@@ -1181,7 +1227,7 @@ class TabletopSettingTab extends PluginSettingTab {
 
   /** Obsidian 1.13 and later read the settings from here (and search them); earlier versions draw display(). */
   getSettingDefinitions(): SettingDefinitionItem[] {
-    const items: SettingDefinitionItem[] = [...this.generalRows(), { type: 'group', heading: 'Dice', items: this.diceRows() }, { type: 'group', heading: 'Sound', items: this.soundRows() }, { type: 'group', heading: 'Cinematic', items: this.cinematicRows() }, ...this.soundListRows().map(({ heading, rows }): SettingDefinitionItem => ({ type: 'group', heading, items: rows }))];
+    const items: SettingDefinitionItem[] = [...this.generalRows(), { type: 'group', heading: 'Dice', items: this.diceRows() }, { type: 'group', heading: 'Sound', items: this.soundRows() }, { type: 'group', heading: 'Cinematic', items: this.cinematicRows() }];
     if (GpuSettings.here()) items.push({ type: 'group', heading: 'Graphics card', items: [this.graphicsRow()] });
     return items;
   }
@@ -1197,10 +1243,6 @@ class TabletopSettingTab extends PluginSettingTab {
     draw(this.soundRows());
     new Setting(containerEl).setName('Cinematic').setHeading();
     draw(this.cinematicRows());
-    for (const { heading, rows } of this.soundListRows()) {
-      new Setting(containerEl).setName(heading).setHeading();
-      draw(rows);
-    }
     if (GpuSettings.here()) {
       new Setting(containerEl).setName('Graphics card').setHeading();
       draw([this.graphicsRow()]);
@@ -1295,85 +1337,6 @@ class TabletopSettingTab extends PluginSettingTab {
         setting.addToggle((toggle) => toggle.setValue(plugin.settings.sound.groups[group]).onChange((on) => plugin.setSound({ groups: { [group]: on } })));
       }, ['audio'])),
     ];
-  }
-
-  /** The engine that plays previews from the list, held while the settings are open. */
-  private previewEngine: SoundEngine | null = null;
-
-  /** The redraw of each row on show, and the way to stop hearing of changes to the custom files. */
-  private readonly rowRedraws = new Map<SoundId, () => void>();
-  private stopWatching: (() => void) | null = null;
-
-  hide(): void {
-    this.previewEngine?.dispose();
-    this.previewEngine = null;
-    this.stopWatching?.();
-    this.stopWatching = null;
-    this.rowRedraws.clear();
-  }
-
-  /** Remembers how to redraw a row, and has every row redrawn when the custom files change. */
-  private track(id: SoundId, redraw: () => void): void {
-    this.rowRedraws.set(id, redraw);
-    this.stopWatching ??= this.plugin.vaultSounds.onChange(() => { for (const again of [...this.rowRedraws.values()]) again(); });
-  }
-
-  private preview(id: SoundId): void {
-    const { plugin } = this;
-    if (plugin.settings.sound.muted) {
-      new Notice('Sound is muted');
-      return;
-    }
-    if (!this.previewEngine) {
-      this.previewEngine = SoundEngine.shared(window, plugin.vaultSounds.custom.load);
-      this.previewEngine?.configure(plugin.settings.sound);
-    }
-    void this.previewEngine?.preview(id);
-  }
-
-  /**
-   * Custom sounds: the folder they are read from, a button that writes the built-in sounds and a README into it, and
-   * then every sound by group, each with play, Replace…, Reset (while custom) and its own volume.
-   */
-  private soundListRows(): Array<{ heading: string; rows: SettingRow[] }> {
-    const { plugin } = this;
-    const files = plugin.vaultSounds;
-    const headings: Record<SoundGroup, string> = { dice: 'Dice sounds', minis: 'Mini sounds', spells: 'Spell sounds', conditions: 'Condition sounds', turns: 'Turn sounds', fog: 'Fog sounds', doors: 'Door sounds', water: 'Water sounds' };
-    const host = {
-      levels: () => plugin.settings.sound.levels,
-      setLevel: (id: SoundId, level: number) => plugin.setSoundLevel(id, level),
-      isCustom: (id: SoundId) => files.custom.isCustom(id),
-      isFailed: (id: SoundId) => files.custom.isFailed(id),
-      track: (id: SoundId, redraw: () => void) => this.track(id, redraw),
-      preview: (id: SoundId) => this.preview(id),
-      replace: async (id: SoundId, file: File) => {
-        try {
-          if (!(await files.replace(id, { name: file.name, arrayBuffer: () => file.arrayBuffer() }))) new Notice('Tabletop: use an mp3, ogg, wav, m4a, webm or flac file.');
-        } catch (error) {
-          new Notice(`Tabletop: could not save the sound: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      },
-      reset: async (id: SoundId) => {
-        try { await files.reset(id); } catch (error) { new Notice(`Tabletop: could not reset the sound: ${error instanceof Error ? error.message : String(error)}`); }
-      },
-    };
-    const top: SettingRow[] = [
-      this.row('Custom sounds folder', `Put a file named after a sound (dice.hit.mp3, condition.prone.ogg; variants dice.hit-1.mp3, dice.hit-2.mp3…) in this folder to replace it, or use Replace… below. Custom sounds play on this computer; remote players hear the built-in ones for now. Default: ${DEFAULT_SOUNDS_FOLDER}.`, (setting) => {
-        const apply = debounce((value: string) => plugin.setSoundsFolder(value), 600, true);
-        setting.addText((text) => text.setPlaceholder(DEFAULT_SOUNDS_FOLDER).setValue(plugin.settings.soundsFolder ?? '').onChange((value) => apply(value)));
-      }, ['audio', 'replace', 'custom']),
-      this.row('Export built-in sounds', `Writes every built-in sound into ${cleanFolder(plugin.settings.soundsFolder)}/built-in/ for reference and editing, and a README.md listing every sound id and when it plays. Files in built-in/ are never used as replacements. Existing files there, and the README.md, are overwritten.`, (setting) => {
-        setting.addButton((button) => button.setButtonText('Export').onClick(() => {
-          void files.exportBuiltIn().then((count) => new Notice(`Tabletop: wrote ${count} sounds and a README to ${files.folder}.`), (error) => new Notice(`Tabletop: could not export the sounds: ${error instanceof Error ? error.message : String(error)}`));
-        }));
-      }, ['audio', 'readme']),
-    ];
-    const lists = SOUND_GROUPS.map((group) => ({
-      heading: headings[group],
-      rows: (Object.keys(CATALOG) as SoundId[]).filter((id) => CATALOG[id].group === group)
-        .map((id) => this.row(SOUND_INFO[id].name, SOUND_INFO[id].when, (setting) => drawSoundControls(setting, id, host), ['audio', id])),
-    }));
-    return [{ heading: 'Custom sounds', rows: top }, ...lists];
   }
 
   /** The GM's dice: their size, pack, shadows, the highlight of a die caught on an edge, how they are read, their colours. */

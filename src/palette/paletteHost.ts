@@ -11,8 +11,6 @@ import type { SoundChanges, SoundSettings } from '../sound/soundSettings';
 export interface BoardSoundHost {
   settings(): SoundSettings;
   set(changes: SoundChanges): void;
-  /** Opens Obsidian's settings on Tabletop's tab, where each sound has its level. */
-  openPluginSettings?(): void;
 }
 
 /** What Tabletop's settings page in the palette reads and writes (the board's toolbar actions for the old Board settings panel). */
@@ -46,6 +44,8 @@ export interface PaletteHost {
   boardSound?(): BoardSoundHost | null;
   /** Shows Atlas's Sound page over the board; false when there is none to show (Atlas's DM screen opens in Atlas then). */
   openSoundPage?(): boolean;
+  /** Shows the Sound files window over the board (each sound's level, preview and custom file); false when it cannot. */
+  openSoundFiles?(): boolean;
 }
 
 let current: PaletteHost | null = null;

@@ -14,6 +14,7 @@ import type { PaletteHost } from '../palette/paletteHost';
 import { PaletteWindow } from '../palette/PaletteWindow';
 import { HotkeyHelpWindow } from './HotkeyHelpWindow';
 import { SoundWindow } from './SoundWindow';
+import { SoundFilesWindow, type SoundFilesHost } from '../sound/SoundFilesWindow';
 import { atlasPlayToolButtons, boardKey, type AtlasToolId } from './atlasTools';
 import { widgetTakes } from './widgetKeys';
 import { boardBinding, boardHotkeyAction } from './boardHotkeys';
@@ -29,6 +30,8 @@ export interface BoardAtlasToolsDeps {
   board(): Board | null;
   mapPath(): string | null;
   palette: Omit<PaletteHost, 'setLootRollerOpen'>;
+  /** What the Sound files window reads and asks; null without one. */
+  soundFiles?(): SoundFilesHost | null;
   spawn: Omit<BoardSpawnHost, 'leaf' | 'writer' | 'mapPath'>;
   /** Tabletop's undo history, on Atlas's undo and redo keys. */
   undo?(): void;
@@ -42,6 +45,7 @@ export class BoardAtlasTools {
   readonly palette: PaletteWindow;
   readonly help: HotkeyHelpWindow;
   readonly sound: SoundWindow;
+  readonly soundFiles: SoundFilesWindow;
   private readonly stopKeys: () => void;
 
   constructor(private readonly deps: BoardAtlasToolsDeps) {
@@ -60,7 +64,7 @@ export class BoardAtlasTools {
       // A widget's number held (Atlas's widget bar): its keys (Space among them) step the widget, as in Atlas's map.
       if (event.defaultPrevented || widgetTakes(event) || !deps.container.closest('.workspace-leaf')?.classList.contains('mod-active')) return;
       // Atlas's Sound page over the board has the keys, wherever the focus fell.
-      if (this.sound?.isOpen()) return;
+      if (this.sound?.isOpen() || this.soundFiles?.isOpen()) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest?.('input, textarea, select, [contenteditable=""], [contenteditable="true"], .atlas-tabletop-atlas-ui, .modal-container')) return;
       if (this.key(event, deps.board()?.carryingToken ?? false)) { event.preventDefault(); event.stopPropagation(); }
@@ -72,8 +76,10 @@ export class BoardAtlasTools {
       setLootRollerOpen: (open) => (open ? this.loot.open() : this.loot.close()),
       openHotkeyHelp: () => { if (!this.help.isOpen()) this.help.toggle(); },
       openSoundPage: () => this.openSound(),
+      openSoundFiles: () => this.openSoundFiles(),
     }, () => this.deps.board()?.refreshToolbar());
     this.sound = new SoundWindow(deps.container, deps.app, () => this.deps.board()?.refreshToolbar());
+    this.soundFiles = new SoundFilesWindow(deps.container, () => deps.soundFiles?.() ?? null, () => this.deps.board()?.refreshToolbar());
     this.help = new HotkeyHelpWindow(deps.container, deps.app, () => this.deps.board()?.refreshToolbar());
   }
 
@@ -169,6 +175,13 @@ export class BoardAtlasTools {
     return true;
   }
 
+  /** Shows the Sound files window over the board, the palette giving way to it; false when there is none. */
+  openSoundFiles(): boolean {
+    if (!this.soundFiles.available()) return false;
+    this.palette.close();
+    return this.soundFiles.open();
+  }
+
   /** Runs one of Atlas's own commands on this scene's Atlas view (the dashboard, the sound desk). */
   private inAtlas(command: string): boolean {
     const path = this.deps.mapPath();
@@ -188,5 +201,6 @@ export class BoardAtlasTools {
     this.palette.dispose();
     this.help.dispose();
     this.sound.dispose();
+    this.soundFiles.dispose();
   }
 }

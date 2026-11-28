@@ -4085,7 +4085,7 @@ export class Board {
       if (leaf && !leaf.classList.contains('mod-active')) return;
       if (target.closest('input, textarea, select, [contenteditable="true"], .atlas-tabletop-atlas-ui, .modal-container') !== null) return;
       // Atlas's Sound page over the board (SoundWindow) has the keys, also with the focus fallen to the page's body.
-      if (this.container.querySelector('.atlas-tabletop-sound') !== null) return;
+      if (this.container.querySelector('.atlas-tabletop-sound, .atlas-tabletop-sound-files') !== null) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       const key = event.key.toLowerCase();
       // Escape first closes a menu of the toolbar that is open.

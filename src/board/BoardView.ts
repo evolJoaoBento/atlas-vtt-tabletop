@@ -94,6 +94,7 @@ import { loadSound } from '../sound/catalog';
 import { SoundEngine } from '../sound/soundEngine';
 import type { SoundChanges, SoundSettings } from '../sound/soundSettings';
 import type { SoundLoader } from '../sound/customSounds';
+import type { SoundFilesHost } from '../sound/SoundFilesWindow';
 import { documentHasWebgl, NO_WEBGL_HELP, NO_WEBGL_TITLE } from '../webgl';
 import { buildPlayerSheet, linkedCreatures, type AtlasFloor, type AtlasHost, type LinkedCreatures, type PlayerSheet } from '../../packages/atlas-host/src/index';
 import { SightWatch } from './sightWatch';
@@ -239,8 +240,8 @@ export interface BoardServices {
   /** The board sounds as the player set them, for the palette's Sound Settings, and a change to them. */
   boardSound?(): SoundSettings;
   setBoardSound?(changes: SoundChanges): void;
-  /** Opens Obsidian's settings on Tabletop's tab. */
-  openPluginSettings?(): void;
+  /** What the Sound files window (each sound's level, preview and custom file) reads and asks. */
+  soundFiles?(): SoundFilesHost;
   /** Where the sound files come from: the vault's custom sounds folder first, the bundled sounds otherwise. */
   soundLoader?(): SoundLoader;
 }
@@ -826,6 +827,7 @@ export class BoardView extends ItemView {
     };
     return new BoardAtlasTools({
       app: this.app, leaf: this.leaf, container: this.contentEl, writer: this.services.writer,
+      soundFiles: () => this.services.soundFiles?.() ?? null,
       board: () => this.board, mapPath: () => this.path,
       undo: () => this.travel('undo'), redo: () => this.travel('redo'),
       palette: {
@@ -851,8 +853,8 @@ export class BoardView extends ItemView {
         atlasView: () => (this.path ? this.services.writer.holder(this.path) : null),
         tabletopSettings: () => this.board?.toolbarActions() ?? null,
         boardSound: () => {
-          const { boardSound, setBoardSound, openPluginSettings } = this.services;
-          return boardSound && setBoardSound ? { settings: () => boardSound(), set: (changes) => setBoardSound(changes), ...(openPluginSettings && { openPluginSettings }) } : null;
+          const { boardSound, setBoardSound } = this.services;
+          return boardSound && setBoardSound ? { settings: () => boardSound(), set: (changes) => setBoardSound(changes) } : null;
         },
         tabletopCommands: () => { const board = this.board; return board ? tabletopCommands(board.toolbarActions(), () => board.refreshToolbar(), board.toolbarCommandHost()) : []; },
       },
